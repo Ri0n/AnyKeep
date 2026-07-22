@@ -12,6 +12,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPluginLoader>
+#include <QPointer>
 #include <QProcess>
 #include <QSet>
 #include <QSettings>
@@ -20,24 +21,25 @@
 #include <QSystemTrayIcon>
 #include <QTimer>
 #include <QTranslator>
+#include <QWindow>
 #ifdef Q_OS_MAC
 #include <ApplicationServices/ApplicationServices.h>
 #endif
 
 #include "aboutdlg.h"
 #include "actionnotificationinterface.h"
+#include "corestorageregistry.h"
 #include "deintegrationinterface.h"
 #include "draftmanager.h"
 #include "globalshortcutsinterface.h"
 #include "notedialog.h"
 #include "notemanager.h"
-#include "notemanagerdlg.h"
+#include "notesmanagerwindow.h"
 #include "notewidget.h"
 #include "notificationinterface.h"
 #include "optionsdlg.h"
 #include "optionsplugins.h"
 #include "pluginmanager.h"
-#include "ptfstorage.h"
 #include "qtnote.h"
 #include "qtnote_config.h"
 #ifdef QTNOTE_DBUS_AVAILABLE
@@ -72,6 +74,7 @@ public:
     ActionNotificationInterface *actionNotifier;
     StickyNotesManager          *stickyNotes;
     QSet<QUuid>                  recoveredDraftIds;
+    QPointer<NotesManagerWindow> notesManagerWindow;
 #ifdef QTNOTE_DBUS_AVAILABLE
     QtNoteDBus *dbus;
 #endif
@@ -207,7 +210,7 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
         return;
     }
 
-    registerStorage(std::make_unique<PTFStorage>());
+    registerCoreStorages();
 
     _inited = NoteManager::instance()->loadAll();
     if (!NoteManager::instance()->loadAll()) {
@@ -245,12 +248,13 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     connect(actNoteFromSel, SIGNAL(triggered(bool)), SLOT(createNewNoteFromSelection()));
     _shortcutsManager->registerGlobal(ShortcutsManager::SKNoteFromSelection, actNoteFromSel);
 
-    connect(qApp, &QCoreApplication::aboutToQuit, this, []() {
+    connect(qApp, &QCoreApplication::aboutToQuit, this, [this]() {
         // Covers SIGTERM/session shutdown paths which bypass Main::exitQtNote().
-        // NoteDialog and NoteManagerDlg perform the final synchronous checkpoint
-        // and mark the last editor's draft Ready.
+        // Each shell performs its final synchronous checkpoint before closing.
+        if (d->notesManagerWindow)
+            d->notesManagerWindow->close();
         for (auto *widget : QApplication::topLevelWidgets()) {
-            if (widget->objectName() == QLatin1String("noteDlg") || qobject_cast<NoteManagerDlg *>(widget))
+            if (widget->objectName() == QLatin1String("noteDlg"))
                 widget->close();
         }
     });
@@ -293,13 +297,14 @@ void Main::parseAppArguments(const QStringList &args)
 
 void Main::exitQtNote()
 {
+    if (d->notesManagerWindow && !d->notesManagerWindow->close())
+        return;
     for (auto *widget : QApplication::topLevelWidgets()) {
-        if (widget->objectName() == QLatin1String("noteDlg") || qobject_cast<NoteManagerDlg *>(widget))
+        if (widget->objectName() == QLatin1String("noteDlg"))
             widget->close();
     }
     for (auto *widget : QApplication::topLevelWidgets()) {
-        if ((widget->objectName() == QLatin1String("noteDlg") || qobject_cast<NoteManagerDlg *>(widget))
-            && widget->isVisible())
+        if (widget->objectName() == QLatin1String("noteDlg") && widget->isVisible())
             return; // A draft checkpoint failed; keep the application alive.
     }
 
@@ -324,10 +329,16 @@ void Main::showAbout()
 
 void Main::showNoteManager()
 {
-    NoteManagerDlg *d = new NoteManagerDlg(this);
-    connect(d, &NoteManagerDlg::showNoteRequested, this, &Main::openNoteDialog);
-    d->show();
-    activateWidget(d);
+    if (!d->notesManagerWindow) {
+        d->notesManagerWindow = new NotesManagerWindow(this);
+        _pluginManager->attachEditorPlatformBackend(d->notesManagerWindow->platformBackend());
+        connect(d->notesManagerWindow, &NotesManagerWindow::openNoteRequested, this, &Main::openNoteDialog);
+    }
+    if (!d->notesManagerWindow->isReady()) {
+        notifyError(tr("The note manager QML window could not be created"));
+        return;
+    }
+    d->notesManagerWindow->show();
 }
 
 void Main::showOptions()
@@ -433,14 +444,43 @@ void Main::notify(const QString &title, const QString &message, const QString &a
         d->notifier->notifyError(message);
 }
 
-void Main::activateWidget(QWidget *w) const { d->de->activateWidget(w); }
+namespace {
+    QWindow *windowForWidget(QWidget *widget)
+    {
+        if (!widget)
+            return nullptr;
+        widget->winId();
+        return widget->windowHandle();
+    }
+} // namespace
 
-WindowGeometryRestoreResult Main::restoreWindowGeometry(QWidget *w, const QString &key) const
+void Main::activateWidget(QWidget *widget) const { activateWindow(windowForWidget(widget)); }
+
+void Main::activateWindow(QWindow *window) const
 {
-    return d->de->restoreWindowGeometry(w, key);
+    if (window)
+        d->de->activateWindow(window);
 }
 
-bool Main::saveWindowGeometry(QWidget *w, const QString &key) const { return d->de->saveWindowGeometry(w, key); }
+WindowGeometryRestoreResult Main::restoreWindowGeometry(QWidget *widget, const QString &key) const
+{
+    return restoreWindowGeometry(windowForWidget(widget), key);
+}
+
+WindowGeometryRestoreResult Main::restoreWindowGeometry(QWindow *window, const QString &key) const
+{
+    return window ? d->de->restoreWindowGeometry(window, key) : WindowGeometryRestoreResult::Unsupported;
+}
+
+bool Main::saveWindowGeometry(QWidget *widget, const QString &key) const
+{
+    return saveWindowGeometry(windowForWidget(widget), key);
+}
+
+bool Main::saveWindowGeometry(QWindow *window, const QString &key) const
+{
+    return window && d->de->saveWindowGeometry(window, key);
+}
 
 bool Main::removeWindowGeometry(const QString &key) const { return d->de->removeWindowGeometry(key); }
 

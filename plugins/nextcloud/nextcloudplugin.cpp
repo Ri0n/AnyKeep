@@ -1,22 +1,21 @@
 #include "nextcloudplugin.h"
 
+#include <memory>
+
 #include "nextcloudstorage.h"
+#include "notemanager.h"
 #include "pluginhostinterface.h"
-#include "qtnote.h"
 #include "qtnote_config.h"
 
 namespace QtNote {
 
 namespace {
-
     const QLatin1String pluginId("nextcloud_storage");
-    NoteStorage::Ptr    storage;
-
-} // namespace
+}
 
 NextcloudPlugin::NextcloudPlugin(QObject *parent) : QObject(parent) { }
 
-NextcloudPlugin::~NextcloudPlugin() { deinit(); }
+NextcloudPlugin::~NextcloudPlugin() { shutdown(); }
 
 int NextcloudPlugin::metadataVersion() const { return MetadataVersion; }
 
@@ -37,26 +36,23 @@ PluginMetadata NextcloudPlugin::metadata()
     return metadata;
 }
 
-bool NextcloudPlugin::init(Main *qtnote)
+bool NextcloudPlugin::initialize()
 {
-    deinit();
-    qtnote_           = qtnote;
+    shutdown();
     auto ownedStorage = std::make_unique<NextcloudStorage>(nullptr);
-    storage           = ownedStorage.get();
-    qtnote_->registerStorage(std::move(ownedStorage));
-
-    // A remote storage must remain enabled while it is not configured,
-    // otherwise the user cannot reach its settings widget.
+    storage_          = ownedStorage.get();
+    NoteManager::instance()->registerStorage(std::move(ownedStorage));
+    // Keep the backend registered while it is not configured so its QML
+    // settings remain reachable on both desktop and Android.
     return true;
 }
 
-void NextcloudPlugin::deinit()
+void NextcloudPlugin::shutdown()
 {
-    if (qtnote_) {
-        qtnote_->unregisterStorage(storage.data());
-        storage.clear();
-        qtnote_ = nullptr;
-    }
+    if (!storage_)
+        return;
+    NoteManager::instance()->unregisterStorage(storage_.data());
+    storage_.clear();
 }
 
 } // namespace QtNote

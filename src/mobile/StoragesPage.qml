@@ -24,6 +24,7 @@ Page {
             required property bool accessible
             required property bool configurable
             required property string tooltip
+            required property string iconSource
 
             width: storagesView.width
             enabled: accessible
@@ -33,28 +34,55 @@ Page {
                     page.openSettings(storageId, name)
             }
 
-            contentItem: ColumnLayout {
-                spacing: 2
+            contentItem: RowLayout {
+                spacing: 10
 
-                Label {
-                    Layout.fillWidth: true
-                    text: storageDelegate.name
-                    elide: Text.ElideRight
+                Item {
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    Layout.alignment: Qt.AlignVCenter
+
+                    Image {
+                        id: storageIcon
+                        anchors.fill: parent
+                        source: storageDelegate.iconSource
+                        sourceSize.width: 28
+                        sourceSize.height: 28
+                        fillMode: Image.PreserveAspectFit
+                    }
+
+                    Label {
+                        anchors.centerIn: parent
+                        visible: storageIcon.status !== Image.Ready
+                        text: "▣"
+                        font.pixelSize: 20
+                    }
                 }
 
-                Label {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    text: storageDelegate.accessible ? storageDelegate.tooltip : qsTr("Not accessible")
-                    visible: text.length > 0
-                    elide: Text.ElideRight
-                    color: palette.mid
-                    font.pixelSize: 13
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: 2
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: storageDelegate.name
+                        elide: Text.ElideRight
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: storageDelegate.accessible ? storageDelegate.tooltip : qsTr("Not accessible")
+                        visible: text.length > 0
+                        elide: Text.ElideRight
+                        color: palette.mid
+                        font.pixelSize: 13
+                    }
                 }
             }
 
             ToolButton {
                 id: settingsButton
-
                 anchors.right: parent.right
                 anchors.rightMargin: 4
                 anchors.verticalCenter: parent.verticalCenter
@@ -70,7 +98,7 @@ Page {
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
             visible: storagesView.count === 0
-            text: qsTr("Mobile storages are not connected yet.")
+            text: qsTr("No note storages are available.")
             color: palette.mid
         }
     }

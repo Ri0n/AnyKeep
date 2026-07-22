@@ -2,6 +2,7 @@
 #define NOTEBLOCKMODEL_H
 
 #include <QAbstractListModel>
+#include <QVariantMap>
 
 #include "note.h"
 #include "notefragment.h"
@@ -10,7 +11,6 @@ namespace QtNote {
 
 class NoteDocumentHistory;
 class NoteEditor;
-class QmlNoteEditor;
 
 struct QTNOTE_EXPORT NoteBlockSelectionRange {
     int     blockIndex { -1 };
@@ -56,36 +56,38 @@ public:
     QString contents() const;
     void    setContents(const QString &contents);
 
-    Q_INVOKABLE void load(const QString &contents, bool markdown);
-    Q_INVOKABLE void setBlockText(int row, const QString &text);
-    Q_INVOKABLE bool mergeTextBlockWithNext(int row);
-    Q_INVOKABLE void setListItem(int row, int item, const QString &text);
-    Q_INVOKABLE void insertListItem(int row, int item, const QString &text);
-    Q_INVOKABLE void mergeListItemWithNext(int row, int item);
-    Q_INVOKABLE void removeListItem(int row, int item);
-    Q_INVOKABLE void removeListItems(int row, int firstItem, int lastItem);
-    Q_INVOKABLE void convertListToText(int row);
-    Q_INVOKABLE void indentListItems(int row, int firstItem, int lastItem, int delta);
-    Q_INVOKABLE void setChecked(int row, int item, bool checked);
-    Q_INVOKABLE void setTableCell(int row, int cell, const QString &text);
-    Q_INVOKABLE void insertTableRow(int row, int tableRow);
-    Q_INVOKABLE void removeTableRow(int row, int tableRow);
-    Q_INVOKABLE void removeTableRows(int row, int firstRow, int lastRow);
-    Q_INVOKABLE void insertTableColumn(int row, int column);
-    Q_INVOKABLE void removeTableColumn(int row, int column);
-    Q_INVOKABLE void setImageUrl(int row, const QString &url);
-    Q_INVOKABLE void setImageAlt(int row, const QString &alt);
-    Q_INVOKABLE void appendTextBlock();
-    Q_INVOKABLE void appendText(const QString &text);
-    Q_INVOKABLE void appendImage(const QString &url, const QString &alt);
-    Q_INVOKABLE void insertImage(int row, const QString &url, const QString &alt);
-    Q_INVOKABLE void insertTable(int row);
-    Q_INVOKABLE void insertList(int row, BlockType type);
-    Q_INVOKABLE int  blockTypeAt(int row) const;
-    Q_INVOKABLE bool convertListLevel(int row, int item, BlockType type);
-    Q_INVOKABLE int  convertTextBlockToHeading(int row, int position, int level);
-    Q_INVOKABLE void removeBlock(int row);
-    void             setPreviewUrls(const QHash<QString, QString> &urls);
+    Q_INVOKABLE void        load(const QString &contents, bool markdown);
+    Q_INVOKABLE void        setBlockText(int row, const QString &text);
+    Q_INVOKABLE bool        mergeTextBlockWithNext(int row);
+    Q_INVOKABLE void        setListItem(int row, int item, const QString &text);
+    Q_INVOKABLE void        insertListItem(int row, int item, const QString &text);
+    Q_INVOKABLE void        mergeListItemWithNext(int row, int item);
+    Q_INVOKABLE void        removeListItem(int row, int item);
+    Q_INVOKABLE void        removeListItems(int row, int firstItem, int lastItem);
+    Q_INVOKABLE void        convertListToText(int row);
+    Q_INVOKABLE void        indentListItems(int row, int firstItem, int lastItem, int delta);
+    Q_INVOKABLE void        setChecked(int row, int item, bool checked);
+    Q_INVOKABLE void        setTableCell(int row, int cell, const QString &text);
+    Q_INVOKABLE void        insertTableRow(int row, int tableRow);
+    Q_INVOKABLE void        removeTableRow(int row, int tableRow);
+    Q_INVOKABLE void        removeTableRows(int row, int firstRow, int lastRow);
+    Q_INVOKABLE void        insertTableColumn(int row, int column);
+    Q_INVOKABLE void        removeTableColumn(int row, int column);
+    Q_INVOKABLE void        setImageUrl(int row, const QString &url);
+    Q_INVOKABLE void        setImageAlt(int row, const QString &alt);
+    Q_INVOKABLE void        appendTextBlock();
+    Q_INVOKABLE void        appendText(const QString &text);
+    Q_INVOKABLE void        appendImage(const QString &url, const QString &alt);
+    Q_INVOKABLE void        insertImage(int row, const QString &url, const QString &alt);
+    Q_INVOKABLE void        insertTable(int row);
+    Q_INVOKABLE void        insertList(int row, BlockType type);
+    Q_INVOKABLE int         blockTypeAt(int row) const;
+    Q_INVOKABLE QVariantMap findText(const QString &text, const QVariantMap &after = {}, bool backwards = false,
+                                     bool caseSensitive = false) const;
+    Q_INVOKABLE bool        convertListLevel(int row, int item, BlockType type);
+    Q_INVOKABLE int         convertTextBlockToHeading(int row, int position, int level);
+    Q_INVOKABLE void        removeBlock(int row);
+    void                    setPreviewUrls(const QHash<QString, QString> &urls);
 
     // C++ transfer boundary. QML reports visual editor ranges, while the model
     // restores their list/table/block semantics.
@@ -107,8 +109,6 @@ signals:
 private:
     friend class NoteDocumentHistory;
     friend class NoteEditor;
-    friend class QmlNoteEditor;
-
     // Internal document representation used by editor history. It preserves
     // topology without turning the storage format into public libqtnote API.
     struct Block {

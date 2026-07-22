@@ -60,7 +60,7 @@ QtNoteDBus::QtNoteDBus(Main *qtnote, QObject *parent) : QObject(parent), m_qtnot
     auto *manager = NoteManager::instance();
     connect(manager, &NoteManager::storageAdded, this, &QtNoteDBus::notesChanged);
     connect(manager, &NoteManager::storageRemoved, this, &QtNoteDBus::notesChanged);
-    connect(manager, qOverload<NoteStorage::Ptr>(&NoteManager::storageChanged), this, &QtNoteDBus::notesChanged);
+    connect(manager, &NoteManager::storageChanged, this, &QtNoteDBus::notesChanged);
     connect(qtnote, &Main::settingsUpdated, this, &QtNoteDBus::notesChanged);
     connect(qtnote, &Main::settingsUpdated, this, &QtNoteDBus::globalShortcutsChanged);
     connect(qtnote->stickyNotesManager(), &StickyNotesManager::notesChanged, this, &QtNoteDBus::stickyNotesChanged);

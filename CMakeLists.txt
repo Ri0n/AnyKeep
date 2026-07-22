@@ -21,7 +21,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 include(QtNoteMacro)
 set(APP_NAME qtnote)
+# Public desktop editor/manager classes were replaced during the shared QML
+# editor migration. Keep the product version independent, but make the ABI
+# break explicit in the libqtnote soname.
+set(QTNOTE_ABI_VERSION 3 CACHE STRING "libqtnote ABI version")
 message(STATUS "Version: ${APP_NAME}-${QTNOTE_VERSION}")
+message(STATUS "libqtnote ABI version: ${QTNOTE_ABI_VERSION}")
 project(${APP_NAME} VERSION ${QTNOTE_VERSION} LANGUAGES CXX)
 
 include(CTest)
@@ -49,26 +54,26 @@ unset(_qtnote_bundled_qtkeychain_default)
 if("${QT_VERSION_MAJOR}" STREQUAL "")
     set(QT_VERSION_MAJOR 6)
 endif()
+if(NOT QT_VERSION_MAJOR EQUAL 6)
+    message(FATAL_ERROR "The shared Qt Quick editor and notes manager require Qt 6.4 or newer")
+endif()
 
 if(QTNOTE_BUILD_MOBILE)
-    if(NOT QT_VERSION_MAJOR EQUAL 6)
-        message(FATAL_ERROR "The mobile application requires Qt 6")
+    if(ANDROID)
+        find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Quick Qml QuickControls2)
+    else()
+        find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Quick Qml QuickControls2)
     endif()
-    find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Quick Qml QuickControls2)
 else()
-    find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Widgets Core Gui PrintSupport Quick QuickWidgets Qml REQUIRED)
-    if (Qt${QT_VERSION_MAJOR}Widgets_VERSION VERSION_LESS 5.10.0)
-        message(FATAL_ERROR "Minimum supported Qt5 version is 5.10!")
-    endif()
+    find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Core Gui PrintSupport Quick QuickWidgets Qml QuickControls2)
 endif()
-set(QT_VERSION_MAJOR ${Qt${QT_VERSION_MAJOR}Core_VERSION_MAJOR})
+set(QT_VERSION_MAJOR 6)
 set(QT_DEFAULT_MAJOR_VERSION ${QT_VERSION_MAJOR} CACHE STRING "Default Qt major version" FORCE)
 include(GNUInstallDirs)
 
-# The Android application deliberately starts as a separate Qt Quick shell.
-# The desktop Main class and plugin settings API currently expose QWidget and
-# QDialog types throughout, so pulling libqtnote into an Android build would
-# hide those portability problems instead of defining a clean mobile boundary.
+# Android uses the shared editor, models, storage contracts and settings
+# controllers, but links only qtnote_core. Desktop-only window, tray and native
+# integration shells stay in the shared Widgets library.
 if(QTNOTE_BUILD_MOBILE)
     qt_standard_project_setup()
     set(PLUGINSDIR "plugins")

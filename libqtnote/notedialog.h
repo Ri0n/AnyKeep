@@ -59,6 +59,7 @@ private:
     NoteWidget     *noteWidget;
     Main           *main;
     QString         windowGeometryKey;
+    QString         alwaysOnTopKey;
     bool            pinning = false;
 
     static QHash<QPair<QString, QString>, NoteDialog *> dialogs;

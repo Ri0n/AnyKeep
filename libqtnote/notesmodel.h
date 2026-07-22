@@ -1,82 +1,107 @@
-/*
-QtNote - Simple note-taking application
-Copyright (C) 2010 Sergei Ilinykh
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-Contacts:
-E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
-*/
-
 #ifndef NOTESMODEL_H
 #define NOTESMODEL_H
 
 #include "notestorage.h"
+#include "qtnote_export.h"
+
 #include <QAbstractItemModel>
+#include <QHash>
+#include <QPointer>
+#include <QStringList>
+#include <QVariantMap>
 
 namespace QtNote {
 
 class NMMItem;
 class Note;
 
-class NotesModel : public QAbstractItemModel {
+class QTNOTE_EXPORT NotesModel final : public QAbstractItemModel {
     Q_OBJECT
+    Q_PROPERTY(int pageSize READ pageSize WRITE setPageSize NOTIFY pageSizeChanged)
+    Q_PROPERTY(int noteCount READ noteCount NOTIFY statsChanged)
+
 public:
-    enum DataRole { StorageIdRole = Qt::UserRole + 1, NoteIdRole, ItemTypeRole, TagsRole };
+    enum DataRole {
+        StorageIdRole = Qt::UserRole + 1,
+        NoteIdRole,
+        ItemTypeRole,
+        TagsRole,
+        TitleRole,
+        PreviewRole,
+        ModifiedTimeRole,
+        StorageNameRole,
+        AccessibleRole,
+        LoadingRole,
+        ErrorStringRole,
+        HasMoreRole,
+        NoteCountRole,
+        IconSourceRole,
+    };
+    Q_ENUM(DataRole)
 
     enum ItemType { ItemStorage, ItemNote };
+    Q_ENUM(ItemType)
 
-    explicit NotesModel(QObject *parent = 0);
-    ~NotesModel();
-    void setStorageSignalHandlers(NoteStorage::Ptr s);
-    void invalidateNote(const QString &storageId, const QString &noteId);
+    explicit NotesModel(QObject *parent = nullptr);
+    ~NotesModel() override;
 
-    QModelIndex   index(int row, int column, const QModelIndex &parent = QModelIndex()) const;
-    QModelIndex   parent(const QModelIndex &index) const;
-    int           rowCount(const QModelIndex &parent = QModelIndex()) const;
-    int           columnCount(const QModelIndex &parent = QModelIndex()) const;
-    Qt::ItemFlags flags(const QModelIndex &index) const;
-    QVariant      data(const QModelIndex &index, int role = Qt::DisplayRole) const;
-    bool          removeRows(int row, int count, const QModelIndex &parent = QModelIndex());
+    QModelIndex            index(int row, int column, const QModelIndex &parent = {}) const override;
+    QModelIndex            parent(const QModelIndex &index) const override;
+    int                    rowCount(const QModelIndex &parent = {}) const override;
+    int                    columnCount(const QModelIndex &parent = {}) const override;
+    QVariant               data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    Qt::ItemFlags          flags(const QModelIndex &index) const override;
+    QHash<int, QByteArray> roleNames() const override;
 
-    Qt::DropActions supportedDropActions() const;
-    QStringList     mimeTypes() const;
-    QMimeData      *mimeData(const QModelIndexList &indexes) const;
-    bool dropMimeData(const QMimeData *data, Qt::DropAction action, int row, int column, const QModelIndex &parent);
+    bool canFetchMore(const QModelIndex &parent) const override;
+    void fetchMore(const QModelIndex &parent) override;
 
-signals:
-    void statsChanged(); // emit on note added/removed, storage added/removed
+    Qt::DropActions supportedDropActions() const override;
+    QStringList     mimeTypes() const override;
+    QMimeData      *mimeData(const QModelIndexList &indexes) const override;
+    bool            dropMimeData(const QMimeData *data, Qt::DropAction action, int row, int column,
+                                 const QModelIndex &parent) override;
+
+    int pageSize() const { return pageSize_; }
+    int noteCount() const;
+
+    Q_INVOKABLE void        refresh();
+    Q_INVOKABLE void        refreshStorage(const QString &storageId);
+    Q_INVOKABLE QVariantMap itemData(int row, const QModelIndex &parent = {}) const;
+    void                    setSearchActive(bool active);
 
 public slots:
+    void setPageSize(int pageSize);
+
+signals:
+    void statsChanged();
+    void pageSizeChanged();
+    void notesDropRequested(const QStringList &sourceStorageIds, const QStringList &noteIds,
+                            const QString &destinationStorageId);
 
 private slots:
-    void storageAdded(const NoteStorage::Ptr &);
-    void storageRemoved(const NoteStorage::Ptr &);
-    void noteAdded(const Note &);
-    void noteModified(const Note &);
-    void noteRemoved(const Note &);
-
+    void storageAdded(const NoteStorage::Ptr &storage);
+    void storageAboutToBeRemoved(const NoteStorage::Ptr &storage);
+    void storageChanged(const NoteStorage::Ptr &storage);
+    void storageReady(const NoteStorage::Ptr &storage);
+    void noteAdded(const Note &note);
+    void noteModified(const Note &note);
+    void noteRemoved(const Note &note);
     void storageInvalidated();
 
 private:
-    void        refreshStorage(const NoteStorage::Ptr &storage);
-    QModelIndex storageIndex(const QString &) const;
-    QModelIndex noteIndex(const QString &, const QString &) const;
+    void        setStorageSignalHandlers(const NoteStorage::Ptr &storage);
+    void        startStorageRefresh(const NoteStorage::Ptr &storage);
+    void        replaceVisibleNotes(NMMItem *storageItem, int desiredCount = -1);
+    QModelIndex storageIndex(const QString &storageId) const;
+    QModelIndex noteIndex(const QString &storageId, const QString &noteId) const;
+    NMMItem    *storageItem(const QString &storageId) const;
+    void        updateNoteSummary(const Note &note, bool remove);
 
-private:
-    QList<NMMItem *> storages;
-    QModelIndex      removeProtection;
+    QList<NMMItem *>                     storages_;
+    QHash<QString, QPointer<StorageJob>> refreshJobs_;
+    int                                  pageSize_ { 30 };
+    bool                                 searchActive_ { false };
 };
 
 } // namespace QtNote

@@ -24,18 +24,8 @@
      </property>
     </layout>
    </item>
-   <item>
-    <widget class="QtNote::NoteEdit" name="noteEdit"/>
-   </item>
   </layout>
  </widget>
- <customwidgets>
-  <customwidget>
-   <class>QtNote::NoteEdit</class>
-   <extends>QTextEdit</extends>
-   <header>noteedit.h</header>
-  </customwidget>
- </customwidgets>
  <resources/>
  <connections/>
 </ui>

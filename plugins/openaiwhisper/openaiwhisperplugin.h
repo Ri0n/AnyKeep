@@ -4,11 +4,10 @@
 #include <QNetworkAccessManager>
 #include <QPointer>
 
-#include "pluginoptionsinterface.h"
+#include "bundledplugininterface.h"
 #include "qtnoteplugininterface.h"
+#include "settingsproviderinterface.h"
 #include "speechrecognitionprovider.h"
-
-class QDialog;
 
 namespace QtNote {
 
@@ -16,12 +15,16 @@ class OpenAIWhisperPlugin : public QObject,
                             public PluginInterface,
                             public RegularPluginInterface,
                             public PluginOptionsTooltipInterface,
-                            public PluginOptionsInterface,
-                            public SpeechRecognitionProviderInterface {
+                            public SettingsProviderInterface,
+                            public SpeechRecognitionProviderInterface,
+                            public BundledPluginInterface {
     Q_OBJECT
+#ifndef QTNOTE_BUNDLED_PLUGIN_BUILD
     Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.openaiwhisper")
-    Q_INTERFACES(QtNote::PluginInterface QtNote::RegularPluginInterface QtNote::PluginOptionsTooltipInterface
-                     QtNote::PluginOptionsInterface QtNote::SpeechRecognitionProviderInterface)
+#endif
+    Q_INTERFACES(
+        QtNote::PluginInterface QtNote::RegularPluginInterface QtNote::PluginOptionsTooltipInterface
+            QtNote::SettingsProviderInterface QtNote::SpeechRecognitionProviderInterface QtNote::BundledPluginInterface)
 public:
     explicit OpenAIWhisperPlugin(QObject *parent = nullptr);
     ~OpenAIWhisperPlugin() override;
@@ -30,10 +33,12 @@ public:
     PluginMetadata metadata() override;
     void           setHost(PluginHostInterface *host) override;
 
-    bool init(Main *qtnote) override;
+    bool initialize() override;
+    void shutdown() override;
 
-    QString  tooltip() const override;
-    QDialog *optionsDialog() override;
+    QString             tooltip() const override;
+    QUrl                settingsComponent() const override;
+    SettingsController *createSettingsController(QObject *parent) override;
 
     bool                          isSpeechRecognitionReady() const override;
     SpeechRecognitionCapabilities speechRecognitionCapabilities() const override;
@@ -43,7 +48,7 @@ public:
 
 private:
     friend class OpenAIWhisperSpeechJob;
-    friend class OpenAIWhisperSettingsDialog;
+    friend class OpenAIWhisperSettingsController;
 
     struct Settings {
         QString apiKey;

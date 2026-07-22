@@ -1,4 +1,5 @@
 #include "pluginhost.h"
+#include "desktopeditorplatformbackend.h"
 #include "notehighlighter.h"
 #include "notemanager.h"
 #include "notewidget.h"
@@ -17,43 +18,44 @@ QString PluginHost::qtnoteDataDir() { return Utils::qtnoteDataDir(); }
 
 void PluginHost::rehighlight() { emit rehightlight_requested(); }
 
-void PluginHost::addHighlightExtension(QWidget *w, std::shared_ptr<HighlighterExtension> ext, int type)
+bool PluginHost::offerSpellCheckProvider(std::shared_ptr<SpellCheckProvider> candidate)
 {
-    qobject_cast<NoteWidget *>(w)->addHighlightExtension(ext, type);
-}
-
-bool PluginHost::offerSpellCheckProvider(std::shared_ptr<SpellCheckProvider> provider)
-{
-    if (!provider || !provider->isValid())
+    if (!candidate || !candidate->isValid())
         return false;
     if (provider_) {
-        if (provider_->id() != provider->id()) {
-            qWarning() << "Spell check provider ignored:" << provider->id() << "active provider:" << provider_->id();
-            provider->disable(
+        if (provider_->id() != candidate->id()) {
+            qWarning() << "Spell check provider ignored:" << candidate->id() << "active provider:" << provider_->id();
+            candidate->disable(
                 SpellCheckProvider::DisableMode::Session,
                 tr("Not initialized because %1 is the active spell checker.").arg(provider_->displayName()));
-            const QString signature = provider_->id() + QLatin1Char('|') + provider->id();
+            const QString signature = provider_->id() + QLatin1Char('|') + candidate->id();
             if (!notifiedSpellCheckConflicts_.contains(signature)) {
                 notifiedSpellCheckConflicts_.insert(signature);
-                emit spellCheckProviderConflict(provider_->displayName(), provider->displayName());
+                emit spellCheckProviderConflict(provider_->displayName(), candidate->displayName());
             }
         }
-        return provider_->id() == provider->id();
+        return provider_->id() == candidate->id();
     }
 
-    auto extension = makeSpellCheckExtension(provider);
+    auto extension = makeSpellCheckExtension(candidate);
     if (!extension)
         return false;
-    provider_            = std::move(provider);
+    provider_            = std::move(candidate);
     spellCheckExtension_ = std::move(extension);
     qInfo() << "Spell check provider selected:" << provider_->id();
     return true;
 }
 
-void PluginHost::attachSpellCheck(QWidget *w)
+void PluginHost::attachSpellCheck(NoteWidget *widget)
 {
-    if (spellCheckExtension_)
-        addHighlightExtension(w, spellCheckExtension_, int(NoteHighlighter::SpellCheck));
+    if (widget && spellCheckExtension_)
+        widget->addHighlightExtension(spellCheckExtension_, int(NoteHighlighter::SpellCheck));
+}
+
+void PluginHost::attachSpellCheck(DesktopEditorPlatformBackend *backend)
+{
+    if (backend && spellCheckExtension_)
+        backend->addHighlightExtension(spellCheckExtension_, int(NoteHighlighter::SpellCheck));
 }
 
 QString PluginHost::activeSpellCheckProviderId() const { return provider_ ? provider_->id() : QString(); }

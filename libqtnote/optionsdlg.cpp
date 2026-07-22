@@ -27,13 +27,13 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include "defaults.h"
 #include "filestorage.h"
-#include "filestoragesettingswidget.h"
 #include "notemanager.h"
 #include "optionsdlg.h"
 #include "optionsplugins.h"
 #include "pluginmanager.h"
 #include "qtnote.h"
 #include "qtnote_config.h"
+#include "settingswindow.h"
 #include "shortcutedit.h"
 #include "shortcutsmanager.h"
 #include "storageprioritymodel.h"
@@ -142,41 +142,21 @@ void OptionsDlg::accept()
 
 void OptionsDlg::storage_doubleClicked(const QModelIndex &index)
 {
-    QString storageId = priorityModel->storageId(index);
-    if (storageId.isEmpty()) {
+    const QString storageId = priorityModel->storageId(index);
+    const auto    storage   = NoteManager::instance()->storage(storageId);
+    if (!storage)
         return;
-    }
-    auto storage = NoteManager::instance()->storage(storageId);
-    if (!storage) {
-        return;
-    }
 
-    auto fileStorage = qobject_cast<FileStorage *>(storage.data());
-    auto fileStorageSettings
-        = fileStorage ? new FileStorageSettingsWidget(fileStorage->customStoragePath(), fileStorage) : nullptr;
-    QWidget *w = fileStorageSettings ? static_cast<QWidget *>(fileStorageSettings) : storage->settingsWidget();
-    if (!w) {
+    if (auto *controller = storage->createSettingsController(nullptr)) {
+        auto component = storage->settingsComponent();
+        if (component.isEmpty())
+            component = QUrl(QStringLiteral("qrc:/qml/SettingsForm.qml"));
+        auto *window
+            = new SettingsWindow(controller, component, storage->name() + QStringLiteral(": ") + tr("Settings"), this);
+        connect(window, &SettingsWindow::applied, this, [this]() { emit qtnote->settingsUpdated(); });
+        window->show();
         return;
     }
-    QDialog *dlg = new QDialog(this);
-    dlg->setWindowIcon(QIcon(":/icons/options"));
-    dlg->setWindowTitle(storage->name() + QStringLiteral(": ") + tr("Settings"));
-    dlg->resize(500, 30);
-    QVBoxLayout      *vl  = new QVBoxLayout;
-    QDialogButtonBox *dbb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-    if (fileStorageSettings) {
-        connect(dbb, &QDialogButtonBox::accepted, this,
-                [fileStorage, fileStorageSettings]() { fileStorage->setStoragePath(fileStorageSettings->path()); });
-    } else {
-        connect(dbb, SIGNAL(accepted()), w, SIGNAL(apply()));
-    }
-    connect(dbb, SIGNAL(accepted()), dlg, SLOT(accept()));
-    connect(dbb, SIGNAL(rejected()), dlg, SLOT(reject()));
-    vl->addWidget(w);
-    vl->addWidget(dbb);
-    dlg->setLayout(vl);
-    dlg->setAttribute(Qt::WA_DeleteOnClose);
-    dlg->show();
 }
 
 void OptionsDlg::on_pbDefaultFontAdv_clicked()

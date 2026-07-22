@@ -9,22 +9,17 @@
 #endif
 
 #include <QAction>
-#include <QCheckBox>
 #include <QDBusInterface>
 #include <QDBusReply>
-#include <QDialog>
-#include <QDialogButtonBox>
 #include <QDir>
 #include <QGuiApplication>
-#include <QLabel>
 #include <QLoggingCategory>
+#include <QPointer>
 #include <QScreen>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTimer>
-#include <QVBoxLayout>
 #include <QVariant>
-#include <QWidget>
 #include <QWindow>
 #include <QtPlugin>
 
@@ -32,6 +27,7 @@
 #include "kdeintegrationtray.h"
 #include "pluginhostinterface.h"
 #include "qtnote_config.h"
+#include "settingscontroller.h"
 #include "sonnetspellcheckprovider.h"
 
 namespace QtNote {
@@ -98,10 +94,11 @@ PluginMetadata KDEIntegration::metadata()
     md.name        = "KDE Integration";
     md.description = tr("Provide native look and feel for KDE users");
     md.author      = "Sergei Ilinykh <rion4ik@gmail.com>";
-    md.version     = 0x01000000;     // plugin's version 0xXXYYZZPP
-    md.minVersion  = 0x020300;       // minimum compatible version of QtNote
-    md.maxVersion  = QTNOTE_VERSION; // maximum compatible version of QtNote
-    md.homepage    = QUrl("http://ri0n.github.io/QtNote");
+    md.version     = 0x01000000; // plugin's version 0xXXYYZZPP
+    md.minVersion  = 0x020300;   // minimum compatible version of QtNote
+    md.maxVersion  = QTNOTE_VERSION;
+    md.extra.insert(QStringLiteral("configurable"), true); // maximum compatible version of QtNote
+    md.homepage = QUrl("http://ri0n.github.io/QtNote");
     md.extra.insert("de", QStringList() << "kde");
     md.extra.insert("externalTray", true);
     return md;
@@ -123,29 +120,19 @@ std::shared_ptr<SpellCheckProvider> KDEIntegration::spellCheckProvider()
     return provider;
 }
 
-QDialog *KDEIntegration::optionsDialog()
-{
-    auto *dialog = new QDialog;
-    dialog->setWindowTitle(tr("KDE Integration"));
-    auto     *layout  = new QVBoxLayout(dialog);
-    auto     *enabled = new QCheckBox(tr("Use Sonnet for spell checking"), dialog);
-    QSettings settings;
-    enabled->setChecked(settings.value(useSonnetSetting, true).toBool());
-    layout->addWidget(enabled);
-    auto *hint = new QLabel(tr("The spell checker selection is applied after restarting QtNote."), dialog);
-    hint->setWordWrap(true);
-    layout->addWidget(hint);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, dialog, [dialog, enabled]() {
-        QSettings settings;
-        settings.setValue(useSonnetSetting, enabled->isChecked());
-        dialog->accept();
-    });
-    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
-    return dialog;
-}
+QUrl KDEIntegration::settingsComponent() const { return QUrl(QStringLiteral("qrc:/qml/SettingsForm.qml")); }
 
+SettingsController *KDEIntegration::createSettingsController(QObject *parent)
+{
+    SettingsController::Field sonnet;
+    sonnet.key             = QStringLiteral("useSonnet");
+    sonnet.label           = tr("Use Sonnet for spell checking");
+    sonnet.description     = tr("The spell checker selection is applied after restarting QtNote.");
+    sonnet.type            = SettingsController::Boolean;
+    sonnet.value           = true;
+    sonnet.restartRequired = true;
+    return new PersistentSettingsController(QStringLiteral("kdeintegration"), { sonnet }, parent);
+}
 TrayImpl *KDEIntegration::initTray(Main *qtnote) { return new KDEIntegrationTray(qtnote, this); }
 
 void KDEIntegration::notifyError(const QString &msg)
@@ -165,13 +152,19 @@ void KDEIntegration::notify(const QString &title, const QString &message, const 
     }
 }
 
-void KDEIntegration::activateWidget(QWidget *w)
+void KDEIntegration::activateWindow(QWindow *window)
 {
-    QTimer *timer = new QTimer(this);
-    timer->setSingleShot(true);
-    connect(timer, SIGNAL(timeout()), SLOT(activator()));
-    timer->setProperty("widget", QVariant::fromValue<QWidget *>(w));
-    timer->start(100);
+    QPointer<QWindow> guarded(window);
+    QTimer::singleShot(100, this, [guarded]() {
+        if (!guarded)
+            return;
+        guarded->showNormal();
+        guarded->raise();
+        if (KWindowSystem::isPlatformWayland())
+            KWindowSystem::updateStartupId(guarded);
+        guarded->requestActivate();
+        KWindowSystem::activateWindow(guarded);
+    });
 }
 
 static KConfigGroup windowGeometryGroup(const QString &key)
@@ -180,7 +173,7 @@ static KConfigGroup windowGeometryGroup(const QString &key)
     return KConfigGroup(&root, key);
 }
 
-WindowGeometryRestoreResult KDEIntegration::restoreWindowGeometry(QWidget *widget, const QString &key)
+WindowGeometryRestoreResult KDEIntegration::restoreWindowGeometry(QWindow *window, const QString &key)
 {
     if (KWindowSystem::isPlatformWayland()) {
         if (!ensureWaylandGeometryScript())
@@ -189,14 +182,14 @@ WindowGeometryRestoreResult KDEIntegration::restoreWindowGeometry(QWidget *widge
             _pendingWindowGeometryKeys.enqueue(key);
         return WindowGeometryRestoreResult::Pending;
     }
-    widget->winId();
-    auto *window = widget->windowHandle();
-    auto  group  = windowGeometryGroup(key);
+    if (!window)
+        return WindowGeometryRestoreResult::Unsupported;
+    window->winId();
+    auto group = windowGeometryGroup(key);
     if (!window || !group.exists())
         return WindowGeometryRestoreResult::Unsupported;
     KWindowConfig::restoreWindowSize(window, group);
     KWindowConfig::restoreWindowPosition(window, group);
-    widget->resize(window->size());
     return WindowGeometryRestoreResult::Restored;
 }
 
@@ -363,11 +356,10 @@ QUuid KDEIntegration::stickyNoteIdForPresentation(const QString &presentationId)
     return QUuid(settings.value(presentationId).toString());
 }
 
-bool KDEIntegration::saveWindowGeometry(QWidget *widget, const QString &key)
+bool KDEIntegration::saveWindowGeometry(QWindow *window, const QString &key)
 {
     if (KWindowSystem::isPlatformWayland())
         return ensureWaylandGeometryScript();
-    auto *window = widget->windowHandle();
     if (!window)
         return false;
     auto group = windowGeometryGroup(key);
@@ -387,29 +379,6 @@ bool KDEIntegration::removeWindowGeometry(const QString &key)
         group.sync();
     }
     return true;
-}
-
-void KDEIntegration::activator()
-{
-    QTimer  *timer = (QTimer *)sender();
-    QWidget *w     = sender()->property("widget").value<QWidget *>();
-
-    w->showNormal();
-    w->raise();
-    w->activateWindow();
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    if (auto *window = w->windowHandle()) {
-        if (KWindowSystem::isPlatformWayland())
-            KWindowSystem::updateStartupId(window);
-        window->requestActivate();
-        KWindowSystem::activateWindow(window);
-    }
-#elif defined(OLD_K_FORCE_ACTIVATE)
-    KWindowSystem::forceActiveWindow(w->winId(), 0);
-#else
-    KX11Extras::forceActiveWindow(w->winId(), 0);
-#endif
-    timer->deleteLater();
 }
 
 bool KDEIntegration::registerGlobalShortcut(const QString &id, const QKeySequence &key, QAction *action)

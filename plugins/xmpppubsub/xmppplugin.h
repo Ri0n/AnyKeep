@@ -7,7 +7,6 @@
 
 namespace QtNote {
 
-class Main;
 class PluginHostInterface;
 
 /** @brief Plugin entry point registering the XMPP PubSub NoteStorage backend. */
@@ -23,11 +22,10 @@ public:
     int            metadataVersion() const override;
     void           setHost(PluginHostInterface *host) override;
     PluginMetadata metadata() override;
-    bool           init(Main *qtnote) override;
-    void           deinit() override;
+    bool           initialize() override;
+    void           shutdown() override;
 
 private:
-    Main                *qtnote_ { nullptr };
     PluginHostInterface *host_ { nullptr };
 };
 

@@ -35,7 +35,6 @@ class TomboyPlugin : public QObject, public PluginInterface, public RegularPlugi
     Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.tomboy")
     Q_INTERFACES(QtNote::PluginInterface QtNote::RegularPluginInterface)
 
-    Main                *qtnote;
     PluginHostInterface *host;
 
 public:
@@ -45,8 +44,8 @@ public:
     int                    metadataVersion() const;
     void                   setHost(PluginHostInterface *host);
     virtual PluginMetadata metadata();
-    bool                   init(Main *qtnote);
-    void                   deinit();
+    bool                   initialize() override;
+    void                   shutdown() override;
 };
 
 } // namespace QtNote

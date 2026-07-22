@@ -21,9 +21,6 @@ add_qtnote_plugin(spellchecker "Check for spelling errors" ${HUNSPEL_ENABLED} un
     engineinterface.h
     hunspellengine.cpp
     hunspellengine.h
-    settingsdlg.cpp
-    settingsdlg.h
-    settingsdlg.ui
     spellchecker.qrc
     spellcheckplugin.cpp
     spellcheckplugin.h
@@ -44,7 +41,6 @@ target_link_libraries(spellchecker
     ${EXTRA_LINK_TARGET}
     Qt${QT_VERSION_MAJOR}::Core
     Qt${QT_VERSION_MAJOR}::Gui
-    Qt${QT_VERSION_MAJOR}::Widgets
     Qt${QT_VERSION_MAJOR}::Network
     ${HUNSPELL_DEP}
 )

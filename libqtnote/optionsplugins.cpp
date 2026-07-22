@@ -1,7 +1,6 @@
 #include <QAbstractTableModel>
 #include <QDataStream>
 #include <QDebug>
-#include <QDialog>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
@@ -13,6 +12,7 @@
 #include "pluginlistmodel.h"
 #include "pluginmanager.h"
 #include "qtnote.h"
+#include "settingswindow.h"
 #include "ui_optionsplugins.h"
 
 namespace QtNote {
@@ -284,21 +284,26 @@ OptionsPlugins::~OptionsPlugins() { delete ui; }
 
 void OptionsPlugins::pluginClicked(const QModelIndex &index)
 {
-    if (index.column() == 2) { // settings
-        QString  id = pluginsModel->pluginId(index.row());
-        QDialog *d  = qtnote->pluginManager()->optionsDialog(id);
-        if (d) {
-            auto &md = qtnote->pluginManager()->metadata(id);
-            d->setWindowTitle(md.name + QStringLiteral(": ") + tr("Settings"));
-            d->setWindowIcon(md.icon);
-            connect(d, &QDialog::accepted, this, [this, id]() {
-                qDebug() << "Plugin settings accepted:" << id << "emitting settingsUpdated";
-                emit qtnote->settingsUpdated();
-            });
-            d->show();
-            d->raise();
-        }
-    }
+    if (index.column() != 2)
+        return;
+
+    const QString id         = pluginsModel->pluginId(index.row());
+    auto         *manager    = qtnote->pluginManager();
+    auto         *controller = manager->createSettingsController(id, nullptr);
+    if (!controller)
+        return;
+
+    const auto &metadata  = manager->metadata(id);
+    auto        component = manager->settingsComponent(id);
+    if (component.isEmpty())
+        component = QUrl(QStringLiteral("qrc:/qml/SettingsForm.qml"));
+    auto *window
+        = new SettingsWindow(controller, component, metadata.name + QStringLiteral(": ") + tr("Settings"), this);
+    connect(window, &SettingsWindow::applied, this, [this, id]() {
+        qDebug() << "Plugin settings applied:" << id << "emitting settingsUpdated";
+        emit qtnote->settingsUpdated();
+    });
+    window->show();
 }
 
 } // namespace QtNote

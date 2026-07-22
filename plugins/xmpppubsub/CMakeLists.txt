@@ -40,8 +40,9 @@ add_qtnote_plugin(
         xmpppersistenttruststorage.h
         xmppworker.cpp
         xmppworker.h
-        xmppsettingswidget.cpp
-        xmppsettingswidget.h
+        xmppsettings.qrc
+        xmppsettingscontroller.cpp
+        xmppsettingscontroller.h
         xmppstorage.cpp
         xmppstorage.h
         xmppplugin.cpp

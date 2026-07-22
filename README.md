@@ -120,6 +120,9 @@ https://app.transifex.com/rion/qtnote
 
 ### Planned major featues
 
-1. note encryption (not yet decided if own implementation or some integration)
-2. note tags + AI-based classification
+1. note encryption (QCA-based)
+2. AI-based classification
 3. more plugins for various popular systems
+
+## Credits and Third-Party Assets
+* **Icons**: Select icons used in this project are sourced from the [KDE Breeze Icons](https://kde.org) theme, licensed under the [GNU LGPLv2.1+](https://gnu.org).

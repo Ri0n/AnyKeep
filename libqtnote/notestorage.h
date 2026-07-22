@@ -26,6 +26,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QIcon>
 #include <QObject> // just for compatibility with qt<4.6
 #include <QPointer>
+#include <QUrl>
 
 #include "note.h"
 #include "qtnote_export.h"
@@ -35,10 +36,9 @@ namespace QtNote {
 
 class NoteStorage;
 class NoteFinder;
+class SettingsController;
 
 } // namespace QtNote
-
-class QWidget;
 
 namespace QtNote {
 
@@ -69,9 +69,15 @@ public:
     virtual bool saveNote(const Note &note)        = 0;
     virtual void removeNote(const QString &noteId) = 0;
 
-    virtual bool     hasSettingsWidget() const { return false; }
-    virtual QWidget *settingsWidget() { return 0; }
-    virtual QString  tooltip() { return QString(); }
+    virtual bool                isConfigurable() const { return false; }
+    virtual QUrl                settingsComponent() const { return {}; }
+    virtual SettingsController *createSettingsController(QObject *parent = nullptr)
+    {
+        Q_UNUSED(parent)
+        return nullptr;
+    }
+
+    virtual QString tooltip() { return QString(); }
 
     // All consumers should use these methods. The synchronous API above is
     // retained temporarily while storage implementations are being migrated.

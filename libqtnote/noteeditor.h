@@ -30,6 +30,8 @@ class QTNOTE_EXPORT NoteEditor final : public QObject {
     Q_PROPERTY(QString draftId READ draftIdString CONSTANT)
     Q_PROPERTY(QString storageId READ storageId CONSTANT)
     Q_PROPERTY(QString noteId READ noteId CONSTANT)
+    Q_PROPERTY(bool supportsMedia READ supportsMedia CONSTANT)
+    Q_PROPERTY(bool canInsertImages READ canInsertImages NOTIFY formatChanged)
     Q_PROPERTY(QObject *blockModel READ blockModel CONSTANT)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY undoStateChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY undoStateChanged)
@@ -53,6 +55,8 @@ public:
     QString               draftIdString() const { return draftId_.toString(QUuid::WithoutBraces); }
     QString               storageId() const { return note_.storageId(); }
     QString               noteId() const { return note_.id(); }
+    bool                  supportsMedia() const;
+    bool                  canInsertImages() const;
     QString               text() const { return text_; }
     bool                  isMarkdown() const { return format_ != Note::PlainText; }
     Note::Format          format() const { return format_; }
@@ -104,6 +108,7 @@ public slots:
     bool save();
     bool close();
     bool discardDraft();
+    bool discardAndClose();
 
 signals:
     void textChanged();

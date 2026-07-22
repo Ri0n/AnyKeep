@@ -26,18 +26,32 @@ ApplicationWindow {
         }
     }
 
+    DialogHost {
+        dialogService: mobileApp.dialogs
+    }
+
     Connections {
         target: mobileApp
         function onCurrentNoteEditorChanged() {
             if (mobileApp.currentNoteEditor && navigation.depth === 1)
                 navigation.push(noteEditor, { "editor": mobileApp.currentNoteEditor })
         }
+        function onOperationFailed(message) {
+            mobileApp.dialogs.inform(qsTr("QtNote"), message)
+        }
+        function onOperationCompleted(message) {
+            mobileApp.dialogs.inform(qsTr("Done"), message)
+        }
     }
 
     Connections {
         target: Qt.application
         function onStateChanged() {
-            if (Qt.application.state === Qt.ApplicationActive || !mobileApp.currentNoteEditor)
+            if (Qt.application.state === Qt.ApplicationActive) {
+                mobileApp.processPendingLaunchIntent()
+                return
+            }
+            if (!mobileApp.currentNoteEditor)
                 return
             const page = navigation.currentItem
             if (page && typeof page.checkpointEditor === "function")
@@ -48,6 +62,7 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        mobileApp.processPendingLaunchIntent()
         if (mobileApp.currentNoteEditor && navigation.depth === 1)
             navigation.push(noteEditor, { "editor": mobileApp.currentNoteEditor })
     }

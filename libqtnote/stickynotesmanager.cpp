@@ -42,8 +42,7 @@ StickyNotesManager::StickyNotesManager(Main *main) : QObject(main), main_(main)
                 if (!note.id().isEmpty())
                     pinPublished(note, pending.preferredGeometry);
             });
-    connect(NoteManager::instance(), qOverload<NoteStorage::Ptr>(&NoteManager::storageChanged), this,
-            &StickyNotesManager::notesChanged);
+    connect(NoteManager::instance(), &NoteManager::storageChanged, this, &StickyNotesManager::notesChanged);
     connect(NoteManager::instance(), &NoteManager::storageAdded, this,
             [this](const NoteStorage::Ptr &storage) { watchStorage(storage); });
     for (const auto &storage : NoteManager::instance()->storages(true))

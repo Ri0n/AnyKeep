@@ -41,13 +41,15 @@ public:
     void                removeNote(const QString &noteId) override;
     NoteRemoveJob      *removeNoteAsync(const QString &noteId, QObject *owner = nullptr) override;
 
-    bool     hasSettingsWidget() const override { return true; }
-    QWidget *settingsWidget() override;
-    QString  tooltip() override;
+    bool                isConfigurable() const override { return true; }
+    QUrl                settingsComponent() const override;
+    SettingsController *createSettingsController(QObject *parent = nullptr) override;
+    QString             tooltip() override;
 
     static QString storageId;
 
 private:
+    friend class NextcloudSettingsController;
     NextcloudConfig     readConfig() const;
     bool                configIsValid(const NextcloudConfig &config, QString *error) const;
     Note                fromRemote(const NextcloudRemoteNote &remote);

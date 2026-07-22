@@ -1,0 +1,17 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="trayicon">images/qtnote24.png</file>
+    </qresource>
+    <qresource prefix="/qml">
+        <file alias="SettingsForm.qml">qml/SettingsForm.qml</file>
+    </qresource>
+    <qresource prefix="/svg">
+        <file alias="markdown.svg">images/markdown.svg</file>
+        <file alias="txt.svg">images/txt.svg</file>
+        <file alias="edit-find-symbolic.svg">images/edit-find-symbolic.svg</file>
+        <file alias="edit-redo-symbolic.svg">images/edit-redo-symbolic.svg</file>
+        <file alias="edit-undo-symbolic.svg">images/edit-undo-symbolic.svg</file>
+        <file alias="table-symbolic.svg">images/table-symbolic.svg</file>
+        <file alias="insert-image-symbolic.svg">images/insert-image-symbolic.svg</file>
+    </qresource>
+</RCC>

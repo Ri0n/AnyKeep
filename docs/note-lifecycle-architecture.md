@@ -15,8 +15,8 @@ ownership is described separately in
 
 - **Logical note** is the user-visible note, independent of a particular editor
   window or storage representation.
-- **Editor session** is one `NoteWidget` instance participating in the editing of
-  a logical note.
+- **Editor session** is one `NoteEditor` instance, hosted by a desktop or Android shell,
+  participating in the editing of a logical note.
 - **Draft session** is the set of editor sessions sharing one draft UUID.
 - **Checkpoint** is a durable `Editing` snapshot in `DraftStore`.
 - **Origin** is the storage and note ID from which editing started. Either can be
@@ -65,9 +65,10 @@ from origin metadata is a future schema cleanup.
 ```mermaid
 flowchart LR
     subgraph UI["UI process"]
-        W1["NoteWidget A"]
-        W2["NoteWidget B"]
-        NM["Note manager preview"]
+        S1["Desktop or Android shell A"]
+        S2["Desktop or manager shell B"]
+        E1["NoteEditor A"]
+        E2["NoteEditor B"]
     end
 
     subgraph Core["libqtnote"]
@@ -85,11 +86,12 @@ flowchart LR
         CACHE["RemoteCacheStore"]
     end
 
-    W1 -->|"acquire/release UUID lease"| DM
-    W2 -->|"acquire/release UUID lease"| DM
-    NM -->|"owns a NoteWidget"| W2
-    W1 -->|"media manifest"| MEDIA
-    W2 -->|"media manifest"| MEDIA
+    S1 --> E1
+    S2 --> E2
+    E1 -->|"acquire/release UUID lease"| DM
+    E2 -->|"acquire/release UUID lease"| DM
+    E1 -->|"media manifest"| MEDIA
+    E2 -->|"media manifest"| MEDIA
     DM -->|"durable records"| DS
     DM -.->|"future route query"| ROUTE
     DM -->|"async load/save/remove"| MGR
@@ -100,11 +102,13 @@ flowchart LR
     DS -->|"manifest references"| MEDIA
 ```
 
-`NoteWidget` owns transient editor state: cursor, selection, undo data, the local
-dirty flag, and the last draft revision it has applied. `DraftManager` owns the
-process-wide draft lease count and all persistent publication transitions.
-`NoteStorage` plugins own remote protocols, local file formats, and interpretation
-of their opaque `backendData` concurrency tokens.
+`NoteEditor` owns canonical in-memory content, the local dirty flag, the last
+draft revision it has applied, the media manifest, and the document-wide history.
+The QML editor view owns transient cursor, selection, and scroll state and exposes
+it to `NoteEditor` as logical addresses. `DraftManager` owns the process-wide
+draft lease count and all persistent publication transitions. `NoteStorage`
+plugins own remote protocols, local file formats, and interpretation of their
+opaque `backendData` concurrency tokens.
 
 The transient editor history and its relationship to checkpoints and external
 draft reloads are specified in
@@ -177,31 +181,31 @@ If an `Editing` record exists, its content, media manifest, base concurrency
 token, and revision are applied before the editor is initially rendered. If not,
 the note is loaded from its local storage or remote cache/backend.
 
-The editor's `_changed` flag means "the current in-memory editor has changes not
+The editor's `dirty` state means "the current in-memory editor has changes not
 yet checkpointed". Clearing it after a successful checkpoint does not mean the
 note is published or equal to the origin.
 
 ```mermaid
 sequenceDiagram
     actor U as User
-    participant W as NoteWidget
+    participant E as NoteEditor
     participant DM as DraftManager
     participant DS as DraftStore
 
-    U->>W: Edit note
-    W->>W: _changed = true
+    U->>E: Edit note
+    E->>E: dirty = true
 
     alt focus loss or autosave timeout
-        W->>DM: saveEditing(draft UUID, contents)
+        E->>DM: saveEditing(draft UUID, contents)
         DM->>DS: read existing record
         Note over DM: Preserve origin and base token<br/>from first checkpoint
         DM->>DS: atomic write Editing, revision + 1
         alt checkpoint succeeds
-            DS-->>W: success
-            W->>W: _changed = false
+            DS-->>E: success
+            E->>E: dirty = false
         else checkpoint fails
-            DS-->>W: durable error
-            W->>W: remain changed
+            DS-->>E: durable error
+            E->>E: remain dirty
         end
     end
 ```
@@ -211,9 +215,14 @@ last successful checkpoint. On Android, entering the background or an applicatio
 inactive state should request a checkpoint without marking the draft `Ready`;
 process termination then loses at most the uncheckpointed interval.
 
+A shell does not expose a manual Save command. Draft checkpointing is automatic
+and is also requested before Share, Export, navigation away, or orderly close.
+Share and Export copy content to an external destination; they do not replace the
+draft lifecycle or make a draft publishable.
+
 ## Multi-editor sessions
 
-Multiple `NoteWidget` instances in one process can share one draft UUID. The
+Multiple `NoteEditor` instances in one process can share one draft UUID. The
 process-wide lease count prevents the first closed window from publishing content
 while another editor is still open.
 

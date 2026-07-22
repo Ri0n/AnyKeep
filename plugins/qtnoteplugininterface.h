@@ -6,7 +6,6 @@
 #include <QVariantHash>
 
 #include "pluginhostinterface.h"
-#include "qtnote.h"
 
 namespace QtNote {
 
@@ -34,8 +33,9 @@ public:
 
 class RegularPluginInterface {
 public:
-    virtual bool init(Main *qtnote) = 0;
-    virtual void deinit() { }
+    virtual ~RegularPluginInterface() = default;
+    virtual bool initialize()         = 0;
+    virtual void shutdown() { }
 };
 
 class PluginOptionsTooltipInterface {
@@ -47,7 +47,7 @@ public:
 
 Q_DECLARE_INTERFACE(QtNote::PluginInterface, "com.rion-soft.QtNote.PluginInterface/3.0")
 
-Q_DECLARE_INTERFACE(QtNote::RegularPluginInterface, "com.rion-soft.QtNote.RegularPluginInterface/1.0")
+Q_DECLARE_INTERFACE(QtNote::RegularPluginInterface, "com.rion-soft.QtNote.RegularPluginInterface/2.0")
 
 Q_DECLARE_INTERFACE(QtNote::PluginOptionsTooltipInterface, "com.rion-soft.QtNote.PluginOptionsTooltipInterface/1.0")
 

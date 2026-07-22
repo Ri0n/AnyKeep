@@ -4,7 +4,6 @@
 #include <QElapsedTimer>
 #include <QIcon>
 #include <QPointer>
-#include <QStringList>
 #include <QTimer>
 #include <QUuid>
 #include <QWidget>
@@ -16,20 +15,15 @@ namespace Ui {
 class NoteWidget;
 }
 
-class TypeAheadFindBar;
 class QAction;
 class QToolButton;
-class QImage;
 
 namespace QtNote {
 
-class NoteEdit;
 class NoteEditor;
-class NoteHighlighter;
-class QmlNoteEditor;
+class DesktopNoteEditorHost;
 class SpeechAudioRecorder;
 class SpeechRecognitionJob;
-class NoteSaveJob;
 class SpeechRecognitionProviderInterface;
 
 class QTNOTE_EXPORT NoteWidget : public QWidget {
@@ -42,40 +36,38 @@ public:
     explicit NoteWidget(const Note &note = {}, const QUuid &draftId = {});
     ~NoteWidget();
 
-    void              setText(QString text);
-    QString           text();
-    const Features   &features() const { return _features; }
-    bool              isMarkdown() const; // current mode. may look a little ugly
-    void              setFeatures(const Features &features) { _features = features; }
-    virtual NoteEdit *editWidget() const;
-    NoteHighlighter  *highlighter() const { return _highlighter; }
-    void              setAcceptRichText(bool state);
-    void              setSpeechRecognitionProvider(SpeechRecognitionProviderInterface *provider);
-    Note              note() const;
-    QString           storageId() const;
-    QString           noteId() const;
-    QUuid             draftId() const;
-    const QString    &firstLine() const { return _firstLine; }
-    qint64            lastChangeElapsed() const { return _lastChangeElapsed.elapsed(); }
-    bool              isTrashRequested() const { return _trashRequested; }
-    bool              hasPersistedDraft() const;
-    void              setTrashRequested(bool state) { _trashRequested = state; }
-    void              setStickyNotesAvailable(bool available);
-    void              rehighlight();
-    void              addHighlightExtension(const std::shared_ptr<HighlighterExtension> &extension, int type);
-    void              findText(const QString &text, bool focusFindBar = true);
-    bool              prepareToClose();
-    void              discardDraft();
+    void            setText(QString text);
+    QString         text();
+    const Features &features() const { return _features; }
+    bool            isMarkdown() const;
+    void            setFeatures(const Features &features) { _features = features; }
+    void            setAcceptRichText(bool state);
+    void            setSpeechRecognitionProvider(SpeechRecognitionProviderInterface *provider);
+    Note            note() const;
+    QString         storageId() const;
+    QString         noteId() const;
+    QUuid           draftId() const;
+    const QString  &firstLine() const { return _firstLine; }
+    qint64          lastChangeElapsed() const { return _lastChangeElapsed.elapsed(); }
+    bool            isTrashRequested() const { return _trashRequested; }
+    bool            hasPersistedDraft() const;
+    void            setTrashRequested(bool state) { _trashRequested = state; }
+    void            setStickyNotesAvailable(bool available);
+    void            setAlwaysOnTop(bool enabled);
+    bool            alwaysOnTop() const;
+    void            rehighlight();
+    void            addHighlightExtension(const std::shared_ptr<HighlighterExtension> &extension, int type);
+    bool            prepareToClose();
+    void            discardDraft();
 
 signals:
     void firstLineChanged();
     void trashRequested();
     void pinRequested();
+    void alwaysOnTopChanged(bool enabled);
 
 protected:
-    void changeEvent(QEvent *e) override;
-    void keyPressEvent(QKeyEvent *event) override;
-    void resizeEvent(QResizeEvent *event) override;
+    void changeEvent(QEvent *event) override;
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     bool event(QEvent *event) override;
 #endif
@@ -86,8 +78,6 @@ private:
     void     initFromNote();
     void     setContents(const QString &title, const QString &body, Note::Format format,
                          ContentLoadPolicy policy = ContentLoadPolicy::ResetHistory);
-    void     loadMediaResources();
-    void     resizeMediaToViewport();
     QAction *initAction(const char *icon, const QString &title, const QString &toolTip, const char *hotkey);
 
 public slots:
@@ -95,8 +85,6 @@ public slots:
     void rereadSettings();
 
 private slots:
-    void onFindTriggered();
-    void onReplaceTriggered();
     void autosave();
     void onCopyClicked();
     void textChanged();
@@ -105,60 +93,40 @@ private slots:
     void onTrashClicked();
     void updateFirstLineColor();
     void focusReceived();
-
-    void switchToText();
-    void switchToMarkdown();
     void startSpeechRecognition();
-    void insertImage();
-    void insertClipboardImage(const QImage &image);
-    void insertDroppedImage(const QImage &image, int row);
-    void insertDroppedImageFiles(const QStringList &fileNames, int row);
     void finishSpeechRecognition();
     void cancelSpeechRecognition();
     void updateSpeechRecognitionProgress(qint64 elapsedMs, qint64 maxDurationMs);
 
 private:
     void    updateSpeechRecognitionAction();
-    void    syncEditorMode(bool markdown);
-    void    insertTableBlock();
-    void    insertListBlock(int type);
     void    showSpeechRecognitionError(const QString &error);
     void    appendRecognizedText(const QString &text);
     QString speechRecognitionLanguage() const;
     QString normalizeSpeechRecognitionLanguage(const QString &language) const;
     QString speechContextId() const;
-    bool    canInsertImages() const;
-    void    insertRasterImage(const QImage &image, const QString &name, int row = -1);
-    bool    insertImportedImage(const MediaReference &reference, int row = -1);
-    bool    insertImportedImages(const QList<MediaReference> &references, int row, const QString &historyKind);
 
-    Ui::NoteWidget *ui        = nullptr;
-    NoteEditor     *editor    = nullptr;
-    QmlNoteEditor  *qmlEditor = nullptr;
+    Ui::NoteWidget        *ui        = nullptr;
+    NoteEditor            *editor    = nullptr;
+    DesktopNoteEditorHost *qmlEditor = nullptr;
 
-    QAction                              *mdModeAct;
-    QAction                              *txtModeAct;
-    QAction                              *speechAction      = nullptr;
-    QAction                              *pinAction         = nullptr;
-    QAction                              *insertImageAction = nullptr;
-    QIcon                                 speechIdleIcon;
-    QToolButton                          *speechButton   = nullptr;
-    SpeechRecognitionProviderInterface   *speechProvider = nullptr;
-    SpeechAudioRecorder                  *speechRecorder = nullptr;
-    QPointer<SpeechRecognitionJob>        speechJob;
-    QString                               localSpeechContextId;
-    TypeAheadFindBar                     *findBar      = nullptr;
-    NoteHighlighter                      *_highlighter = nullptr;
-    std::shared_ptr<HighlighterExtension> _linkHighlighter;
-    QString                               _firstLine;
-    QString                               _extFileName;
-    QString                               _extSelecteFilter;
-    QTimer                                _autosaveTimer;
-    QTimer                                _mediaResizeTimer;
-    QElapsedTimer                         _lastChangeElapsed;
-    Features                              _features;
-    bool                                  _trashRequested       = false;
-    bool                                  speechRecognitionBusy = false;
+    QAction                            *speechAction      = nullptr;
+    QAction                            *stickyPinAction   = nullptr;
+    QAction                            *alwaysOnTopAction = nullptr;
+    QIcon                               speechIdleIcon;
+    QToolButton                        *speechButton   = nullptr;
+    SpeechRecognitionProviderInterface *speechProvider = nullptr;
+    SpeechAudioRecorder                *speechRecorder = nullptr;
+    QPointer<SpeechRecognitionJob>      speechJob;
+    QString                             localSpeechContextId;
+    QString                             _firstLine;
+    QString                             _extFileName;
+    QString                             _extSelecteFilter;
+    QTimer                              _autosaveTimer;
+    QElapsedTimer                       _lastChangeElapsed;
+    Features                            _features;
+    bool                                _trashRequested       = false;
+    bool                                speechRecognitionBusy = false;
 };
 
 } // namespace QtNote

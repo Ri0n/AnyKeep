@@ -33,7 +33,6 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "notestorage.h"
 #include "notewidget.h"
 #include "qtnote.h"
-#include "typeaheadfind.h"
 #include "ui_notedialog.h"
 #include "utils.h"
 
@@ -48,10 +47,15 @@ static QString geometryKey(const NoteWidget *widget)
 }
 
 NoteDialog::NoteDialog(NoteWidget *noteWidget, Main *main) :
-    QDialog(0), m_ui(new Ui::NoteDialog), noteWidget(noteWidget), main(main), windowGeometryKey(geometryKey(noteWidget))
+    QDialog(0), m_ui(new Ui::NoteDialog), noteWidget(noteWidget), main(main),
+    windowGeometryKey(geometryKey(noteWidget)), alwaysOnTopKey(windowGeometryKey + QStringLiteral(".always-on-top"))
 {
-    setWindowFlags((windowFlags() ^ (Qt::Dialog | Qt::WindowContextHelpButtonHint)) | Qt::WindowSystemMenuHint
-                   | Qt::CustomizeWindowHint | Qt::Window | Qt::WindowMinMaxButtonsHint);
+    auto flags = (windowFlags() ^ (Qt::Dialog | Qt::WindowContextHelpButtonHint)) | Qt::WindowSystemMenuHint
+        | Qt::CustomizeWindowHint | Qt::Window | Qt::WindowMinMaxButtonsHint;
+    const bool alwaysOnTop = QSettings().value(alwaysOnTopKey, false).toBool();
+    if (alwaysOnTop)
+        flags |= Qt::WindowStaysOnTopHint;
+    setWindowFlags(flags);
     m_ui->setupUi(this);
     setAttribute(Qt::WA_DeleteOnClose);
     setObjectName("noteDlg");
@@ -100,9 +104,20 @@ NoteDialog::NoteDialog(NoteWidget *noteWidget, Main *main) :
         setGeometry(rect);
     }
 
+    noteWidget->setAlwaysOnTop(alwaysOnTop);
     noteWidget->setFocus(Qt::OtherFocusReason);
 
     connect(noteWidget, &NoteWidget::trashRequested, this, &NoteDialog::trashRequested);
+    connect(noteWidget, &NoteWidget::alwaysOnTopChanged, this, [this](bool enabled) {
+        QSettings().setValue(alwaysOnTopKey, enabled);
+        const bool active = windowFlags().testFlag(Qt::WindowStaysOnTopHint);
+        if (active == enabled)
+            return;
+        setWindowFlag(Qt::WindowStaysOnTopHint, enabled);
+        show();
+        raise();
+        activateWindow();
+    });
     connect(noteWidget, &NoteWidget::pinRequested, this, [this]() {
         pinning = true;
         close();
@@ -152,6 +167,7 @@ void NoteDialog::done(int r)
     if (noteWidget->isTrashRequested()) {
         main->removeWindowGeometry(windowGeometryKey);
         s.remove(windowGeometryKey);
+        s.remove(alwaysOnTopKey);
     } else {
         if (!main->saveWindowGeometry(this, windowGeometryKey))
             s.setValue(windowGeometryKey, geometry());

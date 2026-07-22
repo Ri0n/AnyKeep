@@ -4,6 +4,7 @@
 #include <QSettings>
 #include <QTimer>
 #include <QWidget>
+#include <QWindow>
 #include <QtPlugin>
 
 #include "baseintegration.h"
@@ -113,10 +114,13 @@ PluginMetadata BaseIntegration::metadata()
 
 void BaseIntegration::setHost(PluginHostInterface *host) { this->host = host; }
 
-void BaseIntegration::activateWidget(QWidget *w)
+void BaseIntegration::activateWindow(QWindow *window)
 {
-    w->raise();
-    w->activateWindow();
+    if (!window)
+        return;
+    window->showNormal();
+    window->raise();
+    window->requestActivate();
 }
 
 TrayImpl *BaseIntegration::initTray(Main *qtnote)

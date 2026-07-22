@@ -27,7 +27,53 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QSettings>
 #include <QUuid>
 
+#include "settingscontroller.h"
+
 namespace QtNote {
+
+class FileStorageSettingsController final : public SettingsController {
+public:
+    explicit FileStorageSettingsController(FileStorage *storage, QObject *parent = nullptr) :
+        SettingsController(parent), storage_(storage)
+    {
+        const QString customPath = storage_->customStoragePath();
+        QList<Field>  fields;
+        Field         custom;
+        custom.key   = QStringLiteral("customPathEnabled");
+        custom.label = tr("Use a custom storage directory");
+        custom.type  = Boolean;
+        custom.value = !customPath.isEmpty();
+        fields.append(custom);
+
+        Field path;
+        path.key         = QStringLiteral("path");
+        path.label       = tr("Storage directory");
+        path.description = tr(
+            "Enter an existing writable directory. Disable the custom directory option to use the platform default.");
+        path.type        = Text;
+        path.value       = customPath.isEmpty() ? storage_->findStorageDir() : customPath;
+        path.placeholder = storage_->findStorageDir();
+        fields.append(path);
+        setFields(std::move(fields));
+    }
+
+protected:
+    bool applyValues(const QVariantMap &values, QString *error) override
+    {
+        const bool    custom = values.value(QStringLiteral("customPathEnabled")).toBool();
+        const QString path
+            = custom ? values.value(QStringLiteral("path")).toString().trimmed() : storage_->findStorageDir();
+        if (!storage_->setStoragePath(path)) {
+            if (error)
+                *error = tr("The selected directory does not exist or is not writable.");
+            return false;
+        }
+        return true;
+    }
+
+private:
+    FileStorage *storage_;
+};
 
 FileStorage::FileStorage(QObject *parent) : NoteStorage(parent), _cacheValid(false) { }
 
@@ -107,6 +153,13 @@ bool FileStorage::setStoragePath(const QString &path)
     init();
     emit invalidated();
     return true;
+}
+
+QUrl FileStorage::settingsComponent() const { return QUrl(QStringLiteral("qrc:/qml/SettingsForm.qml")); }
+
+SettingsController *FileStorage::createSettingsController(QObject *parent)
+{
+    return new FileStorageSettingsController(this, parent);
 }
 
 QString FileStorage::tooltip() { return QString("<b>%1:</b> %2").arg(tr("Storage path"), notesDir.absolutePath()); }

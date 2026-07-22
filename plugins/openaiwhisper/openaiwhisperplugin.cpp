@@ -1,26 +1,18 @@
 #include "openaiwhisperplugin.h"
 
-#include <QBoxLayout>
 #include <QBuffer>
 #include <QDebug>
-#include <QDesktopServices>
-#include <QDialog>
-#include <QDialogButtonBox>
-#include <QFormLayout>
 #include <QHttpMultiPart>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QLabel>
-#include <QLineEdit>
 #include <QNetworkReply>
 #include <QNetworkRequest>
-#include <QPlainTextEdit>
-#include <QPushButton>
 #include <QSettings>
 #include <QtEndian>
 #include <QtPlugin>
 
 #include "qtnote_config.h"
+#include "settingscontroller.h"
 
 namespace QtNote {
 
@@ -234,65 +226,32 @@ private:
     bool                     cancelled = false;
 };
 
-class OpenAIWhisperSettingsDialog : public QDialog {
-    Q_OBJECT
+class OpenAIWhisperSettingsController final : public SettingsController {
 public:
-    explicit OpenAIWhisperSettingsDialog(OpenAIWhisperPlugin *plugin) : QDialog(), plugin(plugin)
+    explicit OpenAIWhisperSettingsController(OpenAIWhisperPlugin *plugin, QObject *parent) :
+        SettingsController(parent), plugin_(plugin)
     {
-        setAttribute(Qt::WA_DeleteOnClose);
-
-        auto s      = plugin->settings();
-        auto layout = new QVBoxLayout(this);
-
-        auto form = new QFormLayout;
-        apiKey    = new QLineEdit(s.apiKey, this);
-        apiKey->setEchoMode(QLineEdit::Password);
-        model = new QLineEdit(s.model.isEmpty() ? DefaultModel : s.model, this);
-        form->addRow(tr("API key:"), apiKey);
-        form->addRow(tr("Model:"), model);
-        layout->addLayout(form);
-
-        auto billingLabel = new QLabel(billingNotice(), this);
-        billingLabel->setWordWrap(true);
-        layout->addWidget(billingLabel);
-
-        prompt = new QPlainTextEdit(s.prompt.isEmpty() ? defaultPrompt() : s.prompt, this);
-        prompt->setMinimumHeight(90);
-        layout->addWidget(new QLabel(tr("Transcription prompt:"), this));
-        layout->addWidget(prompt);
-
-        auto getKeyButton = new QPushButton(tr("Get API key"), this);
-        connect(getKeyButton, &QPushButton::clicked, this,
-                []() { QDesktopServices::openUrl(QUrl(QLatin1String("https://platform.openai.com/api-keys"))); });
-        layout->addWidget(getKeyButton);
-
-        auto stats      = plugin->speechRecognitionUsageStats();
-        auto statsLabel = new QLabel(stats.humanSummary, this);
-        statsLabel->setWordWrap(true);
-        layout->addWidget(statsLabel);
-
-        auto buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
-        connect(buttons, &QDialogButtonBox::accepted, this, &OpenAIWhisperSettingsDialog::saveAndAccept);
-        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-        layout->addWidget(buttons);
+        const auto settings = plugin_->settings();
+        addField({ QStringLiteral("apiKey"), tr("API key"), billingNotice(), Password, settings.apiKey });
+        addField({ QStringLiteral("model"), tr("Model"), QString(), Text, settings.model });
+        addField({ QStringLiteral("prompt"), tr("Transcription prompt"), QString(), Multiline, settings.prompt });
+        const auto stats = plugin_->speechRecognitionUsageStats();
+        addField({ QStringLiteral("usage"), tr("Usage"), QString(), ReadOnly, stats.humanSummary });
     }
 
-private slots:
-    void saveAndAccept()
+protected:
+    bool applyValues(const QVariantMap &values, QString *) override
     {
-        OpenAIWhisperPlugin::Settings s;
-        s.apiKey = apiKey->text().trimmed();
-        s.model  = model->text().trimmed();
-        s.prompt = prompt->toPlainText().trimmed();
-        plugin->saveSettings(s);
-        accept();
+        OpenAIWhisperPlugin::Settings settings;
+        settings.apiKey = values.value(QStringLiteral("apiKey")).toString().trimmed();
+        settings.model  = values.value(QStringLiteral("model")).toString().trimmed();
+        settings.prompt = values.value(QStringLiteral("prompt")).toString().trimmed();
+        plugin_->saveSettings(settings);
+        return true;
     }
 
 private:
-    OpenAIWhisperPlugin *plugin = nullptr;
-    QLineEdit           *apiKey = nullptr;
-    QLineEdit           *model  = nullptr;
-    QPlainTextEdit      *prompt = nullptr;
+    OpenAIWhisperPlugin *plugin_;
 };
 
 OpenAIWhisperPlugin::OpenAIWhisperPlugin(QObject *parent) : QObject(parent) { }
@@ -311,19 +270,21 @@ PluginMetadata OpenAIWhisperPlugin::metadata()
     md.version     = 0x000100;
     md.minVersion  = 0x030200;
     md.maxVersion  = QTNOTE_VERSION;
+    md.extra.insert(QStringLiteral("configurable"), true);
     md.extra.insert(QLatin1String("defaultLoadPolicy"), QLatin1String("disabled"));
     return md;
 }
 
 void OpenAIWhisperPlugin::setHost(PluginHostInterface *host) { Q_UNUSED(host); }
 
-bool OpenAIWhisperPlugin::init(Main *qtnote)
+bool OpenAIWhisperPlugin::initialize()
 {
-    Q_UNUSED(qtnote);
     if (!network)
         network = new QNetworkAccessManager(this);
     return true;
 }
+
+void OpenAIWhisperPlugin::shutdown() { }
 
 QString OpenAIWhisperPlugin::tooltip() const
 {
@@ -335,7 +296,12 @@ QString OpenAIWhisperPlugin::tooltip() const
     return lines.join(QLatin1String("<br/>"));
 }
 
-QDialog *OpenAIWhisperPlugin::optionsDialog() { return new OpenAIWhisperSettingsDialog(this); }
+QUrl OpenAIWhisperPlugin::settingsComponent() const { return QUrl(QStringLiteral("qrc:/qml/SettingsForm.qml")); }
+
+SettingsController *OpenAIWhisperPlugin::createSettingsController(QObject *parent)
+{
+    return new OpenAIWhisperSettingsController(this, parent);
+}
 
 bool OpenAIWhisperPlugin::isSpeechRecognitionReady() const
 {

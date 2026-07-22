@@ -27,6 +27,7 @@ Page {
             required property int loadPolicy
             required property bool loaded
             required property bool configurable
+            required property string iconSource
 
             width: pluginsView.width
             rightPadding: enabledSwitch.width + 24
@@ -35,31 +36,58 @@ Page {
                     page.openSettings(pluginId, name)
             }
 
-            contentItem: ColumnLayout {
-                spacing: 2
+            contentItem: RowLayout {
+                spacing: 10
 
-                Label {
-                    Layout.fillWidth: true
-                    text: pluginDelegate.name
-                    font.bold: pluginDelegate.loaded
-                    elide: Text.ElideRight
+                Item {
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    Layout.alignment: Qt.AlignVCenter
+
+                    Image {
+                        id: pluginIcon
+                        anchors.fill: parent
+                        source: pluginDelegate.iconSource
+                        sourceSize.width: 28
+                        sourceSize.height: 28
+                        fillMode: Image.PreserveAspectFit
+                    }
+
+                    Label {
+                        anchors.centerIn: parent
+                        visible: pluginIcon.status !== Image.Ready
+                        text: "⚙"
+                        font.pixelSize: 20
+                    }
                 }
 
-                Label {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    text: pluginDelegate.versionText.length > 0
-                          ? qsTr("Version %1").arg(pluginDelegate.versionText)
-                          : pluginDelegate.description
-                    visible: text.length > 0
-                    elide: Text.ElideRight
-                    color: palette.mid
-                    font.pixelSize: 13
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: 2
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: pluginDelegate.name
+                        font.bold: pluginDelegate.loaded
+                        elide: Text.ElideRight
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: pluginDelegate.versionText.length > 0
+                              ? qsTr("Version %1").arg(pluginDelegate.versionText)
+                              : pluginDelegate.description
+                        visible: text.length > 0
+                        elide: Text.ElideRight
+                        color: palette.mid
+                        font.pixelSize: 13
+                    }
                 }
             }
 
             Switch {
                 id: enabledSwitch
-
                 anchors.right: parent.right
                 anchors.rightMargin: 4
                 anchors.verticalCenter: parent.verticalCenter
@@ -74,7 +102,7 @@ Page {
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
             visible: pluginsView.count === 0
-            text: qsTr("Android-compatible plugins are not connected yet.")
+            text: qsTr("No Android-compatible bundled plugins are registered.")
             color: palette.mid
         }
     }

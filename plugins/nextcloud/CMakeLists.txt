@@ -9,8 +9,6 @@ add_qtnote_plugin(
         nextclouddto.h
         nextcloudworker.cpp
         nextcloudworker.h
-        nextcloudsettingswidget.cpp
-        nextcloudsettingswidget.h
         nextcloudstorage.cpp
         nextcloudstorage.h
         nextcloudplugin.cpp
@@ -24,7 +22,6 @@ target_link_libraries(
     ${EXTRA_LINK_TARGET}
     Qt${QT_VERSION_MAJOR}::Core
     Qt${QT_VERSION_MAJOR}::Gui
-    Qt${QT_VERSION_MAJOR}::Widgets
     Qt${QT_VERSION_MAJOR}::Network
 )
 

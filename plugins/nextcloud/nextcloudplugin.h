@@ -1,19 +1,25 @@
 #ifndef NEXTCLOUDPLUGIN_H
 #define NEXTCLOUDPLUGIN_H
 
+#include "bundledplugininterface.h"
+#include "notestorage.h"
 #include "qtnoteplugininterface.h"
 
 #include <QObject>
 
 namespace QtNote {
 
-class Main;
 class PluginHostInterface;
 
-class NextcloudPlugin final : public QObject, public PluginInterface, public RegularPluginInterface {
+class NextcloudPlugin final : public QObject,
+                              public PluginInterface,
+                              public RegularPluginInterface,
+                              public BundledPluginInterface {
     Q_OBJECT
+#ifndef QTNOTE_BUNDLED_PLUGIN_BUILD
     Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.nextcloud")
-    Q_INTERFACES(QtNote::PluginInterface QtNote::RegularPluginInterface)
+#endif
+    Q_INTERFACES(QtNote::PluginInterface QtNote::RegularPluginInterface QtNote::BundledPluginInterface)
 
 public:
     explicit NextcloudPlugin(QObject *parent = nullptr);
@@ -22,12 +28,12 @@ public:
     int            metadataVersion() const override;
     void           setHost(PluginHostInterface *host) override;
     PluginMetadata metadata() override;
-    bool           init(Main *qtnote) override;
-    void           deinit() override;
+    bool           initialize() override;
+    void           shutdown() override;
 
 private:
-    Main                *qtnote_ { nullptr };
     PluginHostInterface *host_ { nullptr };
+    NoteStorage::Ptr     storage_;
 };
 
 } // namespace QtNote

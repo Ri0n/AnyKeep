@@ -195,11 +195,11 @@ void NoteManager::registerStorage(std::unique_ptr<NoteStorage> ownedStorage)
         }
     }
 
-    connect(storage, SIGNAL(invalidated()), SLOT(storageChanged()));
-    connect(storage, SIGNAL(noteAdded(Note)), SLOT(storageChanged()));
-    connect(storage, SIGNAL(noteModified(Note)), SLOT(storageChanged()));
-    connect(storage, SIGNAL(noteRemoved(Note)), SLOT(storageChanged()));
-    connect(storage, SIGNAL(noteIdChanged(Note, QString)), SLOT(storageChanged()));
+    connect(storage, &NoteStorage::invalidated, this, &NoteManager::handleStorageChanged);
+    connect(storage, &NoteStorage::noteAdded, this, &NoteManager::handleStorageChanged);
+    connect(storage, &NoteStorage::noteModified, this, &NoteManager::handleStorageChanged);
+    connect(storage, &NoteStorage::noteRemoved, this, &NoteManager::handleStorageChanged);
+    connect(storage, &NoteStorage::noteIdChanged, this, &NoteManager::handleStorageChanged);
 
     emit                        storageAdded(storage);
     auto                       *job = storage->initAsync(this);
@@ -239,12 +239,21 @@ bool NoteManager::loadAll()
     return true;
 }
 
-void NoteManager::storageChanged() { emit storageChanged(_storages[((NoteStorage *)sender())->systemName()]); }
+void NoteManager::handleStorageChanged()
+{
+    auto *changedStorage = qobject_cast<NoteStorage *>(sender());
+    if (!changedStorage)
+        return;
+
+    const auto it = _storages.constFind(changedStorage->systemName());
+    if (it != _storages.constEnd())
+        emit storageChanged(it.value());
+}
 
 QList<Note> NoteManager::noteList(int count) const
 {
     QList<Note> ret;
-    foreach (NoteStorage::Ptr storage, prioritizedStorages()) {
+    for (const auto &storage : prioritizedStorages()) {
         ret += storage->noteList(count);
     }
     std::sort(ret.begin(), ret.end(), noteListItemModifyComparer);

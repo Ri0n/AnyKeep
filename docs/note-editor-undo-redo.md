@@ -71,7 +71,7 @@ user-visible history:
   model restore;
 - `runEditTransaction(kind, callback)` surrounds compound list, table,
   clipboard, formatting, link, and spelling mutations; matching external
-  transactions cover QWidget toolbar/media actions;
+  transactions cover desktop platform media actions and shared toolbar actions;
 - text flushes occur before the outer mutation only when the visible text is
   actually newer than its observed model value;
 - scalar model setters ignore equal values and therefore do not emit false
@@ -223,7 +223,7 @@ back to one snapshot command, so a missed QML call site cannot silently become
 non-undoable.
 
 The outer `beginEditTransaction()` flushes pending text before it captures the
-before-state. C++-initiated toolbar/media transactions use the same ordering,
+before-state. platform-backend media transactions use the same ordering,
 and undo/redo also flush once before choosing the command to apply. Operations
 that directly modify a `QTextDocument` (formatting, links, spelling replacement,
 and plain-text fallback paste) commit that editor explicitly before returning.
@@ -288,7 +288,7 @@ model while avoiding delegate recreation for ordinary typing undo.
 
 ## Keyboard and context-menu routing
 
-`QmlNoteEditor::eventFilter()` handles `QKeySequence::Undo` and
+`DesktopNoteEditorHost::eventFilter()` handles `QKeySequence::Undo` and
 `QKeySequence::Redo` before an individual text document. QML also handles
 `StandardKey.Undo` and `StandardKey.Redo` as a platform-independent fallback.
 Registered block `QTextDocument` instances have their local undo stack disabled
@@ -316,13 +316,15 @@ enum class LoadPolicy {
 Initial, external, and `HistoryRestore` loads reset the stack. Undo/redo itself
 does not call `load()`; it restores the private model state directly. A user
 format conversion is one snapshot command and emits `formatChanged`, so the
-`NoteWidget` toolbar, legacy editor capabilities, and image actions follow the
-restored mode.
+shared `EditorToolbar.qml`, desktop platform capabilities, and image actions
+follow the restored mode. A toolbar command that requires Markdown opens one
+outer history transaction, performs conversion and the structural operation,
+and therefore remains one undo step.
 
 A successful Editing checkpoint does not clear commands. It only breaks the
-current typing merge. The existing `NoteWidget::_changed` lifecycle remains
-authoritative; this implementation does not use `QUndoStack::isClean()` or mark
-a clean history index.
+current typing merge. `NoteEditor::dirty` is the checkpoint state; this
+implementation does not use `QUndoStack::isClean()` or mark a clean history
+index.
 
 Each open editor has its own transient history even when several windows share
 one draft UUID. Adopting a newer checkpoint from another editor clears the

@@ -5,6 +5,10 @@ target_link_libraries(noteblockmodel_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::
 add_test(NAME noteblockmodel_test COMMAND noteblockmodel_test)
 set_tests_properties(noteblockmodel_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+add_executable(dialogservice_test dialogservice_test.cpp)
+target_link_libraries(dialogservice_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME dialogservice_test COMMAND dialogservice_test)
+
 add_executable(noteeditor_test noteeditor_test.cpp)
 target_link_libraries(noteeditor_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME noteeditor_test COMMAND noteeditor_test)
@@ -22,7 +26,16 @@ add_executable(notefragmentmediatransfer_test notefragmentmediatransfer_test.cpp
 target_link_libraries(notefragmentmediatransfer_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME notefragmentmediatransfer_test COMMAND notefragmentmediatransfer_test)
 
-add_executable(qmlnoteeditor_test qmlnoteeditor_test.cpp)
+add_executable(desktopnoteeditorhost_test desktopnoteeditorhost_test.cpp)
+target_link_libraries(desktopnoteeditorhost_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::QuickWidgets)
+add_test(NAME desktopnoteeditorhost_test COMMAND desktopnoteeditorhost_test)
+set_tests_properties(desktopnoteeditorhost_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software")
+
+add_executable(qmlnoteeditor_test
+    qmlnoteeditor_test.cpp
+    qmlnoteeditor.cpp
+    qmlnoteeditor.h
+)
 target_link_libraries(qmlnoteeditor_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::QuickWidgets)
 add_test(NAME qmlnoteeditor_test COMMAND qmlnoteeditor_test)
 set_tests_properties(qmlnoteeditor_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software")

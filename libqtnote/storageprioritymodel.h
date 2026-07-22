@@ -18,6 +18,7 @@ public:
         ConfigurableRole,
         TooltipRole,
         IconRole,
+        IconSourceRole,
     };
     Q_ENUM(Role)
 

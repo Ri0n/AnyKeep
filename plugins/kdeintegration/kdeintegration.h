@@ -8,13 +8,15 @@
 #include "deintegrationinterface.h"
 #include "globalshortcutsinterface.h"
 #include "notificationinterface.h"
-#include "pluginoptionsinterface.h"
 #include "qtnoteplugininterface.h"
+#include "settingsproviderinterface.h"
 #include "spellcheckproviderinterface.h"
 #include "stickynotesintegrationinterface.h"
 #include "trayinterface.h"
 
 class KAction;
+
+class QWindow;
 
 namespace QtNote {
 
@@ -29,13 +31,13 @@ class KDEIntegration : public QObject,
                        public GlobalShortcutsInterface,
                        public StickyNotesIntegrationInterface,
                        public SpellCheckProviderInterface,
-                       public PluginOptionsInterface {
+                       public SettingsProviderInterface {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.KdeTrayIcon")
     Q_INTERFACES(
         QtNote::PluginInterface QtNote::TrayInterface QtNote::DEIntegrationInterface QtNote::GlobalShortcutsInterface
             QtNote::NotificationInterface QtNote::ActionNotificationInterface QtNote::StickyNotesIntegrationInterface
-                QtNote::SpellCheckProviderInterface QtNote::PluginOptionsInterface)
+                QtNote::SpellCheckProviderInterface QtNote::SettingsProviderInterface)
 public:
     explicit KDEIntegration(QObject *parent = 0);
 
@@ -43,15 +45,16 @@ public:
     virtual PluginMetadata              metadata() override;
     void                                setHost(PluginHostInterface *host) override;
     std::shared_ptr<SpellCheckProvider> spellCheckProvider() override;
-    QDialog                            *optionsDialog() override;
+    QUrl                                settingsComponent() const override;
+    SettingsController                 *createSettingsController(QObject *parent) override;
 
     TrayImpl                   *initTray(Main *qtnote) override;
     void                        notifyError(const QString &msg) override;
     void                        notify(const QString &title, const QString &message, const QString &actionText,
                                        std::function<void()> action) override;
-    void                        activateWidget(QWidget *w) override;
-    WindowGeometryRestoreResult restoreWindowGeometry(QWidget *w, const QString &key) override;
-    bool                        saveWindowGeometry(QWidget *w, const QString &key) override;
+    void                        activateWindow(QWindow *window) override;
+    WindowGeometryRestoreResult restoreWindowGeometry(QWindow *window, const QString &key) override;
+    bool                        saveWindowGeometry(QWindow *window, const QString &key) override;
     bool                        removeWindowGeometry(const QString &key) override;
     QString                     takePendingWindowGeometryKey() override;
 
@@ -67,7 +70,6 @@ public:
 signals:
 
 public slots:
-    void activator();
 
 private:
     bool ensureWaylandGeometryScript();

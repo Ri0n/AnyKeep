@@ -1,11 +1,11 @@
 #include <QGuiApplication>
 #include <QMessageBox>
+#include <QPointer>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTimer>
-#include <QWidget>
 #include <QWindow>
 #include <QtPlugin>
 
@@ -207,16 +207,19 @@ void CinnamonPlugin::notifyError(const QString &message)
     QMessageBox::warning(nullptr, tr("Error"), message);
 }
 
-void CinnamonPlugin::activateWidget(QWidget *w)
+void CinnamonPlugin::activateWindow(QWindow *window)
 {
-    QTimer *timer = new QTimer(this);
-    timer->setSingleShot(true);
-    connect(timer, SIGNAL(timeout()), SLOT(activator()));
-    timer->setProperty("widget", QVariant::fromValue<QWidget *>(w));
-    timer->start(100);
+    QPointer<QWindow> guarded(window);
+    QTimer::singleShot(100, this, [guarded]() {
+        if (!guarded)
+            return;
+        guarded->showNormal();
+        guarded->raise();
+        guarded->requestActivate();
+    });
 }
 
-WindowGeometryRestoreResult CinnamonPlugin::restoreWindowGeometry(QWidget *, const QString &key)
+WindowGeometryRestoreResult CinnamonPlugin::restoreWindowGeometry(QWindow *, const QString &key)
 {
     if (QGuiApplication::platformName() != QLatin1String("wayland") || !geometryBridgeReady)
         return WindowGeometryRestoreResult::Unsupported;
@@ -225,7 +228,7 @@ WindowGeometryRestoreResult CinnamonPlugin::restoreWindowGeometry(QWidget *, con
     return WindowGeometryRestoreResult::Pending;
 }
 
-bool CinnamonPlugin::saveWindowGeometry(QWidget *, const QString &)
+bool CinnamonPlugin::saveWindowGeometry(QWindow *, const QString &)
 {
     if (QGuiApplication::platformName() != QLatin1String("wayland") || !geometryBridgeReady)
         return false;
@@ -338,19 +341,6 @@ QUuid CinnamonPlugin::stickyNoteIdForPresentation(const QString &presentationId)
     QSettings settings;
     settings.beginGroup(stickyPresentationsGroup);
     return QUuid(settings.value(presentationId).toString());
-}
-
-void CinnamonPlugin::activator()
-{
-    QTimer  *timer = static_cast<QTimer *>(sender());
-    QWidget *w     = sender()->property("widget").value<QWidget *>();
-
-    w->showNormal();
-    w->raise();
-    w->activateWindow();
-    if (auto *window = w->windowHandle())
-        window->requestActivate();
-    timer->deleteLater();
 }
 
 } // namespace QtNote

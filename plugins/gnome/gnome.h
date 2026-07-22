@@ -9,6 +9,8 @@
 #include "qtnoteplugininterface.h"
 #include "stickynotesintegrationinterface.h"
 
+class QWindow;
+
 namespace QtNote {
 
 class PluginHostInterface;
@@ -31,9 +33,9 @@ public:
 
     void notifyError(const QString &msg) override;
 
-    void                        activateWidget(QWidget *w) override;
-    WindowGeometryRestoreResult restoreWindowGeometry(QWidget *w, const QString &key) override;
-    bool                        saveWindowGeometry(QWidget *w, const QString &key) override;
+    void                        activateWindow(QWindow *window) override;
+    WindowGeometryRestoreResult restoreWindowGeometry(QWindow *window, const QString &key) override;
+    bool                        saveWindowGeometry(QWindow *window, const QString &key) override;
     bool                        removeWindowGeometry(const QString &key) override;
     QString                     takePendingWindowGeometryKey() override;
     void                        windowGeometryBridgeReady() override;
@@ -45,7 +47,6 @@ public:
 
 private slots:
     void askEnableShellExtension();
-    void activator();
 
 private:
     bool    isShellExtensionInstalled() const;

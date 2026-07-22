@@ -14,6 +14,8 @@
 
 class QxtGlobalShortcut;
 
+class QWindow;
+
 namespace QtNote {
 
 class Main;
@@ -41,7 +43,7 @@ public:
     PluginMetadata metadata();
     void           setHost(PluginHostInterface *host);
 
-    void      activateWidget(QWidget *w);
+    void      activateWindow(QWindow *window);
     TrayImpl *initTray(Main *qtnote);
     void      notifyError(const QString &message);
 

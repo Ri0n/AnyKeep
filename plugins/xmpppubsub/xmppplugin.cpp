@@ -1,7 +1,9 @@
 #include "xmppplugin.h"
 
+#include <memory>
+
+#include "notemanager.h"
 #include "pluginhostinterface.h"
-#include "qtnote.h"
 #include "qtnote_config.h"
 #include "xmppstorage.h"
 
@@ -16,7 +18,7 @@ namespace {
 
 XmppPlugin::XmppPlugin(QObject *parent) : QObject(parent) { }
 
-XmppPlugin::~XmppPlugin() { deinit(); }
+XmppPlugin::~XmppPlugin() { shutdown(); }
 
 int XmppPlugin::metadataVersion() const { return MetadataVersion; }
 
@@ -37,25 +39,26 @@ PluginMetadata XmppPlugin::metadata()
     return metadata;
 }
 
-bool XmppPlugin::init(Main *qtnote)
+bool XmppPlugin::initialize()
 {
-    deinit();
-    qtnote_           = qtnote;
+    shutdown();
+    if (!host_ || !host_->noteManager())
+        return false;
     auto ownedStorage = std::make_unique<XmppStorage>(nullptr);
     storage           = ownedStorage.get();
-    qtnote_->registerStorage(std::move(ownedStorage));
+    host_->noteManager()->registerStorage(std::move(ownedStorage));
 
     // Keep an unconfigured remote storage enabled so its settings remain reachable.
     return true;
 }
 
-void XmppPlugin::deinit()
+void XmppPlugin::shutdown()
 {
-    if (qtnote_) {
-        qtnote_->unregisterStorage(storage.data());
-        storage.clear();
-        qtnote_ = nullptr;
-    }
+    if (!storage)
+        return;
+    if (host_ && host_->noteManager())
+        host_->noteManager()->unregisterStorage(storage.data());
+    storage.clear();
 }
 
 } // namespace QtNote

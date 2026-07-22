@@ -20,9 +20,10 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 */
 
 #include <QtPlugin>
+#include <memory>
 
+#include "notemanager.h"
 #include "pluginhostinterface.h"
-#include "qtnote.h"
 #include "qtnote_config.h"
 #include "tomboyplugin.h"
 #include "tomboystorage.h"
@@ -35,9 +36,9 @@ static NoteStorage::Ptr    storage;
 //------------------------------------------------------------
 // TomboyPlugin
 //------------------------------------------------------------
-TomboyPlugin::TomboyPlugin(QObject *parent) : QObject(parent), qtnote(0) { }
+TomboyPlugin::TomboyPlugin(QObject *parent) : QObject(parent), host(nullptr) { }
 
-TomboyPlugin::~TomboyPlugin() { deinit(); }
+TomboyPlugin::~TomboyPlugin() { shutdown(); }
 
 int TomboyPlugin::metadataVersion() const { return MetadataVersion; }
 
@@ -58,23 +59,24 @@ PluginMetadata TomboyPlugin::metadata()
     return md;
 }
 
-bool TomboyPlugin::init(Main *qtnote)
+bool TomboyPlugin::initialize()
 {
-    deinit();
-    this->qtnote      = qtnote;
+    shutdown();
+    if (!host || !host->noteManager())
+        return false;
     auto ownedStorage = std::make_unique<TomboyStorage>(nullptr);
     storage           = ownedStorage.get();
-    qtnote->registerStorage(std::move(ownedStorage));
+    host->noteManager()->registerStorage(std::move(ownedStorage));
     return storage && storage->isAccessible();
 }
 
-void TomboyPlugin::deinit()
+void TomboyPlugin::shutdown()
 {
-    if (qtnote) {
-        qtnote->unregisterStorage(storage.data());
-        storage.clear();
-        qtnote = nullptr;
-    }
+    if (!storage)
+        return;
+    if (host && host->noteManager())
+        host->noteManager()->unregisterStorage(storage.data());
+    storage.clear();
 }
 
 } // namespace QtNote

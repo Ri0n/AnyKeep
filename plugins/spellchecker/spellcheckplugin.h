@@ -26,8 +26,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <memory>
 
 #include "deintegrationinterface.h"
-#include "pluginoptionsinterface.h"
 #include "qtnoteplugininterface.h"
+#include "settingsproviderinterface.h"
 #include "trayinterface.h"
 
 namespace QtNote {
@@ -40,11 +40,11 @@ class SpellCheckPlugin : public QObject,
                          public PluginInterface,
                          public RegularPluginInterface,
                          public PluginOptionsTooltipInterface,
-                         public PluginOptionsInterface {
+                         public SettingsProviderInterface {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.spellchecker")
     Q_INTERFACES(QtNote::PluginInterface QtNote::RegularPluginInterface QtNote::PluginOptionsTooltipInterface
-                                                                        QtNote::PluginOptionsInterface)
+                                                                        QtNote::SettingsProviderInterface)
 public:
     enum DictFlag {
         DictNone           = 0,
@@ -71,14 +71,15 @@ public:
     void                   setHost(PluginHostInterface *host);
 
     // RegularPluginInterface
-    bool init(Main *qtnote);
-    void deinit();
+    bool initialize() override;
+    void shutdown() override;
 
     // PluginOptionsTooltipInterface
     QString tooltip() const;
 
-    // PluginOptionsInterface
-    QDialog *optionsDialog();
+    // SettingsProviderInterface
+    QUrl                settingsComponent() const override;
+    SettingsController *createSettingsController(QObject *parent) override;
 
     SpellEngineInterface *engine() const { return sei; }
 
@@ -88,14 +89,13 @@ public:
 
     void                  removeDictionary(const QLocale &locale);
     DictionaryDownloader *download(const QLocale &locale);
+    void                  applyLanguagePreferences(const QList<QLocale> &selected, bool useSystemPreferences);
 
 signals:
     void availableDictsUpdated();
-private slots:
-    void settingsAccepted();
 
 private:
-    Main                                 *qtnote_;
+    friend class SpellcheckSettingsController;
     PluginHostInterface                  *host;
     SpellEngineInterface                 *sei;
     std::shared_ptr<SpellEngineInterface> engineOwner_;

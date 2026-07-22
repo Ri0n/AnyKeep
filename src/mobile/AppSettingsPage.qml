@@ -22,6 +22,26 @@ Page {
                 onToggled: mobileApp.askBeforeDelete = checked
             }
 
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: mobileApp.androidSpeechAvailable
+                spacing: 4
+
+                Switch {
+                    Layout.fillWidth: true
+                    text: qsTr("Use Android speech recognition")
+                    checked: mobileApp.androidSpeechEnabled
+                    onToggled: mobileApp.androidSpeechEnabled = checked
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    opacity: 0.7
+                    text: qsTr("When enabled, QtNote shows a microphone button and asks Android for microphone permission. Recognition is provided by the speech service installed on the device.")
+                }
+            }
+
             Label { text: qsTr("Notes loaded per page: %1").arg(notesSlider.value) }
             Slider {
                 id: notesSlider

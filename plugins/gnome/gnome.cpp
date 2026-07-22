@@ -24,12 +24,12 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMessageBox>
+#include <QPointer>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTimer>
-#include <QWidget>
 #include <QWindow>
 #include <QtPlugin>
 
@@ -190,7 +190,7 @@ bool GnomePlugin::geometryExtensionAvailable()
     return geometryBridgeReady;
 }
 
-WindowGeometryRestoreResult GnomePlugin::restoreWindowGeometry(QWidget *, const QString &key)
+WindowGeometryRestoreResult GnomePlugin::restoreWindowGeometry(QWindow *, const QString &key)
 {
     if (!geometryExtensionAvailable())
         return WindowGeometryRestoreResult::Unsupported;
@@ -199,7 +199,7 @@ WindowGeometryRestoreResult GnomePlugin::restoreWindowGeometry(QWidget *, const 
     return WindowGeometryRestoreResult::Pending;
 }
 
-bool GnomePlugin::saveWindowGeometry(QWidget *, const QString &)
+bool GnomePlugin::saveWindowGeometry(QWindow *, const QString &)
 {
     if (!geometryExtensionAvailable())
         return false;
@@ -276,30 +276,20 @@ bool GnomePlugin::dismissStickyNote(const QUuid &stickyId)
 
 QUuid GnomePlugin::stickyNoteIdForPresentation(const QString &presentationId) const { return QUuid(presentationId); }
 
-void GnomePlugin::activateWidget(QWidget *w)
+void GnomePlugin::activateWindow(QWindow *window)
 {
-    QTimer *timer = new QTimer(this);
-    timer->setSingleShot(true);
-    connect(timer, SIGNAL(timeout()), SLOT(activator()));
-    timer->setProperty("widget", QVariant::fromValue<QWidget *>(w));
-    timer->start(100);
-}
-
-void GnomePlugin::activator()
-{
-    QTimer  *timer = (QTimer *)sender();
-    QWidget *w     = sender()->property("widget").value<QWidget *>();
-
-    w->showNormal();
-    w->raise();
-    w->activateWindow();
-    if (auto *window = w->windowHandle())
-        window->requestActivate();
+    QPointer<QWindow> guarded(window);
+    QTimer::singleShot(100, this, [guarded]() {
+        if (!guarded)
+            return;
+        guarded->showNormal();
+        guarded->raise();
+        guarded->requestActivate();
 #ifdef QTNOTE_ENABLE_X11
-    if (QGuiApplication::platformName() == QLatin1String("xcb"))
-        X11Util::forceActivateWindow(w->winId());
+        if (QGuiApplication::platformName() == QLatin1String("xcb"))
+            X11Util::forceActivateWindow(guarded->winId());
 #endif
-    timer->deleteLater();
+    });
 }
 
 } // namespace QtNote

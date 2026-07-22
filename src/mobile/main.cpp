@@ -2,7 +2,10 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 
+#include "localmediaimageprovider.h"
 #include "mobileapplication.h"
+#include "storageiconimageprovider.h"
+#include "themediconimageprovider.h"
 
 int main(int argc, char *argv[])
 {
@@ -12,6 +15,9 @@ int main(int argc, char *argv[])
 
     QtNote::MobileApplication mobileApplication;
     QQmlApplicationEngine     engine;
+    QtNote::installLocalMediaImageProvider(&engine);
+    QtNote::installStorageIconImageProvider(&engine);
+    QtNote::installThemedIconImageProvider(&engine);
     engine.rootContext()->setContextProperty(QStringLiteral("mobileApp"), &mobileApplication);
     engine.load(QUrl(QStringLiteral("qrc:/qt/qml/QtNote/Mobile/Main.qml")));
 

@@ -100,7 +100,7 @@ void StickyNoteWindow::mousePressEvent(QMouseEvent *event)
         QWidget::mousePressEvent(event);
         return;
     }
-    pressGlobalPosition_ = event->globalPos();
+    pressGlobalPosition_ = event->globalPosition().toPoint();
     pressGeometry_       = geometry();
     resizing_            = inResizeGrip(event->pos());
     dragging_            = !resizing_;
@@ -122,7 +122,7 @@ void StickyNoteWindow::mouseMoveEvent(QMouseEvent *event)
         QWidget::mouseMoveEvent(event);
         return;
     }
-    const QPoint delta = event->globalPos() - pressGlobalPosition_;
+    const QPoint delta = event->globalPosition().toPoint() - pressGlobalPosition_;
     if (resizing_)
         resize(qMax(MinimumWidth, pressGeometry_.width() + delta.x()),
                qMax(MinimumHeight, pressGeometry_.height() + delta.y()));

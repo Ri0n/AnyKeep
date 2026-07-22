@@ -1,8 +1,8 @@
 #include "nextcloudstorage.h"
 
-#include "nextcloudsettingswidget.h"
 #include "nextcloudworker.h"
 #include "notedata.h"
+#include "settingscontroller.h"
 
 #include <QMetaObject>
 #include <QPointer>
@@ -17,6 +17,63 @@
 #include <utility>
 
 namespace QtNote {
+class NextcloudSettingsController final : public SettingsController {
+public:
+    explicit NextcloudSettingsController(NextcloudStorage *storage, QObject *parent = nullptr) :
+        SettingsController(parent), storage_(storage)
+    {
+        const auto   config = storage_->readConfig();
+        QList<Field> fields;
+        Field        server;
+        server.key         = QStringLiteral("serverUrl");
+        server.label       = tr("Server URL");
+        server.description = tr("The base HTTP or HTTPS URL of the Nextcloud server.");
+        server.value       = config.serverUrl.toString();
+        server.placeholder = QStringLiteral("https://cloud.example.org");
+        fields.append(server);
+
+        Field user;
+        user.key   = QStringLiteral("userName");
+        user.label = tr("User name");
+        user.value = config.userName;
+        fields.append(user);
+
+        Field password;
+        password.key         = QStringLiteral("appPassword");
+        password.label       = tr("App password");
+        password.type        = Password;
+        password.value       = config.appPassword;
+        password.description = tr("Use a dedicated Nextcloud app password rather than the account password.");
+        fields.append(password);
+
+        Field timeout;
+        timeout.key     = QStringLiteral("timeoutSeconds");
+        timeout.label   = tr("Operation timeout");
+        timeout.type    = Integer;
+        timeout.value   = qBound(2, config.timeoutMs / 1000, 120);
+        timeout.minimum = 2;
+        timeout.maximum = 120;
+        fields.append(timeout);
+        setFields(std::move(fields));
+    }
+
+protected:
+    bool applyValues(const QVariantMap &values, QString *error) override
+    {
+        NextcloudConfig config;
+        config.serverUrl   = QUrl::fromUserInput(values.value(QStringLiteral("serverUrl")).toString().trimmed());
+        config.userName    = values.value(QStringLiteral("userName")).toString().trimmed();
+        config.appPassword = values.value(QStringLiteral("appPassword")).toString();
+        config.timeoutMs   = values.value(QStringLiteral("timeoutSeconds"), 15).toInt() * 1000;
+        if (!storage_->configIsValid(config, error))
+            return false;
+        storage_->applyConfig(config);
+        return true;
+    }
+
+private:
+    NextcloudStorage *storage_;
+};
 
 namespace {
 
@@ -697,11 +754,11 @@ void NextcloudStorage::applyConfig(const NextcloudConfig &config)
     emit invalidated();
 }
 
-QWidget *NextcloudStorage::settingsWidget()
+QUrl NextcloudStorage::settingsComponent() const { return QUrl(QStringLiteral("qrc:/qml/SettingsForm.qml")); }
+
+SettingsController *NextcloudStorage::createSettingsController(QObject *parent)
 {
-    auto *widget = new NextcloudSettingsWidget(readConfig());
-    connect(widget, &NextcloudSettingsWidget::apply, this, [this, widget]() { applyConfig(widget->config()); });
-    return widget;
+    return new NextcloudSettingsController(this, parent);
 }
 
 QString NextcloudStorage::tooltip()

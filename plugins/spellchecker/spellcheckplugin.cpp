@@ -19,27 +19,19 @@ Contacts:
 E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 */
 
-#include <QContextMenuEvent>
+#include <QAbstractListModel>
 #include <QDebug>
-#include <QDialog>
-#include <QHBoxLayout>
 #include <QLocale>
-#include <QMenu>
-#include <QPushButton>
 #include <QRegularExpression>
 #include <QSettings>
-#include <QTextDocumentFragment>
-#include <QWidget>
 #include <QtPlugin>
 #include <memory>
 
 #include "dictionarydownloader.h"
 #include "highlighterext.h"
 #include "hunspellengine.h"
-#include "notewidget.h"
-#include "qtnote.h"
 #include "qtnote_config.h"
-#include "settingsdlg.h"
+#include "settingscontroller.h"
 #include "spellcheckplugin.h"
 #include "spellcheckprovider.h"
 
@@ -66,12 +58,262 @@ private:
     bool                                  enabled_ = true;
 };
 
+class SpellcheckDictionaryModel final : public QAbstractListModel {
+    Q_OBJECT
+public:
+    enum Role {
+        LocaleCodeRole = Qt::UserRole + 1,
+        DisplayNameRole,
+        SelectedRole,
+        SystemSelectedRole,
+        InstalledRole,
+        RemovableRole,
+        BusyRole,
+        ActionTextRole,
+        ErrorRole,
+    };
+
+    struct Row {
+        SpellCheckPlugin::Dict dict;
+        bool                   selected { false };
+        bool                   busy { false };
+        QString                error;
+    };
+
+    explicit SpellcheckDictionaryModel(QObject *parent = nullptr) : QAbstractListModel(parent) { }
+
+    int rowCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : rows_.size(); }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (!index.isValid() || index.row() < 0 || index.row() >= rows_.size())
+            return {};
+        const auto &row = rows_.at(index.row());
+        switch (role) {
+        case LocaleCodeRole:
+            return row.dict.locale.bcp47Name();
+        case DisplayNameRole: {
+            const QString language = row.dict.locale.nativeLanguageName();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            const QString territory = row.dict.locale.nativeTerritoryName();
+#else
+            const QString territory = row.dict.locale.nativeCountryName();
+#endif
+            return territory.isEmpty() ? language : QStringLiteral("%1 (%2)").arg(language, territory);
+        }
+        case SelectedRole:
+            return row.selected;
+        case SystemSelectedRole:
+            return bool(row.dict.flags & SpellCheckPlugin::DictSystemSelected);
+        case InstalledRole:
+            return bool(row.dict.flags & SpellCheckPlugin::DictInstalled);
+        case RemovableRole:
+            return bool(row.dict.flags & SpellCheckPlugin::DictWritable);
+        case BusyRole:
+            return row.busy;
+        case ActionTextRole:
+            return row.dict.flags & SpellCheckPlugin::DictInstalled ? tr("Remove") : tr("Download");
+        case ErrorRole:
+            return row.error;
+        default:
+            return {};
+        }
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return {
+            { LocaleCodeRole, "localeCode" },
+            { DisplayNameRole, "displayName" },
+            { SelectedRole, "selected" },
+            { SystemSelectedRole, "systemSelected" },
+            { InstalledRole, "installed" },
+            { RemovableRole, "removable" },
+            { BusyRole, "busy" },
+            { ActionTextRole, "actionText" },
+            { ErrorRole, "errorString" },
+        };
+    }
+
+    void setRows(QList<Row> rows)
+    {
+        beginResetModel();
+        rows_ = std::move(rows);
+        endResetModel();
+    }
+
+    const Row *row(int index) const { return index >= 0 && index < rows_.size() ? &rows_.at(index) : nullptr; }
+
+    void setSelected(int index, bool selected)
+    {
+        if (index < 0 || index >= rows_.size() || rows_[index].selected == selected)
+            return;
+        rows_[index].selected = selected;
+        emit dataChanged(this->index(index), this->index(index), { SelectedRole });
+    }
+
+    void setBusy(int index, bool busy, const QString &error = {})
+    {
+        if (index < 0 || index >= rows_.size())
+            return;
+        rows_[index].busy  = busy;
+        rows_[index].error = error;
+        emit dataChanged(this->index(index), this->index(index), { BusyRole, ErrorRole, ActionTextRole });
+    }
+
+    QList<QLocale> selectedLocales() const
+    {
+        QList<QLocale> result;
+        for (const auto &row : rows_) {
+            if (row.selected)
+                result.append(row.dict.locale);
+        }
+        return result;
+    }
+
+private:
+    QList<Row> rows_;
+};
+
+class SpellcheckSettingsController final : public SettingsController {
+    Q_OBJECT
+    Q_PROPERTY(QAbstractItemModel *dictionariesModel READ dictionariesModel CONSTANT)
+    Q_PROPERTY(bool usingSystemLanguages READ usingSystemLanguages NOTIFY usingSystemLanguagesChanged)
+public:
+    explicit SpellcheckSettingsController(SpellCheckPlugin *plugin, QObject *parent = nullptr) :
+        SettingsController(parent), plugin_(plugin), model_(new SpellcheckDictionaryModel(this))
+    {
+        originalUseSystem_ = plugin_->userLanguagePreferences().isEmpty();
+        useSystem_         = originalUseSystem_;
+        reloadRows();
+        originalSelected_ = selectedCodes();
+    }
+
+    QAbstractItemModel *dictionariesModel() const { return model_; }
+    bool                usingSystemLanguages() const { return useSystem_; }
+
+    Q_INVOKABLE void setDictionarySelected(int row, bool selected)
+    {
+        model_->setSelected(row, selected);
+        if (useSystem_) {
+            useSystem_ = false;
+            emit usingSystemLanguagesChanged();
+        }
+        updateCustomDirty();
+    }
+
+    Q_INVOKABLE void useSystemLanguages()
+    {
+        if (!useSystem_) {
+            useSystem_ = true;
+            emit usingSystemLanguagesChanged();
+        }
+        applySystemSelection();
+        updateCustomDirty();
+    }
+
+    Q_INVOKABLE void toggleDictionary(int row)
+    {
+        const auto *entry = model_->row(row);
+        if (!entry || entry->busy)
+            return;
+        const auto locale = entry->dict.locale;
+        if (entry->dict.flags & SpellCheckPlugin::DictInstalled) {
+            if (!(entry->dict.flags & SpellCheckPlugin::DictWritable))
+                return;
+            plugin_->removeDictionary(locale);
+            reloadRows();
+            updateCustomDirty();
+            return;
+        }
+
+        auto *downloader = plugin_->download(locale);
+        if (!downloader) {
+            setErrorString(tr("The dictionary cannot be downloaded."));
+            return;
+        }
+        model_->setBusy(row, true);
+        connect(downloader, &DictionaryDownloader::finished, this, [this, downloader, locale]() {
+            if (downloader->hasErrors())
+                setErrorString(downloader->lastError());
+            else
+                setErrorString({});
+            reloadRows();
+            updateCustomDirty();
+        });
+    }
+
+signals:
+    void usingSystemLanguagesChanged();
+
+protected:
+    bool applyValues(const QVariantMap &, QString *) override
+    {
+        plugin_->applyLanguagePreferences(model_->selectedLocales(), useSystem_);
+        originalUseSystem_ = useSystem_;
+        originalSelected_  = selectedCodes();
+        return true;
+    }
+
+    void afterReset() override
+    {
+        useSystem_ = originalUseSystem_;
+        emit usingSystemLanguagesChanged();
+        reloadRows();
+        for (int row = 0; row < model_->rowCount(); ++row) {
+            const auto *entry = model_->row(row);
+            model_->setSelected(row, entry && originalSelected_.contains(entry->dict.locale.bcp47Name()));
+        }
+        setDirty(false);
+    }
+
+private:
+    QStringList selectedCodes() const
+    {
+        QStringList result;
+        for (const auto &locale : model_->selectedLocales())
+            result.append(locale.bcp47Name());
+        result.sort();
+        return result;
+    }
+
+    void applySystemSelection()
+    {
+        for (int row = 0; row < model_->rowCount(); ++row) {
+            const auto *entry = model_->row(row);
+            model_->setSelected(row, entry && bool(entry->dict.flags & SpellCheckPlugin::DictSystemSelected));
+        }
+    }
+
+    void reloadRows()
+    {
+        const QStringList                     selectedBefore = selectedCodes();
+        QList<SpellcheckDictionaryModel::Row> rows;
+        for (const auto &dict : plugin_->dictionaries()) {
+            const bool selected = useSystem_
+                ? bool(dict.flags & SpellCheckPlugin::DictSystemSelected)
+                : (selectedBefore.isEmpty() ? bool(dict.flags & SpellCheckPlugin::DictUserSelected)
+                                            : selectedBefore.contains(dict.locale.bcp47Name()));
+            rows.append({ dict, selected, false, {} });
+        }
+        model_->setRows(std::move(rows));
+    }
+
+    void updateCustomDirty() { setDirty(useSystem_ != originalUseSystem_ || selectedCodes() != originalSelected_); }
+
+    SpellCheckPlugin          *plugin_;
+    SpellcheckDictionaryModel *model_;
+    bool                       useSystem_ { true };
+    bool                       originalUseSystem_ { true };
+    QStringList                originalSelected_;
+};
+
 //------------------------------------------------------------
 // SpellCheckPlugin
 //------------------------------------------------------------
-SpellCheckPlugin::SpellCheckPlugin(QObject *parent) : QObject(parent), qtnote_(0), host(0), sei(0) { }
+SpellCheckPlugin::SpellCheckPlugin(QObject *parent) : QObject(parent), host(nullptr), sei(nullptr) { }
 
-SpellCheckPlugin::~SpellCheckPlugin() { deinit(); }
+SpellCheckPlugin::~SpellCheckPlugin() { shutdown(); }
 
 int SpellCheckPlugin::metadataVersion() const { return MetadataVersion; }
 
@@ -83,20 +325,24 @@ PluginMetadata SpellCheckPlugin::metadata()
     md.name        = "Spell check";
     md.description = tr("Realtime spell check.");
     md.author      = "Sergei Ilinykh <rion4ik@gmail.com>";
-    md.version     = 0x020000;       // plugin's version 0xXXYYZZPP
-    md.minVersion  = 0x020300;       // minimum compatible version of QtNote
-    md.maxVersion  = QTNOTE_VERSION; // maximum compatible version of QtNote
-    md.homepage    = QUrl("http://ri0n.github.io/QtNote");
+    md.version     = 0x020000; // plugin's version 0xXXYYZZPP
+    md.minVersion  = 0x020300; // minimum compatible version of QtNote
+    md.maxVersion  = QTNOTE_VERSION;
+    md.extra.insert(QStringLiteral("configurable"), true); // maximum compatible version of QtNote
+    md.homepage = QUrl("http://ri0n.github.io/QtNote");
     return md;
 }
 
 void SpellCheckPlugin::setHost(PluginHostInterface *host) { this->host = host; }
 
-bool SpellCheckPlugin::init(Main *qtnote)
+bool SpellCheckPlugin::initialize()
 {
-    deinit();
+    shutdown();
+    if (!host) {
+        initializationFailure_ = tr("Plugin host is unavailable");
+        return false;
+    }
     initializationFailure_.clear();
-    qtnote_      = qtnote;
     engineOwner_ = std::make_shared<HunspellEngine>(host);
     sei          = engineOwner_.get();
     auto langs   = userLanguagePreferences();
@@ -125,7 +371,7 @@ bool SpellCheckPlugin::init(Main *qtnote)
     qInfo() << "Hunspell provider" << (accepted ? "accepted" : "not selected");
     if (!accepted) {
         const auto failure = provider->disabledReason();
-        deinit();
+        shutdown();
         initializationFailure_ = failure;
         qInfo() << "Hunspell dictionaries unloaded after provider rejection";
         return false;
@@ -134,11 +380,8 @@ bool SpellCheckPlugin::init(Main *qtnote)
     return true;
 }
 
-void SpellCheckPlugin::deinit()
+void SpellCheckPlugin::shutdown()
 {
-    if (qtnote_) {
-        qtnote_ = nullptr;
-    }
     if (sei) {
         disconnect(sei, nullptr, this, nullptr);
         sei = nullptr;
@@ -181,13 +424,12 @@ QString SpellCheckPlugin::tooltip() const
     return ret;
 }
 
-QDialog *SpellCheckPlugin::optionsDialog()
-{
-    auto s = new SettingsDlg(this);
-    connect(s, SIGNAL(accepted()), SLOT(settingsAccepted()));
-    return s;
-}
+QUrl SpellCheckPlugin::settingsComponent() const { return QUrl(QStringLiteral("qrc:/qml/SpellcheckSettings.qml")); }
 
+SettingsController *SpellCheckPlugin::createSettingsController(QObject *parent)
+{
+    return new SpellcheckSettingsController(this, parent);
+}
 QList<QLocale> SpellCheckPlugin::systemLanguagePreferences() const
 {
     QLocale     systemLocale = QLocale::system();
@@ -306,30 +548,31 @@ QList<QLocale> SpellCheckPlugin::userLanguagePreferences() const
     return ret;
 }
 
-void SpellCheckPlugin::settingsAccepted()
+void SpellCheckPlugin::applyLanguagePreferences(const QList<QLocale> &selected, bool useSystemPreferences)
 {
-    if (!sei) {
+    if (!sei)
         return;
-    }
-    auto       dlg             = (SettingsDlg *)sender();
-    auto       ret             = dlg->preferredList();
-    const auto activeLanguages = ret.isEmpty() ? systemLanguagePreferences() : ret;
-    QSettings  s;
-    s.beginGroup("plugins");
-    s.beginGroup(pluginId);
-    QStringList langs;
-    foreach (const QLocale &locale, activeLanguages) {
+
+    const auto activeLanguages = useSystemPreferences ? systemLanguagePreferences() : selected;
+    QSettings  settings;
+    settings.beginGroup(QStringLiteral("plugins"));
+    settings.beginGroup(pluginId);
+
+    QStringList storedLanguages;
+    for (const auto &locale : activeLanguages)
         sei->addLanguage(locale);
-    }
-    foreach (const QLocale &locale, ret) {
-        langs.append(locale.bcp47Name());
+    if (!useSystemPreferences) {
+        for (const auto &locale : selected)
+            storedLanguages.append(locale.bcp47Name());
     }
     for (const auto &dict : sei->loadedDicts()) {
         const auto locale = dict.toLocale();
         if (!activeLanguages.contains(locale))
             sei->removeLanguage(locale);
     }
-    s.setValue(QLatin1String("langs"), langs);
+    settings.setValue(QStringLiteral("langs"), storedLanguages);
 }
 
 } // namespace QtNote
+
+#include "spellcheckplugin.moc"

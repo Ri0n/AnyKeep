@@ -9,7 +9,7 @@
 #include "utils.h"
 #include "xmppbackend.h"
 #include "xmppkeyresolutiondialog.h"
-#include "xmppsettingswidget.h"
+#include "xmppsettingscontroller.h"
 #include "xmppworker.h"
 
 #include <QApplication>
@@ -149,15 +149,15 @@ void XmppStorage::installReceivedStorageKey(const QString &jid, const QByteArray
         finishInitialization();
 }
 
-void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsWidget *settings)
+void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController *settings)
 {
     if (jid.isEmpty() || keyResolutionInProgress_)
         return;
-    keyResolutionInProgress_           = true;
-    auto config                        = readConfig();
-    config.jid                         = jid;
-    const auto                   epoch = configEpoch_;
-    QPointer<XmppSettingsWidget> settingsGuard(settings);
+    keyResolutionInProgress_               = true;
+    auto config                            = readConfig();
+    config.jid                             = jid;
+    const auto                       epoch = configEpoch_;
+    QPointer<XmppSettingsController> settingsGuard(settings);
     QMetaObject::invokeMethod(backend_, [this, config, jid, settingsGuard, epoch]() {
         if (shuttingDown_ || epoch != configEpoch_) {
             keyResolutionInProgress_ = false;
@@ -173,8 +173,7 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsWidget *set
                         keyResolutionInProgress_ = false;
                         return;
                     }
-                    QWidget *parent
-                        = settingsGuard ? static_cast<QWidget *>(settingsGuard.data()) : QApplication::activeWindow();
+                    QWidget   *parent          = QApplication::activeWindow();
                     const bool localKeyMissing = readConfig().masterKey.size() != SecureEnvelope::MasterKeySize;
                     XmppKeyResolutionDialog dialog(
                         localKeyMissing, devices, deviceError,
@@ -1166,14 +1165,16 @@ void XmppStorage::applyConfig(const XmppConfig &config)
     emit invalidated();
 }
 
-QWidget *XmppStorage::settingsWidget()
+QUrl XmppStorage::settingsComponent() const { return QUrl(QStringLiteral("qrc:/qml/XmppSettings.qml")); }
+
+SettingsController *XmppStorage::createSettingsController(QObject *parent)
 {
     const auto current = readConfig();
-    auto      *widget  = new XmppSettingsWidget(current);
+    auto      *widget  = new XmppSettingsController(this, current, parent);
     widget->setKeyState(SecureEnvelope::keyId(current.masterKey));
-    connect(this, &XmppStorage::encryptionKeyChanged, widget, &XmppSettingsWidget::setKeyState);
-    connect(widget, &XmppSettingsWidget::apply, this, [this, widget]() { applyConfig(widget->config()); });
-    connect(widget, &XmppSettingsWidget::createKeyRequested, this, [this, widget](const QString &jid) {
+    connect(this, &XmppStorage::encryptionKeyChanged, widget, &XmppSettingsController::setKeyState);
+    connect(widget, &XmppSettingsController::applyConfigRequested, this, &XmppStorage::applyConfig);
+    connect(widget, &XmppSettingsController::createKeyRequested, this, [this, widget](const QString &jid) {
         if (jid.isEmpty()) {
             widget->setKeyState({}, tr("Enter the XMPP JID first"));
             return;
@@ -1192,7 +1193,7 @@ QWidget *XmppStorage::settingsWidget()
         widget->setKeyState(SecureEnvelope::keyId(key));
         clearErrorState();
     });
-    connect(widget, &XmppSettingsWidget::importKeyRequested, this,
+    connect(widget, &XmppSettingsController::importKeyRequested, this,
             [this, widget](const QString &jid, const QString &encoded) {
                 if (jid.isEmpty()) {
                     widget->setKeyState({}, tr("Enter the XMPP JID first"));
@@ -1217,7 +1218,7 @@ QWidget *XmppStorage::settingsWidget()
                 widget->setKeyState(SecureEnvelope::keyId(imported.value));
                 clearErrorState();
             });
-    connect(widget, &XmppSettingsWidget::exportKeyRequested, this, [widget](const QString &jid) {
+    connect(widget, &XmppSettingsController::exportKeyRequested, this, [widget](const QString &jid) {
         auto key = SecureKeyStore::read(storageKeyName(jid));
         if (!key) {
             widget->setKeyState({}, key.error.message);
@@ -1226,21 +1227,21 @@ QWidget *XmppStorage::settingsWidget()
         widget->setRecoveryKey(SecureEnvelope::encodeRecoveryKey(key.value));
         widget->setKeyState(SecureEnvelope::keyId(key.value));
     });
-    connect(widget, &XmppSettingsWidget::omemoSyncRequested, this, [this, widget](const QString &jid) {
+    connect(widget, &XmppSettingsController::omemoSyncRequested, this, [this, widget](const QString &jid) {
         if (jid != config_.jid) {
             widget->setKeyState({}, tr("Apply the account settings before synchronizing the storage key"));
             return;
         }
         resolveStorageKeys(jid, widget);
     });
-    connect(widget, &XmppSettingsWidget::omemoDevicesRequested, this, [this, widget](const QString &jid) {
+    connect(widget, &XmppSettingsController::omemoDevicesRequested, this, [this, widget](const QString &jid) {
         if (jid != config_.jid) {
             widget->setKeyState({}, tr("Apply the account settings before querying OMEMO devices"));
             return;
         }
-        const auto                   config = config_;
-        const auto                   epoch  = configEpoch_;
-        QPointer<XmppSettingsWidget> guard(widget);
+        const auto                       config = config_;
+        const auto                       epoch  = configEpoch_;
+        QPointer<XmppSettingsController> guard(widget);
         QMetaObject::invokeMethod(backend_, [this, guard, config, epoch]() {
             if (shuttingDown_ || epoch != configEpoch_)
                 return;
@@ -1268,14 +1269,14 @@ QWidget *XmppStorage::settingsWidget()
             });
         });
     });
-    connect(widget, &XmppSettingsWidget::repairOmemoDeviceRequested, this, [this, widget](const QString &jid) {
+    connect(widget, &XmppSettingsController::repairOmemoDeviceRequested, this, [this, widget](const QString &jid) {
         if (jid != config_.jid) {
             widget->setKeyState({}, tr("Apply the account settings before repairing the OMEMO device"));
             return;
         }
-        const auto                   config = config_;
-        const auto                   epoch  = configEpoch_;
-        QPointer<XmppSettingsWidget> guard(widget);
+        const auto                       config = config_;
+        const auto                       epoch  = configEpoch_;
+        QPointer<XmppSettingsController> guard(widget);
         QMetaObject::invokeMethod(backend_, [this, guard, config, epoch]() {
             if (shuttingDown_ || epoch != configEpoch_)
                 return;
@@ -1288,8 +1289,8 @@ QWidget *XmppStorage::settingsWidget()
                     [guard, result]() {
                         if (!guard)
                             return;
-                        guard->setKeyState({},
-                                           result.ok ? XmppSettingsWidget::tr("OMEMO device repaired") : result.error);
+                        guard->setKeyState(
+                            {}, result.ok ? XmppSettingsController::tr("OMEMO device repaired") : result.error);
                         if (result.ok)
                             emit guard->omemoDevicesRequested(guard->config().jid);
                     },
@@ -1297,15 +1298,15 @@ QWidget *XmppStorage::settingsWidget()
             });
         });
     });
-    connect(widget, &XmppSettingsWidget::trustOmemoDeviceRequested, this,
+    connect(widget, &XmppSettingsController::trustOmemoDeviceRequested, this,
             [this, widget](const QString &jid, const QByteArray &keyId) {
                 if (jid != config_.jid) {
                     widget->setKeyState({}, tr("Apply the account settings before changing OMEMO trust"));
                     return;
                 }
-                const auto                   config = config_;
-                const auto                   epoch  = configEpoch_;
-                QPointer<XmppSettingsWidget> guard(widget);
+                const auto                       config = config_;
+                const auto                       epoch  = configEpoch_;
+                QPointer<XmppSettingsController> guard(widget);
                 QMetaObject::invokeMethod(backend_, [this, guard, config, keyId, epoch]() {
                     if (shuttingDown_ || epoch != configEpoch_)
                         return;
@@ -1317,8 +1318,9 @@ QWidget *XmppStorage::settingsWidget()
                             this,
                             [guard, result]() {
                                 if (guard)
-                                    guard->setKeyState(
-                                        {}, result.ok ? XmppSettingsWidget::tr("OMEMO device trusted") : result.error);
+                                    guard->setKeyState({},
+                                                       result.ok ? XmppSettingsController::tr("OMEMO device trusted")
+                                                                 : result.error);
                             },
                             Qt::QueuedConnection);
                     });

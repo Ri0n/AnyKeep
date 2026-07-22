@@ -33,6 +33,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "notewidget.h"
 #include "pluginhost.h"
 #include "pluginmanager.h"
+
+#include "desktopeditorplatformbackend.h"
 #include "qtnote.h"
 #include "shortcutsmanager.h"
 #include "spellcheckproviderinterface.h"
@@ -233,17 +235,20 @@ private:
     }
 };
 
-PluginManager::PluginManager(Main *parent) : QObject(parent), qtnote(parent), pluginHost(new PluginHost(this))
+PluginManager::PluginManager(Main *parent) : PluginListSource(parent), qtnote(parent), pluginHost(new PluginHost(this))
 {
     QSettings s;
 
     QDir(iconsCacheDir()).mkpath(QLatin1String("."));
     updateMetadata();
 
-    connect(qtnote, &Main::noteWidgetCreated, this, [this](QWidget *w) {
-        NoteWidget *nw = qobject_cast<NoteWidget *>(w);
-        connect(pluginHost, &PluginHost::rehightlight_requested, nw, [nw]() { nw->rehighlight(); });
-        pluginHost->attachSpellCheck(w);
+    connect(qtnote, &Main::noteWidgetCreated, this, [this](QWidget *widget) {
+        auto *noteWidget = qobject_cast<NoteWidget *>(widget);
+        if (!noteWidget)
+            return;
+        connect(pluginHost, &PluginHost::rehightlight_requested, noteWidget,
+                [noteWidget]() { noteWidget->rehighlight(); });
+        pluginHost->attachSpellCheck(noteWidget);
     });
     connect(pluginHost, &PluginHost::spellCheckProviderConflict, this,
             [this](const QString &activeName, const QString &ignoredName) {
@@ -264,6 +269,15 @@ PluginManager::~PluginManager()
             p->instance = 0;
         }
     }
+}
+
+void PluginManager::attachEditorPlatformBackend(DesktopEditorPlatformBackend *backend)
+{
+    if (!backend)
+        return;
+    connect(pluginHost, &PluginHost::rehightlight_requested, backend, &DesktopEditorPlatformBackend::rehighlight,
+            Qt::UniqueConnection);
+    pluginHost->attachSpellCheck(backend);
 }
 
 void PluginManager::loadPlugins()
@@ -480,6 +494,7 @@ void PluginManager::loadPlugins()
     foreach (PluginData::Ptr pd, regularPlugins) {
         initRegularPlugin(pd);
     }
+    emit pluginsReset();
 }
 
 bool PluginManager::ensureLoaded(PluginData::Ptr pd)
@@ -511,7 +526,7 @@ bool PluginManager::initRegularPlugin(const PluginData::Ptr &pd)
     if (!plugin) {
         return false;
     }
-    if (plugin->init(qtnote)) {
+    if (plugin->initialize()) {
         pd->loadStatus = LS_Initialized;
         return true;
     }
@@ -528,46 +543,143 @@ void PluginManager::deinitRegularPlugin(const PluginData::Ptr &pd)
     if (!plugin) {
         return;
     }
-    plugin->deinit();
+    plugin->shutdown();
     pd->loadStatus = LS_Loaded;
 }
 
 void PluginManager::setLoadPolicy(const QString &pluginId, PluginManager::LoadPolicy lp)
 {
     auto pd = plugins.value(pluginId);
-    if (!pd) {
+    if (!pd)
         return;
-    }
 
-    QSettings s;
+    QSettings settings;
     pd->loadPolicy         = lp;
     pd->loadPolicyExplicit = true;
-    s.beginGroup("plugins");
-    s.beginGroup(pluginId);
-    s.setValue("loadPolicy", (int)lp);
-    s.setValue("loadPolicyExplicit", true);
+    settings.beginGroup(QStringLiteral("plugins"));
+    settings.beginGroup(pluginId);
+    settings.setValue(QStringLiteral("loadPolicy"), int(lp));
+    settings.setValue(QStringLiteral("loadPolicyExplicit"), true);
 
-    if (!(pd->features & RegularPlugin)) {
-        return;
+    if (pd->features & RegularPlugin) {
+        if (lp == LP_Disabled)
+            deinitRegularPlugin(pd);
+        else
+            initRegularPlugin(pd);
     }
-    if (lp == LP_Disabled) {
-        deinitRegularPlugin(pd);
-    } else {
-        initRegularPlugin(pd);
+    emit pluginChanged(pluginId);
+}
+
+bool PluginManager::hasLiveInstance(const PluginData::Ptr &plugin)
+{
+    if (!plugin || !plugin->instance || plugin->loadPolicy == LP_Disabled)
+        return false;
+
+    return plugin->loadStatus == LS_Loaded || plugin->loadStatus == LS_Initialized;
+}
+
+bool PluginManager::canConfigure(const QString &pluginId) const
+{
+    const auto plugin = plugins.value(pluginId);
+    if (!hasLiveInstance(plugin))
+        return false;
+
+    if (plugin->metadata.extra.value(QStringLiteral("configurable")).toBool())
+        return true;
+
+    return qobject_cast<SettingsProviderInterface *>(plugin->instance) != nullptr;
+}
+
+QStringList PluginManager::pluginIds() const { return pluginsIds(); }
+
+PluginListSource::Entry PluginManager::pluginEntry(const QString &pluginId) const
+{
+    Entry      entry;
+    const auto pd = plugins.value(pluginId);
+    if (!pd)
+        return entry;
+
+    entry.id           = pluginId;
+    entry.name         = pd->metadata.name;
+    entry.description  = pd->metadata.description;
+    entry.fileName     = pd->fileName;
+    entry.icon         = pd->metadata.icon;
+    entry.loadPolicy   = pd->loadPolicy;
+    entry.loadStatus   = pd->loadStatus;
+    entry.loaded       = isLoaded(pluginId);
+    entry.configurable = canConfigure(pluginId);
+
+    quint32     version = pd->metadata.version;
+    QStringList versionParts;
+    while (version) {
+        versionParts.append(QString::number((version & 0xff000000) >> 24));
+        version <<= 8;
     }
+    if (versionParts.size() < 2)
+        versionParts.append(QStringLiteral("0"));
+    entry.versionText = versionParts.join(QLatin1Char('.'));
+
+    entry.tooltip = pd->metadata.description;
+    if (!entry.fileName.isEmpty())
+        entry.tooltip += QStringLiteral("<br/><br/>") + tr("<b>Filename:</b> %1").arg(entry.fileName);
+    const QString pluginTooltip = tooltip(pluginId);
+    if (!pluginTooltip.isEmpty())
+        entry.tooltip += QStringLiteral("<br/><br/>") + pluginTooltip;
+    return entry;
+}
+
+QUrl PluginManager::settingsComponent(const QString &pluginId) const
+{
+    const auto pd = plugins.value(pluginId);
+    if (!hasLiveInstance(pd))
+        return {};
+
+    auto *provider = qobject_cast<SettingsProviderInterface *>(pd->instance);
+    return provider ? provider->settingsComponent() : QUrl();
+}
+
+SettingsController *PluginManager::createSettingsController(const QString &pluginId, QObject *parent)
+{
+    const auto pd = plugins.value(pluginId);
+    if (!pd || pd->loadPolicy == LP_Disabled || !ensureLoaded(pd) || !hasLiveInstance(pd))
+        return nullptr;
+
+    auto *provider = qobject_cast<SettingsProviderInterface *>(pd->instance);
+    return provider ? provider->createSettingsController(parent) : nullptr;
+}
+
+bool PluginManager::setPluginLoadPolicy(const QString &pluginId, LoadPolicy policy)
+{
+    if (!plugins.contains(pluginId))
+        return false;
+    setLoadPolicy(pluginId, policy);
+    return true;
+}
+
+bool PluginManager::setPluginOrder(const QStringList &pluginIds)
+{
+    if (pluginIds.size() != plugins.size()
+        || QSet<QString>(pluginIds.cbegin(), pluginIds.cend()).size() != plugins.size())
+        return false;
+    for (const auto &pluginId : pluginIds) {
+        if (!plugins.contains(pluginId))
+            return false;
+    }
+    QSettings().setValue(QStringLiteral("plugins-priority"), pluginIds);
+    emit pluginsReset();
+    return true;
 }
 
 QStringList PluginManager::pluginsIds() const { return QSettings().value("plugins-priority").toStringList(); }
 
 QString PluginManager::tooltip(const QString &pluginId) const
 {
-    PluginData::Ptr                pd = plugins[pluginId];
-    PluginOptionsTooltipInterface *plugin;
-    if ((pd->loadPolicy != LP_Disabled && pd->loadStatus && pd->loadStatus < LS_Errors)
-        && (plugin = qobject_cast<PluginOptionsTooltipInterface *>(pd->instance))) {
-        return plugin->tooltip();
-    }
-    return QString();
+    const auto pd = plugins.value(pluginId);
+    if (!hasLiveInstance(pd))
+        return {};
+
+    auto *plugin = qobject_cast<PluginOptionsTooltipInterface *>(pd->instance);
+    return plugin ? plugin->tooltip() : QString();
 }
 
 QList<SpeechRecognitionProviderInterface *> PluginManager::speechRecognitionProviders() const
@@ -666,6 +778,17 @@ void PluginManager::updateMetadata()
 PluginManager::LoadStatus PluginManager::loadPlugin(const QString &fileName, PluginData::Ptr &cache,
                                                     QLibrary::LoadHints loadHints)
 {
+    if (cache)
+        cache->instance = nullptr;
+
+    const auto fail = [&cache](LoadStatus status) {
+        if (cache) {
+            cache->instance   = nullptr;
+            cache->loadStatus = status;
+        }
+        return status;
+    };
+
 #ifdef QTNOTE_DEVEL
     qDebug("Loading plugin: %s", qPrintable(fileName));
 #endif
@@ -679,7 +802,7 @@ PluginManager::LoadStatus PluginManager::loadPlugin(const QString &fileName, Plu
         if (!qnp) {
             loader.unload();
             qDebug("not QtNote plugin %s. ignore it", qPrintable(fileName));
-            return LS_ErrAbi;
+            return fail(LS_ErrAbi);
         }
 
         PluginMetadata md           = qnp->metadata();
@@ -691,14 +814,14 @@ PluginManager::LoadStatus PluginManager::loadPlugin(const QString &fileName, Plu
             } else {
                 qDebug("Metadata version of QtNote plugin %s is incompatible", qPrintable(fileName));
             }
-            return LS_ErrMetadata;
+            return fail(LS_ErrMetadata);
         }
 
         LoadStatus loadStatus = LS_Loaded;
         if ((QTNOTE_VERSION < md.minVersion) || (QTNOTE_VERSION > md.maxVersion)) {
             loader.unload();
             qDebug("Incompatible version of qtnote plugin %s. ignore it", qPrintable(fileName));
-            return LS_ErrVersion;
+            return fail(LS_ErrVersion);
         }
 
         if (!cache) {
@@ -750,7 +873,8 @@ PluginManager::LoadStatus PluginManager::loadPlugin(const QString &fileName, Plu
         }
         if (cache->loadPolicy == LP_Disabled || loadHints & QLibrary::ExportExternalSymbolsHint) {
             loader.unload();
-            loadStatus = LS_Unloaded; // actual status knows only QPluginLoader. probably I should fix it
+            cache->instance = nullptr;
+            loadStatus      = LS_Unloaded;
         }
         cache->loadStatus = loadStatus;
 
@@ -761,7 +885,7 @@ PluginManager::LoadStatus PluginManager::loadPlugin(const QString &fileName, Plu
         return loadStatus;
     }
     qDebug("failed to load %s : %s", qPrintable(fileName), qPrintable(loader.errorString()));
-    return LS_ErrNotPlugin;
+    return fail(LS_ErrNotPlugin);
 }
 
 } // namespace QtNote

@@ -3,6 +3,7 @@
 #include "draftmanager.h"
 #include "noteblockmodel.h"
 #include "notedocumenthistory.h"
+#include "notestorage.h"
 #include "utils.h"
 
 #include <QDebug>
@@ -125,12 +126,10 @@ void NoteEditor::setText(const QString &text)
 
 void NoteEditor::setMarkdown(bool markdown)
 {
-    const auto format = markdown ? Note::Markdown : Note::PlainText;
-    if (format_ == format)
+    const auto target = markdown ? Note::Markdown : Note::PlainText;
+    if (format_ == target && model_->markdown() == markdown)
         return;
-    format_ = format;
-    emit formatChanged();
-    setDirty(true);
+    loadDocument(text_, target, LoadPolicy::RecordFormatConversion);
 }
 
 bool NoteEditor::save()
@@ -202,6 +201,20 @@ bool NoteEditor::discardDraft()
     return true;
 }
 
+bool NoteEditor::discardAndClose()
+{
+    if (sessionReleased_)
+        return true;
+    const auto result = drafts_->discard(draftId_);
+    if (result && result.code != DraftStoreError::NotFound)
+        return setError(result.message);
+    draftPersisted_ = false;
+    drafts_->releaseEditingSession(draftId_);
+    sessionReleased_ = true;
+    setDirty(false);
+    return true;
+}
+
 void NoteEditor::setDirty(bool dirty)
 {
     if (dirty_ == dirty)
@@ -256,6 +269,10 @@ bool NoteEditor::canRedo() const { return history_->canRedo(); }
 QString NoteEditor::undoText() const { return history_->undoText(); }
 
 QString NoteEditor::redoText() const { return history_->redoText(); }
+
+bool NoteEditor::supportsMedia() const { return note_.storage() && note_.storage()->supportsMedia(); }
+
+bool NoteEditor::canInsertImages() const { return supportsMedia() && isMarkdown(); }
 
 bool NoteEditor::historyInTransaction() const { return history_->inTransaction(); }
 

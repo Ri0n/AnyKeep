@@ -1,91 +1,128 @@
 #include "notessearchmodel.h"
+
 #include "notemanager.h"
 #include "notesmodel.h"
 
-#include <QtGlobal>
-
 namespace QtNote {
 
-NotesSearchModel::NotesSearchModel(QObject *parent) : QSortFilterProxyModel(parent), _searchInBody(false)
+NotesSearchModel::NotesSearchModel(QObject *parent) : QSortFilterProxyModel(parent)
 {
-    _finder = NoteManager::search();
-    _finder->setParent(this);
-    connect(_finder, SIGNAL(found(QString, QString)), SLOT(noteFound(QString, QString)));
+    setDynamicSortFilter(true);
+    setFilterCaseSensitivity(Qt::CaseInsensitive);
+    setFilterRole(NotesModel::TitleRole);
+    setRecursiveFilteringEnabled(true);
+    setAutoAcceptChildRows(false);
 }
 
 bool NotesSearchModel::hasBodyMatch(const QString &storageId, const QString &noteId) const
 {
-    return _foundCache.contains(storageId) && _foundCache[storageId].contains(noteId);
+    return foundCache_.value(storageId).contains(noteId);
 }
 
 void NotesSearchModel::setSearchText(const QString &text)
 {
-    _text = text;
-    _foundCache.clear();
-    if (_searchInBody) {
-        _finder->start(_text);
-    }
-    setFilterFixedString(text);
-}
-
-bool NotesSearchModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const
-{
-    if (!sourceParent.isValid()) {
-        return true; // include storages
-    }
-    QModelIndex index = sourceModel()->index(sourceRow, 0, sourceParent);
-    if (_searchInBody) {
-        QString storageId = sourceModel()->data(index, NotesModel::StorageIdRole).toString();
-        if (_foundCache.contains(storageId)) {
-            QString noteId = sourceModel()->data(index, NotesModel::NoteIdRole).toString();
-            if (_foundCache[storageId].contains(noteId)) {
-                return true;
-            }
-        }
-    }
-    if (QSortFilterProxyModel::filterAcceptsRow(sourceRow, sourceParent)) {
-        return true;
-    }
-
-    auto filter = _text.trimmed();
-    if (filter.startsWith(QLatin1Char('*'))) {
-        filter.remove(0, 1);
-    }
-    if (filter.isEmpty()) {
-        return false;
-    }
-
-    const auto tags = sourceModel()->data(index, NotesModel::TagsRole).toStringList();
-    for (const auto &tag : tags) {
-        if (tag.contains(filter, Qt::CaseInsensitive)) {
-            return true;
-        }
-    }
-    return false;
+    if (text_ == text)
+        return;
+    text_ = text;
+    emit searchTextChanged();
+    if (auto *notes = qobject_cast<NotesModel *>(sourceModel()))
+        notes->setSearchActive(!text.trimmed().isEmpty());
+    setFilterFixedString(text.trimmed());
+    restartBodySearch();
 }
 
 void NotesSearchModel::setSearchInBody(bool allow)
 {
-    _searchInBody = allow;
-    if (allow) {
-        _finder->start(_text);
-    } else {
-        _finder->abort();
-        if (_foundCache.count()) {
-            _foundCache.clear();
-            invalidateRowsFilter();
-        }
+    if (searchInBody_ == allow)
+        return;
+    searchInBody_ = allow;
+    emit searchInBodyChanged();
+    restartBodySearch();
+}
+
+bool NotesSearchModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const
+{
+    if (!sourceModel())
+        return false;
+
+    const QModelIndex index = sourceModel()->index(sourceRow, 0, sourceParent);
+    if (!index.isValid())
+        return false;
+
+    if (!sourceParent.isValid()) {
+        if (text_.trimmed().isEmpty())
+            return true;
+        const QString storageName = sourceModel()->data(index, NotesModel::StorageNameRole).toString();
+        return storageName.contains(text_.trimmed(), Qt::CaseInsensitive);
     }
+
+    const QString storageId = sourceModel()->data(index, NotesModel::StorageIdRole).toString();
+    const QString noteId    = sourceModel()->data(index, NotesModel::NoteIdRole).toString();
+    if (searchInBody_ && hasBodyMatch(storageId, noteId))
+        return true;
+
+    if (QSortFilterProxyModel::filterAcceptsRow(sourceRow, sourceParent))
+        return true;
+
+    QString tagFilter = text_.trimmed();
+    if (tagFilter.startsWith(QLatin1Char('*')))
+        tagFilter.remove(0, 1);
+    if (tagFilter.isEmpty())
+        return false;
+
+    const auto tags = sourceModel()->data(index, NotesModel::TagsRole).toStringList();
+    for (const auto &tag : tags) {
+        if (tag.contains(tagFilter, Qt::CaseInsensitive))
+            return true;
+    }
+    return false;
 }
 
 void NotesSearchModel::noteFound(const QString &storageId, const QString &noteId)
 {
-    if (!_foundCache.contains(storageId)) {
-        _foundCache[storageId] = QStringList(noteId);
-    } else {
-        _foundCache[storageId] << noteId;
-    }
-    static_cast<NotesModel *>(sourceModel())->invalidateNote(storageId, noteId);
+    if (sender() && sender() != finder_)
+        return;
+    auto &notes = foundCache_[storageId];
+    if (!notes.contains(noteId))
+        notes.append(noteId);
+    invalidateRowsFilter();
+}
+
+void NotesSearchModel::searchCompleted()
+{
+    if (sender() && sender() != finder_)
+        return;
+    finder_.clear();
+    setSearching(false);
+    invalidateRowsFilter();
+}
+
+void NotesSearchModel::restartBodySearch()
+{
+    if (finder_)
+        finder_->abort();
+    finder_.clear();
+    foundCache_.clear();
+    setSearching(false);
+    invalidateRowsFilter();
+
+    if (!searchInBody_ || text_.trimmed().isEmpty())
+        return;
+
+    finder_ = NoteManager::search();
+    finder_->setParent(this);
+    connect(finder_, &GlobalNoteFinder::found, this, &NotesSearchModel::noteFound);
+    connect(finder_, &GlobalNoteFinder::completed, this, &NotesSearchModel::searchCompleted);
+    setSearching(true);
+    finder_->start(text_.trimmed());
+}
+
+void NotesSearchModel::setSearching(bool searching)
+{
+    if (searching_ == searching)
+        return;
+    searching_ = searching;
+    emit searchingChanged();
 }
 
 void NotesSearchModel::invalidateRowsFilter()

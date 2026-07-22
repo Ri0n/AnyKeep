@@ -1,26 +1,18 @@
 #include "geminiplugin.h"
 
-#include <QBoxLayout>
 #include <QDebug>
-#include <QDesktopServices>
-#include <QDialog>
-#include <QDialogButtonBox>
-#include <QFormLayout>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QLabel>
-#include <QLineEdit>
 #include <QNetworkReply>
 #include <QNetworkRequest>
-#include <QPlainTextEdit>
-#include <QPushButton>
 #include <QSettings>
 #include <QUrlQuery>
 #include <QtEndian>
 #include <QtPlugin>
 
 #include "qtnote_config.h"
+#include "settingscontroller.h"
 
 namespace QtNote {
 
@@ -261,61 +253,32 @@ private:
     bool                     cancelled = false;
 };
 
-class GeminiSettingsDialog : public QDialog {
-    Q_OBJECT
+class GeminiSettingsController final : public SettingsController {
 public:
-    explicit GeminiSettingsDialog(GeminiPlugin *plugin) : QDialog(), plugin(plugin)
+    explicit GeminiSettingsController(GeminiPlugin *plugin, QObject *parent) :
+        SettingsController(parent), plugin_(plugin)
     {
-        setAttribute(Qt::WA_DeleteOnClose);
-
-        auto s      = plugin->settings();
-        auto layout = new QVBoxLayout(this);
-
-        auto form = new QFormLayout;
-        apiKey    = new QLineEdit(s.apiKey, this);
-        apiKey->setEchoMode(QLineEdit::Password);
-        model = new QLineEdit(s.model.isEmpty() ? DefaultModel : s.model, this);
-        form->addRow(tr("API key:"), apiKey);
-        form->addRow(tr("Model:"), model);
-        layout->addLayout(form);
-
-        prompt = new QPlainTextEdit(s.prompt.isEmpty() ? defaultPrompt() : s.prompt, this);
-        prompt->setMinimumHeight(90);
-        layout->addWidget(new QLabel(tr("Transcription prompt:"), this));
-        layout->addWidget(prompt);
-
-        auto getKeyButton = new QPushButton(tr("Get API key"), this);
-        connect(getKeyButton, &QPushButton::clicked, this,
-                []() { QDesktopServices::openUrl(QUrl(QLatin1String("https://aistudio.google.com/app/apikey"))); });
-        layout->addWidget(getKeyButton);
-
-        auto stats      = plugin->speechRecognitionUsageStats();
-        auto statsLabel = new QLabel(stats.humanSummary, this);
-        statsLabel->setWordWrap(true);
-        layout->addWidget(statsLabel);
-
-        auto buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
-        connect(buttons, &QDialogButtonBox::accepted, this, &GeminiSettingsDialog::saveAndAccept);
-        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-        layout->addWidget(buttons);
+        const auto settings = plugin_->settings();
+        addField({ QStringLiteral("apiKey"), tr("API key"), QString(), Password, settings.apiKey });
+        addField({ QStringLiteral("model"), tr("Model"), QString(), Text, settings.model });
+        addField({ QStringLiteral("prompt"), tr("Transcription prompt"), QString(), Multiline, settings.prompt });
+        const auto stats = plugin_->speechRecognitionUsageStats();
+        addField({ QStringLiteral("usage"), tr("Usage"), QString(), ReadOnly, stats.humanSummary });
     }
 
-private slots:
-    void saveAndAccept()
+protected:
+    bool applyValues(const QVariantMap &values, QString *) override
     {
-        GeminiPlugin::Settings s;
-        s.apiKey = apiKey->text().trimmed();
-        s.model  = model->text().trimmed();
-        s.prompt = prompt->toPlainText().trimmed();
-        plugin->saveSettings(s);
-        accept();
+        GeminiPlugin::Settings settings;
+        settings.apiKey = values.value(QStringLiteral("apiKey")).toString().trimmed();
+        settings.model  = values.value(QStringLiteral("model")).toString().trimmed();
+        settings.prompt = values.value(QStringLiteral("prompt")).toString().trimmed();
+        plugin_->saveSettings(settings);
+        return true;
     }
 
 private:
-    GeminiPlugin   *plugin = nullptr;
-    QLineEdit      *apiKey = nullptr;
-    QLineEdit      *model  = nullptr;
-    QPlainTextEdit *prompt = nullptr;
+    GeminiPlugin *plugin_;
 };
 
 GeminiPlugin::GeminiPlugin(QObject *parent) : QObject(parent) { network = new QNetworkAccessManager(this); }
@@ -334,16 +297,15 @@ PluginMetadata GeminiPlugin::metadata()
     md.version     = 0x000100;
     md.minVersion  = 0x030200;
     md.maxVersion  = QTNOTE_VERSION;
+    md.extra.insert(QStringLiteral("configurable"), true);
     return md;
 }
 
 void GeminiPlugin::setHost(PluginHostInterface *host) { Q_UNUSED(host); }
 
-bool GeminiPlugin::init(Main *qtnote)
-{
-    Q_UNUSED(qtnote);
-    return true;
-}
+bool GeminiPlugin::initialize() { return true; }
+
+void GeminiPlugin::shutdown() { }
 
 QString GeminiPlugin::tooltip() const
 {
@@ -354,7 +316,12 @@ QString GeminiPlugin::tooltip() const
     return lines.join(QLatin1String("<br/>"));
 }
 
-QDialog *GeminiPlugin::optionsDialog() { return new GeminiSettingsDialog(this); }
+QUrl GeminiPlugin::settingsComponent() const { return QUrl(QStringLiteral("qrc:/qml/SettingsForm.qml")); }
+
+SettingsController *GeminiPlugin::createSettingsController(QObject *parent)
+{
+    return new GeminiSettingsController(this, parent);
+}
 
 bool GeminiPlugin::isSpeechRecognitionReady() const
 {

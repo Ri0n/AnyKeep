@@ -30,6 +30,9 @@ ListView {
     property var keyboardSelectionAnchorEditor: null
     property int keyboardSelectionAnchorPosition: 0
     property int editTransactionDepth: 0
+    property var currentFindResult: ({})
+    property string currentFindText: ""
+    signal findRequested()
     readonly property bool touchMode: Qt.platform.os === "android" || Qt.platform.os === "ios"
     readonly property real editorPointSize: typeof mobileApp !== "undefined"
                                             ? mobileApp.editorFontSize : Application.font.pointSize
@@ -54,10 +57,43 @@ ListView {
     activeFocusOnTab: true
     focus: true
 
-    Component.onCompleted: {
+    function resetFind() {
+        currentFindResult = ({})
+        currentFindText = ""
+    }
+
+    function findNext(text, backwards) {
+        if (!blockModel || !text || text.length === 0)
+            return false
+        flushPendingEditorChanges()
+        if (currentFindText !== text) {
+            currentFindText = text
+            currentFindResult = ({})
+        }
+        const result = blockModel.findText(text, currentFindResult, Boolean(backwards), false)
+        if (!result || result.blockIndex === undefined)
+            return false
+        currentFindResult = result
+        positionViewAtIndex(Number(result.blockIndex), ListView.Contain)
+        return focusEditorAddress({
+            blockIndex: Number(result.blockIndex),
+            listItemIndex: Number(result.listItemIndex),
+            tableCellIndex: Number(result.tableCellIndex),
+            field: String(result.field),
+            cursorPosition: Number(result.start) + Number(result.length),
+            selectionStart: Number(result.start),
+            selectionEnd: Number(result.start) + Number(result.length),
+            atEnd: false
+        })
+    }
+
+    function registerEditorBackendView() {
         if (editorBackend && typeof editorBackend.registerEditorView === "function")
             editorBackend.registerEditorView(root)
     }
+
+    Component.onCompleted: registerEditorBackendView()
+    onEditorBackendChanged: registerEditorBackendView()
 
     ScrollBar.vertical: ScrollBar {
         id: verticalScrollBar
@@ -968,6 +1004,9 @@ ListView {
     function pasteClipboard() {
         if (!activeEditor)
             return false
+        if (platformBackend && typeof platformBackend.insertClipboardImage === "function"
+                && platformBackend.insertClipboardImage(insertionBlockIndex()))
+            return true
         return runEditTransaction("paste", function() {
             if (!pasteStructuredSelection(activeEditor))
                 activeEditor.paste()
@@ -1402,6 +1441,35 @@ ListView {
             focusBlock(row)
             return true
         })
+    }
+
+    function convertActiveToHeading(level) {
+        if (!activeEditor || activeEditor.blockIndex < 0)
+            return false
+        return runEditTransaction("convert-heading", function() {
+            const row = blockModel.convertTextBlockToHeading(activeEditor.blockIndex,
+                                                              activeEditor.cursorPosition, level)
+            if (row < 0)
+                return false
+            focusBlock(row)
+            return true
+        })
+    }
+
+    function applyActiveInlineStyle(style) {
+        if (!activeEditor || !editorBackend)
+            return false
+        return runEditTransaction("inline-" + style, function() {
+            applyInlineStyle(activeEditor, style)
+            return true
+        })
+    }
+
+    function editActiveLink() {
+        if (!activeEditor)
+            return false
+        openLinkEditor(activeEditor)
+        return true
     }
 
     function handleHeadingShortcut(event, editor) {
@@ -1877,7 +1945,10 @@ ListView {
                 editorMouseArea.refreshPlainLinkHover(event.modifiers)
                 plainLinkHoverCanvas.requestPaint()
             }
-            if (event.matches(StandardKey.Undo) && root.editorBackend.undo()) {
+            if (event.matches(StandardKey.Find)) {
+                root.findRequested()
+                event.accepted = true
+            } else if (event.matches(StandardKey.Undo) && root.editorBackend.undo()) {
                 event.accepted = true
             } else if (event.matches(StandardKey.Redo) && root.editorBackend.redo()) {
                 event.accepted = true

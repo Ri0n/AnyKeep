@@ -12,7 +12,7 @@
 namespace QtNote {
 
 class XmppBackend;
-class XmppSettingsWidget;
+class XmppSettingsController;
 class RemoteCacheStore;
 
 /**
@@ -57,9 +57,10 @@ public:
     void                removeNote(const QString &noteId) override;
     NoteRemoveJob      *removeNoteAsync(const QString &noteId, QObject *owner = nullptr) override;
 
-    bool     hasSettingsWidget() const override { return true; }
-    QWidget *settingsWidget() override;
-    QString  tooltip() override;
+    bool                isConfigurable() const override { return true; }
+    QUrl                settingsComponent() const override;
+    SettingsController *createSettingsController(QObject *parent = nullptr) override;
+    QString             tooltip() override;
 
     static QString storageId;
 
@@ -73,6 +74,7 @@ private slots:
     void onConnectionChanged(bool connected);
 
 private:
+    friend class XmppSettingsController;
     XmppConfig     readConfig() const;
     bool           configIsValid(const XmppConfig &config, QString *error) const;
     Note           fromRemote(const XmppRemoteNote &remote);
@@ -87,7 +89,7 @@ private:
     void           resetRetryBackoff();
     void           applyConfig(const XmppConfig &config);
     void           installReceivedStorageKey(const QString &jid, const QByteArray &key);
-    void           resolveStorageKeys(const QString &jid, XmppSettingsWidget *settings = nullptr);
+    void           resolveStorageKeys(const QString &jid, XmppSettingsController *settings = nullptr);
     bool           openPersistentCache(const XmppConfig &config);
     void           persistCache();
     void           startBodyPrefetch(const QStringList &ids);

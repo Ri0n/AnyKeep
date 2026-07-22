@@ -2,6 +2,7 @@
 
 #include "filestorage.h"
 #include "notemanager.h"
+#include "storageiconimageprovider.h"
 
 #include <QColor>
 #include <QDataStream>
@@ -29,12 +30,11 @@ StoragePriorityModel::StoragePriorityModel(QObject *parent) : QAbstractListModel
         resetFromManager();
         endResetModel();
     });
-    connect(NoteManager::instance(), qOverload<NoteStorage::Ptr>(&NoteManager::storageChanged), this,
-            [this](const NoteStorage::Ptr &storage) {
-                const int row = storage ? rowForStorage(storage->systemName()) : -1;
-                if (row >= 0)
-                    emit dataChanged(index(row), index(row));
-            });
+    connect(NoteManager::instance(), &NoteManager::storageChanged, this, [this](const NoteStorage::Ptr &storage) {
+        const int row = storage ? rowForStorage(storage->systemName()) : -1;
+        if (row >= 0)
+            emit dataChanged(index(row), index(row));
+    });
 }
 
 int StoragePriorityModel::rowCount(const QModelIndex &parent) const { return parent.isValid() ? 0 : items_.count(); }
@@ -64,10 +64,12 @@ QVariant StoragePriorityModel::data(const QModelIndex &index, int role) const
     }
     case StorageIdRole:
         return item.storageId;
+    case IconSourceRole:
+        return storageIconSource(item.storageId);
     case AccessibleRole:
         return storage ? storage->isAccessible() : false;
     case ConfigurableRole:
-        return storage ? storage->hasSettingsWidget() || qobject_cast<FileStorage *>(storage.data()) : false;
+        return storage ? storage->isConfigurable() : false;
     default:
         return {};
     }
@@ -86,6 +88,7 @@ QHash<int, QByteArray> StoragePriorityModel::roleNames() const
     return {
         { StorageIdRole, "storageId" },       { NameRole, "name" },       { AccessibleRole, "accessible" },
         { ConfigurableRole, "configurable" }, { TooltipRole, "tooltip" }, { IconRole, "icon" },
+        { IconSourceRole, "iconSource" },
     };
 }
 

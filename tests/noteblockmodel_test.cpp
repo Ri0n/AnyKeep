@@ -571,6 +571,71 @@ private slots:
         QCOMPARE(cells[QStringLiteral("values")].toStringList(), QStringList({ "three", "four" }));
     }
 
+    void findsTextAcrossStructuredBlocks()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("# Heading target\n\n- first\n- target list\n\n"
+                                  "| A | B |\n| --- | --- |\n| target cell | last target |"),
+                   true);
+
+        auto match = model.findText(QStringLiteral("target"));
+        QCOMPARE(match.value(QStringLiteral("blockIndex")).toInt(), 0);
+        QCOMPARE(match.value(QStringLiteral("field")).toString(), QStringLiteral("heading"));
+        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 8);
+
+        match = model.findText(QStringLiteral("target"), match);
+        QCOMPARE(match.value(QStringLiteral("blockIndex")).toInt(), 1);
+        QCOMPARE(match.value(QStringLiteral("listItemIndex")).toInt(), 1);
+        QCOMPARE(match.value(QStringLiteral("field")).toString(), QStringLiteral("listItem"));
+
+        match = model.findText(QStringLiteral("target"), match);
+        QCOMPARE(match.value(QStringLiteral("blockIndex")).toInt(), 2);
+        QCOMPARE(match.value(QStringLiteral("tableCellIndex")).toInt(), 2);
+        QCOMPARE(match.value(QStringLiteral("field")).toString(), QStringLiteral("tableCell"));
+
+        const auto previous = model.findText(QStringLiteral("target"), match, true);
+        QCOMPARE(previous.value(QStringLiteral("blockIndex")).toInt(), 1);
+        QCOMPARE(previous.value(QStringLiteral("listItemIndex")).toInt(), 1);
+    }
+
+    void findTextWrapsAndSupportsCaseSensitivity()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("Target one\n\nsecond target"), true);
+
+        auto match = model.findText(QStringLiteral("target"), {}, false, true);
+        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 7);
+
+        match = model.findText(QStringLiteral("target"), match, false, true);
+        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 7);
+        QVERIFY(match.value(QStringLiteral("wrapped")).toBool());
+
+        const auto insensitive = model.findText(QStringLiteral("target"));
+        QCOMPARE(insensitive.value(QStringLiteral("start")).toInt(), 0);
+    }
+
+    void findTextWrapsWithinOneField()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("target middle target"), false);
+
+        auto match = model.findText(QStringLiteral("target"));
+        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 0);
+        QVERIFY(!match.value(QStringLiteral("wrapped")).toBool());
+
+        match = model.findText(QStringLiteral("target"), match);
+        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 14);
+        QVERIFY(!match.value(QStringLiteral("wrapped")).toBool());
+
+        match = model.findText(QStringLiteral("target"), match);
+        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 0);
+        QVERIFY(match.value(QStringLiteral("wrapped")).toBool());
+
+        match = model.findText(QStringLiteral("target"), match, true);
+        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 14);
+        QVERIFY(match.value(QStringLiteral("wrapped")).toBool());
+    }
+
     void previewUrlDoesNotChangeMarkdown()
     {
         NoteBlockModel model;

@@ -96,7 +96,7 @@ signals:
     void storageReady(NoteStorage::Ptr);
 
 private slots:
-    void storageChanged();
+    void handleStorageChanged();
 
 private:
     NoteManager(QObject *parent);

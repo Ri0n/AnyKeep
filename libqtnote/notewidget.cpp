@@ -1,42 +1,39 @@
-#include <QBuffer>
+#include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
 #include <QCryptographicHash>
 #include <QDebug>
 #include <QDesktopServices>
+#include <QFile>
 #include <QFileDialog>
 #include <QGuiApplication>
-#include <QImageReader>
-#include <QKeyEvent>
+#include <QLocale>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPalette>
 #include <QPrintDialog>
 #include <QPrinter>
-#include <QResizeEvent>
 #include <QSettings>
-#include <QSignalBlocker>
 #include <QStandardPaths>
 #include <QStyle>
-#include <QTextFragment>
-#include <QTextImageFormat>
+#include <QTextDocument>
+#include <QToolBar>
 #include <QToolButton>
 #include <QToolTip>
 #include <QUuid>
 
 #include "defaults.h"
+#include "desktopeditorplatformbackend.h"
+#include "desktopnoteeditorhost.h"
 #include "iconutils.h"
-#include "localmediastore.h"
 #include "note.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
 #include "notehighlighter.h"
 #include "notestorage.h"
 #include "notewidget.h"
-#include "qmlnoteeditor.h"
 #include "speechaudiorecorder.h"
 #include "speechrecognitionprovider.h"
-#include "typeaheadfind.h"
 #include "ui_notewidget.h"
 #include "utils.h"
 
@@ -46,53 +43,6 @@ static std::shared_ptr<HighlighterExtension> firstLineHighlighter;
 static QColor                                firstLineColor;
 
 namespace {
-    QImage decodedMediaImage(const QByteArray &encoded, QString *error = nullptr)
-    {
-        QBuffer buffer;
-        buffer.setData(encoded);
-        if (!buffer.open(QIODevice::ReadOnly)) {
-            if (error)
-                *error = buffer.errorString();
-            return {};
-        }
-
-        QImageReader reader(&buffer);
-        reader.setAutoTransform(true);
-        auto image = reader.read();
-        if (image.isNull() && error)
-            *error = reader.errorString();
-        return image;
-    }
-
-    QSize mediaDisplaySize(const QSize &imageSize, int availableWidth)
-    {
-        return imageSize.scaled(qMin(qMax(1, availableWidth), imageSize.width()), imageSize.height(),
-                                Qt::KeepAspectRatio);
-    }
-
-    QString displayText(const QTextBlock &block)
-    {
-        QString result;
-        for (auto fragment = block.begin(); !fragment.atEnd(); ++fragment) {
-            const auto textFragment = fragment.fragment();
-            if (!textFragment.isValid())
-                continue;
-            const auto charFormat = textFragment.charFormat();
-            if (!charFormat.isImageFormat()) {
-                result += textFragment.text();
-                continue;
-            }
-            const auto imageFormat = charFormat.toImageFormat();
-            auto       label       = imageFormat.property(QTextFormat::ImageAltText).toString();
-            if (label.isEmpty())
-                label = imageFormat.property(QTextFormat::ImageTitle).toString();
-            if (label.isEmpty())
-                label = QFileInfo(QUrl(imageFormat.name()).path()).fileName();
-            result += label;
-        }
-        return result.trimmed();
-    }
-
     QAction *initAction(const QIcon icon, const QString &title, const QString &toolTip, const char *hotkey,
                         QWidget *parent)
     {
@@ -127,87 +77,14 @@ public:
     }
 };
 
-class CurrentLinkHighlighter : public HighlighterExtension {
-    NoteWidget *noteWidget;
-    QTextBlock  currentBlock;
-    int         currentPos;
-    int         currentLength;
-
-public:
-    CurrentLinkHighlighter(NoteWidget *nw) : noteWidget(nw) { }
-
-    void reset()
-    {
-        currentBlock  = {};
-        currentPos    = {};
-        currentLength = {};
-    }
-
-    void init()
-    {
-        auto                                  ew = noteWidget->editWidget();
-        std::weak_ptr<CurrentLinkHighlighter> weak_self
-            = std::dynamic_pointer_cast<CurrentLinkHighlighter>(shared_from_this());
-        ew->connect(ew, &NoteEdit::linkHovered, ew, [this, weak_self]() {
-            auto self = weak_self.lock();
-            if (!self)
-                return;
-            auto  ew  = noteWidget->editWidget();
-            auto &hlp = ew->hoveredLinkPosition();
-            ew->blockSignals(true);
-            rehighlightLine(hlp.block, hlp.pos, hlp.length);
-            ew->blockSignals(false);
-        });
-
-        ew->connect(ew, &NoteEdit::linkUnhovered, ew, [this, weak_self]() {
-            auto self = weak_self.lock();
-            if (self) {
-                auto ew = noteWidget->editWidget();
-                ew->blockSignals(true);
-                rehighlightLine();
-                ew->blockSignals(false);
-            }
-        });
-    }
-
-    void rehighlightLine(const QTextBlock &block = QTextBlock(), int pos = 0, int length = 0)
-    {
-        QTextBlock previousBlock = currentBlock;
-        currentBlock             = block;
-        currentPos               = pos;
-        currentLength            = length;
-
-        NoteHighlighter *nh = noteWidget->highlighter();
-        if (previousBlock.isValid() && previousBlock != currentBlock) {
-            nh->rehighlightBlock(previousBlock); // drop highlighting from previous
-        }
-        if (currentBlock.isValid()) {
-            nh->rehighlightBlock(currentBlock);
-        }
-    }
-
-    void highlight(NoteHighlighter *nh, const QString &text)
-    {
-        Q_UNUSED(text);
-        if (nh->currentBlock() != currentBlock) {
-            return;
-        }
-        QTextCharFormat linkHighlightFormat;
-        linkHighlightFormat.setForeground(qApp->palette().color(QPalette::Link));
-        linkHighlightFormat.setUnderlineStyle(QTextCharFormat::SingleUnderline);
-        nh->addFormat(currentPos, currentLength, linkHighlightFormat);
-    }
-};
-
 NoteWidget::NoteWidget(const Note &note, const QUuid &draftId) : ui(new Ui::NoteWidget)
 {
     ui->setupUi(this);
 
     editor = new NoteEditor(note, draftId, this);
 
-    qmlEditor = new QmlNoteEditor(editor, this);
+    qmlEditor = new DesktopNoteEditorHost(editor, this);
     ui->noteLayout->insertWidget(1, qmlEditor);
-    ui->noteEdit->hide(); // compatibility adapter for the legacy plugin API
 
     if (!editor->note().isNull() && editor->note().storage()) {
         auto storageFormats = editor->note().storage()->availableFormats();
@@ -217,18 +94,9 @@ NoteWidget::NoteWidget(const Note &note, const QUuid &draftId) : ui(new Ui::Note
     setFocusProxy(qmlEditor);
     // ui->saveBtn->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
 
-    QHBoxLayout *hb3a = new QHBoxLayout();
-    findBar           = new TypeAheadFindBar(ui->noteEdit, QString(), this);
-    hb3a->addWidget(findBar);
-    ui->noteLayout->addLayout(hb3a);
-
     _autosaveTimer.setInterval(10000);
     _lastChangeElapsed.start();
     connect(&_autosaveTimer, SIGNAL(timeout()), SLOT(autosave()));
-    _mediaResizeTimer.setSingleShot(true);
-    _mediaResizeTimer.setInterval(50);
-    connect(&_mediaResizeTimer, &QTimer::timeout, this, &NoteWidget::resizeMediaToViewport);
-    connect(ui->noteEdit, &NoteEdit::imagePasteRequested, this, &NoteWidget::insertClipboardImage);
     // connect(parent, SIGNAL(destroyed()), SLOT(close()));
 
     QToolBar *tbar = new QToolBar(this);
@@ -237,36 +105,6 @@ NoteWidget::NoteWidget(const Note &note, const QUuid &draftId) : ui(new Ui::Note
     QAction *exportAction = initAction(nullptr, tr("Export"), tr("Export note to file"), "Ctrl+S");
     exportAction->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
     connect(exportAction, SIGNAL(triggered()), SLOT(onSaveClicked()));
-
-    insertImageAction = initAction(nullptr, tr("Insert image"), tr("Insert an image attachment"), "Ctrl+Shift+I");
-    insertImageAction->setIcon(QIcon::fromTheme(QStringLiteral("insert-image")));
-    insertImageAction->setVisible(editor->note().storage() && editor->note().storage()->supportsMedia());
-    tbar->addAction(insertImageAction);
-    connect(insertImageAction, &QAction::triggered, this, &NoteWidget::insertImage);
-
-    auto *insertTableAction = initAction(nullptr, tr("Insert table"), tr("Insert a 2 by 2 table"), "");
-    insertTableAction->setObjectName(QStringLiteral("insertTableAction"));
-    insertTableAction->setIcon(QIcon::fromTheme(QStringLiteral("insert-table")));
-    tbar->addAction(insertTableAction);
-    connect(insertTableAction, &QAction::triggered, this, &NoteWidget::insertTableBlock);
-
-    auto *listButton = new QToolButton(tbar);
-    listButton->setIcon(QIcon::fromTheme(QStringLiteral("format-list-unordered")));
-    listButton->setToolTip(tr("Insert list"));
-    listButton->setPopupMode(QToolButton::InstantPopup);
-    listButton->setAutoRaise(true);
-    auto *listMenu           = new QMenu(listButton);
-    auto *taskListAction     = listMenu->addAction(tr("Task list"));
-    auto *numberedListAction = listMenu->addAction(tr("Numbered list"));
-    auto *bulletListAction   = listMenu->addAction(tr("Bullet list"));
-    taskListAction->setObjectName(QStringLiteral("insertTaskListAction"));
-    numberedListAction->setObjectName(QStringLiteral("insertNumberedListAction"));
-    bulletListAction->setObjectName(QStringLiteral("insertBulletListAction"));
-    connect(taskListAction, &QAction::triggered, this, [this]() { insertListBlock(NoteBlockModel::CheckList); });
-    connect(numberedListAction, &QAction::triggered, this, [this]() { insertListBlock(NoteBlockModel::NumberedList); });
-    connect(bulletListAction, &QAction::triggered, this, [this]() { insertListBlock(NoteBlockModel::BulletList); });
-    listButton->setMenu(listMenu);
-    tbar->addWidget(listButton);
 
     speechRecorder  = new SpeechAudioRecorder(this);
     auto speechIcon = QIcon::fromTheme(QLatin1String("audio-input-microphone"));
@@ -291,44 +129,33 @@ NoteWidget::NoteWidget(const Note &note, const QUuid &draftId) : ui(new Ui::Note
 
     tbar->addSeparator();
 
-    mdModeAct = initAction(":/svg/markdown", tr("Markdown"), tr("Render markdown"), "Ctrl+M");
-    mdModeAct->setObjectName(QStringLiteral("markdownModeAction"));
-    tbar->addAction(mdModeAct);
-    connect(mdModeAct, &QAction::triggered, this, &NoteWidget::switchToMarkdown);
-    mdModeAct->setVisible(false); // we are initially in rich text mode
-    ui->noteEdit->setUnconditionalLinks(true);
-
-    txtModeAct = initAction(":/svg/txt", tr("Text"), tr("Plain text mode"), "Ctrl+T");
-    txtModeAct->setObjectName(QStringLiteral("textModeAction"));
-    tbar->addAction(txtModeAct);
-    connect(txtModeAct, &QAction::triggered, this, &NoteWidget::switchToText);
-
     QAction *act = initAction(":/icons/copy", tr("Copy"), tr("Copy note to clipboard"), "Ctrl+Shift+C");
     tbar->addAction(act);
     connect(act, SIGNAL(triggered()), SLOT(onCopyClicked()));
-
-    act = initAction(":/icons/find", tr("Find"), tr("Find text in note"), "Ctrl+F");
-    tbar->addAction(act);
-    connect(act, SIGNAL(triggered()), SLOT(onFindTriggered()));
-
-    QToolButton *findButton = dynamic_cast<QToolButton *>(tbar->widgetForAction(act));
-    findButton->setPopupMode(QToolButton::InstantPopup);
-
-    act = initAction(":/icons/replace-text", tr("Replace"), tr("Replace text in note"), "Ctrl+R");
-    // tbar->addAction(act);
-    connect(act, SIGNAL(triggered()), SLOT(onReplaceTriggered()));
-    findButton->addAction(act);
 
     auto pinIcon = QIcon::fromTheme(QLatin1String("view-pin-symbolic"));
     if (pinIcon.isNull())
         pinIcon = QIcon::fromTheme(QLatin1String("window-pin"));
     if (pinIcon.isNull())
         pinIcon = IconUtils::symbolicIcon(QLatin1String(":/svg/pin"));
-    pinAction = QtNote::initAction(pinIcon, tr("Pin"), tr("Pin note to the desktop"), "", this);
-    pinAction->setVisible(false);
-    pinAction->setEnabled(!editor->noteId().isEmpty());
-    tbar->addAction(pinAction);
-    connect(pinAction, &QAction::triggered, this, &NoteWidget::pinRequested);
+    auto *pinButton = new QToolButton(tbar);
+    pinButton->setIcon(pinIcon);
+    pinButton->setText(tr("Pin"));
+    pinButton->setToolTip(tr("Choose how to pin this note"));
+    pinButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    pinButton->setPopupMode(QToolButton::InstantPopup);
+    auto *pinMenu   = new QMenu(pinButton);
+    stickyPinAction = pinMenu->addAction(tr("Pin to desktop"));
+    stickyPinAction->setToolTip(tr("Create a desktop note using the active sticky-notes plugin"));
+    stickyPinAction->setVisible(false);
+    stickyPinAction->setEnabled(!editor->noteId().isEmpty());
+    connect(stickyPinAction, &QAction::triggered, this, &NoteWidget::pinRequested);
+    alwaysOnTopAction = pinMenu->addAction(tr("Always on top"));
+    alwaysOnTopAction->setCheckable(true);
+    alwaysOnTopAction->setToolTip(tr("Keep this window above normal windows"));
+    connect(alwaysOnTopAction, &QAction::toggled, this, &NoteWidget::alwaysOnTopChanged);
+    pinButton->setMenu(pinMenu);
+    tbar->addWidget(pinButton);
 
     act = initAction(":/icons/trash", tr("Delete"), tr("Delete note"), "Ctrl+D");
     tbar->addAction(act);
@@ -351,32 +178,14 @@ NoteWidget::NoteWidget(const Note &note, const QUuid &draftId) : ui(new Ui::Note
         setFont(defaultFont);
     }
 
-    connect(ui->noteEdit, SIGNAL(textChanged()), SLOT(textChanged()));
-    connect(qmlEditor, &QmlNoteEditor::contentsChanged, this, &NoteWidget::textChanged);
-    connect(qmlEditor, &QmlNoteEditor::imagePasteRequested, this, &NoteWidget::insertClipboardImage);
-    connect(qmlEditor, &QmlNoteEditor::imageDropRequested, this, &NoteWidget::insertDroppedImage);
-    connect(qmlEditor, &QmlNoteEditor::imageFilesDropRequested, this, &NoteWidget::insertDroppedImageFiles);
-    connect(qmlEditor, &QmlNoteEditor::mediaChanged, this,
-            [this](const QList<MediaReference> &references) { editor->setMedia(references); });
-    connect(qmlEditor, &QmlNoteEditor::formatChanged, this, &NoteWidget::syncEditorMode);
-    connect(qmlEditor, &QmlNoteEditor::focusLost, this, &NoteWidget::save);
-    connect(qmlEditor, &QmlNoteEditor::focusReceived, this, &NoteWidget::focusReceived, Qt::QueuedConnection);
-
-    ui->noteEdit->setText(""); // to force update event
+    connect(editor, &NoteEditor::textChanged, this, &NoteWidget::textChanged);
+    connect(qmlEditor, &DesktopNoteEditorHost::focusLost, this, &NoteWidget::save);
+    connect(qmlEditor, &DesktopNoteEditorHost::focusReceived, this, &NoteWidget::focusReceived, Qt::QueuedConnection);
 
     updateFirstLineColor();
-    if (!firstLineHighlighter) {
+    if (!firstLineHighlighter)
         firstLineHighlighter = std::make_shared<FirstLineHighlighter>();
-    }
-    _highlighter = new NoteHighlighter(ui->noteEdit->document());
     addHighlightExtension(firstLineHighlighter, NoteHighlighter::Title);
-
-    _linkHighlighter = std::make_shared<CurrentLinkHighlighter>(this);
-    std::dynamic_pointer_cast<CurrentLinkHighlighter>(_linkHighlighter)->init();
-    _highlighter->addExtension(_linkHighlighter, NoteHighlighter::Other, NoteHighlighter::Normal);
-
-    connect(ui->noteEdit, SIGNAL(focusLost()), SLOT(save()));
-    connect(ui->noteEdit, SIGNAL(focusReceived()), SLOT(focusReceived()), Qt::QueuedConnection);
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     connect(qGuiApp, &QGuiApplication::paletteChanged, this, [this](const QPalette &) { updateFirstLineColor(); });
 #endif
@@ -405,53 +214,20 @@ void NoteWidget::changeEvent(QEvent *e)
     }
 }
 
-void NoteWidget::keyPressEvent(QKeyEvent *event)
-{
-    if (event->key() == Qt::Key_Escape && findBar->isVisible()) {
-        findBar->hide();
-        return;
-    }
-    QWidget::keyPressEvent(event);
-}
-
-void NoteWidget::onFindTriggered()
-{
-    if (findBar->mode() == TypeAheadFindBar::Find) {
-        findBar->searchTriggered(); /* just default */
-    } else {
-        findBar->setMode(TypeAheadFindBar::Find);
-        findBar->open();
-    }
-}
-
-void NoteWidget::onReplaceTriggered()
-{
-    if (findBar->mode() == TypeAheadFindBar::Replace) {
-        findBar->searchTriggered(); /* just default */
-    } else {
-        findBar->setMode(TypeAheadFindBar::Replace);
-        findBar->open();
-    }
-}
-
 void NoteWidget::save()
 {
-    if (!editor->isDirty()) {
+    qmlEditor->flushPendingEditorChanges();
+    if (!editor->isDirty())
         return;
-    }
-    editor->setMarkdown(isMarkdown());
-    editor->setText(text());
     if (!editor->save())
         return;
-    if (qmlEditor)
-        qmlEditor->breakHistoryMerge();
+    editor->breakHistoryMerge();
     _lastChangeElapsed.restart();
 }
 
 bool NoteWidget::prepareToClose()
 {
-    editor->setMarkdown(isMarkdown());
-    editor->setText(text());
+    qmlEditor->flushPendingEditorChanges();
     return editor->close();
 }
 
@@ -459,30 +235,25 @@ void NoteWidget::discardDraft() { editor->discardDraft(); }
 
 void NoteWidget::autosave()
 {
-    if (!text().isEmpty() && editor->isDirty()) {
+    if (!text().isEmpty() && editor->isDirty())
         save();
-    } else {
-        _autosaveTimer.stop(); // stop until next text change
-    }
+    else
+        _autosaveTimer.stop();
 }
 
 void NoteWidget::focusReceived()
 {
     if (_trashRequested || editor->isDirty())
         return;
-    if (!editor->reloadNewerDraft())
-        return;
-    const auto current = editor->note();
-    setContents(current.title(), current.text(), current.format());
+    if (editor->reloadNewerDraft())
+        textChanged();
 }
 
 void NoteWidget::textChanged()
 {
-    editor->setMarkdown(isMarkdown());
-    editor->setText(text());
-    if (pinAction)
-        pinAction->setEnabled(!text().isEmpty());
-    if (!_autosaveTimer.isActive()) {
+    if (stickyPinAction)
+        stickyPinAction->setEnabled(!text().isEmpty());
+    if (editor->isDirty() && !_autosaveTimer.isActive()) {
         _autosaveTimer.start();
         _lastChangeElapsed.restart();
     }
@@ -495,10 +266,8 @@ void NoteWidget::textChanged()
 
 void NoteWidget::setText(QString text)
 {
-    editor->loadDocument(text, isMarkdown() ? Note::Markdown : Note::PlainText, NoteEditor::LoadPolicy::ResetHistory);
-    editor->setText(text);
-    editor->setMarkdown(isMarkdown());
-    _autosaveTimer.stop(); // timer not required atm
+    editor->loadDocument(text, editor->format(), NoteEditor::LoadPolicy::ResetHistory);
+    _autosaveTimer.stop();
     _lastChangeElapsed.restart();
 }
 
@@ -514,241 +283,38 @@ void NoteWidget::initFromNote()
 
 void NoteWidget::setContents(const QString &title, const QString &body, Note::Format format, ContentLoadPolicy policy)
 {
-    ui->noteEdit->blockSignals(true);
-    const QSignalBlocker qmlBlocker(qmlEditor);
-    qmlEditor->setMedia(editor->note().media());
-    _linkHighlighter->reset();
-
-    auto cursor = ui->noteEdit->textCursor();
-    cursor.clearSelection();
-    cursor.setPosition(0);
-    ui->noteEdit->setTextCursor(cursor);
-
     const auto editorLoadPolicy = policy == ContentLoadPolicy::RecordFormatConversion
         ? NoteEditor::LoadPolicy::RecordFormatConversion
         : NoteEditor::LoadPolicy::ResetHistory;
 
+    QString      contents;
+    Note::Format targetFormat = format;
     switch (format) {
-    case Note::Html:
-        ui->noteEdit->setHtml(title + QLatin1String("<br/>") + body);
-        ui->noteEdit->setMarkdown(ui->noteEdit->toMarkdown()); // to cleanup html
-        editor->loadDocument(ui->noteEdit->toMarkdown(), Note::Markdown, editorLoadPolicy);
+    case Note::Html: {
+        QTextDocument document;
+        document.setHtml(title + QLatin1String("<br/>") + body);
+        contents     = document.toMarkdown(QTextDocument::MarkdownDialectGitHub);
+        targetFormat = Note::Markdown;
         break;
+    }
     case Note::Markdown:
-        ui->noteEdit->setMarkdown(title + QLatin1String("\n\n") + body);
-        editor->loadDocument(title + QLatin1String("\n\n") + body, Note::Markdown, editorLoadPolicy);
+        contents = title + QLatin1String("\n\n") + body;
         break;
     case Note::PlainText:
-        ui->noteEdit->setPlainText(title + QLatin1Char('\n') + body);
-        editor->loadDocument(title + QLatin1Char('\n') + body, Note::PlainText, editorLoadPolicy);
+        contents = title + QLatin1Char('\n') + body;
         break;
     }
-    syncEditorMode(format != Note::PlainText);
-    loadMediaResources();
-    resizeMediaToViewport();
-    const auto currentFormat = isMarkdown() ? Note::Markdown : Note::PlainText;
-    if (policy == ContentLoadPolicy::ResetHistory)
-        editor->resetContent(text(), currentFormat);
-    else {
-        editor->setMarkdown(currentFormat != Note::PlainText);
-        editor->setText(text());
-    }
-    _autosaveTimer.stop(); // timer not required atm
+
+    editor->setMedia(editor->note().media());
+    editor->loadDocument(contents, targetFormat, editorLoadPolicy);
+    _autosaveTimer.stop();
     _lastChangeElapsed.restart();
-    ui->noteEdit->blockSignals(false);
-
-    const QString firstLine = text().section(QLatin1Char('\n'), 0, 0).trimmed();
-    if (firstLine != _firstLine || firstLine.isEmpty()) {
-        _firstLine = firstLine;
-        emit firstLineChanged();
-    }
+    textChanged();
 }
 
-void NoteWidget::loadMediaResources()
-{
-    for (const auto &reference : editor->note().media()) {
-        if (!reference.mediaType.startsWith(QLatin1String("image/")))
-            continue;
-        const auto loaded = LocalMediaStore::instance()->data(reference.blobId);
-        if (!loaded)
-            continue;
-        const auto preview = decodedMediaImage(loaded.value);
-        if (!preview.isNull())
-            ui->noteEdit->document()->addResource(QTextDocument::ImageResource, QUrl(reference.uri()), preview);
-    }
-    ui->noteEdit->document()->markContentsDirty(0, ui->noteEdit->document()->characterCount());
-}
+QString NoteWidget::text() { return editor ? editor->text().trimmed() : QString(); }
 
-void NoteWidget::resizeMediaToViewport()
-{
-    auto                *document       = ui->noteEdit->document();
-    const int            availableWidth = qMax(1, ui->noteEdit->viewport()->width() - 16);
-    const bool           wasModified    = document->isModified();
-    const QSignalBlocker editBlocker(ui->noteEdit);
-
-    for (auto block = document->begin(); block.isValid(); block = block.next()) {
-        for (auto fragment = block.begin(); !fragment.atEnd(); ++fragment) {
-            const auto textFragment = fragment.fragment();
-            if (!textFragment.isValid() || !textFragment.charFormat().isImageFormat())
-                continue;
-            auto       format   = textFragment.charFormat().toImageFormat();
-            const auto resource = document->resource(QTextDocument::ImageResource, QUrl(format.name()));
-            const auto image    = resource.value<QImage>();
-            if (image.isNull())
-                continue;
-            const QSize target = mediaDisplaySize(image.size(), availableWidth);
-            QTextCursor cursor(document);
-            cursor.setPosition(textFragment.position());
-            cursor.setPosition(textFragment.position() + textFragment.length(), QTextCursor::KeepAnchor);
-            if (qRound(format.width()) != target.width() || qRound(format.height()) != target.height()) {
-                format.setWidth(target.width());
-                format.setHeight(target.height());
-                cursor.mergeCharFormat(format);
-            }
-        }
-    }
-    document->setModified(wasModified);
-}
-
-void NoteWidget::resizeEvent(QResizeEvent *event)
-{
-    QWidget::resizeEvent(event);
-    _mediaResizeTimer.start();
-}
-
-void NoteWidget::insertImage()
-{
-    if (!canInsertImages())
-        return;
-    const auto fileName = QFileDialog::getOpenFileName(
-        this, tr("Insert image"), QString(), tr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg);;All files (*)"));
-    if (fileName.isEmpty())
-        return;
-    const auto imported = LocalMediaStore::instance()->importFile(fileName);
-    if (!imported) {
-        QMessageBox::warning(this, tr("Insert image"), imported.error);
-        return;
-    }
-    insertImportedImage(imported.value);
-}
-
-void NoteWidget::insertClipboardImage(const QImage &image)
-{
-    const auto name = QStringLiteral("Clipboard_%1.png").arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
-    insertRasterImage(image, name);
-}
-
-void NoteWidget::insertDroppedImage(const QImage &image, int row)
-{
-    const auto name = QStringLiteral("Dropped_%1.png").arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
-    insertRasterImage(image, name, row);
-}
-
-void NoteWidget::insertRasterImage(const QImage &image, const QString &name, int row)
-{
-    if (!canInsertImages() || image.isNull())
-        return;
-
-    QByteArray encoded;
-    QBuffer    buffer(&encoded);
-    if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG")) {
-        QMessageBox::warning(this, tr("Insert image"), tr("Could not encode the clipboard image."));
-        return;
-    }
-    const auto imported = LocalMediaStore::instance()->importData(encoded, name, QStringLiteral("image/png"));
-    if (!imported) {
-        QMessageBox::warning(this, tr("Insert image"), imported.error);
-        return;
-    }
-    insertImportedImage(imported.value, row);
-}
-
-void NoteWidget::insertDroppedImageFiles(const QStringList &fileNames, int row)
-{
-    if (!canInsertImages())
-        return;
-    QList<MediaReference> references;
-    for (const QString &fileName : fileNames) {
-        const auto imported = LocalMediaStore::instance()->importFile(fileName);
-        if (!imported) {
-            QMessageBox::warning(this, tr("Insert image"), imported.error);
-            return;
-        }
-        references.append(imported.value);
-    }
-    insertImportedImages(references, row, QStringLiteral("drop-images"));
-}
-
-bool NoteWidget::canInsertImages() const
-{
-    const auto storage = editor->note().storage();
-    return storage && storage->supportsMedia() && isMarkdown();
-}
-
-bool NoteWidget::insertImportedImage(const MediaReference &reference, int row)
-{
-    if (qmlEditor && isMarkdown())
-        return insertImportedImages({ reference }, row, QStringLiteral("insert-image"));
-
-    auto media = editor->note().media();
-    media.append(reference);
-    editor->setMedia(media);
-
-    auto cursor = ui->noteEdit->textCursor();
-    if (cursor.hasSelection())
-        cursor.removeSelectedText();
-    if (!cursor.atBlockStart())
-        cursor.insertBlock();
-    if (mdModeAct->isVisible()) {
-        cursor.insertText(QStringLiteral("![%1](%2)").arg(reference.originalName, reference.uri()));
-    } else {
-        const auto loaded = LocalMediaStore::instance()->data(reference.blobId);
-        QString    previewError;
-        const auto preview = loaded ? decodedMediaImage(loaded.value, &previewError) : QImage();
-        if (preview.isNull()) {
-            media.removeLast();
-            editor->setMedia(media);
-            QMessageBox::warning(this, tr("Insert image"), loaded ? previewError : loaded.error);
-            return false;
-        }
-        ui->noteEdit->document()->addResource(QTextDocument::ImageResource, QUrl(reference.uri()), preview);
-        QTextImageFormat format;
-        format.setName(reference.uri());
-        format.setProperty(QTextFormat::ImageAltText, reference.originalName);
-        format.setProperty(QTextFormat::ImageTitle, reference.originalName);
-        const auto displaySize = mediaDisplaySize(preview.size(), ui->noteEdit->viewport()->width() - 16);
-        format.setWidth(displaySize.width());
-        format.setHeight(displaySize.height());
-        cursor.insertImage(format);
-    }
-    cursor.insertBlock();
-    cursor.setCharFormat(QTextCharFormat());
-    ui->noteEdit->setTextCursor(cursor);
-    _mediaResizeTimer.start();
-    return true;
-}
-
-bool NoteWidget::insertImportedImages(const QList<MediaReference> &references, int row, const QString &historyKind)
-{
-    if (references.isEmpty() || !qmlEditor || !isMarkdown())
-        return false;
-
-    qmlEditor->beginExternalHistoryTransaction(historyKind);
-    auto media = editor->note().media();
-    media.append(references);
-    editor->setMedia(media);
-    qmlEditor->setMedia(media);
-
-    int insertionRow = row < 0 ? qmlEditor->model()->rowCount() : qBound(0, row, qmlEditor->model()->rowCount());
-    for (const MediaReference &reference : references)
-        qmlEditor->model()->insertImage(insertionRow++, reference.uri(), reference.originalName);
-    qmlEditor->endExternalHistoryTransaction();
-    return true;
-}
-
-QString NoteWidget::text() { return qmlEditor ? qmlEditor->contents().trimmed() : QString(); }
-
-bool NoteWidget::isMarkdown() const { return qmlEditor ? qmlEditor->isMarkdown() : !mdModeAct->isVisible(); }
+bool NoteWidget::isMarkdown() const { return editor && editor->isMarkdown(); }
 
 Note NoteWidget::note() const { return editor->note(); }
 
@@ -760,15 +326,7 @@ QUuid NoteWidget::draftId() const { return editor->draftId(); }
 
 bool NoteWidget::hasPersistedDraft() const { return editor->hasPersistedDraft(); }
 
-NoteEdit *NoteWidget::editWidget() const { return ui->noteEdit; }
-
-void NoteWidget::findText(const QString &text, bool focusFindBar) { findBar->search(text, focusFindBar); }
-
-void NoteWidget::setAcceptRichText(bool state)
-{
-    _features.setFlag(RichText, state);
-    ui->noteEdit->setAcceptRichText(state);
-}
+void NoteWidget::setAcceptRichText(bool state) { _features.setFlag(RichText, state); }
 
 void NoteWidget::setSpeechRecognitionProvider(SpeechRecognitionProviderInterface *provider)
 {
@@ -778,22 +336,25 @@ void NoteWidget::setSpeechRecognitionProvider(SpeechRecognitionProviderInterface
 
 void NoteWidget::setStickyNotesAvailable(bool available)
 {
-    if (pinAction) {
-        pinAction->setVisible(available);
-        pinAction->setEnabled(!editor->noteId().isEmpty() || !text().isEmpty());
+    if (stickyPinAction) {
+        stickyPinAction->setVisible(available);
+        stickyPinAction->setEnabled(!editor->noteId().isEmpty() || !text().isEmpty());
     }
 }
 
-void NoteWidget::rehighlight()
+void NoteWidget::setAlwaysOnTop(bool enabled)
 {
-    _highlighter->rehighlight();
-    qmlEditor->rehighlight();
+    if (alwaysOnTopAction)
+        alwaysOnTopAction->setChecked(enabled);
 }
+
+bool NoteWidget::alwaysOnTop() const { return alwaysOnTopAction && alwaysOnTopAction->isChecked(); }
+
+void NoteWidget::rehighlight() { qmlEditor->platformBackend()->rehighlight(); }
 
 void NoteWidget::addHighlightExtension(const std::shared_ptr<HighlighterExtension> &extension, int type)
 {
-    _highlighter->addExtension(extension, NoteHighlighter::ExtType(type));
-    qmlEditor->addHighlightExtension(extension, type);
+    qmlEditor->platformBackend()->addHighlightExtension(extension, type);
 }
 
 void NoteWidget::startSpeechRecognition()
@@ -904,57 +465,6 @@ void NoteWidget::showSpeechRecognitionError(const QString &error)
         QToolTip::showText(speechButton->mapToGlobal(QPoint(0, -speechButton->height())), error, speechButton, QRect(),
                            6000);
     }
-}
-
-void NoteWidget::switchToMarkdown()
-{
-    if (qmlEditor && qmlEditor->model()->markdown())
-        return;
-    auto const &[title, body] = Utils::splitTitle(text());
-    setContents(title, body, Note::Markdown, ContentLoadPolicy::RecordFormatConversion);
-}
-
-void NoteWidget::switchToText()
-{
-    if (qmlEditor && !qmlEditor->model()->markdown())
-        return;
-    auto const &[title, body] = Utils::splitTitle(text());
-    setContents(title, body, Note::PlainText, ContentLoadPolicy::RecordFormatConversion);
-}
-
-void NoteWidget::syncEditorMode(bool markdown)
-{
-    if (mdModeAct)
-        mdModeAct->setVisible(!markdown);
-    if (txtModeAct)
-        txtModeAct->setVisible(markdown);
-    ui->noteEdit->setAcceptRichText(markdown);
-    ui->noteEdit->setUnconditionalLinks(markdown);
-
-    const auto storage       = editor->note().storage();
-    const bool imagesEnabled = storage && storage->supportsMedia() && markdown;
-    if (insertImageAction)
-        insertImageAction->setEnabled(imagesEnabled);
-    ui->noteEdit->setImagePasteEnabled(imagesEnabled);
-    qmlEditor->setImageInsertionEnabled(imagesEnabled);
-}
-
-void NoteWidget::insertTableBlock()
-{
-    qmlEditor->beginExternalHistoryTransaction(QStringLiteral("insert-table"));
-    if (!qmlEditor->model()->markdown())
-        switchToMarkdown();
-    qmlEditor->insertTable();
-    qmlEditor->endExternalHistoryTransaction();
-}
-
-void NoteWidget::insertListBlock(int type)
-{
-    qmlEditor->beginExternalHistoryTransaction(QStringLiteral("insert-or-convert-list"));
-    if (!qmlEditor->model()->markdown())
-        switchToMarkdown();
-    qmlEditor->insertList(type);
-    qmlEditor->endExternalHistoryTransaction();
 }
 
 void NoteWidget::onCopyClicked()
@@ -1072,11 +582,8 @@ void NoteWidget::updateFirstLineColor()
     QColor merged  = Utils::mergeColors(hlColor, palette().color(QPalette::Text));
     if (merged != firstLineColor) {
         firstLineColor = merged;
-        if (_highlighter) {
-            _highlighter->rehighlight();
-        }
         if (qmlEditor)
-            qmlEditor->rehighlight();
+            qmlEditor->platformBackend()->rehighlight();
     }
 }
 

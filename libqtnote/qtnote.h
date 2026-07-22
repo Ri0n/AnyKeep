@@ -33,6 +33,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 class QAction;
 class QMenu;
 class QRect;
+class QWidget;
+class QWindow;
 
 namespace QtNote {
 
@@ -60,9 +62,12 @@ public:
     void parseAppArguments(const QStringList &args);
 
     NoteWidget                 *noteWidget(const Note &note, const QUuid &draftId = {});
-    virtual void                activateWidget(QWidget *w) const; // virtual for plugins
+    virtual void                activateWidget(QWidget *w) const; // legacy desktop-shell adapter
+    void                        activateWindow(QWindow *window) const;
     WindowGeometryRestoreResult restoreWindowGeometry(QWidget *w, const QString &key) const;
+    WindowGeometryRestoreResult restoreWindowGeometry(QWindow *window, const QString &key) const;
     bool                        saveWindowGeometry(QWidget *w, const QString &key) const;
+    bool                        saveWindowGeometry(QWindow *window, const QString &key) const;
     bool                        removeWindowGeometry(const QString &key) const;
     QString                     takePendingWindowGeometryKey() const;
     void                        windowGeometryBridgeReady() const;

@@ -1,10 +1,11 @@
 #ifndef PLUGINLISTMODEL_H
 #define PLUGINLISTMODEL_H
 
-#include "pluginmanager.h"
+#include "pluginlistsource.h"
 #include "qtnote_export.h"
 
 #include <QAbstractListModel>
+#include <QPointer>
 
 namespace QtNote {
 
@@ -24,10 +25,11 @@ public:
         ConfigurableRole,
         TooltipRole,
         IconRole,
+        IconSourceRole,
     };
     Q_ENUM(Role)
 
-    explicit PluginListModel(PluginManager *pluginManager, QObject *parent = nullptr);
+    explicit PluginListModel(PluginListSource *source, QObject *parent = nullptr);
 
     int                    rowCount(const QModelIndex &parent = {}) const override;
     QVariant               data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
@@ -44,17 +46,20 @@ public:
                   int destinationChild) override;
 
     QString pluginId(int row) const;
-    bool    setLoadPolicy(int row, PluginManager::LoadPolicy loadPolicy);
+    bool    setLoadPolicy(int row, PluginListSource::LoadPolicy loadPolicy);
 
     Q_INVOKABLE bool setLoadPolicy(int row, int loadPolicy);
     Q_INVOKABLE bool setEnabled(int row, bool enabled);
 
-private:
-    QString versionText(const QString &pluginId) const;
-    QString tooltipText(const QString &pluginId) const;
+private slots:
+    void resetFromSource();
+    void updatePlugin(const QString &pluginId);
 
-    PluginManager *pluginManager_ = nullptr;
-    QStringList    pluginIds_;
+private:
+    static QString statusText(PluginListSource::LoadStatus status);
+
+    QPointer<PluginListSource> source_;
+    QStringList                pluginIds_;
 };
 
 } // namespace QtNote
