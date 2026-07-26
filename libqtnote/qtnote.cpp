@@ -30,12 +30,12 @@
 #include "actionnotificationinterface.h"
 #include "corestorageregistry.h"
 #include "deintegrationinterface.h"
+#include "desktopeditorplatformbackend.h"
 #include "draftmanager.h"
 #include "globalshortcutsinterface.h"
 #include "notedialog.h"
 #include "notemanager.h"
 #include "notesmanagerwindow.h"
-#include "notewidget.h"
 #include "notificationinterface.h"
 #include "optionsdlg.h"
 #include "optionsplugins.h"
@@ -179,9 +179,7 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
             note.setText(draft.body, draft.format);
             note.setMedia(draft.media);
             note.setBackendData(draft.backendData);
-            auto *widget = noteWidget(note, draft.id);
-            auto *dialog = new NoteDialog(widget, this);
-            dialog->setWindowIcon(storage->noteIcon());
+            auto *dialog = new NoteDialog(note, this, draft.id);
             d->recoveredDraftIds.insert(draft.id);
             dialog->show();
         }
@@ -253,10 +251,8 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
         // Each shell performs its final synchronous checkpoint before closing.
         if (d->notesManagerWindow)
             d->notesManagerWindow->close();
-        for (auto *widget : QApplication::topLevelWidgets()) {
-            if (widget->objectName() == QLatin1String("noteDlg"))
-                widget->close();
-        }
+        for (auto *dialog : NoteDialog::openDialogs())
+            dialog->close();
     });
 }
 
@@ -299,12 +295,10 @@ void Main::exitQtNote()
 {
     if (d->notesManagerWindow && !d->notesManagerWindow->close())
         return;
-    for (auto *widget : QApplication::topLevelWidgets()) {
-        if (widget->objectName() == QLatin1String("noteDlg"))
-            widget->close();
-    }
-    for (auto *widget : QApplication::topLevelWidgets()) {
-        if (widget->objectName() == QLatin1String("noteDlg") && widget->isVisible())
+    for (auto *dialog : NoteDialog::openDialogs())
+        dialog->close();
+    for (auto *dialog : NoteDialog::openDialogs()) {
+        if (dialog->isVisible())
             return; // A draft checkpoint failed; keep the application alive.
     }
 
@@ -332,7 +326,13 @@ void Main::showNoteManager()
     if (!d->notesManagerWindow) {
         d->notesManagerWindow = new NotesManagerWindow(this);
         _pluginManager->attachEditorPlatformBackend(d->notesManagerWindow->platformBackend());
+        d->notesManagerWindow->setSpeechRecognitionProvider(_pluginManager->speechRecognitionProvider());
         connect(d->notesManagerWindow, &NotesManagerWindow::openNoteRequested, this, &Main::openNoteDialog);
+        connect(d->notesManagerWindow, &NotesManagerWindow::operationFailed, this, &Main::notifyError);
+        connect(this, &Main::settingsUpdated, d->notesManagerWindow, [this] {
+            d->notesManagerWindow->platformBackend()->reloadVisualSettings();
+            d->notesManagerWindow->setSpeechRecognitionProvider(_pluginManager->speechRecognitionProvider());
+        });
     }
     if (!d->notesManagerWindow->isReady()) {
         notifyError(tr("The note manager QML window could not be created"));
@@ -350,21 +350,6 @@ void Main::showOptions()
     activateWidget(d);
 }
 
-NoteWidget *Main::noteWidget(const Note &note, const QUuid &draftId)
-{
-    NoteWidget *w = new NoteWidget(note, draftId);
-    w->setSpeechRecognitionProvider(_pluginManager->speechRecognitionProvider());
-    w->setStickyNotesAvailable(d->stickyNotes->isAvailable());
-
-    emit noteWidgetCreated(w);
-
-    connect(this, SIGNAL(settingsUpdated()), w, SLOT(rereadSettings()));
-    connect(this, &Main::settingsUpdated, w,
-            [this, w]() { w->setSpeechRecognitionProvider(_pluginManager->speechRecognitionProvider()); });
-    connect(w, SIGNAL(trashRequested()), SLOT(note_trashRequested()));
-    return w;
-}
-
 StickyNotesManager *Main::stickyNotesManager() const { return d->stickyNotes; }
 
 void Main::setStickyNotesImpl(StickyNotesIntegrationInterface *stickyNotes) { d->stickyNotes->setBackend(stickyNotes); }
@@ -378,13 +363,13 @@ void Main::openNoteDialog(const QString &storageId, const QString &noteId)
 {
     if (auto *dlg = NoteDialog::findDialog(storageId, noteId)) {
         dlg->show();
-        activateWidget(dlg);
+        activateWindow(dlg);
         return;
     }
     if (noteId.isEmpty()) {
         if (auto *dlg = makeNoteDialog(storageId)) {
             dlg->show();
-            activateWidget(dlg);
+            activateWindow(dlg);
         }
         return;
     }
@@ -398,14 +383,10 @@ void Main::openNoteDialog(const QString &storageId, const QString &noteId)
         }
         auto *dlg = NoteDialog::findDialog(storageId, noteId);
         if (!dlg) {
-            auto  storage = NoteManager::instance()->storage(storageId);
-            auto *nw      = noteWidget(job->result());
-            dlg           = new NoteDialog(nw, this);
-            dlg->setWindowIcon(storage->noteIcon());
-            dlg->setWindowState(Qt::WindowNoState);
+            dlg = new NoteDialog(job->result(), this);
         }
         dlg->show();
-        activateWidget(dlg);
+        activateWindow(dlg);
         job->deleteLater();
     });
 }
@@ -424,14 +405,7 @@ NoteDialog *Main::makeNoteDialog(const QString &storageId, const QString &noteId
         return nullptr;
     }
 
-    auto nw = noteWidget(note);
-    if (!nw) {
-        return nullptr;
-    }
-    auto dlg = new NoteDialog(nw, this);
-    dlg->setWindowIcon(storage->noteIcon());
-    dlg->setWindowState(Qt::WindowNoState);
-    return dlg;
+    return new NoteDialog(note, this);
 }
 
 void Main::notifyError(const QString &text) { d->notifier->notifyError(text); }
@@ -523,7 +497,7 @@ void Main::createNewNote()
 {
     auto dlg = makeNoteDialog(NoteManager::instance()->defaultStorage()->systemName());
     dlg->show();
-    activateWidget(dlg);
+    activateWindow(dlg);
 }
 
 void Main::createNewNoteFromSelection()
@@ -623,23 +597,9 @@ void Main::createNewNoteFromSelection()
     }
     if (contents.size()) {
         auto dlg = makeNoteDialog(NoteManager::instance()->defaultStorage()->systemName());
-        dlg->weidget()->setText(contents);
+        dlg->setText(contents);
         dlg->show();
-        activateWidget(dlg);
-    }
-}
-
-void Main::note_trashRequested()
-{
-    NoteWidget *nw      = static_cast<NoteWidget *>(sender());
-    auto        storage = NoteManager::instance()->storage(nw->storageId());
-    if (!nw->noteId().isEmpty()) {
-#ifdef MAIN_DEBUG
-        qDebug() << "Main::note_trashRequested";
-#endif
-        const auto error = DraftManager::instance()->queueRemoval(storage->systemName(), nw->noteId());
-        if (error)
-            notifyError(tr("Failed to queue note removal: %1").arg(error.message));
+        activateWindow(dlg);
     }
 }
 

@@ -176,10 +176,14 @@ static KConfigGroup windowGeometryGroup(const QString &key)
 WindowGeometryRestoreResult KDEIntegration::restoreWindowGeometry(QWindow *window, const QString &key)
 {
     if (KWindowSystem::isPlatformWayland()) {
-        if (!ensureWaylandGeometryScript())
-            return WindowGeometryRestoreResult::Unsupported;
+        // Queue before starting the script. Its initial stacking-order scan may
+        // claim an already visible QtNote window synchronously during run().
         if (!_pendingWindowGeometryKeys.contains(key))
             _pendingWindowGeometryKeys.enqueue(key);
+        if (!ensureWaylandGeometryScript()) {
+            _pendingWindowGeometryKeys.removeAll(key);
+            return WindowGeometryRestoreResult::Unsupported;
+        }
         return WindowGeometryRestoreResult::Pending;
     }
     if (!window)

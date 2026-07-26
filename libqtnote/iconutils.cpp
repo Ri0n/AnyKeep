@@ -30,11 +30,14 @@ bool IconUtils::isDarkColorScheme()
 #endif
 }
 
-QIcon IconUtils::tintedSymbolicIcon(const QString &path, const QColor &color)
+QIcon IconUtils::tintedIcon(const QIcon &source, const QColor &color)
 {
+    if (source.isNull() || !color.isValid())
+        return {};
+
     QIcon icon;
     for (int size : { 16, 20, 22, 24, 32, 48 }) {
-        QPixmap pixmap = QIcon(path).pixmap(size, size);
+        QPixmap pixmap = source.pixmap(size, size);
         if (pixmap.isNull())
             continue;
 
@@ -45,6 +48,8 @@ QIcon IconUtils::tintedSymbolicIcon(const QString &path, const QColor &color)
     }
     return icon;
 }
+
+QIcon IconUtils::tintedSymbolicIcon(const QString &path, const QColor &color) { return tintedIcon(QIcon(path), color); }
 
 QIcon IconUtils::symbolicIcon(const QString &path)
 {
@@ -60,6 +65,15 @@ QIcon IconUtils::themedIcon(const QString &name, const QString &fallbackPath)
         return icon;
 
     return symbolicIcon(fallbackPath);
+}
+
+QIcon IconUtils::themedIcon(const QString &name, const QString &fallbackPath, const QColor &color)
+{
+    auto source = QIcon::fromTheme(name);
+    if (source.isNull())
+        source = QIcon(fallbackPath);
+    auto icon = tintedIcon(source, color);
+    return icon.isNull() ? source : icon;
 }
 
 } // namespace QtNote

@@ -1,10 +1,13 @@
 #include "pluginhost.h"
-#include "desktopeditorplatformbackend.h"
+#include "editorplatformbackend.h"
 #include "notehighlighter.h"
 #include "notemanager.h"
-#include "notewidget.h"
 #include "spellcheckprovider.h"
 #include "utils.h"
+
+#include <QDebug>
+
+#include <utility>
 
 namespace QtNote {
 
@@ -42,19 +45,28 @@ bool PluginHost::offerSpellCheckProvider(std::shared_ptr<SpellCheckProvider> can
         return false;
     provider_            = std::move(candidate);
     spellCheckExtension_ = std::move(extension);
+    for (const auto &backend : std::as_const(editorBackends_)) {
+        if (backend)
+            backend->addHighlightExtension(spellCheckExtension_, int(NoteHighlighter::SpellCheck));
+    }
+    emit rehightlight_requested();
     qInfo() << "Spell check provider selected:" << provider_->id();
     return true;
 }
 
-void PluginHost::attachSpellCheck(NoteWidget *widget)
+void PluginHost::attachSpellCheck(EditorPlatformBackend *backend)
 {
-    if (widget && spellCheckExtension_)
-        widget->addHighlightExtension(spellCheckExtension_, int(NoteHighlighter::SpellCheck));
-}
-
-void PluginHost::attachSpellCheck(DesktopEditorPlatformBackend *backend)
-{
-    if (backend && spellCheckExtension_)
+    if (!backend)
+        return;
+    editorBackends_.removeIf([](const auto &item) { return item.isNull(); });
+    for (const auto &item : std::as_const(editorBackends_)) {
+        if (item == backend)
+            return;
+    }
+    editorBackends_.append(backend);
+    connect(backend, &QObject::destroyed, this,
+            [this] { editorBackends_.removeIf([](const auto &item) { return item.isNull(); }); });
+    if (spellCheckExtension_)
         backend->addHighlightExtension(spellCheckExtension_, int(NoteHighlighter::SpellCheck));
 }
 

@@ -47,6 +47,7 @@ set(qtnote_CORE_SRCS
     conflictresolver.cpp
     corestorageregistry.cpp
     dialogservice.cpp
+    editorplatformbackend.cpp
     draftmanager.cpp
     filedraftstore.cpp
     fileremotecachestore.cpp
@@ -60,6 +61,7 @@ set(qtnote_CORE_SRCS
     noteblockmodel.cpp
     notedata.cpp
     notedocumenthistory.cpp
+    notehighlighter.cpp
     noteeditor.cpp
     noteeditoroperations.cpp
     notefragment.cpp
@@ -68,6 +70,7 @@ set(qtnote_CORE_SRCS
     notesmodel.cpp
     notessearchmodel.cpp
     notesworkspacecontroller.cpp
+    pluginhost.cpp
     pluginlistmodel.cpp
     recentnotesmodel.cpp
     notestorage.cpp
@@ -75,6 +78,7 @@ set(qtnote_CORE_SRCS
     ptfstorage.cpp
     secureenvelope.cpp
     securekeystore.cpp
+    spellcheckprovider.cpp
     settingscontroller.cpp
     storageiconimageprovider.cpp
     themediconimageprovider.cpp
@@ -88,6 +92,7 @@ set(qtnote_CORE_HDRS
     conflictresolver.h
     corestorageregistry.h
     dialogservice.h
+    editorplatformbackend.h
     draftmanager.h
     draftstore.h
     filedraftstore.h
@@ -96,17 +101,21 @@ set(qtnote_CORE_HDRS
     localdatakeystore.h
     localmediaimageprovider.h
     localmediastore.h
+    highlighterext.h
     mediareference.h
     note.h
     noteblockmodel.h
     notedata.h
     noteeditor.h
+    notehighlighter.h
     notefragment.h
     notefragmentmediatransfer.h
     notemanager.h
     notesmodel.h
     notessearchmodel.h
     notesworkspacecontroller.h
+    pluginhost.h
+    pluginhostinterface.h
     pluginlistmodel.h
     pluginlistsource.h
     recentnotesmodel.h
@@ -119,6 +128,7 @@ set(qtnote_CORE_HDRS
     settingscontroller.h
     settingsproviderinterface.h
     speechrecognitionprovider.h
+    spellcheckprovider.h
     storageiconimageprovider.h
     themediconimageprovider.h
     storagejob.h

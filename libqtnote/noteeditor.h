@@ -88,6 +88,9 @@ public:
     Q_INVOKABLE void        copyMarkdownToClipboard(const QString &markdown);
     Q_INVOKABLE void        copyDocumentToClipboard();
     Q_INVOKABLE bool        copySelectionToClipboard(const QVariantList &ranges);
+    Q_INVOKABLE bool        copyTextToPrimarySelection(const QString &text);
+    Q_INVOKABLE bool        copyMarkdownToPrimarySelection(const QString &markdown);
+    Q_INVOKABLE bool        copySelectionToPrimarySelection(const QVariantList &ranges);
     Q_INVOKABLE QVariantMap deleteSelection(const QVariantList &ranges);
     Q_INVOKABLE QVariantMap pasteStructuredFromClipboard(QQuickTextDocument *document, int row, int start, int end);
     Q_INVOKABLE QVariantMap pasteTableFromClipboard(int row, int cell);

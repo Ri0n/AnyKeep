@@ -8,19 +8,34 @@ ToolBar {
     required property var editorBackend
     required property var blockEditor
     property var platformBackend: null
-    property bool compact: width < 720
+    property bool compact: false
     property bool showBackButton: false
     property bool showDeleteButton: false
     property bool showMobileActions: false
+    property bool showDesktopActions: false
     property bool microphoneVisible: false
+    property bool microphoneBusy: false
+    property bool microphoneHoldToRecord: false
     property bool shortcutVisible: false
+    property bool pinActionsVisible: false
+    property bool pinVisible: false
+    property bool alwaysOnTop: false
+
     signal backRequested()
     signal deleteRequested()
     signal findRequested()
     signal shareRequested()
     signal exportRequested()
+    signal printRequested()
+    signal pinRequested()
+    signal alwaysOnTopRequested(bool enabled)
     signal microphoneRequested()
+    signal microphoneReleased()
     signal addToHomeScreenRequested()
+
+    readonly property int bulletListType: 1
+    readonly property int taskListType: 2
+    readonly property int numberedListType: 5
 
     function runMarkdownCommand(kind, command) {
         if (!root.editorBackend || !root.blockEditor)
@@ -79,11 +94,15 @@ ToolBar {
     }
 
     function setMarkdownMode(markdown) {
-        if (!root.editorBackend || !root.blockEditor
-                || root.editorBackend.markdown === markdown)
+        if (!root.editorBackend || !root.blockEditor || root.editorBackend.markdown === markdown)
             return
         root.blockEditor.flushPendingEditorChanges()
         root.editorBackend.markdown = markdown
+    }
+
+    function toggleMarkdownMode() {
+        if (root.editorBackend)
+            root.setMarkdownMode(!root.editorBackend.markdown)
     }
 
     function activeHeadingLevel() {
@@ -101,21 +120,31 @@ ToolBar {
         return level > 0 ? qsTr("H%1").arg(level) : qsTr("P")
     }
 
-    readonly property int controlSize: 34
+    readonly property int controlSize: 36
     readonly property int iconSize: 20
+    readonly property int mandatoryButtonCount: 3
+                                                + (showBackButton ? 1 : 0)
+                                                + (microphoneVisible ? 1 : 0)
+                                                + (showDeleteButton ? 1 : 0)
+    readonly property real optionalWidth: width - 16
+                                          - mandatoryButtonCount * controlSize
+                                          - Math.max(0, mandatoryButtonCount - 1) * 2
+    readonly property int optionalSlotCount: Math.max(0, Math.floor(optionalWidth / (controlSize + 2)))
+    readonly property int styleSlot: platformBackend !== null ? 4 : 3
     implicitHeight: controlSize + 8
 
-    function themedIconSource(themeName, fallbackName) {
-        return "image://qtnoteicons/" + themeName + "/" + fallbackName
+    function themedIconSource(themeName, fallbackName, tintMode) {
+        const tint = tintMode && tintMode.length > 0 ? tintMode : "auto"
+        return "image://qtnoteicons/" + encodeURIComponent(themeName)
+                + "/" + encodeURIComponent(fallbackName)
+                + "/" + encodeURIComponent(tint)
     }
 
-    // QQuickImageProvider URLs must be loaded by an Image item. Passing an
-    // image:// URL through AbstractButton.icon.source is resolved as a local
-    // file by the Qt Quick Controls icon path in the supported Qt builds.
     component ThemedIconContent: Item {
         id: iconContent
         required property string themeName
         required property string fallbackName
+        property string tintMode: root.showMobileActions ? "light" : "auto"
         property int pixelSize: root.iconSize
         implicitWidth: pixelSize
         implicitHeight: pixelSize
@@ -124,7 +153,8 @@ ToolBar {
             anchors.centerIn: parent
             width: iconContent.pixelSize
             height: iconContent.pixelSize
-            source: root.themedIconSource(iconContent.themeName, iconContent.fallbackName)
+            source: root.themedIconSource(iconContent.themeName, iconContent.fallbackName,
+                                          iconContent.tintMode)
             sourceSize.width: iconContent.pixelSize
             sourceSize.height: iconContent.pixelSize
             fillMode: Image.PreserveAspectFit
@@ -134,18 +164,16 @@ ToolBar {
     }
 
     RowLayout {
-        id: contentRow
         anchors.fill: parent
         anchors.margins: 4
-        spacing: 1
+        spacing: 2
 
         ToolButton {
             visible: root.showBackButton
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
             text: qsTr("‹")
-            font.pixelSize: 26
+            font.pixelSize: 27
             padding: 0
             Accessible.name: qsTr("Back")
             ToolTip.visible: hovered
@@ -154,237 +182,77 @@ ToolBar {
         }
 
         ToolButton {
+            id: microphoneButton
+            visible: root.microphoneVisible
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
+            padding: 0
+            enabled: !root.microphoneBusy
             display: AbstractButton.IconOnly
-            contentItem: ThemedIconContent {
-                themeName: "edit-undo-symbolic"
-                fallbackName: "edit-undo-symbolic.svg"
-            }
-            enabled: root.editorBackend && root.editorBackend.canUndo
-            Accessible.name: root.editorBackend && root.editorBackend.undoText.length > 0
-                             ? qsTr("Undo %1").arg(root.editorBackend.undoText) : qsTr("Undo")
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
-            onClicked: root.editorBackend.undo()
-        }
-        ToolButton {
-            Layout.preferredWidth: root.controlSize
-            Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
-            display: AbstractButton.IconOnly
-            contentItem: ThemedIconContent {
-                themeName: "edit-redo-symbolic"
-                fallbackName: "edit-redo-symbolic.svg"
-            }
-            enabled: root.editorBackend && root.editorBackend.canRedo
-            Accessible.name: root.editorBackend && root.editorBackend.redoText.length > 0
-                             ? qsTr("Redo %1").arg(root.editorBackend.redoText) : qsTr("Redo")
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
-            onClicked: root.editorBackend.redo()
-        }
+            contentItem: Item {
+                implicitWidth: root.iconSize
+                implicitHeight: root.iconSize
 
-        ToolSeparator {
-            Layout.preferredHeight: root.controlSize - 8
-            Layout.alignment: Qt.AlignVCenter
+                ThemedIconContent {
+                    anchors.centerIn: parent
+                    visible: !root.microphoneBusy
+                    themeName: "audio-input-microphone-symbolic"
+                    fallbackName: "microphone.svg"
+                }
+
+                BusyIndicator {
+                    anchors.centerIn: parent
+                    width: root.iconSize
+                    height: root.iconSize
+                    visible: root.microphoneBusy
+                    running: visible
+                }
+            }
+            Accessible.name: root.microphoneHoldToRecord ? qsTr("Hold to dictate text") : qsTr("Voice input")
+            ToolTip.visible: hovered
+            ToolTip.text: Accessible.name
+            onPressed: {
+                if (root.microphoneHoldToRecord)
+                    root.microphoneRequested()
+            }
+            onReleased: {
+                if (root.microphoneHoldToRecord)
+                    root.microphoneReleased()
+            }
+            onClicked: {
+                if (!root.microphoneHoldToRecord)
+                    root.microphoneRequested()
+            }
         }
 
         ToolButton {
             id: modeButton
-            Layout.preferredWidth: 42
+            Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
-            rightPadding: 10
+            padding: 0
             display: AbstractButton.IconOnly
             contentItem: ThemedIconContent {
                 themeName: "__bundled__"
-                fallbackName: root.editorBackend && root.editorBackend.markdown
-                              ? "markdown.svg" : "txt.svg"
+                fallbackName: root.editorBackend && root.editorBackend.markdown ? "markdown.svg" : "txt.svg"
                 pixelSize: 22
             }
             Accessible.name: root.editorBackend && root.editorBackend.markdown
-                             ? qsTr("Document mode: Markdown")
-                             : qsTr("Document mode: Plain text")
+                             ? qsTr("Switch to plain text") : qsTr("Switch to Markdown")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
-            onClicked: modeMenu.open()
-
-            Label {
-                anchors.right: parent.right
-                anchors.rightMargin: 3
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 2
-                text: qsTr("▾")
-                font.pixelSize: 9
-                color: modeButton.palette.buttonText
-                opacity: modeButton.enabled ? 0.8 : 0.4
-            }
-
-            Menu {
-                id: modeMenu
-
-                MenuItem {
-                    text: qsTr("Plain text")
-                    checkable: true
-                    checked: root.editorBackend && !root.editorBackend.markdown
-                    onTriggered: root.setMarkdownMode(false)
-                }
-                MenuItem {
-                    text: qsTr("Markdown")
-                    checkable: true
-                    checked: root.editorBackend && root.editorBackend.markdown
-                    onTriggered: root.setMarkdownMode(true)
-                }
-            }
-        }
-
-        ToolSeparator {
-            visible: !root.compact
-            Layout.preferredHeight: root.controlSize - 8
-            Layout.alignment: Qt.AlignVCenter
-        }
-
-        ToolButton {
-            Layout.preferredWidth: root.controlSize
-            Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
-            text: qsTr("B")
-            font.pixelSize: 18
-            font.bold: true
-            padding: 0
-            enabled: root.editorBackend && root.editorBackend.markdown
-            Accessible.name: qsTr("Bold")
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
-            onClicked: root.blockEditor.applyActiveInlineStyle("bold")
-        }
-        ToolButton {
-            Layout.preferredWidth: root.controlSize
-            Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
-            text: qsTr("I")
-            font.pixelSize: 18
-            font.italic: true
-            padding: 0
-            enabled: root.editorBackend && root.editorBackend.markdown
-            Accessible.name: qsTr("Italic")
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
-            onClicked: root.blockEditor.applyActiveInlineStyle("italic")
-        }
-        ToolButton {
-            visible: !root.compact
-            Layout.preferredWidth: root.controlSize
-            Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
-            text: qsTr("S")
-            font.pixelSize: 18
-            font.strikeout: true
-            padding: 0
-            enabled: root.editorBackend && root.editorBackend.markdown
-            Accessible.name: qsTr("Strikethrough")
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
-            onClicked: root.blockEditor.applyActiveInlineStyle("strike")
-        }
-        ToolButton {
-            visible: !root.compact
-            Layout.preferredWidth: root.controlSize
-            Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
-            text: qsTr("</>")
-            font.pixelSize: 13
-            font.family: "monospace"
-            padding: 0
-            enabled: root.editorBackend && root.editorBackend.markdown
-            Accessible.name: qsTr("Inline code")
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
-            onClicked: root.blockEditor.applyActiveInlineStyle("code")
-        }
-        ToolButton {
-            visible: !root.compact
-            Layout.preferredWidth: root.controlSize
-            Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
-            text: qsTr("🔗")
-            font.pixelSize: 16
-            padding: 0
-            enabled: root.editorBackend && root.editorBackend.markdown
-            Accessible.name: qsTr("Link")
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
-            onClicked: root.blockEditor.editActiveLink()
-        }
-
-        ToolSeparator {
-            visible: !root.compact
-            Layout.preferredHeight: root.controlSize - 8
-            Layout.alignment: Qt.AlignVCenter
-        }
-
-        ToolButton {
-            id: headingButton
-            visible: !root.compact
-            Layout.preferredWidth: 47
-            Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
-            text: root.activeBlockStyleLabel() + qsTr(" ▾")
-            font.pixelSize: 14
-            font.bold: root.activeHeadingLevel() > 0
-            padding: 0
-            enabled: root.editorBackend && root.editorBackend.markdown
-            Accessible.name: qsTr("Paragraph style: %1").arg(root.activeBlockStyleLabel())
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
-            onClicked: headingMenu.open()
-
-            Menu {
-                id: headingMenu
-                MenuItem {
-                    text: qsTr("Normal paragraph")
-                    checkable: true
-                    checked: root.activeHeadingLevel() === 0
-                    onTriggered: root.blockEditor.convertActiveToHeading(0)
-                }
-                MenuItem {
-                    text: qsTr("Heading 1")
-                    checkable: true
-                    checked: root.activeHeadingLevel() === 1
-                    onTriggered: root.blockEditor.convertActiveToHeading(1)
-                }
-                MenuItem {
-                    text: qsTr("Heading 2")
-                    checkable: true
-                    checked: root.activeHeadingLevel() === 2
-                    onTriggered: root.blockEditor.convertActiveToHeading(2)
-                }
-                MenuItem {
-                    text: qsTr("Heading 3")
-                    checkable: true
-                    checked: root.activeHeadingLevel() === 3
-                    onTriggered: root.blockEditor.convertActiveToHeading(3)
-                }
-                MenuItem {
-                    text: qsTr("Heading 4")
-                    checkable: true
-                    checked: root.activeHeadingLevel() === 4
-                    onTriggered: root.blockEditor.convertActiveToHeading(4)
-                }
-            }
+            onClicked: root.toggleMarkdownMode()
         }
 
         ToolButton {
             id: listButton
-            visible: !root.compact
+            visible: root.optionalSlotCount >= 1
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
-            text: qsTr("☷")
-            font.pixelSize: 20
-            padding: 0
+            display: AbstractButton.IconOnly
+            contentItem: ThemedIconContent {
+                themeName: "format-list-unordered-symbolic"
+                fallbackName: "format-list-unordered-symbolic.svg"
+            }
             enabled: root.editorBackend !== null
             Accessible.name: qsTr("Insert list")
             ToolTip.visible: hovered
@@ -393,17 +261,16 @@ ToolBar {
 
             Menu {
                 id: listMenu
-                MenuItem { text: qsTr("Task list"); onTriggered: root.insertList(5) }
-                MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertList(1) }
-                MenuItem { text: qsTr("Bullet list"); onTriggered: root.insertList(2) }
+                MenuItem { text: qsTr("Bullet list"); onTriggered: root.insertList(root.bulletListType) }
+                MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertList(root.numberedListType) }
+                MenuItem { text: qsTr("Task list"); onTriggered: root.insertList(root.taskListType) }
             }
         }
 
         ToolButton {
-            visible: !root.compact
+            visible: root.optionalSlotCount >= 2
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
             display: AbstractButton.IconOnly
             contentItem: ThemedIconContent {
                 themeName: "table-symbolic"
@@ -415,27 +282,124 @@ ToolBar {
             ToolTip.text: Accessible.name
             onClicked: root.insertTable()
         }
+
         ToolButton {
-            visible: !root.compact && root.platformBackend !== null
+            visible: root.platformBackend !== null && root.optionalSlotCount >= 3
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
             display: AbstractButton.IconOnly
             contentItem: ThemedIconContent {
                 themeName: "insert-image-symbolic"
                 fallbackName: "insert-image-symbolic.svg"
             }
-            enabled: root.platformBackend && root.editorBackend && root.editorBackend.supportsMedia
+            enabled: root.platformBackend && root.editorBackend && root.editorBackend.canInsertImages
             Accessible.name: qsTr("Insert image")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
             onClicked: root.insertImage()
         }
+
         ToolButton {
-            visible: !root.compact
+            id: styleButton
+            visible: !root.compact && root.optionalSlotCount >= root.styleSlot
+            Layout.preferredWidth: 42
+            Layout.preferredHeight: root.controlSize
+            text: root.activeBlockStyleLabel() + qsTr(" ▾")
+            font.bold: root.activeHeadingLevel() > 0
+            enabled: root.editorBackend && root.editorBackend.markdown
+            Accessible.name: qsTr("Paragraph style")
+            ToolTip.visible: hovered
+            ToolTip.text: Accessible.name
+            onClicked: headingMenu.open()
+
+            Menu {
+                id: headingMenu
+                MenuItem { text: qsTr("Normal paragraph"); onTriggered: root.blockEditor.convertActiveToHeading(0) }
+                MenuItem { text: qsTr("Heading 1"); onTriggered: root.blockEditor.convertActiveToHeading(1) }
+                MenuItem { text: qsTr("Heading 2"); onTriggered: root.blockEditor.convertActiveToHeading(2) }
+                MenuItem { text: qsTr("Heading 3"); onTriggered: root.blockEditor.convertActiveToHeading(3) }
+                MenuItem { text: qsTr("Heading 4"); onTriggered: root.blockEditor.convertActiveToHeading(4) }
+            }
+        }
+
+        ToolButton {
+            visible: !root.compact && root.optionalSlotCount >= root.styleSlot + 1
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
+            text: qsTr("B")
+            font.pixelSize: 18
+            font.bold: true
+            padding: 0
+            enabled: root.editorBackend && root.editorBackend.markdown
+            Accessible.name: qsTr("Bold")
+            ToolTip.visible: hovered
+            ToolTip.text: Accessible.name
+            onClicked: root.blockEditor.applyActiveInlineStyle("bold")
+        }
+        ToolButton {
+            visible: !root.compact && root.optionalSlotCount >= root.styleSlot + 2
+            Layout.preferredWidth: root.controlSize
+            Layout.preferredHeight: root.controlSize
+            text: qsTr("I")
+            font.pixelSize: 18
+            font.italic: true
+            padding: 0
+            enabled: root.editorBackend && root.editorBackend.markdown
+            Accessible.name: qsTr("Italic")
+            ToolTip.visible: hovered
+            ToolTip.text: Accessible.name
+            onClicked: root.blockEditor.applyActiveInlineStyle("italic")
+        }
+        ToolButton {
+            visible: !root.compact && root.optionalSlotCount >= root.styleSlot + 3
+            Layout.preferredWidth: root.controlSize
+            Layout.preferredHeight: root.controlSize
+            text: qsTr("S")
+            font.pixelSize: 18
+            font.strikeout: true
+            padding: 0
+            enabled: root.editorBackend && root.editorBackend.markdown
+            Accessible.name: qsTr("Strikethrough")
+            ToolTip.visible: hovered
+            ToolTip.text: Accessible.name
+            onClicked: root.blockEditor.applyActiveInlineStyle("strike")
+        }
+        ToolButton {
+            visible: !root.compact && root.optionalSlotCount >= root.styleSlot + 4
+            Layout.preferredWidth: root.controlSize
+            Layout.preferredHeight: root.controlSize
+            text: qsTr("</>")
+            font.family: "monospace"
+            padding: 0
+            enabled: root.editorBackend && root.editorBackend.markdown
+            Accessible.name: qsTr("Inline code")
+            ToolTip.visible: hovered
+            ToolTip.text: Accessible.name
+            onClicked: root.blockEditor.applyActiveInlineStyle("code")
+        }
+        ToolButton {
+            visible: !root.compact && root.optionalSlotCount >= root.styleSlot + 5
+            Layout.preferredWidth: root.controlSize
+            Layout.preferredHeight: root.controlSize
+            text: qsTr("🔗")
+            padding: 0
+            enabled: root.editorBackend && root.editorBackend.markdown
+            Accessible.name: qsTr("Edit link")
+            ToolTip.visible: hovered
+            ToolTip.text: Accessible.name
+            onClicked: root.blockEditor.editActiveLink()
+        }
+
+        Item {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            Layout.preferredWidth: 0
+            Layout.fillHeight: true
+        }
+
+        ToolButton {
+            Layout.preferredWidth: root.controlSize
+            Layout.preferredHeight: root.controlSize
             display: AbstractButton.IconOnly
             contentItem: ThemedIconContent {
                 themeName: "edit-find-symbolic"
@@ -447,30 +411,15 @@ ToolBar {
             onClicked: root.findRequested()
         }
 
-        Item {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-        }
-
         ToolButton {
-            visible: root.showMobileActions && root.microphoneVisible
+            visible: root.showDeleteButton
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
-            text: qsTr("🎤")
-            font.pixelSize: 17
-            padding: 0
-            Accessible.name: qsTr("Voice input")
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
-            onClicked: root.microphoneRequested()
-        }
-
-        ToolButton {
-            visible: !root.compact && root.showDeleteButton
-            Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
-            text: qsTr("Delete")
+            display: AbstractButton.IconOnly
+            contentItem: ThemedIconContent {
+                themeName: "user-trash-full-symbolic"
+                fallbackName: "user-trash-full-symbolic.svg"
+            }
             Accessible.name: qsTr("Delete note")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
@@ -479,142 +428,172 @@ ToolBar {
 
         ToolButton {
             id: overflowButton
-            visible: root.compact || root.showMobileActions
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
-            Layout.alignment: Qt.AlignVCenter
-            text: qsTr("☰")
-            font.pixelSize: 19
+            text: qsTr("⋮")
+            font.pixelSize: 23
             padding: 0
             Accessible.name: qsTr("More actions")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
-            onClicked: overflowMenu.open()
+            onClicked: {
+                if (root.showMobileActions)
+                    mobileOverflowMenu.open()
+                else
+                    desktopOverflowMenu.open()
+            }
 
             Menu {
-                id: overflowMenu
+                id: desktopOverflowMenu
 
                 MenuItem {
-                    text: qsTr("Find")
-                    onTriggered: root.findRequested()
+                    text: root.editorBackend && root.editorBackend.undoText.length > 0
+                          ? qsTr("Undo %1").arg(root.editorBackend.undoText) : qsTr("Undo")
+                    enabled: root.editorBackend && root.editorBackend.canUndo
+                    onTriggered: root.editorBackend.undo()
                 }
                 MenuItem {
-                    text: qsTr("Copy note")
-                    onTriggered: root.copyDocument()
+                    text: root.editorBackend && root.editorBackend.redoText.length > 0
+                          ? qsTr("Redo %1").arg(root.editorBackend.redoText) : qsTr("Redo")
+                    enabled: root.editorBackend && root.editorBackend.canRedo
+                    onTriggered: root.editorBackend.redo()
                 }
-
-                MenuSeparator { visible: root.compact }
-
+                MenuItem { text: qsTr("Copy note"); onTriggered: root.copyDocument() }
+                MenuItem { text: qsTr("Find in note"); onTriggered: root.findRequested() }
                 MenuItem {
-                    visible: root.compact
-                    text: qsTr("Strikethrough")
-                    enabled: root.editorBackend && root.editorBackend.markdown
-                    onTriggered: root.blockEditor.applyActiveInlineStyle("strike")
+                    text: root.editorBackend && root.editorBackend.markdown
+                          ? qsTr("Switch to plain text") : qsTr("Switch to Markdown")
+                    onTriggered: root.toggleMarkdownMode()
                 }
-                MenuItem {
-                    visible: root.compact
-                    text: qsTr("Inline code")
-                    enabled: root.editorBackend && root.editorBackend.markdown
-                    onTriggered: root.blockEditor.applyActiveInlineStyle("code")
-                }
-                MenuItem {
-                    visible: root.compact
-                    text: qsTr("Edit link")
-                    enabled: root.editorBackend && root.editorBackend.markdown
-                    onTriggered: root.blockEditor.editActiveLink()
-                }
-                // Menu.visible controls whether the popup itself is open. Binding it to
-                // compact therefore tries to open a submenu while the QML object tree is
-                // still being finalized. Create compact-only submenus dynamically instead.
-                Instantiator {
-                    model: root.compact ? ["heading", "list"] : []
 
-                    delegate: Menu {
-                        required property string modelData
-                        title: modelData === "heading" ? qsTr("Paragraph style") : qsTr("Insert list")
-                        enabled: modelData === "heading"
-                                 ? root.editorBackend && root.editorBackend.markdown
-                                 : root.editorBackend !== null
-
-                        MenuItem {
-                            visible: modelData === "heading"
-                            text: qsTr("Normal paragraph")
-                            onTriggered: root.blockEditor.convertActiveToHeading(0)
-                        }
-                        MenuItem {
-                            visible: modelData === "heading"
-                            text: qsTr("Heading 1")
-                            onTriggered: root.blockEditor.convertActiveToHeading(1)
-                        }
-                        MenuItem {
-                            visible: modelData === "heading"
-                            text: qsTr("Heading 2")
-                            onTriggered: root.blockEditor.convertActiveToHeading(2)
-                        }
-                        MenuItem {
-                            visible: modelData === "heading"
-                            text: qsTr("Heading 3")
-                            onTriggered: root.blockEditor.convertActiveToHeading(3)
-                        }
-                        MenuItem {
-                            visible: modelData === "heading"
-                            text: qsTr("Heading 4")
-                            onTriggered: root.blockEditor.convertActiveToHeading(4)
-                        }
-                        MenuItem {
-                            visible: modelData === "list"
-                            text: qsTr("Task list")
-                            onTriggered: root.insertList(5)
-                        }
-                        MenuItem {
-                            visible: modelData === "list"
-                            text: qsTr("Numbered list")
-                            onTriggered: root.insertList(1)
-                        }
-                        MenuItem {
-                            visible: modelData === "list"
-                            text: qsTr("Bullet list")
-                            onTriggered: root.insertList(2)
-                        }
-                    }
-
-                    onObjectAdded: function(index, object) {
-                        overflowMenu.insertMenu(6 + index, object)
-                    }
-                    onObjectRemoved: function(index, object) {
-                        overflowMenu.removeMenu(object)
+                Menu {
+                    title: qsTr("Insert")
+                    MenuItem { text: qsTr("Bullet list"); onTriggered: root.insertList(root.bulletListType) }
+                    MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertList(root.numberedListType) }
+                    MenuItem { text: qsTr("Task list"); onTriggered: root.insertList(root.taskListType) }
+                    MenuItem { text: qsTr("Table"); onTriggered: root.insertTable() }
+                    MenuItem {
+                        text: qsTr("Image")
+                        enabled: root.platformBackend && root.editorBackend && root.editorBackend.canInsertImages
+                        onTriggered: root.insertImage()
                     }
                 }
-                MenuItem {
-                    visible: root.compact
-                    text: qsTr("Insert table")
-                    onTriggered: root.insertTable()
+                Menu {
+                    title: qsTr("Paragraph style")
+                    enabled: root.editorBackend && root.editorBackend.markdown
+                    MenuItem { text: qsTr("Normal paragraph"); onTriggered: root.blockEditor.convertActiveToHeading(0) }
+                    MenuItem { text: qsTr("Heading 1"); onTriggered: root.blockEditor.convertActiveToHeading(1) }
+                    MenuItem { text: qsTr("Heading 2"); onTriggered: root.blockEditor.convertActiveToHeading(2) }
+                    MenuItem { text: qsTr("Heading 3"); onTriggered: root.blockEditor.convertActiveToHeading(3) }
+                    MenuItem { text: qsTr("Heading 4"); onTriggered: root.blockEditor.convertActiveToHeading(4) }
                 }
-                MenuItem {
-                    visible: root.compact && root.platformBackend !== null
-                    text: qsTr("Insert image")
-                    enabled: root.platformBackend && root.editorBackend && root.editorBackend.supportsMedia
-                    onTriggered: root.insertImage()
+                Menu {
+                    title: qsTr("Formatting")
+                    enabled: root.editorBackend && root.editorBackend.markdown
+                    MenuItem { text: qsTr("Bold"); onTriggered: root.blockEditor.applyActiveInlineStyle("bold") }
+                    MenuItem { text: qsTr("Italic"); onTriggered: root.blockEditor.applyActiveInlineStyle("italic") }
+                    MenuItem { text: qsTr("Strikethrough"); onTriggered: root.blockEditor.applyActiveInlineStyle("strike") }
+                    MenuItem { text: qsTr("Inline code"); onTriggered: root.blockEditor.applyActiveInlineStyle("code") }
+                    MenuItem { text: qsTr("Edit link"); onTriggered: root.blockEditor.editActiveLink() }
                 }
 
-                MenuSeparator { visible: root.showMobileActions }
-
+                MenuSeparator { visible: root.showDesktopActions }
                 MenuItem {
-                    visible: root.showMobileActions
-                    text: qsTr("Share")
-                    onTriggered: root.shareRequested()
+                    visible: root.showDesktopActions
+                    text: qsTr("Print")
+                    onTriggered: root.printRequested()
                 }
                 MenuItem {
-                    visible: root.showMobileActions
+                    visible: root.showDesktopActions
                     text: qsTr("Export")
                     onTriggered: root.exportRequested()
                 }
+                Menu {
+                    enabled: root.pinActionsVisible
+                    title: qsTr("Pin")
+                    MenuItem {
+                        text: qsTr("Pin to desktop")
+                        enabled: root.pinVisible
+                        onTriggered: root.pinRequested()
+                    }
+                    MenuItem {
+                        text: qsTr("Keep on top")
+                        checkable: true
+                        checked: root.alwaysOnTop
+                        onTriggered: root.alwaysOnTopRequested(!root.alwaysOnTop)
+                    }
+                }
+
+                MenuSeparator { visible: root.showDeleteButton }
                 MenuItem {
-                    visible: root.showMobileActions && root.shortcutVisible
+                    visible: root.showDeleteButton
+                    text: qsTr("Delete")
+                    onTriggered: root.deleteRequested()
+                }
+            }
+
+            Menu {
+                id: mobileOverflowMenu
+
+                MenuItem {
+                    text: root.editorBackend && root.editorBackend.undoText.length > 0
+                          ? qsTr("Undo %1").arg(root.editorBackend.undoText) : qsTr("Undo")
+                    enabled: root.editorBackend && root.editorBackend.canUndo
+                    onTriggered: root.editorBackend.undo()
+                }
+                MenuItem {
+                    text: root.editorBackend && root.editorBackend.redoText.length > 0
+                          ? qsTr("Redo %1").arg(root.editorBackend.redoText) : qsTr("Redo")
+                    enabled: root.editorBackend && root.editorBackend.canRedo
+                    onTriggered: root.editorBackend.redo()
+                }
+                MenuItem { text: qsTr("Copy note"); onTriggered: root.copyDocument() }
+                MenuItem { text: qsTr("Find in note"); onTriggered: root.findRequested() }
+                MenuItem {
+                    text: root.editorBackend && root.editorBackend.markdown
+                          ? qsTr("Switch to plain text") : qsTr("Switch to Markdown")
+                    onTriggered: root.toggleMarkdownMode()
+                }
+
+                Menu {
+                    title: qsTr("Insert")
+                    MenuItem { text: qsTr("Bullet list"); onTriggered: root.insertList(root.bulletListType) }
+                    MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertList(root.numberedListType) }
+                    MenuItem { text: qsTr("Task list"); onTriggered: root.insertList(root.taskListType) }
+                    MenuItem { text: qsTr("Table"); onTriggered: root.insertTable() }
+                    MenuItem {
+                        text: qsTr("Image")
+                        enabled: root.platformBackend && root.editorBackend && root.editorBackend.canInsertImages
+                        onTriggered: root.insertImage()
+                    }
+                }
+                Menu {
+                    title: qsTr("Paragraph style")
+                    enabled: root.editorBackend && root.editorBackend.markdown
+                    MenuItem { text: qsTr("Normal paragraph"); onTriggered: root.blockEditor.convertActiveToHeading(0) }
+                    MenuItem { text: qsTr("Heading 1"); onTriggered: root.blockEditor.convertActiveToHeading(1) }
+                    MenuItem { text: qsTr("Heading 2"); onTriggered: root.blockEditor.convertActiveToHeading(2) }
+                    MenuItem { text: qsTr("Heading 3"); onTriggered: root.blockEditor.convertActiveToHeading(3) }
+                    MenuItem { text: qsTr("Heading 4"); onTriggered: root.blockEditor.convertActiveToHeading(4) }
+                }
+                Menu {
+                    title: qsTr("Formatting")
+                    enabled: root.editorBackend && root.editorBackend.markdown
+                    MenuItem { text: qsTr("Bold"); onTriggered: root.blockEditor.applyActiveInlineStyle("bold") }
+                    MenuItem { text: qsTr("Italic"); onTriggered: root.blockEditor.applyActiveInlineStyle("italic") }
+                    MenuItem { text: qsTr("Strikethrough"); onTriggered: root.blockEditor.applyActiveInlineStyle("strike") }
+                    MenuItem { text: qsTr("Inline code"); onTriggered: root.blockEditor.applyActiveInlineStyle("code") }
+                    MenuItem { text: qsTr("Edit link"); onTriggered: root.blockEditor.editActiveLink() }
+                }
+
+                MenuSeparator { }
+                MenuItem { text: qsTr("Share"); onTriggered: root.shareRequested() }
+                MenuItem {
+                    visible: root.shortcutVisible
+                    height: visible ? implicitHeight : 0
                     text: qsTr("Add to Home screen")
                     onTriggered: root.addToHomeScreenRequested()
                 }
-
                 MenuSeparator { visible: root.showDeleteButton }
                 MenuItem {
                     visible: root.showDeleteButton

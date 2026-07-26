@@ -1,6 +1,7 @@
 #include "bundledpluginregistry.h"
 
 #include "bundledplugininterface.h"
+#include "qtnoteplugininterface.h"
 #include "settingsproviderinterface.h"
 
 #include <QSet>
@@ -120,6 +121,8 @@ SettingsController *BundledPluginRegistry::createSettingsController(const QStrin
             return nullptr;
         if (!created->parent())
             created->setParent(this);
+        if (auto *plugin = qobject_cast<PluginInterface *>(created))
+            plugin->setHost(host_);
         it->instance           = created;
         it->entry.configurable = qobject_cast<SettingsProviderInterface *>(created) != nullptr;
     }
@@ -147,6 +150,8 @@ bool BundledPluginRegistry::initialize(Item &item)
     }
     if (!created->parent())
         created->setParent(this);
+    if (auto *pluginInterface = qobject_cast<PluginInterface *>(created))
+        pluginInterface->setHost(host_);
 
     auto *plugin = qobject_cast<BundledPluginInterface *>(created);
     if (!plugin || !plugin->initialize()) {

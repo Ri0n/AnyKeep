@@ -13,6 +13,8 @@ class NoteTransferControllerTest : public QObject {
 
 private slots:
     void exportsMultipleFormatsAndRestoresPrivateFragment();
+    void exportsPlainTextWithoutRichFormats();
+    void preservesMarkdownHardBreaksInPlainText();
     void importsMarkdownBeforeHtmlAndPlainText();
     void importsTsvAsTable();
     void importsHtmlTableAsTable();
@@ -46,6 +48,42 @@ void NoteTransferControllerTest::exportsMultipleFormatsAndRestoresPrivateFragmen
     QVERIFY2(imported, qPrintable(imported.error));
     QCOMPARE(imported.sourceMimeType, QString::fromLatin1(NoteTransferController::FragmentMimeType));
     QCOMPARE(imported.fragment.blocks.at(0).listItems.at(1).kind, NoteFragmentListKind::Numbered);
+}
+
+void NoteTransferControllerTest::exportsPlainTextWithoutRichFormats()
+{
+    NoteFragment fragment;
+    fragment.sourceFormat = NoteFragmentSourceFormat::PlainText;
+    NoteFragmentBlock block;
+    block.type     = NoteFragmentBlockType::Text;
+    block.markdown = QStringLiteral("first\r\nsecond\u2028third\u2029fourth");
+    fragment.blocks.append(block);
+
+    NoteTransferController controller;
+    const auto             exported = controller.createMimeData(fragment);
+    QVERIFY2(exported, qPrintable(exported.error));
+    QVERIFY(exported.mimeData->hasFormat(QString::fromLatin1(NoteTransferController::FragmentMimeType)));
+    QVERIFY(exported.mimeData->hasText());
+    QVERIFY(!exported.mimeData->hasFormat(QString::fromLatin1(NoteTransferController::MarkdownMimeType)));
+    QVERIFY(!exported.mimeData->hasHtml());
+    QCOMPARE(exported.mimeData->text(), QStringLiteral("first\nsecond\nthird\nfourth"));
+}
+
+void NoteTransferControllerTest::preservesMarkdownHardBreaksInPlainText()
+{
+    NoteFragment fragment;
+    fragment.sourceFormat = NoteFragmentSourceFormat::Markdown;
+    NoteFragmentBlock block;
+    block.type     = NoteFragmentBlockType::Text;
+    block.markdown = QStringLiteral("first line  \nsecond line");
+    fragment.blocks.append(block);
+
+    NoteTransferController controller;
+    const auto             exported = controller.createMimeData(fragment);
+    QVERIFY2(exported, qPrintable(exported.error));
+    QVERIFY(exported.mimeData->hasFormat(QString::fromLatin1(NoteTransferController::MarkdownMimeType)));
+    QVERIFY(exported.mimeData->hasHtml());
+    QCOMPARE(exported.mimeData->text(), QStringLiteral("first line\nsecond line"));
 }
 
 void NoteTransferControllerTest::importsMarkdownBeforeHtmlAndPlainText()

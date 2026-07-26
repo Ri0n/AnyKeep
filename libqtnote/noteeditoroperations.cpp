@@ -887,21 +887,47 @@ NoteFragment NoteEditor::withMedia(NoteFragment fragment) const
     return fragment;
 }
 
+namespace {
+
+    bool setFragmentClipboard(const NoteFragment &fragment, QClipboard::Mode mode, const QString &fallback)
+    {
+        auto *clipboard = QGuiApplication::clipboard();
+        if (!clipboard || (mode == QClipboard::Selection && !clipboard->supportsSelection()))
+            return false;
+        NoteTransferController controller;
+        auto                   exported = controller.createMimeData(fragment);
+        if (exported)
+            clipboard->setMimeData(exported.mimeData.release(), mode);
+        else
+            clipboard->setText(fallback, mode);
+        return true;
+    }
+
+    NoteFragment markdownFragment(const QString &markdown)
+    {
+        NoteBlockModel model;
+        model.load(markdown, true);
+        NoteFragment fragment = model.extractBlockFragment(0, model.rowCount() - 1);
+        fragment.sourceFormat = NoteFragmentSourceFormat::Markdown;
+        return fragment;
+    }
+
+    NoteFragment plainTextFragment(const QString &text)
+    {
+        NoteFragment fragment;
+        fragment.sourceFormat = NoteFragmentSourceFormat::PlainText;
+        NoteFragmentBlock block;
+        block.type     = NoteFragmentBlockType::Text;
+        block.markdown = text;
+        fragment.blocks.append(block);
+        return fragment;
+    }
+
+} // namespace
+
 void NoteEditor::copyToClipboard(const QString &text)
 {
-    NoteFragment fragment;
-    fragment.sourceFormat = NoteFragmentSourceFormat::PlainText;
-    NoteFragmentBlock block;
-    block.type     = NoteFragmentBlockType::Text;
-    block.markdown = text;
-    fragment.blocks.append(block);
-
-    NoteTransferController controller;
-    auto                   exported = controller.createMimeData(fragment);
-    if (exported)
-        QGuiApplication::clipboard()->setMimeData(exported.mimeData.release());
-    else
-        QGuiApplication::clipboard()->setText(text);
+    setFragmentClipboard(plainTextFragment(text), QClipboard::Clipboard, text);
 }
 
 void NoteEditor::copyMarkdownToClipboard(const QString &markdown)
@@ -911,10 +937,7 @@ void NoteEditor::copyMarkdownToClipboard(const QString &markdown)
     // syntax as ordinary characters on the next QtNote paste.  Parse it back
     // through the block model so the private and public representations carry
     // the same structure.
-    NoteBlockModel model;
-    model.load(markdown, true);
-    NoteFragment fragment = model.extractBlockFragment(0, model.rowCount() - 1);
-    fragment.sourceFormat = NoteFragmentSourceFormat::Markdown;
+    const NoteFragment fragment = markdownFragment(markdown);
 
     NoteTransferController controller;
     auto                   exported = controller.createMimeData(fragment);
@@ -959,6 +982,26 @@ bool NoteEditor::copySelectionToClipboard(const QVariantList &encodedRanges)
     qInfo() << "QML clipboard copy: structured selection blocks=" << fragment.blocks.size()
             << "formats=" << QGuiApplication::clipboard()->mimeData()->formats();
     return true;
+}
+
+bool NoteEditor::copyTextToPrimarySelection(const QString &text)
+{
+    return setFragmentClipboard(plainTextFragment(text), QClipboard::Selection, text);
+}
+
+bool NoteEditor::copyMarkdownToPrimarySelection(const QString &markdown)
+{
+    return setFragmentClipboard(markdownFragment(markdown), QClipboard::Selection, markdown);
+}
+
+bool NoteEditor::copySelectionToPrimarySelection(const QVariantList &encodedRanges)
+{
+    NoteFragment fragment = withMedia(model_->extractSelectionFragment(decodeSelectionRanges(encodedRanges)));
+    if (fragment.blocks.isEmpty())
+        return false;
+    QString       error;
+    const QString fallback = NoteTransferController::plainTextForFragment(fragment, &error);
+    return error.isEmpty() && setFragmentClipboard(fragment, QClipboard::Selection, fallback);
 }
 
 QVariantMap NoteEditor::deleteSelection(const QVariantList &encodedRanges)

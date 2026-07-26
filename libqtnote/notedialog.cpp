@@ -1,193 +1,344 @@
-/*
-QtNote - Simple note-taking application
-Copyright (C) 2010 Sergei Ilinykh
+#include "notedialog.h"
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+#include "deintegrationinterface.h"
+#include "desktopeditorplatformbackend.h"
+#include "desktopnoteactions.h"
+#include "draftmanager.h"
+#include "localmediaimageprovider.h"
+#include "noteblockmodel.h"
+#include "noteeditor.h"
+#include "notemanager.h"
+#include "notestorage.h"
+#include "pluginmanager.h"
+#include "qtnote.h"
+#include "speechrecognitioncontroller.h"
+#include "stickynotesmanager.h"
+#include "storageiconimageprovider.h"
+#include "themediconimageprovider.h"
+#include "utils.h"
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-Contacts:
-E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
-*/
-
-#include <QApplication>
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-#include <QDesktopWidget>
-#endif
-#include <QHBoxLayout>
+#include <QCloseEvent>
+#include <QDebug>
+#include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QGuiApplication>
+#include <QPalette>
+#include <QQmlContext>
+#include <QQuickItem>
 #include <QRandomGenerator>
 #include <QScreen>
 #include <QSettings>
-
-#include "deintegrationinterface.h"
-#include "notedialog.h"
-#include "notestorage.h"
-#include "notewidget.h"
-#include "qtnote.h"
-#include "ui_notedialog.h"
-#include "utils.h"
+#include <QTimer>
 
 namespace QtNote {
 
-static QString geometryKey(const NoteWidget *widget)
-{
-    const auto note = widget->note();
-    if (!note.id().isEmpty())
-        return QString("geometry.%1.%2").arg(note.storageId(), note.id());
-    return QString("geometry.draft.%1").arg(widget->draftId().toString(QUuid::WithoutBraces));
-}
+QHash<QPair<QString, QString>, NoteDialog *> NoteDialog::dialogs_;
+QSet<NoteDialog *>                           NoteDialog::allDialogs_;
 
-NoteDialog::NoteDialog(NoteWidget *noteWidget, Main *main) :
-    QDialog(0), m_ui(new Ui::NoteDialog), noteWidget(noteWidget), main(main),
-    windowGeometryKey(geometryKey(noteWidget)), alwaysOnTopKey(windowGeometryKey + QStringLiteral(".always-on-top"))
+NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
+    QQuickView(), main_(main), editor_(new NoteEditor(note, draftId, this)),
+    platformBackend_(new DesktopEditorPlatformBackend(editor_, this)), desktopActions_(new DesktopNoteActions(this)),
+    speechController_(new SpeechRecognitionController(this))
 {
-    auto flags = (windowFlags() ^ (Qt::Dialog | Qt::WindowContextHelpButtonHint)) | Qt::WindowSystemMenuHint
-        | Qt::CustomizeWindowHint | Qt::Window | Qt::WindowMinMaxButtonsHint;
-    const bool alwaysOnTop = QSettings().value(alwaysOnTopKey, false).toBool();
-    if (alwaysOnTop)
+    Q_ASSERT(main_);
+    allDialogs_.insert(this);
+    windowGeometryKey_ = geometryKey();
+    alwaysOnTopKey_    = windowGeometryKey_ + QStringLiteral(".always-on-top");
+
+    Qt::WindowFlags flags
+        = Qt::Window | Qt::WindowSystemMenuHint | Qt::WindowMinMaxButtonsHint | Qt::WindowCloseButtonHint;
+    if (QSettings().value(alwaysOnTopKey_, false).toBool())
         flags |= Qt::WindowStaysOnTopHint;
-    setWindowFlags(flags);
-    m_ui->setupUi(this);
-    setAttribute(Qt::WA_DeleteOnClose);
-    setObjectName("noteDlg");
+    setFlags(flags);
+    setResizeMode(QQuickView::SizeRootObjectToView);
+    setMinimumSize(QSize(320, 240));
+    resize(560, 520);
+    setColor(QGuiApplication::palette().color(QPalette::Base));
 
-    QHBoxLayout *l = new QHBoxLayout;
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    l->setMargin(2);
-#else
-    l->setContentsMargins(2, 2, 2, 2);
-#endif
-    l->addWidget(noteWidget);
-    setLayout(l);
+    installLocalMediaImageProvider(engine());
+    installStorageIconImageProvider(engine());
+    installThemedIconImageProvider(engine());
+    rootContext()->setContextProperty(QStringLiteral("noteEditor"), editor_);
+    rootContext()->setContextProperty(QStringLiteral("desktopEditorPlatform"), platformBackend_);
+    rootContext()->setContextProperty(QStringLiteral("desktopNoteActions"), desktopActions_);
+    rootContext()->setContextProperty(QStringLiteral("desktopSpeech"), speechController_);
+    rootContext()->setContextProperty(QStringLiteral("standaloneHost"), this);
 
-    QRect rect;
-    bool  geometryHandled = false;
-    {
-        auto       note          = noteWidget->note();
-        const auto restoreResult = main->restoreWindowGeometry(this, windowGeometryKey);
-        geometryHandled          = restoreResult != WindowGeometryRestoreResult::Unsupported;
-        rect                     = QSettings().value(windowGeometryKey).toRect();
-        if (restoreResult == WindowGeometryRestoreResult::Pending) {
-            // Wayland applications cannot choose their global position, but they
-            // still own their initial size while KWin restores frameGeometry.
-            if (rect.isValid())
-                resize(rect.size());
-            else
-                resize(sizeHint().expandedTo(QSize(320, 240)));
-            rect = {};
-        } else if (!geometryHandled) {
-            if (!rect.isValid() || !screen()->geometry().contains(rect)) {
-                rect = {};
-            }
-        }
+    desktopActions_->setEditor(editor_);
+    speechController_->setEditor(editor_);
+    speechController_->setProvider(main_->pluginManager()->speechRecognitionProvider());
+    main_->pluginManager()->attachEditorPlatformBackend(platformBackend_);
+    platformBackend_->setDragSource(this);
 
-        if (!note.id().isEmpty()) {
-            Q_ASSERT(!NoteDialog::findDialog(note.storageId(), note.id()));
-            NoteDialog::dialogs.insert(QPair<QString, QString>(note.storageId(), note.id()), this);
-        }
-    }
-    if (rect.isEmpty() && !geometryHandled) {
-        QSize avail = screen()->availableSize() - sizeHint(); //   QApplication::desktop()->size()
-        int   x     = QRandomGenerator::global()->bounded(avail.width() / 4, avail.width() / 2);
-        int   y     = QRandomGenerator::global()->bounded(avail.height() / 4, avail.height() / 2);
-        move(x, y);
-    } else if (!rect.isEmpty()) {
-        setGeometry(rect);
+    connect(main_, &Main::settingsUpdated, this, [this] {
+        platformBackend_->reloadVisualSettings();
+        speechController_->setProvider(main_->pluginManager()->speechRecognitionProvider());
+    });
+    connect(editor_, &NoteEditor::textChanged, this, &NoteDialog::updateWindowTitle);
+    connect(platformBackend_, &EditorPlatformBackend::operationFailed, this, &NoteDialog::operationFailed);
+    connect(desktopActions_, &DesktopNoteActions::operationFailed, this, &NoteDialog::operationFailed);
+    connect(speechController_, &SpeechRecognitionController::operationFailed, this, &NoteDialog::operationFailed);
+
+    setSource(QUrl(QStringLiteral("qrc:/qml/StandaloneNoteWindow.qml")));
+    if (status() == QQuickView::Error)
+        qWarning() << "Failed to create standalone note QML window" << errors();
+    if (rootObject())
+        editor_->registerEditorView(rootObject());
+
+    if (!note.id().isEmpty()) {
+        Q_ASSERT(!findDialog(note.storageId(), note.id()));
+        dialogs_.insert({ note.storageId(), note.id() }, this);
     }
 
-    noteWidget->setAlwaysOnTop(alwaysOnTop);
-    noteWidget->setFocus(Qt::OtherFocusReason);
+    const auto storage = note.storage();
+    if (storage)
+        setIcon(storage->noteIcon());
+    updateWindowTitle();
 
-    connect(noteWidget, &NoteWidget::trashRequested, this, &NoteDialog::trashRequested);
-    connect(noteWidget, &NoteWidget::alwaysOnTopChanged, this, [this](bool enabled) {
-        QSettings().setValue(alwaysOnTopKey, enabled);
-        const bool active = windowFlags().testFlag(Qt::WindowStaysOnTopHint);
-        if (active == enabled)
-            return;
-        setWindowFlag(Qt::WindowStaysOnTopHint, enabled);
-        show();
-        raise();
-        activateWindow();
-    });
-    connect(noteWidget, &NoteWidget::pinRequested, this, [this]() {
-        pinning = true;
-        close();
-    });
-    connect(noteWidget, &NoteWidget::firstLineChanged, this, &NoteDialog::firstLineChanged);
-
-    firstLineChanged();
+    const auto  restore = main_->restoreWindowGeometry(this, windowGeometryKey_);
+    const QRect stored  = QSettings().value(windowGeometryKey_).toRect();
+    if (restore == WindowGeometryRestoreResult::Pending) {
+        if (stored.isValid())
+            resize(stored.size());
+    } else if (restore == WindowGeometryRestoreResult::Unsupported) {
+        if (stored.isValid() && screen() && screen()->geometry().intersects(stored)) {
+            setGeometry(stored);
+        } else if (screen()) {
+            const QRect available = screen()->availableGeometry();
+            const int   x         = QRandomGenerator::global()->bounded(available.left() + available.width() / 4,
+                                                                        available.left() + available.width() / 2);
+            const int   y         = QRandomGenerator::global()->bounded(available.top() + available.height() / 4,
+                                                                        available.top() + available.height() / 2);
+            setPosition(x, y);
+        }
+    }
 }
 
-NoteDialog::~NoteDialog() { delete m_ui; }
+NoteDialog::~NoteDialog()
+{
+    removeFromRegistry();
+    platformBackend_->setDragSource(nullptr);
+    setSource(QUrl());
+}
 
 NoteDialog *NoteDialog::findDialog(const QString &storageId, const QString &noteId)
 {
-    return NoteDialog::dialogs.value(QPair<QString, QString>(storageId, noteId));
+    return dialogs_.value({ storageId, noteId });
 }
 
-QList<NoteDialog *> NoteDialog::openDialogs() { return NoteDialog::dialogs.values(); }
+QList<NoteDialog *> NoteDialog::openDialogs() { return allDialogs_.values(); }
 
-void NoteDialog::registerWindowGeometry() { main->restoreWindowGeometry(this, windowGeometryKey); }
-
-void NoteDialog::changeEvent(QEvent *e)
+void NoteDialog::setText(const QString &text)
 {
-    switch (e->type()) {
-    case QEvent::LanguageChange:
-        m_ui->retranslateUi(this);
-        break;
-    default:
-        break;
+    editor_->setText(text);
+    if (rootObject())
+        QMetaObject::invokeMethod(rootObject(), "focusInitialEditor", Qt::QueuedConnection);
+}
+
+void NoteDialog::registerWindowGeometry() { main_->restoreWindowGeometry(this, windowGeometryKey_); }
+
+bool NoteDialog::alwaysOnTop() const { return flags().testFlag(Qt::WindowStaysOnTopHint); }
+
+bool NoteDialog::pinAvailable() const
+{
+    return main_->stickyNotesManager()->isAvailable() && !editor_->noteId().isEmpty();
+}
+
+bool NoteDialog::askBeforeDelete() const
+{
+    return QSettings().value(QStringLiteral("ui.ask-on-delete"), true).toBool();
+}
+
+void NoteDialog::requestClose() { close(); }
+
+bool NoteDialog::deleteNote()
+{
+    flushEditorChanges();
+    if (!editor_->noteId().isEmpty()) {
+        const auto error = DraftManager::instance()->queueRemoval(editor_->storageId(), editor_->noteId());
+        if (error) {
+            emit operationFailed(tr("Failed to queue note removal: %1").arg(error.message));
+            return false;
+        }
     }
-    QDialog::changeEvent(e);
+    trashRequested_ = true;
+    editor_->discardAndClose();
+    close();
+    return true;
+}
+
+bool NoteDialog::pinNote()
+{
+    flushEditorChanges();
+    if (!editor_->save()) {
+        emit operationFailed(editor_->errorString());
+        return false;
+    }
+    pinning_ = true;
+    close();
+    return true;
+}
+
+void NoteDialog::setAlwaysOnTop(bool enabled)
+{
+    if (alwaysOnTop() == enabled)
+        return;
+
+    const bool wasVisible = isVisible();
+    auto       newFlags   = flags();
+    newFlags.setFlag(Qt::WindowStaysOnTopHint, enabled);
+
+    // Some window-system backends only recreate the native window after a
+    // hide/setFlags/show sequence. Calling setFlag() on the visible QQuickView
+    // was therefore a no-op on affected desktop configurations.
+    if (wasVisible)
+        hide();
+    setFlags(newFlags);
+    QSettings().setValue(alwaysOnTopKey_, enabled);
+
+    // Wayland does not let a client reliably impose stacking by changing a
+    // Qt window flag. The KDE integration queues this recreated surface for
+    // the companion KWin script, which applies Window.keepAbove in KWin.
+    if (QGuiApplication::platformName().contains(QLatin1String("wayland"), Qt::CaseInsensitive))
+        main_->restoreWindowGeometry(this, windowGeometryKey_);
+
+    if (wasVisible) {
+        show();
+        main_->activateWindow(this);
+    }
+    emit alwaysOnTopChanged();
 }
 
 void NoteDialog::trashRequested()
 {
-    noteWidget->setTrashRequested(true); // in case when called outside
-    noteWidget->discardDraft();
+    trashRequested_ = true;
+    editor_->discardAndClose();
     close();
 }
 
-void NoteDialog::done(int r)
+void NoteDialog::closeEvent(QCloseEvent *event)
 {
-    noteWidget->disconnect(this);
-    if (!noteWidget->isTrashRequested() && !noteWidget->prepareToClose()) {
+    if (closing_) {
+        event->accept();
         return;
     }
-    QSettings s;
-    if (noteWidget->isTrashRequested()) {
-        main->removeWindowGeometry(windowGeometryKey);
-        s.remove(windowGeometryKey);
-        s.remove(alwaysOnTopKey);
-    } else {
-        if (!main->saveWindowGeometry(this, windowGeometryKey))
-            s.setValue(windowGeometryKey, geometry());
+    closing_ = true;
+    flushEditorChanges();
+    if (!trashRequested_ && !editor_->close()) {
+        closing_ = false;
+        emit operationFailed(editor_->errorString());
+        event->ignore();
+        return;
     }
-    if (!noteWidget->note().id().isEmpty()) {
-        NoteDialog::dialogs.remove(
-            QPair<QString, QString>(noteWidget->note().storage()->systemName(), noteWidget->note().id()));
-    }
-    if (pinning) {
-        main->pinNote(noteWidget->note(), noteWidget->draftId(), noteWidget->hasPersistedDraft(), frameGeometry());
-    }
-    QDialog::done(r);
+
+    const bool  awaitingPublication = editor_->hasPersistedDraft();
+    const QRect preferredGeometry   = frameGeometry();
+    saveGeometryState(trashRequested_);
+    removeFromRegistry();
+    if (pinning_)
+        main_->pinNote(editor_->note(), editor_->draftId(), awaitingPublication, preferredGeometry);
+
+    // Destroy the QML pane before the deferred window deletion. This stops its
+    // autosave timer and releases live bindings to the editor immediately.
+    setSource(QUrl());
+    event->accept();
+    QQuickView::closeEvent(event);
+    deleteLater();
 }
 
-void NoteDialog::firstLineChanged()
+bool NoteDialog::event(QEvent *event)
 {
-    QString l = noteWidget->firstLine().trimmed();
-    setWindowTitle(Utils::cuttedDots(l.isEmpty() ? tr("[No Title]") : l, 256));
+    if (event->type() == QEvent::WindowDeactivate) {
+        flushEditorChanges();
+        editor_->save();
+    } else if (event->type() == QEvent::WindowActivate) {
+        editor_->reloadNewerDraft();
+    } else if (event->type() == QEvent::DragEnter) {
+        auto *drag         = static_cast<QDragEnterEvent *>(event);
+        imageDragAccepted_ = platformBackend_->canAcceptImageMimeData(drag->mimeData());
+        if (imageDragAccepted_) {
+            drag->setDropAction(Qt::CopyAction);
+            drag->accept();
+            return true;
+        }
+    } else if (event->type() == QEvent::DragMove && imageDragAccepted_) {
+        auto *drag = static_cast<QDragMoveEvent *>(event);
+        drag->setDropAction(Qt::CopyAction);
+        drag->accept();
+        return true;
+    } else if (event->type() == QEvent::DragLeave) {
+        imageDragAccepted_ = false;
+    } else if (event->type() == QEvent::Drop && imageDragAccepted_) {
+        auto *drop         = static_cast<QDropEvent *>(event);
+        imageDragAccepted_ = false;
+        flushEditorChanges();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        const QPointF dropPosition = drop->position();
+#else
+        const QPointF dropPosition = drop->posF();
+#endif
+        if (platformBackend_->insertImageMimeData(drop->mimeData(), insertionRowAt(dropPosition))) {
+            drop->setDropAction(Qt::CopyAction);
+            drop->accept();
+        } else {
+            drop->ignore();
+        }
+        return true;
+    }
+    return QQuickView::event(event);
 }
 
-QHash<QPair<QString, QString>, NoteDialog *> NoteDialog::dialogs;
+QString NoteDialog::geometryKey() const
+{
+    if (!editor_->noteId().isEmpty())
+        return QStringLiteral("geometry.%1.%2").arg(editor_->storageId(), editor_->noteId());
+    return QStringLiteral("geometry.draft.%1").arg(editor_->draftIdString());
+}
+
+void NoteDialog::updateWindowTitle()
+{
+    const QString firstLine = editor_->text().section(QLatin1Char('\n'), 0, 0).trimmed();
+    setTitle(Utils::cuttedDots(firstLine.isEmpty() ? tr("[No Title]") : firstLine, 256));
+}
+
+void NoteDialog::saveGeometryState(bool remove)
+{
+    QSettings settings;
+    if (remove) {
+        main_->removeWindowGeometry(windowGeometryKey_);
+        settings.remove(windowGeometryKey_);
+        settings.remove(alwaysOnTopKey_);
+        return;
+    }
+    if (!main_->saveWindowGeometry(this, windowGeometryKey_))
+        settings.setValue(windowGeometryKey_, QRect(position(), size()));
+}
+
+void NoteDialog::removeFromRegistry()
+{
+    allDialogs_.remove(this);
+    if (editor_ && !editor_->noteId().isEmpty())
+        dialogs_.remove({ editor_->storageId(), editor_->noteId() });
+}
+
+void NoteDialog::flushEditorChanges()
+{
+    if (rootObject())
+        QMetaObject::invokeMethod(rootObject(), "flushPendingEditorChanges");
+}
+
+int NoteDialog::insertionRowAt(const QPointF &position) const
+{
+    if (!rootObject())
+        return editor_->model()->rowCount();
+    QVariant result;
+    if (!QMetaObject::invokeMethod(rootObject(), "insertionRowAtPoint", Q_RETURN_ARG(QVariant, result),
+                                   Q_ARG(QVariant, position.x()), Q_ARG(QVariant, position.y()))) {
+        return editor_->model()->rowCount();
+    }
+    return qBound(0, result.toInt(), editor_->model()->rowCount());
+}
 
 } // namespace QtNote

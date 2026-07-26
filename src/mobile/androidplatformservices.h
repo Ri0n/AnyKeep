@@ -18,11 +18,13 @@ public:
     bool shareText(const QString &title, const QString &text);
     bool exportText(const QString &fileName, const QString &mimeType, const QByteArray &contents);
     bool requestSpeechRecognition(const QString &language = {});
+    bool requestImage();
     bool addHomeScreenShortcut(const QString &storageId, const QString &noteId, const QString &title);
     QUrl pendingLaunchUrl() const;
 
 signals:
     void speechRecognized(const QString &text);
+    void imageSelected(const QByteArray &data, const QString &name, const QString &mediaType);
     void operationFailed(const QString &message);
     void exportCompleted();
 };

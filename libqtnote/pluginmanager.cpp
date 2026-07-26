@@ -30,11 +30,10 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <utility>
 
 #include "actionnotificationinterface.h"
-#include "notewidget.h"
 #include "pluginhost.h"
 #include "pluginmanager.h"
 
-#include "desktopeditorplatformbackend.h"
+#include "editorplatformbackend.h"
 #include "qtnote.h"
 #include "shortcutsmanager.h"
 #include "spellcheckproviderinterface.h"
@@ -242,14 +241,6 @@ PluginManager::PluginManager(Main *parent) : PluginListSource(parent), qtnote(pa
     QDir(iconsCacheDir()).mkpath(QLatin1String("."));
     updateMetadata();
 
-    connect(qtnote, &Main::noteWidgetCreated, this, [this](QWidget *widget) {
-        auto *noteWidget = qobject_cast<NoteWidget *>(widget);
-        if (!noteWidget)
-            return;
-        connect(pluginHost, &PluginHost::rehightlight_requested, noteWidget,
-                [noteWidget]() { noteWidget->rehighlight(); });
-        pluginHost->attachSpellCheck(noteWidget);
-    });
     connect(pluginHost, &PluginHost::spellCheckProviderConflict, this,
             [this](const QString &activeName, const QString &ignoredName) {
                 qtnote->notify(
@@ -271,11 +262,11 @@ PluginManager::~PluginManager()
     }
 }
 
-void PluginManager::attachEditorPlatformBackend(DesktopEditorPlatformBackend *backend)
+void PluginManager::attachEditorPlatformBackend(EditorPlatformBackend *backend)
 {
     if (!backend)
         return;
-    connect(pluginHost, &PluginHost::rehightlight_requested, backend, &DesktopEditorPlatformBackend::rehighlight,
+    connect(pluginHost, &PluginHost::rehightlight_requested, backend, &EditorPlatformBackend::rehighlight,
             Qt::UniqueConnection);
     pluginHost->attachSpellCheck(backend);
 }

@@ -3,8 +3,10 @@
 ## Decision
 
 Android uses an explicit factory registry for plugins compiled into the APK.
-It does not use desktop shared-library discovery and does not use
-`Q_IMPORT_PLUGIN` as the application-level contract.
+Each admitted plugin is built as its own bundled static library and linked into
+`qtnote_mobile`; Android does not recompile plugin source files in the
+application target. It does not use desktop shared-library discovery and does
+not use `Q_IMPORT_PLUGIN` as the application-level contract.
 
 The shared pieces are:
 
@@ -33,9 +35,11 @@ plugins implement `initialize()/shutdown()` after receiving
 `BundledPluginInterface` with the same methods. Storage registration uses the
 shared `NoteManager`; settings use `SettingsController` plus QML.
 
-When a plugin source is compiled directly into `qtnote_mobile`,
-`QTNOTE_BUNDLED_PLUGIN_BUILD` suppresses `Q_PLUGIN_METADATA`. This prevents
-multiple bundled classes from exporting the same dynamic-plugin entry symbols.
+`QTNOTE_BUNDLED_PLUGIN_BUILD` suppresses `Q_PLUGIN_METADATA` in bundled
+static libraries. This prevents bundled classes from exporting desktop dynamic
+plugin entry symbols. A bundled library owns its `.qrc` files; when a resource
+object lives in a static archive, the plugin explicitly initializes that
+resource with `Q_INIT_RESOURCE()` so the linker retains and registers it.
 Desktop plugin libraries retain normal metadata.
 
 ## Current Android allow-list
@@ -64,4 +68,5 @@ admitted explicitly without changing the platform fallback.
   review.
 
 Registration is explicit. Merely listing `android` in a plugin CMake declaration
-does not put the runtime into the APK.
+does not put the runtime into the APK. The plugin must have a bundled static
+target and a factory entry in `registerMobileBundledPlugins()`.

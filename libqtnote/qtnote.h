@@ -40,7 +40,6 @@ namespace QtNote {
 
 class PluginManager;
 class ShortcutsManager;
-class NoteWidget;
 class TrayImpl;
 class DEIntegrationInterface;
 enum class WindowGeometryRestoreResult;
@@ -61,7 +60,6 @@ public:
     bool isOperable() const { return _inited; }
     void parseAppArguments(const QStringList &args);
 
-    NoteWidget                 *noteWidget(const Note &note, const QUuid &draftId = {});
     virtual void                activateWidget(QWidget *w) const; // legacy desktop-shell adapter
     void                        activateWindow(QWindow *window) const;
     WindowGeometryRestoreResult restoreWindowGeometry(QWidget *w, const QString &key) const;
@@ -92,7 +90,6 @@ private:
     NoteDialog *makeNoteDialog(const QString &storageId, const QString &noteId = {});
 
 signals:
-    void noteWidgetCreated(QWidget *);
     void settingsUpdated();
 
 public slots:
@@ -108,7 +105,6 @@ private slots:
     void showOptions();
     void createNewNote();
     void createNewNoteFromSelection();
-    void note_trashRequested();
     void note_removed(const Note &noteItem);
 
 private:

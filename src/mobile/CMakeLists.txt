@@ -10,49 +10,14 @@ endif()
 
 qt_policy(SET QTP0001 NEW)
 
-if(NOT TARGET QCoro::Core)
-    find_package(QCoro6 QUIET COMPONENTS Core)
+set(qtnote_mobile_xmpp_available OFF)
+if(TARGET qtnote_bundled_xmpppubsub)
+    message(STATUS "Including the bundled XMPP Private Notes plugin in qtnote_mobile")
+    set(qtnote_mobile_xmpp_available ON)
 endif()
 
-set(qtnote_mobile_xmpp_sources)
-set(qtnote_mobile_xmpp_available OFF)
-if(TARGET QXmpp::QXmpp AND TARGET QXmpp::Omemo AND TARGET QCoro::Core)
-    message(STATUS "Including the XMPP Private Notes plugin in qtnote_mobile")
-    set(qtnote_mobile_xmpp_available ON)
-    list(APPEND qtnote_mobile_xmpp_sources
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/qtnotepubsubitem.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/qtnotepubsubitem.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppbackend.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppdialogpresenter.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppdialogpresenter.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppdto.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmpperror.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmpperror.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppkeyresolutioncontroller.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppkeyresolutioncontroller.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppkeysyncextension.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppkeysyncextension.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppnotecodec.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppnotecodec.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppomemopubsubitems.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppomemopubsubitems.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppomemostorage.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppomemostorage.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmpppepextension.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmpppepextension.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmpppersistenttruststorage.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmpppersistenttruststorage.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppplugin.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppplugin.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppsettingscontroller.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppsettingscontroller.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppstorage.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppstorage.h"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppworker.cpp"
-        "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/xmppworker.h"
-    )
-else()
-    message(STATUS "XMPP Private Notes is omitted from qtnote_mobile: QXmpp OMEMO and QCoro are required")
+if(NOT TARGET qtnote_bundled_nextcloud)
+    message(FATAL_ERROR "The bundled Nextcloud plugin target was not created")
 endif()
 
 set(qtnote_mobile_shared_qml
@@ -62,6 +27,7 @@ set(qtnote_mobile_shared_qml
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/ListBlockBehavior.js"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteBlockEditor.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteFindBar.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteEditorPane.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NotesManagerPage.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/TableBlockBehavior.js"
 )
@@ -72,42 +38,21 @@ endforeach()
 
 qt_add_executable(qtnote_mobile
     main.cpp
-    "${CMAKE_SOURCE_DIR}/plugins/nextcloud/nextclouddto.h"
-    "${CMAKE_SOURCE_DIR}/plugins/nextcloud/nextcloudworker.cpp"
-    "${CMAKE_SOURCE_DIR}/plugins/nextcloud/nextcloudworker.h"
-    "${CMAKE_SOURCE_DIR}/plugins/nextcloud/nextcloudstorage.cpp"
-    "${CMAKE_SOURCE_DIR}/plugins/nextcloud/nextcloudstorage.h"
-    "${CMAKE_SOURCE_DIR}/plugins/nextcloud/nextcloudplugin.cpp"
-    "${CMAKE_SOURCE_DIR}/plugins/nextcloud/nextcloudplugin.h"
-    ${qtnote_mobile_xmpp_sources}
 )
-
-if(qtnote_mobile_xmpp_available)
-    # The mobile target embeds the XMPP settings UI directly. Do not rely on
-    # AUTORCC processing a plugin .qrc file that is also used by the desktop
-    # shared plugin: the Android target is a separate shared library and must
-    # own/register these resources itself.
-    qt_add_resources(qtnote_mobile qtnote_mobile_xmpp_qml
-        PREFIX "/qml"
-        BASE "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub"
-        FILES
-            "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/XmppSettings.qml"
-            "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/XmppKeyResolutionHost.qml"
-            "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub/XmppKeySyncTrustHost.qml"
-    )
-endif()
 
 qt_add_qml_module(qtnote_mobile
     URI QtNote.Mobile
     VERSION 1.0
     QML_FILES
         AppSettingsPage.qml
+        DraftsPage.qml
         Main.qml
         NoteEditorPage.qml
         NotesPage.qml
         PluginSettingsPage.qml
         PluginsPage.qml
         RootPage.qml
+        SettingsHubPage.qml
         StorageSettingsPage.qml
         StoragesPage.qml
         ${qtnote_mobile_shared_qml}
@@ -116,10 +61,15 @@ qt_add_qml_module(qtnote_mobile
         androidplatformservices.h
         mobileapplication.cpp
         mobileapplication.h
+        mobileeditorplatformbackend.cpp
+        mobileeditorplatformbackend.h
         mobilebundledplugins.cpp
         mobilebundledplugins.h
 )
 
+# mobilebundledplugins.cpp includes the concrete plugin entry point headers.
+# Suppress dynamic plugin metadata in this target as well as in the bundled
+# static libraries, so AUTOMOC never produces duplicate plugin entry symbols.
 target_compile_definitions(qtnote_mobile PRIVATE QTNOTE_BUNDLED_PLUGIN_BUILD)
 
 target_include_directories(qtnote_mobile PRIVATE
@@ -131,6 +81,7 @@ target_include_directories(qtnote_mobile PRIVATE
 
 target_link_libraries(qtnote_mobile PRIVATE
     qtnote_core
+    qtnote_bundled_nextcloud
     Qt6::Core
     Qt6::Gui
     Qt6::Qml
@@ -141,13 +92,7 @@ target_link_libraries(qtnote_mobile PRIVATE
 
 if(qtnote_mobile_xmpp_available)
     target_compile_definitions(qtnote_mobile PRIVATE QTNOTE_MOBILE_XMPP_AVAILABLE)
-    target_link_libraries(qtnote_mobile PRIVATE
-        Qt6::Xml
-        QXmpp::QXmpp
-        QXmpp::Omemo
-        QCoro::Core
-    )
-    qtnote_configure_qxmpp_target(qtnote_mobile)
+    target_link_libraries(qtnote_mobile PRIVATE qtnote_bundled_xmpppubsub)
 endif()
 
 if(ANDROID)

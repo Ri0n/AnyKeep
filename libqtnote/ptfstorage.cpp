@@ -155,11 +155,16 @@ PTFStorage::PTFStorage(QObject *parent) : FileStorage(parent), icon(QLatin1Strin
 
 bool PTFStorage::init()
 {
+#ifdef Q_OS_ANDROID
+    // The mobile storage is always private application data. A stale or
+    // manually supplied desktop path must not redirect it to shared storage.
+    notesDir.setPath(findStorageDir());
+#else
     auto path = QSettings().value("storage.ptf.path").toString();
     notesDir.setPath(path.isEmpty() ? findStorageDir() : path);
-    if (!notesDir.isReadable() && !path.isEmpty()) {
+    if (!notesDir.isReadable() && !path.isEmpty())
         notesDir.setPath(findStorageDir()); // try default
-    }
+#endif
     if (!notesDir.exists()) {
         if (!notesDir.mkpath(QLatin1String("."))) {
             qWarning("can't create storage dir: %s", qPrintable(notesDir.absolutePath()));
@@ -182,7 +187,12 @@ QList<Note> PTFStorage::noteListFromInfoList(const QFileInfoList &files)
 {
     QList<Note> ret;
     foreach (const QFileInfo &fi, files) {
-        QFile file(fi.canonicalFilePath());
+        // canonicalFilePath() can be empty for valid files exposed through
+        // Android's app-specific external storage. The directory listing has
+        // already resolved the entry, so its absolute path is the appropriate
+        // stable backend path here.
+        const QString filePath = fi.absoluteFilePath();
+        QFile         file(filePath);
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
             continue;
 
@@ -193,7 +203,7 @@ QList<Note> PTFStorage::noteListFromInfoList(const QFileInfoList &files)
         note.setTitle(QString::fromUtf8(file.readLine()).trimmed());
         note.setTags(NoteData::tagsFromLine(QString::fromUtf8(file.readLine())));
         note.setLastChangeUTC(fi.lastModified());
-        note.setBackendValue(QStringLiteral("fileName"), fi.canonicalFilePath());
+        note.setBackendValue(QStringLiteral("fileName"), filePath);
         note.unload();
         ret.append(note);
     }

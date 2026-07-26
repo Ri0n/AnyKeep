@@ -1,72 +1,83 @@
-/*
-QtNote - Simple note-taking application
-Copyright (C) 2010 Sergei Ilinykh
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-Contacts:
-E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
-*/
-
 #ifndef NOTEDIALOG_H
 #define NOTEDIALOG_H
 
-#include <QDialog>
-#include <QList>
+#include "note.h"
 
-namespace Ui {
-class NoteDialog;
-}
+#include <QHash>
+#include <QPointer>
+#include <QQuickView>
+#include <QSet>
+#include <QUuid>
 
 namespace QtNote {
 
-class NoteWidget;
+class DesktopEditorPlatformBackend;
+class DesktopNoteActions;
 class Main;
+class NoteEditor;
+class SpeechRecognitionController;
 
-class NoteDialog : public QDialog {
+// Thin desktop window host. Editing, autosave, find, formatting, deletion UI,
+// and toolbar composition live in the shared NoteEditorPane QML component.
+class NoteDialog final : public QQuickView {
     Q_OBJECT
-    Q_DISABLE_COPY(NoteDialog)
+    Q_PROPERTY(bool alwaysOnTop READ alwaysOnTop NOTIFY alwaysOnTopChanged)
+    Q_PROPERTY(bool pinAvailable READ pinAvailable CONSTANT)
+    Q_PROPERTY(bool askBeforeDelete READ askBeforeDelete CONSTANT)
+
 public:
-    explicit NoteDialog(NoteWidget *noteWidget, Main *main);
-    virtual ~NoteDialog();
+    explicit NoteDialog(const Note &note, Main *main, const QUuid &draftId = {});
+    ~NoteDialog() override;
 
     static NoteDialog         *findDialog(const QString &storageId, const QString &noteId);
     static QList<NoteDialog *> openDialogs();
 
-    void registerWindowGeometry();
+    NoteEditor *editor() const { return editor_; }
+    void        setText(const QString &text);
+    void        registerWindowGeometry();
 
-    NoteWidget *weidget() { return noteWidget; }
+    bool alwaysOnTop() const;
+    bool pinAvailable() const;
+    bool askBeforeDelete() const;
 
-protected:
-    void changeEvent(QEvent *e);
-
-private slots:
-    void firstLineChanged();
-
-private:
-    Ui::NoteDialog *m_ui;
-    NoteWidget     *noteWidget;
-    Main           *main;
-    QString         windowGeometryKey;
-    QString         alwaysOnTopKey;
-    bool            pinning = false;
-
-    static QHash<QPair<QString, QString>, NoteDialog *> dialogs;
+    Q_INVOKABLE void requestClose();
+    Q_INVOKABLE bool deleteNote();
+    Q_INVOKABLE bool pinNote();
+    Q_INVOKABLE void setAlwaysOnTop(bool enabled);
 
 public slots:
     void trashRequested();
-    void done(int r);
+
+signals:
+    void alwaysOnTopChanged();
+    void operationFailed(const QString &message);
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
+    bool event(QEvent *event) override;
+
+private:
+    QString geometryKey() const;
+    void    updateWindowTitle();
+    void    saveGeometryState(bool remove = false);
+    void    removeFromRegistry();
+    void    flushEditorChanges();
+    int     insertionRowAt(const QPointF &position) const;
+
+    Main                         *main_ { nullptr };
+    NoteEditor                   *editor_ { nullptr };
+    DesktopEditorPlatformBackend *platformBackend_ { nullptr };
+    DesktopNoteActions           *desktopActions_ { nullptr };
+    SpeechRecognitionController  *speechController_ { nullptr };
+    QString                       windowGeometryKey_;
+    QString                       alwaysOnTopKey_;
+    bool                          trashRequested_ { false };
+    bool                          pinning_ { false };
+    bool                          closing_ { false };
+    bool                          imageDragAccepted_ { false };
+
+    static QHash<QPair<QString, QString>, NoteDialog *> dialogs_;
+    static QSet<NoteDialog *>                           allDialogs_;
 };
 
 } // namespace QtNote

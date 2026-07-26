@@ -8,6 +8,16 @@ Page {
     id: page
 
     signal openSettings(string storageId, string storageName)
+    signal backRequested()
+
+    header: ToolBar {
+        RowLayout {
+            anchors.fill: parent
+            ToolButton { text: qsTr("‹"); font.pixelSize: 27; onClicked: page.backRequested() }
+            Label { Layout.fillWidth: true; text: qsTr("Storages"); font.pixelSize: 20; font.bold: true; horizontalAlignment: Text.AlignHCenter }
+            Item { Layout.preferredWidth: 40 }
+        }
+    }
 
     ListView {
         id: storagesView
@@ -133,36 +143,6 @@ Page {
                     }
                 }
 
-                ToolButton {
-                    id: settingsButton
-                    width: 40
-                    height: 40
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: storageDelegate.configurable
-                    enabled: storageDelegate.configurable
-                    padding: 0
-                    display: AbstractButton.IconOnly
-                    Accessible.name: qsTr("Settings")
-                    ToolTip.visible: hovered
-                    ToolTip.text: Accessible.name
-
-                    // image:// providers are loaded reliably by Image. Passing the
-                    // same URL through AbstractButton.icon.source is treated as a
-                    // local file by some Qt Quick Controls builds.
-                    contentItem: Image {
-                        width: 22
-                        height: 22
-                        anchors.centerIn: parent
-                        source: "image://qtnoteicons/configure/preferences-system-symbolic.svg"
-                        sourceSize.width: 22
-                        sourceSize.height: 22
-                        fillMode: Image.PreserveAspectFit
-                        smooth: true
-                        opacity: settingsButton.enabled ? 1.0 : 0.38
-                    }
-
-                    onClicked: page.openSettings(storageDelegate.storageId, storageDelegate.name)
-                }
             }
         }
 

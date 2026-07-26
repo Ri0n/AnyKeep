@@ -123,6 +123,27 @@ macro(add_qtnote_plugin name description buildable)
         )
 endmacro()
 
+function(add_qtnote_bundled_plugin name)
+    set(multiValueArgs SOURCES)
+    cmake_parse_arguments(arg "" "" "${multiValueArgs}" ${ARGN})
+
+    set(target "qtnote_bundled_${name}")
+    add_library(${target} STATIC ${arg_SOURCES})
+    set_target_properties(${target} PROPERTIES
+        AUTOMOC ON
+        AUTORCC ON
+        AUTOUIC ON
+        POSITION_INDEPENDENT_CODE ON
+    )
+    target_compile_definitions(${target} PRIVATE QTNOTE_BUNDLED_PLUGIN_BUILD)
+    target_include_directories(${target} PRIVATE
+        "${CMAKE_SOURCE_DIR}/libqtnote"
+        "${CMAKE_BINARY_DIR}/libqtnote"
+        "${CMAKE_BINARY_DIR}"
+        "${plugins_SOURCE_DIR}"
+    )
+endfunction()
+
 macro(qtnote_optional_pkgconfig)
     find_package(PkgConfig)
     if(PkgConfig_FOUND)

@@ -95,15 +95,6 @@ namespace {
         return result;
     }
 
-    QIcon themedIcon(const QString &primary, const QString &fallback)
-    {
-        auto icon = QIcon::fromTheme(primary);
-        if (icon.isNull()) {
-            icon = QIcon::fromTheme(fallback);
-        }
-        return icon;
-    }
-
 } // namespace
 
 NextcloudStorage::NextcloudStorage(QObject *parent) : NoteStorage(parent)
@@ -238,15 +229,9 @@ const QString NextcloudStorage::systemName() const { return storageId; }
 
 const QString NextcloudStorage::name() const { return tr("Nextcloud Notes"); }
 
-QIcon NextcloudStorage::storageIcon() const
-{
-    return themedIcon(QStringLiteral("folder-cloud"), QStringLiteral("network-server"));
-}
+QIcon NextcloudStorage::storageIcon() const { return QIcon(QStringLiteral(":/nextcloud/nextcloud-notes.svg")); }
 
-QIcon NextcloudStorage::noteIcon() const
-{
-    return themedIcon(QStringLiteral("document-edit"), QStringLiteral("text-x-generic"));
-}
+QIcon NextcloudStorage::noteIcon() const { return QIcon(QStringLiteral(":/nextcloud/nextcloud-notes.svg")); }
 
 bool NextcloudStorage::isAccessible() const { return accessible_; }
 

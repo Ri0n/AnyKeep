@@ -8,6 +8,16 @@ Page {
     id: page
 
     signal openSettings(string pluginId, string pluginName)
+    signal backRequested()
+
+    header: ToolBar {
+        RowLayout {
+            anchors.fill: parent
+            ToolButton { text: qsTr("‹"); font.pixelSize: 27; onClicked: page.backRequested() }
+            Label { Layout.fillWidth: true; text: qsTr("Plugins"); font.pixelSize: 20; font.bold: true; horizontalAlignment: Text.AlignHCenter }
+            Item { Layout.preferredWidth: 40 }
+        }
+    }
 
     ListView {
         id: pluginsView

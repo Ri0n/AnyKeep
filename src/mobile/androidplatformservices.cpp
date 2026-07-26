@@ -17,6 +17,7 @@ namespace {
 #ifdef Q_OS_ANDROID
     constexpr int ExportRequestCode = 0x514e01;
     constexpr int SpeechRequestCode = 0x514e02;
+    constexpr int ImageRequestCode  = 0x514e03;
     constexpr int ActivityResultOk  = -1;
 
     QJniObject androidContext() { return QNativeInterface::QAndroidApplication::context(); }
@@ -68,6 +69,53 @@ namespace {
             return false;
         }
         return true;
+    }
+
+    QByteArray readBytesFromUri(const QJniObject &uri)
+    {
+        const auto context = androidContext();
+        if (!context.isValid() || !uri.isValid())
+            return {};
+        const auto resolver = context.callObjectMethod("getContentResolver", "()Landroid/content/ContentResolver;");
+        const auto stream
+            = resolver.callObjectMethod("openInputStream", "(Landroid/net/Uri;)Ljava/io/InputStream;", uri.object());
+        if (!stream.isValid())
+            return {};
+
+        QJniObject      output("java/io/ByteArrayOutputStream", "()V");
+        QJniEnvironment environment;
+        jbyteArray      buffer = environment->NewByteArray(16 * 1024);
+        if (!output.isValid() || !buffer)
+            return {};
+        while (true) {
+            const jint count = stream.callMethod<jint>("read", "([B)I", buffer);
+            if (count <= 0)
+                break;
+            output.callMethod<void>("write", "([BII)V", buffer, 0, count);
+        }
+        stream.callMethod<void>("close", "()V");
+        const auto bytes = output.callObjectMethod("toByteArray", "()[B");
+        environment->DeleteLocalRef(buffer);
+        if (!bytes.isValid() || environment->ExceptionCheck()) {
+            environment->ExceptionClear();
+            return {};
+        }
+        const auto  array = bytes.object<jbyteArray>();
+        const jsize size  = environment->GetArrayLength(array);
+        QByteArray  result(size, Qt::Uninitialized);
+        if (size > 0)
+            environment->GetByteArrayRegion(array, 0, size, reinterpret_cast<jbyte *>(result.data()));
+        return result;
+    }
+
+    QString mimeTypeForUri(const QJniObject &uri)
+    {
+        const auto context = androidContext();
+        if (!context.isValid() || !uri.isValid())
+            return {};
+        const auto resolver = context.callObjectMethod("getContentResolver", "()Landroid/content/ContentResolver;");
+        const auto type = resolver.callObjectMethod("getType", "(Landroid/net/Uri;)Ljava/lang/String;", uri.object());
+        return type.isValid() ? type.toString() : QString();
     }
 #endif
 }
@@ -193,6 +241,39 @@ bool AndroidPlatformServices::requestSpeechRecognition(const QString &language)
     return true;
 #else
     Q_UNUSED(language)
+    return false;
+#endif
+}
+
+bool AndroidPlatformServices::requestImage()
+{
+#ifdef Q_OS_ANDROID
+    auto intent = newIntent("android.intent.action.OPEN_DOCUMENT");
+    if (!intent.isValid())
+        return false;
+    const auto category = javaString(QStringLiteral("android.intent.category.OPENABLE"));
+    intent.callObjectMethod("addCategory", "(Ljava/lang/String;)Landroid/content/Intent;", category.object<jstring>());
+    const auto mime = javaString(QStringLiteral("image/*"));
+    intent.callObjectMethod("setType", "(Ljava/lang/String;)Landroid/content/Intent;", mime.object<jstring>());
+
+    const QPointer<AndroidPlatformServices> guard(this);
+    QtAndroidPrivate::startActivity(
+        intent, ImageRequestCode, [guard](int requestCode, int resultCode, const QJniObject &data) {
+            if (!guard || requestCode != ImageRequestCode || resultCode != ActivityResultOk || !data.isValid())
+                return;
+            const auto       uri   = data.callObjectMethod("getData", "()Landroid/net/Uri;");
+            const QByteArray bytes = readBytesFromUri(uri);
+            if (bytes.isEmpty()) {
+                emit guard->operationFailed(AndroidPlatformServices::tr("Could not read the selected image."));
+                return;
+            }
+            QString name = uri.callObjectMethod("getLastPathSegment", "()Ljava/lang/String;").toString();
+            if (name.isEmpty())
+                name = QStringLiteral("image");
+            emit guard->imageSelected(bytes, name, mimeTypeForUri(uri));
+        });
+    return true;
+#else
     return false;
 #endif
 }

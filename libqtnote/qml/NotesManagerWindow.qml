@@ -21,6 +21,8 @@ ApplicationWindow {
         anchors.fill: parent
         workspace: notesWorkspace
         platformBackend: desktopEditorPlatform
+        desktopActions: desktopNoteActions
+        speechController: desktopSpeech
         embeddedEditor: true
     }
 

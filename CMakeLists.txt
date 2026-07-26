@@ -133,6 +133,10 @@ if(QTNOTE_BUILD_MOBILE)
     endif()
     set(QTNOTE_CORE_ONLY ON)
     add_subdirectory(libqtnote)
+    # Android plugins are built as bundled static libraries. Defining them
+    # before qtnote_mobile lets the application link each plugin as one unit,
+    # including its resources, instead of recompiling plugin sources in the APK.
+    add_subdirectory(plugins)
     add_subdirectory(src/mobile)
     return()
 endif()

@@ -15,14 +15,7 @@ ApplicationWindow {
         id: navigation
         anchors.fill: parent
         initialItem: RootPage {
-            onOpenPluginSettings: (pluginId, pluginName) => navigation.push(pluginSettings, {
-                "pluginId": pluginId,
-                "pluginName": pluginName
-            })
-            onOpenStorageSettings: (storageId, storageName) => navigation.push(storageSettings, {
-                "storageId": storageId,
-                "storageName": storageName
-            })
+            onOpenSettings: navigation.push(settingsHub)
         }
     }
 
@@ -82,6 +75,55 @@ ApplicationWindow {
         id: noteEditor
         NoteEditorPage {
             onBackRequested: navigation.pop()
+        }
+    }
+
+    Component {
+        id: settingsHub
+        SettingsHubPage {
+            onBackRequested: navigation.pop()
+            onOpenGeneral: navigation.push(appSettings)
+            onOpenDrafts: navigation.push(draftsPage)
+            onOpenStorages: navigation.push(storagesSettings)
+            onOpenPlugins: navigation.push(pluginsSettings)
+        }
+    }
+
+    Component {
+        id: draftsPage
+        DraftsPage {
+            onBackRequested: navigation.pop()
+            onDraftOpened: {
+                navigation.pop(null, StackView.Immediate)
+                navigation.push(noteEditor, { "editor": mobileApp.currentNoteEditor })
+            }
+        }
+    }
+
+    Component {
+        id: appSettings
+        AppSettingsPage { onBackRequested: navigation.pop() }
+    }
+
+    Component {
+        id: storagesSettings
+        StoragesPage {
+            onBackRequested: navigation.pop()
+            onOpenSettings: (storageId, storageName) => navigation.push(storageSettings, {
+                "storageId": storageId,
+                "storageName": storageName
+            })
+        }
+    }
+
+    Component {
+        id: pluginsSettings
+        PluginsPage {
+            onBackRequested: navigation.pop()
+            onOpenSettings: (pluginId, pluginName) => navigation.push(pluginSettings, {
+                "pluginId": pluginId,
+                "pluginName": pluginName
+            })
         }
     }
 

@@ -5,65 +5,50 @@ import QtQuick.Layouts
 Page {
     id: root
 
-    signal openPluginSettings(string pluginId, string pluginName)
-    signal openStorageSettings(string storageId, string storageName)
+    signal openSettings()
+
+    readonly property int headerButtonSize: 29
 
     header: ToolBar {
         RowLayout {
             anchors.fill: parent
+            anchors.leftMargin: 14
+            anchors.rightMargin: 14
             spacing: 0
 
-            Item {
-                Layout.preferredWidth: addButton.implicitWidth
-                Layout.fillHeight: true
-            }
+            Item { Layout.preferredWidth: root.headerButtonSize }
 
             Label {
                 Layout.fillWidth: true
-                Layout.alignment: Qt.AlignVCenter
-                text: tabs.currentIndex === 0 ? qsTr("Notes")
-                     : tabs.currentIndex === 1 ? qsTr("Plugins")
-                     : tabs.currentIndex === 2 ? qsTr("Storages")
-                     : qsTr("Settings")
+                text: qsTr("Notes")
                 horizontalAlignment: Text.AlignHCenter
                 font.pixelSize: 20
                 font.bold: true
             }
 
             ToolButton {
-                id: addButton
-                Layout.fillHeight: true
-                visible: tabs.currentIndex === 0
-                text: "+"
-                font.pixelSize: 28
-                Accessible.name: qsTr("Add note")
-                onClicked: notesPage.createNote()
+                id: settingsButton
+                Layout.preferredWidth: root.headerButtonSize
+                Layout.preferredHeight: root.headerButtonSize
+                padding: 0
+                display: AbstractButton.IconOnly
+                contentItem: Image {
+                    width: 14
+                    height: 14
+                    source: "image://qtnoteicons/preferences-system-symbolic/preferences-system-symbolic.svg/light"
+                    sourceSize.width: 14
+                    sourceSize.height: 14
+                    fillMode: Image.PreserveAspectFit
+                }
+                Accessible.name: qsTr("Settings")
+                ToolTip.visible: hovered
+                ToolTip.text: Accessible.name
+                onClicked: root.openSettings()
             }
         }
     }
 
-    StackLayout {
+    NotesPage {
         anchors.fill: parent
-        currentIndex: tabs.currentIndex
-
-        NotesPage {
-            id: notesPage
-        }
-        PluginsPage {
-            onOpenSettings: (pluginId, pluginName) => root.openPluginSettings(pluginId, pluginName)
-        }
-        StoragesPage {
-            onOpenSettings: (storageId, storageName) => root.openStorageSettings(storageId, storageName)
-        }
-        AppSettingsPage { }
-    }
-
-    footer: TabBar {
-        id: tabs
-
-        TabButton { text: qsTr("Notes") }
-        TabButton { text: qsTr("Plugins") }
-        TabButton { text: qsTr("Storages") }
-        TabButton { text: qsTr("Settings") }
     }
 }

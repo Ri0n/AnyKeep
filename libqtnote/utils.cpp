@@ -23,6 +23,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include <QColor>
 #include <QCoreApplication>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -52,8 +53,16 @@ const QString &Utils::qtnoteDataDir()
 {
     static QString dataDir;
     if (dataDir.isEmpty()) {
+#ifdef Q_OS_ANDROID
+        // Android application data must stay in the app-specific internal
+        // directory. GenericDataLocation may resolve to shared storage.
+        dataDir = QDir::cleanPath(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
+        if (!QDir().mkpath(dataDir))
+            qWarning() << "Could not create QtNote data directory" << dataDir;
+#else
         QSettings s;
         dataDir = genericDataDir() + QLatin1Char('/') + s.organizationName() + QLatin1Char('/') + s.applicationName();
+#endif
     }
     return dataDir;
 }

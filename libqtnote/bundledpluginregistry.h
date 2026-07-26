@@ -9,6 +9,8 @@
 
 namespace QtNote {
 
+class PluginHostInterface;
+
 class QTNOTE_EXPORT BundledPluginRegistry final : public PluginListSource {
     Q_OBJECT
 
@@ -19,6 +21,7 @@ public:
     ~BundledPluginRegistry() override;
 
     bool registerFactory(const Entry &entry, Factory factory);
+    void setHost(PluginHostInterface *host) { host_ = host; }
     void initializeEnabledPlugins();
 
     QStringList         pluginIds() const override;
@@ -45,6 +48,7 @@ private:
     QStringList          order_;
     QStringList          configuredOrder_;
     QHash<QString, Item> items_;
+    PluginHostInterface *host_ { nullptr };
 };
 
 } // namespace QtNote

@@ -15,7 +15,7 @@
 namespace QtNote {
 
 class Main;
-class DesktopEditorPlatformBackend;
+class EditorPlatformBackend;
 class PluginHost;
 
 class PluginManager : public PluginListSource {
@@ -76,7 +76,7 @@ public:
     SettingsController   *createSettingsController(const QString &pluginId, QObject *parent) override;
     QList<SpeechRecognitionProviderInterface *> speechRecognitionProviders() const;
     SpeechRecognitionProviderInterface         *speechRecognitionProvider() const;
-    void                                        attachEditorPlatformBackend(DesktopEditorPlatformBackend *backend);
+    void                                        attachEditorPlatformBackend(EditorPlatformBackend *backend);
 
 signals:
 

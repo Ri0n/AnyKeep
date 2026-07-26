@@ -13,6 +13,8 @@ Item {
 
     required property var workspace
     property var platformBackend: null
+    property var desktopActions: null
+    property var speechController: null
     property bool embeddedEditor: true
     property bool showCreateButton: true
     property bool showViewModeSelector: true
@@ -25,7 +27,18 @@ Item {
     property string selectedNoteId: ""
     property string selectedTitle: ""
     property bool editorFocusOwned: false
-    property bool searchExpanded: workspace.searchText.length > 0 || workspace.searchInBody
+    property bool mobileSearchExpanded: false
+    readonly property bool searchExpanded: !touchActions || mobileSearchExpanded
+                                           || workspace.searchText.length > 0 || workspace.searchInBody
+    readonly property bool searchOptionsVisible: searchField.activeFocus || searchInTextCheckBox.pressed
+
+    component CompactContextMenuItem: MenuItem {
+        implicitHeight: visible ? (root.touchActions ? 40 : 32) : 0
+    }
+
+    component CompactContextSeparator: MenuSeparator {
+        implicitHeight: visible ? (root.touchActions ? 8 : 6) : 0
+    }
 
     function flushEditorChanges() {
         Qt.inputMethod.commit()
@@ -101,7 +114,7 @@ Item {
     }
 
     function openSearch() {
-        searchExpanded = true
+        mobileSearchExpanded = true
         Qt.callLater(function() {
             searchField.forceActiveFocus()
             searchField.selectAll()
@@ -109,10 +122,10 @@ Item {
     }
 
     function closeSearch() {
-        searchField.text = ""
         workspace.searchText = ""
         workspace.searchInBody = false
-        searchExpanded = false
+        mobileSearchExpanded = false
+        searchField.focus = false
     }
 
     SplitView {
@@ -134,9 +147,12 @@ Item {
                 anchors.fill: parent
                 spacing: 6
 
-                RowLayout {
+                GridLayout {
+                    id: navigationHeader
                     Layout.fillWidth: true
-                    spacing: 4
+                    columns: root.touchActions && root.showViewModeSelector && width >= 380 ? 2 : 1
+                    columnSpacing: 4
+                    rowSpacing: 2
 
                     TabBar {
                         id: modeTabs
@@ -153,31 +169,36 @@ Item {
                         TabButton { text: qsTr("By storage") }
                     }
 
-                    ToolButton {
-                        text: root.searchExpanded ? qsTr("×") : qsTr("⌕")
-                        Accessible.name: root.searchExpanded ? qsTr("Close search") : qsTr("Search notes")
-                        onClicked: root.searchExpanded ? root.closeSearch() : root.openSearch()
-                    }
+                    RowLayout {
+                        visible: root.touchActions
+                        Layout.fillWidth: !root.showViewModeSelector
+                        Layout.alignment: Qt.AlignRight
+                        spacing: 4
 
-                    ToolButton {
-                        text: root.workspace.searching ? qsTr("…") : qsTr("↻")
-                        enabled: !root.workspace.busy
-                        Accessible.name: qsTr("Refresh notes")
-                        onClicked: root.workspace.refresh()
-                    }
+                        Item { Layout.fillWidth: !root.showViewModeSelector }
 
-                    ToolButton {
-                        visible: root.showCreateButton
-                        text: qsTr("+")
-                        Accessible.name: qsTr("New note")
-                        onClicked: root.createNote()
+                        ToolButton {
+                            id: searchButton
+                            display: AbstractButton.IconOnly
+                            contentItem: Image {
+                                width: 20
+                                height: 20
+                                source: "image://qtnoteicons/edit-find-symbolic/edit-find-symbolic.svg/light"
+                                sourceSize.width: 20
+                                sourceSize.height: 20
+                                fillMode: Image.PreserveAspectFit
+                            }
+                            Accessible.name: root.searchExpanded ? qsTr("Close search") : qsTr("Search notes")
+                            onClicked: root.searchExpanded ? root.closeSearch() : root.openSearch()
+                        }
                     }
                 }
 
                 Pane {
                     id: searchPane
                     Layout.fillWidth: true
-                    Layout.preferredHeight: root.searchExpanded ? searchLayout.implicitHeight + topPadding + bottomPadding : 0
+                    Layout.preferredHeight: root.searchExpanded
+                                            ? searchLayout.implicitHeight + topPadding + bottomPadding : 0
                     enabled: root.searchExpanded
                     padding: 6
                     clip: true
@@ -186,22 +207,50 @@ Item {
                     Behavior on Layout.preferredHeight { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                     Behavior on opacity { NumberAnimation { duration: 110 } }
 
-                    RowLayout {
+                    ColumnLayout {
                         id: searchLayout
                         anchors.left: parent.left
                         anchors.right: parent.right
-                        spacing: 8
+                        spacing: 4
 
-                        TextField {
-                            id: searchField
+                        RowLayout {
                             Layout.fillWidth: true
-                            placeholderText: qsTr("Search notes")
-                            text: root.workspace.searchText
-                            onTextEdited: root.workspace.searchText = text
-                            Keys.onEscapePressed: root.closeSearch()
+                            spacing: 6
+
+                            TextField {
+                                id: searchField
+                                Layout.fillWidth: true
+                                placeholderText: qsTr("Search notes")
+                                text: root.workspace.searchText
+                                onTextEdited: root.workspace.searchText = text
+                                Keys.onEscapePressed: root.closeSearch()
+                            }
+
+                            ToolButton {
+                                visible: root.showCreateButton
+                                Layout.preferredWidth: 27
+                                Layout.preferredHeight: 27
+                                padding: 3
+                                display: AbstractButton.IconOnly
+                                contentItem: Image {
+                                    source: "qrc:/icons/new"
+                                    sourceSize.width: 24
+                                    sourceSize.height: 24
+                                    fillMode: Image.PreserveAspectFit
+                                }
+                                Accessible.name: qsTr("New note")
+                                ToolTip.visible: hovered
+                                ToolTip.text: Accessible.name
+                                onClicked: root.createNote()
+                            }
                         }
 
                         CheckBox {
+                            id: searchInTextCheckBox
+                            visible: root.searchOptionsVisible
+                            enabled: visible
+                            focusPolicy: Qt.NoFocus
+                            Layout.preferredHeight: visible ? implicitHeight : 0
                             text: qsTr("Search in text")
                             checked: root.workspace.searchInBody
                             onToggled: root.workspace.searchInBody = checked
@@ -220,6 +269,7 @@ Item {
                         clip: true
                         spacing: 1
                         model: root.workspace.recentNotesModel
+                        bottomMargin: root.touchActions ? 88 : 0
 
                         delegate: SwipeDelegate {
                             id: recentDelegate
@@ -230,6 +280,7 @@ Item {
                             required property string preview
                             required property string storageName
                             required property string iconSource
+                            property double suppressClickUntil: 0
 
                             width: recentNotes.width
                             implicitHeight: root.touchActions ? 44 : 34
@@ -305,10 +356,17 @@ Item {
                                 }
                             }
 
-                            onClicked: root.selectNote(storageId, noteId, title)
+                            onClicked: {
+                                if (Date.now() < suppressClickUntil) {
+                                    suppressClickUntil = 0
+                                    return
+                                }
+                                root.selectNote(storageId, noteId, title)
+                            }
 
                             TapHandler {
                                 acceptedButtons: Qt.LeftButton
+                                acceptedDevices: PointerDevice.Mouse
                                 enabled: root.embeddedEditor
                                 onDoubleTapped: root.openStandalone(recentDelegate.storageId,
                                                                      recentDelegate.noteId)
@@ -316,9 +374,23 @@ Item {
 
                             TapHandler {
                                 acceptedButtons: Qt.RightButton
+                                acceptedDevices: PointerDevice.Mouse
                                 onTapped: root.showNoteMenu(recentDelegate.storageId,
                                                             recentDelegate.noteId,
                                                             recentDelegate.title)
+                            }
+
+                            TapHandler {
+                                enabled: root.touchActions
+                                acceptedButtons: Qt.LeftButton
+                                acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Stylus
+                                gesturePolicy: TapHandler.DragThreshold
+                                onLongPressed: {
+                                    recentDelegate.suppressClickUntil = Date.now() + 1000
+                                    root.showNoteMenu(recentDelegate.storageId,
+                                                      recentDelegate.noteId,
+                                                      recentDelegate.title)
+                                }
                             }
                         }
                     }
@@ -329,6 +401,7 @@ Item {
                         visible: root.viewMode === root.groupedByStorageMode
                         clip: true
                         model: root.workspace.groupedNotesModel
+                        bottomMargin: root.touchActions ? 88 : 0
                         Component.onCompleted: Qt.callLater(function() { expandRecursively(-1, 1) })
                         selectionModel: ItemSelectionModel { model: notesTree.model }
 
@@ -351,6 +424,7 @@ Item {
                             required property bool hasMore
                             required property int noteCount
                             required property string iconSource
+                            property double suppressClickUntil: 0
 
                             width: notesTree.width
                             implicitHeight: root.touchActions ? 44 : 34
@@ -468,12 +542,17 @@ Item {
 
                             TapHandler {
                                 acceptedButtons: Qt.LeftButton
+                                acceptedDevices: PointerDevice.Mouse
                                 enabled: groupedDelegate.itemType === 1 && root.embeddedEditor
                                 onDoubleTapped: root.openStandalone(groupedDelegate.storageId,
                                                                      groupedDelegate.noteId)
                             }
 
                             onClicked: {
+                                if (Date.now() < suppressClickUntil) {
+                                    suppressClickUntil = 0
+                                    return
+                                }
                                 notesTree.selectionModel.setCurrentIndex(notesTree.index(row, column),
                                                                          ItemSelectionModel.ClearAndSelect)
                                 if (itemType === 0) {
@@ -488,12 +567,26 @@ Item {
 
                             TapHandler {
                                 acceptedButtons: Qt.RightButton
+                                acceptedDevices: PointerDevice.Mouse
                                 onTapped: {
                                     if (groupedDelegate.itemType === 1) {
                                         root.showNoteMenu(groupedDelegate.storageId,
                                                           groupedDelegate.noteId,
                                                           groupedDelegate.title)
                                     }
+                                }
+                            }
+
+                            TapHandler {
+                                enabled: root.touchActions && groupedDelegate.itemType === 1
+                                acceptedButtons: Qt.LeftButton
+                                acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Stylus
+                                gesturePolicy: TapHandler.DragThreshold
+                                onLongPressed: {
+                                    groupedDelegate.suppressClickUntil = Date.now() + 1000
+                                    root.showNoteMenu(groupedDelegate.storageId,
+                                                      groupedDelegate.noteId,
+                                                      groupedDelegate.title)
                                 }
                             }
                         }
@@ -539,33 +632,25 @@ Item {
                 active: root.workspace.currentEditor !== null
 
                 sourceComponent: Component {
-                    Item {
-                        property alias blockEditor: editorView
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            spacing: 0
-
-                            EditorToolbar {
-                                Layout.fillWidth: true
-                                editorBackend: root.workspace.currentEditor
-                                platformBackend: root.platformBackend
-                                blockEditor: editorView
-                            }
-
-                            NoteBlockEditor {
-                                id: editorView
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                blockModel: root.workspace.currentEditor.blockModel
-                                editorBackend: root.workspace.currentEditor
-                                platformBackend: root.platformBackend
-
-                                Connections {
-                                    target: editorView.blockModel
-                                    function onContentsChanged() { saveTimer.restart() }
-                                }
-                            }
+                    NoteEditorPane {
+                        id: managerEditorPane
+                        editor: root.workspace.currentEditor
+                        platformBackend: root.platformBackend
+                        showDeleteButton: true
+                        showDesktopActions: root.desktopActions !== null
+                        microphoneVisible: root.speechController && root.speechController.available
+                        microphoneBusy: root.speechController && root.speechController.busy
+                        microphoneHoldToRecord: true
+                        saveHandler: function() { return root.workspace.saveCurrentNote() }
+                        onDeleteRequested: root.requestDelete(editor.storageId, editor.noteId,
+                                                              root.workspace.currentTitle)
+                        onPrintRequested: root.desktopActions.printNote()
+                        onExportRequested: root.desktopActions.exportNote()
+                        onMicrophoneRequested: root.speechController.start()
+                        onMicrophoneReleased: root.speechController.finish()
+                        Connections {
+                            target: root.speechController
+                            function onRecognizedText(text) { managerEditorPane.insertTextAtCursor(text) }
                         }
                     }
                 }
@@ -601,32 +686,26 @@ Item {
 
     Menu {
         id: noteContextMenu
+        width: root.touchActions ? Math.min(280, root.width - 32) : implicitWidth
 
-        MenuItem {
+        CompactContextMenuItem {
             text: qsTr("Open")
             onTriggered: root.selectNote(root.selectedStorageId, root.selectedNoteId, root.selectedTitle)
         }
-        MenuItem {
+        CompactContextMenuItem {
             visible: root.embeddedEditor
             text: qsTr("Open in separate window")
             onTriggered: root.openStandalone(root.selectedStorageId, root.selectedNoteId)
         }
-        MenuItem {
+        CompactContextMenuItem {
             text: qsTr("Move…")
             onTriggered: moveDialog.open()
         }
-        MenuSeparator { }
-        MenuItem {
+        CompactContextSeparator { }
+        CompactContextMenuItem {
             text: qsTr("Delete")
             onTriggered: root.requestDelete(root.selectedStorageId, root.selectedNoteId, root.selectedTitle)
         }
-    }
-
-    Timer {
-        id: saveTimer
-        interval: 1000
-        repeat: false
-        onTriggered: root.checkpointEditor()
     }
 
     Dialog {
@@ -635,11 +714,12 @@ Item {
         x: (root.width - width) / 2
         y: (root.height - height) / 2
         modal: true
+        width: Math.min(420, root.width - 32)
         title: qsTr("Delete note")
         standardButtons: Dialog.Yes | Dialog.No
 
         Label {
-            width: Math.min(420, root.width - 48)
+            width: parent.width
             wrapMode: Text.WordWrap
             text: qsTr("Delete “%1”?").arg(root.selectedTitle)
         }
@@ -656,11 +736,12 @@ Item {
         x: (root.width - width) / 2
         y: (root.height - height) / 2
         modal: true
+        width: Math.min(420, root.width - 32)
         title: qsTr("Move note")
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         ColumnLayout {
-            width: Math.min(420, root.width - 48)
+            width: parent.width
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
@@ -669,6 +750,7 @@ Item {
             ComboBox {
                 id: destinationStorage
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 model: root.workspace.storages
                 textRole: "name"
                 valueRole: "storageId"
@@ -689,7 +771,6 @@ Item {
     Connections {
         target: root.workspace
         function onCurrentEditorChanged() {
-            saveTimer.stop()
             if (root.workspace.currentEditor) {
                 root.selectedStorageId = root.workspace.currentStorageId
                 root.selectedNoteId = root.workspace.currentNoteId

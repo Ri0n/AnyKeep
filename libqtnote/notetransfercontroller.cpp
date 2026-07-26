@@ -18,6 +18,15 @@
 namespace QtNote {
 namespace {
 
+    QString normalizePlainText(QString text)
+    {
+        text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+        text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+        text.replace(QChar::LineSeparator, QLatin1Char('\n'));
+        text.replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+        return text;
+    }
+
     NoteTransferController::ImportResult failed(const QString &error)
     {
         NoteTransferController::ImportResult result;
@@ -357,17 +366,7 @@ NoteTransferController::ExportResult NoteTransferController::createMimeData(cons
     }
 
     QString       error;
-    const QString markdown = markdownForFragment(fragment, &error);
-    if (!error.isEmpty()) {
-        result.error = error;
-        return result;
-    }
     const QString plainText = plainTextForFragment(fragment, &error);
-    if (!error.isEmpty()) {
-        result.error = error;
-        return result;
-    }
-    const QString html = htmlForFragment(fragment, &error);
     if (!error.isEmpty()) {
         result.error = error;
         return result;
@@ -375,9 +374,22 @@ NoteTransferController::ExportResult NoteTransferController::createMimeData(cons
 
     auto mime = std::make_unique<QMimeData>();
     mime->setData(QString::fromLatin1(FragmentMimeType), encoded);
-    mime->setData(QString::fromLatin1(MarkdownMimeType), markdown.toUtf8());
-    mime->setHtml(html);
     mime->setText(plainText);
+
+    if (fragment.sourceFormat == NoteFragmentSourceFormat::Markdown) {
+        const QString markdown = markdownForFragment(fragment, &error);
+        if (!error.isEmpty()) {
+            result.error = error;
+            return result;
+        }
+        const QString html = htmlForFragment(fragment, &error);
+        if (!error.isEmpty()) {
+            result.error = error;
+            return result;
+        }
+        mime->setData(QString::fromLatin1(MarkdownMimeType), markdown.toUtf8());
+        mime->setHtml(html);
+    }
 
     const QString tsv = tsvForFragment(fragment);
     if (!tsv.isNull())
@@ -495,7 +507,7 @@ QString NoteTransferController::plainTextForFragment(const NoteFragment &fragmen
         QStringList blocks;
         for (const NoteFragmentBlock &block : fragment.blocks)
             blocks.append(block.markdown);
-        return blocks.join(QStringLiteral("\n\n"));
+        return normalizePlainText(blocks.join(QStringLiteral("\n\n")));
     }
     const QString markdown = markdownForFragment(fragment, error);
     if (error && !error->isEmpty())
@@ -505,7 +517,7 @@ QString NoteTransferController::plainTextForFragment(const NoteFragment &fragmen
     QStringList paragraphs;
     for (QTextBlock block = document.begin(); block.isValid(); block = block.next())
         paragraphs.append(block.text());
-    return paragraphs.join(QStringLiteral("\n\n"));
+    return normalizePlainText(paragraphs.join(QStringLiteral("\n\n")));
 }
 
 QString NoteTransferController::htmlForFragment(const NoteFragment &fragment, QString *error)

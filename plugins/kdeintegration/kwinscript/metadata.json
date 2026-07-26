@@ -1,10 +1,10 @@
 {
     "KPlugin": {
-        "Name": "QtNote Window Geometry",
-        "Description": "Restores QtNote note windows on Wayland",
+        "Name": "QtNote Window State",
+        "Description": "Restores QtNote note window geometry and stacking on Wayland",
         "Icon": "qtnote",
         "Id": "qtnotewindowgeometry",
-        "Version": "1.0",
+        "Version": "1.1",
         "License": "GPLv3",
         "Authors": [
             {

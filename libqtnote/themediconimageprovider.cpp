@@ -2,10 +2,12 @@
 
 #include "iconutils.h"
 
+#include <QColor>
 #include <QIcon>
 #include <QImage>
 #include <QQmlEngine>
 #include <QQuickImageProvider>
+#include <QStringList>
 #include <QUrl>
 
 namespace QtNote {
@@ -13,24 +15,43 @@ namespace QtNote {
 namespace {
     constexpr auto ProviderId = "qtnoteicons";
 
+    QColor requestedTint(const QString &mode)
+    {
+        if (mode.isEmpty() || mode == QStringLiteral("auto"))
+            return {};
+        if (mode == QStringLiteral("light"))
+            return QColor(Qt::white);
+        if (mode == QStringLiteral("dark"))
+            return QColor(QStringLiteral("#202124"));
+        const QColor color(mode);
+        return color.isValid() ? color : QColor();
+    }
+
     class ThemedIconImageProvider final : public QQuickImageProvider {
     public:
         ThemedIconImageProvider() : QQuickImageProvider(QQuickImageProvider::Image) { }
 
         QImage requestImage(const QString &id, QSize *size, const QSize &requestedSize) override
         {
-            const int slash = id.indexOf(QLatin1Char('/'));
-            if (slash <= 0 || slash == id.size() - 1)
+            const QStringList parts = id.split(QLatin1Char('/'));
+            if (parts.size() < 2 || parts.at(0).isEmpty() || parts.at(1).isEmpty())
                 return {};
 
-            const QString themeName    = QUrl::fromPercentEncoding(id.left(slash).toUtf8());
-            const QString fallbackName = QUrl::fromPercentEncoding(id.mid(slash + 1).toUtf8());
-            auto          fallbackPath = QStringLiteral(":/svg/%1").arg(fallbackName);
-            QIcon         icon;
-            if (themeName == QStringLiteral("__bundled__"))
-                icon = IconUtils::symbolicIcon(fallbackPath);
-            else
-                icon = IconUtils::themedIcon(themeName, fallbackPath);
+            const QString themeName    = QUrl::fromPercentEncoding(parts.at(0).toUtf8());
+            const QString fallbackName = QUrl::fromPercentEncoding(parts.at(1).toUtf8());
+            const QString tintMode
+                = parts.size() >= 3 ? QUrl::fromPercentEncoding(parts.at(2).toUtf8()) : QStringLiteral("auto");
+            const auto   fallbackPath = QStringLiteral(":/svg/%1").arg(fallbackName);
+            const QColor tint         = requestedTint(tintMode);
+
+            QIcon icon;
+            if (themeName == QStringLiteral("__bundled__")) {
+                icon = tint.isValid() ? IconUtils::tintedSymbolicIcon(fallbackPath, tint)
+                                      : IconUtils::symbolicIcon(fallbackPath);
+            } else {
+                icon = tint.isValid() ? IconUtils::themedIcon(themeName, fallbackPath, tint)
+                                      : IconUtils::themedIcon(themeName, fallbackPath);
+            }
             if (icon.isNull())
                 return {};
 

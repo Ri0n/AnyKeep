@@ -45,6 +45,7 @@ public:
     void resolveConcurrentEdit(const Note &localVersion, const Note &remoteVersion, const QString &message);
 
 signals:
+    void draftsChanged();
     void draftPublished(const QUuid &draftId, const Note &note);
     void draftPublishFailed(const QUuid &draftId, const QString &message);
     void publishingIdle();
@@ -58,6 +59,7 @@ private:
     void           remove(const DraftRecord &record);
     void           retry(const DraftRecord &record, const QString &message, bool retryable = true);
     void           resolveConflict(const DraftRecord &record, const StorageError &error, const Note &remoteNote = {});
+    void           storageBecameReady(NoteStorage *storage);
     void           storageAboutToBeRemoved(NoteStorage *storage);
     static QString sourceKey(const Note &note);
 

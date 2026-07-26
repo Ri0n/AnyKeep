@@ -3,6 +3,17 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 Page {
+    id: page
+    signal backRequested()
+
+    header: ToolBar {
+        RowLayout {
+            anchors.fill: parent
+            ToolButton { text: qsTr("‹"); font.pixelSize: 27; onClicked: page.backRequested() }
+            Label { Layout.fillWidth: true; text: qsTr("General"); font.pixelSize: 20; font.bold: true; horizontalAlignment: Text.AlignHCenter }
+            Item { Layout.preferredWidth: 40 }
+        }
+    }
     Flickable {
         anchors.fill: parent
         contentHeight: form.implicitHeight + 24

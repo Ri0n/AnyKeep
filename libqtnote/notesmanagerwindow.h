@@ -13,6 +13,9 @@ class QQuickWindow;
 namespace QtNote {
 
 class DesktopEditorPlatformBackend;
+class DesktopNoteActions;
+class SpeechRecognitionController;
+class SpeechRecognitionProviderInterface;
 class NotesWorkspaceController;
 
 class QTNOTE_EXPORT NotesManagerWindow final : public QObject {
@@ -26,12 +29,14 @@ public:
     DesktopEditorPlatformBackend *platformBackend() const { return platformBackend_; }
     bool                          isVisible() const;
     void                          show();
+    void                          setSpeechRecognitionProvider(SpeechRecognitionProviderInterface *provider);
     bool                          close();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 signals:
+    void operationFailed(const QString &message);
     void openNoteRequested(const QString &storageId, const QString &noteId);
 
 private:
@@ -44,6 +49,8 @@ private:
     QQmlApplicationEngine        *engine_ { nullptr };
     NotesWorkspaceController     *workspace_ { nullptr };
     DesktopEditorPlatformBackend *platformBackend_ { nullptr };
+    DesktopNoteActions           *desktopActions_ { nullptr };
+    SpeechRecognitionController  *speechController_ { nullptr };
     QPointer<QQuickWindow>        window_;
     bool                          imageDragAccepted_ { false };
 };

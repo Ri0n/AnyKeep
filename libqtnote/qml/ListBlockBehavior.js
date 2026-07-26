@@ -51,7 +51,7 @@ function handleKey(host, controller, event, cell, itemIndex) {
         }
     }
     if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
-            && !blocked && !(event.modifiers & Qt.ShiftModifier)) {
+            && !blocked && (controller.touchMode || !(event.modifiers & Qt.ShiftModifier))) {
         return controller.runEditTransaction("split-list-item", function() {
             const position = cell.cursorPosition
             if (cell.length === 0 && position === 0 && itemIndex + 1 === host.itemCount()) {

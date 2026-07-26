@@ -2,16 +2,18 @@
 #define QTNOTE_PLUGINHOST_H
 
 #include "pluginhostinterface.h"
+#include "qtnote_export.h"
 
+#include <QList>
 #include <QObject>
+#include <QPointer>
 #include <QSet>
 
 namespace QtNote {
 
-class DesktopEditorPlatformBackend;
-class NoteWidget;
+class EditorPlatformBackend;
 
-class PluginHost : public QObject, public PluginHostInterface {
+class QTNOTE_EXPORT PluginHost : public QObject, public PluginHostInterface {
     Q_OBJECT
 public:
     explicit PluginHost(QObject *parent = nullptr);
@@ -20,8 +22,7 @@ public:
     QString      qtnoteDataDir() override;
     void         rehighlight() override;
     bool         offerSpellCheckProvider(std::shared_ptr<SpellCheckProvider> provider) override;
-    void         attachSpellCheck(NoteWidget *widget);
-    void         attachSpellCheck(DesktopEditorPlatformBackend *backend);
+    void         attachSpellCheck(EditorPlatformBackend *backend);
 
     QString activeSpellCheckProviderId() const;
 
@@ -30,9 +31,10 @@ signals:
     void spellCheckProviderConflict(const QString &activeName, const QString &ignoredName);
 
 private:
-    std::shared_ptr<SpellCheckProvider>   provider_;
-    std::shared_ptr<HighlighterExtension> spellCheckExtension_;
-    QSet<QString>                         notifiedSpellCheckConflicts_;
+    std::shared_ptr<SpellCheckProvider>    provider_;
+    std::shared_ptr<HighlighterExtension>  spellCheckExtension_;
+    QSet<QString>                          notifiedSpellCheckConflicts_;
+    QList<QPointer<EditorPlatformBackend>> editorBackends_;
 };
 
 } // namespace QtNote

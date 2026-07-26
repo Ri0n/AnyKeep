@@ -956,9 +956,27 @@ ListView {
         if (selectionSpansEditors
                 && root.editorBackend.copySelectionToClipboard(structuredSelectionRanges(false)))
             return
-        const markdown = selectedDocumentMarkdown()
-        if (markdown.length > 0)
-            root.editorBackend.copyMarkdownToClipboard(markdown)
+        if (root.editorBackend.markdown) {
+            const markdown = selectedDocumentMarkdown()
+            if (markdown.length > 0)
+                root.editorBackend.copyMarkdownToClipboard(markdown)
+        } else {
+            const text = selectedDocumentText()
+            if (text.length > 0)
+                root.editorBackend.copyToClipboard(text)
+        }
+    }
+
+
+    function copyDocumentSelectionToPrimary() {
+        if (!hasDocumentSelection() || !root.editorBackend)
+            return false
+        if (selectionSpansEditors
+                && root.editorBackend.copySelectionToPrimarySelection(structuredSelectionRanges(false)))
+            return true
+        if (root.editorBackend.markdown)
+            return root.editorBackend.copyMarkdownToPrimarySelection(selectedDocumentMarkdown())
+        return root.editorBackend.copyTextToPrimarySelection(selectedDocumentText())
     }
 
     function copyActiveSelection() {
@@ -1818,6 +1836,11 @@ ListView {
         rightPadding: root.touchMode ? 2 : 4
         topPadding: root.touchMode ? 4 : 0
         bottomPadding: root.touchMode ? 4 : 0
+        function registerTextDocument() {
+            if (root.platformBackend)
+                root.platformBackend.registerTextDocument(textDocument, titleDocument)
+        }
+
         function currentPlainText() {
             return getText(0, length)
         }
@@ -1892,7 +1915,12 @@ ListView {
             return true
         }
 
-        onSourceTextChanged: synchronizeSourceText()
+        onSourceTextChanged: {
+            synchronizeSourceText()
+            Qt.callLater(function() { blockArea.registerTextDocument() })
+        }
+        onTextFormatChanged: Qt.callLater(function() { blockArea.registerTextDocument() })
+        onTitleDocumentChanged: registerTextDocument()
         onActiveFocusChanged: {
             if (activeFocus) {
                 root.activeEditor = this
@@ -1906,8 +1934,7 @@ ListView {
         Component.onCompleted: {
             synchronizeSourceText(true)
             root.registerEditor(blockArea)
-            if (root.platformBackend)
-                root.platformBackend.registerTextDocument(textDocument, titleDocument)
+            registerTextDocument()
             rememberPlainText()
             spellRefresh.restart()
         }
@@ -1921,6 +1948,17 @@ ListView {
                         ? root.platformBackend.spellCheckRanges(blockArea.textDocument) : []
                 spellingCanvas.requestPaint()
             }
+        }
+
+        Connections {
+            target: root
+            function onPlatformBackendChanged() { blockArea.registerTextDocument() }
+        }
+
+        Connections {
+            target: root.platformBackend
+            ignoreUnknownSignals: true
+            function onHighlightingChanged() { spellRefresh.restart() }
         }
 
         Connections {
@@ -2222,6 +2260,8 @@ ListView {
                     }
                     selecting = false
                     root.mouseSelectionActive = false
+                    if (selectionMoved)
+                        root.copyDocumentSelectionToPrimary()
                     selectionStateRefresh.restart()
                     root.selectionAnchorEditor = null
                 }
@@ -2238,6 +2278,7 @@ ListView {
                 blockArea.cursorPosition = blockArea.positionAt(mouse.x, mouse.y)
                 blockArea.selectWord()
                 root.wholeDocumentSelected = false
+                Qt.callLater(function() { root.copyDocumentSelectionToPrimary() })
             }
         }
 

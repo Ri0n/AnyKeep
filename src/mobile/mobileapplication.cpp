@@ -5,10 +5,12 @@
 #include "dialogservice.h"
 #include "draftmanager.h"
 #include "mobilebundledplugins.h"
+#include "mobileeditorplatformbackend.h"
 #include "noteeditor.h"
 #include "notemanager.h"
 #include "notesmodel.h"
 #include "notesworkspacecontroller.h"
+#include "pluginhost.h"
 #include "settingscontroller.h"
 
 #include <QGuiApplication>
@@ -19,6 +21,9 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QUrlQuery>
+#include <QVariantMap>
+
+#include <algorithm>
 
 namespace QtNote {
 
@@ -26,9 +31,23 @@ MobileApplication::MobileApplication(QObject *parent) :
     QObject(parent), platformServices_(new AndroidPlatformServices(this)), dialogs_(new DialogService(this)),
     bundledPlugins_(this), plugins_(&bundledPlugins_, this), storages_(this)
 {
-    workspace_ = new NotesWorkspaceController(this);
-    connect(workspace_, &NotesWorkspaceController::currentEditorChanged, this,
-            &MobileApplication::currentNoteEditorChanged);
+    workspace_             = new NotesWorkspaceController(this);
+    editorPlatformBackend_ = new MobileEditorPlatformBackend(platformServices_, this);
+    pluginHost_            = new PluginHost(this);
+    bundledPlugins_.setHost(pluginHost_);
+    pluginHost_->attachSpellCheck(editorPlatformBackend_);
+    connect(pluginHost_, &PluginHost::rehightlight_requested, editorPlatformBackend_,
+            &EditorPlatformBackend::rehighlight);
+    connect(pluginHost_, &PluginHost::spellCheckProviderConflict, this,
+            [this](const QString &active, const QString &ignored) {
+                emit operationFailed(tr("Spell checker %1 is already active; %2 was ignored.").arg(active, ignored));
+            });
+    editorPlatformBackend_->setEditor(workspace_->editor());
+    connect(workspace_, &NotesWorkspaceController::currentEditorChanged, this, [this] {
+        editorPlatformBackend_->setEditor(workspace_->editor());
+        emit currentNoteEditorChanged();
+    });
+    connect(editorPlatformBackend_, &EditorPlatformBackend::operationFailed, this, &MobileApplication::operationFailed);
     connect(platformServices_, &AndroidPlatformServices::speechRecognized, this, &MobileApplication::speechRecognized);
     connect(platformServices_, &AndroidPlatformServices::operationFailed, this, &MobileApplication::operationFailed);
     connect(platformServices_, &AndroidPlatformServices::exportCompleted, this,
@@ -46,7 +65,9 @@ MobileApplication::MobileApplication(QObject *parent) :
         settings.setValue(QStringLiteral("mobile.android-speech-enabled"), false);
     }
 
-    if (!DraftManager::instance()->initialize(&initializationError_))
+    auto *drafts = DraftManager::instance();
+    connect(drafts, &DraftManager::draftsChanged, this, &MobileApplication::recoverableDraftsChanged);
+    if (!drafts->initialize(&initializationError_))
         qWarning() << "Failed to initialize encrypted draft store:" << initializationError_;
 
     auto *notes = NoteManager::instance();
@@ -62,6 +83,7 @@ QAbstractItemModel *MobileApplication::notesModel() { return workspace_->recentN
 QAbstractItemModel *MobileApplication::pluginsModel() { return &plugins_; }
 QAbstractItemModel *MobileApplication::storagesModel() { return &storages_; }
 QObject            *MobileApplication::currentNoteEditor() const { return workspace_->currentEditor(); }
+QObject            *MobileApplication::editorPlatformBackend() const { return editorPlatformBackend_; }
 QObject            *MobileApplication::workspace() { return workspace_; }
 QObject            *MobileApplication::dialogs() const { return dialogs_; }
 
@@ -71,6 +93,38 @@ qreal MobileApplication::editorFontSize() const { return editorFontSize_; }
 bool  MobileApplication::androidSpeechEnabled() const { return androidSpeechEnabled_; }
 bool  MobileApplication::androidSpeechAvailable() const { return platformServices_->speechRecognitionAvailable(); }
 bool MobileApplication::homeScreenShortcutAvailable() const { return platformServices_->homeScreenShortcutAvailable(); }
+
+QVariantList MobileApplication::recoverableDrafts() const
+{
+    auto records = DraftManager::instance()->recoverableDrafts();
+    std::sort(records.begin(), records.end(),
+              [](const DraftRecord &left, const DraftRecord &right) { return left.updatedAt > right.updatedAt; });
+
+    QVariantList result;
+    result.reserve(records.size());
+    for (const auto &record : records) {
+        QString preview = record.body.simplified();
+        if (preview.size() > 180)
+            preview = preview.left(177) + QStringLiteral("...");
+
+        QString storageName = tr("Unassigned");
+        if (!record.storageId.isEmpty()) {
+            const auto storage = NoteManager::instance()->storage(record.storageId);
+            storageName        = storage ? storage->name() : record.storageId;
+        }
+
+        result.append(QVariantMap {
+            { QStringLiteral("draftId"), record.id.toString(QUuid::WithoutBraces) },
+            { QStringLiteral("title"),
+              record.title.trimmed().isEmpty() ? tr("Untitled note") : record.title.trimmed() },
+            { QStringLiteral("preview"), preview },
+            { QStringLiteral("storageName"), storageName },
+            { QStringLiteral("updated"), QLocale().toString(record.updatedAt.toLocalTime(), QLocale::ShortFormat) },
+            { QStringLiteral("lastError"), record.lastError },
+        });
+    }
+    return result;
+}
 
 bool MobileApplication::createNote()
 {
@@ -97,6 +151,56 @@ void MobileApplication::recoverDraft(NoteStorage *storage)
         if (!note.isNull() && openEditor(note, draft.id))
             return;
     }
+}
+
+bool MobileApplication::openDraft(const QString &draftId)
+{
+    if (workspace_->currentEditor()) {
+        emit operationFailed(tr("Close the current note before opening another draft."));
+        return false;
+    }
+
+    const QUuid id(draftId);
+    if (id.isNull()) {
+        emit operationFailed(tr("The draft identifier is invalid."));
+        return false;
+    }
+    const auto draft = DraftManager::instance()->editingDraft(id);
+    if (!draft) {
+        emit operationFailed(draft.error.message.isEmpty() ? tr("The draft is no longer available.")
+                                                           : draft.error.message);
+        return false;
+    }
+
+    const auto storage = draft.value.storageId.isEmpty() ? NoteManager::instance()->defaultStorage()
+                                                         : NoteManager::instance()->storage(draft.value.storageId);
+    if (!storage) {
+        emit operationFailed(tr("The storage associated with this draft is unavailable."));
+        return false;
+    }
+
+    const auto note
+        = draft.value.remoteNoteId.isEmpty() ? storage->createNote() : storage->note(draft.value.remoteNoteId);
+    if (note.isNull()) {
+        emit operationFailed(tr("The note associated with this draft could not be opened."));
+        return false;
+    }
+    return openEditor(note, id);
+}
+
+bool MobileApplication::discardDraft(const QString &draftId)
+{
+    const QUuid id(draftId);
+    if (id.isNull()) {
+        emit operationFailed(tr("The draft identifier is invalid."));
+        return false;
+    }
+    const auto error = DraftManager::instance()->discard(id);
+    if (error) {
+        emit operationFailed(error.message);
+        return false;
+    }
+    return true;
 }
 
 bool MobileApplication::saveCurrentNote() { return workspace_->saveCurrentNote(); }

@@ -1,8 +1,10 @@
 #include "notesmanagerwindow.h"
 
 #include "desktopeditorplatformbackend.h"
+#include "desktopnoteactions.h"
 #include "localmediaimageprovider.h"
 #include "notesworkspacecontroller.h"
+#include "speechrecognitioncontroller.h"
 #include "storageiconimageprovider.h"
 #include "themediconimageprovider.h"
 
@@ -21,13 +23,24 @@ namespace QtNote {
 
 NotesManagerWindow::NotesManagerWindow(QObject *parent) : QObject(parent)
 {
-    workspace_       = new NotesWorkspaceController(this);
-    platformBackend_ = new DesktopEditorPlatformBackend(workspace_->editor(), this);
+    workspace_        = new NotesWorkspaceController(this);
+    platformBackend_  = new DesktopEditorPlatformBackend(workspace_->editor(), this);
+    desktopActions_   = new DesktopNoteActions(this);
+    speechController_ = new SpeechRecognitionController(this);
+    desktopActions_->setEditor(workspace_->editor());
+    speechController_->setEditor(workspace_->editor());
     // Register this before QML bindings observe currentEditorChanged. New
     // delegates must attach their text documents to the backend for the same
     // editor rather than being cleared by a late backend switch.
-    connect(workspace_, &NotesWorkspaceController::currentEditorChanged, this,
-            [this] { platformBackend_->setEditor(workspace_->editor()); });
+    connect(workspace_, &NotesWorkspaceController::currentEditorChanged, this, [this] {
+        platformBackend_->setEditor(workspace_->editor());
+        desktopActions_->setEditor(workspace_->editor());
+        speechController_->setEditor(workspace_->editor());
+    });
+    connect(platformBackend_, &EditorPlatformBackend::operationFailed, this, &NotesManagerWindow::operationFailed);
+    connect(desktopActions_, &DesktopNoteActions::operationFailed, this, &NotesManagerWindow::operationFailed);
+    connect(speechController_, &SpeechRecognitionController::operationFailed, this,
+            &NotesManagerWindow::operationFailed);
     connect(workspace_, &NotesWorkspaceController::openStandaloneRequested, this,
             &NotesManagerWindow::openNoteRequested);
 
@@ -37,6 +50,8 @@ NotesManagerWindow::NotesManagerWindow(QObject *parent) : QObject(parent)
     installThemedIconImageProvider(engine_);
     engine_->rootContext()->setContextProperty(QStringLiteral("notesWorkspace"), workspace_);
     engine_->rootContext()->setContextProperty(QStringLiteral("desktopEditorPlatform"), platformBackend_);
+    engine_->rootContext()->setContextProperty(QStringLiteral("desktopNoteActions"), desktopActions_);
+    engine_->rootContext()->setContextProperty(QStringLiteral("desktopSpeech"), speechController_);
     engine_->load(QUrl(QStringLiteral("qrc:/qml/NotesManagerWindow.qml")));
 
     if (!engine_->rootObjects().isEmpty())
@@ -65,6 +80,11 @@ NotesManagerWindow::~NotesManagerWindow()
     delete engine_;
     engine_ = nullptr;
     window_.clear();
+}
+
+void NotesManagerWindow::setSpeechRecognitionProvider(SpeechRecognitionProviderInterface *provider)
+{
+    speechController_->setProvider(provider);
 }
 
 bool NotesManagerWindow::isReady() const { return !window_.isNull(); }

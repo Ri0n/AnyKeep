@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/nextcloud">
+        <file alias="nextcloud-notes.svg">nextcloud-notes.svg</file>
+    </qresource>
+</RCC>

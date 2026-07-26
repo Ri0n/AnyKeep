@@ -13,6 +13,9 @@
         <file alias="edit-undo-symbolic.svg">images/edit-undo-symbolic.svg</file>
         <file alias="table-symbolic.svg">images/table-symbolic.svg</file>
         <file alias="insert-image-symbolic.svg">images/insert-image-symbolic.svg</file>
+        <file alias="microphone.svg">images/microphone.svg</file>
         <file alias="preferences-system-symbolic.svg">images/preferences-system-symbolic.svg</file>
+        <file alias="format-list-unordered-symbolic.svg">images/format-list-unordered-symbolic.svg</file>
+        <file alias="user-trash-full-symbolic.svg">images/user-trash-full-symbolic.svg</file>
     </qresource>
 </RCC>

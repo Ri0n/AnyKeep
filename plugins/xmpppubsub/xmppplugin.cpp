@@ -2,10 +2,20 @@
 
 #include <memory>
 
+#include <QResource>
+
 #include "notemanager.h"
 #include "pluginhostinterface.h"
 #include "qtnote_config.h"
 #include "xmppstorage.h"
+
+#ifdef QTNOTE_BUNDLED_PLUGIN_BUILD
+static int initializeXmppPluginResources()
+{
+    Q_INIT_RESOURCE(xmppsettings);
+    return 0;
+}
+#endif
 
 namespace QtNote {
 
@@ -15,7 +25,13 @@ namespace {
 
 } // namespace
 
-XmppPlugin::XmppPlugin(QObject *parent) : QObject(parent) { }
+XmppPlugin::XmppPlugin(QObject *parent) : QObject(parent)
+{
+#ifdef QTNOTE_BUNDLED_PLUGIN_BUILD
+    static const int resourcesInitialized = initializeXmppPluginResources();
+    Q_UNUSED(resourcesInitialized);
+#endif
+}
 
 XmppPlugin::~XmppPlugin() { shutdown(); }
 

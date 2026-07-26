@@ -111,6 +111,8 @@ bool DraftManager::initialize(QString *errorText)
             [this](NoteStorage::Ptr storage) { storageAboutToBeRemoved(storage.data()); });
     connect(notes, &NoteManager::storageRemoved, this,
             [this](NoteStorage::Ptr) { QTimer::singleShot(0, this, &DraftManager::publishPending); });
+    connect(notes, &NoteManager::storageReady, this,
+            [this](NoteStorage::Ptr storage) { storageBecameReady(storage.data()); });
     QTimer::singleShot(0, this, &DraftManager::publishPending);
     return true;
 }
@@ -139,7 +141,10 @@ DraftStoreError DraftManager::saveEditing(const QUuid &draftId, const Note &note
     CONFLICT_TRACE << "Conflict trace: draft captured id=" << draftId.toString(QUuid::WithoutBraces)
                    << "storage=" << record.storageId << "note=" << record.remoteNoteId
                    << "base=" << concurrencySummary(record.backendData);
-    return store_->write(record);
+    const auto result = store_->write(record);
+    if (!result)
+        emit draftsChanged();
+    return result;
 }
 
 QUuid DraftManager::acquireEditingSession(const Note &note, const QUuid &knownDraftId)
@@ -248,8 +253,10 @@ DraftStoreError DraftManager::markReady(const QUuid &draftId)
     CONFLICT_TRACE << "Conflict trace: draft ready id=" << draftId.toString(QUuid::WithoutBraces)
                    << "note=" << draft.value.remoteNoteId << "base=" << concurrencySummary(draft.value.backendData);
     auto result = store_->write(draft.value);
-    if (!result)
+    if (!result) {
+        emit draftsChanged();
         QTimer::singleShot(0, this, &DraftManager::publishPending);
+    }
     return result;
 }
 
@@ -258,7 +265,11 @@ DraftStoreError DraftManager::discard(const QUuid &draftId)
     if (!store_)
         return { DraftStoreError::Locked, lastError_ };
     auto result = store_->remove(draftId);
-    return result.code == DraftStoreError::NotFound ? DraftStoreError {} : result;
+    if (result.code == DraftStoreError::NotFound)
+        result = {};
+    if (!result)
+        emit draftsChanged();
+    return result;
 }
 
 DraftStoreError DraftManager::queueRemoval(const QString &storageId, const QString &noteId)
@@ -581,6 +592,33 @@ void DraftManager::remove(const DraftRecord &record)
         if (publishing_.isEmpty())
             emit publishingIdle();
     });
+}
+
+void DraftManager::storageBecameReady(NoteStorage *storage)
+{
+    if (!store_ || !storage)
+        return;
+
+    // A draft can be moved to Retry during startup before an asynchronous
+    // storage has completed init(). Once that exact storage becomes ready,
+    // retry immediately instead of waiting for the generic network backoff.
+    const auto records = store_->records();
+    if (records) {
+        for (const auto &record : records.value) {
+            if (record.state != DraftRecord::Retry || !record.retryAt.isValid()
+                || record.storageId != storage->systemName()) {
+                continue;
+            }
+            auto ready      = record;
+            ready.state     = DraftRecord::Ready;
+            ready.lastError = {};
+            ready.retryAt   = {};
+            if (const auto error = store_->write(ready)) {
+                qWarning() << "Failed to requeue draft after storage became ready:" << error.message;
+            }
+        }
+    }
+    QTimer::singleShot(0, this, &DraftManager::publishPending);
 }
 
 void DraftManager::storageAboutToBeRemoved(NoteStorage *storage)

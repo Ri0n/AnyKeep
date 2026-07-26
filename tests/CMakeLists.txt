@@ -40,6 +40,10 @@ target_link_libraries(qmlnoteeditor_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::T
 add_test(NAME qmlnoteeditor_test COMMAND qmlnoteeditor_test)
 set_tests_properties(qmlnoteeditor_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software")
 
+add_executable(ptfstorage_test ptfstorage_test.cpp)
+target_link_libraries(ptfstorage_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME ptfstorage_test COMMAND ptfstorage_test)
+
 add_executable(filedraftstore_test filedraftstore_test.cpp)
 target_link_libraries(filedraftstore_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME filedraftstore_test COMMAND filedraftstore_test)

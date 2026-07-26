@@ -25,7 +25,7 @@ PluginMetadata NextcloudPlugin::metadata()
 {
     PluginMetadata metadata;
     metadata.id          = pluginId;
-    metadata.icon        = QIcon::fromTheme(QStringLiteral("folder-cloud"));
+    metadata.icon        = QIcon(QStringLiteral(":/nextcloud/nextcloud-notes.svg"));
     metadata.name        = QString("Nextcloud Notes");
     metadata.description = tr("Reads and writes notes using the Nextcloud Notes REST API");
     metadata.author      = QString("Sergei Ilinykh");

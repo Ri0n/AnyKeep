@@ -151,8 +151,9 @@ QString QtNoteDBus::claimWindowGeometry()
     if (key.isEmpty())
         return {};
 
-    const QRect rect  = QSettings().value(key).toRect();
-    const bool  valid = rect.isValid();
+    const QRect rect      = QSettings().value(key).toRect();
+    const bool  valid     = rect.isValid();
+    const bool  keepAbove = QSettings().value(key + QStringLiteral(".always-on-top"), false).toBool();
     // qInfo() << "Window geometry claimed:" << key << "stored:" << valid << rect;
     return QString::fromUtf8(QJsonDocument(QJsonObject {
                                                { QStringLiteral("key"), key },
@@ -161,6 +162,7 @@ QString QtNoteDBus::claimWindowGeometry()
                                                { QStringLiteral("y"), rect.y() },
                                                { QStringLiteral("width"), rect.width() },
                                                { QStringLiteral("height"), rect.height() },
+                                               { QStringLiteral("keepAbove"), keepAbove },
                                            })
                                  .toJson(QJsonDocument::Compact));
 }

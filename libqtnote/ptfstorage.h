@@ -26,7 +26,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 namespace QtNote {
 
-class PTFStorage : public FileStorage {
+class QTNOTE_EXPORT PTFStorage : public FileStorage {
     Q_OBJECT
     Q_DISABLE_COPY(PTFStorage)
 

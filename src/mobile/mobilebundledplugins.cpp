@@ -2,19 +2,28 @@
 
 #include "bundledpluginregistry.h"
 #include "nextcloudplugin.h"
+
+#include <QIcon>
+#include <QResource>
 #ifdef QTNOTE_MOBILE_XMPP_AVAILABLE
 #include "xmppplugin.h"
 #endif
+
+static void initializeNextcloudResourcesForMobile() { Q_INIT_RESOURCE(nextcloudresources); }
 
 namespace QtNote {
 
 void registerMobileBundledPlugins(BundledPluginRegistry &registry)
 {
+    initializeNextcloudResourcesForMobile();
+
     PluginListSource::Entry nextcloud;
     nextcloud.id           = QStringLiteral("nextcloud_storage");
     nextcloud.name         = NextcloudPlugin::tr("Nextcloud Notes");
     nextcloud.description  = NextcloudPlugin::tr("Reads and writes notes using the Nextcloud Notes REST API");
     nextcloud.versionText  = QStringLiteral("1.0");
+    nextcloud.iconSource   = QStringLiteral("qrc:/nextcloud/nextcloud-notes.svg");
+    nextcloud.icon         = QIcon(QStringLiteral(":/nextcloud/nextcloud-notes.svg"));
     nextcloud.loadPolicy   = PluginListSource::LP_Auto;
     nextcloud.configurable = true;
     registry.registerFactory(nextcloud, [](QObject *parent) { return new NextcloudPlugin(parent); });
