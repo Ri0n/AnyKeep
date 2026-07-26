@@ -46,11 +46,10 @@ flowchart LR
 - Hunspell dictionary selection/download;
 - XMPP account, encryption-key and OMEMO controls.
 
-XMPP key-conflict recovery still invokes the existing internal desktop wizard
-when automatic recovery cannot select a canonical key. This is an implementation
-detail of that plugin, not part of the plugin/settings interface. It must be
-migrated to a QML recovery flow before the XMPP runtime is admitted to the
-Android bundled allow-list.
+XMPP key-conflict recovery is implemented as an asynchronous, UI-neutral
+controller rendered by a plugin-internal QML workflow. The same recovery and
+incoming-device trust dialogs are presented in the active Qt Quick window on
+desktop and Android; the XMPP sources no longer contain a QWidget workflow or directly link Qt Widgets.
 
 ## ABI and compatibility
 

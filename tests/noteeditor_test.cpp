@@ -58,6 +58,24 @@ class NoteEditorTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void noteCopiesDetachBeforeMutation()
+    {
+        const auto original = plainNote();
+        auto       edited   = original;
+
+        edited.setTitle(QStringLiteral("Changed"));
+        edited.setText(QStringLiteral("New body"), Note::PlainText);
+        edited.setLastChangeUTC(QDateTime::currentDateTimeUtc());
+        edited.setBackendValue(QStringLiteral("revision"), 2);
+
+        QCOMPARE(original.title(), QStringLiteral("Title"));
+        QCOMPARE(original.text(), QStringLiteral("Body"));
+        QVERIFY(!original.lastChangeUTC().isValid());
+        QVERIFY(!original.backendValue(QStringLiteral("revision")).isValid());
+        QCOMPARE(edited.title(), QStringLiteral("Changed"));
+        QCOMPARE(edited.text(), QStringLiteral("New body"));
+    }
+
     void unchangedEditorDoesNotCreateDraft()
     {
         auto         store = std::make_unique<MemoryDraftStore>();

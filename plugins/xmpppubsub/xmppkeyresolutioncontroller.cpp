@@ -1,0 +1,476 @@
+#include "xmppkeyresolutioncontroller.h"
+
+#include <QAbstractListModel>
+#include <QPointer>
+#include <QStringList>
+#include <QXmppTrustLevel.h>
+
+#include <utility>
+
+namespace QtNote {
+namespace {
+
+    bool isTrusted(const XmppDeviceInfo &device)
+    {
+        const auto level = QXmpp::TrustLevel(device.trustLevel);
+        return level == QXmpp::TrustLevel::ManuallyTrusted || level == QXmpp::TrustLevel::Authenticated;
+    }
+
+    QString deviceFingerprint(const QByteArray &keyId)
+    {
+        if (keyId.isEmpty())
+            return XmppKeyResolutionController::tr("Fingerprint unavailable");
+
+        const auto  hex = keyId.toHex();
+        QStringList groups;
+        groups.reserve((hex.size() + 7) / 8);
+        for (qsizetype offset = 0; offset < hex.size(); offset += 8)
+            groups.append(QString::fromLatin1(hex.mid(offset, 8)));
+        return groups.join(QLatin1Char(' '));
+    }
+
+} // namespace
+
+class XmppDeviceSelectionModel final : public QAbstractListModel {
+public:
+    enum Role {
+        LabelRole = Qt::UserRole + 1,
+        FingerprintRole,
+        TrustTextRole,
+        SelectedRole,
+        SelectableRole,
+        TrustedRole,
+    };
+
+    explicit XmppDeviceSelectionModel(QList<XmppDeviceInfo> devices, QObject *parent = nullptr) :
+        QAbstractListModel(parent), devices_(std::move(devices))
+    {
+        selected_.fill(false, devices_.size());
+    }
+
+    int rowCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : devices_.size(); }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (!index.isValid() || index.row() < 0 || index.row() >= devices_.size())
+            return {};
+        const auto &device  = devices_.at(index.row());
+        const bool  trusted = isTrusted(device);
+        switch (role) {
+        case LabelRole:
+            return device.label.isEmpty() ? tr("Unnamed device") : device.label;
+        case FingerprintRole:
+            return deviceFingerprint(device.keyId);
+        case TrustTextRole:
+            return device.keyId.isEmpty() ? tr("Cannot be trusted yet")
+                : trusted                 ? tr("Trusted")
+                                          : tr("Needs confirmation");
+        case SelectedRole:
+            return trusted || selected_.at(index.row());
+        case SelectableRole:
+            return !trusted && !device.keyId.isEmpty();
+        case TrustedRole:
+            return trusted;
+        default:
+            return {};
+        }
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return { { LabelRole, "label" },       { FingerprintRole, "fingerprint" }, { TrustTextRole, "trustText" },
+                 { SelectedRole, "selected" }, { SelectableRole, "selectable" },   { TrustedRole, "trusted" } };
+    }
+
+    void setSelected(int row, bool selected)
+    {
+        if (row < 0 || row >= devices_.size() || isTrusted(devices_.at(row)) || devices_.at(row).keyId.isEmpty()
+            || selected_.at(row) == selected) {
+            return;
+        }
+        selected_[row]        = selected;
+        const auto modelIndex = index(row, 0);
+        emit       dataChanged(modelIndex, modelIndex, { SelectedRole });
+    }
+
+    QList<QByteArray> selectedDeviceKeys() const
+    {
+        QList<QByteArray> result;
+        for (int row = 0; row < devices_.size(); ++row) {
+            const auto &device = devices_.at(row);
+            if (!isTrusted(device) && selected_.at(row) && !device.keyId.isEmpty())
+                result.append(device.keyId);
+        }
+        return result;
+    }
+
+    bool hasTrustedOrSelectedDevice() const
+    {
+        for (int row = 0; row < devices_.size(); ++row) {
+            if (isTrusted(devices_.at(row)) || selected_.at(row))
+                return true;
+        }
+        return false;
+    }
+
+private:
+    QList<XmppDeviceInfo> devices_;
+    QList<bool>           selected_;
+};
+
+class XmppStorageKeyModel final : public QAbstractListModel {
+public:
+    enum Role {
+        FingerprintRole = Qt::UserRole + 1,
+        SourceRole,
+        NoteCountRole,
+        StatusRole,
+        AvailableRole,
+    };
+
+    explicit XmppStorageKeyModel(QObject *parent = nullptr) : QAbstractListModel(parent) { }
+
+    int rowCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : candidates_.size(); }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (!index.isValid() || index.row() < 0 || index.row() >= candidates_.size())
+            return {};
+        const auto &candidate = candidates_.at(index.row());
+        switch (role) {
+        case FingerprintRole:
+            return QString::fromLatin1(candidate.keyId.left(8).toHex());
+        case SourceRole:
+            return candidate.resource.isEmpty() ? tr("Key not received") : candidate.resource;
+        case NoteCountRole:
+            return candidate.indexItemCount;
+        case StatusRole:
+            return candidate.key.isEmpty() ? tr("Unavailable")
+                : candidate.local          ? tr("Current device")
+                                           : tr("Available");
+        case AvailableRole:
+            return !candidate.key.isEmpty();
+        default:
+            return {};
+        }
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return { { FingerprintRole, "fingerprint" },
+                 { SourceRole, "source" },
+                 { NoteCountRole, "noteCount" },
+                 { StatusRole, "status" },
+                 { AvailableRole, "available" } };
+    }
+
+    void setCandidates(QList<XmppStorageKeyCandidate> candidates)
+    {
+        beginResetModel();
+        candidates_ = std::move(candidates);
+        endResetModel();
+    }
+
+    const XmppStorageKeyCandidate *candidate(int row) const
+    {
+        return row >= 0 && row < candidates_.size() ? &candidates_.at(row) : nullptr;
+    }
+
+    const QList<XmppStorageKeyCandidate> &candidates() const { return candidates_; }
+
+private:
+    QList<XmppStorageKeyCandidate> candidates_;
+};
+
+XmppKeyResolutionController::XmppKeyResolutionController(bool localKeyMissing, const QList<XmppDeviceInfo> &devices,
+                                                         const QString &deviceError, TrustDevices trustDevices,
+                                                         AuditKeys auditKeys, RekeyStorage rekeyStorage,
+                                                         QObject *parent) :
+    QObject(parent), devicesModel_(new XmppDeviceSelectionModel(devices, this)),
+    keysModel_(new XmppStorageKeyModel(this)), trustDevices_(std::move(trustDevices)), auditKeys_(std::move(auditKeys)),
+    rekeyStorage_(std::move(rekeyStorage)), localKeyMissing_(localKeyMissing)
+{
+    setDeviceStatus(deviceError.isEmpty() ? tr("Found %1 OMEMO device(s) for this account.").arg(devices.size())
+                                          : tr("Found %1 OMEMO device(s). %2").arg(devices.size()).arg(deviceError));
+}
+
+QAbstractItemModel *XmppKeyResolutionController::devicesModel() const { return devicesModel_; }
+QAbstractItemModel *XmppKeyResolutionController::keysModel() const { return keysModel_; }
+
+bool XmppKeyResolutionController::canGoBack() const
+{
+    return !busy_ && !completed_ && currentPage_ > ProblemPage && currentPage_ < ResultPage;
+}
+
+bool XmppKeyResolutionController::canGoNext() const
+{
+    if (busy_ || completed_)
+        return false;
+    if (currentPage_ == KeysPage)
+        return !canonicalKey().isEmpty();
+    return true;
+}
+
+QString XmppKeyResolutionController::nextText() const
+{
+    if (currentPage_ == ReviewPage)
+        return tr("Repair");
+    if (currentPage_ == ResultPage)
+        return tr("Finish");
+    return tr("Next");
+}
+
+void XmppKeyResolutionController::setDeviceSelected(int row, bool selected)
+{
+    devicesModel_->setSelected(row, selected);
+    emit navigationChanged();
+}
+
+void XmppKeyResolutionController::selectKey(int row)
+{
+    const auto *candidate = keysModel_->candidate(row);
+    if (!candidate || candidate->key.isEmpty() || selectedKeyIndex_ == row)
+        return;
+    selectedKeyIndex_ = row;
+    emit selectedKeyIndexChanged();
+    updateSummary();
+    emit navigationChanged();
+}
+
+QByteArray XmppKeyResolutionController::canonicalKey() const
+{
+    const auto *candidate = keysModel_->candidate(selectedKeyIndex_);
+    return candidate ? candidate->key : QByteArray {};
+}
+
+QList<QByteArray> XmppKeyResolutionController::availableKeys() const
+{
+    QList<QByteArray> result;
+    for (const auto &candidate : keysModel_->candidates()) {
+        if (!candidate.key.isEmpty() && !result.contains(candidate.key))
+            result.append(candidate.key);
+    }
+    return result;
+}
+
+void XmppKeyResolutionController::next()
+{
+    if (!canGoNext())
+        return;
+
+    switch (currentPage_) {
+    case ProblemPage:
+        setCurrentPage(DevicesPage);
+        return;
+    case DevicesPage: {
+        if (devicesComplete_) {
+            setCurrentPage(KeysPage);
+            return;
+        }
+        if (!devicesModel_->hasTrustedOrSelectedDevice()) {
+            setDeviceStatus(
+                tr("Select at least one QtNote device you recognize, then continue. If no expected device is shown, "
+                   "start QtNote on the other machine and reopen this recovery flow."));
+            return;
+        }
+        if (!trustDevices_ || !auditKeys_) {
+            setDeviceStatus(tr("The XMPP recovery backend is unavailable."));
+            return;
+        }
+
+        setDeviceStatus(tr("Establishing trusted OMEMO sessions and requesting storage keys…"));
+        setBusy(true);
+        const auto                            selected = devicesModel_->selectedDeviceKeys();
+        QPointer<XmppKeyResolutionController> guard(this);
+        trustDevices_(selected, [guard](XmppStatusResult trusted) {
+            if (!guard || guard->completed_)
+                return;
+            if (!trusted.ok) {
+                guard->setBusy(false);
+                guard->setDeviceStatus(tr("Could not trust the selected device: %1").arg(trusted.error));
+                return;
+            }
+            guard->auditKeys_([guard](XmppKeyAuditResult audit) {
+                if (!guard || guard->completed_)
+                    return;
+                guard->setBusy(false);
+                if (!audit.ok) {
+                    guard->setDeviceStatus(tr("Could not collect storage keys: %1").arg(audit.error));
+                    return;
+                }
+                guard->populateKeys(audit);
+                guard->devicesComplete_ = true;
+                guard->setCurrentPage(KeysPage);
+            });
+        });
+        return;
+    }
+    case KeysPage:
+        if (canonicalKey().isEmpty()) {
+            setKeyStatus(tr("Select an available key before continuing."));
+            return;
+        }
+        updateSummary();
+        setCurrentPage(ReviewPage);
+        return;
+    case ReviewPage: {
+        if (rekeyComplete_) {
+            setCurrentPage(ResultPage);
+            return;
+        }
+        if (!rekeyStorage_) {
+            rekeyResult_.error = tr("The XMPP recovery backend is unavailable.");
+            resultText_        = rekeyResult_.error;
+            emit resultTextChanged();
+            rekeyComplete_ = true;
+            setCurrentPage(ResultPage);
+            return;
+        }
+        setBusy(true);
+        const auto                            keys      = availableKeys();
+        const auto                            canonical = canonicalKey();
+        QPointer<XmppKeyResolutionController> guard(this);
+        rekeyStorage_(keys, canonical, [guard](XmppRekeyResult result) {
+            if (!guard || guard->completed_)
+                return;
+            guard->rekeyResult_ = std::move(result);
+            if (guard->rekeyResult_.ok) {
+                guard->resultText_ = tr("Recovery completed successfully. %1 of %2 note(s) now use the canonical "
+                                        "key.\n\nThe local storage key will be updated when you finish this flow.")
+                                         .arg(guard->rekeyResult_.migrated)
+                                         .arg(guard->rekeyResult_.total);
+            } else {
+                guard->resultText_ = tr("Recovery is incomplete: %1\n\nMigrated %2 of %3 note(s). The local storage "
+                                        "key has not been changed. You can safely run this recovery flow again.")
+                                         .arg(guard->rekeyResult_.error)
+                                         .arg(guard->rekeyResult_.migrated)
+                                         .arg(guard->rekeyResult_.total);
+            }
+            emit guard->resultTextChanged();
+            guard->rekeyComplete_ = true;
+            guard->setBusy(false);
+            guard->setCurrentPage(ResultPage);
+        });
+        return;
+    }
+    case ResultPage:
+        finish(true);
+        return;
+    }
+}
+
+void XmppKeyResolutionController::back()
+{
+    if (!canGoBack())
+        return;
+    setCurrentPage(static_cast<Page>(int(currentPage_) - 1));
+}
+
+void XmppKeyResolutionController::cancel()
+{
+    if (canCancel())
+        finish(false);
+}
+
+void XmppKeyResolutionController::abort() { finish(false); }
+
+void XmppKeyResolutionController::setCurrentPage(Page page)
+{
+    if (currentPage_ == page || completed_)
+        return;
+    currentPage_ = page;
+    if (currentPage_ == KeysPage || currentPage_ == ReviewPage)
+        updateSummary();
+    emit currentPageChanged();
+    emit navigationChanged();
+}
+
+void XmppKeyResolutionController::setBusy(bool busy)
+{
+    if (busy_ == busy)
+        return;
+    busy_ = busy;
+    emit busyChanged();
+    emit navigationChanged();
+}
+
+void XmppKeyResolutionController::setDeviceStatus(const QString &status)
+{
+    if (deviceStatus_ == status)
+        return;
+    deviceStatus_ = status;
+    emit deviceStatusChanged();
+}
+
+void XmppKeyResolutionController::setKeyStatus(const QString &status)
+{
+    if (keyStatus_ == status)
+        return;
+    keyStatus_ = status;
+    emit keyStatusChanged();
+}
+
+void XmppKeyResolutionController::populateKeys(const XmppKeyAuditResult &audit)
+{
+    audit_ = audit;
+    keysModel_->setCandidates(audit.candidates);
+
+    int preferredRow   = -1;
+    int preferredScore = -1;
+    for (int row = 0; row < audit.candidates.size(); ++row) {
+        const auto &candidate = audit.candidates.at(row);
+        const int   score     = candidate.key.isEmpty() ? -1 : candidate.indexItemCount;
+        if (score > preferredScore) {
+            preferredScore = score;
+            preferredRow   = row;
+        }
+    }
+    if (selectedKeyIndex_ != preferredRow) {
+        selectedKeyIndex_ = preferredRow;
+        emit selectedKeyIndexChanged();
+    }
+    setKeyStatus(audit.error.isEmpty() ? tr("All responding QtNote devices were queried successfully.")
+                                       : tr("Some devices could not provide a key:\n%1").arg(audit.error));
+    updateSummary();
+    emit navigationChanged();
+}
+
+void XmppKeyResolutionController::updateSummary()
+{
+    const auto *canonical = keysModel_->candidate(selectedKeyIndex_);
+    QString     nextSummary;
+    if (!canonical || canonical->key.isEmpty()) {
+        nextSummary = tr("No available canonical key is selected.");
+    } else {
+        int inaccessible = 0;
+        for (const auto &candidate : audit_.candidates) {
+            if (candidate.key.isEmpty())
+                inaccessible += candidate.indexItemCount;
+        }
+        nextSummary = tr("Canonical key: %1\nNotes found: %2\nNotes whose key is unavailable: %3\n\n"
+                         "For each accessible note QtNote will publish encrypted content first and its index second. "
+                         "Inaccessible notes are never overwritten or deleted. The operation can be safely resumed "
+                         "after interruption.")
+                          .arg(QString::fromLatin1(canonical->keyId.left(8).toHex()))
+                          .arg(audit_.totalIndexItems)
+                          .arg(inaccessible);
+    }
+    if (summary_ == nextSummary)
+        return;
+    summary_ = nextSummary;
+    emit summaryChanged();
+}
+
+void XmppKeyResolutionController::finish(bool accepted)
+{
+    if (completed_)
+        return;
+    completed_ = true;
+    busy_      = false;
+    emit busyChanged();
+    emit completedChanged();
+    emit navigationChanged();
+    emit finished(accepted);
+}
+
+} // namespace QtNote

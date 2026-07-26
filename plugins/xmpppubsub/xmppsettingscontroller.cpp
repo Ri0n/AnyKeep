@@ -103,6 +103,14 @@ void XmppSettingsController::setRecoveryKey(const QString &key)
     emit recoveryKeyChanged();
 }
 
+void XmppSettingsController::setOmemoStatus(const QString &message)
+{
+    if (omemoStatus_ == message)
+        return;
+    omemoStatus_ = message;
+    emit omemoStatusChanged();
+}
+
 void XmppSettingsController::setOmemoDevices(const XmppDeviceInfo &ownDevice, bool ownBundleValid,
                                              const QList<XmppDeviceInfo> &devices, const QString &message)
 {
@@ -128,8 +136,7 @@ void XmppSettingsController::setOmemoDevices(const XmppDeviceInfo &ownDevice, bo
                                       .arg(device.trustLevel));
         omemoDeviceKeys_.append(device.keyId);
     }
-    if (!message.isEmpty())
-        setKeyState({}, message);
+    setOmemoStatus(message);
     emit omemoDevicesChanged();
 }
 
@@ -149,8 +156,17 @@ void XmppSettingsController::requestTrustOmemoDevice(int index)
 
 bool XmppSettingsController::applyValues(const QVariantMap &, QString *error)
 {
+    if (!storage_) {
+        if (error)
+            *error = tr("The XMPP storage is no longer available.");
+        return false;
+    }
+
     const auto next = config();
-    if (!storage_ || !storage_->configIsValid(next, error))
+    // Saving account settings must not require a local storage key. Once the
+    // account is online, XmppStorage::init() starts key resolution and tries to
+    // synchronize the existing key from the user's other OMEMO devices.
+    if (!storage_->connectionConfigIsValid(next, error))
         return false;
     emit applyConfigRequested(next);
     return true;

@@ -55,6 +55,7 @@ public:
     virtual void           auditStorageKeysAsync(AuditCallback callback)                                    = 0;
     virtual void rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback) = 0;
     virtual void approveKeySyncRequest(QString requestId)                                                   = 0;
+    virtual void rejectKeySyncRequest(QString requestId)                                                    = 0;
 
 signals:
     /// A complete remote note was published or changed.

@@ -77,10 +77,7 @@ public:
     const std::list<NoteStorage::Ptr>     prioritizedStorages(bool withInvalid = false) const;
 
     virtual NoteStorage::Ptr storage(const QString &storageId) const; // virtual for plugins
-    NoteStorage::Ptr         defaultStorage() const
-    {
-        return prioritizedStorages().empty() ? NoteStorage::Ptr() : prioritizedStorages().front();
-    }
+    NoteStorage::Ptr         defaultStorage() const;
 
     /*
      * Accepts storages identifiers. the first one is in higher priority.

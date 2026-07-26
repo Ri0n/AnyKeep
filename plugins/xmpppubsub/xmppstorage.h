@@ -5,6 +5,7 @@
 #include "xmppdto.h"
 
 #include <QHash>
+#include <QPointer>
 #include <QTimer>
 
 #include <memory>
@@ -12,6 +13,8 @@
 namespace QtNote {
 
 class XmppBackend;
+class XmppDialogPresenter;
+class XmppKeyResolutionController;
 class XmppSettingsController;
 class RemoteCacheStore;
 
@@ -44,6 +47,7 @@ public:
     QIcon           storageIcon() const override;
     QIcon           noteIcon() const override;
     bool            isAccessible() const override;
+    bool            canAcceptWrites() const override;
 
     QList<Note::Format> availableFormats() const override;
     QList<Note>         noteList(int limit = 0) override;
@@ -74,8 +78,19 @@ private slots:
     void onConnectionChanged(bool connected);
 
 private:
+    struct RefreshWaiter {
+        QPointer<NoteListJob> job;
+        int                   limit { 0 };
+    };
+
+    struct RefreshAttempt {
+        quint64              epoch { 0 };
+        QList<RefreshWaiter> waiters;
+    };
+
     friend class XmppSettingsController;
     XmppConfig     readConfig() const;
+    bool           connectionConfigIsValid(const XmppConfig &config, QString *error) const;
     bool           configIsValid(const XmppConfig &config, QString *error) const;
     Note           fromRemote(const XmppRemoteNote &remote);
     void           applyRemote(Note &note, const XmppRemoteNote &remote);
@@ -90,10 +105,12 @@ private:
     void           applyConfig(const XmppConfig &config);
     void           installReceivedStorageKey(const QString &jid, const QByteArray &key);
     void           resolveStorageKeys(const QString &jid, XmppSettingsController *settings = nullptr);
+    void           abortKeyResolution();
     bool           openPersistentCache(const XmppConfig &config);
     void           persistCache();
     void           startBodyPrefetch(const QStringList &ids);
     void           prefetchNextBody();
+    void           cancelRefreshAttempt();
 
     /// Stable configuration snapshot used by operations until applyConfig().
     XmppConfig config_;
@@ -106,8 +123,12 @@ private:
     bool                              cacheAvailable_ { false };
     QStringList                       bodyPrefetchQueue_;
     bool                              bodyPrefetchRunning_ { false };
+    /// One network index refresh shared by simultaneous model/UI callers.
+    std::shared_ptr<RefreshAttempt> refreshAttempt_;
     /// Whether cache_ is a complete representation of the current remote index.
     bool cacheValid_ { false };
+    /// Storage/note icon resolved while the storage is constructed on the GUI thread.
+    QIcon icon_;
     /// Whether normal storage operations may currently be attempted.
     bool accessible_ { false };
     /// Set for a terminal error that automatic reconnects cannot repair.
@@ -115,7 +136,11 @@ private:
     QString errorStateMessage_;
     /// Suppresses repeated user notifications containing the same error text.
     QString lastReportedError_;
-    /// Prevents multiple key-recovery wizards from running concurrently.
+    /// Presents plugin-internal QML workflows in the active Qt Quick window.
+    XmppDialogPresenter *dialogPresenter_ { nullptr };
+    /// Active asynchronous key-recovery controller, if any.
+    QPointer<XmppKeyResolutionController> keyResolutionController_;
+    /// Prevents multiple key-recovery workflows from running concurrently.
     bool keyResolutionInProgress_ { false };
     /// Single-shot timer implementing storage-level reconnect backoff.
     QTimer *retryTimer_ { nullptr };

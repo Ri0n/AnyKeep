@@ -55,6 +55,16 @@ NotesManagerWindow::~NotesManagerWindow()
 {
     saveWindowState();
     requestWorkspaceClose();
+
+    // workspace_, platformBackend_, and engine_ are QObject children of this
+    // object. QObject child deletion order must not be allowed to destroy the
+    // workspace while live QML bindings still reference its context property.
+    // Tear down the engine (and therefore the root window/bindings) explicitly
+    // before QObject starts deleting the remaining children.
+    platformBackend_->setDragSource(nullptr);
+    delete engine_;
+    engine_ = nullptr;
+    window_.clear();
 }
 
 bool NotesManagerWindow::isReady() const { return !window_.isNull(); }

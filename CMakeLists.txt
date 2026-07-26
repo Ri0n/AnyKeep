@@ -32,24 +32,35 @@ project(${APP_NAME} VERSION ${QTNOTE_VERSION} LANGUAGES CXX)
 include(CTest)
 
 option(QTNOTE_DEVEL "Enable development mode (adjusts some paths and output)" OFF)
-option(QTNOTE_BUILD_BUNDLED_QXMPP "Build bundled QXmpp when a suitable system QXmpp is unavailable" OFF)
 option(QTNOTE_ENABLE_X11 "Build QtNote components that use X11 directly" ON)
 
 if(ANDROID)
     set(_qtnote_mobile_default ON)
     set(_qtnote_bundled_qca_default ON)
+    set(_qtnote_bundled_qcoro_default ON)
     set(_qtnote_bundled_qtkeychain_default ON)
+    set(_qtnote_bundled_qxmpp_default ON)
+    set(_qtnote_bundled_omemo_c_default ON)
 else()
     set(_qtnote_mobile_default OFF)
     set(_qtnote_bundled_qca_default OFF)
+    set(_qtnote_bundled_qcoro_default OFF)
     set(_qtnote_bundled_qtkeychain_default OFF)
+    set(_qtnote_bundled_qxmpp_default OFF)
+    set(_qtnote_bundled_omemo_c_default OFF)
 endif()
 option(QTNOTE_BUILD_MOBILE "Build the experimental Qt Quick mobile application" ${_qtnote_mobile_default})
+option(QTNOTE_BUILD_BUNDLED_QXMPP "Build bundled QXmpp when a suitable system QXmpp is unavailable" ${_qtnote_bundled_qxmpp_default})
+option(QTNOTE_BUILD_BUNDLED_OMEMO_C "Build bundled libomemo-c and protobuf-c for bundled QXmpp" ${_qtnote_bundled_omemo_c_default})
 option(QTNOTE_BUILD_BUNDLED_QCA "Build bundled QCA when a suitable system QCA is unavailable" ${_qtnote_bundled_qca_default})
+option(QTNOTE_BUILD_BUNDLED_QCORO "Build bundled QCoro when a suitable system QCoro is unavailable" ${_qtnote_bundled_qcoro_default})
 option(QTNOTE_BUILD_BUNDLED_QTKEYCHAIN "Build bundled QtKeychain when a suitable system QtKeychain is unavailable" ${_qtnote_bundled_qtkeychain_default})
 unset(_qtnote_mobile_default)
 unset(_qtnote_bundled_qca_default)
+unset(_qtnote_bundled_qcoro_default)
 unset(_qtnote_bundled_qtkeychain_default)
+unset(_qtnote_bundled_qxmpp_default)
+unset(_qtnote_bundled_omemo_c_default)
 
 if("${QT_VERSION_MAJOR}" STREQUAL "")
     set(QT_VERSION_MAJOR 6)
@@ -60,9 +71,9 @@ endif()
 
 if(QTNOTE_BUILD_MOBILE)
     if(ANDROID)
-        find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Quick Qml QuickControls2)
+        find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Quick Qml QuickControls2 Network Xml)
     else()
-        find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Quick Qml QuickControls2)
+        find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Quick Qml QuickControls2 Network Xml)
     endif()
 else()
     find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Core Gui PrintSupport Quick QuickWidgets Qml QuickControls2)
@@ -70,6 +81,41 @@ endif()
 set(QT_VERSION_MAJOR 6)
 set(QT_DEFAULT_MAJOR_VERSION ${QT_VERSION_MAJOR} CACHE STRING "Default Qt major version" FORCE)
 include(GNUInstallDirs)
+
+# The OMEMO package pulls in its matching QXmpp core package. Searching it
+# first also avoids creating a core-only imported target when OMEMO is absent,
+# so the bundled fallback can define a complete, self-consistent target pair.
+find_package(QXmppOmemoQt${QT_VERSION_MAJOR} 1.11 QUIET)
+
+if(TARGET QXmpp::QXmpp AND TARGET QXmpp::Omemo)
+    message(STATUS "Using system QXmpp with OMEMO")
+elseif(QTNOTE_BUILD_BUNDLED_QXMPP)
+    message(STATUS "System QXmpp 1.11+ with OMEMO not found; using bundled QXmpp")
+    include(BundledQXmpp)
+else()
+    message(STATUS "QXmpp 1.11+ with OMEMO not found; the XMPP plugin will be disabled")
+endif()
+
+find_package(QCoro6 QUIET COMPONENTS Core)
+if(TARGET QCoro::Core)
+    message(STATUS "Using system QCoro")
+elseif(QTNOTE_BUILD_BUNDLED_QCORO)
+    message(STATUS "System QCoro not found; using bundled QCoro")
+    include(BundledQCoro)
+else()
+    message(STATUS "QCoro not found; the XMPP plugin will be disabled")
+endif()
+
+function(qtnote_configure_qxmpp_target target)
+    if(TARGET qtnote_bundled_qxmpp)
+        # Older CMake/Qt AUTOGEN implementations may turn an imported static
+        # library into a file prerequisite without carrying over the imported
+        # target's ExternalProject dependency. Make the ordering explicit for
+        # both the consumer and its generated MOC/UIC timestamp target.
+        add_dependencies(${target} qtnote_bundled_qxmpp)
+        set_property(TARGET ${target} APPEND PROPERTY AUTOGEN_TARGET_DEPENDS qtnote_bundled_qxmpp)
+    endif()
+endfunction()
 
 # Android uses the shared editor, models, storage contracts and settings
 # controllers, but links only qtnote_core. Desktop-only window, tray and native
@@ -90,31 +136,6 @@ if(QTNOTE_BUILD_MOBILE)
     add_subdirectory(src/mobile)
     return()
 endif()
-
-# The OMEMO package pulls in its matching QXmpp core package. Searching it
-# first also avoids creating a core-only imported target when OMEMO is absent,
-# so the bundled fallback can define a complete, self-consistent target pair.
-find_package(QXmppOmemoQt${QT_VERSION_MAJOR} 1.11 QUIET)
-
-if(TARGET QXmpp::QXmpp AND TARGET QXmpp::Omemo)
-    message(STATUS "Using system QXmpp with OMEMO")
-elseif(QTNOTE_BUILD_BUNDLED_QXMPP)
-    message(STATUS "System QXmpp 1.11+ with OMEMO not found; using bundled QXmpp")
-    include(BundledQXmpp)
-else()
-    message(STATUS "QXmpp 1.11+ with OMEMO not found; the XMPP plugin will be disabled")
-endif()
-
-function(qtnote_configure_qxmpp_target target)
-    if(TARGET qtnote_bundled_qxmpp)
-        # Older CMake/Qt AUTOGEN implementations may turn an imported static
-        # library into a file prerequisite without carrying over the imported
-        # target's ExternalProject dependency. Make the ordering explicit for
-        # both the consumer and its generated MOC/UIC timestamp target.
-        add_dependencies(${target} qtnote_bundled_qxmpp)
-        set_property(TARGET ${target} APPEND PROPERTY AUTOGEN_TARGET_DEPENDS qtnote_bundled_qxmpp)
-    endif()
-endfunction()
 
 if(UNIX AND NOT (APPLE OR HAIKU OR ANDROID))
     set(UNIXLIKE ON)

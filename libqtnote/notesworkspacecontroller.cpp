@@ -147,7 +147,7 @@ bool NotesWorkspaceController::createNote(const QString &storageId)
 {
     auto storage
         = storageId.isEmpty() ? NoteManager::instance()->defaultStorage() : NoteManager::instance()->storage(storageId);
-    if (!storage || !storage->isAccessible()) {
+    if (!storage || !storage->canAcceptWrites()) {
         setError(tr("No writable note storage is available"));
         return false;
     }

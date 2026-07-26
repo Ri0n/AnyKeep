@@ -141,7 +141,8 @@ graph TD;
 | `XmppNoteCodec` | encryption/decryption and binding index/content to node, item ID, kind, and schema |
 | `XmppOmemoStorage` | encrypted persistence of local OMEMO identity, sessions, and pre-keys |
 | `XmppPersistentTrustStorage` | persistent OMEMO trust decisions |
-| `XmppKeyResolutionDialog` | device trust, key audit, canonical-key choice, and recovery progress |
+| `XmppKeyResolutionController` | UI-neutral device trust, key audit, canonical-key choice, and recovery state |
+| `XmppDialogPresenter` | presents the shared QML recovery and trust flows in an active or standalone Qt Quick window |
 | `DraftManager` | durable publish/delete intent, retry scheduling, and recovery after restart |
 
 QXmpp runs in Qt's normal event loop. There is no dedicated XMPP thread and no
@@ -165,7 +166,7 @@ graph TD;
     VALIDATE --> VALID["Configuration is valid"];
     VALIDATE --> MISSING["Only storage key is missing"];
     VALIDATE --> INVALID["Other configuration error"];
-    MISSING --> WIZARD["Open key recovery wizard"];
+    MISSING --> WIZARD["Open key recovery flow"];
     INVALID --> STOP["Stop backend and report error"];
     VALID --> TLS["Connect with TLS and authenticate"];
     TLS --> PERMANENT["Authentication or permanent error"];

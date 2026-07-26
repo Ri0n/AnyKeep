@@ -65,6 +65,15 @@ target_link_libraries(xmppnotecodec_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::T
 add_test(NAME xmppnotecodec_test COMMAND xmppnotecodec_test)
 
 if(TARGET QXmpp::QXmpp)
+    add_executable(xmppkeyresolutioncontroller_test
+        xmppkeyresolutioncontroller_test.cpp
+        ../plugins/xmpppubsub/xmppkeyresolutioncontroller.cpp
+    )
+    target_include_directories(xmppkeyresolutioncontroller_test PRIVATE ../plugins/xmpppubsub)
+    target_link_libraries(xmppkeyresolutioncontroller_test PRIVATE Qt${QT_VERSION_MAJOR}::Test QXmpp::QXmpp)
+    qtnote_configure_qxmpp_target(xmppkeyresolutioncontroller_test)
+    add_test(NAME xmppkeyresolutioncontroller_test COMMAND xmppkeyresolutioncontroller_test)
+
     add_executable(xmppkeysyncextension_test
         xmppkeysyncextension_test.cpp
         ../plugins/xmpppubsub/xmppkeysyncextension.cpp

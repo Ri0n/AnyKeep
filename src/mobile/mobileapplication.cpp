@@ -242,6 +242,11 @@ bool MobileApplication::processPendingLaunchIntent()
 
 bool MobileApplication::setPluginEnabled(int row, bool enabled) { return plugins_.setEnabled(row, enabled); }
 
+bool MobileApplication::moveStorage(int sourceRow, int destinationRow)
+{
+    return storages_.moveStorage(sourceRow, destinationRow);
+}
+
 QUrl MobileApplication::pluginSettingsComponent(const QString &pluginId) const
 {
     auto component = bundledPlugins_.settingsComponent(pluginId);

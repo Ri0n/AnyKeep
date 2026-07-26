@@ -1,7 +1,9 @@
 include(QtNoteMacro)
 
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Network Xml QUIET)
-find_package(QCoro${QT_VERSION_MAJOR} QUIET COMPONENTS Core)
+if(NOT TARGET QCoro::Core)
+    find_package(QCoro${QT_VERSION_MAJOR} QUIET COMPONENTS Core)
+endif()
 
 set(_xmpppubsub_buildable OFF)
 if(TARGET Qt${QT_VERSION_MAJOR}::Network
@@ -28,8 +30,12 @@ add_qtnote_plugin(
         xmpppepextension.h
         xmppkeysyncextension.cpp
         xmppkeysyncextension.h
-        xmppkeyresolutiondialog.cpp
-        xmppkeyresolutiondialog.h
+        xmppdialogpresenter.cpp
+        xmppdialogpresenter.h
+        xmppkeyresolutioncontroller.cpp
+        xmppkeyresolutioncontroller.h
+        XmppKeyResolutionHost.qml
+        XmppKeySyncTrustHost.qml
         xmppnotecodec.cpp
         xmppnotecodec.h
         xmppomemostorage.cpp
@@ -54,7 +60,9 @@ target_link_libraries(
     ${EXTRA_LINK_TARGET}
     Qt${QT_VERSION_MAJOR}::Core
     Qt${QT_VERSION_MAJOR}::Gui
-    Qt${QT_VERSION_MAJOR}::Widgets
+    Qt${QT_VERSION_MAJOR}::Qml
+    Qt${QT_VERSION_MAJOR}::Quick
+    Qt${QT_VERSION_MAJOR}::QuickControls2
     Qt${QT_VERSION_MAJOR}::Network
     Qt${QT_VERSION_MAJOR}::Xml
     QXmpp::QXmpp

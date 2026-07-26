@@ -400,6 +400,18 @@ NoteStorage::Ptr NoteManager::storage(const QString &storageId) const
     return _storages.value(storageId);
 }
 
+NoteStorage::Ptr NoteManager::defaultStorage() const
+{
+    // Routing must follow the configured priority, not the order in which
+    // asynchronous storage initialization happens to finish. A remote storage
+    // may accept a durable draft while it is still connecting.
+    for (const auto &storage : prioritizedStorages(true)) {
+        if (storage && storage->canAcceptWrites())
+            return storage;
+    }
+    return {};
+}
+
 void NoteManager::setPriorities(const QStringList &storageCodes)
 {
     _prioCache.clear();

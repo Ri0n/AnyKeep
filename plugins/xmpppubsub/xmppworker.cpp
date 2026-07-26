@@ -14,7 +14,9 @@
 #include <QFutureInterface>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPointer>
 #include <QRegularExpression>
+#include <QSslSocket>
 #include <QTimer>
 #include <QUuid>
 #include <QXmppClient.h>
@@ -153,9 +155,21 @@ namespace {
 
 } // namespace
 
+struct XmppWorker::ConnectionAttempt {
+    bool                  finished { false };
+    quint64               generation { 0 };
+    QPointer<QObject>     guard;
+    QPointer<QTimer>      timer;
+    QList<StatusCallback> callbacks;
+};
+
 XmppWorker::XmppWorker(QObject *parent) : XmppBackend(parent) { qRegisterMetaType<XmppRemoteNote>(); }
 
-XmppWorker::~XmppWorker() { resetClient(); }
+XmppWorker::~XmppWorker()
+{
+    acceptingWork_ = false;
+    resetClient();
+}
 
 void XmppWorker::start() { acceptingWork_ = true; }
 
@@ -177,6 +191,21 @@ void XmppWorker::shutdown()
 void XmppWorker::resetClient()
 {
     ++clientGeneration_;
+
+    QList<StatusCallback> cancelledConnectionCallbacks;
+    if (connectionAttempt_) {
+        auto attempt = std::exchange(connectionAttempt_, std::shared_ptr<ConnectionAttempt> {});
+        if (!attempt->finished) {
+            attempt->finished = true;
+            if (attempt->timer)
+                attempt->timer->stop();
+            if (attempt->guard)
+                attempt->guard->deleteLater();
+            cancelledConnectionCallbacks = std::move(attempt->callbacks);
+        }
+    }
+
+    omemoReadinessAttempt_.reset();
     readinessAttempt_.reset();
     prepared_         = false;
     omemoReady_       = false;
@@ -201,6 +230,12 @@ void XmppWorker::resetClient()
     trustStorage_ = nullptr;
     delete omemoStorage_;
     omemoStorage_ = nullptr;
+
+    if (acceptingWork_ && !cancelledConnectionCallbacks.isEmpty()) {
+        const auto result = configurationChangedResult<XmppStatusResult>();
+        for (auto &callback : cancelledConnectionCallbacks)
+            callback(result);
+    }
 }
 
 void XmppWorker::createClient()
@@ -283,10 +318,26 @@ void XmppWorker::connectToServerAsync(StatusCallback callback)
                    XmppErrorKind::Configuration });
         return;
     }
+    if (!QSslSocket::supportsSsl()) {
+        const auto error = QStringLiteral("TLS support is unavailable. The Android package is missing a compatible "
+                                          "OpenSSL runtime or Qt could not load its TLS backend.");
+        qCritical().noquote() << error;
+        callback({ false, false, false, error, {}, XmppErrorKind::Configuration });
+        return;
+    }
     createClient();
 
     if (client_->isConnected()) {
         callback({ true });
+        return;
+    }
+
+    // Settings, automatic key recovery and storage initialization may all need
+    // the same connection at once. QXmppClient does not accept a second
+    // connectToServer() call while DNS lookup or authentication is in progress,
+    // so every concurrent caller joins the current attempt instead.
+    if (connectionAttempt_ && connectionAttempt_->generation == clientGeneration_ && !connectionAttempt_->finished) {
+        connectionAttempt_->callbacks.append(std::move(callback));
         return;
     }
 
@@ -305,19 +356,15 @@ void XmppWorker::connectToServerAsync(StatusCallback callback)
     if (config_.port > 0)
         configuration.setPort(config_.port);
 
-    struct ConnectionAttempt {
-        bool                       finished { false };
-        QPointer<QObject>          guard;
-        QPointer<QTimer>           timer;
-        XmppWorker::StatusCallback callback;
-    };
-    const auto attempt = std::make_shared<ConnectionAttempt>();
-    auto      *guard   = new QObject(this);
-    auto      *timer   = new QTimer(guard);
+    const auto attempt  = std::make_shared<ConnectionAttempt>();
+    attempt->generation = clientGeneration_;
+    attempt->callbacks.append(std::move(callback));
+    auto *guard = new QObject(this);
+    auto *timer = new QTimer(guard);
     timer->setSingleShot(true);
-    attempt->guard    = guard;
-    attempt->timer    = timer;
-    attempt->callback = std::move(callback);
+    attempt->guard     = guard;
+    attempt->timer     = timer;
+    connectionAttempt_ = attempt;
 
     const auto finish = [this, attempt](XmppStatusResult result) {
         if (attempt->finished)
@@ -325,12 +372,21 @@ void XmppWorker::connectToServerAsync(StatusCallback callback)
         attempt->finished = true;
         if (attempt->timer)
             attempt->timer->stop();
-        auto callback = std::move(attempt->callback);
         if (attempt->guard)
             attempt->guard->deleteLater();
-        if (!result.ok && client_)
+
+        const bool currentGeneration = attempt->generation == clientGeneration_;
+        if (!currentGeneration)
+            result = configurationChangedResult<XmppStatusResult>();
+        else if (!result.ok && client_)
             client_->disconnectFromServer();
-        callback(std::move(result));
+
+        if (connectionAttempt_ == attempt)
+            connectionAttempt_.reset();
+
+        auto callbacks = std::move(attempt->callbacks);
+        for (auto &queuedCallback : callbacks)
+            queuedCallback(result);
     };
 
     connect(client_, &QXmppClient::connected, guard, [finish]() mutable { finish({ true }); });
@@ -503,6 +559,47 @@ QCoro::Task<XmppStatusResult> XmppWorker::ensureOmemoTask()
     co_return XmppStatusResult { true };
 }
 
+QCoro::Task<XmppStatusResult> XmppWorker::ensureOmemoReadyTask()
+{
+    if (!acceptingWork_)
+        co_return XmppStatusResult { false, false,
+                                     false, QStringLiteral("The XMPP backend is shutting down"),
+                                     {},    XmppErrorKind::Configuration };
+    if (client_ && client_->isConnected() && omemoReady_)
+        co_return XmppStatusResult { true };
+
+    if (omemoReadinessAttempt_)
+        co_return co_await omemoReadinessAttempt_->future();
+
+    const auto attempt     = std::make_shared<QFutureInterface<XmppStatusResult>>();
+    omemoReadinessAttempt_ = attempt;
+    const auto generation  = clientGeneration_;
+    const auto finish      = [this, attempt](XmppStatusResult result) {
+        attempt->reportResult(result);
+        attempt->reportFinished();
+        if (omemoReadinessAttempt_ == attempt)
+            omemoReadinessAttempt_.reset();
+        return result;
+    };
+    const auto configurationChanged
+        = [generation, this]() { return generation != clientGeneration_ || !acceptingWork_; };
+    const auto cancelled = []() {
+        return XmppStatusResult { false, false,
+                                  false, QStringLiteral("The XMPP configuration changed during initialization"),
+                                  {},    XmppErrorKind::Configuration };
+    };
+
+    auto status = co_await connectToServerTask();
+    if (configurationChanged())
+        co_return finish(cancelled());
+    if (!status.ok)
+        co_return finish(std::move(status));
+    status = co_await ensureOmemoTask();
+    if (configurationChanged())
+        co_return finish(cancelled());
+    co_return finish(std::move(status));
+}
+
 QCoro::Task<XmppStatusResult> XmppWorker::ensureReadyTask()
 {
     if (!acceptingWork_)
@@ -533,12 +630,7 @@ QCoro::Task<XmppStatusResult> XmppWorker::ensureReadyTask()
                                   {},    XmppErrorKind::Configuration };
     };
 
-    auto status = co_await connectToServerTask();
-    if (configurationChanged())
-        co_return finish(cancelled());
-    if (!status.ok)
-        co_return finish(std::move(status));
-    status = co_await ensureOmemoTask();
+    auto status = co_await ensureOmemoReadyTask();
     if (configurationChanged())
         co_return finish(cancelled());
     if (!status.ok)
@@ -641,6 +733,13 @@ void XmppWorker::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalK
 }
 
 void XmppWorker::approveKeySyncRequest(QString requestId) { approveKeySyncRequestTask(std::move(requestId)); }
+
+void XmppWorker::rejectKeySyncRequest(QString requestId)
+{
+    pendingInboundKeyRequests_.remove(requestId);
+    if (keySyncExtension_)
+        keySyncExtension_->reject(requestId);
+}
 
 void XmppWorker::handleKeySyncRequest(const QString &requestId, const QString &from, const QByteArray &senderKey)
 {
@@ -995,9 +1094,7 @@ QCoro::Task<XmppStatusResult> XmppWorker::deleteNoteTask(QString id)
 
 QCoro::Task<std::pair<QList<XmppDeviceInfo>, QString>> XmppWorker::ownOmemoDevicesTask()
 {
-    auto ready = co_await connectToServerTask();
-    if (ready.ok)
-        ready = co_await ensureOmemoTask();
+    auto ready = co_await ensureOmemoReadyTask();
     if (!ready.ok)
         co_return std::make_pair(QList<XmppDeviceInfo> {}, ready.error);
 
@@ -1047,9 +1144,7 @@ QCoro::Task<std::pair<QList<XmppDeviceInfo>, QString>> XmppWorker::ownOmemoDevic
 
 QCoro::Task<XmppStatusResult> XmppWorker::ownOmemoBundleValidTask()
 {
-    auto ready = co_await connectToServerTask();
-    if (ready.ok)
-        ready = co_await ensureOmemoTask();
+    auto ready = co_await ensureOmemoReadyTask();
     if (!ready.ok)
         co_return ready;
     const auto own = ownOmemoDevice();
@@ -1114,9 +1209,7 @@ QCoro::Task<XmppStatusResult> XmppWorker::trustOwnOmemoDevicesTask(QList<QByteAr
 
 QCoro::Task<XmppStatusResult> XmppWorker::repairOwnOmemoDeviceTask()
 {
-    auto ready = co_await connectToServerTask();
-    if (ready.ok)
-        ready = co_await ensureOmemoTask();
+    auto ready = co_await ensureOmemoReadyTask();
     if (!ready.ok)
         co_return ready;
 
@@ -1210,9 +1303,7 @@ QCoro::Task<std::pair<QStringList, QString>> XmppWorker::onlineQtNoteResourcesTa
 QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
 {
     XmppKeyAuditResult output;
-    auto               ready = co_await connectToServerTask();
-    if (ready.ok)
-        ready = co_await ensureOmemoTask();
+    auto               ready = co_await ensureOmemoReadyTask();
     if (!ready.ok) {
         output.error     = ready.error;
         output.errorKind = ready.errorKind;

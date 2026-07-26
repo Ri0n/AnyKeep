@@ -454,7 +454,7 @@ void DraftManager::publish(const DraftRecord &record)
                    << "storage=" << record.storageId << "note=" << record.remoteNoteId
                    << "base=" << concurrencySummary(record.backendData);
     auto storage = NoteManager::instance()->storage(record.storageId);
-    if (!storage || !storage->isAccessible()) {
+    if (!storage || !storage->canAcceptWrites()) {
         retry(record, tr("Target storage is unavailable"));
         return;
     }

@@ -2,25 +2,24 @@
 
 #include "draftmanager.h"
 #include "fileremotecachestore.h"
+#include "iconutils.h"
 #include "localdatakeystore.h"
 #include "notedata.h"
 #include "remotecachestore.h"
 #include "securekeystore.h"
 #include "utils.h"
 #include "xmppbackend.h"
-#include "xmppkeyresolutiondialog.h"
+#include "xmppdialogpresenter.h"
+#include "xmppkeyresolutioncontroller.h"
 #include "xmppsettingscontroller.h"
 #include "xmppworker.h"
 
-#include <QApplication>
 #include <QCryptographicHash>
-#include <QMessageBox>
 #include <QMetaObject>
 #if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
 #include <QNetworkInformation>
 #endif
 #include <QPointer>
-#include <QPushButton>
 #include <QSettings>
 #include <QTimer>
 #include <QUuid>
@@ -47,12 +46,16 @@ namespace {
         return QStringLiteral("xmpp-storage-master-key-v1:%1").arg(jid.trimmed().section(QLatin1Char('/'), 0, 0));
     }
 
-    QIcon themedIcon(const QString &primary, const QString &fallback)
+    QIcon xmppStorageIcon()
     {
-        auto icon = QIcon::fromTheme(primary);
-        if (icon.isNull()) {
-            icon = QIcon::fromTheme(fallback);
-        }
+        // Prefer the symbolic name so the icon follows light/dark palettes.
+        // Resolve it while the storage is constructed on the GUI thread; the
+        // QML image provider can then render the cached QIcon reliably.
+        auto icon = QIcon::fromTheme(QStringLiteral("im-jabber-symbolic"));
+        if (icon.isNull())
+            icon = QIcon::fromTheme(QStringLiteral("im-jabber"));
+        if (icon.isNull())
+            icon = QIcon(QStringLiteral(":/icons/xmpp-logo"));
         return icon;
     }
 
@@ -68,9 +71,10 @@ namespace {
 
 } // namespace
 
-XmppStorage::XmppStorage(QObject *parent, XmppBackend *backend) : NoteStorage(parent)
+XmppStorage::XmppStorage(QObject *parent, XmppBackend *backend) : NoteStorage(parent), icon_(xmppStorageIcon())
 {
-    backend_ = backend ? backend : new XmppWorker;
+    dialogPresenter_ = new XmppDialogPresenter(this);
+    backend_         = backend ? backend : new XmppWorker;
     backend_->setParent(this);
     connect(backend_, &XmppBackend::remoteNotePublished, this, &XmppStorage::onRemoteNotePublished);
     connect(backend_, &XmppBackend::remoteNoteRetracted, this, &XmppStorage::onRemoteNoteRetracted);
@@ -84,22 +88,16 @@ XmppStorage::XmppStorage(QObject *parent, XmppBackend *backend) : NoteStorage(pa
     });
     connect(backend_, &XmppBackend::keySyncTrustRequested, this,
             [this](const QString &requestId, const QByteArray &keyId) {
-                QMessageBox dialog(QMessageBox::Question, tr("Trust an own QtNote device?"),
-                                   tr("Another device on your XMPP account wants to synchronize the QtNote storage "
-                                      "key."),
-                                   QMessageBox::NoButton, QApplication::activeWindow());
-                dialog.setInformativeText(
-                    tr("OMEMO fingerprint: %1\n\nOnly approve this request if you recognize the device or can "
-                       "compare this fingerprint on both devices.")
-                        .arg(QString::fromLatin1(keyId.toHex())));
-                auto *reject  = dialog.addButton(tr("Reject"), QMessageBox::RejectRole);
-                auto *approve = dialog.addButton(tr("Trust and send key"), QMessageBox::AcceptRole);
-                dialog.setDefaultButton(reject);
-                dialog.exec();
-                if (dialog.clickedButton() == approve) {
-                    QMetaObject::invokeMethod(backend_,
-                                              [this, requestId]() { backend_->approveKeySyncRequest(requestId); });
-                }
+                dialogPresenter_->presentTrustRequest(
+                    requestId, keyId,
+                    [this, requestId]() {
+                        QMetaObject::invokeMethod(backend_,
+                                                  [this, requestId]() { backend_->approveKeySyncRequest(requestId); });
+                    },
+                    [this, requestId]() {
+                        QMetaObject::invokeMethod(backend_,
+                                                  [this, requestId]() { backend_->rejectKeySyncRequest(requestId); });
+                    });
             });
 
     retryTimer_ = new QTimer(this);
@@ -135,18 +133,40 @@ void XmppStorage::installReceivedStorageKey(const QString &jid, const QByteArray
         reportError(error.message);
         return;
     }
+    // The storage key is part of the backend configuration. Invalidate every
+    // operation started with the previous (keyless) snapshot before reconnecting.
+    cancelRefreshAttempt();
+    ++configEpoch_;
     config_ = readConfig();
     clearErrorState();
-    emit       encryptionKeyChanged(SecureEnvelope::keyId(key), tr("Storage key received from a trusted device"));
-    auto      *job                  = initAsync(this);
-    const auto finishInitialization = [this, job]() {
-        if (job->state() == StorageJob::Succeeded)
+    const auto keyId = SecureEnvelope::keyId(key);
+    qInfo().noquote() << "XMPP storage key installed from a trusted device: key="
+                      << QString::fromLatin1(keyId.left(8).toHex());
+    emit encryptionKeyChanged(keyId, tr("Storage key received from a trusted device"));
+
+    backend_->start();
+
+    // Reinitialize with the recovered key, then let the normal storage model
+    // invalidation path perform exactly one shared index refresh. Previously an
+    // explicit refresh here raced the refresh triggered by connectionChanged(),
+    // producing duplicate PubSub IQs and leaving one cancelled UI job waiting
+    // if the backend was reset during the race.
+    auto      *initJob       = initAsync(this);
+    const auto finishInitJob = [this, initJob]() {
+        if (initJob->state() != StorageJob::Succeeded) {
+            qWarning().noquote() << "XMPP storage key was installed, but storage initialization failed:"
+                                 << initJob->error().message;
+            initJob->deleteLater();
             emit invalidated();
-        job->deleteLater();
+            return;
+        }
+        initJob->deleteLater();
+        qInfo() << "XMPP recovery initialization completed; refreshing the note model";
+        emit invalidated();
     };
-    connect(job, &StorageJob::finished, this, finishInitialization);
-    if (job->isFinished())
-        finishInitialization();
+    connect(initJob, &StorageJob::finished, this, finishInitJob);
+    if (initJob->isFinished())
+        finishInitJob();
 }
 
 void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController *settings)
@@ -168,81 +188,119 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController 
             QMetaObject::invokeMethod(
                 this,
                 [this, devices = std::move(devices), deviceError = std::move(deviceError), jid, settingsGuard,
-                 epoch]() {
+                 epoch]() mutable {
                     if (shuttingDown_ || epoch != configEpoch_) {
                         keyResolutionInProgress_ = false;
                         return;
                     }
-                    QWidget   *parent          = QApplication::activeWindow();
+
                     const bool localKeyMissing = readConfig().masterKey.size() != SecureEnvelope::MasterKeySize;
-                    XmppKeyResolutionDialog dialog(
+                    auto      *controller      = new XmppKeyResolutionController(
                         localKeyMissing, devices, deviceError,
-                        [this](const QList<QByteArray> &keyIds, XmppKeyResolutionDialog::StatusCompletion completion) {
+                        [this, epoch](const QList<QByteArray>                      &keyIds,
+                                      XmppKeyResolutionController::StatusCompletion completion) {
                             QMetaObject::invokeMethod(
-                                backend_, [this, keyIds, completion = std::move(completion)]() mutable {
+                                backend_, [this, epoch, keyIds, completion = std::move(completion)]() mutable {
+                                    if (shuttingDown_ || epoch != configEpoch_)
+                                        return;
                                     backend_->trustOwnOmemoDevicesAsync(
                                         keyIds,
-                                        [this, completion = std::move(completion)](XmppStatusResult result) mutable {
+                                        [this, epoch,
+                                         completion = std::move(completion)](XmppStatusResult result) mutable {
                                             QMetaObject::invokeMethod(
                                                 this,
-                                                [completion = std::move(completion), result]() mutable {
-                                                    completion(result);
-                                                },
-                                                Qt::QueuedConnection);
-                                        });
-                                });
-                        },
-                        [this](XmppKeyResolutionDialog::AuditCompletion completion) {
-                            QMetaObject::invokeMethod(backend_, [this, completion = std::move(completion)]() mutable {
-                                backend_->auditStorageKeysAsync(
-                                    [this, completion = std::move(completion)](XmppKeyAuditResult result) mutable {
-                                        QMetaObject::invokeMethod(
-                                            this,
-                                            [completion = std::move(completion), result = std::move(result)]() mutable {
-                                                completion(std::move(result));
-                                            },
-                                            Qt::QueuedConnection);
-                                    });
-                            });
-                        },
-                        [this](const QList<QByteArray> &keys, const QByteArray &canonical,
-                               XmppKeyResolutionDialog::RekeyCompletion completion) {
-                            QMetaObject::invokeMethod(
-                                backend_, [this, keys, canonical, completion = std::move(completion)]() mutable {
-                                    backend_->rekeyStorageAsync(
-                                        keys, canonical,
-                                        [this, completion = std::move(completion)](XmppRekeyResult result) mutable {
-                                            QMetaObject::invokeMethod(
-                                                this,
-                                                [completion = std::move(completion),
-                                                 result     = std::move(result)]() mutable {
+                                                [this, epoch, completion = std::move(completion),
+                                                 result = std::move(result)]() mutable {
+                                                    if (shuttingDown_ || epoch != configEpoch_)
+                                                        return;
                                                     completion(std::move(result));
                                                 },
                                                 Qt::QueuedConnection);
                                         });
                                 });
                         },
-                        parent);
-                    const auto accepted      = dialog.exec() == QDialog::Accepted;
-                    const auto rekeyed       = dialog.rekeyResult();
-                    const auto canonical     = dialog.canonicalKey();
-                    keyResolutionInProgress_ = false;
-                    if (!accepted)
-                        return;
-                    if (!rekeyed.ok) {
-                        if (settingsGuard)
-                            settingsGuard->setKeyState(SecureEnvelope::keyId(canonical), rekeyed.error);
-                        return;
-                    }
-                    installReceivedStorageKey(jid, canonical);
-                    if (settingsGuard) {
-                        settingsGuard->setKeyState(
-                            SecureEnvelope::keyId(canonical),
-                            tr("Recovery complete: %1 notes use the canonical key").arg(rekeyed.migrated));
-                    }
-                });
+                        [this, epoch](XmppKeyResolutionController::AuditCompletion completion) {
+                            QMetaObject::invokeMethod(
+                                backend_, [this, epoch, completion = std::move(completion)]() mutable {
+                                    if (shuttingDown_ || epoch != configEpoch_)
+                                        return;
+                                    backend_->auditStorageKeysAsync([this, epoch, completion = std::move(completion)](
+                                                                        XmppKeyAuditResult result) mutable {
+                                        QMetaObject::invokeMethod(
+                                            this,
+                                            [this, epoch, completion = std::move(completion),
+                                             result = std::move(result)]() mutable {
+                                                if (shuttingDown_ || epoch != configEpoch_)
+                                                    return;
+                                                completion(std::move(result));
+                                            },
+                                            Qt::QueuedConnection);
+                                    });
+                                });
+                        },
+                        [this, epoch](const QList<QByteArray> &keys, const QByteArray &canonical,
+                                      XmppKeyResolutionController::RekeyCompletion completion) {
+                            QMetaObject::invokeMethod(
+                                backend_, [this, epoch, keys, canonical, completion = std::move(completion)]() mutable {
+                                    if (shuttingDown_ || epoch != configEpoch_)
+                                        return;
+                                    backend_->rekeyStorageAsync(
+                                        keys, canonical,
+                                        [this, epoch,
+                                         completion = std::move(completion)](XmppRekeyResult result) mutable {
+                                            QMetaObject::invokeMethod(
+                                                this,
+                                                [this, epoch, completion = std::move(completion),
+                                                 result = std::move(result)]() mutable {
+                                                    if (shuttingDown_ || epoch != configEpoch_)
+                                                        return;
+                                                    completion(std::move(result));
+                                                },
+                                                Qt::QueuedConnection);
+                                        });
+                                });
+                        },
+                        this);
+
+                    keyResolutionController_ = controller;
+                    connect(controller, &XmppKeyResolutionController::finished, this,
+                            [this, controller, jid, settingsGuard, epoch](bool accepted) {
+                                const auto rekeyed   = controller->rekeyResult();
+                                const auto canonical = controller->canonicalKey();
+                                if (keyResolutionController_ == controller)
+                                    keyResolutionController_.clear();
+                                keyResolutionInProgress_ = false;
+                                controller->deleteLater();
+
+                                if (shuttingDown_ || epoch != configEpoch_ || !accepted)
+                                    return;
+                                if (!rekeyed.ok) {
+                                    if (settingsGuard)
+                                        settingsGuard->setKeyState(SecureEnvelope::keyId(canonical), rekeyed.error);
+                                    return;
+                                }
+                                installReceivedStorageKey(jid, canonical);
+                                if (settingsGuard) {
+                                    settingsGuard->setKeyState(
+                                        SecureEnvelope::keyId(canonical),
+                                        tr("Recovery complete: %1 notes use the canonical key").arg(rekeyed.migrated));
+                                }
+                            });
+                    dialogPresenter_->presentKeyResolution(controller);
+                },
+                Qt::QueuedConnection);
         });
     });
+}
+
+void XmppStorage::abortKeyResolution()
+{
+    if (dialogPresenter_)
+        dialogPresenter_->cancelAll();
+    else if (keyResolutionController_)
+        keyResolutionController_->abort();
+    keyResolutionController_.clear();
+    keyResolutionInProgress_ = false;
 }
 
 XmppStorage::~XmppStorage() { shutdown(); }
@@ -252,6 +310,8 @@ void XmppStorage::shutdown()
     if (shuttingDown_)
         return;
     shuttingDown_ = true;
+    abortKeyResolution();
+    cancelRefreshAttempt();
     ++configEpoch_;
     if (retryTimer_)
         retryTimer_->stop();
@@ -305,9 +365,9 @@ XmppConfig XmppStorage::readConfig() const
 
     const QString defaultResource = QStringLiteral("QtNote-") + config.originId.left(8);
     config.resource = settings.value(QStringLiteral("storage.xmpppubsub.resource"), defaultResource).toString();
-    config.nodeName
-        = settings.value(QStringLiteral("storage.xmpppubsub.node"), QStringLiteral("urn:xmpp:qtnote:notes")).toString();
-    config.timeoutMs = settings.value(QStringLiteral("storage.xmpppubsub.timeoutMs"), 15000).toInt();
+    const auto storedNodeName = settings.value(QStringLiteral("storage.xmpppubsub.node")).toString().trimmed();
+    config.nodeName           = storedNodeName.isEmpty() ? XmppConfig {}.nodeName : storedNodeName;
+    config.timeoutMs          = settings.value(QStringLiteral("storage.xmpppubsub.timeoutMs"), 15000).toInt();
     if (!config.jid.isEmpty()) {
         const auto key = SecureKeyStore::read(storageKeyName(config.jid));
         if (key)
@@ -323,37 +383,40 @@ XmppConfig XmppStorage::readConfig() const
     return config;
 }
 
-bool XmppStorage::configIsValid(const XmppConfig &config, QString *error) const
+bool XmppStorage::connectionConfigIsValid(const XmppConfig &config, QString *error) const
 {
     const QString bareJid = config.jid.section(QLatin1Char('/'), 0, 0);
     const int     at      = bareJid.indexOf(QLatin1Char('@'));
     if (at <= 0 || at == bareJid.size() - 1) {
-        if (error) {
+        if (error)
             *error = tr("Enter a valid XMPP JID such as user@example.org.");
-        }
         return false;
     }
     if (config.password.isEmpty()) {
-        if (error) {
+        if (error)
             *error = tr("Enter the XMPP account password.");
-        }
         return false;
     }
     if (config.resource.isEmpty()) {
-        if (error) {
+        if (error)
             *error = tr("Enter an XMPP resource name.");
-        }
         return false;
     }
     if (config.nodeName.isEmpty()) {
-        if (error) {
+        if (error)
             *error = tr("Enter a PubSub node name.");
-        }
         return false;
     }
+    return true;
+}
+
+bool XmppStorage::configIsValid(const XmppConfig &config, QString *error) const
+{
+    if (!connectionConfigIsValid(config, error))
+        return false;
     if (config.masterKey.size() != SecureEnvelope::MasterKeySize) {
         if (error)
-            *error = tr("Create or import the XMPP storage encryption key.");
+            *error = tr("Create, import, or synchronize the XMPP storage encryption key.");
         return false;
     }
     if (config.omemoStateKey.size() != SecureEnvelope::MasterKeySize || config.omemoStatePath.isEmpty()) {
@@ -457,17 +520,18 @@ const QString XmppStorage::systemName() const { return storageId; }
 
 const QString XmppStorage::name() const { return tr("XMPP Private Notes"); }
 
-QIcon XmppStorage::storageIcon() const
-{
-    return themedIcon(QStringLiteral("im-jabber"), QStringLiteral("network-server"));
-}
+QIcon XmppStorage::storageIcon() const { return icon_; }
 
-QIcon XmppStorage::noteIcon() const
-{
-    return themedIcon(QStringLiteral("document-edit"), QStringLiteral("text-x-generic"));
-}
+QIcon XmppStorage::noteIcon() const { return icon_; }
 
 bool XmppStorage::isAccessible() const { return accessible_ || cacheAvailable_; }
+
+bool XmppStorage::canAcceptWrites() const
+{
+    if (shuttingDown_ || errorState_)
+        return false;
+    return configIsValid(config_, nullptr);
+}
 
 QList<Note::Format> XmppStorage::availableFormats() const { return { Note::Markdown }; }
 
@@ -633,34 +697,57 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
         job->fail({ StorageError::Unavailable, errorStateMessage_, false });
         return job;
     }
-    const auto            config = config_;
-    const auto            epoch  = configEpoch_;
-    QPointer<NoteListJob> guard(job);
+
+    if (refreshAttempt_ && refreshAttempt_->epoch == configEpoch_) {
+        refreshAttempt_->waiters.append(RefreshWaiter { job, limit });
+        return job;
+    }
+
+    const auto attempt = std::make_shared<RefreshAttempt>();
+    attempt->epoch     = configEpoch_;
+    attempt->waiters.append(RefreshWaiter { job, limit });
+    refreshAttempt_ = attempt;
+
+    const auto config = config_;
+    const auto epoch  = attempt->epoch;
     QMetaObject::invokeMethod(
         backend_,
-        [this, guard, config, limit, epoch]() {
+        [this, attempt, config, epoch]() {
             if (shuttingDown_ || epoch != configEpoch_) {
-                if (guard)
-                    guard->cancel();
+                for (const auto &waiter : attempt->waiters) {
+                    if (waiter.job && !waiter.job->isFinished())
+                        waiter.job->cancel();
+                }
+                if (refreshAttempt_ == attempt)
+                    refreshAttempt_.reset();
                 return;
             }
             backend_->setConfig(config);
-            backend_->listNotesAsync([this, guard, limit, epoch](XmppListResult result) {
+            backend_->listNotesAsync([this, attempt, epoch](XmppListResult result) {
                 QMetaObject::invokeMethod(
                     this,
-                    [this, guard, result = std::move(result), limit, epoch]() {
-                        if (!guard || guard->isFinished())
+                    [this, attempt, result = std::move(result), epoch]() {
+                        if (refreshAttempt_ != attempt)
                             return;
+                        refreshAttempt_.reset();
                         if (shuttingDown_ || epoch != configEpoch_) {
-                            guard->cancel();
+                            for (const auto &waiter : attempt->waiters) {
+                                if (waiter.job && !waiter.job->isFinished())
+                                    waiter.job->cancel();
+                            }
                             return;
                         }
                         if (!result.ok) {
+                            qWarning().noquote() << "XMPP index refresh failed:" << result.error;
                             if (result.retryable())
                                 handleTransientFailure(result.error);
                             else
                                 enterErrorState(result.error, true);
-                            guard->fail(storageError(result, StorageError::Network));
+                            const auto error = storageError(result, StorageError::Network);
+                            for (const auto &waiter : attempt->waiters) {
+                                if (waiter.job && !waiter.job->isFinished())
+                                    waiter.job->fail(error);
+                            }
                             return;
                         }
                         QHash<QString, Note> refreshed;
@@ -683,7 +770,13 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                         persistCache();
                         auto notes = cache_.values();
                         std::sort(notes.begin(), notes.end(), noteListItemModifyComparer);
-                        guard->complete(limit > 0 ? notes.mid(0, limit) : notes);
+                        qInfo() << "XMPP index refresh loaded" << notes.size() << "note(s) for"
+                                << attempt->waiters.size() << "caller(s)";
+                        for (const auto &waiter : attempt->waiters) {
+                            if (!waiter.job || waiter.job->isFinished())
+                                continue;
+                            waiter.job->complete(waiter.limit > 0 ? notes.mid(0, waiter.limit) : notes);
+                        }
                         startBodyPrefetch(missingBodies);
                     },
                     Qt::QueuedConnection);
@@ -691,6 +784,17 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
         },
         Qt::QueuedConnection);
     return job;
+}
+
+void XmppStorage::cancelRefreshAttempt()
+{
+    const auto attempt = std::exchange(refreshAttempt_, std::shared_ptr<RefreshAttempt> {});
+    if (!attempt)
+        return;
+    for (const auto &waiter : attempt->waiters) {
+        if (waiter.job && !waiter.job->isFinished())
+            waiter.job->cancel();
+    }
 }
 
 Note XmppStorage::note(const QString &id) { return cache_.value(id); }
@@ -1039,6 +1143,7 @@ void XmppStorage::enterErrorState(const QString &error, bool invalidate)
         return;
     }
 
+    qCritical().noquote() << "XMPP storage stopped after a non-retryable error:" << error;
     errorState_        = true;
     errorStateMessage_ = error;
     accessible_        = false;
@@ -1128,6 +1233,8 @@ void XmppStorage::resetRetryBackoff()
 
 void XmppStorage::applyConfig(const XmppConfig &config)
 {
+    abortKeyResolution();
+    cancelRefreshAttempt();
     ++configEpoch_;
     shuttingDown_ = false;
     QSettings  settings;
@@ -1235,8 +1342,12 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
         resolveStorageKeys(jid, widget);
     });
     connect(widget, &XmppSettingsController::omemoDevicesRequested, this, [this, widget](const QString &jid) {
+        if (jid.isEmpty()) {
+            widget->setOmemoStatus(tr("Enter the XMPP JID before querying OMEMO devices"));
+            return;
+        }
         if (jid != config_.jid) {
-            widget->setKeyState({}, tr("Apply the account settings before querying OMEMO devices"));
+            widget->setOmemoStatus(tr("Apply the account settings before querying OMEMO devices"));
             return;
         }
         const auto                       config = config_;
@@ -1271,7 +1382,7 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
     });
     connect(widget, &XmppSettingsController::repairOmemoDeviceRequested, this, [this, widget](const QString &jid) {
         if (jid != config_.jid) {
-            widget->setKeyState({}, tr("Apply the account settings before repairing the OMEMO device"));
+            widget->setOmemoStatus(tr("Apply the account settings before repairing the OMEMO device"));
             return;
         }
         const auto                       config = config_;
@@ -1289,8 +1400,8 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
                     [guard, result]() {
                         if (!guard)
                             return;
-                        guard->setKeyState(
-                            {}, result.ok ? XmppSettingsController::tr("OMEMO device repaired") : result.error);
+                        guard->setOmemoStatus(result.ok ? XmppSettingsController::tr("OMEMO device repaired")
+                                                        : result.error);
                         if (result.ok)
                             emit guard->omemoDevicesRequested(guard->config().jid);
                     },
@@ -1301,7 +1412,7 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
     connect(widget, &XmppSettingsController::trustOmemoDeviceRequested, this,
             [this, widget](const QString &jid, const QByteArray &keyId) {
                 if (jid != config_.jid) {
-                    widget->setKeyState({}, tr("Apply the account settings before changing OMEMO trust"));
+                    widget->setOmemoStatus(tr("Apply the account settings before changing OMEMO trust"));
                     return;
                 }
                 const auto                       config = config_;
@@ -1318,9 +1429,8 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
                             this,
                             [guard, result]() {
                                 if (guard)
-                                    guard->setKeyState({},
-                                                       result.ok ? XmppSettingsController::tr("OMEMO device trusted")
-                                                                 : result.error);
+                                    guard->setOmemoStatus(result.ok ? XmppSettingsController::tr("OMEMO device trusted")
+                                                                    : result.error);
                             },
                             Qt::QueuedConnection);
                     });

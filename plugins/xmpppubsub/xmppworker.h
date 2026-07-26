@@ -64,8 +64,11 @@ public:
     void           auditStorageKeysAsync(AuditCallback callback) override;
     void           rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback) override;
     void           approveKeySyncRequest(QString requestId) override;
+    void           rejectKeySyncRequest(QString requestId) override;
 
 private:
+    struct ConnectionAttempt;
+
     void resetClient();
     void createClient();
     void handleKeySyncRequest(const QString &requestId, const QString &from, const QByteArray &senderKey);
@@ -81,6 +84,7 @@ private:
     QCoro::Task<XmppStatusResult> verifyNodeTask(QString nodeName);
     QCoro::Task<XmppStatusResult> ensureNodeTask(QString nodeName);
     QCoro::Task<XmppStatusResult> ensureOmemoTask();
+    QCoro::Task<XmppStatusResult> ensureOmemoReadyTask();
     QCoro::Task<XmppStatusResult> ensureReadyTask();
 
     QCoro::Task<XmppListResult>   listNotesTask();
@@ -132,9 +136,14 @@ private:
      */
     quint64 clientGeneration_ { 0 };
     /**
-     * Shared connection/OMEMO/node preparation attempt. Concurrent operations
-     * await the same future instead of initializing QXmpp managers in parallel.
+     * One physical QXmpp connection attempt shared by every operation that
+     * needs the account online. Without this fan-in, settings refresh and key
+     * recovery can call connectToServer() concurrently on the same client.
      */
+    std::shared_ptr<ConnectionAttempt> connectionAttempt_;
+    /** Shared connection plus OMEMO initialization attempt. */
+    std::shared_ptr<QFutureInterface<XmppStatusResult>> omemoReadinessAttempt_;
+    /** Shared full connection/OMEMO/node preparation attempt. */
     std::shared_ptr<QFutureInterface<XmppStatusResult>> readinessAttempt_;
     /// Last valid own bundle, used to repair QXmpp publications missing fields.
     std::optional<XmppOmemoBundleItem> cachedOwnOmemoBundle_;

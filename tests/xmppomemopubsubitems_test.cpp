@@ -19,14 +19,14 @@ private slots:
 void XmppOmemoPubSubItemsTest::parsesDeviceList()
 {
     QDomDocument document;
-    auto xmlData = QStringLiteral("<item id='current'><devices xmlns='urn:xmpp:omemo:2'>"
-                   "<device id='9523' label='QtNote-one'/><device id='672' label='QtNote-two'/>"
-                   "</devices></item>");
-#if QT_VERSION >= QT_VERSION_CHECK(6,5,0)
+    auto         xmlData = QStringLiteral("<item id='current'><devices xmlns='urn:xmpp:omemo:2'>"
+                                                  "<device id='9523' label='QtNote-one'/><device id='672' label='QtNote-two'/>"
+                                                  "</devices></item>");
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     QVERIFY(document.setContent(xmlData, QDomDocument::ParseOption::UseNamespaceProcessing));
 #else
     QString errorMsg;
-    int errorLine, errorColumn;
+    int     errorLine, errorColumn;
 
     QVERIFY(document.setContent(xmlData, true, &errorMsg, &errorLine, &errorColumn));
 #endif
@@ -54,12 +54,13 @@ void XmppOmemoPubSubItemsTest::parsesBundleIdentityKey()
 {
     const auto   identity = QByteArray::fromHex("00112233445566778899aabbccddeeff");
     QDomDocument document;
-    auto xmlData = QStringLiteral("<item id='672'><bundle xmlns='urn:xmpp:omemo:2'><ik>%1</ik></bundle></item>").arg(QString::fromLatin1(identity.toBase64()));
-#if QT_VERSION >= QT_VERSION_CHECK(6,5,0)
+    auto         xmlData = QStringLiteral("<item id='672'><bundle xmlns='urn:xmpp:omemo:2'><ik>%1</ik></bundle></item>")
+                       .arg(QString::fromLatin1(identity.toBase64()));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     QVERIFY(document.setContent(xmlData, QDomDocument::ParseOption::UseNamespaceProcessing));
 #else
     QString errorMsg;
-    int errorLine, errorColumn;
+    int     errorLine, errorColumn;
 
     QVERIFY(document.setContent(xmlData, true, &errorMsg, &errorLine, &errorColumn));
 #endif
@@ -72,11 +73,11 @@ void XmppOmemoPubSubItemsTest::repairsIncompleteBundle()
 {
     const auto parse = [](const QString &xml) {
         QDomDocument document;
-#if QT_VERSION >= QT_VERSION_CHECK(6,5,0)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
         if (!document.setContent(xml, QDomDocument::ParseOption::UseNamespaceProcessing))
 #else
         QString errorMsg;
-        int errorLine, errorColumn;
+        int     errorLine, errorColumn;
         if (!document.setContent(xml, true, &errorMsg, &errorLine, &errorColumn))
 #endif
             return XmppOmemoBundleItem {};

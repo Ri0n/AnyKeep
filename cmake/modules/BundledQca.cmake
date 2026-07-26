@@ -9,7 +9,6 @@ endif()
 set(QTNOTE_BUNDLED_QCA_GIT_REPOSITORY "https://github.com/psi-im/qca.git" CACHE STRING "Bundled QCA git repository")
 set(QTNOTE_BUNDLED_QCA_GIT_TAG "master" CACHE STRING "Bundled QCA git tag or branch")
 set(QTNOTE_QCA_SOURCE_DIR "" CACHE PATH "Local QCA source directory (avoids cloning the repository)")
-set(QTNOTE_ANDROID_OPENSSL_ROOT "" CACHE PATH "Android OpenSSL bundle root, for example <Android SDK>/android_openssl/ssl_3")
 
 ProcessorCount(_qca_detected_jobs)
 if(NOT _qca_detected_jobs)
@@ -25,44 +24,10 @@ if(Qt6Core_DIR AND NOT Qt6Test_DIR)
 endif()
 
 if(ANDROID)
-    if(NOT QTNOTE_ANDROID_OPENSSL_ROOT)
-        set(_qtnote_android_openssl_candidates
-            "${ANDROID_SDK_ROOT}/android_openssl/ssl_3"
-            "$ENV{ANDROID_SDK_ROOT}/android_openssl/ssl_3"
-            "$ENV{ANDROID_HOME}/android_openssl/ssl_3"
-            "$ENV{HOME}/Android/Sdk/android_openssl/ssl_3"
-        )
-
-        foreach(_qtnote_android_openssl_candidate IN LISTS _qtnote_android_openssl_candidates)
-            if(EXISTS "${_qtnote_android_openssl_candidate}/include/openssl/opensslv.h")
-                set(QTNOTE_ANDROID_OPENSSL_ROOT "${_qtnote_android_openssl_candidate}" CACHE PATH "Android OpenSSL bundle root, for example <Android SDK>/android_openssl/ssl_3" FORCE)
-                break()
-            endif()
-        endforeach()
-    endif()
-
-    if(QTNOTE_ANDROID_OPENSSL_ROOT)
-        if(NOT ANDROID_ABI)
-            message(FATAL_ERROR "ANDROID_ABI is not set; cannot select Android OpenSSL libraries from ${QTNOTE_ANDROID_OPENSSL_ROOT}")
-        endif()
-
-        set(_qtnote_android_openssl_include "${QTNOTE_ANDROID_OPENSSL_ROOT}/include")
-        set(_qtnote_android_openssl_ssl "${QTNOTE_ANDROID_OPENSSL_ROOT}/${ANDROID_ABI}/libssl.a")
-        set(_qtnote_android_openssl_crypto "${QTNOTE_ANDROID_OPENSSL_ROOT}/${ANDROID_ABI}/libcrypto.a")
-
-        if(NOT EXISTS "${_qtnote_android_openssl_ssl}" OR NOT EXISTS "${_qtnote_android_openssl_crypto}")
-            message(FATAL_ERROR "Android OpenSSL bundle does not contain static libraries for ${ANDROID_ABI}: ${QTNOTE_ANDROID_OPENSSL_ROOT}")
-        endif()
-
-        set(OPENSSL_ROOT_DIR "${QTNOTE_ANDROID_OPENSSL_ROOT}" CACHE PATH "OpenSSL root directory" FORCE)
-        set(OPENSSL_INCLUDE_DIR "${_qtnote_android_openssl_include}" CACHE PATH "OpenSSL include directory" FORCE)
-        set(OPENSSL_SSL_LIBRARY "${_qtnote_android_openssl_ssl}" CACHE FILEPATH "OpenSSL SSL library" FORCE)
-        set(OPENSSL_CRYPTO_LIBRARY "${_qtnote_android_openssl_crypto}" CACHE FILEPATH "OpenSSL Crypto library" FORCE)
-        message(STATUS "QCA: using Android OpenSSL from ${QTNOTE_ANDROID_OPENSSL_ROOT} for ${ANDROID_ABI}")
-    endif()
+    include(AndroidOpenSSL)
+else()
+    find_package(OpenSSL REQUIRED)
 endif()
-
-find_package(OpenSSL REQUIRED)
 
 set(_qca_prefix "${CMAKE_BINARY_DIR}/_deps/qca")
 set(_qca_install_dir "${_qca_prefix}/install")
@@ -110,6 +75,7 @@ set(_qca_cmake_args
     "-DOPENSSL_INCLUDE_DIR=${OPENSSL_INCLUDE_DIR}"
     "-DOPENSSL_SSL_LIBRARY=${OPENSSL_SSL_LIBRARY}"
     "-DOPENSSL_CRYPTO_LIBRARY=${OPENSSL_CRYPTO_LIBRARY}"
+    "-DOPENSSL_USE_STATIC_LIBS=${OPENSSL_USE_STATIC_LIBS}"
     "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
     "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
     "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"

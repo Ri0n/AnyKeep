@@ -17,6 +17,7 @@ class XmppSettingsController final : public SettingsController {
     Q_PROPERTY(QString keyState READ keyState NOTIFY keyStateChanged)
     Q_PROPERTY(QString recoveryKey READ recoveryKey WRITE setRecoveryKey NOTIFY recoveryKeyChanged)
     Q_PROPERTY(QString ownOmemoDevice READ ownOmemoDevice NOTIFY omemoDevicesChanged)
+    Q_PROPERTY(QString omemoStatus READ omemoStatus NOTIFY omemoStatusChanged)
     Q_PROPERTY(QStringList omemoDevices READ omemoDevices NOTIFY omemoDevicesChanged)
     Q_PROPERTY(bool repairAvailable READ repairAvailable NOTIFY omemoDevicesChanged)
 
@@ -28,11 +29,13 @@ public:
     QString     keyState() const { return keyState_; }
     QString     recoveryKey() const { return recoveryKey_; }
     QString     ownOmemoDevice() const { return ownOmemoDevice_; }
+    QString     omemoStatus() const { return omemoStatus_; }
     QStringList omemoDevices() const { return omemoDeviceLabels_; }
     bool        repairAvailable() const { return repairAvailable_; }
 
     void setKeyState(const QByteArray &keyId, const QString &message = {});
     void setRecoveryKey(const QString &key);
+    void setOmemoStatus(const QString &message);
     void setOmemoDevices(const XmppDeviceInfo &ownDevice, bool ownBundleValid, const QList<XmppDeviceInfo> &devices,
                          const QString &message = {});
 
@@ -48,6 +51,7 @@ signals:
     void keyStateChanged();
     void recoveryKeyChanged();
     void omemoDevicesChanged();
+    void omemoStatusChanged();
     void applyConfigRequested(const QtNote::XmppConfig &config);
     void createKeyRequested(const QString &jid);
     void importKeyRequested(const QString &jid, const QString &recoveryKey);
@@ -67,6 +71,7 @@ private:
     QString               keyState_;
     QString               recoveryKey_;
     QString               ownOmemoDevice_;
+    QString               omemoStatus_;
     QStringList           omemoDeviceLabels_;
     QList<QByteArray>     omemoDeviceKeys_;
     bool                  repairAvailable_ { false };

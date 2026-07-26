@@ -41,8 +41,9 @@ Page {
             }
             ToolButton {
                 visible: page.controller !== null
-                enabled: page.controller && page.controller.dirty
-                text: qsTr("Save")
+                enabled: page.controller !== null
+                text: page.controller && !page.controller.dirty && page.storageId === "xmpp-pubsub"
+                      ? qsTr("Retry") : qsTr("Save")
                 onClicked: {
                     if (page.controller.apply())
                         page.backRequested()

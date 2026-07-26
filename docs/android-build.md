@@ -42,9 +42,33 @@ desktop defaults to the storage-grouped tree.
 
 PTF is registered through the same core startup function on both platforms.
 Android plugin discovery uses the explicit bundled factory registry documented
-in [Android bundled plugin loading](mobile-plugin-loading.md). Nextcloud is the
-current Android allow-list. Gemini speech and OpenAI Whisper remain desktop
-plugins and are not linked into the Android application.
+in [Android bundled plugin loading](mobile-plugin-loading.md). Nextcloud is
+always included. Android builds QCoro 0.13, QXmpp with OMEMO, libomemo-c 0.5.1
+and the protobuf-c runtime from source by default when suitable target packages
+are unavailable. QCA and QXmpp share the same prebuilt Android OpenSSL bundle
+already used by the application; QtNote does not compile a second OpenSSL copy.
+The native dependency order is:
+
+```text
+Android OpenSSL -> QCA
+Android OpenSSL -> QXmpp + QXmpp OMEMO -> QtNote XMPP plugin
+protobuf-c runtime -> libomemo-c ---------^
+```
+
+The source-built native libraries use the active Android toolchain and ABI.
+OpenSSL is selected from `<Android SDK>/android_openssl/ssl_3/<ABI>` or from
+`QTNOTE_ANDROID_OPENSSL_ROOT` when the bundle is installed elsewhere.
+XMPP Private Notes is included when the resulting build exposes
+`QXmpp::QXmpp`, `QXmpp::Omemo` and `QCoro::Core`; otherwise it is omitted at
+configure time. For offline builds, point `QTNOTE_QCORO_SOURCE_DIR`,
+`QTNOTE_QXMPP_SOURCE_DIR`, `QTNOTE_OMEMO_C_SOURCE_DIR` and
+`QTNOTE_PROTOBUF_C_SOURCE_DIR` to local source trees. The individual fallbacks
+can be disabled with `QTNOTE_BUILD_BUNDLED_QCORO=OFF`,
+`QTNOTE_BUILD_BUNDLED_QXMPP=OFF` or `QTNOTE_BUILD_BUNDLED_OMEMO_C=OFF`.
+`QXmppOmemoQt6_DIR-NOTFOUND` may remain in CMakeCache when no system package is
+installed; it does not disable the bundled target chain. Gemini speech and
+OpenAI Whisper remain desktop plugins and are not linked into the Android
+application.
 
 Android platform services currently provide:
 

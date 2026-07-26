@@ -13,6 +13,7 @@
 #include <QSettings>
 #include <QtGlobal>
 
+#include "draftmanager.h"
 #include "notemanager.h"
 #include "qtnote.h"
 #include "shortcutsmanager.h"
@@ -61,6 +62,11 @@ QtNoteDBus::QtNoteDBus(Main *qtnote, QObject *parent) : QObject(parent), m_qtnot
     connect(manager, &NoteManager::storageAdded, this, &QtNoteDBus::notesChanged);
     connect(manager, &NoteManager::storageRemoved, this, &QtNoteDBus::notesChanged);
     connect(manager, &NoteManager::storageChanged, this, &QtNoteDBus::notesChanged);
+    // A publication is the point at which a checkpointed edit becomes visible
+    // to storage-backed consumers. Refresh the tray/plasmoid after the storage
+    // cache has accepted the returned note, even if a plugin omits or delays its
+    // noteModified signal.
+    connect(DraftManager::instance(), &DraftManager::draftPublished, this, &QtNoteDBus::notesChanged);
     connect(qtnote, &Main::settingsUpdated, this, &QtNoteDBus::notesChanged);
     connect(qtnote, &Main::settingsUpdated, this, &QtNoteDBus::globalShortcutsChanged);
     connect(qtnote->stickyNotesManager(), &StickyNotesManager::notesChanged, this, &QtNoteDBus::stickyNotesChanged);

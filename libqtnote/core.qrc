@@ -13,5 +13,6 @@
         <file alias="edit-undo-symbolic.svg">images/edit-undo-symbolic.svg</file>
         <file alias="table-symbolic.svg">images/table-symbolic.svg</file>
         <file alias="insert-image-symbolic.svg">images/insert-image-symbolic.svg</file>
+        <file alias="preferences-system-symbolic.svg">images/preferences-system-symbolic.svg</file>
     </qresource>
 </RCC>

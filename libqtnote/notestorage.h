@@ -55,6 +55,11 @@ public:
     virtual QIcon         noteIcon() const     = 0;
     virtual bool          isAccessible() const = 0;
 
+    // Whether a new or existing draft may be routed to this storage. Remote
+    // storages can accept durable writes while their connection is still being
+    // established, even though they are not yet readable.
+    virtual bool canAcceptWrites() const { return isAccessible(); }
+
     virtual QList<Note::Format> availableFormats() const = 0;
     virtual bool                supportsMedia() const { return false; }
 

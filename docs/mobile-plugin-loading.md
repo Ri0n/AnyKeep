@@ -40,7 +40,8 @@ Desktop plugin libraries retain normal metadata.
 
 ## Current Android allow-list
 
-- Nextcloud Notes storage.
+- Nextcloud Notes storage;
+- XMPP Private Notes when QXmpp with OMEMO and QCoro are available for the target kit.
 
 PTF remains a core storage and is registered through `registerCoreStorages()`
 rather than the plugin registry.
@@ -54,8 +55,9 @@ admitted explicitly without changing the platform fallback.
 ## Not yet admitted
 
 - Hunspell: Android dictionary packaging/download paths need device validation;
-- XMPP: QXmpp/QCoro/OMEMO packaging and the remaining key-conflict recovery
-  wizard must be made QML-only;
+- XMPP is omitted automatically when the target kit does not provide QXmpp
+  with OMEMO and QCoro; Android packaging of those dependencies remains a kit
+  responsibility;
 - desktop integration, tray, global-shortcut and notification plugins: these are
   desktop services rather than Android application plugins;
 - Tomboy: its backend and file-format assumptions require Android storage-access

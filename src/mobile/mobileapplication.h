@@ -59,6 +59,7 @@ public:
     Q_INVOKABLE bool     addCurrentNoteToHomeScreen();
     Q_INVOKABLE bool     processPendingLaunchIntent();
     Q_INVOKABLE bool     setPluginEnabled(int row, bool enabled);
+    Q_INVOKABLE bool     moveStorage(int sourceRow, int destinationRow);
     Q_INVOKABLE QUrl     pluginSettingsComponent(const QString &pluginId) const;
     Q_INVOKABLE QObject *createPluginSettingsController(const QString &pluginId, QObject *owner);
     Q_INVOKABLE QUrl     storageSettingsComponent(const QString &storageId) const;

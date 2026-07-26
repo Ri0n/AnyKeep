@@ -12,7 +12,6 @@ namespace QtNote {
 namespace {
 
     const QLatin1String pluginId("xmpp_pubsub_storage");
-    NoteStorage::Ptr    storage;
 
 } // namespace
 
@@ -28,7 +27,7 @@ PluginMetadata XmppPlugin::metadata()
 {
     PluginMetadata metadata;
     metadata.id          = pluginId;
-    metadata.icon        = QIcon::fromTheme(QStringLiteral("im-jabber"));
+    metadata.icon        = QIcon(QStringLiteral(":/icons/xmpp-logo"));
     metadata.name        = QString("XMPP Private Notes");
     metadata.description = tr("Stores notes as private persistent items in the account's XMPP PEP service");
     metadata.author      = QString("Sergei Ilinykh");
@@ -42,11 +41,13 @@ PluginMetadata XmppPlugin::metadata()
 bool XmppPlugin::initialize()
 {
     shutdown();
-    if (!host_ || !host_->noteManager())
+    auto *manager = host_ && host_->noteManager() ? host_->noteManager() : NoteManager::instance();
+    if (!manager)
         return false;
+
     auto ownedStorage = std::make_unique<XmppStorage>(nullptr);
-    storage           = ownedStorage.get();
-    host_->noteManager()->registerStorage(std::move(ownedStorage));
+    storage_          = ownedStorage.get();
+    manager->registerStorage(std::move(ownedStorage));
 
     // Keep an unconfigured remote storage enabled so its settings remain reachable.
     return true;
@@ -54,11 +55,12 @@ bool XmppPlugin::initialize()
 
 void XmppPlugin::shutdown()
 {
-    if (!storage)
+    if (!storage_)
         return;
-    if (host_ && host_->noteManager())
-        host_->noteManager()->unregisterStorage(storage.data());
-    storage.clear();
+    auto *manager = host_ && host_->noteManager() ? host_->noteManager() : NoteManager::instance();
+    if (manager)
+        manager->unregisterStorage(storage_.data());
+    storage_.clear();
 }
 
 } // namespace QtNote

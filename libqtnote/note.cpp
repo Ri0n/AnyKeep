@@ -79,21 +79,69 @@ void Note::remove()
         DraftManager::instance()->queueRemoval(storage->systemName(), id());
 }
 
-void Note::setTitle(const QString &title) { d->title_ = title; }
+void Note::setTitle(const QString &title)
+{
+    if (!d)
+        return;
+    d.detach();
+    d->title_ = title;
+}
 
-void Note::setText(const QString &text, Format format) { d->setText(text, format); }
+void Note::setText(const QString &text, Format format)
+{
+    if (!d)
+        return;
+    d.detach();
+    d->setText(text, format);
+}
 
-void Note::setId(const QString &id) { d->setId(id); }
+void Note::setId(const QString &id)
+{
+    if (!d)
+        return;
+    d.detach();
+    d->setId(id);
+}
 
-void Note::setFormat(Format format) { d->format_ = format; }
+void Note::setFormat(Format format)
+{
+    if (!d)
+        return;
+    d.detach();
+    d->format_ = format;
+}
 
-void Note::setTags(const QStringList &tags) { d->setTags(tags); }
+void Note::setTags(const QStringList &tags)
+{
+    if (!d)
+        return;
+    d.detach();
+    d->setTags(tags);
+}
 
-void Note::unload() { d->unload(); }
+void Note::unload()
+{
+    if (!d)
+        return;
+    d.detach();
+    d->unload();
+}
 
-void Note::setLastChangeUTC(const QDateTime &lastChange) { d->lastChange_ = lastChange; }
+void Note::setLastChangeUTC(const QDateTime &lastChange)
+{
+    if (!d)
+        return;
+    d.detach();
+    d->lastChange_ = lastChange;
+}
 
-void Note::setBackendValue(const QString &key, const QVariant &value) { d->setBackendValue(key, value); }
+void Note::setBackendValue(const QString &key, const QVariant &value)
+{
+    if (!d)
+        return;
+    d.detach();
+    d->setBackendValue(key, value);
+}
 
 NoteStorage *Note::storage() const { return d ? d->storage_.data() : nullptr; }
 
@@ -147,16 +195,20 @@ QVariantMap Note::backendData() const { return d ? d->backendData_ : QVariantMap
 
 void Note::setBackendData(const QVariantMap &values)
 {
-    if (d)
-        d->backendData_ = values;
+    if (!d)
+        return;
+    d.detach();
+    d->backendData_ = values;
 }
 
 QList<MediaReference> Note::media() const { return d ? d->media_ : QList<MediaReference> {}; }
 
 void Note::setMedia(const QList<MediaReference> &media)
 {
-    if (d)
-        d->media_ = media;
+    if (!d)
+        return;
+    d.detach();
+    d->media_ = media;
 }
 
 bool Note::isUpdated() const

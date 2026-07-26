@@ -22,7 +22,7 @@ Flickable {
         Loader {
             id: genericSettingsLoader
             Layout.fillWidth: true
-            implicitHeight: item ? item.contentHeight : 0
+            Layout.preferredHeight: item ? item.contentHeight : 0
             Component.onCompleted: setSource("qrc:/qml/SettingsForm.qml", { "controller": root.controller })
         }
 
@@ -81,6 +81,14 @@ Flickable {
                     Layout.fillWidth: true
                     text: root.controller.ownOmemoDevice
                     wrapMode: Text.WordWrap
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: text.length > 0
+                    text: root.controller.omemoStatus
+                    wrapMode: Text.WordWrap
+                    color: palette.mid
                 }
 
                 ComboBox {
