@@ -1,26 +1,56 @@
 # QtNote encrypted PubSub XML interoperability guide
 
-This guide is the operational companion to `PROTOXEP.md`. It explains how an
-independent implementation can reproduce the cryptography, encrypt arbitrary
-records with the Python reference tool, decrypt them with another language,
-and compare semantic results without depending on Qt.
+This guide is the operational companion to `PROTOXEP.md`. It shows how an
+independent implementation can reproduce the key derivation and encryption,
+exchange arbitrary records with the Python reference tool, and validate the
+result without Qt or QtNote production code.
 
 ## Files
 
 | File | Purpose |
 | --- | --- |
 | `PROTOXEP.md` | Normative protocol description |
-| `qtnote-encrypted.xsd` | Reference schema for the outer encrypted element |
-| `qtnote-storage.xsd` | Reference schema for authenticated envelope 1.0 |
-| `qtnote-note.xsd` | Reference schema for index/content records 1.0 |
+| `qtnote-notes.xsd` | Reference schema for the major-version-1 core XML |
 | `qtnote-encrypted-reference.py` | Independent Python encoder, decoder, and vector generator |
 | `qtnote-encrypted-vectors.json` | Fixed positive and negative conformance cases |
 | `conformance/rust/` | Independent Rust decryption and XML validation smoke test |
 
-The XSD files describe the current 1.0 core. A higher compatible minor or an
-independent extension namespace can legitimately contain additional XML that a
-1.0 schema does not recognize. Schema validation is not a replacement for the
-major/minor and unknown-field preservation rules.
+The XSD describes only core elements in `urn:xmpp:qtnote:notes:1`. Compatible
+optional extensions use their own namespaces and therefore may not be fully
+validated by the core schema. Schema validation does not replace the runtime
+checks for node binding, item binding, required extensions, resource limits,
+or cryptographic authentication.
+
+## Version model
+
+There is one on-wire protocol version:
+
+```text
+urn:xmpp:qtnote:notes:1
+```
+
+The final `1` is the incompatible major version. It is used as:
+
+- the default PubSub base node;
+- the namespace of the outer `encrypted` element;
+- the namespace of the authenticated plaintext XML.
+
+The default leaf nodes are:
+
+```text
+urn:xmpp:qtnote:notes:1:index
+urn:xmpp:qtnote:notes:1:content
+```
+
+There are no `wire`, `schema`, `kind`, or minor-version fields in the XML.
+The actual PubSub node selects index versus content and therefore also selects
+the HKDF domain. Compatible changes are represented by optional XML in a
+separate namespace. An incompatible change uses a new namespace and new nodes,
+for example `urn:xmpp:qtnote:notes:2`.
+
+The JSON field named `kind` in the reference tools is only a local API argument
+that tells the test harness which node role and HKDF domain to use. It is never
+serialized into XMPP XML.
 
 ## Requirements
 
@@ -30,8 +60,8 @@ The Python tool requires Python 3.10 or newer and `cryptography`:
 python3 -m pip install cryptography
 ```
 
-The Rust smoke test uses Cargo and the crates declared in its `Cargo.toml`.
-Neither tool uses Qt or QtNote production code.
+The Rust smoke test uses Cargo and the crates declared in `Cargo.toml`. Neither
+tool uses Qt.
 
 ## Cryptographic constants
 
@@ -52,8 +82,8 @@ GCM tag: 16 bytes
 AAD: empty byte string
 ```
 
-A standard HKDF API receives the `info` value exactly as shown. It adds the RFC
-5869 block counter internally. A manual one-block expansion is:
+A standard HKDF API receives `info` exactly as shown. It adds the RFC 5869
+block counter internally. A manual one-block expansion is:
 
 ```text
 PRK = HMAC-SHA-256(salt, master_key)
@@ -61,6 +91,10 @@ OKM = HMAC-SHA-256(PRK, info || 01)
 ```
 
 Do not append `01` to `info` before calling a standard HKDF implementation.
+
+Some APIs return `ciphertext || tag`; split the final 16 bytes before writing
+the XML. Other APIs expose ciphertext and tag separately. AAD is an empty byte
+string in either case.
 
 ## Verify the checked-in vectors
 
@@ -89,7 +123,7 @@ A basic index request:
 {
   "kind": "index",
   "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-  "node": "urn:xmpp:qtnote:notes:0:index:1",
+  "node": "urn:xmpp:qtnote:notes:1:index",
   "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
   "nonce_hex": "000102030405060708090a0b",
   "record": {
@@ -109,7 +143,7 @@ A content request:
 {
   "kind": "content",
   "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-  "node": "urn:xmpp:qtnote:notes:0:content:1",
+  "node": "urn:xmpp:qtnote:notes:1:content",
   "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
   "nonce_hex": "0c0d0e0f1011121314151617",
   "record": {
@@ -129,25 +163,24 @@ python3 qtnote-encrypted-reference.py encode request.json \
 `nonce_hex` is optional for ad-hoc use. When omitted, the reference encoder uses
 `os.urandom(12)`. It is present in examples only to make results reproducible.
 
-The output is self-contained and includes:
+The result is self-contained and includes:
 
 - the complete PubSub `<item/>` XML;
 - the exact reference plaintext XML and its hex representation;
 - nonce, ciphertext, and tag in hex/Base64;
 - storage key ID in hex/Base64url;
-- derived index/content key;
+- the derived index or content key;
 - the test master key.
 
 Standalone vectors use an unnamespaced `<item/>` wrapper. Inside a complete
-XEP-0060 stanza, the item can inherit `http://jabber.org/protocol/pubsub`;
-conformance decoders accept both forms.
+XEP-0060 stanza, `<item/>` may inherit
+`http://jabber.org/protocol/pubsub`; conformance decoders accept both forms.
+Embedding a master key in the output is strictly a test convenience. Production
+logs and protocol records must never contain it.
 
-Embedding the master key in the output is strictly a conformance convenience.
-Production logs or protocol records must never contain it.
-
-For advanced extension tests, a request may supply `plaintext_xml` instead of a
-`record` object. The supplied XML bytes are encrypted exactly as UTF-8 and are
-still semantically validated by the decoder.
+For extension tests, a request may supply `plaintext_xml` instead of `record`.
+Those UTF-8 bytes are encrypted as supplied and are still semantically checked
+by the decoder.
 
 ## Decode and validate a record
 
@@ -156,28 +189,26 @@ python3 qtnote-encrypted-reference.py decode encoded.json \
   --output decoded.json
 ```
 
-The decoder checks:
+The decoder verifies:
 
-1. outer PubSub XML structure and namespaces;
-2. canonical Base64 and unpadded Base64url encodings;
-3. supported outer wire/schema major versions;
-4. storage key ID;
-5. HKDF domain separation;
-6. AES-256-GCM with empty AAD;
-7. UTF-8 authenticated XML structure;
-8. authenticated wire/schema equality with the outer values;
-9. complete PubSub node binding;
-10. record type and outer `kind`;
-11. record ID and outer item ID;
-12. required extensions and known record fields.
+1. the PubSub item and `urn:xmpp:qtnote:notes:1` namespaces;
+2. canonical padded Base64 and unpadded Base64url;
+3. the storage key ID;
+4. HKDF domain separation selected by the requested node role;
+5. AES-256-GCM with empty AAD;
+6. well-formed, bounded UTF-8 authenticated XML without DTD/entities;
+7. the complete PubSub node binding in `<node>`;
+8. exactly one `<index>` or `<note>` appropriate for the actual node;
+9. record `id` equality with outer PubSub item ID;
+10. required extensions and all core field types/cardinalities.
 
-The master key and actual PubSub node may be supplied separately instead of
-using the test values embedded in `encoded.json`:
+The key and actual node may be supplied separately instead of using the test
+values embedded in `encoded.json`:
 
 ```sh
 python3 qtnote-encrypted-reference.py decode encoded.json \
   --master-key-hex 000102...1f \
-  --node urn:xmpp:qtnote:notes:0:index:1
+  --node urn:xmpp:qtnote:notes:1:index
 ```
 
 Known required features can be declared repeatedly:
@@ -196,10 +227,9 @@ There is no XML canonicalization requirement. These differences are compatible:
 - insignificant inter-element whitespace;
 - `<element/>` versus `<element></element>`.
 
-Text content, namespaces, attributes, cardinalities, and authenticated bindings
-are protocol data. Fixed vectors contain exact Python plaintext bytes so another
-implementation can validate AES-GCM, but its own encoder does not have to
-reproduce those bytes.
+Fixed vectors contain exact Python plaintext bytes so another implementation can
+validate HKDF and AES-GCM. A native encoder does not need to reproduce those
+bytes; it must produce semantically equivalent namespace-aware XML.
 
 A useful two-way interoperability test is:
 
@@ -208,74 +238,75 @@ Python serialize/encrypt -> Rust decrypt/parse/validate
 Rust serialize/encrypt   -> Python decrypt/parse/validate
 ```
 
-The checked-in Rust project implements the first direction. A complete second
-implementation should add the reverse direction using its native XML writer.
+The checked-in Rust project implements the first direction as a smoke test.
 
-## Extension preservation
+## Extensions and forward compatibility
 
-A compatible reader may encounter a higher minor version and unknown optional
-attributes or elements. If it rewrites that record, it must preserve those
-unknown authenticated XML nodes. Namespace-aware DOM subtree preservation is
-the simplest approach.
-
-An unknown declaration such as:
+Core elements and unqualified core attributes are fixed by the major namespace.
+An unknown field in the same core namespace is malformed. Compatible optional
+extensions must use another XML namespace, for example:
 
 ```xml
-<required xmlns='urn:xmpp:qtnote:storage:1'
+<index xmlns='urn:xmpp:qtnote:notes:1'
+       xmlns:media='urn:example:qtnote:media:1'
+       id='note-id' revision='revision-id'
+       modified='2026-07-27T18:00:00.123Z' format='markdown'
+       media:preview='available'>
+  <title>Portable note</title>
+  <media:attachments count='1'/>
+</index>
+```
+
+A rewriting implementation must preserve unknown optional authenticated
+attributes and subtrees. Namespace-aware DOM subtree preservation is the
+simplest approach.
+
+An extension required for safe interpretation is declared inside the
+authenticated envelope:
+
+```xml
+<required xmlns='urn:xmpp:qtnote:notes:1'
           feature='urn:example:qtnote:media:1'/>
 ```
 
-means the record cannot be safely interpreted or rewritten without that
-feature. It is `unsupported`, not malformed, and must not be removed by the
-maintenance tool.
+An unknown required feature makes the record unsupported and read-only. It is
+not malformed and must not be deleted by the maintenance tool.
 
 ## Vector file structure
 
 `qtnote-encrypted-vectors.json` contains:
 
-- `crypto`: normative constants repeated in machine-readable form;
-- `positive`: five complete encoder requests, encrypted documents, and expected
-  semantic decoder results;
-- `negative`: documents with one intentional fault and a stable error category.
+- `protocol_namespace`: the one supported major namespace;
+- `crypto`: normative constants in machine-readable form;
+- `positive`: five complete requests, encrypted documents, and expected
+  semantic results;
+- `negative`: thirteen documents with one intentional fault and an expected
+  stable error category.
 
-Positive cases cover:
+Positive cases cover normal index/content records, Unicode, foreign-namespace
+extensions, empty optional index data, and an empty body.
 
-- normal index and content records;
-- Unicode and optional XML extensions;
-- higher compatible wire/schema minor versions;
-- empty optional index data;
-- an empty body.
-
-Negative cases cover:
-
-- wrong storage key;
-- wrong actual PubSub node;
-- moved item ID;
-- modified GCM tag;
-- missing outer fields;
-- non-canonical Base64;
-- future wire/schema major versions;
-- unauthenticated outer-version tampering;
-- malformed authenticated XML;
-- unknown required extension;
-- forbidden DTD/entity declarations.
+Negative cases cover a legacy pre-unified payload, wrong key, wrong node, moved
+item ID, modified GCM tag, missing fields, non-canonical Base64, unknown core
+fields, a future major namespace, malformed authenticated XML, an unknown
+required extension, and a forbidden DTD/entity declaration.
 
 ## Error taxonomy
 
 | Category | Meaning and safe behavior |
 | --- | --- |
-| `invalid_argument` | The caller supplied an invalid local request |
-| `malformed` | Current-major XML/Base64/field structure is structurally invalid; explicit maintenance may classify it as removable after re-fetching |
-| `obsolete` | Positively identified pre-XML development payload; explicit maintenance may remove it after confirmation and re-fetching |
-| `unsupported` | Future major, unknown required extension, or unsupported semantic value; preserve and do not delete |
+| `invalid_argument` | Invalid local API request |
+| `malformed` | Current-major XML/Base64/core structure is invalid; explicit maintenance may classify it as removable after re-fetching |
+| `obsolete` | Positively identified pre-release payload; explicit maintenance may remove it after confirmation and re-fetching |
+| `unsupported` | Future major namespace, unknown required extension, or unsupported semantic value; preserve and do not delete |
 | `wrong_key` | Outer key ID does not match the configured key; preserve and initiate explicit key resolution when appropriate |
-| `authentication_failed` | GCM authentication or authenticated outer/inner version comparison failed; preserve and do not auto-delete |
+| `authentication_failed` | AES-GCM authentication failed; preserve and do not auto-delete |
 | `context_mismatch` | Authenticated node or item binding differs from the actual PubSub context; preserve and report |
 
-One unreadable item must not stop the complete storage. Index listing skips it,
-reports the condition, and continues with all readable records. Only a global
-account/configuration/server failure, or an all-record key mismatch requiring
-key recovery, should move the storage into a storage-wide error state.
+One unreadable item must not stop the complete storage. Index listing skips and
+reports it while continuing with readable records. A storage-wide error state
+is reserved for account, configuration, server-capability, or genuinely global
+key failures.
 
 ## Rust conformance test
 
@@ -294,32 +325,26 @@ cd conformance/rust
 cargo run -- encoded.json
 ```
 
-The Rust code independently:
+The Rust code independently parses the PubSub XML, verifies Base64/Base64url,
+derives the key, computes the key ID, decrypts AES-256-GCM, compares the exact
+reference plaintext bytes, and validates the authenticated node, record type,
+and item ID.
 
-- parses the complete PubSub XML;
-- verifies canonical Base64/Base64url fields;
-- derives the key with HKDF-SHA-256;
-- computes the storage key ID;
-- decrypts AES-256-GCM with empty AAD;
-- compares exact reference plaintext bytes;
-- parses the authenticated XML;
-- verifies versions, node, record kind, and item ID.
-
-It is a smoke consumer, not the full QtNote implementation. Production code
-must additionally preserve unknown XML, enforce resource limits, implement all
-error categories, and support the synchronization lifecycle in `PROTOXEP.md`.
+It is a smoke consumer, not the complete synchronization implementation.
+Production code must additionally preserve unknown XML, enforce resource
+limits, implement the full error taxonomy, and isolate individual bad items.
 
 ## Cross-language implementation checklist
 
 A new implementation should be able to:
 
-1. reproduce every `key_id_hex` and `derived_key_hex` value;
+1. reproduce every fixed `key_id_hex` and `derived_key_hex`;
 2. split or join `ciphertext || tag` according to its platform API;
 3. decrypt every positive vector using empty AAD;
-4. parse and validate the authenticated XML semantically;
+4. parse and validate authenticated XML semantically;
 5. reject each negative vector with the documented category;
-6. emit equivalent XML with its native namespace-aware XML writer;
-7. preserve unknown optional authenticated attributes/elements on rewrite;
+6. emit equivalent XML using a namespace-aware writer;
+7. preserve unknown optional foreign-namespace XML on rewrite;
 8. refuse to rewrite unknown required extensions;
-9. isolate unreadable individual items instead of stopping the entire store;
+9. isolate unreadable individual items instead of stopping the store;
 10. use fresh unpredictable nonces in production.

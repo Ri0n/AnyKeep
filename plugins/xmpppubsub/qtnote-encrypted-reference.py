@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Independent QtNote encrypted PubSub XML reference codec.
 
-This file is intentionally free of Qt dependencies.  It is both a small CLI and
-an executable companion to PROTOXEP.md.  The production protocol encrypts UTF-8
-XML with AES-256-GCM; XML serialization is not canonical and interoperability is
-validated semantically after decryption.
+The protocol uses one major-version namespace for PubSub node names, the outer
+encrypted element, and authenticated plaintext. XML serialization is not
+canonical: implementations validate semantic content after AES-256-GCM decrypt.
 """
 
 from __future__ import annotations
@@ -19,82 +18,37 @@ import os
 import re
 import sys
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
-from datetime import datetime
+from xml.sax.saxutils import escape, quoteattr
 from pathlib import Path
 from typing import Any, Iterable
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 PUBSUB_NS = "http://jabber.org/protocol/pubsub"
-ENCRYPTED_NS = "urn:xmpp:qtnote:encrypted:1"
-STORAGE_NS = "urn:xmpp:qtnote:storage:1"
-NOTE_NS = "urn:xmpp:qtnote:note:1"
-WIRE = (1, 0)
-SCHEMA = (1, 0)
+PROTOCOL_NS = "urn:xmpp:qtnote:notes:1"
+LEGACY_ENCRYPTED_NS = "urn:xmpp:qtnote:encrypted:1"
 MAX_XML_SIZE = 16 * 1024 * 1024
 HKDF_SALT = b"QtNote HKDF salt v1"
 HKDF_INFO_PREFIX = b"QtNote key domain v1:"
 KEY_ID_PREFIX = b"QtNote storage key id v1\0"
 
-ET.register_namespace("", STORAGE_NS)
-ET.register_namespace("note", NOTE_NS)
-ET.register_namespace("enc", ENCRYPTED_NS)
+ET.register_namespace("qtn", PROTOCOL_NS)
+ET.register_namespace("legacy", LEGACY_ENCRYPTED_NS)
 
 
 class ProtocolError(Exception):
-    """An expected conformance failure with a stable category."""
-
     def __init__(self, category: str, message: str):
         super().__init__(message)
         self.category = category
         self.message = message
 
 
-@dataclass(frozen=True)
-class OuterPayload:
-    item_id: str
-    kind: str
-    wire: tuple[int, int]
-    schema: tuple[int, int]
-    key_id: bytes
-    nonce: bytes
-    ciphertext: bytes
-    tag: bytes
-
-
 def fail(category: str, message: str) -> None:
     raise ProtocolError(category, message)
 
 
-def qname(namespace: str, local: str) -> str:
+def qname(local: str, namespace: str = PROTOCOL_NS) -> str:
     return f"{{{namespace}}}{local}"
-
-
-def split_qname(name: str) -> tuple[str, str]:
-    if name.startswith("{"):
-        namespace, local = name[1:].split("}", 1)
-        return namespace, local
-    return "", name
-
-
-def parse_version(value: Any, name: str) -> tuple[int, int]:
-    if isinstance(value, str):
-        match = re.fullmatch(r"([0-9]+)\.([0-9]+)", value)
-        if not match:
-            fail("malformed", f"{name} must be major.minor")
-        major, minor = int(match.group(1)), int(match.group(2))
-    elif isinstance(value, list) and len(value) == 2 and all(isinstance(part, int) for part in value):
-        major, minor = value
-    else:
-        fail("invalid_argument", f"{name} must be [major, minor] or major.minor")
-    if not (0 <= major <= 65535 and 0 <= minor <= 65535):
-        fail("malformed", f"{name} is outside the uint16 range")
-    return major, minor
-
-
-def version_text(version: tuple[int, int]) -> str:
-    return f"{version[0]}.{version[1]}"
 
 
 def hex_bytes(value: Any, name: str, expected_size: int | None = None) -> bytes:
@@ -115,17 +69,12 @@ def storage_key_id(master_key: bytes) -> bytes:
     return hashlib.sha256(KEY_ID_PREFIX + master_key).digest()
 
 
-def derive_key(master_key: bytes, domain: str) -> bytes:
-    """RFC 5869 HKDF-SHA-256, L=32.
-
-    For one SHA-256 block, HKDF-Expand is HMAC(PRK, info || 0x01).  The block
-    counter is not part of the public info parameter.
-    """
-
+def derive_key(master_key: bytes, kind: str) -> bytes:
     if len(master_key) != 32:
         fail("invalid_argument", "master key must contain 32 bytes")
-    if domain not in ("storage-index", "storage-content"):
-        fail("invalid_argument", f"unknown key domain {domain}")
+    domain = {"index": "storage-index", "content": "storage-content"}.get(kind)
+    if domain is None:
+        fail("invalid_argument", "kind must be index or content")
     prk = hmac.new(HKDF_SALT, master_key, hashlib.sha256).digest()
     info = HKDF_INFO_PREFIX + domain.encode("ascii")
     return hmac.new(prk, info + b"\x01", hashlib.sha256).digest()
@@ -139,50 +88,46 @@ def b64url(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
 
-def decode_canonical_base64(text: str, name: str, maximum_size: int) -> bytes:
-    compact = "".join(text.split())
-    if not compact or len(compact) % 4 == 1 or len(compact) > ((maximum_size + 2) // 3) * 4:
+def decode_b64(text: str, name: str, maximum: int) -> bytes:
+    compact = "".join((text or "").split())
+    if not compact or len(compact) % 4 == 1 or len(compact) > ((maximum + 2) // 3) * 4:
         fail("malformed", f"invalid {name} Base64 length")
     try:
         decoded = base64.b64decode(compact, validate=True)
     except Exception as error:
         fail("malformed", f"invalid {name} Base64: {error}")
-    if len(decoded) > maximum_size or b64(decoded) != compact:
+    if len(decoded) > maximum or b64(decoded) != compact:
         fail("malformed", f"non-canonical {name} Base64")
     return decoded
 
 
-def decode_canonical_base64url(text: str, name: str, expected_size: int) -> bytes:
-    if not isinstance(text, str) or "=" in text or not re.fullmatch(r"[A-Za-z0-9_-]+", text or ""):
+def decode_b64url(text: str, name: str, size: int) -> bytes:
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", text or "") or "=" in (text or ""):
         fail("malformed", f"invalid {name} Base64url")
     padded = text + "=" * ((4 - len(text) % 4) % 4)
     try:
         decoded = base64.urlsafe_b64decode(padded)
     except Exception as error:
         fail("malformed", f"invalid {name} Base64url: {error}")
-    if len(decoded) != expected_size or b64url(decoded) != text:
+    if len(decoded) != size or b64url(decoded) != text:
         fail("malformed", f"non-canonical {name} Base64url")
     return decoded
 
 
-def reject_unsafe_xml(data: bytes, name: str) -> None:
+def parse_xml(data: bytes, name: str) -> ET.Element:
     if not data or len(data) > MAX_XML_SIZE:
         fail("malformed" if not data else "unsupported", f"invalid {name} size")
     upper = data.upper()
     if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
         fail("malformed", f"document types and entity declarations are forbidden in {name}")
-
-
-def parse_xml(data: bytes, name: str) -> ET.Element:
-    reject_unsafe_xml(data, name)
     try:
         return ET.fromstring(data)
     except ET.ParseError as error:
         fail("malformed", f"invalid {name} XML: {error}")
 
 
-def direct_children(parent: ET.Element, namespace: str, local: str) -> list[ET.Element]:
-    return [child for child in list(parent) if child.tag == qname(namespace, local)]
+def direct_children(parent: ET.Element, local: str) -> list[ET.Element]:
+    return [child for child in list(parent) if child.tag == qname(local)]
 
 
 def simple_text(element: ET.Element, name: str) -> str:
@@ -197,413 +142,321 @@ def direct_text_is_whitespace(element: ET.Element) -> bool:
     return all(not child.tail or not child.tail.strip() for child in list(element))
 
 
-def parse_outer_xml(xml_bytes: bytes) -> OuterPayload:
-    root = parse_xml(xml_bytes, "PubSub item")
-    if root.tag not in ("item", qname(PUBSUB_NS, "item")):
-        fail("malformed", "outer XML root must be a PubSub item element")
-    item_id = root.attrib.get("id", "")
-    if not item_id:
-        fail("malformed", "PubSub item ID is missing")
-    children = list(root)
-    if len(children) != 1 or children[0].tag != qname(ENCRYPTED_NS, "encrypted"):
-        fail("malformed", "PubSub item must contain exactly one QtNote encrypted element")
-    encrypted = children[0]
-    if not direct_text_is_whitespace(encrypted):
-        # This is the development pre-XML shape: direct Base64 text.
-        if not list(encrypted):
-            fail("obsolete", "obsolete pre-XML QtNote payload")
-        fail("malformed", "unexpected text in encrypted QtNote element")
-
-    wire = parse_version(encrypted.attrib.get("wire", ""), "wire")
-    schema = parse_version(encrypted.attrib.get("schema", ""), "schema")
-    if wire[0] != WIRE[0] or schema[0] != SCHEMA[0]:
-        fail("unsupported", "unsupported encrypted QtNote major version")
-    kind = encrypted.attrib.get("kind", "")
-    if kind not in ("index", "content"):
-        fail("unsupported", "unsupported encrypted QtNote kind")
-    key_id = decode_canonical_base64url(encrypted.attrib.get("key-id", ""), "key ID", 32)
-
-    def one_field(name: str, maximum: int) -> bytes:
-        fields = direct_children(encrypted, ENCRYPTED_NS, name)
-        if len(fields) != 1 or fields[0].attrib or list(fields[0]):
-            fail("malformed", f"encrypted QtNote payload must contain one simple {name} element")
-        return decode_canonical_base64(fields[0].text or "", name, maximum)
-
-    nonce = one_field("nonce", 12)
-    ciphertext = one_field("payload", MAX_XML_SIZE)
-    tag = one_field("tag", 16)
-    if len(nonce) != 12 or not ciphertext or len(tag) != 16:
-        fail("malformed", "invalid AES-GCM envelope field sizes")
-    return OuterPayload(item_id, kind, wire, schema, key_id, nonce, ciphertext, tag)
+def split_tag(tag: str) -> tuple[str, str]:
+    if tag.startswith("{"):
+        namespace, local = tag[1:].split("}", 1)
+        return namespace, local
+    return "", tag
 
 
-def required_features(root: ET.Element) -> list[str]:
-    result: list[str] = []
-    for element in direct_children(root, STORAGE_NS, "required"):
-        if set(element.attrib) != {"feature"} or list(element) or (element.text and element.text.strip()):
-            fail("malformed", "invalid required-extension declaration")
-        feature = element.attrib["feature"]
-        if not feature or feature in result:
-            fail("malformed", "invalid or duplicate required extension")
-        result.append(feature)
-    return result
+def validate_attributes(element: ET.Element, allowed_core: set[str], context: str,
+                        allow_foreign: bool = True) -> None:
+    for name in element.attrib:
+        namespace, local = split_tag(name)
+        if not namespace:
+            if local not in allowed_core:
+                fail("malformed", f"unknown core attribute in {context}")
+        elif namespace == PROTOCOL_NS or not allow_foreign:
+            fail("malformed", f"unsupported attribute namespace in {context}")
 
 
-def validate_plaintext(
-    plaintext: bytes,
-    outer: OuterPayload,
-    actual_node: str,
-    supported_features: Iterable[str] = (),
-) -> dict[str, Any]:
-    root = parse_xml(plaintext, "authenticated plaintext")
-    if root.tag != qname(STORAGE_NS, "envelope"):
-        fail("malformed", "authenticated plaintext root must be the QtNote envelope")
-    inner_wire = parse_version(root.attrib.get("wire", ""), "authenticated wire")
-    inner_schema = parse_version(root.attrib.get("schema", ""), "authenticated schema")
-    if inner_wire[0] != WIRE[0] or inner_schema[0] != SCHEMA[0]:
-        fail("unsupported", "unsupported authenticated QtNote major version")
-    if inner_wire != outer.wire or inner_schema != outer.schema:
-        fail("authentication_failed", "outer and authenticated versions differ")
-    if not direct_text_is_whitespace(root):
-        fail("malformed", "unexpected text in authenticated QtNote envelope")
-
-    nodes = direct_children(root, STORAGE_NS, "node")
-    contents = direct_children(root, STORAGE_NS, "content")
-    if len(nodes) != 1 or len(contents) != 1:
-        fail("malformed", "authenticated envelope must contain one node and one content element")
-    bound_node = simple_text(nodes[0], "node")
-    if bound_node != actual_node:
-        fail("context_mismatch", "authenticated PubSub node does not match the actual node")
-
-    unknown_required = sorted(set(required_features(root)) - set(supported_features))
-    if unknown_required:
-        fail("unsupported", "unsupported required extensions: " + ", ".join(unknown_required))
-
-    content = contents[0]
-    if not direct_text_is_whitespace(content):
-        fail("malformed", "unexpected text in content container")
-    indexes = direct_children(content, NOTE_NS, "index")
-    notes = direct_children(content, NOTE_NS, "note")
-    if len(indexes) + len(notes) != 1:
-        fail("malformed", "content must contain exactly one index or note record")
-    if outer.kind == "index" and len(indexes) != 1:
-        fail("malformed", "index payload does not contain an index record")
-    if outer.kind == "content" and len(notes) != 1:
-        fail("malformed", "content payload does not contain a note record")
-    record = indexes[0] if outer.kind == "index" else notes[0]
-    if record.attrib.get("id", "") != outer.item_id:
-        fail("context_mismatch", "authenticated record ID does not match PubSub item ID")
-
-    if outer.kind == "index":
-        revision = record.attrib.get("revision", "")
-        modified = record.attrib.get("modified", "")
-        format_name = record.attrib.get("format", "")
-        if not revision or not modified:
-            fail("malformed", "index revision or modified time is missing")
-        if format_name != "markdown":
-            fail("unsupported", f"unsupported note format {format_name}")
-        if not modified.endswith("Z"):
-            fail("malformed", "modified time must be UTC")
-        try:
-            datetime.fromisoformat(modified[:-1] + "+00:00")
-        except ValueError:
-            fail("malformed", "invalid modified time")
-        titles = direct_children(record, NOTE_NS, "title")
-        if len(titles) != 1:
-            fail("malformed", "index must contain one title")
-        result_record: dict[str, Any] = {
-            "id": outer.item_id,
-            "revision": revision,
-            "title": simple_text(titles[0], "title"),
-            "modified": modified,
-            "format": format_name,
-            "tags": [simple_text(tag, "tag") for tag in direct_children(record, NOTE_NS, "tag")],
-        }
-        if "parent-revision" in record.attrib:
-            result_record["parent_revision"] = record.attrib["parent-revision"]
-        if "origin-id" in record.attrib:
-            result_record["origin_id"] = record.attrib["origin-id"]
-    else:
-        revision = record.attrib.get("revision", "")
-        if not revision:
-            fail("malformed", "content revision is missing")
-        bodies = direct_children(record, NOTE_NS, "body")
-        if len(bodies) != 1:
-            fail("malformed", "content must contain one body")
-        result_record = {
-            "id": outer.item_id,
-            "revision": revision,
-            "body": simple_text(bodies[0], "body"),
-        }
-
-    return {
-        "kind": outer.kind,
-        "node": actual_node,
-        "item_id": outer.item_id,
-        "wire": list(inner_wire),
-        "schema": list(inner_schema),
-        "required_features": required_features(root),
-        "record": result_record,
-        "plaintext_xml": plaintext.decode("utf-8"),
-        "plaintext_hex": plaintext.hex(),
-    }
+def validate_children(element: ET.Element, allowed_core: set[str], context: str) -> None:
+    for child in list(element):
+        namespace, local = split_tag(child.tag)
+        if not namespace:
+            fail("malformed", f"unnamespaced child element in {context}")
+        if namespace == PROTOCOL_NS and local not in allowed_core:
+            fail("malformed", f"unknown core element in {context}")
 
 
-def append_xml_fragments(parent: ET.Element, fragments: Any, name: str) -> None:
-    if fragments is None:
-        return
-    if not isinstance(fragments, list) or not all(isinstance(value, str) for value in fragments):
-        fail("invalid_argument", f"{name} must be an array of XML strings")
-    for fragment in fragments:
-        element = parse_xml(fragment.encode("utf-8"), name)
-        parent.append(element)
+def validate_leaf(element: ET.Element, context: str) -> None:
+    validate_attributes(element, set(), context, allow_foreign=False)
+    if list(element):
+        fail("malformed", f"{context} must not contain child elements")
 
 
-def build_plaintext(request: dict[str, Any], kind: str, item_id: str, node: str,
-                    wire: tuple[int, int], schema: tuple[int, int]) -> bytes:
+def build_plaintext(request: dict[str, Any]) -> bytes:
     supplied = request.get("plaintext_xml")
     if supplied is not None:
         if not isinstance(supplied, str):
             fail("invalid_argument", "plaintext_xml must be text")
-        return supplied.encode("utf-8")
+        data = supplied.encode("utf-8")
+        parse_xml(data, "provided plaintext")
+        return data
 
-    record_data = request.get("record")
-    if not isinstance(record_data, dict):
-        fail("invalid_argument", "record must be an object")
-    root = ET.Element(qname(STORAGE_NS, "envelope"), {
-        "wire": version_text(wire),
-        "schema": version_text(schema),
-    })
-    node_element = ET.SubElement(root, qname(STORAGE_NS, "node"))
-    node_element.text = node
-    features = request.get("required_features", [])
-    if not isinstance(features, list) or not all(isinstance(value, str) and value for value in features):
-        fail("invalid_argument", "required_features must be an array of non-empty strings")
-    for feature in features:
-        ET.SubElement(root, qname(STORAGE_NS, "required"), {"feature": feature})
-    append_xml_fragments(root, request.get("envelope_extensions_xml"), "envelope extension")
-    content = ET.SubElement(root, qname(STORAGE_NS, "content"))
+    kind = request.get("kind")
+    item_id = request.get("item_id")
+    node = request.get("node")
+    record = request.get("record")
+    if kind not in ("index", "content") or not isinstance(item_id, str) or not item_id:
+        fail("invalid_argument", "kind and item_id are required")
+    if not isinstance(node, str) or not node or not isinstance(record, dict):
+        fail("invalid_argument", "node and record are required")
 
     if kind == "index":
-        revision = record_data.get("revision")
-        modified = record_data.get("modified")
-        if not isinstance(revision, str) or not revision or not isinstance(modified, str) or not modified:
-            fail("invalid_argument", "index revision and modified are required")
-        attributes = {
-            "id": item_id,
-            "revision": revision,
-            "modified": modified,
-            "format": record_data.get("format", "markdown"),
-        }
-        if record_data.get("parent_revision"):
-            attributes["parent-revision"] = record_data["parent_revision"]
-        if record_data.get("origin_id"):
-            attributes["origin-id"] = record_data["origin_id"]
-        record = ET.SubElement(content, qname(NOTE_NS, "index"), attributes)
-        title = ET.SubElement(record, qname(NOTE_NS, "title"))
-        title.text = str(record_data.get("title", ""))
-        tags = record_data.get("tags", [])
+        revision = record.get("revision")
+        modified = record.get("modified")
+        fmt = record.get("format", "markdown")
+        if not all(isinstance(v, str) and v for v in (revision, modified, fmt)):
+            fail("invalid_argument", "index revision, modified and format are required")
+        attributes = [f"id={quoteattr(item_id)}", f"revision={quoteattr(revision)}",
+                      f"modified={quoteattr(modified)}", f"format={quoteattr(fmt)}"]
+        for source, target in (("parent_revision", "parent-revision"), ("origin_id", "origin-id")):
+            value = record.get(source)
+            if value is not None:
+                if not isinstance(value, str) or not value:
+                    fail("invalid_argument", f"{source} must be non-empty text")
+                attributes.append(f"{target}={quoteattr(value)}")
+        tags = record.get("tags", [])
         if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
             fail("invalid_argument", "tags must be an array of strings")
-        for value in tags:
-            tag = ET.SubElement(record, qname(NOTE_NS, "tag"))
-            tag.text = value
+        children = f"<title>{escape(str(record.get('title', '')))}</title>" + "".join(
+            f"<tag>{escape(tag)}</tag>" for tag in tags)
+        record_xml = f"<index {' '.join(attributes)}>{children}</index>"
     else:
-        revision = record_data.get("revision")
+        revision = record.get("revision")
         if not isinstance(revision, str) or not revision:
             fail("invalid_argument", "content revision is required")
-        record = ET.SubElement(content, qname(NOTE_NS, "note"), {
-            "id": item_id,
-            "revision": revision,
-        })
-        body = ET.SubElement(record, qname(NOTE_NS, "body"))
-        body.text = str(record_data.get("body", ""))
-    append_xml_fragments(record, record_data.get("extensions_xml"), "record extension")
-    return ET.tostring(root, encoding="utf-8", short_empty_elements=True)
+        body = escape(str(record.get("body", "")))
+        record_xml = f"<note id={quoteattr(item_id)} revision={quoteattr(revision)}><body>{body}</body></note>"
+
+    return (f"<envelope xmlns={quoteattr(PROTOCOL_NS)}><node>{escape(node)}</node>"
+            f"<content>{record_xml}</content></envelope>").encode("utf-8")
 
 
-def outer_xml(payload: OuterPayload) -> str:
-    item = ET.Element("item", {"id": payload.item_id})
-    encrypted = ET.SubElement(item, "encrypted", {
-        "xmlns": ENCRYPTED_NS,
-        "wire": version_text(payload.wire),
-        "schema": version_text(payload.schema),
-        "kind": payload.kind,
-        "key-id": b64url(payload.key_id),
-    })
-    ET.SubElement(encrypted, "nonce").text = b64(payload.nonce)
-    ET.SubElement(encrypted, "payload").text = b64(payload.ciphertext)
-    ET.SubElement(encrypted, "tag").text = b64(payload.tag)
-    return ET.tostring(item, encoding="unicode", short_empty_elements=True)
+def build_outer(item_id: str, key_id: bytes, nonce: bytes, ciphertext: bytes, tag: bytes) -> str:
+    return (f"<item id={quoteattr(item_id)}><encrypted xmlns={quoteattr(PROTOCOL_NS)} "
+            f"key-id={quoteattr(b64url(key_id))}><nonce>{b64(nonce)}</nonce>"
+            f"<payload>{b64(ciphertext)}</payload><tag>{b64(tag)}</tag></encrypted></item>")
+
+
+def parse_outer(xml_bytes: bytes) -> dict[str, Any]:
+    root = parse_xml(xml_bytes, "PubSub item")
+    if root.tag not in ("item", f"{{{PUBSUB_NS}}}item"):
+        fail("malformed", "outer root must be a PubSub item")
+    item_id = root.attrib.get("id", "")
+    children = list(root)
+    if not item_id or len(children) != 1:
+        fail("malformed", "PubSub item ID or encrypted element is missing")
+    encrypted = children[0]
+    if encrypted.tag == qname("encrypted", LEGACY_ENCRYPTED_NS):
+        fail("obsolete", "obsolete pre-unified QtNote encrypted payload")
+    if encrypted.tag != qname("encrypted"):
+        namespace = encrypted.tag[1:].split("}", 1)[0] if encrypted.tag.startswith("{") else ""
+        if namespace.startswith("urn:xmpp:qtnote:notes:"):
+            fail("unsupported", "unsupported QtNote protocol major namespace")
+        fail("malformed", "unexpected encrypted payload namespace")
+    validate_attributes(encrypted, {"key-id"}, "encrypted QtNote payload")
+    validate_children(encrypted, {"nonce", "payload", "tag"}, "encrypted QtNote payload")
+    if not direct_text_is_whitespace(encrypted):
+        fail("malformed", "unexpected direct text in encrypted element")
+    key_id = decode_b64url(encrypted.attrib.get("key-id", ""), "key ID", 32)
+
+    def one(local: str, maximum: int) -> bytes:
+        fields = direct_children(encrypted, local)
+        if len(fields) != 1:
+            fail("malformed", f"expected one simple {local} element")
+        validate_leaf(fields[0], local)
+        return decode_b64(fields[0].text or "", local, maximum)
+
+    nonce, ciphertext, tag = one("nonce", 12), one("payload", MAX_XML_SIZE), one("tag", 16)
+    if len(nonce) != 12 or not ciphertext or len(tag) != 16:
+        fail("malformed", "invalid AES-GCM envelope sizes")
+    return {"item_id": item_id, "key_id": key_id, "nonce": nonce, "ciphertext": ciphertext, "tag": tag}
+
+
+def validate_plaintext(plaintext: bytes, kind: str, actual_node: str, item_id: str,
+                       supported_features: Iterable[str] = ()) -> dict[str, Any]:
+    root = parse_xml(plaintext, "authenticated plaintext")
+    if root.tag != qname("envelope"):
+        namespace = root.tag[1:].split("}", 1)[0] if root.tag.startswith("{") else ""
+        if namespace.startswith("urn:xmpp:qtnote:notes:"):
+            fail("unsupported", "unsupported authenticated protocol major namespace")
+        fail("malformed", "authenticated root must be envelope")
+    validate_attributes(root, set(), "authenticated QtNote envelope")
+    validate_children(root, {"node", "required", "content"}, "authenticated QtNote envelope")
+    if not direct_text_is_whitespace(root):
+        fail("malformed", "unexpected text in authenticated QtNote envelope")
+    nodes = direct_children(root, "node")
+    contents = direct_children(root, "content")
+    if len(nodes) != 1 or len(contents) != 1:
+        fail("malformed", "envelope must contain one node and one content")
+    validate_leaf(nodes[0], "node")
+    if simple_text(nodes[0], "node") != actual_node:
+        fail("context_mismatch", "authenticated node binding differs")
+    supported = set(supported_features)
+    for required in direct_children(root, "required"):
+        if set(required.attrib) != {"feature"} or list(required) or (required.text or "").strip():
+            fail("malformed", "invalid required extension declaration")
+        feature = required.attrib["feature"]
+        if feature not in supported:
+            fail("unsupported", f"unsupported required extension {feature}")
+    validate_attributes(contents[0], set(), "authenticated QtNote content")
+    validate_children(contents[0], {"index", "note"}, "authenticated QtNote content")
+    if not direct_text_is_whitespace(contents[0]):
+        fail("malformed", "unexpected text in authenticated QtNote content")
+    expected = "index" if kind == "index" else "note"
+    records = direct_children(contents[0], expected)
+    other = direct_children(contents[0], "note" if expected == "index" else "index")
+    if len(records) != 1 or other:
+        fail("malformed", f"content must contain exactly one {expected}")
+    record = records[0]
+    if record.attrib.get("id") != item_id:
+        fail("context_mismatch", "record ID differs from PubSub item ID")
+    revision = record.attrib.get("revision", "")
+    if not revision:
+        fail("malformed", "record revision is missing")
+    if kind == "index":
+        validate_attributes(record, {"id", "revision", "parent-revision", "origin-id", "modified", "format"},
+                            "authenticated QtNote index")
+        validate_children(record, {"title", "tag"}, "authenticated QtNote index")
+        if not direct_text_is_whitespace(record):
+            fail("malformed", "unexpected text in authenticated QtNote index")
+        if record.attrib.get("format") != "markdown" or not record.attrib.get("modified"):
+            fail("unsupported" if record.attrib.get("format") not in (None, "markdown") else "malformed",
+                 "invalid index format or modified time")
+        titles = direct_children(record, "title")
+        if len(titles) != 1:
+            fail("malformed", "index must contain one title")
+        validate_leaf(titles[0], "title")
+        for tag in direct_children(record, "tag"):
+            validate_leaf(tag, "tag")
+        return {
+            "kind": kind, "id": item_id, "revision": revision,
+            "parent_revision": record.attrib.get("parent-revision", ""),
+            "origin_id": record.attrib.get("origin-id", ""),
+            "title": simple_text(titles[0], "title"),
+            "modified": record.attrib["modified"], "format": "markdown",
+            "tags": [simple_text(tag, "tag") for tag in direct_children(record, "tag")],
+        }
+    validate_attributes(record, {"id", "revision"}, "authenticated QtNote content record")
+    validate_children(record, {"body"}, "authenticated QtNote content record")
+    if not direct_text_is_whitespace(record):
+        fail("malformed", "unexpected text in authenticated QtNote content record")
+    bodies = direct_children(record, "body")
+    if len(bodies) != 1:
+        fail("malformed", "note must contain one body")
+    validate_leaf(bodies[0], "body")
+    return {"kind": kind, "id": item_id, "revision": revision, "body": simple_text(bodies[0], "body")}
 
 
 def encode_request(request: dict[str, Any]) -> dict[str, Any]:
     kind = request.get("kind")
-    if kind not in ("index", "content"):
-        fail("invalid_argument", "kind must be index or content")
-    item_id = request.get("item_id")
     node = request.get("node")
-    if not isinstance(item_id, str) or not item_id or not isinstance(node, str) or not node:
-        fail("invalid_argument", "item_id and node are required")
-    wire = parse_version(request.get("wire", list(WIRE)), "wire")
-    schema = parse_version(request.get("schema", list(SCHEMA)), "schema")
-    if wire[0] != WIRE[0] or schema[0] != SCHEMA[0]:
-        fail("unsupported", "reference encoder only writes the supported major version")
+    item_id = request.get("item_id")
+    if kind not in ("index", "content") or not isinstance(node, str) or not node or not isinstance(item_id, str) or not item_id:
+        fail("invalid_argument", "kind, node and item_id are required")
     master_key = hex_bytes(request.get("master_key_hex"), "master key", 32)
-    nonce_value = request.get("nonce_hex")
-    nonce = os.urandom(12) if nonce_value is None else hex_bytes(nonce_value, "nonce", 12)
-    plaintext = build_plaintext(request, kind, item_id, node, wire, schema)
-    if len(plaintext) > MAX_XML_SIZE:
-        fail("invalid_argument", "plaintext XML exceeds the implementation limit")
-    domain = "storage-index" if kind == "index" else "storage-content"
-    derived_key = derive_key(master_key, domain)
-    sealed = AESGCM(derived_key).encrypt(nonce, plaintext, None)
-    ciphertext, tag = sealed[:-16], sealed[-16:]
-    payload = OuterPayload(item_id, kind, wire, schema, storage_key_id(master_key), nonce, ciphertext, tag)
-    encoded = {
+    nonce = hex_bytes(request["nonce_hex"], "nonce", 12) if "nonce_hex" in request else os.urandom(12)
+    plaintext = build_plaintext(request)
+    key_id = storage_key_id(master_key)
+    derived = derive_key(master_key, kind)
+    combined = AESGCM(derived).encrypt(nonce, plaintext, None)
+    ciphertext, tag = combined[:-16], combined[-16:]
+    xml = build_outer(item_id, key_id, nonce, ciphertext, tag)
+    return {
+        "protocol_namespace": PROTOCOL_NS,
         "kind": kind,
+        "master_key_hex": master_key.hex(),
         "node": node,
         "item_id": item_id,
-        "wire": list(wire),
-        "schema": list(schema),
-        "master_key_hex": master_key.hex(),
-        "derived_key_hex": derived_key.hex(),
-        "key_id_hex": payload.key_id.hex(),
-        "key_id_base64url": b64url(payload.key_id),
+        "key_id_hex": key_id.hex(),
+        "key_id_base64url": b64url(key_id),
+        "derived_key_hex": derived.hex(),
         "nonce_hex": nonce.hex(),
-        "nonce_base64": b64(nonce),
         "ciphertext_hex": ciphertext.hex(),
-        "ciphertext_base64": b64(ciphertext),
         "tag_hex": tag.hex(),
-        "tag_base64": b64(tag),
         "plaintext_xml": plaintext.decode("utf-8"),
         "plaintext_hex": plaintext.hex(),
-        "xml": outer_xml(payload),
+        "xml": xml,
     }
-    # Verify the encoder's own output semantically before returning it.
-    decode_document(encoded)
-    return encoded
 
 
-def decode_document(encoded: dict[str, Any], *, master_key_override: str | None = None,
+def decode_document(document: dict[str, Any], master_key_override: str | None = None,
                     node_override: str | None = None, supported_features: Iterable[str] = ()) -> dict[str, Any]:
-    xml_text = encoded.get("xml")
-    if not isinstance(xml_text, str):
-        fail("invalid_argument", "encoded document must contain xml text")
-    outer = parse_outer_xml(xml_text.encode("utf-8"))
-    node = node_override if node_override is not None else encoded.get("node")
+    kind = document.get("kind")
+    if kind not in ("index", "content"):
+        fail("invalid_argument", "encoded document kind must be index or content")
+    master_key = hex_bytes(master_key_override or document.get("master_key_hex"), "master key", 32)
+    node = node_override or document.get("node")
     if not isinstance(node, str) or not node:
         fail("invalid_argument", "actual PubSub node is required")
-    key_hex = master_key_override if master_key_override is not None else encoded.get("master_key_hex")
-    master_key = hex_bytes(key_hex, "master key", 32)
+    outer = parse_outer(str(document.get("xml", "")).encode("utf-8"))
     expected_key_id = storage_key_id(master_key)
-    if outer.key_id != expected_key_id:
-        fail("wrong_key", "encrypted item was written with another storage key")
-    domain = "storage-index" if outer.kind == "index" else "storage-content"
-    derived_key = derive_key(master_key, domain)
+    if outer["key_id"] != expected_key_id:
+        fail("wrong_key", "configured storage key ID differs")
     try:
-        plaintext = AESGCM(derived_key).decrypt(outer.nonce, outer.ciphertext + outer.tag, None)
+        plaintext = AESGCM(derive_key(master_key, kind)).decrypt(
+            outer["nonce"], outer["ciphertext"] + outer["tag"], None)
     except Exception:
         fail("authentication_failed", "AES-GCM authentication failed")
-    result = validate_plaintext(plaintext, outer, node, supported_features)
-    result.update({
-        "key_id_hex": outer.key_id.hex(),
-        "key_id_base64url": b64url(outer.key_id),
-        "derived_key_hex": derived_key.hex(),
-        "nonce_hex": outer.nonce.hex(),
-        "ciphertext_hex": outer.ciphertext.hex(),
-        "tag_hex": outer.tag.hex(),
-    })
-    return result
+    record = validate_plaintext(plaintext, kind, node, outer["item_id"], supported_features)
+    return {
+        "protocol_namespace": PROTOCOL_NS,
+        "kind": kind,
+        "node": node,
+        "item_id": outer["item_id"],
+        "key_id_hex": outer["key_id"].hex(),
+        "plaintext_xml": plaintext.decode("utf-8"),
+        "record": record,
+    }
 
 
-def namespace_pubsub_item(xml: str) -> str:
-    if not xml.startswith("<item "):
-        fail("invalid_argument", "reference item XML has an unexpected wrapper")
-    return xml.replace("<item ", f'<item xmlns="{PUBSUB_NS}" ', 1)
-
-
-def replace_outer_field(xml: str, name: str, value: str) -> str:
+def replace_field(xml: str, local: str, value: bytes, canonical: bool = True) -> str:
     root = ET.fromstring(xml)
     encrypted = list(root)[0]
-    encrypted.set(name, value)
-    return ET.tostring(root, encoding="unicode", short_empty_elements=True)
-
-
-def replace_item_id(xml: str, item_id: str) -> str:
-    root = ET.fromstring(xml)
-    root.set("id", item_id)
-    return ET.tostring(root, encoding="unicode", short_empty_elements=True)
-
-
-def replace_binary_field(xml: str, name: str, value: bytes, canonical: bool = True) -> str:
-    root = ET.fromstring(xml)
-    encrypted = list(root)[0]
-    field = direct_children(encrypted, ENCRYPTED_NS, name)[0]
-    text = b64(value)
-    field.text = text if canonical else text.rstrip("=")
-    return ET.tostring(root, encoding="unicode", short_empty_elements=True)
+    field = direct_children(encrypted, local)[0]
+    field.text = b64(value) if canonical else base64.b64encode(value).decode("ascii").rstrip("=")
+    return ET.tostring(root, encoding="unicode")
 
 
 def reencrypt_plaintext(encoded: dict[str, Any], plaintext: bytes) -> dict[str, Any]:
-    result = copy.deepcopy(encoded)
-    master_key = bytes.fromhex(result["master_key_hex"])
-    domain = "storage-index" if result["kind"] == "index" else "storage-content"
-    nonce = bytes.fromhex(result["nonce_hex"])
-    sealed = AESGCM(derive_key(master_key, domain)).encrypt(nonce, plaintext, None)
-    ciphertext, tag = sealed[:-16], sealed[-16:]
-    result["plaintext_xml"] = plaintext.decode("utf-8", errors="replace")
-    result["plaintext_hex"] = plaintext.hex()
-    result["ciphertext_hex"] = ciphertext.hex()
-    result["ciphertext_base64"] = b64(ciphertext)
-    result["tag_hex"] = tag.hex()
-    result["tag_base64"] = b64(tag)
-    result["xml"] = replace_binary_field(result["xml"], "payload", ciphertext)
-    result["xml"] = replace_binary_field(result["xml"], "tag", tag)
-    return result
+    master = bytes.fromhex(encoded["master_key_hex"])
+    nonce = bytes.fromhex(encoded["nonce_hex"])
+    combined = AESGCM(derive_key(master, encoded["kind"])).encrypt(nonce, plaintext, None)
+    encoded["ciphertext_hex"], encoded["tag_hex"] = combined[:-16].hex(), combined[-16:].hex()
+    encoded["plaintext_xml"] = plaintext.decode("utf-8", errors="replace")
+    encoded["plaintext_hex"] = plaintext.hex()
+    encoded["xml"] = build_outer(encoded["item_id"], bytes.fromhex(encoded["key_id_hex"]), nonce,
+                                 combined[:-16], combined[-16:])
+    return encoded
 
 
 def reference_requests() -> list[tuple[str, str, dict[str, Any]]]:
     key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
     item = "2b7e1516-28ae-4d2a-abf7-158809cf4f3c"
-    revision = "018f0be0-df0d-7c70-a2ef-1f5c973ec92a"
     return [
-        ("index-basic", "Portable index record", {
-            "kind": "index", "master_key_hex": key,
-            "node": "urn:xmpp:qtnote:notes:0:index:1", "item_id": item,
+        ("index", "Complete index record", {
+            "kind": "index", "master_key_hex": key, "node": f"{PROTOCOL_NS}:index", "item_id": item,
             "nonce_hex": "000102030405060708090a0b",
-            "record": {"revision": revision, "origin_id": "device-a", "title": "Portable note",
-                       "modified": "2026-07-27T18:00:00.123Z", "format": "markdown", "tags": ["one", "two"]},
+            "record": {"revision": "018f0be0-df0d-7c70-a2ef-1f5c973ec92a", "origin_id": "device-a",
+                       "title": "Portable note", "modified": "2026-07-27T18:00:00.123Z",
+                       "format": "markdown", "tags": ["one", "two"]},
         }),
-        ("content-basic", "Portable content record", {
-            "kind": "content", "master_key_hex": key,
-            "node": "urn:xmpp:qtnote:notes:0:content:1", "item_id": item,
+        ("content", "Complete content record", {
+            "kind": "content", "master_key_hex": key, "node": f"{PROTOCOL_NS}:content", "item_id": item,
             "nonce_hex": "0c0d0e0f1011121314151617",
-            "record": {"revision": revision, "body": "Portable body\n"},
+            "record": {"revision": "018f0be0-df0d-7c70-a2ef-1f5c973ec92a", "body": "Portable body\n"},
         }),
-        ("index-minor-extensions", "Higher minor, Unicode and optional XML extensions", {
-            "kind": "index", "master_key_hex": key,
-            "node": "urn:xmpp:qtnote:notes:0:index:1", "item_id": "unicode-note",
-            "wire": [1, 2], "schema": [1, 4], "nonce_hex": "18191a1b1c1d1e1f20212223",
+        ("index-extensions", "Unicode and optional foreign-namespace extensions", {
+            "kind": "index", "master_key_hex": key, "node": f"{PROTOCOL_NS}:index", "item_id": "unicode-note",
+            "nonce_hex": "18191a1b1c1d1e1f20212223",
             "plaintext_xml": (
-                '<envelope xmlns="urn:xmpp:qtnote:storage:1" xmlns:n="urn:xmpp:qtnote:note:1" '
-                'xmlns:x="urn:example:qtnote:extension:1" wire="1.2" schema="1.4" x:root="preserve">'
-                '<node>urn:xmpp:qtnote:notes:0:index:1</node><x:envelope value="42"/><content x:box="yes">'
-                '<n:index id="unicode-note" revision="revision-unicode" modified="2026-07-27T18:00:00.000Z" '
-                'format="markdown" x:record="keep"><n:title>Привет &amp; café</n:title><n:tag>тест</n:tag>'
-                '<x:record>future</x:record></n:index></content></envelope>'
+                f'<envelope xmlns="{PROTOCOL_NS}" xmlns:x="urn:example:qtnote:extension:1" x:root="preserve">'
+                f'<node>{PROTOCOL_NS}:index</node><x:envelope value="42"/><content x:box="yes">'
+                '<index id="unicode-note" revision="revision-unicode" modified="2026-07-27T18:00:00.000Z" '
+                'format="markdown" x:record="keep"><title>Привет &amp; café</title><tag>тест</tag>'
+                '<x:record>future</x:record></index></content></envelope>'
             ),
         }),
         ("index-minimal", "Empty title and no optional index fields", {
-            "kind": "index", "master_key_hex": key,
-            "node": "urn:xmpp:qtnote:notes:0:index:1", "item_id": "minimal-note",
+            "kind": "index", "master_key_hex": key, "node": f"{PROTOCOL_NS}:index", "item_id": "minimal-note",
             "nonce_hex": "2425262728292a2b2c2d2e2f",
             "record": {"revision": "minimal-revision", "title": "", "modified": "2026-07-27T18:00:00Z",
                        "format": "markdown", "tags": []},
         }),
         ("content-empty", "Empty note body", {
-            "kind": "content", "master_key_hex": key,
-            "node": "urn:xmpp:qtnote:notes:0:content:1", "item_id": "empty-note",
+            "kind": "content", "master_key_hex": key, "node": f"{PROTOCOL_NS}:content", "item_id": "empty-note",
             "nonce_hex": "303132333435363738393a3b",
             "record": {"revision": "empty-revision", "body": ""},
         }),
@@ -611,20 +464,11 @@ def reference_requests() -> list[tuple[str, str, dict[str, Any]]]:
 
 
 def generate_vectors() -> dict[str, Any]:
-    positives: list[dict[str, Any]] = []
+    positives = []
     for name, description, request in reference_requests():
         encoded = encode_request(request)
-        if name == "index-minimal":
-            encoded["xml"] = namespace_pubsub_item(encoded["xml"])
-            decode_document(encoded)
-        positives.append({
-            "name": name,
-            "description": description,
-            "request": request,
-            "encoded": encoded,
-            "expected_decoded": decode_document(encoded),
-        })
-
+        positives.append({"name": name, "description": description, "request": request,
+                          "encoded": encoded, "expected_decoded": decode_document(encoded)})
     base = positives[0]["encoded"]
     negatives: list[dict[str, Any]] = []
 
@@ -635,121 +479,77 @@ def generate_vectors() -> dict[str, Any]:
     value = copy.deepcopy(base)
     root = ET.fromstring(value["xml"])
     encrypted = list(root)[0]
-    for child in list(encrypted):
-        encrypted.remove(child)
-    encrypted.text = b64(b"obsolete-development-envelope")
+    encrypted.tag = qname("encrypted", LEGACY_ENCRYPTED_NS)
     value["xml"] = ET.tostring(root, encoding="unicode")
-    add("obsolete-pre-xml", "Direct-text development envelope predating the XML wire format", "obsolete", value)
+    add("obsolete-legacy-namespace", "Pre-unified encrypted namespace", "obsolete", value)
 
+    value = copy.deepcopy(base); value["master_key_hex"] = "55" * 32
+    add("wrong-key", "Configured master key differs", "wrong_key", value)
+    value = copy.deepcopy(base); value["node"] = f"{PROTOCOL_NS}:another-index"
+    add("wrong-node", "Authenticated node differs", "context_mismatch", value)
     value = copy.deepcopy(base)
-    value["master_key_hex"] = "55" * 32
-    add("wrong-key", "Configured master key does not match key-id", "wrong_key", value)
-
-    value = copy.deepcopy(base)
-    value["node"] = "urn:xmpp:qtnote:notes:0:another-index:1"
-    add("wrong-node", "Authenticated node binding differs from actual PubSub node", "context_mismatch", value)
-
-    value = copy.deepcopy(base)
-    value["item_id"] = "moved-item"
-    value["xml"] = replace_item_id(value["xml"], "moved-item")
-    add("wrong-item-id", "Authenticated record ID differs from outer item ID", "context_mismatch", value)
-
-    value = copy.deepcopy(base)
-    changed_tag = bytearray.fromhex(value["tag_hex"])
-    changed_tag[0] ^= 1
-    value["xml"] = replace_binary_field(value["xml"], "tag", bytes(changed_tag))
+    root = ET.fromstring(value["xml"]); root.set("id", "moved-item"); value["xml"] = ET.tostring(root, encoding="unicode")
+    add("wrong-item-id", "Record ID differs from outer item ID", "context_mismatch", value)
+    value = copy.deepcopy(base); tag = bytearray.fromhex(value["tag_hex"]); tag[0] ^= 1
+    value["xml"] = replace_field(value["xml"], "tag", bytes(tag))
     add("tampered-tag", "AES-GCM tag was modified", "authentication_failed", value)
-
     value = copy.deepcopy(base)
-    root = ET.fromstring(value["xml"])
-    encrypted = list(root)[0]
-    encrypted.remove(direct_children(encrypted, ENCRYPTED_NS, "tag")[0])
-    value["xml"] = ET.tostring(root, encoding="unicode")
-    add("missing-tag", "Current outer envelope is structurally incomplete", "malformed", value)
-
+    root = ET.fromstring(value["xml"]); enc = list(root)[0]; enc.remove(direct_children(enc, "tag")[0]); value["xml"] = ET.tostring(root, encoding="unicode")
+    add("missing-tag", "Outer envelope is incomplete", "malformed", value)
+    value = copy.deepcopy(base); value["xml"] = replace_field(value["xml"], "payload", bytes.fromhex(value["ciphertext_hex"]), False)
+    add("noncanonical-base64", "Base64 is not canonical", "malformed", value)
+    plaintext = base["plaintext_xml"].replace("<index ", '<index minor="1" ', 1).encode()
+    value = reencrypt_plaintext(copy.deepcopy(base), plaintext)
+    add("unknown-core-attribute", "Unknown unqualified core attribute", "malformed", value)
+    plaintext = base["plaintext_xml"].replace("</index>", "<future/></index>", 1).encode()
+    value = reencrypt_plaintext(copy.deepcopy(base), plaintext)
+    add("unknown-core-element", "Unknown element in the current core namespace", "malformed", value)
     value = copy.deepcopy(base)
-    ciphertext = bytes.fromhex(value["ciphertext_hex"])
-    value["xml"] = replace_binary_field(value["xml"], "payload", ciphertext, canonical=False)
-    add("noncanonical-base64", "Padded Base64 field is not canonical", "malformed", value)
-
-    value = copy.deepcopy(base)
-    value["wire"] = [2, 0]
-    value["xml"] = replace_outer_field(value["xml"], "wire", "2.0")
-    add("future-wire-major", "Unknown wire major must be protected", "unsupported", value)
-
-    value = copy.deepcopy(base)
-    value["schema"] = [2, 0]
-    value["xml"] = replace_outer_field(value["xml"], "schema", "2.0")
-    add("future-schema-major", "Unknown schema major must be protected", "unsupported", value)
-
-    value = copy.deepcopy(base)
-    value["wire"] = [1, 9]
-    value["xml"] = replace_outer_field(value["xml"], "wire", "1.9")
-    add("outer-version-tampering", "Outer minor differs from authenticated version", "authentication_failed", value)
-
+    root = ET.fromstring(value["xml"]); list(root)[0].tag = qname("encrypted", "urn:xmpp:qtnote:notes:2"); value["xml"] = ET.tostring(root, encoding="unicode")
+    add("future-major-namespace", "Unknown major namespace", "unsupported", value)
     value = reencrypt_plaintext(copy.deepcopy(base), b"not XML")
     add("malformed-plaintext", "Authenticated plaintext is not XML", "malformed", value)
-
-    required_plaintext = base["plaintext_xml"].replace(
-        "<content>", '<required feature="urn:example:required:1"/><content>', 1).encode("utf-8")
-    value = reencrypt_plaintext(copy.deepcopy(base), required_plaintext)
-    add("unknown-required-extension", "Unknown required feature blocks interpretation", "unsupported", value)
-
-    dtd_plaintext = (b'<!DOCTYPE envelope [<!ENTITY x "boom">]>' + base["plaintext_xml"].encode("utf-8"))
-    value = reencrypt_plaintext(copy.deepcopy(base), dtd_plaintext)
-    add("doctype-plaintext", "DTD and entity declarations are forbidden", "malformed", value)
+    required = base["plaintext_xml"].replace("<content>", '<required feature="urn:example:required:1"/><content>', 1).encode()
+    value = reencrypt_plaintext(copy.deepcopy(base), required)
+    add("unknown-required-extension", "Unknown required feature", "unsupported", value)
+    value = reencrypt_plaintext(copy.deepcopy(base), b'<!DOCTYPE envelope [<!ENTITY x "boom">]>' + base["plaintext_xml"].encode())
+    add("doctype-plaintext", "DTD and entities are forbidden", "malformed", value)
 
     return {
-        "vector_format": "qtnote-encrypted-xml-v1",
+        "vector_format": "qtnote-notes-xml-v1",
         "description": "Portable XML/AES-GCM conformance vectors for QtNote PubSub records",
         "generated_by": "qtnote-encrypted-reference.py",
-        "crypto": {
-            "key_id": "SHA-256(UTF-8('QtNote storage key id v1') || 00 || master_key)",
-            "hkdf_hash": "SHA-256",
-            "hkdf_salt_utf8": HKDF_SALT.decode("ascii"),
-            "hkdf_info_prefix_utf8": HKDF_INFO_PREFIX.decode("ascii"),
-            "index_domain": "storage-index",
-            "content_domain": "storage-content",
-            "cipher": "AES-256-GCM",
-            "nonce_bytes": 12,
-            "tag_bytes": 16,
-            "aad_hex": "",
-        },
-        "positive": positives,
-        "negative": negatives,
+        "protocol_namespace": PROTOCOL_NS,
+        "crypto": {"cipher": "AES-256-GCM", "nonce_bytes": 12, "tag_bytes": 16, "aad_hex": "",
+                   "hkdf_hash": "SHA-256", "hkdf_salt_utf8": HKDF_SALT.decode(),
+                   "hkdf_info_prefix_utf8": HKDF_INFO_PREFIX.decode()},
+        "positive": positives, "negative": negatives,
     }
 
 
 def verify_vectors(document: dict[str, Any]) -> None:
-    positives = document.get("positive")
-    negatives = document.get("negative")
-    if not isinstance(positives, list) or not isinstance(negatives, list):
-        fail("invalid_argument", "vector file must contain positive and negative arrays")
-    for case in positives:
-        actual = decode_document(case["encoded"])
-        if actual != case["expected_decoded"]:
+    for case in document.get("positive", []):
+        if decode_document(case["encoded"]) != case["expected_decoded"]:
             fail("malformed", f"positive vector {case.get('name')} decoded differently")
-    for case in negatives:
-        expected = case.get("expected_error")
+    for case in document.get("negative", []):
         try:
             decode_document(case["encoded"])
         except ProtocolError as error:
-            if error.category != expected:
-                fail("malformed", f"negative vector {case.get('name')} returned {error.category}, expected {expected}")
+            if error.category != case.get("expected_error"):
+                fail("malformed", f"negative vector {case.get('name')} returned {error.category}")
         else:
             fail("malformed", f"negative vector {case.get('name')} unexpectedly succeeded")
 
 
 def load_json(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as stream:
-        value = json.load(stream)
+    value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         fail("invalid_argument", f"{path} must contain a JSON object")
     return value
 
 
 def write_json(value: Any, path: Path | None) -> None:
-    text = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=False) + "\n"
+    text = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
     if path is None:
         sys.stdout.write(text)
     else:
@@ -758,44 +558,23 @@ def write_json(value: Any, path: Path | None) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    generate = subparsers.add_parser("generate-vectors", help="regenerate the checked-in conformance vectors")
-    generate.add_argument("--output", type=Path,
-                          default=Path(__file__).with_name("qtnote-encrypted-vectors.json"))
-
-    verify = subparsers.add_parser("verify-vectors", help="verify all positive and negative vectors")
-    verify.add_argument("path", nargs="?", type=Path,
-                        default=Path(__file__).with_name("qtnote-encrypted-vectors.json"))
-
-    encode = subparsers.add_parser("encode", help="encrypt a JSON request and emit a self-contained JSON document")
-    encode.add_argument("request", type=Path)
-    encode.add_argument("--output", type=Path)
-
-    decode = subparsers.add_parser("decode", help="decrypt and validate a self-contained JSON document")
-    decode.add_argument("encoded", type=Path)
-    decode.add_argument("--master-key-hex")
-    decode.add_argument("--node")
-    decode.add_argument("--supported-feature", action="append", default=[])
-    decode.add_argument("--output", type=Path)
-
+    commands = parser.add_subparsers(dest="command", required=True)
+    generate = commands.add_parser("generate-vectors")
+    generate.add_argument("--output", type=Path, default=Path(__file__).with_name("qtnote-encrypted-vectors.json"))
+    verify = commands.add_parser("verify-vectors")
+    verify.add_argument("path", nargs="?", type=Path, default=Path(__file__).with_name("qtnote-encrypted-vectors.json"))
+    encode = commands.add_parser("encode"); encode.add_argument("request", type=Path); encode.add_argument("--output", type=Path)
+    decode = commands.add_parser("decode"); decode.add_argument("encoded", type=Path); decode.add_argument("--master-key-hex"); decode.add_argument("--node"); decode.add_argument("--supported-feature", action="append", default=[]); decode.add_argument("--output", type=Path)
     args = parser.parse_args()
     try:
         if args.command == "generate-vectors":
-            vectors = generate_vectors()
-            verify_vectors(vectors)
-            write_json(vectors, args.output)
-            print(f"wrote {args.output}", file=sys.stderr)
+            value = generate_vectors(); verify_vectors(value); write_json(value, args.output)
         elif args.command == "verify-vectors":
             verify_vectors(load_json(args.path))
-            print(f"verified {args.path}")
         elif args.command == "encode":
             write_json(encode_request(load_json(args.request)), args.output)
-        elif args.command == "decode":
-            encoded = load_json(args.encoded)
-            result = decode_document(encoded, master_key_override=args.master_key_hex,
-                                     node_override=args.node, supported_features=args.supported_feature)
-            write_json(result, args.output)
+        else:
+            write_json(decode_document(load_json(args.encoded), args.master_key_hex, args.node, args.supported_feature), args.output)
         return 0
     except ProtocolError as error:
         print(json.dumps({"error": error.category, "message": error.message}, ensure_ascii=False), file=sys.stderr)

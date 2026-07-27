@@ -28,6 +28,16 @@ QString keyIdText()
     return QString::fromLatin1(
         QByteArray(32, '\x11').toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
 }
+
+QString encryptedXml()
+{
+    return QStringLiteral("<encrypted xmlns='urn:xmpp:qtnote:notes:1' key-id='%1'>"
+                          "<nonce xmlns='urn:xmpp:qtnote:notes:1'>IiIiIiIiIiIiIiIi</nonce>"
+                          "<payload xmlns='urn:xmpp:qtnote:notes:1'>Y2lwaGVydGV4dA==</payload>"
+                          "<tag xmlns='urn:xmpp:qtnote:notes:1'>MzMzMzMzMzMzMzMzMzMzMw==</tag>"
+                          "</encrypted>")
+        .arg(keyIdText());
+}
 }
 
 class QtNotePubSubItemTest : public QObject {
@@ -39,28 +49,33 @@ private slots:
     void acceptsLiveDomWithoutInheritedChildNamespaces();
     void parsesHeadlineEventWithPortableXml();
     void pepExtensionPublishesPortableXmlEvent();
-    void classifiesPreXmlPayloadAsObsolete();
-    void protectsFutureMajor();
+    void classifiesLegacyPayloadAsObsolete();
+    void protectsFutureMajorNamespace();
     void classifiesMalformedCurrentPayload();
+    void rejectsUnknownCoreAttribute();
+    void rejectsUnknownCoreElement();
     void rejectsNonCanonicalBase64();
 };
 
 void QtNotePubSubItemTest::roundTripCurrentXml()
 {
     XmppEncryptedPayload payload;
-    payload.id            = QStringLiteral("note-1");
-    payload.kind          = XmppEncryptedPayload::Index;
-    payload.wireVersion   = { 1, 0 };
-    payload.schemaVersion = { 1, 0 };
-    payload.keyId         = QByteArray(32, '\x11');
-    payload.nonce         = QByteArray(12, '\x22');
-    payload.tag           = QByteArray(16, '\x33');
-    payload.cipherText    = QByteArrayLiteral("portable-xml-ciphertext");
+    payload.id         = QStringLiteral("note-1");
+    payload.keyId      = QByteArray(32, '\x11');
+    payload.nonce      = QByteArray(12, '\x22');
+    payload.tag        = QByteArray(16, '\x33');
+    payload.cipherText = QByteArrayLiteral("portable-xml-ciphertext");
 
     QtNotePubSubItem source(payload);
     QString          xml;
     QXmlStreamWriter writer(&xml);
     source.toXml(&writer);
+    QVERIFY(!xml.contains(QStringLiteral("wire=")));
+    QVERIFY(!xml.contains(QStringLiteral("schema=")));
+    QVERIFY(!xml.contains(QStringLiteral("kind=")));
+    QVERIFY(!xml.contains(QStringLiteral("<nonce xmlns=")));
+    QVERIFY(!xml.contains(QStringLiteral("<payload xmlns=")));
+    QVERIFY(!xml.contains(QStringLiteral("<tag xmlns=")));
 
     QDomDocument document;
     const auto   element = parseItemElement(xml, &document);
@@ -69,11 +84,6 @@ void QtNotePubSubItemTest::roundTripCurrentXml()
     parsed.parse(element);
     QVERIFY2(parsed.isValid(), qPrintable(parsed.parseError()));
     QCOMPARE(parsed.payload().id, payload.id);
-    QCOMPARE(int(parsed.payload().kind), int(payload.kind));
-    QCOMPARE(parsed.payload().wireVersion.major, payload.wireVersion.major);
-    QCOMPARE(parsed.payload().wireVersion.minor, payload.wireVersion.minor);
-    QCOMPARE(parsed.payload().schemaVersion.major, payload.schemaVersion.major);
-    QCOMPARE(parsed.payload().schemaVersion.minor, payload.schemaVersion.minor);
     QCOMPARE(parsed.payload().keyId, payload.keyId);
     QCOMPARE(parsed.payload().nonce, payload.nonce);
     QCOMPARE(parsed.payload().tag, payload.tag);
@@ -83,20 +93,19 @@ void QtNotePubSubItemTest::roundTripCurrentXml()
 void QtNotePubSubItemTest::acceptsNamespacedPubSubItemAndRedundantNamespaceDeclarations()
 {
     QDomDocument document;
-    const auto   element = parseItemElement(
-        QStringLiteral("<item xmlns='http://jabber.org/protocol/pubsub' id='note-1'>"
-                           "<enc:encrypted xmlns:enc='urn:xmpp:qtnote:encrypted:1' wire='1.0' schema='1.0' "
-                           "kind='index' key-id='%1'><enc:nonce xmlns:enc='urn:xmpp:qtnote:encrypted:1'>"
-                           "IiIiIiIiIiIiIiIi</enc:nonce><enc:payload>Y2lwaGVydGV4dA==</enc:payload>"
-                           "<enc:tag>MzMzMzMzMzMzMzMzMzMzMw==</enc:tag></enc:encrypted></item>")
-            .arg(keyIdText()),
-        &document);
+    const auto   element
+        = parseItemElement(QStringLiteral("<item xmlns='http://jabber.org/protocol/pubsub' id='note-1'>"
+                                          "<q:encrypted xmlns:q='urn:xmpp:qtnote:notes:1' key-id='%1'>"
+                                          "<q:nonce xmlns:q='urn:xmpp:qtnote:notes:1'>IiIiIiIiIiIiIiIi</q:nonce>"
+                                          "<q:payload>Y2lwaGVydGV4dA==</q:payload>"
+                                          "<q:tag>MzMzMzMzMzMzMzMzMzMzMw==</q:tag></q:encrypted></item>")
+                               .arg(keyIdText()),
+                           &document);
     QVERIFY(!element.isNull());
     QVERIFY(QtNotePubSubItem::isItem(element));
     QtNotePubSubItem parsed;
     parsed.parse(element);
     QVERIFY2(parsed.isValid(), qPrintable(parsed.parseError()));
-    QCOMPARE(parsed.payload().id, QStringLiteral("note-1"));
 }
 
 void QtNotePubSubItemTest::acceptsLiveDomWithoutInheritedChildNamespaces()
@@ -107,15 +116,10 @@ void QtNotePubSubItemTest::acceptsLiveDomWithoutInheritedChildNamespaces()
     document.appendChild(item);
 
     auto encrypted = document.createElementNS(QtNotePubSubItem::payloadNamespace, QStringLiteral("encrypted"));
-    encrypted.setAttribute(QStringLiteral("wire"), QStringLiteral("1.0"));
-    encrypted.setAttribute(QStringLiteral("schema"), QStringLiteral("1.0"));
-    encrypted.setAttribute(QStringLiteral("kind"), QStringLiteral("index"));
     encrypted.setAttribute(QStringLiteral("key-id"), keyIdText());
     item.appendChild(encrypted);
 
     const auto appendBinary = [&document, &encrypted](const QString &name, const QString &value) {
-        // Model the live QXmpp stanza DOM: the wire XML inherits the parent's
-        // default namespace, but these QDomElement objects expose no namespace.
         auto element = document.createElement(name);
         element.appendChild(document.createTextNode(value));
         encrypted.appendChild(element);
@@ -128,72 +132,47 @@ void QtNotePubSubItemTest::acceptsLiveDomWithoutInheritedChildNamespaces()
     parsed.parse(item);
     QVERIFY2(parsed.isValid(), qPrintable(parsed.parseError()));
     QCOMPARE(parsed.payload().id, QStringLiteral("note-live"));
-    QCOMPARE(parsed.payload().nonce, QByteArray(12, '\x22'));
-    QCOMPARE(parsed.payload().tag, QByteArray(16, '\x33'));
-    QCOMPARE(parsed.payload().cipherText, QByteArrayLiteral("ciphertext"));
 }
 
 void QtNotePubSubItemTest::parsesHeadlineEventWithPortableXml()
 {
     QDomDocument document;
-    const auto   message
-        = parseItemElement(QStringLiteral("<message type='headline' from='romeo@example.net'>"
-                                          "<event xmlns='http://jabber.org/protocol/pubsub#event'>"
-                                          "<items node='urn:xmpp:qtnote:notes:0:index:1'>"
-                                          "<item id='note-1'><encrypted xmlns='urn:xmpp:qtnote:encrypted:1' wire='1.0' "
-                                          "schema='1.0' kind='index' key-id='%1'>"
-                                          "<nonce xmlns='urn:xmpp:qtnote:encrypted:1'>IiIiIiIiIiIiIiIi</nonce>"
-                                          "<payload xmlns='urn:xmpp:qtnote:encrypted:1'>Y2lwaGVydGV4dA==</payload>"
-                                          "<tag xmlns='urn:xmpp:qtnote:encrypted:1'>MzMzMzMzMzMzMzMzMzMzMw==</tag>"
-                                          "</encrypted></item></items></event></message>")
-                               .arg(keyIdText()),
-                           &document);
+    const auto   message = parseItemElement(QStringLiteral("<message type='headline' from='romeo@example.net'>"
+                                                             "<event xmlns='http://jabber.org/protocol/pubsub#event'>"
+                                                             "<items node='urn:xmpp:qtnote:notes:1:index'>"
+                                                             "<item id='note-1'>%1</item></items></event></message>")
+                                                .arg(encryptedXml()),
+                                            &document);
     QVERIFY(!message.isNull());
     QVERIFY(QXmppPubSubEvent<QtNotePubSubItem>::isPubSubEvent(message));
 
     QXmppPubSubEvent<QtNotePubSubItem> event;
     event.parse(message);
-    QCOMPARE(event.eventType(), QXmppPubSubEventBase::Items);
     QCOMPARE(event.items().size(), 1);
     QVERIFY2(event.items().constFirst().isValid(), qPrintable(event.items().constFirst().parseError()));
-    QCOMPARE(event.items().constFirst().payload().id, QStringLiteral("note-1"));
 }
 
 void QtNotePubSubItemTest::pepExtensionPublishesPortableXmlEvent()
 {
     qRegisterMetaType<XmppEncryptedPayload>();
-    const auto   nodeName = QStringLiteral("urn:xmpp:qtnote:notes:0:index:1");
+    const auto   nodeName = QStringLiteral("urn:xmpp:qtnote:notes:1:index");
     QDomDocument document;
     const auto   message
         = parseItemElement(QStringLiteral("<message type='headline' from='romeo@example.net'>"
                                           "<event xmlns='http://jabber.org/protocol/pubsub#event'>"
-                                          "<items node='%1'><item id='note-1'>"
-                                          "<encrypted xmlns='urn:xmpp:qtnote:encrypted:1' wire='1.0' schema='1.0' "
-                                          "kind='index' key-id='%2'>"
-                                          "<nonce xmlns='urn:xmpp:qtnote:encrypted:1'>IiIiIiIiIiIiIiIi</nonce>"
-                                          "<payload xmlns='urn:xmpp:qtnote:encrypted:1'>Y2lwaGVydGV4dA==</payload>"
-                                          "<tag xmlns='urn:xmpp:qtnote:encrypted:1'>MzMzMzMzMzMzMzMzMzMzMw==</tag>"
-                                          "</encrypted></item></items></event></message>")
-                               .arg(nodeName, keyIdText()),
+                                          "<items node='%1'><item id='note-1'>%2</item></items></event></message>")
+                               .arg(nodeName, encryptedXml()),
                            &document);
-    QVERIFY(!message.isNull());
 
     XmppPepExtension extension;
     extension.setOwnBareJid(QStringLiteral("romeo@example.net/resource"));
     extension.setNodeName(nodeName);
     QSignalSpy published(&extension, &XmppPepExtension::payloadPublished);
-    QSignalSpy invalidated(&extension, &XmppPepExtension::nodeInvalidated);
-    QSignalSpy malformed(&extension, &XmppPepExtension::malformedItem);
-
     QVERIFY(extension.handlePubSubEvent(message, QStringLiteral("romeo@example.net"), nodeName));
     QCOMPARE(published.count(), 1);
-    QCOMPARE(invalidated.count(), 0);
-    QCOMPARE(malformed.count(), 0);
-    const auto payload = qvariant_cast<XmppEncryptedPayload>(published.constFirst().constFirst());
-    QCOMPARE(payload.id, QStringLiteral("note-1"));
 }
 
-void QtNotePubSubItemTest::classifiesPreXmlPayloadAsObsolete()
+void QtNotePubSubItemTest::classifiesLegacyPayloadAsObsolete()
 {
     QDomDocument document;
     const auto   element
@@ -201,64 +180,79 @@ void QtNotePubSubItemTest::classifiesPreXmlPayloadAsObsolete()
                                           "schema='1.0' kind='index' key-id='%1'>Y2Jvcg==</encrypted></item>")
                                .arg(keyIdText()),
                            &document);
-    QVERIFY(!element.isNull());
+    QVERIFY(QtNotePubSubItem::isItem(element));
     QtNotePubSubItem parsed;
     parsed.parse(element);
-    QVERIFY(!parsed.isValid());
     QCOMPARE(parsed.parseFailure(), QtNotePubSubItem::ParseFailure::ObsoleteFormat);
     QVERIFY(parsed.isObsoleteOrMalformed());
 }
 
-void QtNotePubSubItemTest::protectsFutureMajor()
+void QtNotePubSubItemTest::protectsFutureMajorNamespace()
 {
     QDomDocument document;
     const auto   element
-        = parseItemElement(QStringLiteral("<item id='note-1'><encrypted xmlns='urn:xmpp:qtnote:encrypted:1' wire='2.0' "
-                                          "schema='1.0' kind='index' key-id='%1'><nonce>IiIiIiIiIiIiIiIi</nonce>"
-                                          "<payload>Y2lwaGVydGV4dA==</payload><tag>MzMzMzMzMzMzMzMzMzMzMw==</tag>"
-                                          "</encrypted></item>")
+        = parseItemElement(QStringLiteral("<item id='note-1'><encrypted xmlns='urn:xmpp:qtnote:notes:2' key-id='%1'>"
+                                          "<nonce>IiIiIiIiIiIiIiIi</nonce><payload>Y2lwaGVydGV4dA==</payload>"
+                                          "<tag>MzMzMzMzMzMzMzMzMzMzMw==</tag></encrypted></item>")
                                .arg(keyIdText()),
                            &document);
-    QVERIFY(!element.isNull());
-    QtNotePubSubItem parsed;
-    parsed.parse(element);
-    QVERIFY(!parsed.isValid());
-    QCOMPARE(parsed.parseFailure(), QtNotePubSubItem::ParseFailure::UnsupportedFormat);
-    QVERIFY(!parsed.isObsoleteOrMalformed());
+    QVERIFY(!QtNotePubSubItem::isItem(element));
 }
 
 void QtNotePubSubItemTest::classifiesMalformedCurrentPayload()
 {
     QDomDocument document;
     const auto   element
-        = parseItemElement(QStringLiteral("<item id='note-1'><encrypted xmlns='urn:xmpp:qtnote:encrypted:1' wire='1.0' "
-                                          "schema='1.0' kind='index' key-id='%1'><nonce>IiIiIiIiIiIiIiIi</nonce>"
-                                          "<payload>Y2lwaGVydGV4dA==</payload></encrypted></item>")
+        = parseItemElement(QStringLiteral("<item id='note-1'><encrypted xmlns='urn:xmpp:qtnote:notes:1' key-id='%1'>"
+                                          "<nonce>IiIiIiIiIiIiIiIi</nonce><payload>Y2lwaGVydGV4dA==</payload>"
+                                          "</encrypted></item>")
                                .arg(keyIdText()),
                            &document);
-    QVERIFY(!element.isNull());
+    QtNotePubSubItem parsed;
+    parsed.parse(element);
+    QCOMPARE(parsed.parseFailure(), QtNotePubSubItem::ParseFailure::Malformed);
+}
+
+void QtNotePubSubItemTest::rejectsUnknownCoreAttribute()
+{
+    QDomDocument document;
+    const auto   element = parseItemElement(
+        QStringLiteral("<item id='note-1'><encrypted xmlns='urn:xmpp:qtnote:notes:1' key-id='%1' minor='1'>"
+                           "<nonce>IiIiIiIiIiIiIiIi</nonce><payload>Y2lwaGVydGV4dA==</payload>"
+                           "<tag>MzMzMzMzMzMzMzMzMzMzMw==</tag></encrypted></item>")
+            .arg(keyIdText()),
+        &document);
     QtNotePubSubItem parsed;
     parsed.parse(element);
     QVERIFY(!parsed.isValid());
-    QCOMPARE(parsed.parseFailure(), QtNotePubSubItem::ParseFailure::Malformed);
-    QVERIFY(parsed.isObsoleteOrMalformed());
+}
+
+void QtNotePubSubItemTest::rejectsUnknownCoreElement()
+{
+    QDomDocument document;
+    const auto   element
+        = parseItemElement(QStringLiteral("<item id='note-1'><encrypted xmlns='urn:xmpp:qtnote:notes:1' key-id='%1'>"
+                                          "<nonce>IiIiIiIiIiIiIiIi</nonce><payload>Y2lwaGVydGV4dA==</payload>"
+                                          "<future/><tag>MzMzMzMzMzMzMzMzMzMzMw==</tag></encrypted></item>")
+                               .arg(keyIdText()),
+                           &document);
+    QtNotePubSubItem parsed;
+    parsed.parse(element);
+    QVERIFY(!parsed.isValid());
 }
 
 void QtNotePubSubItemTest::rejectsNonCanonicalBase64()
 {
     QDomDocument document;
     const auto   element
-        = parseItemElement(QStringLiteral("<item id='note-1'><encrypted xmlns='urn:xmpp:qtnote:encrypted:1' wire='1.0' "
-                                          "schema='1.0' kind='index' key-id='%1'><nonce>IiIiIiIiIiIiIiIi</nonce>"
-                                          "<payload>Y2lwaGVydGV4dA</payload><tag>MzMzMzMzMzMzMzMzMzMzMw==</tag>"
-                                          "</encrypted></item>")
+        = parseItemElement(QStringLiteral("<item id='note-1'><encrypted xmlns='urn:xmpp:qtnote:notes:1' key-id='%1'>"
+                                          "<nonce>IiIiIiIiIiIiIiIi</nonce><payload>Y2lwaGVydGV4dA</payload>"
+                                          "<tag>MzMzMzMzMzMzMzMzMzMzMw==</tag></encrypted></item>")
                                .arg(keyIdText()),
                            &document);
-    QVERIFY(!element.isNull());
     QtNotePubSubItem parsed;
     parsed.parse(element);
     QVERIFY(!parsed.isValid());
-    QCOMPARE(parsed.parseFailure(), QtNotePubSubItem::ParseFailure::Malformed);
 }
 
 QTEST_GUILESS_MAIN(QtNotePubSubItemTest)

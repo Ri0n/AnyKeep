@@ -81,12 +81,18 @@ Open QtNote's plugin settings and configure **XMPP Private Notes**:
 4. create/import a storage key, or obtain it from another trusted QtNote device;
 5. apply the configuration and inspect the OMEMO device list.
 
-The default base node is `urn:xmpp:qtnote:notes:0`. It expands to:
+The default base node is `urn:xmpp:qtnote:notes:1`; the final `1` is the
+incompatible protocol major version. It expands to:
 
-- `urn:xmpp:qtnote:notes:0:index:1` — encrypted title, tags, timestamp, format,
+- `urn:xmpp:qtnote:notes:1:index` — encrypted title, tags, timestamp, format,
   revision, parent revision, and origin;
-- `urn:xmpp:qtnote:notes:0:content:1` — encrypted note body bound to the same
+- `urn:xmpp:qtnote:notes:1:content` — encrypted note body bound to the same
   note ID and revision.
+
+The same namespace is used by the outer encrypted element and authenticated
+plaintext. There are no separate `wire`, `schema`, or minor-version fields. Compatible optional
+extensions use their own XML namespaces; incompatible changes use a new major
+namespace and new nodes.
 
 Both nodes must be persistent, payload-delivering, and allowlist-only. The
 plugin refuses to use a server that does not advertise a PEP identity and
@@ -140,7 +146,7 @@ graph TD;
 | `XmppWorker` | current QXmpp implementation; connection, PEP, PubSub, OMEMO, and QCoro flows |
 | `XmppPepExtension` | incoming PubSub event filtering and conversion to backend signals |
 | `XmppKeySyncExtension` | `urn:xmpp:qtnote:key-sync:1` IQ parsing, request tracking, and replies |
-| `XmppNoteCodec` | encryption/decryption and binding index/content to node, item ID, kind, and schema |
+| `XmppNoteCodec` | encryption/decryption and binding index/content records to the PubSub node and item ID |
 | `XmppOmemoStorage` | encrypted persistence of local OMEMO identity, sessions, and pre-keys |
 | `XmppPersistentTrustStorage` | persistent OMEMO trust decisions |
 | `XmppKeyResolutionController` | UI-neutral device trust, key audit, canonical-key choice, and recovery state |
@@ -378,7 +384,7 @@ non-empty mismatching identity is not overwritten automatically.
 ## Encryption and privacy boundary
 
 QtNote uses AES-256-GCM application-level envelopes. Associated data binds an
-envelope to its key domain, node, item ID, schema, and payload kind. The index
+envelope to its key domain, PubSub node, and item ID. The index
 and content payloads additionally cross-check note ID and revision.
 
 The server can still observe:

@@ -1522,10 +1522,9 @@ QCoro::Task<XmppCleanupResult> XmppWorker::scanNodeForObsoleteItemsTask(QString 
             bool obsolete = false;
             if (!item.isValid()) {
                 obsolete = item.isObsoleteOrMalformed();
-            } else if (item.payload().kind != expectedKind) {
-                ++output.protectedUnreadableItems;
             } else {
-                const auto decodeError = XmppNoteCodec::validatePayload(item.payload(), config_.masterKey, nodeName);
+                const auto decodeError
+                    = XmppNoteCodec::validatePayload(item.payload(), expectedKind, config_.masterKey, nodeName);
                 if (!decodeError)
                     ++output.validItems;
                 else if (decodeError.code == CryptoError::Corrupt)
@@ -1610,9 +1609,10 @@ QCoro::Task<XmppCleanupResult> XmppWorker::deleteObsoleteItemsTask(QStringList i
 
         const auto &item      = std::get<QtNotePubSubItem>(current);
         bool        removable = !item.isValid() && item.isObsoleteOrMalformed();
-        if (item.isValid() && item.payload().kind == candidate.kind) {
-            const auto decodeError = XmppNoteCodec::validatePayload(item.payload(), config_.masterKey, candidate.node);
-            removable              = decodeError.code == CryptoError::Corrupt;
+        if (item.isValid()) {
+            const auto decodeError
+                = XmppNoteCodec::validatePayload(item.payload(), candidate.kind, config_.masterKey, candidate.node);
+            removable = decodeError.code == CryptoError::Corrupt;
         }
         if (!removable) {
             ++output.protectedUnreadableItems;

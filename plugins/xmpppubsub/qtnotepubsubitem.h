@@ -18,6 +18,7 @@ public:
     enum class ParseFailure { None, ObsoleteFormat, UnsupportedFormat, Malformed };
 
     static const QString payloadNamespace;
+    static const QString legacyPayloadNamespace; ///< Accepted only for explicit maintenance cleanup.
 
     QtNotePubSubItem() = default;
     explicit QtNotePubSubItem(const XmppEncryptedPayload &payload);

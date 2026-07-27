@@ -53,7 +53,7 @@ XmppSettingsController::XmppSettingsController(XmppStorage *storage, const XmppC
     node.key         = QStringLiteral("nodeName");
     node.label       = tr("PEP node");
     node.value       = config.nodeName;
-    node.placeholder = QStringLiteral("urn:xmpp:qtnote:notes:0");
+    node.placeholder = QStringLiteral("urn:xmpp:qtnote:notes:1");
     fields.append(node);
 
     Field timeout;

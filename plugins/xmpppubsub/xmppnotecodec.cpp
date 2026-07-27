@@ -6,13 +6,11 @@
 #include <QSet>
 
 #include <algorithm>
-#include <limits>
 #include <utility>
 
 namespace QtNote {
 
-const QString XmppNoteCodec::storageNamespace = QStringLiteral("urn:xmpp:qtnote:storage:1");
-const QString XmppNoteCodec::noteNamespace    = QStringLiteral("urn:xmpp:qtnote:note:1");
+const QString XmppNoteCodec::protocolNamespace = QStringLiteral("urn:xmpp:qtnote:notes:1");
 
 namespace {
     constexpr int MaxXmlDepth      = 32;
@@ -20,12 +18,10 @@ namespace {
     constexpr int MaxXmlAttributes = 256;
 
     struct XmlRecordDocument {
-        QDomDocument      document;
-        QDomElement       root;
-        QDomElement       content;
-        QDomElement       record;
-        XmppFormatVersion wireVersion;
-        XmppFormatVersion schemaVersion;
+        QDomDocument document;
+        QDomElement  root;
+        QDomElement  content;
+        QDomElement  record;
     };
 
     CryptoError cryptoError(CryptoError::Code code, const QString &message) { return { code, message }; }
@@ -36,27 +32,6 @@ namespace {
     {
         const auto local = element.localName();
         return local.isEmpty() ? element.tagName().section(QLatin1Char(':'), -1) : local;
-    }
-
-    QString versionString(const XmppFormatVersion &version)
-    {
-        return QStringLiteral("%1.%2").arg(version.major).arg(version.minor);
-    }
-
-    CryptoResult<XmppFormatVersion> parseVersion(const QString &text, const QString &name)
-    {
-        const auto parts = text.split(QLatin1Char('.'));
-        if (parts.size() != 2 || parts.at(0).isEmpty() || parts.at(1).isEmpty())
-            return { {}, corrupt(QStringLiteral("Invalid %1 version").arg(name)) };
-        bool       majorOk = false;
-        bool       minorOk = false;
-        const auto major   = parts.at(0).toUInt(&majorOk);
-        const auto minor   = parts.at(1).toUInt(&minorOk);
-        if (!majorOk || !minorOk || major > std::numeric_limits<quint16>::max()
-            || minor > std::numeric_limits<quint16>::max()) {
-            return { {}, corrupt(QStringLiteral("Invalid %1 version").arg(name)) };
-        }
-        return { { quint16(major), quint16(minor) }, {} };
     }
 
     QList<QDomElement> directChildren(const QDomElement &parent, const QString &nameSpace, const QString &name)
@@ -85,6 +60,47 @@ namespace {
                 ++count;
         }
         return count;
+    }
+
+    CryptoError validateAttributes(const QDomElement &element, const QSet<QString> &allowedCore, const QString &context,
+                                   bool allowForeign = true)
+    {
+        const auto attributes = element.attributes();
+        for (int i = 0; i < attributes.count(); ++i) {
+            const auto attribute = attributes.item(i);
+            if (isNamespaceDeclaration(attribute))
+                continue;
+            const auto nameSpace = attribute.namespaceURI();
+            if (nameSpace.isEmpty()) {
+                if (!allowedCore.contains(attribute.nodeName()))
+                    return corrupt(QStringLiteral("Unknown core attribute in %1").arg(context));
+            } else if (nameSpace == XmppNoteCodec::protocolNamespace || !allowForeign) {
+                return corrupt(QStringLiteral("Unsupported attribute namespace in %1").arg(context));
+            }
+        }
+        return {};
+    }
+
+    CryptoError validateChildren(const QDomElement &element, const QSet<QString> &allowedCore, const QString &context)
+    {
+        for (auto node = element.firstChild(); !node.isNull(); node = node.nextSibling()) {
+            const auto child = node.toElement();
+            if (child.isNull())
+                continue;
+            const auto nameSpace = child.namespaceURI();
+            if (nameSpace.isEmpty())
+                return corrupt(QStringLiteral("Unnamespaced child element in %1").arg(context));
+            if (nameSpace == XmppNoteCodec::protocolNamespace && !allowedCore.contains(localName(child)))
+                return corrupt(QStringLiteral("Unknown core element in %1").arg(context));
+        }
+        return {};
+    }
+
+    CryptoError validateLeaf(const QDomElement &element, const QString &context)
+    {
+        if (const auto error = validateAttributes(element, {}, context, false); error)
+            return error;
+        return {};
     }
 
     bool hasNonWhitespaceDirectText(const QDomElement &element)
@@ -181,7 +197,7 @@ namespace {
 
     CryptoError validateRequiredExtensions(const QDomElement &root)
     {
-        const auto    required = directChildren(root, XmppNoteCodec::storageNamespace, QStringLiteral("required"));
+        const auto    required = directChildren(root, XmppNoteCodec::protocolNamespace, QStringLiteral("required"));
         QSet<QString> features;
         for (const auto &element : required) {
             const auto feature = element.attribute(QStringLiteral("feature"));
@@ -206,44 +222,42 @@ namespace {
         XmlRecordDocument result;
         result.document = std::move(document);
         result.root     = result.document.documentElement();
-        if (result.root.isNull() || result.root.namespaceURI() != XmppNoteCodec::storageNamespace
+        if (result.root.isNull() || result.root.namespaceURI() != XmppNoteCodec::protocolNamespace
             || localName(result.root) != QStringLiteral("envelope")) {
             return { {}, corrupt(QStringLiteral("Invalid encrypted QtNote XML envelope")) };
         }
-        auto wire = parseVersion(result.root.attribute(QStringLiteral("wire")), QStringLiteral("wire"));
-        if (!wire)
-            return { {}, wire.error };
-        auto schema = parseVersion(result.root.attribute(QStringLiteral("schema")), QStringLiteral("schema"));
-        if (!schema)
-            return { {}, schema.error };
-        if (wire.value.major != XmppNoteCodec::WireMajor)
-            return { {},
-                     unsupported(
-                         QStringLiteral("Unsupported encrypted QtNote wire major version %1").arg(wire.value.major)) };
-        if (schema.value.major != XmppNoteCodec::SchemaMajor)
-            return {
-                {},
-                unsupported(
-                    QStringLiteral("Unsupported encrypted QtNote schema major version %1").arg(schema.value.major))
-            };
-        result.wireVersion   = wire.value;
-        result.schemaVersion = schema.value;
 
+        if (const auto error = validateAttributes(result.root, {}, QStringLiteral("encrypted QtNote envelope")); error)
+            return { {}, error };
+        if (const auto error = validateChildren(
+                result.root, { QStringLiteral("node"), QStringLiteral("required"), QStringLiteral("content") },
+                QStringLiteral("encrypted QtNote envelope"));
+            error)
+            return { {}, error };
         if (const auto error = validateRequiredExtensions(result.root); error)
             return { {}, error };
         if (hasNonWhitespaceDirectText(result.root))
             return { {}, corrupt(QStringLiteral("Unexpected text in encrypted QtNote XML envelope")) };
 
-        const auto contents = directChildren(result.root, XmppNoteCodec::storageNamespace, QStringLiteral("content"));
+        const auto contents = directChildren(result.root, XmppNoteCodec::protocolNamespace, QStringLiteral("content"));
         if (contents.size() != 1)
             return { {}, corrupt(QStringLiteral("Encrypted QtNote envelope must contain one content element")) };
         result.content = contents.constFirst();
+        if (const auto error = validateAttributes(result.content, {}, QStringLiteral("encrypted QtNote content"));
+            error)
+            return { {}, error };
+        if (const auto error = validateChildren(result.content, { QStringLiteral("index"), QStringLiteral("note") },
+                                                QStringLiteral("encrypted QtNote content"));
+            error)
+            return { {}, error };
         if (hasNonWhitespaceDirectText(result.content))
             return { {}, corrupt(QStringLiteral("Unexpected text in encrypted QtNote content container")) };
 
-        const auto indexRecords = directChildren(result.content, XmppNoteCodec::noteNamespace, QStringLiteral("index"));
-        const auto noteRecords  = directChildren(result.content, XmppNoteCodec::noteNamespace, QStringLiteral("note"));
-        const auto &records     = kind == XmppEncryptedPayload::Index ? indexRecords : noteRecords;
+        const auto indexRecords
+            = directChildren(result.content, XmppNoteCodec::protocolNamespace, QStringLiteral("index"));
+        const auto noteRecords
+            = directChildren(result.content, XmppNoteCodec::protocolNamespace, QStringLiteral("note"));
+        const auto &records = kind == XmppEncryptedPayload::Index ? indexRecords : noteRecords;
         if (records.size() != 1 || indexRecords.size() + noteRecords.size() != 1) {
             return {
                 {},
@@ -254,9 +268,12 @@ namespace {
         result.record = records.constFirst();
 
         if (requireNode) {
-            const auto nodes = directChildren(result.root, XmppNoteCodec::storageNamespace, QStringLiteral("node"));
+            const auto nodes = directChildren(result.root, XmppNoteCodec::protocolNamespace, QStringLiteral("node"));
             if (nodes.size() != 1)
                 return { {}, corrupt(QStringLiteral("Encrypted QtNote envelope must contain one node binding")) };
+            if (const auto error = validateLeaf(nodes.constFirst(), QStringLiteral("encrypted QtNote node binding"));
+                error)
+                return { {}, error };
             const auto text = simpleText(nodes.constFirst(), QStringLiteral("node"));
             if (!text)
                 return { {}, text.error };
@@ -283,15 +300,11 @@ namespace {
     {
         if (recordTemplate.isEmpty()) {
             QDomDocument document;
-            auto         root = document.createElementNS(XmppNoteCodec::storageNamespace, QStringLiteral("envelope"));
-            root.setAttribute(QStringLiteral("wire"),
-                              versionString({ XmppNoteCodec::WireMajor, XmppNoteCodec::WireMinor }));
-            root.setAttribute(QStringLiteral("schema"),
-                              versionString({ XmppNoteCodec::SchemaMajor, XmppNoteCodec::SchemaMinor }));
+            auto         root = document.createElementNS(XmppNoteCodec::protocolNamespace, QStringLiteral("envelope"));
             document.appendChild(root);
-            auto content = document.createElementNS(XmppNoteCodec::storageNamespace, QStringLiteral("content"));
+            auto content = document.createElementNS(XmppNoteCodec::protocolNamespace, QStringLiteral("content"));
             root.appendChild(content);
-            content.appendChild(document.createElementNS(XmppNoteCodec::noteNamespace, recordName(kind)));
+            content.appendChild(document.createElementNS(XmppNoteCodec::protocolNamespace, recordName(kind)));
             return locateRecord(document, kind, false);
         }
         auto parsed = parseXml(recordTemplate, QStringLiteral("preserved QtNote record"));
@@ -306,21 +319,21 @@ namespace {
         auto         root = document.importNode(opened.root, true).toElement();
         document.appendChild(root);
 
-        removeDirectChildren(root, XmppNoteCodec::storageNamespace, QStringLiteral("node"));
-        auto content = directChildren(root, XmppNoteCodec::storageNamespace, QStringLiteral("content")).constFirst();
-        auto record  = directChildren(content, XmppNoteCodec::noteNamespace, recordName(kind)).constFirst();
+        removeDirectChildren(root, XmppNoteCodec::protocolNamespace, QStringLiteral("node"));
+        auto content = directChildren(root, XmppNoteCodec::protocolNamespace, QStringLiteral("content")).constFirst();
+        auto record  = directChildren(content, XmppNoteCodec::protocolNamespace, recordName(kind)).constFirst();
         if (kind == XmppEncryptedPayload::Index) {
             for (const auto &name :
                  { QStringLiteral("id"), QStringLiteral("revision"), QStringLiteral("parent-revision"),
                    QStringLiteral("origin-id"), QStringLiteral("modified"), QStringLiteral("format") }) {
                 record.removeAttribute(name);
             }
-            removeDirectChildren(record, XmppNoteCodec::noteNamespace, QStringLiteral("title"));
-            removeDirectChildren(record, XmppNoteCodec::noteNamespace, QStringLiteral("tag"));
+            removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("title"));
+            removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"));
         } else {
             record.removeAttribute(QStringLiteral("id"));
             record.removeAttribute(QStringLiteral("revision"));
-            removeDirectChildren(record, XmppNoteCodec::noteNamespace, QStringLiteral("body"));
+            removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("body"));
         }
         return serializeXml(document);
     }
@@ -330,7 +343,6 @@ namespace {
     {
         XmppEncryptedPayload payload;
         payload.id    = note.id;
-        payload.kind  = kind;
         payload.keyId = SecureEnvelope::keyId(masterKey);
         if (payload.id.isEmpty() || payload.keyId.isEmpty() || nodeName.isEmpty())
             return { {}, cryptoError(CryptoError::InvalidArgument, QStringLiteral("Missing note ID, node or key")) };
@@ -340,19 +352,15 @@ namespace {
         auto xml = templateDocument(recordTemplate, kind);
         if (!xml)
             return { {}, xml.error };
-        payload.wireVersion   = xml.value.wireVersion;
-        payload.schemaVersion = xml.value.schemaVersion;
 
         auto &document = xml.value.document;
         auto  root     = xml.value.root;
         auto  content  = xml.value.content;
         auto  record   = xml.value.record;
 
-        root.setAttribute(QStringLiteral("wire"), versionString(payload.wireVersion));
-        root.setAttribute(QStringLiteral("schema"), versionString(payload.schemaVersion));
-        removeDirectChildren(root, XmppNoteCodec::storageNamespace, QStringLiteral("node"));
+        removeDirectChildren(root, XmppNoteCodec::protocolNamespace, QStringLiteral("node"));
         auto nodeElement
-            = createTextElement(document, XmppNoteCodec::storageNamespace, QStringLiteral("node"), nodeName);
+            = createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("node"), nodeName);
         root.insertBefore(nodeElement, root.firstChild());
 
         if (kind == XmppEncryptedPayload::Index) {
@@ -370,23 +378,24 @@ namespace {
                 record.setAttribute(QStringLiteral("origin-id"), note.originId);
             record.setAttribute(QStringLiteral("modified"), note.modified.toUTC().toString(Qt::ISODateWithMs));
             record.setAttribute(QStringLiteral("format"), QStringLiteral("markdown"));
-            removeDirectChildren(record, XmppNoteCodec::noteNamespace, QStringLiteral("title"));
-            removeDirectChildren(record, XmppNoteCodec::noteNamespace, QStringLiteral("tag"));
+            removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("title"));
+            removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"));
             const auto anchor = record.firstChild();
             record.insertBefore(
-                createTextElement(document, XmppNoteCodec::noteNamespace, QStringLiteral("title"), note.title), anchor);
+                createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("title"), note.title),
+                anchor);
             for (const auto &tag : note.tags) {
                 record.insertBefore(
-                    createTextElement(document, XmppNoteCodec::noteNamespace, QStringLiteral("tag"), tag), anchor);
+                    createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"), tag), anchor);
             }
         } else {
             if (note.revision.isEmpty())
                 return { {}, cryptoError(CryptoError::InvalidArgument, QStringLiteral("Invalid XMPP note content")) };
             record.setAttribute(QStringLiteral("id"), note.id);
             record.setAttribute(QStringLiteral("revision"), note.revision);
-            removeDirectChildren(record, XmppNoteCodec::noteNamespace, QStringLiteral("body"));
+            removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("body"));
             record.insertBefore(
-                createTextElement(document, XmppNoteCodec::noteNamespace, QStringLiteral("body"), note.content),
+                createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("body"), note.content),
                 record.firstChild());
         }
 
@@ -409,20 +418,8 @@ namespace {
                                                 XmppEncryptedPayload::Kind expected, const QByteArray &masterKey,
                                                 const QString &nodeName)
     {
-        if (payload.kind != expected)
-            return { {}, corrupt(QStringLiteral("Encrypted QtNote payload kind mismatch")) };
         if (payload.id.isEmpty() || nodeName.isEmpty())
             return { {}, cryptoError(CryptoError::InvalidArgument, QStringLiteral("Missing note ID or node name")) };
-        if (payload.wireVersion.major != XmppNoteCodec::WireMajor)
-            return {
-                {},
-                unsupported(
-                    QStringLiteral("Unsupported encrypted QtNote wire major version %1").arg(payload.wireVersion.major))
-            };
-        if (payload.schemaVersion.major != XmppNoteCodec::SchemaMajor)
-            return { {},
-                     unsupported(QStringLiteral("Unsupported encrypted QtNote schema major version %1")
-                                     .arg(payload.schemaVersion.major)) };
         const auto expectedKeyId = SecureEnvelope::keyId(masterKey);
         if (payload.keyId != expectedKeyId) {
             return { {},
@@ -432,7 +429,7 @@ namespace {
                                           QString::fromLatin1(expectedKeyId.left(8).toHex()))) };
         }
         AeadCiphertext encrypted { payload.nonce, payload.tag, payload.cipherText };
-        const auto     opened = SecureEnvelope::decryptAead(encrypted, masterKey, domainFor(payload.kind));
+        const auto     opened = SecureEnvelope::decryptAead(encrypted, masterKey, domainFor(expected));
         if (!opened)
             return { {}, opened.error };
         auto parsed = parseXml(opened.value, QStringLiteral("authenticated plaintext"));
@@ -441,16 +438,7 @@ namespace {
         auto xml = locateRecord(parsed.value, expected, true);
         if (!xml)
             return { {}, xml.error };
-        if (!(xml.value.wireVersion == payload.wireVersion))
-            return { {},
-                     cryptoError(CryptoError::AuthenticationFailed,
-                                 QStringLiteral("Encrypted QtNote authenticated wire version mismatch")) };
-        if (!(xml.value.schemaVersion == payload.schemaVersion))
-            return { {},
-                     cryptoError(CryptoError::AuthenticationFailed,
-                                 QStringLiteral("Encrypted QtNote schema version mismatch")) };
-
-        const auto nodes     = directChildren(xml.value.root, XmppNoteCodec::storageNamespace, QStringLiteral("node"));
+        const auto nodes     = directChildren(xml.value.root, XmppNoteCodec::protocolNamespace, QStringLiteral("node"));
         const auto boundNode = simpleText(nodes.constFirst(), QStringLiteral("node"));
         if (!boundNode)
             return { {}, boundNode.error };
@@ -477,6 +465,17 @@ namespace {
                                     XmppRemoteNote *note)
     {
         const auto &record = opened.record;
+        if (const auto error
+            = validateAttributes(record,
+                                 { QStringLiteral("id"), QStringLiteral("revision"), QStringLiteral("parent-revision"),
+                                   QStringLiteral("origin-id"), QStringLiteral("modified"), QStringLiteral("format") },
+                                 QStringLiteral("encrypted QtNote index record"));
+            error)
+            return error;
+        if (const auto error = validateChildren(record, { QStringLiteral("title"), QStringLiteral("tag") },
+                                                QStringLiteral("encrypted QtNote index record"));
+            error)
+            return error;
         if (hasNonWhitespaceDirectText(record))
             return corrupt(QStringLiteral("Unexpected text in encrypted QtNote index record"));
         const auto id       = record.attribute(QStringLiteral("id"));
@@ -499,9 +498,11 @@ namespace {
         if (!modified)
             return modified.error;
 
-        const auto titles = directChildren(record, XmppNoteCodec::noteNamespace, QStringLiteral("title"));
+        const auto titles = directChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("title"));
         if (titles.size() != 1)
             return corrupt(QStringLiteral("Encrypted QtNote index must contain one title"));
+        if (const auto error = validateLeaf(titles.constFirst(), QStringLiteral("encrypted QtNote title")); error)
+            return error;
         const auto title = simpleText(titles.constFirst(), QStringLiteral("title"));
         if (!title)
             return title.error;
@@ -514,7 +515,9 @@ namespace {
         decoded.title          = title.value;
         decoded.modified       = modified.value;
         decoded.format         = QStringLiteral("markdown");
-        for (const auto &tagElement : directChildren(record, XmppNoteCodec::noteNamespace, QStringLiteral("tag"))) {
+        for (const auto &tagElement : directChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"))) {
+            if (const auto error = validateLeaf(tagElement, QStringLiteral("encrypted QtNote tag")); error)
+                return error;
             const auto tag = simpleText(tagElement, QStringLiteral("tag"));
             if (!tag)
                 return tag.error;
@@ -531,6 +534,14 @@ namespace {
                                       QString *revision, QString *content)
     {
         const auto &record = opened.record;
+        if (const auto error = validateAttributes(record, { QStringLiteral("id"), QStringLiteral("revision") },
+                                                  QStringLiteral("encrypted QtNote content record"));
+            error)
+            return error;
+        if (const auto error
+            = validateChildren(record, { QStringLiteral("body") }, QStringLiteral("encrypted QtNote content record"));
+            error)
+            return error;
         if (hasNonWhitespaceDirectText(record))
             return corrupt(QStringLiteral("Unexpected text in encrypted QtNote content record"));
         const auto id             = record.attribute(QStringLiteral("id"));
@@ -540,9 +551,11 @@ namespace {
         if (id != payload.id)
             return cryptoError(CryptoError::AuthenticationFailed,
                                QStringLiteral("Encrypted QtNote item binding mismatch"));
-        const auto bodies = directChildren(record, XmppNoteCodec::noteNamespace, QStringLiteral("body"));
+        const auto bodies = directChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("body"));
         if (bodies.size() != 1)
             return corrupt(QStringLiteral("Encrypted QtNote content must contain one body"));
+        if (const auto error = validateLeaf(bodies.constFirst(), QStringLiteral("encrypted QtNote body")); error)
+            return error;
         const auto body = simpleText(bodies.constFirst(), QStringLiteral("body"));
         if (!body)
             return body.error;
@@ -598,13 +611,13 @@ CryptoResult<XmppRemoteNote> XmppNoteCodec::decodeContent(const XmppEncryptedPay
     return { note, {} };
 }
 
-CryptoError XmppNoteCodec::validatePayload(const XmppEncryptedPayload &payload, const QByteArray &masterKey,
-                                           const QString &nodeName)
+CryptoError XmppNoteCodec::validatePayload(const XmppEncryptedPayload &payload, XmppEncryptedPayload::Kind expectedKind,
+                                           const QByteArray &masterKey, const QString &nodeName)
 {
-    auto opened = openPayload(payload, payload.kind, masterKey, nodeName);
+    auto opened = openPayload(payload, expectedKind, masterKey, nodeName);
     if (!opened)
         return opened.error;
-    if (payload.kind == XmppEncryptedPayload::Index)
+    if (expectedKind == XmppEncryptedPayload::Index)
         return validateIndexRecord(opened.value, payload, nullptr);
     return validateContentRecord(opened.value, payload, nullptr, nullptr);
 }

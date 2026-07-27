@@ -1,8 +1,8 @@
 # Private Encrypted Notes over XMPP
 
 Status: **ProtoXEP / implementation draft**
-Version: **0.4**
-Namespaces: `urn:xmpp:qtnote:encrypted:1`, `urn:xmpp:qtnote:key-sync:1`
+Version: **0.5**
+Namespaces: `urn:xmpp:qtnote:notes:1`, `urn:xmpp:qtnote:key-sync:1`
 
 > This document describes the protocol implemented by QtNote. It has not been
 > submitted to or accepted by the XMPP Standards Foundation and does not have
@@ -48,35 +48,37 @@ OMEMO device lists, bundles, sessions, and trust are not redefined here.
 
 ## Protocol identifiers
 
-The default base node is:
+The incompatible major version of the note-storage protocol is identified by
+one namespace:
 
 ```text
-urn:xmpp:qtnote:notes:0
+urn:xmpp:qtnote:notes:1
 ```
 
-An implementation derives two leaf nodes from the configured base node:
+The same identifier is the default configured base node and the XML namespace
+for all core note-storage elements. Two leaf nodes are derived from it:
 
 | Purpose | Node |
 | --- | --- |
-| Search/list metadata | `<base>:index:1` |
-| Note body | `<base>:content:1` |
+| Search/list metadata | `<base>:index` |
+| Note body | `<base>:content` |
 
 The default nodes are therefore:
 
 ```text
-urn:xmpp:qtnote:notes:0:index:1
-urn:xmpp:qtnote:notes:0:content:1
+urn:xmpp:qtnote:notes:1:index
+urn:xmpp:qtnote:notes:1:content
 ```
 
-Encrypted PubSub payloads use `urn:xmpp:qtnote:encrypted:1`. Direct key
-synchronization uses `urn:xmpp:qtnote:key-sync:1`.
+The final `1` in `urn:xmpp:qtnote:notes:1` is the protocol major version. An
+incompatible change requires a new namespace and new nodes, for example
+`urn:xmpp:qtnote:notes:2`, `urn:xmpp:qtnote:notes:2:index`, and
+`urn:xmpp:qtnote:notes:2:content`. No minor-version field is defined.
+Compatible additions use optional XML in separate namespaces or authenticated
+`required` feature declarations as described below.
 
-The zero in the base node identifies the note data model. The final one on
-each derived node and the final one in the encrypted namespace identify the
-incompatible major protocol family. Compatible minor revisions are carried in
-the payload itself. A change of major semantics requires a new node/namespace
-identifier; an implementation MUST NOT silently interpret another major as its
-own.
+Direct key synchronization is a separate protocol and uses
+`urn:xmpp:qtnote:key-sync:1`.
 
 ## Discovery and server requirements
 
@@ -99,7 +101,7 @@ The index node notification feature is advertised as the node followed by
 `+notify`, for example:
 
 ```xml
-<feature var='urn:xmpp:qtnote:notes:0:index:1+notify'/>
+<feature var='urn:xmpp:qtnote:notes:1:index+notify'/>
 ```
 
 ## PEP node configuration
@@ -113,7 +115,7 @@ Both nodes MUST be leaf nodes and MUST be configured with at least:
 | `pubsub#max_items` | `max`, or the largest safe server value |
 | `pubsub#deliver_payloads` | `true` |
 | `pubsub#notify_retract` | `true` |
-| `pubsub#type` | `urn:xmpp:qtnote:encrypted:1` |
+| `pubsub#type` | `urn:xmpp:qtnote:notes:1` |
 
 A client MUST verify the effective access model and persistence after creating
 or repairing a node. It MUST refuse to publish private note data if the node is
@@ -125,7 +127,7 @@ Example configuration form (irrelevant server-specific fields omitted):
 ```xml
 <iq type='set' id='configure-index' to='romeo@example.net'>
   <pubsub xmlns='http://jabber.org/protocol/pubsub#owner'>
-    <configure node='urn:xmpp:qtnote:notes:0:index:1'>
+    <configure node='urn:xmpp:qtnote:notes:1:index'>
       <x xmlns='jabber:x:data' type='submit'>
         <field var='FORM_TYPE' type='hidden'>
           <value>http://jabber.org/protocol/pubsub#node_config</value>
@@ -135,7 +137,7 @@ Example configuration form (irrelevant server-specific fields omitted):
         <field var='pubsub#deliver_payloads'><value>true</value></field>
         <field var='pubsub#notify_retract'><value>true</value></field>
         <field var='pubsub#type'>
-          <value>urn:xmpp:qtnote:encrypted:1</value>
+          <value>urn:xmpp:qtnote:notes:1</value>
         </field>
       </x>
     </configure>
@@ -145,14 +147,12 @@ Example configuration form (irrelevant server-specific fields omitted):
 
 ## Encrypted record syntax
 
-Each PubSub item contains exactly one `encrypted` element:
+Each PubSub item contains exactly one `encrypted` element in the protocol
+namespace:
 
 ```xml
 <item id='2b7e1516-28ae-4d2a-abf7-158809cf4f3c'>
-  <encrypted xmlns='urn:xmpp:qtnote:encrypted:1'
-             wire='1.0'
-             schema='1.0'
-             kind='index'
+  <encrypted xmlns='urn:xmpp:qtnote:notes:1'
              key-id='tTvC-q553JtqzHXstinSd2A0CDzSXK40wXTK5a0Cddk'>
     <nonce>AAECAwQFBgcICQoL</nonce>
     <payload>...BASE64-CIPHERTEXT...</payload>
@@ -161,49 +161,21 @@ Each PubSub item contains exactly one `encrypted` element:
 </item>
 ```
 
-The attributes and children have these meanings:
+The PubSub item `id` is the note ID and MUST be non-empty. `key-id` is
+canonical unpadded Base64url of the 32-byte storage-key identifier. `nonce` is
+canonical padded Base64 of exactly 12 bytes, `payload` is canonical padded
+Base64 of the non-empty AES-GCM ciphertext, and `tag` is canonical padded
+Base64 of exactly 16 bytes.
 
-- the PubSub item `id` is the note ID and MUST be non-empty;
-- `wire` is the `major.minor` version of the encryption/framing rules;
-- `schema` is the `major.minor` version of the authenticated note record;
-- `kind` MUST be `index` on the index node and `content` on the content node;
-- `key-id` is canonical unpadded Base64url of the 32-byte storage-key identifier;
-- `nonce` is canonical padded Base64 of exactly 12 bytes;
-- `payload` is canonical padded Base64 of the non-empty AES-GCM ciphertext;
-- `tag` is canonical padded Base64 of exactly 16 bytes.
+The actual PubSub node determines whether the item is an index or content
+record. No `kind`, `wire`, or `schema` attribute is carried. The namespace
+already identifies the incompatible major version, and the decrypted record
+type is verified against the node after authentication.
 
 Receivers MAY ignore XML whitespace within Base64 text, but padding characters
 and padding bits MUST be canonical. Unknown optional attributes or child
-elements on the outer `encrypted` element MAY be ignored. They are not
-authenticated and MUST NOT change decryption or record semantics.
-
-The outer versions and `kind` are routing hints, not trusted by themselves. The
-versions are repeated inside authenticated plaintext. The decrypted record type
-and node binding MUST agree with the outer node and `kind`.
-
-### Version compatibility
-
-Wire and schema versions are independent `major.minor` pairs:
-
-- a different major is incompatible and MUST NOT be interpreted or deleted as
-  malformed data;
-- a higher minor with the same major MUST be accepted when every unknown
-  addition is optional and safely ignorable;
-- an unknown feature named by an authenticated `required` element makes the
-  record unsupported;
-- changing the type or meaning of an existing field, making an optional field
-  required, or changing a default requires a new major;
-- adding an optional attribute, element, or namespaced extension with stable
-  absence semantics is a minor change.
-
-A client updating a record with a supported major MUST preserve unknown optional
-attributes and elements from the authenticated envelope, content container, and
-record. A client unable to preserve them MUST treat the record as read-only.
-QtNote stores a compact XML preservation template in its persistent remote
-cache. The template retains versions, required declarations, extensions, and
-unknown fields, but removes the node binding and known note IDs, revisions,
-titles, tags, bodies, and timestamps; those fields are reconstructed from the
-current note when it is written.
+elements on `encrypted` MUST use another namespace. They are not authenticated
+and MUST NOT affect key selection, decryption, or record semantics.
 
 ### XML processing and extensibility
 
@@ -213,29 +185,31 @@ sender is not required to reproduce another implementation's byte-for-byte XML
 serialization. XML canonicalization is deliberately not part of this protocol.
 
 Receivers MUST reject malformed XML, document type declarations, entity
-declarations, processing instructions, duplicate required-feature declarations,
-and structures exceeding implementation-appropriate depth, element, attribute,
-or total-size limits. The current QtNote implementation limits one plaintext or
-ciphertext field to 16 MiB, nesting to 32 levels, 8192 elements, and 256
-attributes per element.
+declarations, non-declaration processing instructions, duplicate required
+feature declarations, and structures exceeding implementation-appropriate
+limits. The current QtNote implementation limits one plaintext or ciphertext
+field to 16 MiB, nesting to 32 levels, 8192 elements, and 256 attributes per
+element.
 
-Optional extensions SHOULD use their own XML namespaces. An implementation
-MUST preserve unknown optional extension subtrees when rewriting a supported
-record. Extensions that are required for correct interpretation are declared in
-the authenticated envelope:
+Compatible additions MUST use their own XML namespaces. Unknown elements or
+unqualified attributes in the current core namespace are malformed. An
+implementation MUST preserve unknown optional authenticated foreign-namespace
+attributes and subtrees when rewriting a record. An extension required for correct interpretation is declared
+inside the authenticated envelope:
 
 ```xml
-<required xmlns='urn:xmpp:qtnote:storage:1'
+<required xmlns='urn:xmpp:qtnote:notes:1'
           feature='urn:example:qtnote:media:1'/>
 ```
 
 Feature identifiers SHOULD be URIs or URNs. An implementation that does not
-support a listed feature MUST NOT rewrite the record.
+support a listed feature MAY display safely understood core data, but MUST NOT
+rewrite the record. Changing the meaning or requiredness of an existing core
+field requires a new major namespace; no minor-version number is needed.
 
-The envelope/content arrangement and authenticated context elements follow the
-same general design principle as Stanza Content Encryption (XEP-0420), but this
-protocol is not an SCE profile. The decrypted record is persistent PubSub
-application data and is not reinserted into the surrounding IQ stanza.
+The envelope/content arrangement and authenticated context element follow the
+general design principle of Stanza Content Encryption (XEP-0420), but this is
+not an SCE profile: decrypted records remain PubSub application data.
 
 ### Storage key identifier
 
@@ -278,68 +252,48 @@ not part of the `info` parameter.
 
 ### AES-GCM framing
 
-Wire major 1 uses AES-256-GCM with an unpredictable 96-bit nonce and a 128-bit tag.
+Protocol major 1 uses AES-256-GCM with an unpredictable 96-bit nonce and a 128-bit tag.
 The AES-GCM additional authenticated data (AAD) is the empty byte string. APIs
 that return `ciphertext || tag` MUST split the final 16 bytes into `tag`; APIs
 that accept separate fields use the three values directly.
 
-The outer XML attributes and fields are not supplied as GCM AAD. Security-
-relevant versions and the PubSub node/item bindings are included in the
-encrypted XML and checked after successful GCM authentication.
+The outer XML attributes and fields are not supplied as GCM AAD. The PubSub
+node and item bindings are included in the encrypted XML and checked after
+successful GCM authentication.
 
 ### Authenticated XML envelope
 
-The AES-GCM plaintext has this structure:
+AES-GCM plaintext contains one envelope in the protocol namespace:
 
 ```xml
-<envelope xmlns='urn:xmpp:qtnote:storage:1'
-          xmlns:note='urn:xmpp:qtnote:note:1'
-          wire='1.0'
-          schema='1.0'>
-  <node>urn:xmpp:qtnote:notes:0:index:1</node>
-  <!-- zero or more required declarations and optional extension elements -->
+<envelope xmlns='urn:xmpp:qtnote:notes:1'>
+  <node>urn:xmpp:qtnote:notes:1:index</node>
   <content>
-    <note:index id='2b7e1516-28ae-4d2a-abf7-158809cf4f3c'
-                revision='018f0be0-df0d-7c70-a2ef-1f5c973ec92a'
-                origin-id='device-a'
-                modified='2026-07-27T18:00:00.123Z'
-                format='markdown'>
-      <note:title>Portable note</note:title>
-      <note:tag>one</note:tag>
-      <note:tag>two</note:tag>
-    </note:index>
+    <index id='2b7e1516-28ae-4d2a-abf7-158809cf4f3c'
+           revision='018f0be0-df0d-7c70-a2ef-1f5c973ec92a'
+           modified='2026-07-27T18:00:00.123Z'
+           format='markdown'>
+      <title>Portable note</title>
+      <tag>one</tag>
+      <tag>two</tag>
+    </index>
   </content>
 </envelope>
 ```
 
-After GCM authentication, a receiver MUST perform all of these checks:
-
-1. authenticated `wire` and `schema` equal the outer versions;
-2. `node` equals the actual complete PubSub node name;
-3. `content` contains exactly one core `index` or `note` record;
-4. the record type agrees with the outer `kind` and with the expected node;
-5. the record `id` equals the outer PubSub item ID;
-6. all required extensions are understood;
-7. all known attributes and elements have valid types and cardinalities.
-
-There is intentionally no separate authenticated copy of `kind`, item ID,
-key ID, or key domain. The record element identifies its kind, `record/@id`
-binds the item, successful GCM verification proves the selected key, and the
-actual index/content node selects the derivation domain. Only the complete node
-name needs a separate authenticated binding.
-
-Reference schemas for the current 1.0 structures are included as
-`qtnote-encrypted.xsd`, `qtnote-storage.xsd`, and `qtnote-note.xsd`. Higher
-minor versions and independent extension namespaces can legitimately contain
-additional XML not accepted by the 1.0 schemas; schema validation is therefore
-not a substitute for the compatibility rules above.
+The envelope MUST contain exactly one `node` and one `content`. `node` MUST
+equal the complete PubSub node from which the item was obtained. `content` MUST
+contain exactly one `index` on the index node or exactly one `note` on the
+content node. The record `id` MUST equal the outer PubSub item ID. These checks
+bind authenticated ciphertext to its node and item without duplicating record
+fields in a separate context object.
 
 ### Index record
 
 An index record is metadata used for listing and synchronization:
 
 ```xml
-<index xmlns='urn:xmpp:qtnote:note:1'
+<index
        id='2b7e1516-28ae-4d2a-abf7-158809cf4f3c'
        revision='018f0be0-df0d-7c70-a2ef-1f5c973ec92a'
        parent-revision='optional-parent-revision'
@@ -353,8 +307,7 @@ An index record is metadata used for listing and synchronization:
 ```
 
 `id`, `revision`, and `modified` MUST be non-empty. `modified` MUST be an ISO
-8601 UTC instant ending in `Z`. Schema major 1 defines only the format value
-`markdown`. Exactly one `title` is required; zero or more `tag` elements are
+8601 UTC instant ending in `Z`. Protocol major 1 defines only the format value `markdown`. Exactly one `title` is required; zero or more `tag` elements are
 allowed. `parent-revision` and `origin-id` are optional.
 
 ### Content record
@@ -362,7 +315,7 @@ allowed. `parent-revision` and `origin-id` are optional.
 A content record contains the note body:
 
 ```xml
-<note xmlns='urn:xmpp:qtnote:note:1'
+<note
       id='2b7e1516-28ae-4d2a-abf7-158809cf4f3c'
       revision='018f0be0-df0d-7c70-a2ef-1f5c973ec92a'>
   <body>Portable body</body>
@@ -443,10 +396,9 @@ Example index publication:
 ```xml
 <iq type='set' id='publish-index' to='romeo@example.net'>
   <pubsub xmlns='http://jabber.org/protocol/pubsub'>
-    <publish node='urn:xmpp:qtnote:notes:0:index:1'>
+    <publish node='urn:xmpp:qtnote:notes:1:index'>
       <item id='2b7e1516-28ae-4d2a-abf7-158809cf4f3c'>
-        <encrypted xmlns='urn:xmpp:qtnote:encrypted:1'
-                   wire='1.0' schema='1.0' kind='index'
+        <encrypted xmlns='urn:xmpp:qtnote:notes:1'
                    key-id='tTvC-q553JtqzHXstinSd2A0CDzSXK40wXTK5a0Cddk'>
           <nonce>AAECAwQFBgcICQoL</nonce>
           <payload>...BASE64-CIPHERTEXT...</payload>
@@ -486,7 +438,7 @@ invalidates the complete local view and requires a fresh synchronization.
 <message type='headline' from='romeo@example.net'
          to='romeo@example.net/QtNote-laptop'>
   <event xmlns='http://jabber.org/protocol/pubsub#event'>
-    <items node='urn:xmpp:qtnote:notes:0:index:1'>
+    <items node='urn:xmpp:qtnote:notes:1:index'>
       <retract id='2b7e1516-28ae-4d2a-abf7-158809cf4f3c'/>
     </items>
   </event>
@@ -665,17 +617,19 @@ MUST remain untouched and MUST be reported as inaccessible.
 
 ## Explicit maintenance of obsolete development records
 
-Because the provisional namespace and node names are intentionally retained while
-the pre-release wire format changes, an implementation MAY expose an explicit
-maintenance action that scans the two QtNote nodes for obsolete records. Such an
-action MUST require user confirmation before deletion and MUST fetch and validate
-each candidate again immediately before retracting it.
+Pre-release builds used the legacy nodes
+`urn:xmpp:qtnote:notes:0:index:1` and
+`urn:xmpp:qtnote:notes:0:content:1`, plus earlier encrypted payload namespaces.
+Those nodes are outside the current major namespace and are never read as
+current records. An implementation MAY expose an explicit legacy-node
+maintenance action. It MUST require confirmation and re-fetch each candidate
+immediately before retraction.
 
-A maintenance action MAY remove only records that are structurally malformed for
-the current major or that are positively identified as an obsolete pre-XML
-development format. It MUST NOT delete a record merely because it uses an
-unsupported wire/schema major or minor feature, an unknown required
-extension, a different storage key, or ciphertext that fails authentication.
+The action MAY remove only data positively identified as an obsolete
+pre-release format or as structurally malformed for the current major. It MUST
+NOT delete data in an unknown future major namespace, data requiring an unknown
+extension, data encrypted with another key, or ciphertext that merely fails
+authentication.
 
 ## Error handling
 
@@ -684,7 +638,7 @@ Errors fall into three classes:
 | Class | Examples | Required behavior |
 | --- | --- | --- |
 | Permanent configuration | bad credentials, no PEP, no publish-options, public/non-persistent node | stop and require user/configuration action |
-| Data/authentication | unknown schema, wrong key ID, GCM failure, persistent ID/revision mismatch, unverified key-sync sender | do not overwrite or auto-repair ciphertext; report or ignore safely |
+| Data/authentication | unknown major namespace, wrong key ID, GCM failure, persistent ID/revision mismatch, unverified key-sync sender | do not overwrite or auto-repair ciphertext; report or ignore safely |
 | Transient | disconnected network, timeout, temporary server error, index/content mismatch during a publication window | retain the operation and retry with bounded exponential backoff; retry a complete note snapshot for a publication-window mismatch |
 
 A malformed, obsolete, unsupported, or individually undecryptable PubSub item
@@ -753,15 +707,14 @@ exact reference plaintext bytes only to test HKDF and AES-GCM. Cross-language
 round trips MUST additionally validate the parsed XML data model.
 
 Implementations MUST preserve unknown optional authenticated XML and MUST NOT
-rewrite or delete records merely because their schema, required extension, or
-key is unsupported. A new encryption construction or incompatible record model
-requires a new major identifier. Compatible additive evolution increments only
-the minor version.
+rewrite or delete records merely because a required extension or key is
+unsupported. A new encryption construction or incompatible record model
+requires a new major namespace and new PubSub nodes. Compatible additive
+evolution uses optional namespaced XML; no minor version exists on the wire.
 
 The interoperability artifacts are:
 
-- `qtnote-encrypted.xsd`, `qtnote-storage.xsd`, and `qtnote-note.xsd`, reference
-  schemas for the current 1.0 XML structures;
+- `qtnote-notes.xsd`, the reference schema for the current major XML structures;
 - `qtnote-encrypted-vectors.json`, fixed positive and negative vectors including
   complete PubSub items and exact reference plaintext XML;
 - `qtnote-encrypted-reference.py`, a Qt-independent encoder, validating decoder,

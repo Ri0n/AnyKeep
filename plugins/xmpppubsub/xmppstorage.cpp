@@ -35,8 +35,8 @@ namespace {
     constexpr int MaximumRetryDelaySeconds = 300;
     const QString QtNoteKeychainService    = QStringLiteral("com.github.ri0n.qtnote");
     const QString PsiKeychainService       = QStringLiteral("xmpp");
-    const QString IndexRecordTemplateKey   = QStringLiteral("xmpp.xml.index-template");
-    const QString ContentRecordTemplateKey = QStringLiteral("xmpp.xml.content-template");
+    const QString IndexRecordTemplateKey   = QStringLiteral("xmpp.xml.v1.index-template");
+    const QString ContentRecordTemplateKey = QStringLiteral("xmpp.xml.v1.content-template");
 
     QString passwordKeyName(const QString &jid)
     {
@@ -368,7 +368,9 @@ XmppConfig XmppStorage::readConfig() const
     const QString defaultResource = QStringLiteral("QtNote-") + config.originId.left(8);
     config.resource = settings.value(QStringLiteral("storage.xmpppubsub.resource"), defaultResource).toString();
     const auto storedNodeName = settings.value(QStringLiteral("storage.xmpppubsub.node")).toString().trimmed();
-    config.nodeName           = storedNodeName.isEmpty() ? XmppConfig {}.nodeName : storedNodeName;
+    config.nodeName           = storedNodeName.isEmpty() || storedNodeName == QStringLiteral("urn:xmpp:qtnote:notes:0")
+                  ? XmppConfig {}.nodeName
+                  : storedNodeName;
     config.timeoutMs          = settings.value(QStringLiteral("storage.xmpppubsub.timeoutMs"), 15000).toInt();
     if (!config.jid.isEmpty()) {
         const auto key = SecureKeyStore::read(storageKeyName(config.jid));
@@ -568,7 +570,10 @@ bool XmppStorage::openPersistentCache(const XmppConfig &config)
 {
     if (config.instanceId.isEmpty())
         return false;
-    if (!persistentCache_ || persistentCacheInstanceId_ != config.instanceId) {
+    const auto nodeHash
+        = QCryptographicHash::hash(config.nodeName.toUtf8(), QCryptographicHash::Sha256).toHex().left(16);
+    const auto cacheScope = config.instanceId + QLatin1Char(':') + QString::fromLatin1(nodeHash);
+    if (!persistentCache_ || persistentCacheInstanceId_ != cacheScope) {
         QString keyError;
         auto    localKey = LocalDataKeyStore::loadOrCreateMasterKey(&keyError);
         if (localKey.isEmpty()) {
@@ -576,9 +581,9 @@ bool XmppStorage::openPersistentCache(const XmppConfig &config)
             return false;
         }
         const auto path = Utils::qtnoteDataDir() + QStringLiteral("/remote-cache/xmpppubsub/") + config.instanceId
-            + QStringLiteral(".cache");
-        persistentCache_ = std::make_unique<FileRemoteCacheStore>(path, config.instanceId, std::move(localKey));
-        persistentCacheInstanceId_ = config.instanceId;
+            + QLatin1Char('-') + QString::fromLatin1(nodeHash) + QStringLiteral(".cache");
+        persistentCache_           = std::make_unique<FileRemoteCacheStore>(path, cacheScope, std::move(localKey));
+        persistentCacheInstanceId_ = cacheScope;
     }
 
     const auto records = persistentCache_->records();

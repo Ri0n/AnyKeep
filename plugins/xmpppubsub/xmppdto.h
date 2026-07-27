@@ -30,26 +30,15 @@ struct XmppConfig {
     QString    host;                                  ///< Optional server override; empty enables normal discovery.
     int        port { 0 };                            ///< Optional port override; zero selects the library default.
     QString    resource { QStringLiteral("QtNote") }; ///< Requested XMPP resource.
-    QString    nodeName { QStringLiteral("urn:xmpp:qtnote:notes:0") }; ///< Base QtNote node.
+    QString    nodeName { QStringLiteral("urn:xmpp:qtnote:notes:1") }; ///< Versioned base QtNote node.
     QString    originId;            ///< Stable installation ID used in note revision metadata.
     int        timeoutMs { 15000 }; ///< Upper bound for an individual protocol operation.
     QByteArray masterKey;           ///< Content-encryption key for notes (not an OMEMO key).
     QByteArray omemoStateKey;       ///< Key encrypting local OMEMO/trust state at rest.
     QString    omemoStatePath;      ///< Directory containing encrypted OMEMO state files.
 
-    QString indexNodeName() const { return nodeName + QStringLiteral(":index:1"); }
-    QString contentNodeName() const { return nodeName + QStringLiteral(":content:1"); }
-};
-
-/** @brief Major/minor version used by the portable XMPP wire and record formats. */
-struct XmppFormatVersion {
-    quint16 major { 1 };
-    quint16 minor { 0 };
-
-    friend bool operator==(const XmppFormatVersion &a, const XmppFormatVersion &b)
-    {
-        return a.major == b.major && a.minor == b.minor;
-    }
+    QString indexNodeName() const { return nodeName + QStringLiteral(":index"); }
+    QString contentNodeName() const { return nodeName + QStringLiteral(":content"); }
 };
 
 /** @brief Backend-neutral representation of a remotely synchronized note. */
@@ -64,9 +53,9 @@ struct XmppRemoteNote {
     QString     format { QStringLiteral("markdown") };
     QStringList tags;
     bool        contentPresent { true }; ///< False for index-only list results.
-    /** UTF-8 XML template containing only versions, extensions, and unknown index fields. */
+    /** UTF-8 XML template containing only extensions and unknown index fields. */
     QByteArray indexRecordTemplate;
-    /** UTF-8 XML template containing only versions, extensions, and unknown content fields. */
+    /** UTF-8 XML template containing only extensions and unknown content fields. */
     QByteArray contentRecordTemplate;
 };
 
@@ -75,14 +64,11 @@ struct XmppEncryptedPayload {
     /// Selects the independently encrypted index metadata or note body.
     enum Kind { Index, Content };
 
-    QString           id;
-    Kind              kind { Index };
-    XmppFormatVersion wireVersion;
-    XmppFormatVersion schemaVersion;
-    QByteArray        keyId;
-    QByteArray        nonce;
-    QByteArray        tag;
-    QByteArray        cipherText;
+    QString    id;
+    QByteArray keyId;
+    QByteArray nonce;
+    QByteArray tag;
+    QByteArray cipherText;
 };
 
 /** @brief OMEMO device shown by the trust and recovery UI. */

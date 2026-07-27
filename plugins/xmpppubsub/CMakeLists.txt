@@ -35,9 +35,7 @@ set(xmpppubsub_sources
     XmppKeySyncTrustHost.qml
     xmppnotecodec.cpp
     xmppnotecodec.h
-    qtnote-encrypted.xsd
-    qtnote-storage.xsd
-    qtnote-note.xsd
+    qtnote-notes.xsd
     qtnote-encrypted-reference.py
     qtnote-encrypted-vectors.json
     conformance/rust/Cargo.toml
