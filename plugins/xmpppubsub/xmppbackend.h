@@ -34,6 +34,7 @@ public:
     using DevicesCallback = std::function<void(QList<XmppDeviceInfo>, QString)>;
     using AuditCallback   = std::function<void(XmppKeyAuditResult)>;
     using RekeyCallback   = std::function<void(XmppRekeyResult)>;
+    using CleanupCallback = std::function<void(XmppCleanupResult)>;
 
     using QObject::QObject;
     ~XmppBackend() override = default;
@@ -54,8 +55,12 @@ public:
     virtual void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback)     = 0;
     virtual void           auditStorageKeysAsync(AuditCallback callback)                                    = 0;
     virtual void rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback) = 0;
-    virtual void approveKeySyncRequest(QString requestId)                                                   = 0;
-    virtual void rejectKeySyncRequest(QString requestId)                                                    = 0;
+    virtual void scanObsoleteItemsAsync(CleanupCallback callback)                                           = 0;
+    virtual void deleteObsoleteItemsAsync(QStringList indexItemIds, QStringList contentItemIds,
+                                          CleanupCallback callback)
+        = 0;
+    virtual void approveKeySyncRequest(QString requestId) = 0;
+    virtual void rejectKeySyncRequest(QString requestId)  = 0;
 
 signals:
     /// A complete remote note was published or changed.

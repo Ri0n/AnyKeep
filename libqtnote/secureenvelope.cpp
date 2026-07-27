@@ -126,6 +126,45 @@ QByteArray SecureEnvelope::associatedData(const AeadContext &context)
     return result;
 }
 
+CryptoResult<AeadCiphertext> SecureEnvelope::encryptAead(const QByteArray &plainText, const QByteArray &masterKey,
+                                                         KeyDomain domain)
+{
+    if (masterKey.size() != MasterKeySize)
+        return { {}, error(CryptoError::InvalidArgument, QStringLiteral("Invalid encryption key")) };
+    if (!isAvailable())
+        return { {}, error(CryptoError::Unavailable, QStringLiteral("AES-256-GCM is unavailable")) };
+
+    AeadCiphertext encrypted;
+    encrypted.nonce = QCA::Random::randomArray(NonceSize).toByteArray();
+    const auto  key = deriveKey(masterKey, domain);
+    QCA::Cipher cipher(QStringLiteral("aes256"), QCA::Cipher::GCM, QCA::Cipher::NoPadding, QCA::Encode,
+                       QCA::SymmetricKey(key), QCA::InitializationVector(encrypted.nonce), QCA::AuthTag(TagSize));
+    encrypted.cipherText = cipher.process(QCA::SecureArray(plainText)).toByteArray();
+    encrypted.tag        = cipher.tag().toByteArray();
+    if (!cipher.ok() || encrypted.tag.size() != TagSize)
+        return { {}, error(CryptoError::Unavailable, QStringLiteral("Encryption failed")) };
+    return { encrypted, {} };
+}
+
+CryptoResult<QByteArray> SecureEnvelope::decryptAead(const AeadCiphertext &encrypted, const QByteArray &masterKey,
+                                                     KeyDomain domain)
+{
+    if (masterKey.size() != MasterKeySize)
+        return { {}, error(CryptoError::InvalidArgument, QStringLiteral("Invalid encryption key")) };
+    if (encrypted.nonce.size() != NonceSize || encrypted.tag.size() != TagSize || encrypted.cipherText.isEmpty())
+        return { {}, error(CryptoError::Corrupt, QStringLiteral("Invalid encrypted envelope")) };
+    if (!isAvailable())
+        return { {}, error(CryptoError::Unavailable, QStringLiteral("AES-256-GCM is unavailable")) };
+
+    const auto  key = deriveKey(masterKey, domain);
+    QCA::Cipher cipher(QStringLiteral("aes256"), QCA::Cipher::GCM, QCA::Cipher::NoPadding, QCA::Decode,
+                       QCA::SymmetricKey(key), QCA::InitializationVector(encrypted.nonce), QCA::AuthTag(encrypted.tag));
+    const auto  plainText = cipher.process(QCA::SecureArray(encrypted.cipherText)).toByteArray();
+    if (!cipher.ok())
+        return { {}, error(CryptoError::AuthenticationFailed, QStringLiteral("Authentication failed")) };
+    return { plainText, {} };
+}
+
 CryptoResult<QByteArray> SecureEnvelope::seal(const QByteArray &plainText, const QByteArray &masterKey,
                                               const AeadContext &context)
 {
@@ -133,24 +172,20 @@ CryptoResult<QByteArray> SecureEnvelope::seal(const QByteArray &plainText, const
         || context.kind.isEmpty()) {
         return { {}, error(CryptoError::InvalidArgument, QStringLiteral("Invalid encryption key or context")) };
     }
-    if (!isAvailable())
-        return { {}, error(CryptoError::Unavailable, QStringLiteral("AES-256-GCM is unavailable")) };
-    const auto  key   = deriveKey(masterKey, context.domain);
-    const auto  nonce = QCA::Random::randomArray(NonceSize).toByteArray();
     QByteArray  authenticatedPlainText;
     QDataStream framed(&authenticatedPlainText, QIODevice::WriteOnly);
     framed.setVersion(QDataStream::Qt_5_10);
     framed << associatedData(context) << plainText;
-    QCA::Cipher cipher(QStringLiteral("aes256"), QCA::Cipher::GCM, QCA::Cipher::NoPadding, QCA::Encode,
-                       QCA::SymmetricKey(key), QCA::InitializationVector(nonce), QCA::AuthTag(TagSize));
-    const auto  cipherText = cipher.process(QCA::SecureArray(authenticatedPlainText)).toByteArray();
-    if (!cipher.ok() || cipher.tag().size() != TagSize)
-        return { {}, error(CryptoError::Unavailable, QStringLiteral("Encryption failed")) };
+
+    const auto encrypted = encryptAead(authenticatedPlainText, masterKey, context.domain);
+    if (!encrypted)
+        return { {}, encrypted.error };
 
     QByteArray  envelope;
     QDataStream out(&envelope, QIODevice::WriteOnly);
     out.setVersion(QDataStream::Qt_5_10);
-    out << EnvelopeMagic << EnvelopeVersion << nonce << cipher.tag().toByteArray() << cipherText;
+    out << EnvelopeMagic << EnvelopeVersion << encrypted.value.nonce << encrypted.value.tag
+        << encrypted.value.cipherText;
     return { envelope, {} };
 }
 
@@ -161,27 +196,23 @@ CryptoResult<QByteArray> SecureEnvelope::open(const QByteArray &envelope, const 
         return { {}, error(CryptoError::InvalidArgument, QStringLiteral("Invalid encryption key")) };
     if (!isAvailable())
         return { {}, error(CryptoError::Unavailable, QStringLiteral("AES-256-GCM is unavailable")) };
-    quint32     magic;
-    quint16     version;
-    QByteArray  nonce;
-    QByteArray  tag;
-    QByteArray  cipherText;
-    QDataStream in(envelope);
+
+    quint32        magic;
+    quint16        version;
+    AeadCiphertext encrypted;
+    QDataStream    in(envelope);
     in.setVersion(QDataStream::Qt_5_10);
-    in >> magic >> version >> nonce >> tag >> cipherText;
-    if (in.status() != QDataStream::Ok || magic != EnvelopeMagic || version != EnvelopeVersion
-        || nonce.size() != NonceSize || tag.size() != TagSize) {
+    in >> magic >> version >> encrypted.nonce >> encrypted.tag >> encrypted.cipherText;
+    if (in.status() != QDataStream::Ok || magic != EnvelopeMagic || version != EnvelopeVersion) {
         return { {}, error(CryptoError::Corrupt, QStringLiteral("Invalid encrypted envelope")) };
     }
-    const auto  key = deriveKey(masterKey, context.domain);
-    QCA::Cipher cipher(QStringLiteral("aes256"), QCA::Cipher::GCM, QCA::Cipher::NoPadding, QCA::Decode,
-                       QCA::SymmetricKey(key), QCA::InitializationVector(nonce), QCA::AuthTag(tag));
-    const auto  authenticatedPlainText = cipher.process(QCA::SecureArray(cipherText)).toByteArray();
-    if (!cipher.ok())
-        return { {}, error(CryptoError::AuthenticationFailed, QStringLiteral("Authentication failed")) };
+    const auto opened = decryptAead(encrypted, masterKey, context.domain);
+    if (!opened)
+        return opened;
+
     QByteArray  embeddedContext;
     QByteArray  plainText;
-    QDataStream framed(authenticatedPlainText);
+    QDataStream framed(opened.value);
     framed.setVersion(QDataStream::Qt_5_10);
     framed >> embeddedContext >> plainText;
     if (framed.status() != QDataStream::Ok || embeddedContext != associatedData(context))

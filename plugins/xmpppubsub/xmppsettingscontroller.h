@@ -20,6 +20,10 @@ class XmppSettingsController final : public SettingsController {
     Q_PROPERTY(QString omemoStatus READ omemoStatus NOTIFY omemoStatusChanged)
     Q_PROPERTY(QStringList omemoDevices READ omemoDevices NOTIFY omemoDevicesChanged)
     Q_PROPERTY(bool repairAvailable READ repairAvailable NOTIFY omemoDevicesChanged)
+    Q_PROPERTY(QString cleanupStatus READ cleanupStatus NOTIFY cleanupChanged)
+    Q_PROPERTY(bool cleanupBusy READ cleanupBusy NOTIFY cleanupChanged)
+    Q_PROPERTY(int obsoleteItemCount READ obsoleteItemCount NOTIFY cleanupChanged)
+    Q_PROPERTY(int protectedUnreadableItems READ protectedUnreadableItems NOTIFY cleanupChanged)
 
 public:
     explicit XmppSettingsController(XmppStorage *storage, const XmppConfig &config, QObject *parent = nullptr);
@@ -32,12 +36,18 @@ public:
     QString     omemoStatus() const { return omemoStatus_; }
     QStringList omemoDevices() const { return omemoDeviceLabels_; }
     bool        repairAvailable() const { return repairAvailable_; }
+    QString     cleanupStatus() const { return cleanupStatus_; }
+    bool        cleanupBusy() const { return cleanupBusy_; }
+    int         obsoleteItemCount() const { return pendingCleanup_.obsoleteItemCount(); }
+    int         protectedUnreadableItems() const { return pendingCleanup_.protectedUnreadableItems; }
 
     void setKeyState(const QByteArray &keyId, const QString &message = {});
     void setRecoveryKey(const QString &key);
     void setOmemoStatus(const QString &message);
     void setOmemoDevices(const XmppDeviceInfo &ownDevice, bool ownBundleValid, const QList<XmppDeviceInfo> &devices,
                          const QString &message = {});
+    void setCleanupScanResult(XmppCleanupResult result);
+    void setCleanupDeleteResult(XmppCleanupResult result);
 
     Q_INVOKABLE void requestCreateKey();
     Q_INVOKABLE void requestImportKey();
@@ -46,12 +56,15 @@ public:
     Q_INVOKABLE void requestOmemoDevices();
     Q_INVOKABLE void requestRepairOmemoDevice();
     Q_INVOKABLE void requestTrustOmemoDevice(int index);
+    Q_INVOKABLE void requestScanObsoleteItems();
+    Q_INVOKABLE void requestDeleteObsoleteItems();
 
 signals:
     void keyStateChanged();
     void recoveryKeyChanged();
     void omemoDevicesChanged();
     void omemoStatusChanged();
+    void cleanupChanged();
     void applyConfigRequested(const QtNote::XmppConfig &config);
     void createKeyRequested(const QString &jid);
     void importKeyRequested(const QString &jid, const QString &recoveryKey);
@@ -60,6 +73,9 @@ signals:
     void omemoDevicesRequested(const QString &jid);
     void trustOmemoDeviceRequested(const QString &jid, const QByteArray &keyId);
     void repairOmemoDeviceRequested(const QString &jid);
+    void scanObsoleteItemsRequested(const QString &jid);
+    void deleteObsoleteItemsRequested(const QString &jid, const QStringList &indexItemIds,
+                                      const QStringList &contentItemIds);
 
 protected:
     bool applyValues(const QVariantMap &values, QString *error) override;
@@ -75,6 +91,9 @@ private:
     QStringList           omemoDeviceLabels_;
     QList<QByteArray>     omemoDeviceKeys_;
     bool                  repairAvailable_ { false };
+    QString               cleanupStatus_;
+    bool                  cleanupBusy_ { false };
+    XmppCleanupResult     pendingCleanup_;
 };
 
 } // namespace QtNote

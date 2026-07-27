@@ -12,8 +12,6 @@
 #include <QCoroFuture>
 #include <QCoroSignal>
 #include <QFutureInterface>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QPointer>
 #include <QRegularExpression>
 #include <QSslSocket>
@@ -279,14 +277,27 @@ void XmppWorker::createClient()
 
     connect(pepExtension_, &XmppPepExtension::payloadPublished, this, [this](const XmppEncryptedPayload &payload) {
         auto note = XmppNoteCodec::decodeIndex(payload, config_.masterKey, config_.indexNodeName());
-        if (note)
+        if (note) {
+            qInfo().noquote() << "Decoded QtNote PEP index item" << payload.id << "revision=" << note.value.revision;
             emit remoteNotePublished(note.value);
-        else
-            emit backendError(note.error.message);
+            return;
+        }
+
+        // A single malformed, obsolete, or concurrently replaced event item
+        // is not a storage-wide failure. Ask the storage layer to refresh the
+        // authoritative index; list refresh isolates unreadable items and can
+        // still apply every valid record.
+        qWarning().noquote() << "Could not decode QtNote PEP index item" << payload.id << ':' << note.error.message
+                             << "-- scheduling a full index refresh";
+        emit remoteNodeInvalidated();
     });
     connect(pepExtension_, &XmppPepExtension::noteRetracted, this, &XmppWorker::remoteNoteRetracted);
     connect(pepExtension_, &XmppPepExtension::nodeInvalidated, this, &XmppWorker::remoteNodeInvalidated);
-    connect(pepExtension_, &XmppPepExtension::malformedItem, this, &XmppBackend::backendError);
+    connect(pepExtension_, &XmppPepExtension::malformedItem, this, [](const QString &error) {
+        // Per-item event damage is already followed by nodeInvalidated(). Do
+        // not feed it into the storage-wide error-state machinery.
+        qWarning().noquote() << "QtNote PEP event item ignored:" << error;
+    });
     // The handlers perform synchronous-looking waits for additional PubSub IQs.
     // Do not run them from inside QXmppClient's stanza dispatch: an IQ response
     // may need to reach an extension that is later in the dispatch chain.
@@ -732,6 +743,14 @@ void XmppWorker::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalK
     rekeyStorageTask(std::move(keys), std::move(canonicalKey)).then(std::move(callback));
 }
 
+void XmppWorker::scanObsoleteItemsAsync(CleanupCallback callback) { scanObsoleteItemsTask().then(std::move(callback)); }
+
+void XmppWorker::deleteObsoleteItemsAsync(QStringList indexItemIds, QStringList contentItemIds,
+                                          CleanupCallback callback)
+{
+    deleteObsoleteItemsTask(std::move(indexItemIds), std::move(contentItemIds)).then(std::move(callback));
+}
+
 void XmppWorker::approveKeySyncRequest(QString requestId) { approveKeySyncRequestTask(std::move(requestId)); }
 
 void XmppWorker::rejectKeySyncRequest(QString requestId)
@@ -837,20 +856,62 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
         co_return output;
     }
 
-    const auto decodeItems = [this](const auto &items, XmppListResult &result) {
+    struct DecodeSummary {
+        int     obsoleteItems { 0 };
+        int     malformedItems { 0 };
+        int     unsupportedItems { 0 };
+        int     protectedUnreadableItems { 0 };
+        int     keyMismatchItems { 0 };
+        QString firstKeyMismatch;
+
+        int skippedItems() const
+        {
+            return obsoleteItems + malformedItems + unsupportedItems + protectedUnreadableItems + keyMismatchItems;
+        }
+    } decodeSummary;
+    const auto configuredKeyId = SecureEnvelope::keyId(config_.masterKey);
+    const auto decodeItems     = [this, &decodeSummary, &configuredKeyId](const auto &items, XmppListResult &result) {
         for (const auto &item : items) {
             if (!item.isValid()) {
-                result.error = item.parseError();
-                return false;
+                switch (item.parseFailure()) {
+                case QtNotePubSubItem::ParseFailure::ObsoleteFormat:
+                    ++decodeSummary.obsoleteItems;
+                    break;
+                case QtNotePubSubItem::ParseFailure::UnsupportedFormat:
+                    ++decodeSummary.unsupportedItems;
+                    break;
+                case QtNotePubSubItem::ParseFailure::Malformed:
+                    ++decodeSummary.malformedItems;
+                    break;
+                case QtNotePubSubItem::ParseFailure::None:
+                    ++decodeSummary.protectedUnreadableItems;
+                    break;
+                }
+                qWarning().noquote() << "Skipping unreadable XMPP index item" << item.id() << ':' << item.parseError();
+                continue;
+            }
+            if (item.payload().keyId != configuredKeyId) {
+                ++decodeSummary.keyMismatchItems;
+                if (decodeSummary.firstKeyMismatch.isEmpty()) {
+                    decodeSummary.firstKeyMismatch
+                        = QStringLiteral("Encrypted QtNote storage key mismatch (item %1, configured %2)")
+                              .arg(QString::fromLatin1(item.payload().keyId.left(8).toHex()),
+                                       QString::fromLatin1(configuredKeyId.left(8).toHex()));
+                }
+                qWarning().noquote() << "Skipping XMPP index item encrypted with another storage key" << item.id();
+                continue;
             }
             auto note = XmppNoteCodec::decodeIndex(item.payload(), config_.masterKey, config_.indexNodeName());
             if (!note) {
-                result.error = note.error.message;
-                return false;
+                if (note.error.code == CryptoError::Unsupported)
+                    ++decodeSummary.unsupportedItems;
+                else
+                    ++decodeSummary.protectedUnreadableItems;
+                qWarning().noquote() << "Skipping unreadable XMPP index item" << item.id() << ':' << note.error.message;
+                continue;
             }
             result.notes.append(std::move(note.value));
         }
-        return true;
     };
 
     auto idsResult = co_await pubSub_->requestOwnPepItemIds(config_.indexNodeName()).toFuture(this);
@@ -875,8 +936,21 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
                 setXmppFailure(output, *error, errorText(*error));
                 co_return output;
             }
-            if (!decodeItems(std::get<QXmppPubSubManager::Items<QtNotePubSubItem>>(result).items, output))
-                co_return output;
+            decodeItems(std::get<QXmppPubSubManager::Items<QtNotePubSubItem>>(result).items, output);
+        }
+        if (output.notes.isEmpty() && decodeSummary.keyMismatchItems > 0) {
+            output.error     = decodeSummary.firstKeyMismatch;
+            output.errorKind = XmppErrorKind::Security;
+            co_return output;
+        }
+        if (decodeSummary.skippedItems() > 0) {
+            output.partial = true;
+            qWarning() << "XMPP index refresh skipped" << decodeSummary.skippedItems()
+                       << "unreadable item(s): obsolete=" << decodeSummary.obsoleteItems
+                       << "malformed=" << decodeSummary.malformedItems
+                       << "unsupported=" << decodeSummary.unsupportedItems
+                       << "other-key=" << decodeSummary.keyMismatchItems
+                       << "protected=" << decodeSummary.protectedUnreadableItems;
         }
         output.ok = true;
         co_return output;
@@ -894,8 +968,21 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
     }
     const auto &items = std::get<QXmppPubSubManager::Items<QtNotePubSubItem>>(result);
     output.partial    = items.continuation.has_value();
-    if (decodeItems(items.items, output))
-        output.ok = true;
+    decodeItems(items.items, output);
+    if (output.notes.isEmpty() && decodeSummary.keyMismatchItems > 0) {
+        output.error     = decodeSummary.firstKeyMismatch;
+        output.errorKind = XmppErrorKind::Security;
+        co_return output;
+    }
+    if (decodeSummary.skippedItems() > 0) {
+        output.partial = true;
+        qWarning() << "XMPP index refresh skipped" << decodeSummary.skippedItems()
+                   << "unreadable item(s): obsolete=" << decodeSummary.obsoleteItems
+                   << "malformed=" << decodeSummary.malformedItems << "unsupported=" << decodeSummary.unsupportedItems
+                   << "other-key=" << decodeSummary.keyMismatchItems
+                   << "protected=" << decodeSummary.protectedUnreadableItems;
+    }
+    output.ok = true;
     co_return output;
 }
 
@@ -959,10 +1046,8 @@ QCoro::Task<XmppNoteResult> XmppWorker::requestNoteTask(QString id, quint64 clie
             output.error = content.error.message;
             co_return output;
         }
-        output.note                = std::move(index.value);
-        output.note.content        = std::move(content.value);
-        output.note.contentPresent = true;
-        output.ok                  = true;
+        output.note = std::move(content.value);
+        output.ok   = true;
         co_return output;
     }
 
@@ -1387,8 +1472,9 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
         }
         for (const auto &item : std::get<QXmppPubSubManager::Items<QtNotePubSubItem>>(items).items) {
             if (!item.isValid()) {
-                output.error = item.parseError();
-                co_return output;
+                qWarning().noquote() << "Skipping unreadable XMPP index item during storage-key audit" << item.id()
+                                     << ':' << item.parseError();
+                continue;
             }
             const auto keyId     = item.payload().keyId;
             auto       candidate = std::find_if(output.candidates.begin(), output.candidates.end(),
@@ -1402,6 +1488,151 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
     output.ok = true;
     if (!errors.isEmpty())
         output.error = QStringLiteral("Some QtNote resources failed:\n%1").arg(errors.join('\n'));
+    co_return output;
+}
+
+QCoro::Task<XmppCleanupResult> XmppWorker::scanNodeForObsoleteItemsTask(QString                    nodeName,
+                                                                        XmppEncryptedPayload::Kind expectedKind)
+{
+    XmppCleanupResult output;
+    const auto        generation = clientGeneration_;
+    auto              idsResult  = co_await pubSub_->requestOwnPepItemIds(nodeName).toFuture(this);
+    if (generation != clientGeneration_)
+        co_return configurationChangedResult<XmppCleanupResult>();
+    if (const auto *error = std::get_if<QXmppError>(&idsResult)) {
+        setXmppFailure(output, *error, errorText(*error));
+        co_return output;
+    }
+
+    const auto    ids       = std::get<QVector<QString>>(idsResult);
+    const auto    bareJid   = QXmppUtils::jidToBareJid(config_.jid);
+    constexpr int BatchSize = 50;
+    for (int offset = 0; offset < ids.size(); offset += BatchSize) {
+        QStringList batch;
+        for (int i = offset; i < qMin(offset + BatchSize, ids.size()); ++i)
+            batch.append(ids.at(i));
+        auto items = co_await pubSub_->requestItems<QtNotePubSubItem>(bareJid, nodeName, batch).toFuture(this);
+        if (generation != clientGeneration_)
+            co_return configurationChangedResult<XmppCleanupResult>();
+        if (const auto *error = std::get_if<QXmppError>(&items)) {
+            setXmppFailure(output, *error, errorText(*error));
+            co_return output;
+        }
+        for (const auto &item : std::get<QXmppPubSubManager::Items<QtNotePubSubItem>>(items).items) {
+            bool obsolete = false;
+            if (!item.isValid()) {
+                obsolete = item.isObsoleteOrMalformed();
+            } else if (item.payload().kind != expectedKind) {
+                ++output.protectedUnreadableItems;
+            } else {
+                const auto decodeError = XmppNoteCodec::validatePayload(item.payload(), config_.masterKey, nodeName);
+                if (!decodeError)
+                    ++output.validItems;
+                else if (decodeError.code == CryptoError::Corrupt)
+                    obsolete = true;
+                else
+                    ++output.protectedUnreadableItems;
+            }
+            if (obsolete) {
+                if (expectedKind == XmppEncryptedPayload::Index)
+                    output.obsoleteIndexItemIds.append(item.id());
+                else
+                    output.obsoleteContentItemIds.append(item.id());
+            } else if (!item.isValid()) {
+                ++output.protectedUnreadableItems;
+            }
+        }
+    }
+    output.ok = true;
+    co_return output;
+}
+
+QCoro::Task<XmppCleanupResult> XmppWorker::scanObsoleteItemsTask()
+{
+    XmppCleanupResult output;
+    const auto        ready = co_await ensureReadyTask();
+    if (!ready.ok) {
+        output.error     = ready.error;
+        output.errorKind = ready.errorKind;
+        co_return output;
+    }
+
+    auto index = co_await scanNodeForObsoleteItemsTask(config_.indexNodeName(), XmppEncryptedPayload::Index);
+    if (!index.ok)
+        co_return index;
+    auto content = co_await scanNodeForObsoleteItemsTask(config_.contentNodeName(), XmppEncryptedPayload::Content);
+    if (!content.ok)
+        co_return content;
+
+    output.ok                       = true;
+    output.obsoleteIndexItemIds     = std::move(index.obsoleteIndexItemIds);
+    output.obsoleteContentItemIds   = std::move(content.obsoleteContentItemIds);
+    output.protectedUnreadableItems = index.protectedUnreadableItems + content.protectedUnreadableItems;
+    output.validItems               = index.validItems + content.validItems;
+    co_return output;
+}
+
+QCoro::Task<XmppCleanupResult> XmppWorker::deleteObsoleteItemsTask(QStringList indexItemIds, QStringList contentItemIds)
+{
+    XmppCleanupResult output;
+    const auto        ready = co_await ensureReadyTask();
+    if (!ready.ok) {
+        output.error     = ready.error;
+        output.errorKind = ready.errorKind;
+        co_return output;
+    }
+
+    struct Candidate {
+        QString                    node;
+        QString                    id;
+        XmppEncryptedPayload::Kind kind;
+    };
+    QList<Candidate> candidates;
+    candidates.reserve(indexItemIds.size() + contentItemIds.size());
+    for (const auto &id : std::as_const(indexItemIds))
+        candidates.append({ config_.indexNodeName(), id, XmppEncryptedPayload::Index });
+    for (const auto &id : std::as_const(contentItemIds))
+        candidates.append({ config_.contentNodeName(), id, XmppEncryptedPayload::Content });
+
+    const auto bareJid    = QXmppUtils::jidToBareJid(config_.jid);
+    const auto generation = clientGeneration_;
+    for (const auto &candidate : std::as_const(candidates)) {
+        auto current
+            = co_await pubSub_->requestItem<QtNotePubSubItem>(bareJid, candidate.node, candidate.id).toFuture(this);
+        if (generation != clientGeneration_)
+            co_return configurationChangedResult<XmppCleanupResult>();
+        if (const auto *error = std::get_if<QXmppError>(&current)) {
+            if (isItemNotFound(*error))
+                continue;
+            setXmppFailure(output, *error, errorText(*error));
+            co_return output;
+        }
+
+        const auto &item      = std::get<QtNotePubSubItem>(current);
+        bool        removable = !item.isValid() && item.isObsoleteOrMalformed();
+        if (item.isValid() && item.payload().kind == candidate.kind) {
+            const auto decodeError = XmppNoteCodec::validatePayload(item.payload(), config_.masterKey, candidate.node);
+            removable              = decodeError.code == CryptoError::Corrupt;
+        }
+        if (!removable) {
+            ++output.protectedUnreadableItems;
+            continue;
+        }
+
+        auto retracted = co_await pubSub_->retractItem(bareJid, candidate.node, candidate.id, true).toFuture(this);
+        if (generation != clientGeneration_)
+            co_return configurationChangedResult<XmppCleanupResult>();
+        if (const auto *error = std::get_if<QXmppError>(&retracted)) {
+            if (isItemNotFound(*error))
+                continue;
+            setXmppFailure(output, *error, errorText(*error));
+            co_return output;
+        }
+        ++output.removedItems;
+    }
+    output.ok = true;
+    if (output.removedItems)
+        emit remoteNodeInvalidated();
     co_return output;
 }
 
@@ -1448,8 +1679,10 @@ QCoro::Task<XmppRekeyResult> XmppWorker::rekeyStorageTask(QList<QByteArray> keys
         const auto &indexItem   = std::get<QtNotePubSubItem>(indexResult);
         const auto &contentItem = std::get<QtNotePubSubItem>(contentResult);
         if (!indexItem.isValid() || !contentItem.isValid()) {
-            output.error = !indexItem.isValid() ? indexItem.parseError() : contentItem.parseError();
-            co_return output;
+            qWarning() << "Skipping unreadable XMPP note during rekey:" << id
+                       << (!indexItem.isValid() ? indexItem.parseError() : contentItem.parseError());
+            output.inaccessibleNoteIds.append(id);
+            continue;
         }
         const auto indexKey   = keyring.value(indexItem.payload().keyId);
         const auto contentKey = keyring.value(contentItem.payload().keyId);
@@ -1459,19 +1692,20 @@ QCoro::Task<XmppRekeyResult> XmppWorker::rekeyStorageTask(QList<QByteArray> keys
         }
         auto note = XmppNoteCodec::decodeIndex(indexItem.payload(), indexKey, config_.indexNodeName());
         if (!note) {
-            output.error = note.error.message;
-            co_return output;
+            qWarning() << "Skipping inaccessible XMPP note index during rekey:" << id << note.error.message;
+            output.inaccessibleNoteIds.append(id);
+            continue;
         }
         auto content
             = XmppNoteCodec::decodeContent(contentItem.payload(), contentKey, config_.contentNodeName(), note.value);
         if (!content) {
-            output.error = content.error.message;
-            co_return output;
+            qWarning() << "Skipping inaccessible XMPP note content during rekey:" << id << content.error.message;
+            output.inaccessibleNoteIds.append(id);
+            continue;
         }
-        note.value.content        = std::move(content.value);
-        note.value.contentPresent = true;
-        auto newContent           = XmppNoteCodec::encodeContent(note.value, canonicalKey, config_.contentNodeName());
-        auto newIndex             = XmppNoteCodec::encodeIndex(note.value, canonicalKey, config_.indexNodeName());
+        note.value      = std::move(content.value);
+        auto newContent = XmppNoteCodec::encodeContent(note.value, canonicalKey, config_.contentNodeName());
+        auto newIndex   = XmppNoteCodec::encodeIndex(note.value, canonicalKey, config_.indexNodeName());
         if (!newContent || !newIndex) {
             output.error = !newContent ? newContent.error.message : newIndex.error.message;
             co_return output;

@@ -15,6 +15,8 @@ if(TARGET Qt${QT_VERSION_MAJOR}::Network
 endif()
 
 set(xmpppubsub_sources
+    PROTOXEP.md
+    INTEROPERABILITY.md
     xmppbackend.h
     xmppdto.h
     xmpperror.cpp
@@ -33,6 +35,15 @@ set(xmpppubsub_sources
     XmppKeySyncTrustHost.qml
     xmppnotecodec.cpp
     xmppnotecodec.h
+    qtnote-encrypted.xsd
+    qtnote-storage.xsd
+    qtnote-note.xsd
+    qtnote-encrypted-reference.py
+    qtnote-encrypted-vectors.json
+    conformance/rust/Cargo.toml
+    conformance/rust/README.md
+    conformance/rust/src/lib.rs
+    conformance/rust/src/main.rs
     xmppomemostorage.cpp
     xmppomemostorage.h
     xmppomemopubsubitems.cpp

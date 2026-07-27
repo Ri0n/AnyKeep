@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:xmpp:qtnote:encrypted:1"
+           xmlns="urn:xmpp:qtnote:encrypted:1"
+           elementFormDefault="qualified">
+  <xs:simpleType name="versionType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]+\.[0-9]+"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="kindType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="index"/>
+      <xs:enumeration value="content"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:element name="encrypted">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="nonce" type="xs:base64Binary"/>
+        <xs:element name="payload" type="xs:base64Binary"/>
+        <xs:element name="tag" type="xs:base64Binary"/>
+        <xs:any minOccurs="0" maxOccurs="unbounded" namespace="##other" processContents="lax"/>
+      </xs:sequence>
+      <xs:attribute name="wire" type="versionType" use="required"/>
+      <xs:attribute name="schema" type="versionType" use="required"/>
+      <xs:attribute name="kind" type="kindType" use="required"/>
+      <xs:attribute name="key-id" type="xs:string" use="required"/>
+      <xs:anyAttribute processContents="lax"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

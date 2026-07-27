@@ -30,8 +30,15 @@ struct QTNOTE_EXPORT AeadContext {
     QString kind;
 };
 
+/** Raw AES-GCM output without Qt-specific framing. */
+struct QTNOTE_EXPORT AeadCiphertext {
+    QByteArray nonce;
+    QByteArray tag;
+    QByteArray cipherText;
+};
+
 struct QTNOTE_EXPORT CryptoError {
-    enum Code { None, InvalidArgument, Unavailable, AuthenticationFailed, Corrupt };
+    enum Code { None, InvalidArgument, Unavailable, AuthenticationFailed, Corrupt, Unsupported };
 
     Code    code { None };
     QString message;
@@ -57,6 +64,19 @@ public:
     static CryptoResult<QByteArray> decodeRecoveryKey(const QString &encoded);
     static QByteArray               deriveKey(const QByteArray &masterKey, KeyDomain domain);
     static QByteArray               associatedData(const AeadContext &context);
+
+    /**
+     * Raw domain-separated AES-256-GCM for portable protocol codecs.
+     *
+     * These helpers do not add external AAD or framing. A caller that needs
+     * context binding must include and validate that context in the encrypted
+     * plaintext, as the XMPP XML codec does. Local data should normally use
+     * seal() and open() instead.
+     */
+    static CryptoResult<AeadCiphertext> encryptAead(const QByteArray &plainText, const QByteArray &masterKey,
+                                                    KeyDomain domain);
+    static CryptoResult<QByteArray>     decryptAead(const AeadCiphertext &encrypted, const QByteArray &masterKey,
+                                                    KeyDomain domain);
 
     static CryptoResult<QByteArray> seal(const QByteArray &plainText, const QByteArray &masterKey,
                                          const AeadContext &context);

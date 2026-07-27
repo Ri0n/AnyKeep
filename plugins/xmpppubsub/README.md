@@ -6,7 +6,9 @@ private persistent PEP nodes.
 
 The implemented wire protocol is documented separately in
 [Private Encrypted Notes over XMPP](PROTOXEP.md). That document is a ProtoXEP
-and implementation specification, not an XSF-assigned XEP.
+and implementation specification, not an XSF-assigned XEP. Cross-language
+encoder/decoder instructions, fixed vectors and the Rust smoke test are in the
+[interoperability guide](INTEROPERABILITY.md).
 
 The proposed cross-storage attachment model is documented in
 [Media storage architecture](../../docs/media-storage-architecture.md). XEP-0447

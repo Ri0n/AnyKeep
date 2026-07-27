@@ -63,6 +63,9 @@ public:
     void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback) override;
     void           auditStorageKeysAsync(AuditCallback callback) override;
     void           rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback) override;
+    void           scanObsoleteItemsAsync(CleanupCallback callback) override;
+    void           deleteObsoleteItemsAsync(QStringList indexItemIds, QStringList contentItemIds,
+                                            CleanupCallback callback) override;
     void           approveKeySyncRequest(QString requestId) override;
     void           rejectKeySyncRequest(QString requestId) override;
 
@@ -100,13 +103,17 @@ private:
     QCoro::Task<XmppStatusResult>                          trustOwnOmemoDevicesTask(QList<QByteArray> keyIds);
     QCoro::Task<std::pair<QStringList, QString>>           onlineQtNoteResourcesTask();
     QCoro::Task<XmppKeyAuditResult>                        auditStorageKeysTask();
-    QCoro::Task<XmppRekeyResult> rekeyStorageTask(QList<QByteArray> keys, QByteArray canonicalKey);
-    QCoro::Task<>                approveKeySyncRequestTask(QString requestId);
-    QCoro::Task<>                handleKeySyncRequestTask(QString requestId, QString from, QByteArray senderKey);
-    QCoro::Task<>                cacheOwnOmemoBundleTask();
-    QCoro::Task<>                repairOwnOmemoBundleAfterPreKeyUseTask(int attemptsRemaining);
-    static QString               newUuid();
-    static QString               errorText(const QXmppError &error);
+    QCoro::Task<XmppRekeyResult>   rekeyStorageTask(QList<QByteArray> keys, QByteArray canonicalKey);
+    QCoro::Task<XmppCleanupResult> scanObsoleteItemsTask();
+    QCoro::Task<XmppCleanupResult> scanNodeForObsoleteItemsTask(QString                    nodeName,
+                                                                XmppEncryptedPayload::Kind expectedKind);
+    QCoro::Task<XmppCleanupResult> deleteObsoleteItemsTask(QStringList indexItemIds, QStringList contentItemIds);
+    QCoro::Task<>                  approveKeySyncRequestTask(QString requestId);
+    QCoro::Task<>                  handleKeySyncRequestTask(QString requestId, QString from, QByteArray senderKey);
+    QCoro::Task<>                  cacheOwnOmemoBundleTask();
+    QCoro::Task<>                  repairOwnOmemoBundleAfterPreKeyUseTask(int attemptsRemaining);
+    static QString                 newUuid();
+    static QString                 errorText(const QXmppError &error);
 
     /// Configuration snapshot used to create the current client.
     XmppConfig config_;

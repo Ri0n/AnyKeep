@@ -115,6 +115,51 @@ Flickable {
             }
         }
 
+        GroupBox {
+            title: qsTr("PubSub maintenance")
+            Layout.fillWidth: true
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 8
+
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Scan for obsolete pre-XML or malformed QtNote items. Records using an unknown future version or a different encryption key are reported but never deleted.")
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Button {
+                        text: qsTr("Scan obsolete items")
+                        enabled: !root.controller.cleanupBusy
+                        onClicked: root.controller.requestScanObsoleteItems()
+                    }
+                    Button {
+                        text: qsTr("Delete %1 obsolete items").arg(root.controller.obsoleteItemCount)
+                        visible: root.controller.obsoleteItemCount > 0
+                        enabled: !root.controller.cleanupBusy
+                        onClicked: cleanupDialog.open()
+                    }
+                    BusyIndicator {
+                        running: root.controller.cleanupBusy
+                        visible: running
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: text.length > 0
+                    text: root.controller.cleanupStatus
+                    wrapMode: Text.WordWrap
+                    color: palette.mid
+                }
+            }
+        }
+
         Label {
             Layout.fillWidth: true
             text: qsTr("Index metadata and note contents are end-to-end encrypted with independent derived keys. The recovery key grants access to the complete XMPP storage.")
@@ -144,6 +189,22 @@ Flickable {
         }
 
         onReset: root.controller.requestRepairOmemoDevice()
+    }
+
+    Dialog {
+        id: cleanupDialog
+        title: qsTr("Delete obsolete PubSub items")
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        anchors.centerIn: Overlay.overlay
+
+        Label {
+            width: Math.min(420, root.width - 40)
+            text: qsTr("Delete %1 obsolete or malformed encrypted items from the XMPP PubSub nodes? The records are fetched and checked again immediately before deletion. Unsupported future formats and records protected by another key are left untouched.").arg(root.controller.obsoleteItemCount)
+            wrapMode: Text.WordWrap
+        }
+
+        onAccepted: root.controller.requestDeleteObsoleteItems()
     }
 
     Component.onCompleted: root.controller.requestOmemoDevices()

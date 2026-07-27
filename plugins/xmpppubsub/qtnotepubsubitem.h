@@ -15,6 +15,8 @@ namespace QtNote {
  */
 class QtNotePubSubItem final : public QXmppPubSubBaseItem {
 public:
+    enum class ParseFailure { None, ObsoleteFormat, UnsupportedFormat, Malformed };
+
     static const QString payloadNamespace;
 
     QtNotePubSubItem() = default;
@@ -26,6 +28,12 @@ public:
     const XmppEncryptedPayload &payload() const { return payload_; }
     bool                        isValid() const { return valid_; }
     const QString              &parseError() const { return parseError_; }
+    ParseFailure                parseFailure() const { return parseFailure_; }
+    /// True only for malformed/current-development payloads safe to remove explicitly.
+    bool isObsoleteOrMalformed() const
+    {
+        return parseFailure_ == ParseFailure::ObsoleteFormat || parseFailure_ == ParseFailure::Malformed;
+    }
 
 protected:
     void parsePayload(const QDomElement &payloadElement) override;
@@ -33,10 +41,9 @@ protected:
 
 private:
     XmppEncryptedPayload payload_;
-    /// True only after all mandatory XML attributes and envelope data parsed.
-    bool valid_ { false };
-    /// Human-readable validation failure when isValid() is false.
-    QString parseError_;
+    bool                 valid_ { false };
+    QString              parseError_;
+    ParseFailure         parseFailure_ { ParseFailure::None };
 };
 
 } // namespace QtNote

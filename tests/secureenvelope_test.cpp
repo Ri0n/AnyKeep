@@ -13,6 +13,7 @@ private slots:
     void domainsProduceDifferentKeys();
     void contextIsAuthenticated_data();
     void contextIsAuthenticated();
+    void rawAeadRoundTrip();
     void recoveryKeyRoundTrip();
     void rejectsRecoveryKeyTypo();
     void opensLargeEnvelope();
@@ -64,6 +65,22 @@ void SecureEnvelopeTest::contextIsAuthenticated()
     auto opened = SecureEnvelope::open(encrypted.value, key, changed);
     QVERIFY(!opened);
     QCOMPARE(opened.error.code, CryptoError::AuthenticationFailed);
+}
+
+void SecureEnvelopeTest::rawAeadRoundTrip()
+{
+    const auto key = SecureEnvelope::generateMasterKey();
+    const auto encrypted
+        = SecureEnvelope::encryptAead(QByteArrayLiteral("portable plaintext"), key, KeyDomain::StorageIndex);
+    QVERIFY2(encrypted, qPrintable(encrypted.error.message));
+    QCOMPARE(encrypted.value.nonce.size(), 12);
+    QCOMPARE(encrypted.value.tag.size(), 16);
+    const auto opened = SecureEnvelope::decryptAead(encrypted.value, key, KeyDomain::StorageIndex);
+    QVERIFY2(opened, qPrintable(opened.error.message));
+    QCOMPARE(opened.value, QByteArrayLiteral("portable plaintext"));
+    const auto wrongDomain = SecureEnvelope::decryptAead(encrypted.value, key, KeyDomain::StorageContent);
+    QVERIFY(!wrongDomain);
+    QCOMPARE(wrongDomain.error.code, CryptoError::AuthenticationFailed);
 }
 
 void SecureEnvelopeTest::recoveryKeyRoundTrip()

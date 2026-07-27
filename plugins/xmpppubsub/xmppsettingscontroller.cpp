@@ -3,6 +3,8 @@
 #include "secureenvelope.h"
 #include "xmppstorage.h"
 
+#include <utility>
+
 namespace QtNote {
 
 XmppSettingsController::XmppSettingsController(XmppStorage *storage, const XmppConfig &config, QObject *parent) :
@@ -152,6 +154,66 @@ void XmppSettingsController::requestTrustOmemoDevice(int index)
     if (index < 0 || index >= omemoDeviceKeys_.size())
         return;
     emit trustOmemoDeviceRequested(jid(), omemoDeviceKeys_.at(index));
+}
+
+void XmppSettingsController::setCleanupScanResult(XmppCleanupResult result)
+{
+    cleanupBusy_ = false;
+    if (!result.ok) {
+        pendingCleanup_ = {};
+        cleanupStatus_  = result.error;
+    } else {
+        pendingCleanup_ = std::move(result);
+        if (pendingCleanup_.obsoleteItemCount() == 0) {
+            cleanupStatus_ = pendingCleanup_.protectedUnreadableItems
+                ? tr("No obsolete items found. %1 unsupported or authentication-protected items were left untouched.")
+                      .arg(pendingCleanup_.protectedUnreadableItems)
+                : tr("No obsolete items found.");
+        } else {
+            cleanupStatus_ = tr("Found %1 obsolete items. %2 valid items were checked.")
+                                 .arg(pendingCleanup_.obsoleteItemCount())
+                                 .arg(pendingCleanup_.validItems);
+            if (pendingCleanup_.protectedUnreadableItems) {
+                cleanupStatus_ += tr(" %1 unsupported or authentication-protected items will not be deleted.")
+                                      .arg(pendingCleanup_.protectedUnreadableItems);
+            }
+        }
+    }
+    emit cleanupChanged();
+}
+
+void XmppSettingsController::setCleanupDeleteResult(XmppCleanupResult result)
+{
+    cleanupBusy_    = false;
+    pendingCleanup_ = {};
+    cleanupStatus_  = result.ok ? tr("Removed %1 obsolete PubSub items.").arg(result.removedItems) : result.error;
+    if (result.protectedUnreadableItems) {
+        cleanupStatus_
+            += tr(" %1 items changed or were protected and were left untouched.").arg(result.protectedUnreadableItems);
+    }
+    emit cleanupChanged();
+}
+
+void XmppSettingsController::requestScanObsoleteItems()
+{
+    if (cleanupBusy_)
+        return;
+    cleanupBusy_    = true;
+    pendingCleanup_ = {};
+    cleanupStatus_  = tr("Scanning PubSub nodes…");
+    emit cleanupChanged();
+    emit scanObsoleteItemsRequested(jid());
+}
+
+void XmppSettingsController::requestDeleteObsoleteItems()
+{
+    if (cleanupBusy_ || pendingCleanup_.obsoleteItemCount() == 0)
+        return;
+    cleanupBusy_   = true;
+    cleanupStatus_ = tr("Deleting obsolete PubSub items…");
+    emit cleanupChanged();
+    emit deleteObsoleteItemsRequested(jid(), pendingCleanup_.obsoleteIndexItemIds,
+                                      pendingCleanup_.obsoleteContentItemIds);
 }
 
 bool XmppSettingsController::applyValues(const QVariantMap &, QString *error)

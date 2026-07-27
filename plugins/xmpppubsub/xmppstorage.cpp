@@ -35,6 +35,8 @@ namespace {
     constexpr int MaximumRetryDelaySeconds = 300;
     const QString QtNoteKeychainService    = QStringLiteral("com.github.ri0n.qtnote");
     const QString PsiKeychainService       = QStringLiteral("xmpp");
+    const QString IndexRecordTemplateKey   = QStringLiteral("xmpp.xml.index-template");
+    const QString ContentRecordTemplateKey = QStringLiteral("xmpp.xml.content-template");
 
     QString passwordKeyName(const QString &jid)
     {
@@ -553,6 +555,8 @@ void XmppStorage::applyRemote(Note &note, const XmppRemoteNote &remote)
     note.setBackendValue(QStringLiteral("revision"), remote.revision);
     note.setBackendValue(QStringLiteral("parentRevision"), remote.parentRevision);
     note.setBackendValue(QStringLiteral("originId"), remote.originId);
+    note.setBackendValue(IndexRecordTemplateKey, remote.indexRecordTemplate);
+    note.setBackendValue(ContentRecordTemplateKey, remote.contentRecordTemplate);
     if (remote.contentPresent)
         note.setText(remote.content, Note::Markdown);
     else
@@ -661,16 +665,18 @@ void XmppStorage::prefetchNextBody()
 XmppRemoteNote XmppStorage::toRemote(const Note &note) const
 {
     XmppRemoteNote remote;
-    remote.id             = note.id();
-    remote.revision       = note.backendValue(QStringLiteral("revision")).toString();
-    remote.parentRevision = note.backendValue(QStringLiteral("parentRevision")).toString();
-    remote.originId       = note.backendValue(QStringLiteral("originId")).toString();
-    remote.title          = note.title();
-    remote.content        = note.text();
-    remote.modified       = note.lastChangeUTC();
-    remote.format         = QStringLiteral("markdown");
-    remote.tags           = note.tags();
-    remote.contentPresent = note.isLoaded();
+    remote.id                    = note.id();
+    remote.revision              = note.backendValue(QStringLiteral("revision")).toString();
+    remote.parentRevision        = note.backendValue(QStringLiteral("parentRevision")).toString();
+    remote.originId              = note.backendValue(QStringLiteral("originId")).toString();
+    remote.title                 = note.title();
+    remote.content               = note.text();
+    remote.modified              = note.lastChangeUTC();
+    remote.format                = QStringLiteral("markdown");
+    remote.tags                  = note.tags();
+    remote.contentPresent        = note.isLoaded();
+    remote.indexRecordTemplate   = note.backendValue(IndexRecordTemplateKey).toByteArray();
+    remote.contentRecordTemplate = note.backendValue(ContentRecordTemplateKey).toByteArray();
     return remote;
 }
 
@@ -752,7 +758,7 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                             }
                             return;
                         }
-                        QHash<QString, Note> refreshed;
+                        QHash<QString, Note> refreshed = result.partial ? cache_ : QHash<QString, Note> {};
                         QStringList          missingBodies;
                         for (const auto &remote : result.notes) {
                             const auto old = cache_.constFind(remote.id);
@@ -773,7 +779,8 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                         auto notes = cache_.values();
                         std::sort(notes.begin(), notes.end(), noteListItemModifyComparer);
                         qInfo() << "XMPP index refresh loaded" << notes.size() << "note(s) for"
-                                << attempt->waiters.size() << "caller(s)";
+                                << attempt->waiters.size() << "caller(s)"
+                                << (result.partial ? "from a partial remote result" : "from a complete remote result");
                         for (const auto &waiter : attempt->waiters) {
                             if (!waiter.job || waiter.job->isFinished())
                                 continue;
@@ -1438,6 +1445,62 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
                     });
                 });
             });
+    connect(widget, &XmppSettingsController::scanObsoleteItemsRequested, this, [this, widget](const QString &jid) {
+        if (jid != config_.jid) {
+            XmppCleanupResult result;
+            result.error = tr("Apply the account settings before scanning PubSub data");
+            widget->setCleanupScanResult(std::move(result));
+            return;
+        }
+        const auto                       config = config_;
+        const auto                       epoch  = configEpoch_;
+        QPointer<XmppSettingsController> guard(widget);
+        QMetaObject::invokeMethod(backend_, [this, guard, config, epoch]() {
+            if (shuttingDown_ || epoch != configEpoch_)
+                return;
+            backend_->setConfig(config);
+            backend_->scanObsoleteItemsAsync([this, guard, epoch](XmppCleanupResult result) mutable {
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, guard, epoch, result = std::move(result)]() mutable {
+                        if (!guard || shuttingDown_ || epoch != configEpoch_)
+                            return;
+                        guard->setCleanupScanResult(std::move(result));
+                    },
+                    Qt::QueuedConnection);
+            });
+        });
+    });
+    connect(widget, &XmppSettingsController::deleteObsoleteItemsRequested, this,
+            [this, widget](const QString &jid, const QStringList &indexIds, const QStringList &contentIds) {
+                if (jid != config_.jid) {
+                    XmppCleanupResult result;
+                    result.error = tr("Apply the account settings before deleting PubSub data");
+                    widget->setCleanupDeleteResult(std::move(result));
+                    return;
+                }
+                const auto                       config = config_;
+                const auto                       epoch  = configEpoch_;
+                QPointer<XmppSettingsController> guard(widget);
+                QMetaObject::invokeMethod(backend_, [this, guard, config, indexIds, contentIds, epoch]() mutable {
+                    if (shuttingDown_ || epoch != configEpoch_)
+                        return;
+                    backend_->setConfig(config);
+                    backend_->deleteObsoleteItemsAsync(
+                        std::move(indexIds), std::move(contentIds),
+                        [this, guard, epoch](XmppCleanupResult result) mutable {
+                            QMetaObject::invokeMethod(
+                                this,
+                                [this, guard, epoch, result = std::move(result)]() mutable {
+                                    if (!guard || shuttingDown_ || epoch != configEpoch_)
+                                        return;
+                                    guard->setCleanupDeleteResult(std::move(result));
+                                },
+                                Qt::QueuedConnection);
+                        });
+                });
+            });
+
     if (!current.jid.isEmpty()) {
         QTimer::singleShot(0, widget, [widget, jid = current.jid]() { emit widget->omemoDevicesRequested(jid); });
     }

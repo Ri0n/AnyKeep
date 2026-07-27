@@ -41,6 +41,17 @@ struct XmppConfig {
     QString contentNodeName() const { return nodeName + QStringLiteral(":content:1"); }
 };
 
+/** @brief Major/minor version used by the portable XMPP wire and record formats. */
+struct XmppFormatVersion {
+    quint16 major { 1 };
+    quint16 minor { 0 };
+
+    friend bool operator==(const XmppFormatVersion &a, const XmppFormatVersion &b)
+    {
+        return a.major == b.major && a.minor == b.minor;
+    }
+};
+
 /** @brief Backend-neutral representation of a remotely synchronized note. */
 struct XmppRemoteNote {
     QString     id;
@@ -53,6 +64,10 @@ struct XmppRemoteNote {
     QString     format { QStringLiteral("markdown") };
     QStringList tags;
     bool        contentPresent { true }; ///< False for index-only list results.
+    /** UTF-8 XML template containing only versions, extensions, and unknown index fields. */
+    QByteArray indexRecordTemplate;
+    /** UTF-8 XML template containing only versions, extensions, and unknown content fields. */
+    QByteArray contentRecordTemplate;
 };
 
 /** @brief Serialized encrypted payload stored as one PubSub item. */
@@ -60,11 +75,14 @@ struct XmppEncryptedPayload {
     /// Selects the independently encrypted index metadata or note body.
     enum Kind { Index, Content };
 
-    QString    id;
-    Kind       kind { Index };
-    quint32    schema { 1 };
-    QByteArray keyId;
-    QByteArray envelope;
+    QString           id;
+    Kind              kind { Index };
+    XmppFormatVersion wireVersion;
+    XmppFormatVersion schemaVersion;
+    QByteArray        keyId;
+    QByteArray        nonce;
+    QByteArray        tag;
+    QByteArray        cipherText;
 };
 
 /** @brief OMEMO device shown by the trust and recovery UI. */
@@ -118,6 +136,17 @@ struct XmppRekeyResult : XmppStatusResult {
     int         migrated { 0 };
     int         total { 0 };
     QStringList inaccessibleNoteIds;
+};
+
+/** Result of scanning or deleting obsolete unreadable PubSub records. */
+struct XmppCleanupResult : XmppStatusResult {
+    QStringList obsoleteIndexItemIds;
+    QStringList obsoleteContentItemIds;
+    int         protectedUnreadableItems { 0 };
+    int         validItems { 0 };
+    int         removedItems { 0 };
+
+    int obsoleteItemCount() const { return obsoleteIndexItemIds.size() + obsoleteContentItemIds.size(); }
 };
 
 } // namespace QtNote

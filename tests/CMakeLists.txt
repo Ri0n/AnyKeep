@@ -69,10 +69,29 @@ add_executable(xmppnotecodec_test
     ../plugins/xmpppubsub/xmppnotecodec.cpp
 )
 target_include_directories(xmppnotecodec_test PRIVATE ../plugins/xmpppubsub)
-target_link_libraries(xmppnotecodec_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+target_link_libraries(xmppnotecodec_test PRIVATE
+    qtnote
+    Qt${QT_VERSION_MAJOR}::Test
+    Qt${QT_VERSION_MAJOR}::Xml
+)
 add_test(NAME xmppnotecodec_test COMMAND xmppnotecodec_test)
 
 if(TARGET QXmpp::QXmpp)
+    add_executable(qtnotepubsubitem_test
+        qtnotepubsubitem_test.cpp
+        ../plugins/xmpppubsub/qtnotepubsubitem.cpp
+        ../plugins/xmpppubsub/xmpppepextension.cpp
+    )
+    target_include_directories(qtnotepubsubitem_test PRIVATE ../plugins/xmpppubsub)
+    target_link_libraries(qtnotepubsubitem_test PRIVATE
+        qtnote
+        Qt${QT_VERSION_MAJOR}::Test
+        Qt${QT_VERSION_MAJOR}::Xml
+        QXmpp::QXmpp
+    )
+    qtnote_configure_qxmpp_target(qtnotepubsubitem_test)
+    add_test(NAME qtnotepubsubitem_test COMMAND qtnotepubsubitem_test)
+
     add_executable(xmppkeyresolutioncontroller_test
         xmppkeyresolutioncontroller_test.cpp
         ../plugins/xmpppubsub/xmppkeyresolutioncontroller.cpp
