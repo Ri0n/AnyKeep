@@ -62,6 +62,7 @@ private:
     void    saveGeometryState(bool remove = false);
     void    removeFromRegistry();
     void    flushEditorChanges();
+    void    requestDeferredClose();
     int     insertionRowAt(const QPointF &position) const;
 
     Main                         *main_ { nullptr };
@@ -74,6 +75,7 @@ private:
     bool                          trashRequested_ { false };
     bool                          pinning_ { false };
     bool                          closing_ { false };
+    bool                          closeQueued_ { false };
     bool                          imageDragAccepted_ { false };
 
     static QHash<QPair<QString, QString>, NoteDialog *> dialogs_;

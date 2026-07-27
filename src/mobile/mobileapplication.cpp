@@ -15,6 +15,7 @@
 
 #include <QGuiApplication>
 #include <QLocale>
+#include <QLoggingCategory>
 #ifdef Q_OS_ANDROID
 #include <QPermissions>
 #endif
@@ -27,10 +28,31 @@
 
 namespace QtNote {
 
+Q_LOGGING_CATEGORY(logMobilePersistence, "qtnote.persistence.mobile")
+
+namespace {
+    const char *applicationStateName(Qt::ApplicationState state)
+    {
+        switch (state) {
+        case Qt::ApplicationSuspended:
+            return "suspended";
+        case Qt::ApplicationHidden:
+            return "hidden";
+        case Qt::ApplicationInactive:
+            return "inactive";
+        case Qt::ApplicationActive:
+            return "active";
+        }
+        return "unknown";
+    }
+} // namespace
+
 MobileApplication::MobileApplication(QObject *parent) :
     QObject(parent), platformServices_(new AndroidPlatformServices(this)), dialogs_(new DialogService(this)),
     bundledPlugins_(this), plugins_(&bundledPlugins_, this), storages_(this)
 {
+    qCInfo(logMobilePersistence) << "Mobile persistence diagnostics started: pid="
+                                 << QCoreApplication::applicationPid();
     workspace_             = new NotesWorkspaceController(this);
     editorPlatformBackend_ = new MobileEditorPlatformBackend(platformServices_, this);
     pluginHost_            = new PluginHost(this);
@@ -45,7 +67,21 @@ MobileApplication::MobileApplication(QObject *parent) :
     editorPlatformBackend_->setEditor(workspace_->editor());
     connect(workspace_, &NotesWorkspaceController::currentEditorChanged, this, [this] {
         editorPlatformBackend_->setEditor(workspace_->editor());
+        const auto *editor = workspace_->editor();
+        qCInfo(logMobilePersistence) << "Current mobile editor changed: present=" << bool(editor)
+                                     << "storage=" << (editor ? editor->storageId() : QString())
+                                     << "noteIdPresent=" << (editor ? !editor->noteId().isEmpty() : false)
+                                     << "draft=" << (editor ? editor->draftIdString() : QString());
         emit currentNoteEditorChanged();
+    });
+    connect(qGuiApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+        const auto *editor = workspace_->editor();
+        qCInfo(logMobilePersistence) << "Android application state changed:" << applicationStateName(state)
+                                     << "editor=" << bool(editor)
+                                     << "storage=" << (editor ? editor->storageId() : QString())
+                                     << "noteIdPresent=" << (editor ? !editor->noteId().isEmpty() : false)
+                                     << "draft=" << (editor ? editor->draftIdString() : QString())
+                                     << "dirty=" << (editor ? editor->isDirty() : false);
     });
     connect(editorPlatformBackend_, &EditorPlatformBackend::operationFailed, this, &MobileApplication::operationFailed);
     connect(platformServices_, &AndroidPlatformServices::speechRecognized, this, &MobileApplication::speechRecognized);
@@ -71,8 +107,11 @@ MobileApplication::MobileApplication(QObject *parent) :
         qWarning() << "Failed to initialize encrypted draft store:" << initializationError_;
 
     auto *notes = NoteManager::instance();
-    connect(notes, &NoteManager::storageReady, this,
-            [this](const NoteStorage::Ptr &storage) { recoverDraft(storage.data()); });
+    connect(notes, &NoteManager::storageReady, this, [this](const NoteStorage::Ptr &storage) {
+        qCInfo(logMobilePersistence) << "Mobile storage became ready:" << (storage ? storage->systemName() : QString())
+                                     << "accessible=" << (storage ? storage->isAccessible() : false);
+        recoverDraft(storage.data());
+    });
     registerCoreStorages();
 
     registerMobileBundledPlugins(bundledPlugins_);
@@ -128,11 +167,14 @@ QVariantList MobileApplication::recoverableDrafts() const
 
 bool MobileApplication::createNote()
 {
+    qCInfo(logMobilePersistence) << "Mobile create-note requested";
     if (!DraftManager::instance()->isReady()) {
         qWarning() << "Cannot create note; draft store is unavailable:" << initializationError_;
         return false;
     }
-    return workspace_->createNote();
+    const bool created = workspace_->createNote();
+    qCInfo(logMobilePersistence) << "Mobile create-note result:" << created;
+    return created;
 }
 
 bool MobileApplication::openEditor(const Note &note, const QUuid &draftId)
@@ -142,14 +184,29 @@ bool MobileApplication::openEditor(const Note &note, const QUuid &draftId)
 
 void MobileApplication::recoverDraft(NoteStorage *storage)
 {
+    qCInfo(logMobilePersistence) << "Attempting mobile draft recovery: storage="
+                                 << (storage ? storage->systemName() : QString())
+                                 << "currentEditor=" << bool(workspace_->currentEditor())
+                                 << "draftStoreReady=" << DraftManager::instance()->isReady();
     if (!storage || workspace_->currentEditor() || !DraftManager::instance()->isReady())
         return;
-    for (const auto &draft : DraftManager::instance()->recoverableDrafts()) {
+    const auto drafts = DraftManager::instance()->recoverableDrafts();
+    qCInfo(logMobilePersistence) << "Recoverable drafts considered for storage" << storage->systemName()
+                                 << drafts.size();
+    for (const auto &draft : drafts) {
         if (!draft.storageId.isEmpty() && draft.storageId != storage->systemName())
             continue;
+        qCInfo(logMobilePersistence) << "Trying draft recovery: draft=" << draft.id.toString(QUuid::WithoutBraces)
+                                     << "storage=" << draft.storageId
+                                     << "remoteNotePresent=" << !draft.remoteNoteId.isEmpty()
+                                     << "revision=" << draft.revision;
         auto note = draft.remoteNoteId.isEmpty() ? storage->createNote() : storage->note(draft.remoteNoteId);
-        if (!note.isNull() && openEditor(note, draft.id))
+        if (!note.isNull() && openEditor(note, draft.id)) {
+            qCInfo(logMobilePersistence) << "Recovered draft into editor" << draft.id.toString(QUuid::WithoutBraces);
             return;
+        }
+        qCWarning(logMobilePersistence) << "Failed to recover draft" << draft.id.toString(QUuid::WithoutBraces)
+                                        << "noteNull=" << note.isNull();
     }
 }
 
@@ -203,8 +260,31 @@ bool MobileApplication::discardDraft(const QString &draftId)
     return true;
 }
 
-bool MobileApplication::saveCurrentNote() { return workspace_->saveCurrentNote(); }
-bool MobileApplication::closeCurrentNote() { return workspace_->closeCurrentNote(); }
+bool MobileApplication::saveCurrentNote()
+{
+    const auto *editor = workspace_->editor();
+    qCInfo(logMobilePersistence) << "Mobile checkpoint requested: editor=" << bool(editor)
+                                 << "storage=" << (editor ? editor->storageId() : QString())
+                                 << "noteIdPresent=" << (editor ? !editor->noteId().isEmpty() : false)
+                                 << "draft=" << (editor ? editor->draftIdString() : QString())
+                                 << "dirty=" << (editor ? editor->isDirty() : false);
+    const bool saved = workspace_->saveCurrentNote();
+    qCInfo(logMobilePersistence) << "Mobile checkpoint result:" << saved;
+    return saved;
+}
+
+bool MobileApplication::closeCurrentNote()
+{
+    const auto *editor = workspace_->editor();
+    qCInfo(logMobilePersistence) << "Mobile close-note requested: editor=" << bool(editor)
+                                 << "storage=" << (editor ? editor->storageId() : QString())
+                                 << "noteIdPresent=" << (editor ? !editor->noteId().isEmpty() : false)
+                                 << "draft=" << (editor ? editor->draftIdString() : QString())
+                                 << "dirty=" << (editor ? editor->isDirty() : false);
+    const bool closed = workspace_->closeCurrentNote();
+    qCInfo(logMobilePersistence) << "Mobile close-note result:" << closed;
+    return closed;
+}
 
 QString MobileApplication::currentNoteTitle() const
 {

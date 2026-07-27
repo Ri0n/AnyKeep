@@ -27,6 +27,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QLoggingCategory>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
@@ -37,6 +38,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "qtnote_config.h"
 
 namespace QtNote {
+
+Q_LOGGING_CATEGORY(logDataPaths, "qtnote.persistence.paths")
 
 QString Utils::cuttedDots(const QString &src, int length)
 {
@@ -56,9 +59,16 @@ const QString &Utils::qtnoteDataDir()
 #ifdef Q_OS_ANDROID
         // Android application data must stay in the app-specific internal
         // directory. GenericDataLocation may resolve to shared storage.
-        dataDir = QDir::cleanPath(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
-        if (!QDir().mkpath(dataDir))
-            qWarning() << "Could not create QtNote data directory" << dataDir;
+        const QString rawPath   = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        dataDir                 = QDir::cleanPath(rawPath);
+        const bool      created = QDir().mkpath(dataDir);
+        const QFileInfo info(dataDir);
+        qCInfo(logDataPaths).noquote() << "Android data path: raw=" << rawPath << "resolved=" << dataDir
+                                       << "created=" << created << "exists=" << info.exists()
+                                       << "directory=" << info.isDir() << "readable=" << info.isReadable()
+                                       << "writable=" << info.isWritable();
+        if (!created)
+            qCWarning(logDataPaths) << "Could not create QtNote data directory" << dataDir;
 #else
         QSettings s;
         dataDir = genericDataDir() + QLatin1Char('/') + s.organizationName() + QLatin1Char('/') + s.applicationName();

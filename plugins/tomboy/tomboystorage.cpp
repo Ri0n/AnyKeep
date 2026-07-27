@@ -223,8 +223,9 @@ bool TomboyStorage::loadNote(Note &note)
 bool TomboyStorage::saveNote(const Note &note)
 {
     // availableFormats returns just markdown, so format is markdown
-    QString oldNoteId = note.id();
-    QString newNoteId = oldNoteId.isEmpty() ? newId() : oldNoteId;
+    QString    oldNoteId         = note.id();
+    const bool existedBeforeSave = noteFileExists(oldNoteId);
+    QString    newNoteId         = oldNoteId.isEmpty() ? newId() : oldNoteId;
 
     auto       baseName = QString(QLatin1String("%1.note")).arg(newNoteId);
     const auto fileName = notesDir.absoluteFilePath(baseName);
@@ -235,7 +236,7 @@ bool TomboyStorage::saveNote(const Note &note)
     Note saved = note;
     saved.setId(newNoteId);
     saved.setBackendValue(QStringLiteral("fileName"), fileName);
-    putToCache(saved, oldNoteId);
+    notifyNoteSaved(saved, oldNoteId, existedBeforeSave);
     return true;
 }
 

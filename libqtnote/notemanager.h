@@ -56,11 +56,15 @@ private slots:
     void searcherFinished();
 };
 
+class NotesIndex;
+
 class QTNOTE_EXPORT NoteManager : public QObject {
     Q_OBJECT
 public:
     static NoteManager      *instance();
     static GlobalNoteFinder *search() { return new GlobalNoteFinder(instance()); }
+
+    NotesIndex *notesIndex() const { return _notesIndex; }
 
     void registerStorage(std::unique_ptr<NoteStorage> storage);
     void unregisterStorage(NoteStorage *storage);
@@ -103,6 +107,7 @@ private:
     QMap<QString, NoteStorage::Ptr>                 _storages;
     mutable std::list<NoteStorage::Ptr>             _prioCache;
     std::map<QString, std::unique_ptr<NoteStorage>> _ownedStorages;
+    NotesIndex                                     *_notesIndex;
 };
 
 }

@@ -24,12 +24,18 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QLoggingCategory>
 #include <QSettings>
 #include <QUuid>
 
 #include "settingscontroller.h"
 
+#include <algorithm>
+#include <utility>
+
 namespace QtNote {
+
+Q_LOGGING_CATEGORY(logFileStorage, "qtnote.persistence.file")
 
 class FileStorageSettingsController final : public SettingsController {
 public:
@@ -75,55 +81,60 @@ private:
     FileStorage *storage_;
 };
 
-FileStorage::FileStorage(QObject *parent) : NoteStorage(parent), _cacheValid(false) { }
+FileStorage::FileStorage(QObject *parent) : NoteStorage(parent) { }
 
 void FileStorage::removeNote(const QString &noteId)
 {
-    auto r = cache.find(noteId);
-    if (r == cache.end()) {
+    QFileInfoList matchingFiles;
+    for (const auto &ext : std::as_const(fileExt)) {
+        const QFileInfo fileInfo(notesDir.absoluteFilePath(QStringLiteral("%1.%2").arg(noteId, ext)));
+        if (fileInfo.exists())
+            matchingFiles.append(fileInfo);
+    }
+
+    Note       removed;
+    const auto summaries = noteListFromInfoList(matchingFiles);
+    if (!summaries.isEmpty())
+        removed = summaries.first();
+
+    bool deleted = false;
+    for (const auto &fileInfo : std::as_const(matchingFiles)) {
+        if (QFile::remove(fileInfo.absoluteFilePath()))
+            deleted = true;
+    }
+    if (!deleted) {
+        emit invalidated();
         return;
     }
-    bool deleted = false;
-    for (auto const &ext : std::as_const(fileExt)) {
-        if (notesDir.remove(QString("%1.%2").arg(noteId, ext))) {
-            deleted = true;
-        }
-    }
-    if (deleted) {
-        Note item = r.value();
-        cache.erase(r);
-        emit noteRemoved(item);
-    }
+    if (!removed.isNull())
+        emit noteRemoved(removed);
+    else
+        emit invalidated();
 }
 
 void FileStorage::handleFSError()
 {
-    cache.clear();
-    _cacheValid = false;
+    qCWarning(logFileStorage) << "Filesystem error in storage" << systemName() << "path=" << notesDir.absolutePath();
     emit storageErorr(tr("File system error for storage \"%1\". Please check your settings.").arg(name()));
     emit invalidated();
 }
 
-void FileStorage::putToCache(const Note &note, const QString &oldNoteId)
+bool FileStorage::noteFileExists(const QString &noteId) const
 {
-    bool isModify;
-    bool idChange = false;
-
-    ensureChachePopulated();
-
-    if (!oldNoteId.isEmpty() && oldNoteId != note.id()) {
-        isModify = cache.contains(oldNoteId);
-        idChange = true;
-    } else {
-        isModify = cache.contains(note.id());
+    if (noteId.isEmpty())
+        return false;
+    for (const auto &ext : std::as_const(fileExt)) {
+        if (QFileInfo::exists(notesDir.absoluteFilePath(QStringLiteral("%1.%2").arg(noteId, ext))))
+            return true;
     }
+    return false;
+}
 
-    cache.insert(note.id(), note);
-    if (isModify) {
-        if (idChange) {
-            cache.remove(oldNoteId);
+void FileStorage::notifyNoteSaved(const Note &note, const QString &oldNoteId, bool existedBeforeSave)
+{
+    if (existedBeforeSave) {
+        if (!oldNoteId.isEmpty() && oldNoteId != note.id())
             emit noteIdChanged(note, oldNoteId);
-        }
         emit noteModified(note);
     } else {
         emit noteAdded(note);
@@ -148,8 +159,6 @@ bool FileStorage::setStoragePath(const QString &path)
     notesDir.setPath(absolutePath);
     QSettings().setValue(QStringLiteral("storage.%1.path").arg(systemName()),
                          notesDir.absolutePath() == findStorageDir() ? QString() : absolutePath);
-    cache.clear();
-    _cacheValid = false;
     init();
     emit invalidated();
     return true;
@@ -164,37 +173,24 @@ SettingsController *FileStorage::createSettingsController(QObject *parent)
 
 QString FileStorage::tooltip() { return QString("<b>%1:</b> %2").arg(tr("Storage path"), notesDir.absolutePath()); }
 
-void FileStorage::ensureChachePopulated()
-{
-    if (_cacheValid) {
-        return;
-    }
-    if (isAccessible()) {
-        QStringList wcards;
-        // could be done with ranges but see https://bugreports.qt.io/browse/QTBUG-120924
-        for (auto const &ext : std::as_const(fileExt)) {
-            wcards.append(QLatin1String("*.") + ext);
-        }
-
-        QFileInfoList files = notesDir.entryInfoList(wcards, QDir::Files, QDir::Time);
-        auto          ret   = noteListFromInfoList(files);
-        cache.clear();
-        for (auto &n : ret) {
-            cache.insert(n.id(), n);
-        }
-        _cacheValid = true;
-    } else {
-        handleFSError();
-    }
-}
-
 QList<Note> FileStorage::noteList(int limit)
 {
-    ensureChachePopulated();
-    QList<Note> ret = cache.values();
-    std::sort(ret.begin(), ret.end(), noteListItemModifyComparer);
-    // probably sort is unnecesary here if the only accessor is notemanager which also does sorting.
-    return limit ? ret.mid(0, limit) : ret;
+    if (!isAccessible()) {
+        handleFSError();
+        return {};
+    }
+
+    QStringList wildcards;
+    // Could be done with ranges but see https://bugreports.qt.io/browse/QTBUG-120924
+    for (const auto &ext : std::as_const(fileExt))
+        wildcards.append(QLatin1String("*.") + ext);
+
+    const auto files = notesDir.entryInfoList(wildcards, QDir::Files, QDir::Time);
+    qCInfo(logFileStorage) << "Scanning file storage: storage=" << systemName() << "path=" << notesDir.absolutePath()
+                           << "filters=" << wildcards << "entries=" << files.size();
+    auto notes = noteListFromInfoList(files);
+    std::sort(notes.begin(), notes.end(), noteListItemModifyComparer);
+    return limit > 0 ? notes.mid(0, limit) : notes;
 }
 
 } // namespace QtNote

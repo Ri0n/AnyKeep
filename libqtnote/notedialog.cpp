@@ -151,7 +151,22 @@ bool NoteDialog::askBeforeDelete() const
     return QSettings().value(QStringLiteral("ui.ask-on-delete"), true).toBool();
 }
 
-void NoteDialog::requestClose() { close(); }
+void NoteDialog::requestClose() { requestDeferredClose(); }
+
+void NoteDialog::requestDeferredClose()
+{
+    if (closing_ || closeQueued_)
+        return;
+
+    closeQueued_ = true;
+    QMetaObject::invokeMethod(
+        this,
+        [this] {
+            closeQueued_ = false;
+            close();
+        },
+        Qt::QueuedConnection);
+}
 
 bool NoteDialog::deleteNote()
 {
@@ -165,7 +180,7 @@ bool NoteDialog::deleteNote()
     }
     trashRequested_ = true;
     editor_->discardAndClose();
-    close();
+    requestDeferredClose();
     return true;
 }
 
@@ -177,7 +192,7 @@ bool NoteDialog::pinNote()
         return false;
     }
     pinning_ = true;
-    close();
+    requestDeferredClose();
     return true;
 }
 
@@ -215,7 +230,7 @@ void NoteDialog::trashRequested()
 {
     trashRequested_ = true;
     editor_->discardAndClose();
-    close();
+    requestDeferredClose();
 }
 
 void NoteDialog::closeEvent(QCloseEvent *event)
@@ -224,7 +239,8 @@ void NoteDialog::closeEvent(QCloseEvent *event)
         event->accept();
         return;
     }
-    closing_ = true;
+    closing_     = true;
+    closeQueued_ = false;
     flushEditorChanges();
     if (!trashRequested_ && !editor_->close()) {
         closing_ = false;
@@ -240,9 +256,9 @@ void NoteDialog::closeEvent(QCloseEvent *event)
     if (pinning_)
         main_->pinNote(editor_->note(), editor_->draftId(), awaitingPublication, preferredGeometry);
 
-    // Destroy the QML pane before the deferred window deletion. This stops its
-    // autosave timer and releases live bindings to the editor immediately.
-    setSource(QUrl());
+    // Keep the QML object tree alive until deleteLater() runs. Destroying it
+    // from closeEvent() is unsafe when close was requested by a QML signal
+    // handler (for example, the toolbar delete action).
     event->accept();
     QQuickView::closeEvent(event);
     deleteLater();

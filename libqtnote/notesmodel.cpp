@@ -1,6 +1,7 @@
 #include "notesmodel.h"
 
 #include "notemanager.h"
+#include "notesindex.h"
 #include "storageiconimageprovider.h"
 
 #include <QDataStream>
@@ -16,8 +17,10 @@ namespace QtNote {
 namespace {
     QString notePreview(const Note &note)
     {
-        if (!note.isLoaded())
-            return {};
+        const auto indexedPreview = note.backendValue(QStringLiteral("qtnote.index.preview")).toString();
+        if (!indexedPreview.isEmpty() || !note.isLoaded())
+            return indexedPreview;
+
         QString preview = note.text().simplified();
         if (preview.size() > 180)
             preview = preview.left(177) + QStringLiteral("...");
@@ -47,31 +50,16 @@ public:
         preview    = notePreview(note);
     }
 
-    void sortAllNotes() { std::sort(allNotes.begin(), allNotes.end(), noteListItemModifyComparer); }
-
-    int allNoteIndex(const QString &noteId) const
-    {
-        for (int i = 0; i < allNotes.size(); ++i) {
-            if (allNotes.at(i).id() == noteId)
-                return i;
-        }
-        return -1;
-    }
-
     NMMItem             *parent { nullptr };
     NotesModel::ItemType type { NotesModel::ItemStorage };
     NoteStorage::Ptr     storage;
     QList<NMMItem *>     children;
-    QList<Note>          allNotes;
     Note                 summary;
     QString              title;
     QString              id;
     QStringList          tags;
     QString              preview;
     QDateTime            lastChange;
-    QString              errorString;
-    bool                 loading { false };
-    quint64              refreshGeneration { 0 };
     int                  preSearchVisibleCount { 0 };
 };
 
@@ -85,6 +73,8 @@ NotesModel::NotesModel(QObject *parent) : QAbstractItemModel(parent)
     connect(manager, &NoteManager::storageAboutToBeRemoved, this, &NotesModel::storageAboutToBeRemoved);
     connect(manager, &NoteManager::storageChanged, this, &NotesModel::storageChanged);
     connect(manager, &NoteManager::storageReady, this, &NotesModel::storageReady);
+    connect(manager->notesIndex(), &NotesIndex::storageNotesChanged, this, &NotesModel::storageIndexChanged);
+    connect(manager->notesIndex(), &NotesIndex::storageStateChanged, this, &NotesModel::storageIndexStateChanged);
 }
 
 NotesModel::~NotesModel() { qDeleteAll(storages_); }
@@ -160,13 +150,13 @@ QVariant NotesModel::data(const QModelIndex &modelIndex, int role) const
         return storage ? bool(item->storage && item->storage->isAccessible())
                        : bool(item->parent->storage && item->parent->storage->isAccessible());
     case LoadingRole:
-        return storage && item->loading;
+        return storage && NoteManager::instance()->notesIndex()->isLoading(item->id);
     case ErrorStringRole:
-        return storage ? item->errorString : QString();
+        return storage ? NoteManager::instance()->notesIndex()->errorString(item->id) : QString();
     case HasMoreRole:
-        return storage && item->children.size() < item->allNotes.size();
+        return storage && item->children.size() < NoteManager::instance()->notesIndex()->noteCount(item->id);
     case NoteCountRole:
-        return storage ? item->allNotes.size() : 0;
+        return storage ? NoteManager::instance()->notesIndex()->noteCount(item->id) : 0;
     case IconSourceRole:
         return storageIconSource(storage ? item->id : item->parent->id, !storage);
     default:
@@ -209,19 +199,21 @@ bool NotesModel::canFetchMore(const QModelIndex &parentIndex) const
     if (!parentIndex.isValid())
         return false;
     auto *item = static_cast<NMMItem *>(parentIndex.internalPointer());
-    return item && item->type == ItemStorage && item->children.size() < item->allNotes.size();
+    return item && item->type == ItemStorage
+        && item->children.size() < NoteManager::instance()->notesIndex()->noteCount(item->id);
 }
 
 void NotesModel::fetchMore(const QModelIndex &parentIndex)
 {
     if (!canFetchMore(parentIndex))
         return;
-    auto     *item  = static_cast<NMMItem *>(parentIndex.internalPointer());
-    const int first = item->children.size();
-    const int count = qMin(pageSize_, item->allNotes.size() - first);
+    auto      *item  = static_cast<NMMItem *>(parentIndex.internalPointer());
+    const auto notes = indexedNotes(item->id);
+    const int  first = item->children.size();
+    const int  count = qMin(pageSize_, notes.size() - first);
     beginInsertRows(parentIndex, first, first + count - 1);
     for (int i = 0; i < count; ++i)
-        item->children.append(new NMMItem(item->allNotes.at(first + i), item));
+        item->children.append(new NMMItem(notes.at(first + i), item));
     endInsertRows();
     emit dataChanged(parentIndex, parentIndex, { HasMoreRole });
 }
@@ -286,25 +278,23 @@ bool NotesModel::dropMimeData(const QMimeData *data, Qt::DropAction action, int,
 
 int NotesModel::noteCount() const
 {
-    int count = 0;
+    int         count = 0;
+    const auto *index = NoteManager::instance()->notesIndex();
     for (const auto *storage : storages_)
-        count += storage->allNotes.size();
+        count += index->noteCount(storage->id);
     return count;
 }
 
 void NotesModel::refresh()
 {
-    for (auto *item : std::as_const(storages_)) {
-        if (item->storage)
-            startStorageRefresh(item->storage);
-    }
+    auto *index = NoteManager::instance()->notesIndex();
+    for (auto *item : std::as_const(storages_))
+        index->refreshStorage(item->id);
 }
 
 void NotesModel::refreshStorage(const QString &storageId)
 {
-    const auto storage = NoteManager::instance()->storage(storageId);
-    if (storage)
-        startStorageRefresh(storage);
+    NoteManager::instance()->notesIndex()->refreshStorage(storageId);
 }
 
 QVariantMap NotesModel::itemData(int row, const QModelIndex &parentIndex) const
@@ -327,7 +317,7 @@ void NotesModel::setSearchActive(bool active)
     for (auto *item : std::as_const(storages_)) {
         if (active) {
             item->preSearchVisibleCount = item->children.size();
-            replaceVisibleNotes(item, item->allNotes.size());
+            replaceVisibleNotes(item, indexedNotes(item->id).size());
         } else {
             replaceVisibleNotes(item, qMax(pageSize_, item->preSearchVisibleCount));
             item->preSearchVisibleCount = 0;
@@ -361,8 +351,7 @@ void NotesModel::storageAdded(const NoteStorage::Ptr &storage)
     auto *item = new NMMItem(storage);
     storages_.insert(row, item);
     endInsertRows();
-    setStorageSignalHandlers(storage);
-    startStorageRefresh(storage);
+    replaceVisibleNotes(item, searchActive_ ? indexedNotes(item->id).size() : pageSize_);
     emit statsChanged();
 }
 
@@ -373,9 +362,6 @@ void NotesModel::storageAboutToBeRemoved(const NoteStorage::Ptr &storage)
     const int row = storages_.indexOf(storageItem(storage->systemName()));
     if (row < 0)
         return;
-    if (refreshJobs_.contains(storage->systemName()) && refreshJobs_.value(storage->systemName()))
-        refreshJobs_.value(storage->systemName())->cancel();
-    refreshJobs_.remove(storage->systemName());
     beginRemoveRows({}, row, row);
     delete storages_.takeAt(row);
     endRemoveRows();
@@ -395,73 +381,24 @@ void NotesModel::storageChanged(const NoteStorage::Ptr &storage)
                          { Qt::DisplayRole, Qt::DecorationRole, TitleRole, StorageNameRole, AccessibleRole });
 }
 
-void NotesModel::storageReady(const NoteStorage::Ptr &storage)
-{
-    storageChanged(storage);
-    if (storage)
-        startStorageRefresh(storage);
-}
+void NotesModel::storageReady(const NoteStorage::Ptr &storage) { storageChanged(storage); }
 
-void NotesModel::noteAdded(const Note &note) { updateNoteSummary(note, false); }
-void NotesModel::noteModified(const Note &note) { updateNoteSummary(note, false); }
-void NotesModel::noteRemoved(const Note &note) { updateNoteSummary(note, true); }
-
-void NotesModel::storageInvalidated()
+void NotesModel::storageIndexChanged(const QString &storageId)
 {
-    auto *storageObject = qobject_cast<NoteStorage *>(sender());
-    if (storageObject)
-        refreshStorage(storageObject->systemName());
-}
-
-void NotesModel::setStorageSignalHandlers(const NoteStorage::Ptr &storage)
-{
-    connect(storage, &NoteStorage::noteAdded, this, &NotesModel::noteAdded);
-    connect(storage, &NoteStorage::noteModified, this, &NotesModel::noteModified);
-    connect(storage, &NoteStorage::noteRemoved, this, &NotesModel::noteRemoved);
-    connect(storage, &NoteStorage::invalidated, this, &NotesModel::storageInvalidated);
-}
-
-void NotesModel::startStorageRefresh(const NoteStorage::Ptr &storage)
-{
-    auto *item = storageItem(storage ? storage->systemName() : QString());
-    if (!item || !storage)
+    auto *item = storageItem(storageId);
+    if (!item)
         return;
+    const int desiredCount = searchActive_ ? indexedNotes(storageId).size() : qMax(item->children.size(), pageSize_);
+    replaceVisibleNotes(item, desiredCount);
+    emit statsChanged();
+}
 
-    if (refreshJobs_.contains(item->id) && refreshJobs_.value(item->id))
-        refreshJobs_.value(item->id)->cancel();
-
-    item->loading = true;
-    item->errorString.clear();
-    ++item->refreshGeneration;
-    const quint64 generation  = item->refreshGeneration;
-    const auto    parentIndex = storageIndex(item->id);
-    emit          dataChanged(parentIndex, parentIndex, { LoadingRole, ErrorStringRole });
-
-    auto *job = storage->refreshNotesAsync(0, this);
-    refreshJobs_.insert(item->id, job);
-    connect(job, &StorageJob::finished, this, [this, storageId = item->id, generation, job]() {
-        auto *current = storageItem(storageId);
-        if (!current || generation != current->refreshGeneration) {
-            job->deleteLater();
-            return;
-        }
-        refreshJobs_.remove(storageId);
-        current->loading = false;
-        if (job->state() == StorageJob::Succeeded) {
-            current->allNotes = job->result();
-            current->sortAllNotes();
-            current->errorString.clear();
-            replaceVisibleNotes(current, searchActive_ ? current->allNotes.size() : pageSize_);
-        } else if (job->state() != StorageJob::Cancelled) {
-            current->errorString = job->error().message.isEmpty() ? tr("Failed to load notes") : job->error().message;
-        }
-        const auto parentIndex = storageIndex(storageId);
-        if (parentIndex.isValid())
-            emit dataChanged(parentIndex, parentIndex,
-                             { LoadingRole, ErrorStringRole, HasMoreRole, NoteCountRole, AccessibleRole });
-        emit statsChanged();
-        job->deleteLater();
-    });
+void NotesModel::storageIndexStateChanged(const QString &storageId)
+{
+    const auto modelIndex = storageIndex(storageId);
+    if (modelIndex.isValid())
+        emit dataChanged(modelIndex, modelIndex,
+                         { LoadingRole, ErrorStringRole, HasMoreRole, NoteCountRole, AccessibleRole });
 }
 
 void NotesModel::replaceVisibleNotes(NMMItem *storageItem, int desiredCount)
@@ -478,11 +415,12 @@ void NotesModel::replaceVisibleNotes(NMMItem *storageItem, int desiredCount)
     }
     if (desiredCount < 0)
         desiredCount = pageSize_;
-    const int count = qMin(desiredCount, storageItem->allNotes.size());
+    const auto notes = indexedNotes(storageItem->id);
+    const int  count = qMin(desiredCount, notes.size());
     if (count > 0) {
         beginInsertRows(parentIndex, 0, count - 1);
         for (int i = 0; i < count; ++i)
-            storageItem->children.append(new NMMItem(storageItem->allNotes.at(i), storageItem));
+            storageItem->children.append(new NMMItem(notes.at(i), storageItem));
         endInsertRows();
     }
     if (parentIndex.isValid())
@@ -517,23 +455,9 @@ NMMItem *NotesModel::storageItem(const QString &storageId) const
     return nullptr;
 }
 
-void NotesModel::updateNoteSummary(const Note &note, bool remove)
+QList<Note> NotesModel::indexedNotes(const QString &storageId) const
 {
-    if (note.isNull() || !note.storage())
-        return;
-    auto *storage = storageItem(note.storage()->systemName());
-    if (!storage)
-        return;
-
-    const int previousVisibleCount = storage->children.size();
-    const int existing             = storage->allNoteIndex(note.id());
-    if (existing >= 0)
-        storage->allNotes.removeAt(existing);
-    if (!remove)
-        storage->allNotes.append(note);
-    storage->sortAllNotes();
-    replaceVisibleNotes(storage, searchActive_ ? storage->allNotes.size() : qMax(previousVisibleCount, pageSize_));
-    emit statsChanged();
+    return NoteManager::instance()->notesIndex()->notes(storageId);
 }
 
 } // namespace QtNote

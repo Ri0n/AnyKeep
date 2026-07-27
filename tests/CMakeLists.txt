@@ -44,6 +44,10 @@ add_executable(ptfstorage_test ptfstorage_test.cpp)
 target_link_libraries(ptfstorage_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME ptfstorage_test COMMAND ptfstorage_test)
 
+add_executable(notesindex_test notesindex_test.cpp)
+target_link_libraries(notesindex_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME notesindex_test COMMAND notesindex_test)
+
 add_executable(filedraftstore_test filedraftstore_test.cpp)
 target_link_libraries(filedraftstore_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME filedraftstore_test COMMAND filedraftstore_test)

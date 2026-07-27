@@ -67,6 +67,7 @@ set(qtnote_CORE_SRCS
     notefragment.cpp
     notefragmentmediatransfer.cpp
     notemanager.cpp
+    notesindex.cpp
     notesmodel.cpp
     notessearchmodel.cpp
     notesworkspacecontroller.cpp
@@ -111,6 +112,7 @@ set(qtnote_CORE_HDRS
     notefragment.h
     notefragmentmediatransfer.h
     notemanager.h
+    notesindex.h
     notesmodel.h
     notessearchmodel.h
     notesworkspacecontroller.h

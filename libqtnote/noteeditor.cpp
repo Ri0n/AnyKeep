@@ -7,10 +7,13 @@
 #include "utils.h"
 
 #include <QDebug>
+#include <QLoggingCategory>
 #include <QMetaObject>
 #include <QTimer>
 
 namespace QtNote {
+
+Q_LOGGING_CATEGORY(logEditorPersistence, "qtnote.persistence.editor")
 
 NoteEditor::NoteEditor(const Note &note, const QUuid &draftId, QObject *parent) :
     NoteEditor(note, *DraftManager::instance(), draftId, parent)
@@ -21,7 +24,10 @@ NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draf
     QObject(parent), note_(note), drafts_(&drafts), model_(new NoteBlockModel(this)),
     history_(std::make_unique<NoteDocumentHistory>())
 {
-    draftId_         = drafts_->acquireEditingSession(note_, draftId);
+    draftId_ = drafts_->acquireEditingSession(note_, draftId);
+    qCInfo(logEditorPersistence) << "Editor session created: draft=" << draftId_.toString(QUuid::WithoutBraces)
+                                 << "storage=" << note_.storageId() << "noteIdPresent=" << !note_.id().isEmpty()
+                                 << "knownDraft=" << draftId.toString(QUuid::WithoutBraces);
     const auto draft = drafts_->editingDraft(draftId_);
     if (draft)
         adoptEditingDraft(draft.value);
@@ -80,6 +86,9 @@ NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draf
 
 NoteEditor::~NoteEditor()
 {
+    qCInfo(logEditorPersistence) << "Editor session destroyed: draft=" << draftId_.toString(QUuid::WithoutBraces)
+                                 << "storage=" << note_.storageId() << "noteIdPresent=" << !note_.id().isEmpty()
+                                 << "dirty=" << dirty_ << "released=" << sessionReleased_;
     // QUndoStack emits state changes while it is being destroyed. Detach the
     // outward callback before QObject children or a registered view can enter
     // their base-class destructors.
@@ -134,8 +143,14 @@ void NoteEditor::setMarkdown(bool markdown)
 
 bool NoteEditor::save()
 {
-    if (!dirty_)
+    qCInfo(logEditorPersistence) << "Editor checkpoint requested: draft=" << draftId_.toString(QUuid::WithoutBraces)
+                                 << "storage=" << note_.storageId() << "noteIdPresent=" << !note_.id().isEmpty()
+                                 << "dirty=" << dirty_ << "textLength=" << text_.size() << "format=" << int(format_);
+    if (!dirty_) {
+        qCInfo(logEditorPersistence) << "Editor checkpoint skipped because document is clean"
+                                     << draftId_.toString(QUuid::WithoutBraces);
         return true;
+    }
 
     const bool hasEditingDraft = draftPersisted_ || bool(drafts_->editingDraft(draftId_));
     if (text_ == baselineText_ && format_ == baselineFormat_ && !hasEditingDraft) {
@@ -158,18 +173,26 @@ bool NoteEditor::save()
     }
 
     const auto result = drafts_->saveEditing(draftId_, note_, split.first, split.second, format_);
-    if (result)
+    if (result) {
+        qCWarning(logEditorPersistence) << "Editor checkpoint failed:" << draftId_.toString(QUuid::WithoutBraces)
+                                        << int(result.code) << result.message;
         return setError(result.message);
+    }
 
     setDirty(false);
     draftPersisted_ = true;
     if (const auto draft = drafts_->editingDraft(draftId_); draft)
         draftRevision_ = draft.value.revision;
+    qCInfo(logEditorPersistence) << "Editor checkpoint completed: draft=" << draftId_.toString(QUuid::WithoutBraces)
+                                 << "revision=" << draftRevision_;
     return true;
 }
 
 bool NoteEditor::close()
 {
+    qCInfo(logEditorPersistence) << "Editor close requested: draft=" << draftId_.toString(QUuid::WithoutBraces)
+                                 << "storage=" << note_.storageId() << "noteIdPresent=" << !note_.id().isEmpty()
+                                 << "dirty=" << dirty_ << "released=" << sessionReleased_;
     if (sessionReleased_)
         return true;
     if (dirty_ && !save())
@@ -179,14 +202,21 @@ bool NoteEditor::close()
         const auto draft = drafts_->editingDraft(draftId_);
         if (draft) {
             const auto result = drafts_->markReady(draftId_);
-            if (result)
+            if (result) {
+                qCWarning(logEditorPersistence)
+                    << "Failed to make editor draft publishable" << draftId_.toString(QUuid::WithoutBraces)
+                    << int(result.code) << result.message;
                 return setError(result.message);
+            }
+            qCInfo(logEditorPersistence) << "Editor draft marked ready for publication"
+                                         << draftId_.toString(QUuid::WithoutBraces);
         } else if (draft.error.code != DraftStoreError::NotFound) {
             return setError(draft.error.message);
         }
     }
     drafts_->releaseEditingSession(draftId_);
     sessionReleased_ = true;
+    qCInfo(logEditorPersistence) << "Editor close completed" << draftId_.toString(QUuid::WithoutBraces);
     return true;
 }
 

@@ -12,6 +12,7 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QLoggingCategory>
 #include <QTimer>
 
 // Uncomment for detailed draft publication/conflict diagnostics.
@@ -23,7 +24,33 @@
 #define CONFLICT_TRACE QNoDebug()
 #endif
 namespace QtNote {
+
+Q_LOGGING_CATEGORY(logDraftPersistence, "qtnote.persistence.drafts")
+
 namespace {
+
+    const char *draftStateName(DraftRecord::State state)
+    {
+        switch (state) {
+        case DraftRecord::Editing:
+            return "editing";
+        case DraftRecord::Ready:
+            return "ready";
+        case DraftRecord::Publishing:
+            return "publishing";
+        case DraftRecord::Retry:
+            return "retry";
+        case DraftRecord::NeedsRouting:
+            return "needs-routing";
+        }
+        return "unknown";
+    }
+
+    const char *draftOperationName(DraftRecord::Operation operation)
+    {
+        return operation == DraftRecord::Delete ? "delete" : "publish";
+    }
+
     QString concurrencySummary(const QVariantMap &data)
     {
         QStringList       parts;
@@ -87,8 +114,10 @@ DraftManager *DraftManager::instance()
 
 bool DraftManager::initialize(QString *errorText)
 {
-    if (store_)
+    if (store_) {
+        qCInfo(logDraftPersistence) << "Draft manager already initialized";
         return true;
+    }
     QString error;
     auto    key = LocalDataKeyStore::loadOrCreateMasterKey(&error);
     if (key.isEmpty()) {
@@ -97,7 +126,9 @@ bool DraftManager::initialize(QString *errorText)
             *errorText = error;
         return false;
     }
-    store_       = std::make_unique<FileDraftStore>(Utils::qtnoteDataDir() + QStringLiteral("/drafts"), std::move(key));
+    const QString draftsPath = Utils::qtnoteDataDir() + QStringLiteral("/drafts");
+    qCInfo(logDraftPersistence) << "Initializing draft store at" << draftsPath;
+    store_       = std::make_unique<FileDraftStore>(draftsPath, std::move(key));
     auto records = store_->records();
     if (!records) {
         lastError_ = records.error.message;
@@ -105,6 +136,15 @@ bool DraftManager::initialize(QString *errorText)
         if (errorText)
             *errorText = lastError_;
         return false;
+    }
+    qCInfo(logDraftPersistence) << "Draft store initialized with" << records.value.size() << "records";
+    for (const auto &record : records.value) {
+        qCInfo(logDraftPersistence) << "Existing draft: id=" << record.id.toString(QUuid::WithoutBraces)
+                                    << "operation=" << draftOperationName(record.operation)
+                                    << "state=" << draftStateName(record.state) << "storage=" << record.storageId
+                                    << "remoteNotePresent=" << !record.remoteNoteId.isEmpty()
+                                    << "revision=" << record.revision << "titleLength=" << record.title.size()
+                                    << "bodyLength=" << record.body.size() << "lastError=" << record.lastError;
     }
     auto *notes = NoteManager::instance();
     connect(notes, &NoteManager::storageAboutToBeRemoved, this,
@@ -141,7 +181,17 @@ DraftStoreError DraftManager::saveEditing(const QUuid &draftId, const Note &note
     CONFLICT_TRACE << "Conflict trace: draft captured id=" << draftId.toString(QUuid::WithoutBraces)
                    << "storage=" << record.storageId << "note=" << record.remoteNoteId
                    << "base=" << concurrencySummary(record.backendData);
+    qCInfo(logDraftPersistence) << "Saving editing draft: id=" << draftId.toString(QUuid::WithoutBraces)
+                                << "storage=" << record.storageId
+                                << "remoteNotePresent=" << !record.remoteNoteId.isEmpty()
+                                << "revision=" << record.revision << "titleLength=" << title.size()
+                                << "bodyLength=" << body.size() << "format=" << int(format);
     const auto result = store_->write(record);
+    if (result)
+        qCWarning(logDraftPersistence) << "Failed to save editing draft" << draftId.toString(QUuid::WithoutBraces)
+                                       << int(result.code) << result.message;
+    else
+        qCInfo(logDraftPersistence) << "Editing draft saved" << draftId.toString(QUuid::WithoutBraces);
     if (!result)
         emit draftsChanged();
     return result;
@@ -173,6 +223,9 @@ QUuid DraftManager::acquireEditingSession(const Note &note, const QUuid &knownDr
     ++editingSessions_[id];
     if (!key.isEmpty())
         sourceSessions_[key] = id;
+    qCInfo(logDraftPersistence) << "Acquired editing session: draft=" << id.toString(QUuid::WithoutBraces)
+                                << "storage=" << note.storageId() << "noteIdPresent=" << !note.id().isEmpty()
+                                << "sessions=" << editingSessions_.value(id);
     return id;
 }
 
@@ -181,10 +234,16 @@ bool DraftManager::isLastEditingSession(const QUuid &draftId) const { return edi
 bool DraftManager::releaseEditingSession(const QUuid &draftId)
 {
     auto it = editingSessions_.find(draftId);
-    if (it == editingSessions_.end())
+    if (it == editingSessions_.end()) {
+        qCInfo(logDraftPersistence) << "Release requested for unknown editing session"
+                                    << draftId.toString(QUuid::WithoutBraces);
         return true;
-    if (--it.value() > 0)
+    }
+    if (--it.value() > 0) {
+        qCInfo(logDraftPersistence) << "Editing session still shared: draft=" << draftId.toString(QUuid::WithoutBraces)
+                                    << "sessions=" << it.value();
         return false;
+    }
     editingSessions_.erase(it);
     for (auto source = sourceSessions_.begin(); source != sourceSessions_.end();) {
         if (source.value() == draftId)
@@ -192,6 +251,7 @@ bool DraftManager::releaseEditingSession(const QUuid &draftId)
         else
             ++source;
     }
+    qCInfo(logDraftPersistence) << "Released final editing session" << draftId.toString(QUuid::WithoutBraces);
     return true;
 }
 
@@ -252,7 +312,13 @@ DraftStoreError DraftManager::markReady(const QUuid &draftId)
     draft.value.state = draft.value.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready;
     CONFLICT_TRACE << "Conflict trace: draft ready id=" << draftId.toString(QUuid::WithoutBraces)
                    << "note=" << draft.value.remoteNoteId << "base=" << concurrencySummary(draft.value.backendData);
+    qCInfo(logDraftPersistence) << "Marking draft ready: id=" << draftId.toString(QUuid::WithoutBraces)
+                                << "state=" << draftStateName(draft.value.state) << "storage=" << draft.value.storageId
+                                << "remoteNotePresent=" << !draft.value.remoteNoteId.isEmpty();
     auto result = store_->write(draft.value);
+    if (result)
+        qCWarning(logDraftPersistence) << "Failed to mark draft ready" << draftId.toString(QUuid::WithoutBraces)
+                                       << int(result.code) << result.message;
     if (!result) {
         emit draftsChanged();
         QTimer::singleShot(0, this, &DraftManager::publishPending);
@@ -313,16 +379,31 @@ QList<DraftRecord> DraftManager::recoverableDrafts() const
         if (record.operation == DraftRecord::Publish && record.state == DraftRecord::Editing)
             result.push_back(record);
     }
+    qCInfo(logDraftPersistence) << "Recoverable editing drafts:" << result.size();
     return result;
 }
 
 void DraftManager::publishPending()
 {
-    if (!store_)
+    if (!store_) {
+        qCWarning(logDraftPersistence) << "Cannot publish drafts: draft store is unavailable";
         return;
+    }
     auto records = store_->records();
-    if (!records)
+    if (!records) {
+        qCWarning(logDraftPersistence) << "Cannot enumerate drafts for publication" << int(records.error.code)
+                                       << records.error.message;
         return;
+    }
+    qCInfo(logDraftPersistence) << "Checking" << records.value.size()
+                                << "draft records for publication; active=" << publishing_.size();
+    for (const auto &record : records.value) {
+        qCInfo(logDraftPersistence) << "Draft publication candidate: id=" << record.id.toString(QUuid::WithoutBraces)
+                                    << "operation=" << draftOperationName(record.operation)
+                                    << "state=" << draftStateName(record.state) << "storage=" << record.storageId
+                                    << "remoteNotePresent=" << !record.remoteNoteId.isEmpty()
+                                    << "revision=" << record.revision;
+    }
     const auto now = QDateTime::currentDateTimeUtc();
     for (const auto &record : records.value) {
         if (record.operation == DraftRecord::Publish && record.state == DraftRecord::NeedsRouting) {
@@ -369,6 +450,9 @@ void DraftManager::process(const DraftRecord &record)
 
 void DraftManager::retry(const DraftRecord &record, const QString &message, bool retryable)
 {
+    qCWarning(logDraftPersistence) << "Draft publication retry/failure: id=" << record.id.toString(QUuid::WithoutBraces)
+                                   << "state=" << draftStateName(record.state) << "retryable=" << retryable
+                                   << "message=" << message;
     constexpr qint64 MinimumDelay = 30;
     constexpr qint64 MaximumDelay = 300;
     const auto       now          = QDateTime::currentDateTimeUtc();
@@ -461,11 +545,20 @@ void DraftManager::resolveConflict(const DraftRecord &record, const StorageError
 
 void DraftManager::publish(const DraftRecord &record)
 {
+    qCInfo(logDraftPersistence) << "Publishing draft: id=" << record.id.toString(QUuid::WithoutBraces)
+                                << "storage=" << record.storageId
+                                << "remoteNotePresent=" << !record.remoteNoteId.isEmpty()
+                                << "revision=" << record.revision << "titleLength=" << record.title.size()
+                                << "bodyLength=" << record.body.size();
     CONFLICT_TRACE << "Conflict trace: publish begin draft=" << record.id.toString(QUuid::WithoutBraces)
                    << "storage=" << record.storageId << "note=" << record.remoteNoteId
                    << "base=" << concurrencySummary(record.backendData);
     auto storage = NoteManager::instance()->storage(record.storageId);
     if (!storage || !storage->canAcceptWrites()) {
+        qCWarning(logDraftPersistence) << "Target storage is unavailable for draft"
+                                       << record.id.toString(QUuid::WithoutBraces) << record.storageId
+                                       << "exists=" << bool(storage)
+                                       << "canWrite=" << (storage ? storage->canAcceptWrites() : false);
         retry(record, tr("Target storage is unavailable"));
         return;
     }
@@ -484,18 +577,27 @@ void DraftManager::publish(const DraftRecord &record)
         note.setTitle(record.title);
         note.setText(record.body, record.format);
         note.setMedia(record.media);
+        qCInfo(logDraftPersistence) << "Submitting draft to storage: draft=" << record.id.toString(QUuid::WithoutBraces)
+                                    << "storage=" << storage->systemName() << "noteIdPresent=" << !note.id().isEmpty();
         auto *job = storage->saveNoteAsync(note, this);
         publishJobs_.insert(record.id, job);
         connect(job, &StorageJob::finished, this, [this, record, job]() {
             publishing_.remove(record.id);
             publishJobs_.remove(record.id);
             if (job->state() == StorageJob::Succeeded) {
+                qCInfo(logDraftPersistence)
+                    << "Draft publication succeeded: draft=" << record.id.toString(QUuid::WithoutBraces)
+                    << "storage=" << job->result().storageId() << "noteIdPresent=" << !job->result().id().isEmpty();
                 CONFLICT_TRACE << "Conflict trace: publish succeeded draft=" << record.id.toString(QUuid::WithoutBraces)
                                << "note=" << job->result().id()
                                << "result=" << concurrencySummary(job->result().backendData());
                 store_->remove(record.id);
                 emit draftPublished(record.id, job->result());
             } else {
+                qCWarning(logDraftPersistence)
+                    << "Draft publication job failed: draft=" << record.id.toString(QUuid::WithoutBraces)
+                    << "state=" << int(job->state()) << "code=" << int(job->error().code)
+                    << "retryable=" << job->error().retryable << "message=" << job->error().message;
                 CONFLICT_TRACE << "Conflict trace: publish failed draft=" << record.id.toString(QUuid::WithoutBraces)
                                << "code=" << int(job->error().code) << "retryable=" << job->error().retryable
                                << "message=" << job->error().message;

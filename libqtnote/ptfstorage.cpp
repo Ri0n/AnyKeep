@@ -19,10 +19,12 @@ Contacts:
 E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 */
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLoggingCategory>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSettings>
@@ -41,6 +43,9 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "utils.h"
 
 namespace QtNote {
+
+Q_LOGGING_CATEGORY(logPtfStorage, "qtnote.persistence.ptf")
+
 namespace {
     const QString MediaManifestName = QStringLiteral(".qtnote-media.json");
 
@@ -49,6 +54,32 @@ namespace {
         QString originalName;
         QString mediaType;
     };
+
+    QString diagnosticName(const QString &value)
+    {
+        if (value.isEmpty())
+            return QStringLiteral("<empty>");
+        const auto digest = QCryptographicHash::hash(value.toUtf8(), QCryptographicHash::Sha256).toHex();
+        return QString::fromLatin1(digest.left(12));
+    }
+
+    void logDirectorySnapshot(const QDir &dir, const char *phase)
+    {
+        const QFileInfo directoryInfo(dir.absolutePath());
+        const auto      entries = dir.entryInfoList(QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot, QDir::Name);
+        QStringList     descriptions;
+        descriptions.reserve(entries.size());
+        for (const auto &entry : entries) {
+            descriptions.append(QStringLiteral("%1.%2(%3)")
+                                    .arg(diagnosticName(entry.completeBaseName()), entry.suffix())
+                                    .arg(entry.size()));
+        }
+        qCInfo(logPtfStorage).noquote() << phase << "path=" << dir.absolutePath() << "exists=" << directoryInfo.exists()
+                                        << "directory=" << directoryInfo.isDir()
+                                        << "readable=" << directoryInfo.isReadable()
+                                        << "writable=" << directoryInfo.isWritable() << "files=" << entries.size()
+                                        << descriptions.join(QStringLiteral(", "));
+    }
 
     QHash<QString, SidecarMetadata> readMediaMetadata(const QDir &sidecar)
     {
@@ -165,15 +196,24 @@ bool PTFStorage::init()
     if (!notesDir.isReadable() && !path.isEmpty())
         notesDir.setPath(findStorageDir()); // try default
 #endif
+    qCInfo(logPtfStorage) << "Initializing PTF storage at" << notesDir.absolutePath();
     if (!notesDir.exists()) {
-        if (!notesDir.mkpath(QLatin1String("."))) {
-            qWarning("can't create storage dir: %s", qPrintable(notesDir.absolutePath()));
-        }
+        const bool created = notesDir.mkpath(QLatin1String("."));
+        qCInfo(logPtfStorage) << "Created PTF storage directory:" << created;
+        if (!created)
+            qCWarning(logPtfStorage) << "Could not create PTF storage directory" << notesDir.absolutePath();
     }
-    return isAccessible();
+    logDirectorySnapshot(notesDir, "PTF init snapshot:");
+    const bool accessible = isAccessible();
+    qCInfo(logPtfStorage) << "PTF initialization result: accessible=" << accessible;
+    return accessible;
 }
 
-bool PTFStorage::isAccessible() const { return notesDir.isReadable(); }
+bool PTFStorage::isAccessible() const
+{
+    const bool readable = notesDir.isReadable();
+    return readable;
+}
 
 const QString PTFStorage::systemName() const { return storageId; }
 
@@ -185,6 +225,7 @@ QIcon PTFStorage::noteIcon() const { return icon; }
 
 QList<Note> PTFStorage::noteListFromInfoList(const QFileInfoList &files)
 {
+    qCInfo(logPtfStorage) << "Building PTF note list from" << files.size() << "filesystem entries";
     QList<Note> ret;
     foreach (const QFileInfo &fi, files) {
         // canonicalFilePath() can be empty for valid files exposed through
@@ -193,8 +234,12 @@ QList<Note> PTFStorage::noteListFromInfoList(const QFileInfoList &files)
         // stable backend path here.
         const QString filePath = fi.absoluteFilePath();
         QFile         file(filePath);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            qCWarning(logPtfStorage) << "Failed to open PTF note while scanning: idHash="
+                                     << diagnosticName(fi.completeBaseName()) << "suffix=" << fi.suffix()
+                                     << file.errorString();
             continue;
+        }
 
         Note note(new NoteData(this));
         note.setId(fi.completeBaseName());
@@ -206,7 +251,11 @@ QList<Note> PTFStorage::noteListFromInfoList(const QFileInfoList &files)
         note.setBackendValue(QStringLiteral("fileName"), filePath);
         note.unload();
         ret.append(note);
+        qCInfo(logPtfStorage) << "Discovered PTF note idHash=" << diagnosticName(note.id())
+                              << "format=" << int(note.format()) << "size=" << fi.size()
+                              << "modified=" << fi.lastModified();
     }
+    qCInfo(logPtfStorage) << "PTF scan produced" << ret.size() << "notes";
     return ret;
 }
 
@@ -221,6 +270,7 @@ Note PTFStorage::createNote()
 
 Note PTFStorage::note(const QString &noteId)
 {
+    qCInfo(logPtfStorage) << "Looking up PTF note idHash=" << diagnosticName(noteId);
     if (!noteId.isEmpty()) {
         QFileInfo fi;
         for (auto const &ext : std::as_const(fileExt)) {
@@ -232,13 +282,19 @@ Note PTFStorage::note(const QString &noteId)
                                                                                                     : Note::PlainText);
                 loaded.setLastChangeUTC(fi.lastModified());
                 loaded.setBackendValue(QStringLiteral("fileName"), fi.filePath());
-                if (loadNote(loaded))
+                if (loadNote(loaded)) {
+                    qCInfo(logPtfStorage)
+                        << "Loaded PTF note idHash=" << diagnosticName(noteId) << "suffix=" << fi.suffix();
                     return loaded;
+                }
+                qCWarning(logPtfStorage) << "Failed to load existing PTF note idHash=" << diagnosticName(noteId)
+                                         << "suffix=" << fi.suffix();
                 handleFSError();
                 return {};
             }
         }
     }
+    qCInfo(logPtfStorage) << "PTF note was not found, idHash=" << diagnosticName(noteId);
     return Note();
 }
 
@@ -256,10 +312,15 @@ bool PTFStorage::loadNote(Note &note)
     }
 
     QFile file(fileName);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qCWarning(logPtfStorage) << "Failed to open PTF note: idHash=" << diagnosticName(note.id())
+                                 << "suffix=" << QFileInfo(fileName).suffix() << file.errorString();
         return false;
+    }
 
-    QString               contents = QString::fromUtf8(file.readAll());
+    QString contents = QString::fromUtf8(file.readAll());
+    qCInfo(logPtfStorage) << "Read PTF note idHash=" << diagnosticName(note.id())
+                          << "suffix=" << QFileInfo(fileName).suffix() << "bytes=" << file.size();
     QList<MediaReference> media;
     if (QFileInfo(fileName).suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0)
         contents = importSidecarImages(contents, QFileInfo(fileName).completeBaseName(), notesDir, media);
@@ -276,6 +337,10 @@ bool PTFStorage::loadNote(Note &note)
 
 bool PTFStorage::saveNote(const Note &note)
 {
+    qCInfo(logPtfStorage) << "Saving PTF note: idHash=" << diagnosticName(note.id()) << "format=" << int(note.format())
+                          << "titleLength=" << note.title().size() << "bodyLength=" << note.text().size()
+                          << "media=" << note.media().size() << "storagePath=" << notesDir.absolutePath();
+    logDirectorySnapshot(notesDir, "PTF pre-save snapshot:");
     if (note.isEmpty()) {
         if (!note.id().isEmpty()) {
             removeNote(note.id()); // TODO check errors?
@@ -283,11 +348,19 @@ bool PTFStorage::saveNote(const Note &note)
         return true;
     }
 
-    QString       oldNoteId = note.id();
-    QString       newNoteId = oldNoteId;
-    auto          ext       = QString(QLatin1String(note.format() == Note::Markdown ? "md" : "txt"));
-    auto          fileName  = Utils::fileNameForText(notesDir, note.title(), ext, newNoteId);
-    QString       contents  = note.title() + QLatin1Char('\n') + note.text();
+    QString    oldNoteId         = note.id();
+    const bool existedBeforeSave = noteFileExists(oldNoteId);
+    QString    newNoteId         = oldNoteId;
+    auto       ext               = QString(QLatin1String(note.format() == Note::Markdown ? "md" : "txt"));
+    auto       fileName          = Utils::fileNameForText(notesDir, note.title(), ext, newNoteId);
+    if (fileName.isEmpty()) {
+        qCWarning(logPtfStorage) << "PTF filename generation failed: idHash=" << diagnosticName(oldNoteId)
+                                 << "titleLength=" << note.title().size() << "extension=" << ext;
+        return false;
+    }
+    qCInfo(logPtfStorage) << "PTF save target: oldIdHash=" << diagnosticName(oldNoteId)
+                          << "newIdHash=" << diagnosticName(newNoteId) << "suffix=" << ext;
+    QString       contents = note.title() + QLatin1Char('\n') + note.text();
     QDir          sidecar(notesDir.filePath(newNoteId));
     QSet<QString> materializedFiles;
     if (!note.media().isEmpty()) {
@@ -333,10 +406,30 @@ bool PTFStorage::saveNote(const Note &note)
 
     QSaveFile  file(fileName);
     const auto bytes = contents.trimmed().toUtf8();
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text) || file.write(bytes) != bytes.size() || !file.commit()) {
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qCWarning(logPtfStorage) << "Failed to open PTF save target: idHash=" << diagnosticName(newNoteId)
+                                 << "suffix=" << ext << file.errorString();
         handleFSError();
         return false;
     }
+    const qint64 written = file.write(bytes);
+    if (written != bytes.size()) {
+        qCWarning(logPtfStorage) << "Short PTF write: idHash=" << diagnosticName(newNoteId) << "suffix=" << ext
+                                 << "expected=" << bytes.size() << "written=" << written << file.errorString();
+        file.cancelWriting();
+        handleFSError();
+        return false;
+    }
+    if (!file.commit()) {
+        qCWarning(logPtfStorage) << "Failed to commit PTF note: idHash=" << diagnosticName(newNoteId)
+                                 << "suffix=" << ext << file.errorString();
+        handleFSError();
+        return false;
+    }
+    const QFileInfo committed(fileName);
+    qCInfo(logPtfStorage) << "Committed PTF note: idHash=" << diagnosticName(newNoteId) << "suffix=" << ext
+                          << "exists=" << committed.exists() << "size=" << committed.size()
+                          << "readable=" << committed.isReadable() << "writable=" << committed.isWritable();
     if (note.media().isEmpty()) {
         sidecar.removeRecursively();
     } else {
@@ -365,15 +458,20 @@ bool PTFStorage::saveNote(const Note &note)
             }
         }
     }
-    putToCache(saved, oldNoteId);
+    notifyNoteSaved(saved, oldNoteId, existedBeforeSave);
+    logDirectorySnapshot(notesDir, "PTF post-save snapshot:");
+    qCInfo(logPtfStorage) << "PTF save completed: oldIdHash=" << diagnosticName(oldNoteId)
+                          << "newIdHash=" << diagnosticName(newNoteId);
     return true;
 }
 
 void PTFStorage::removeNote(const QString &noteId)
 {
+    qCInfo(logPtfStorage) << "Removing PTF note idHash=" << diagnosticName(noteId);
     FileStorage::removeNote(noteId);
     if (!noteId.isEmpty())
         QDir(notesDir.filePath(noteId)).removeRecursively();
+    logDirectorySnapshot(notesDir, "PTF post-remove snapshot:");
 }
 
 QList<Note::Format> PTFStorage::availableFormats() const

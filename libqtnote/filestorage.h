@@ -24,7 +24,6 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include <QDir>
 #include <QFileInfoList>
-#include <QHash>
 
 #include "notestorage.h"
 #include "qtnote_export.h"
@@ -34,7 +33,7 @@ namespace QtNote {
 class QTNOTE_EXPORT FileStorage : public NoteStorage {
     Q_OBJECT
 public:
-    FileStorage(QObject *parent);
+    explicit FileStorage(QObject *parent);
     void                removeNote(const QString &noteId) override;
     QString             tooltip() override;
     QList<Note>         noteList(int limit = 0) override;
@@ -48,18 +47,14 @@ public:
 protected:
     virtual QList<Note> noteListFromInfoList(const QFileInfoList &) = 0;
 
-    void putToCache(const Note &note, const QString &oldNoteId);
-
+    bool noteFileExists(const QString &noteId) const;
+    void notifyNoteSaved(const Note &note, const QString &oldNoteId, bool existedBeforeSave);
     void handleFSError();
-    void ensureChachePopulated();
 
-protected:
-    QStringList          fileExt;
-    QHash<QString, Note> cache;
-    bool                 _cacheValid; /* last limit passed to noteList() */
-    QDir                 notesDir;
+    QStringList fileExt;
+    QDir        notesDir;
 };
 
-}
+} // namespace QtNote
 
 #endif // FILESTORAGE_H

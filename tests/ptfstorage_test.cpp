@@ -2,6 +2,8 @@
 
 #include "ptfstorage.h"
 
+#include <QDir>
+#include <QFile>
 #include <QSettings>
 #include <QTemporaryDir>
 
@@ -48,6 +50,73 @@ private slots:
             settings.setValue(QStringLiteral("storage.ptf.path"), previousPath);
         else
             settings.remove(QStringLiteral("storage.ptf.path"));
+    }
+
+    void noteListDoesNotRetainPreInitDirectory()
+    {
+        QTemporaryDir storageDirectory;
+        QTemporaryDir unrelatedDirectory;
+        QVERIFY(storageDirectory.isValid());
+        QVERIFY(unrelatedDirectory.isValid());
+
+        QSettings settings;
+        struct EnvironmentGuard {
+            QVariant previousPath;
+            bool     hadPreviousPath;
+            QString  previousWorkingDirectory;
+
+            ~EnvironmentGuard()
+            {
+                QSettings restoreSettings;
+                if (hadPreviousPath)
+                    restoreSettings.setValue(QStringLiteral("storage.ptf.path"), previousPath);
+                else
+                    restoreSettings.remove(QStringLiteral("storage.ptf.path"));
+                QDir::setCurrent(previousWorkingDirectory);
+            }
+        } guard { settings.value(QStringLiteral("storage.ptf.path")),
+                  settings.contains(QStringLiteral("storage.ptf.path")), QDir::currentPath() };
+
+        {
+            PTFStorage writer;
+            QVERIFY(writer.setStoragePath(storageDirectory.path()));
+            Note note = writer.createNote();
+            note.setTitle(QStringLiteral("Initialized note"));
+            note.setText(QStringLiteral("Persistent body"), Note::Markdown);
+            QVERIFY(writer.saveNote(note));
+        }
+
+        QVERIFY(QDir::setCurrent(unrelatedDirectory.path()));
+        PTFStorage reader;
+
+        // A direct pre-init read uses QDir's default path, but FileStorage no
+        // longer retains that result after init() selects the real directory.
+        QCOMPARE(reader.noteList().size(), 0);
+
+        QVERIFY(reader.init());
+        const auto notes = reader.noteList();
+        QCOMPARE(notes.size(), 1);
+        QCOMPARE(notes.first().title(), QStringLiteral("Initialized note"));
+    }
+
+    void noteListReflectsExternalFileChanges()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+
+        PTFStorage storage;
+        QVERIFY(storage.setStoragePath(directory.path()));
+        QCOMPARE(storage.noteList().size(), 0);
+
+        QFile external(directory.filePath(QStringLiteral("external.md")));
+        QVERIFY(external.open(QIODevice::WriteOnly | QIODevice::Text));
+        QCOMPARE(external.write("External title\nExternal body"), qint64(28));
+        external.close();
+
+        const auto notes = storage.noteList();
+        QCOMPARE(notes.size(), 1);
+        QCOMPARE(notes.first().id(), QStringLiteral("external"));
+        QCOMPARE(notes.first().title(), QStringLiteral("External title"));
     }
 };
 

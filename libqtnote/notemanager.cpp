@@ -21,9 +21,13 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include "notemanager.h"
 
+#include "notesindex.h"
+
 #include <QCoreApplication>
 #include <QSettings>
+#include <QSharedPointer>
 #include <QStringList>
+#include <QTimer>
 
 #include <list>
 
@@ -174,9 +178,14 @@ void GlobalNoteFinder::searcherFinished()
 /************************************************************************************
  * NoteManager                                                                      *
  ************************************************************************************/
-NoteManager::NoteManager(QObject *parent) : QObject(parent)
+NoteManager::NoteManager(QObject *parent) : QObject(parent), _notesIndex(new NotesIndex(this))
 {
     _priorities = QSettings().value("storage.priority").toStringList();
+    connect(_notesIndex, &NotesIndex::storageNotesChanged, this, [this](const QString &storageId) {
+        const auto it = _storages.constFind(storageId);
+        if (it != _storages.constEnd())
+            emit storageChanged(it.value());
+    });
 }
 
 void NoteManager::registerStorage(std::unique_ptr<NoteStorage> ownedStorage)
@@ -196,24 +205,33 @@ void NoteManager::registerStorage(std::unique_ptr<NoteStorage> ownedStorage)
     }
 
     connect(storage, &NoteStorage::invalidated, this, &NoteManager::handleStorageChanged);
-    connect(storage, &NoteStorage::noteAdded, this, &NoteManager::handleStorageChanged);
-    connect(storage, &NoteStorage::noteModified, this, &NoteManager::handleStorageChanged);
-    connect(storage, &NoteStorage::noteRemoved, this, &NoteManager::handleStorageChanged);
-    connect(storage, &NoteStorage::noteIdChanged, this, &NoteManager::handleStorageChanged);
+    _notesIndex->addStorage(storage);
 
-    emit                        storageAdded(storage);
-    auto                       *job = storage->initAsync(this);
-    const QPointer<NoteStorage> storageGuard(storage);
-    connect(job, &StorageJob::finished, this, [this, storageGuard, job]() {
+    emit                           storageAdded(storage);
+    auto                          *job = storage->initAsync(this);
+    const QPointer<NoteStorage>    storageGuard(storage);
+    const QPointer<StorageInitJob> jobGuard(job);
+    const auto                     handled        = QSharedPointer<bool>::create(false);
+    const auto                     handleFinished = [this, storageGuard, jobGuard, handled]() {
+        if (*handled || !jobGuard)
+            return;
+        *handled = true;
         if (!storageGuard) {
-            job->deleteLater();
+            jobGuard->deleteLater();
             return;
         }
-        if (job->state() == StorageJob::Succeeded)
+        if (jobGuard->state() == StorageJob::Succeeded) {
+            _notesIndex->markStorageReady(storageGuard);
             emit storageReady(storageGuard);
+        } else {
+            _notesIndex->markStorageInitializationFailed(storageGuard, jobGuard->error());
+        }
         emit storageChanged(storageGuard);
-        job->deleteLater();
-    });
+        jobGuard->deleteLater();
+    };
+    connect(job, &StorageJob::finished, this, handleFinished);
+    if (job->isFinished())
+        QTimer::singleShot(0, this, handleFinished);
 }
 
 void NoteManager::unregisterStorage(NoteStorage *storage)
@@ -223,6 +241,7 @@ void NoteManager::unregisterStorage(NoteStorage *storage)
     const auto storageId = storage->systemName();
     emit       storageAboutToBeRemoved(storage);
     _prioCache.clear();
+    _notesIndex->removeStorage(storage);
     disconnect(storage);
     _storages.remove(storageId);
     emit storageRemoved(storage);
@@ -250,15 +269,7 @@ void NoteManager::handleStorageChanged()
         emit storageChanged(it.value());
 }
 
-QList<Note> NoteManager::noteList(int count) const
-{
-    QList<Note> ret;
-    for (const auto &storage : prioritizedStorages()) {
-        ret += storage->noteList(count);
-    }
-    std::sort(ret.begin(), ret.end(), noteListItemModifyComparer);
-    return ret.mid(0, count);
-}
+QList<Note> NoteManager::noteList(int count) const { return _notesIndex->allNotes(prioritizedStorages(), count); }
 
 QList<Note> NoteManager::noteList(int offset, int limit, const QString &titleFilter) const
 {
@@ -297,40 +308,7 @@ Note NoteManager::note(const QString &storageId, const QString &noteId)
 
 NoteListJob *NoteManager::refreshNotesAsync(int count, QObject *owner)
 {
-    auto *aggregate = new NoteListJob(owner ? owner : this);
-    aggregate->start();
-    const auto storageList = prioritizedStorages(true);
-    if (storageList.empty()) {
-        aggregate->complete({});
-        return aggregate;
-    }
-
-    struct State {
-        int          pending { 0 };
-        QList<Note>  notes;
-        StorageError firstError;
-    };
-    auto state     = QSharedPointer<State>::create();
-    state->pending = int(storageList.size());
-    for (const auto &storage : storageList) {
-        auto *job = storage->refreshNotesAsync(count, aggregate);
-        connect(job, &StorageJob::finished, aggregate, [aggregate, job, state, count]() {
-            if (job->state() == StorageJob::Succeeded)
-                state->notes += job->result();
-            else if (!state->firstError)
-                state->firstError = job->error();
-            if (--state->pending != 0 || aggregate->isFinished())
-                return;
-            std::sort(state->notes.begin(), state->notes.end(), noteListItemModifyComparer);
-            if (count >= 0)
-                state->notes = state->notes.mid(0, count);
-            if (!state->notes.isEmpty() || !state->firstError)
-                aggregate->complete(state->notes);
-            else
-                aggregate->fail(state->firstError);
-        });
-    }
-    return aggregate;
+    return _notesIndex->refreshAll(prioritizedStorages(true), count, owner ? owner : this);
 }
 
 NoteLoadJob *NoteManager::loadNoteAsync(const QString &storageId, const QString &noteId, QObject *owner)

@@ -6,7 +6,6 @@
 
 #include <QAbstractItemModel>
 #include <QHash>
-#include <QPointer>
 #include <QStringList>
 #include <QVariantMap>
 
@@ -84,24 +83,19 @@ private slots:
     void storageAboutToBeRemoved(const NoteStorage::Ptr &storage);
     void storageChanged(const NoteStorage::Ptr &storage);
     void storageReady(const NoteStorage::Ptr &storage);
-    void noteAdded(const Note &note);
-    void noteModified(const Note &note);
-    void noteRemoved(const Note &note);
-    void storageInvalidated();
+    void storageIndexChanged(const QString &storageId);
+    void storageIndexStateChanged(const QString &storageId);
 
 private:
-    void        setStorageSignalHandlers(const NoteStorage::Ptr &storage);
-    void        startStorageRefresh(const NoteStorage::Ptr &storage);
     void        replaceVisibleNotes(NMMItem *storageItem, int desiredCount = -1);
     QModelIndex storageIndex(const QString &storageId) const;
     QModelIndex noteIndex(const QString &storageId, const QString &noteId) const;
     NMMItem    *storageItem(const QString &storageId) const;
-    void        updateNoteSummary(const Note &note, bool remove);
+    QList<Note> indexedNotes(const QString &storageId) const;
 
-    QList<NMMItem *>                     storages_;
-    QHash<QString, QPointer<StorageJob>> refreshJobs_;
-    int                                  pageSize_ { 30 };
-    bool                                 searchActive_ { false };
+    QList<NMMItem *> storages_;
+    int              pageSize_ { 30 };
+    bool             searchActive_ { false };
 };
 
 } // namespace QtNote

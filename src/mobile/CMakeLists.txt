@@ -100,6 +100,10 @@ if(ANDROID)
     qtnote_deploy_android_openssl(qtnote_mobile)
     target_link_libraries(qtnote_mobile PRIVATE Qt6::CorePrivate)
     qt_add_android_permission(qtnote_mobile NAME android.permission.RECORD_AUDIO)
+    set_target_properties(qtnote_mobile PROPERTIES
+        QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
+        QT_ANDROID_APP_ICON "@mipmap/qtnote"
+    )
 endif()
 
 set_target_properties(qtnote_mobile PROPERTIES

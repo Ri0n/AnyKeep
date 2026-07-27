@@ -474,6 +474,8 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
         return job;
     }
     openPersistentCache(config_);
+    if (cacheAvailable_)
+        emit invalidated();
     const auto               config = config_;
     const auto               epoch  = configEpoch_;
     QPointer<StorageInitJob> guard(job);
