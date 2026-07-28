@@ -574,6 +574,10 @@ void DraftManager::publish(const DraftRecord &record)
             retry(record, tr("Target note could not be created or loaded"));
             return;
         }
+        // Restore the captured concurrency token. New-note drafts may also
+        // carry one-shot storage hints such as a requested modification time.
+        if (!record.backendData.isEmpty())
+            note.setBackendData(record.backendData);
         note.setTitle(record.title);
         note.setText(record.body, record.format);
         note.setMedia(record.media);
@@ -647,11 +651,6 @@ void DraftManager::publish(const DraftRecord &record)
             CONFLICT_TRACE << "Conflict trace: remote loaded draft=" << record.id.toString(QUuid::WithoutBraces)
                            << "note=" << record.remoteNoteId << "remote=" << concurrencySummary(note.backendData())
                            << "restoring-base=" << concurrencySummary(record.backendData);
-            // Preserve the concurrency token captured when editing began. A
-            // freshly loaded remote token would silently rebase and overwrite
-            // concurrent edits.
-            if (!record.backendData.isEmpty())
-                note.setBackendData(record.backendData);
             job->deleteLater();
             save(note);
             return;

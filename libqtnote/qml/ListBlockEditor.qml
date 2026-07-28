@@ -308,15 +308,25 @@ Column {
             readonly property bool dropBefore: !sourceRow
                                                    && reorderController.targetBlock === listRoot
                                                    && reorderController.targetItem === remainingIndex
-            property real collapseSpace: sourceRow ? naturalHeight : 0
-            property real dropSpace: dropBefore ? reorderController.draggedHeight : 0
+            readonly property alias collapseSpace: rowDisplacement.collapseSpace
+            readonly property alias dropSpace: rowDisplacement.beforeSpace
             readonly property real trailingSpace: index + 1 < listModel.count ? listRoot.itemSpacing : 0
             readonly property real naturalHeight: rowContent.implicitHeight + trailingSpace
 
             objectName: "listRow-" + listRoot.blockIndex + "-" + index
             width: listRoot.width
-            height: Math.max(0, naturalHeight - collapseSpace) + dropSpace
+            height: rowDisplacement.layoutExtent
             z: ownsLevelHandle || (!editorView.touchMode && startsLevelRange) ? 20 : 0
+
+            ReorderDisplacement {
+                id: rowDisplacement
+
+                animationEnabled: reorderController.dragging && !reorderController.committingDrop
+                sourceActive: rowWrapper.sourceRow
+                targetBefore: rowWrapper.dropBefore
+                naturalExtent: rowWrapper.naturalHeight
+                draggedExtent: reorderController.draggedHeight
+            }
 
             function removeBySwipe() {
                 const firstItem = index
@@ -342,24 +352,6 @@ Column {
                         })
                     }
                 })
-            }
-
-            Behavior on collapseSpace {
-                enabled: reorderController.dragging && !reorderController.committingDrop
-
-                NumberAnimation {
-                    duration: 160
-                    easing.type: Easing.OutCubic
-                }
-            }
-
-            Behavior on dropSpace {
-                enabled: reorderController.dragging && !reorderController.committingDrop
-
-                NumberAnimation {
-                    duration: 160
-                    easing.type: Easing.OutCubic
-                }
             }
 
             Rectangle {
@@ -568,17 +560,16 @@ Column {
 
         readonly property bool active: reorderController.targetBlock === listRoot
                                        && reorderController.targetItem === listRoot.remainingItemCount()
-        property real dropSpace: active ? reorderController.draggedHeight : 0
+        readonly property alias dropSpace: endDisplacement.beforeSpace
         width: listRoot.width
         height: dropSpace
 
-        Behavior on dropSpace {
-            enabled: reorderController.dragging && !reorderController.committingDrop
+        ReorderDisplacement {
+            id: endDisplacement
 
-            NumberAnimation {
-                duration: 160
-                easing.type: Easing.OutCubic
-            }
+            animationEnabled: reorderController.dragging && !reorderController.committingDrop
+            targetBefore: endDropSpacer.active
+            draggedExtent: reorderController.draggedHeight
         }
     }
 }

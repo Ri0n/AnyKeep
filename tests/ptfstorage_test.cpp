@@ -118,6 +118,31 @@ private slots:
         QCOMPARE(notes.first().id(), QStringLiteral("external"));
         QCOMPARE(notes.first().title(), QStringLiteral("External title"));
     }
+
+    void requestedModificationTimeSurvivesSave()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+
+        PTFStorage storage;
+        QVERIFY(storage.setStoragePath(directory.path()));
+
+        Note note = storage.createNote();
+        note.setTitle(QStringLiteral("Ordered note"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        QVERIFY(storage.saveNote(note));
+
+        note = storage.noteList().first();
+        QVERIFY(note.load());
+        const auto requested = QDateTime::fromMSecsSinceEpoch(1'720'000'000'123, QTimeZone::UTC);
+        note.setLastChangeUTC(requested);
+        note.setBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey), requested);
+        QVERIFY(storage.saveNote(note));
+
+        const auto saved = storage.noteList().first();
+        QCOMPARE(saved.lastChangeUTC().toMSecsSinceEpoch(), requested.toMSecsSinceEpoch());
+        QVERIFY(!saved.backendValue(QString::fromLatin1(RequestedModificationTimeBackendKey)).isValid());
+    }
 };
 
 QTEST_GUILESS_MAIN(PTFStorageTest)

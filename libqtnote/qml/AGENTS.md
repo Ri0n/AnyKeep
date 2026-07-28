@@ -10,9 +10,12 @@ Read this file before opening `NoteBlockEditor.qml`.
   block delegates, and the shared `BlockTextArea` implementation.
 - `ListBlockEditor.qml`: list rows, marker geometry, item spacing, local mirror
   model, drop gaps, and keyboard delegation to `ListBlockBehavior.js`.
-- `EditorReorderController.qml`: one drag state for the whole document. It
-  chooses cross-list insertion boundaries and indentation, keeps dragged rows
-  under the pointer, and commits one model operation on release.
+- `GenericReorderController.qml`: shared drag lifecycle, stable preview,
+  compressed-geometry boundary selection, translation, and atomic
+  commit/cancel hooks for every reorderable view.
+- `EditorReorderController.qml`: editor adapter for the generic controller. It
+  supplies cross-list boundaries, indentation, focus restoration, and the
+  `moveListRange()` commit.
 - `ReorderDragHandle.qml`: pointer gesture only. It reports absolute
   `activeTranslation`; it must not mutate a document model.
 - `ListBlockBehavior.js`: Enter/Backspace/Tab and list boundary keyboard rules.
@@ -30,6 +33,12 @@ Read this file before opening `NoteBlockEditor.qml`.
   the first text line, not the full wrapped item.
 - Source rows collapse and target gaps expand only visually. One atomic model
   mutation is made on release and must remain one undo step.
+- Reorderable views provide only source descriptors, logical insertion
+  boundaries, and a commit callback to `GenericReorderController`; do not add a
+  second local drag lifecycle.
+- `TreeView`/`TableView` adapters must keep their row-height provider in sync
+  during displacement animation. Do not collapse a live delegate to exactly
+  zero if the view can pool and reuse it during the gesture.
 - Horizontal drag selects an indent from `0` through `previousIndent + 1`.
 - Markdown list continuations serialize under the marker content column:
   4 spaces for `- ` and 6 spaces for `- [ ] `.

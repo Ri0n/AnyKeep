@@ -426,6 +426,18 @@ bool PTFStorage::saveNote(const Note &note)
         handleFSError();
         return false;
     }
+    const auto requestedModified
+        = note.backendValue(QString::fromLatin1(RequestedModificationTimeBackendKey)).toDateTime();
+    if (requestedModified.isValid()) {
+        QFile committedFile(fileName);
+        if (!committedFile.open(QIODevice::ReadWrite)
+            || !committedFile.setFileTime(requestedModified, QFileDevice::FileModificationTime)) {
+            qCWarning(logPtfStorage) << "Failed to preserve requested PTF modification time: idHash="
+                                     << diagnosticName(newNoteId) << committedFile.errorString();
+            return false;
+        }
+        committedFile.close();
+    }
     const QFileInfo committed(fileName);
     qCInfo(logPtfStorage) << "Committed PTF note: idHash=" << diagnosticName(newNoteId) << "suffix=" << ext
                           << "exists=" << committed.exists() << "size=" << committed.size()
@@ -443,6 +455,7 @@ bool PTFStorage::saveNote(const Note &note)
     Note saved = note;
     saved.setId(newNoteId);
     saved.setLastChangeUTC(QFileInfo(fileName).lastModified());
+    saved.removeBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey));
     saved.setBackendValue(QStringLiteral("fileName"), fileName);
     if (!oldNoteId.isEmpty()) {
         if (oldNoteId != newNoteId) {

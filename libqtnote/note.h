@@ -34,6 +34,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 namespace QtNote {
 
+inline constexpr auto RequestedModificationTimeBackendKey = "qtnote.requestedModificationTime";
+
 class NoteData;
 class NoteStorage;
 
@@ -64,6 +66,7 @@ public:
     void unload();
     void setLastChangeUTC(const QDateTime &lastChange);
     void setBackendValue(const QString &key, const QVariant &value);
+    void removeBackendValue(const QString &key);
 
     NoteStorage          *storage() const;
     QString               storageId() const;

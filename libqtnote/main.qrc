@@ -21,8 +21,11 @@
     </qresource>
     <qresource prefix="/qml">
         <file alias="NoteBlockEditor.qml">qml/NoteBlockEditor.qml</file>
+        <file alias="GenericReorderController.qml">qml/GenericReorderController.qml</file>
         <file alias="EditorReorderController.qml">qml/EditorReorderController.qml</file>
         <file alias="DragPreviewLayer.qml">qml/DragPreviewLayer.qml</file>
+        <file alias="ReorderDisplacement.qml">qml/ReorderDisplacement.qml</file>
+        <file alias="ReorderGeometry.qml">qml/ReorderGeometry.qml</file>
         <file alias="ListBlockEditor.qml">qml/ListBlockEditor.qml</file>
         <file alias="ReorderDragHandle.qml">qml/ReorderDragHandle.qml</file>
         <file alias="ListBlockBehavior.js">qml/ListBlockBehavior.js</file>

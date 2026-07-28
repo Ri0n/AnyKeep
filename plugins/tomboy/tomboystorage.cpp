@@ -136,6 +136,20 @@ namespace {
             root.appendChild(tagsNode);
         }
 
+        const auto requestedModified
+            = note.backendValue(QString::fromLatin1(RequestedModificationTimeBackendKey)).toDateTime();
+        const auto modified    = requestedModified.isValid() ? requestedModified : QDateTime::currentDateTimeUtc();
+        const auto appendValue = [&dom, &root](const QString &name, const QString &value) {
+            auto element = dom.createElement(name);
+            element.appendChild(dom.createTextNode(value));
+            root.appendChild(element);
+        };
+        const auto modifiedText = modified.toUTC().toString(Qt::ISODateWithMs);
+        appendValue(QStringLiteral("last-change-date"), modifiedText);
+        appendValue(QStringLiteral("last-metadata-change-date"), modifiedText);
+        const auto createDate = note.backendValue(QStringLiteral("createDate")).toString();
+        appendValue(QStringLiteral("create-date"), createDate.isEmpty() ? modifiedText : createDate);
+
         QFile file(fileName);
         return file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(dom.toString(-1).toUtf8()) >= 0;
     }
@@ -235,6 +249,10 @@ bool TomboyStorage::saveNote(const Note &note)
     }
     Note saved = note;
     saved.setId(newNoteId);
+    const auto requestedModified
+        = note.backendValue(QString::fromLatin1(RequestedModificationTimeBackendKey)).toDateTime();
+    saved.setLastChangeUTC(requestedModified.isValid() ? requestedModified : QDateTime::currentDateTimeUtc());
+    saved.removeBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey));
     saved.setBackendValue(QStringLiteral("fileName"), fileName);
     notifyNoteSaved(saved, oldNoteId, existedBeforeSave);
     return true;

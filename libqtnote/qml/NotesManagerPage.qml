@@ -27,16 +27,45 @@ Item {
     property string selectedNoteId: ""
     property string selectedTitle: ""
     property var selectedNotes: ({})
+    property string selectionAnchorKey: ""
     property bool editorFocusOwned: false
     property bool mobileSearchExpanded: false
-    property var activeDragDelegate: null
-    property real dragTranslationX: 0
-    property real dragTranslationY: 0
+    property var groupedRowExtents: ({})
+    property bool groupedLayoutPending: false
+    readonly property var activeDragDelegate: groupedReorderController.sourcePayload
+    readonly property var dropBoundary: groupedReorderController.targetBoundary
+    readonly property var dropTargetDelegate: dropBoundary ? dropBoundary.owner : null
+    readonly property bool dropTargetAfter: dropBoundary
+                                                   ? Boolean(dropBoundary.afterOwner) : false
+    readonly property real dragTranslationX: groupedReorderController.translationX
+    readonly property real dragTranslationY: groupedReorderController.translationY
+    readonly property real draggedExtent: groupedReorderController.draggedExtent
+    readonly property bool committingDrop: groupedReorderController.committingDrop
     readonly property int draggedItemType: activeDragDelegate
                                             ? Number(activeDragDelegate.itemType) : -1
     readonly property bool searchExpanded: !touchActions || mobileSearchExpanded
                                            || workspace.searchText.length > 0 || workspace.searchInBody
     readonly property bool searchOptionsVisible: searchField.activeFocus || searchInTextCheckBox.pressed
+
+    GenericReorderController {
+        id: groupedReorderController
+
+        anchors.fill: parent
+        geometryItem: root
+        scrollItem: notesTree
+        compensateForScroll: false
+        previewObjectName: "managerDragPreview"
+        previewObjectNamePrefix: "managerDragPreviewItem-"
+        boundaryProvider: function() {
+            return root.groupedDropBoundaries()
+        }
+        commitHandler: function(delegate, boundary) {
+            return root.commitGroupedDrop(delegate, boundary)
+        }
+        resetHandler: function() {
+            root.resetGroupedRowExtents()
+        }
+    }
 
     component CompactContextMenuItem: MenuItem {
         implicitHeight: visible ? (root.touchActions ? 40 : 32) : 0
@@ -147,17 +176,245 @@ Item {
     function dragNotesFor(storageId, noteId, title) {
         if (!noteIsSelected(storageId, noteId))
             return [{ storageId: storageId, noteId: noteId, title: title }]
-        return Object.keys(selectedNotes).map(key => selectedNotes[key])
+        const result = []
+        for (let visualRow = 0; visualRow < notesTree.rows; ++visualRow) {
+            const candidate = groupedItemAtRow(visualRow)
+            if (candidate && candidate.itemType === 1
+                    && noteIsSelected(candidate.storageId, candidate.noteId)) {
+                result.push({
+                    storageId: candidate.storageId,
+                    noteId: candidate.noteId,
+                    title: candidate.title
+                })
+            }
+        }
+        return result
     }
 
     function groupedItemAtRow(row) {
         return notesTree.itemAtCell(Qt.point(0, row))
     }
 
+    function sourceContains(storageId, noteId) {
+        if (!activeDragDelegate || draggedItemType !== 1)
+            return false
+        for (const note of activeDragDelegate.dragNotes)
+            if (note.storageId === storageId && note.noteId === noteId)
+                return true
+        return false
+    }
+
+    function visibleGroupedDelegates() {
+        const result = []
+        for (let visualRow = 0; visualRow < notesTree.rows; ++visualRow) {
+            const delegate = groupedItemAtRow(visualRow)
+            if (delegate)
+                result.push(delegate)
+        }
+        return result
+    }
+
+    function animatedRowDisplacement(delegate) {
+        if (!delegate)
+            return 0
+        const sourceDisplacement = delegate.partOfActiveDrag
+                ? Math.max(0, delegate.baseHeight - delegate.collapseSpace) : 0
+        return sourceDisplacement + delegate.animatedDropSpace
+    }
+
+    function animatedDisplacementBeforeRow(row) {
+        let displacement = 0
+        for (let visualRow = 0; visualRow < row; ++visualRow)
+            displacement += animatedRowDisplacement(groupedItemAtRow(visualRow))
+        return displacement
+    }
+
+    function logicalBoundaryPosition(owner, afterOwner) {
+        if (!owner)
+            return 0
+        const position = owner.mapToItem(root, 0, afterOwner ? owner.baseHeight : 0)
+        return position.y - animatedDisplacementBeforeRow(owner.row)
+    }
+
+    function noteDropBoundaries(delegates) {
+        const groups = []
+        let group = null
+        for (const delegate of delegates) {
+            if (delegate.itemType === 0) {
+                group = { header: delegate, notes: [] }
+                groups.push(group)
+            } else if (group) {
+                group.notes.push(delegate)
+            }
+        }
+
+        const boundaries = []
+        for (const candidateGroup of groups) {
+            const remaining = candidateGroup.notes.filter(function(note) {
+                return !sourceContains(note.storageId, note.noteId)
+            })
+            if (remaining.length === 0) {
+                boundaries.push({
+                    position: logicalBoundaryPosition(candidateGroup.header, true),
+                    owner: candidateGroup.header,
+                    afterOwner: true,
+                    storageId: candidateGroup.header.storageId,
+                    anchorNoteId: "",
+                    insertAfter: false
+                })
+                continue
+            }
+            for (const note of remaining) {
+                boundaries.push({
+                    position: logicalBoundaryPosition(note, false),
+                    owner: note,
+                    afterOwner: false,
+                    storageId: note.storageId,
+                    anchorNoteId: note.noteId,
+                    insertAfter: false
+                })
+            }
+            const last = remaining[remaining.length - 1]
+            boundaries.push({
+                position: logicalBoundaryPosition(last, true),
+                owner: last,
+                afterOwner: true,
+                storageId: last.storageId,
+                anchorNoteId: last.noteId,
+                insertAfter: true
+            })
+        }
+        return boundaries
+    }
+
+    function storageDropBoundaries(delegates) {
+        const remainingStorages = delegates.filter(function(delegate) {
+            return delegate.itemType === 0
+                    && (!activeDragDelegate
+                        || delegate.storageId !== activeDragDelegate.storageId)
+        })
+        const boundaries = []
+        for (const storage of remainingStorages) {
+            boundaries.push({
+                position: logicalBoundaryPosition(storage, false),
+                owner: storage,
+                afterOwner: false,
+                storageId: storage.storageId
+            })
+        }
+        if (remainingStorages.length > 0) {
+            const lastStorage = remainingStorages[remainingStorages.length - 1]
+            let lastOwner = lastStorage
+            for (const delegate of delegates) {
+                if (delegate.storageId === lastStorage.storageId)
+                    lastOwner = delegate
+            }
+            boundaries.push({
+                position: logicalBoundaryPosition(lastOwner, true),
+                owner: lastOwner,
+                afterOwner: true,
+                storageId: lastStorage.storageId
+            })
+        }
+        return boundaries
+    }
+
+    function groupedDropBoundaries() {
+        const delegates = visibleGroupedDelegates()
+        return draggedItemType === 0
+                ? storageDropBoundaries(delegates) : noteDropBoundaries(delegates)
+    }
+
+    function updateGroupedRowExtent(row, extent) {
+        if (row < 0)
+            return
+        const key = String(row)
+        // Keep animated rows instantiated. A zero-height TableView row may be
+        // pooled and reused while the drag controller still references it.
+        const rounded = Math.max(1, Math.round(Number(extent)))
+        if (groupedRowExtents[key] === rounded)
+            return
+        const copy = Object.assign({}, groupedRowExtents)
+        copy[key] = rounded
+        groupedRowExtents = copy
+        requestGroupedLayout()
+    }
+
+    function requestGroupedLayout() {
+        if (groupedLayoutPending)
+            return
+        groupedLayoutPending = true
+        Qt.callLater(function() {
+            groupedLayoutPending = false
+            if (notesTree)
+                notesTree.forceLayout()
+        })
+    }
+
+    function resetGroupedRowExtents() {
+        groupedRowExtents = ({})
+        requestGroupedLayout()
+    }
+
+    function selectDesktopNote(delegate, modifiers) {
+        const key = noteSelectionKey(delegate.storageId, delegate.noteId)
+        const control = Boolean(modifiers & Qt.ControlModifier)
+        const shift = Boolean(modifiers & Qt.ShiftModifier)
+
+        if (shift && selectionAnchorKey.length > 0) {
+            let anchorRow = -1
+            let targetRow = -1
+            for (let visualRow = 0; visualRow < notesTree.rows; ++visualRow) {
+                const candidate = groupedItemAtRow(visualRow)
+                if (!candidate || candidate.itemType !== 1)
+                    continue
+                const candidateKey = noteSelectionKey(candidate.storageId, candidate.noteId)
+                if (candidateKey === selectionAnchorKey)
+                    anchorRow = visualRow
+                if (candidateKey === key)
+                    targetRow = visualRow
+            }
+            if (anchorRow >= 0 && targetRow >= 0) {
+                const copy = control ? Object.assign({}, selectedNotes) : ({})
+                const first = Math.min(anchorRow, targetRow)
+                const last = Math.max(anchorRow, targetRow)
+                for (let row = first; row <= last; ++row) {
+                    const candidate = groupedItemAtRow(row)
+                    if (!candidate || candidate.itemType !== 1)
+                        continue
+                    copy[noteSelectionKey(candidate.storageId, candidate.noteId)] = {
+                        storageId: candidate.storageId,
+                        noteId: candidate.noteId,
+                        title: candidate.title
+                    }
+                }
+                selectedNotes = copy
+                return
+            }
+        }
+
+        if (control) {
+            toggleNoteSelection(delegate.storageId, delegate.noteId, delegate.title,
+                                !noteIsSelected(delegate.storageId, delegate.noteId))
+            selectionAnchorKey = key
+            return
+        }
+
+        const single = ({})
+        single[key] = {
+            storageId: delegate.storageId,
+            noteId: delegate.noteId,
+            title: delegate.title
+        }
+        selectedNotes = single
+        selectionAnchorKey = key
+        selectNote(delegate.storageId, delegate.noteId, delegate.title)
+    }
+
     function beginGroupedDrag(delegate) {
-        dragTranslationX = 0
-        dragTranslationY = 0
         const sourceItems = [delegate]
+        const draggedNotes = delegate.itemType === 1
+                ? dragNotesFor(delegate.storageId, delegate.noteId, delegate.title) : []
         if (delegate.itemType === 0) {
             for (let visualRow = 0; visualRow < notesTree.rows; ++visualRow) {
                 const candidate = groupedItemAtRow(visualRow)
@@ -173,28 +430,61 @@ Item {
                     sourceItems.push(candidate)
             }
         }
-        managerDragPreview.capture(sourceItems)
-        delegate.dragStartHeight = delegate.height
-        activeDragDelegate = delegate
-        delegate.internalDragActive = true
+        const sources = []
+        for (const sourceItem of sourceItems) {
+            sources.push({
+                item: sourceItem,
+                previewItem: sourceItem,
+                geometryItem: sourceItem,
+                naturalExtent: sourceItem.baseHeight,
+                previewWidth: sourceItem.width,
+                previewHeight: sourceItem.baseHeight
+            })
+        }
+        delegate.internalDragActive = groupedReorderController.beginDrag({
+            sources: sources,
+            payload: {
+                sourceDelegate: delegate,
+                itemType: delegate.itemType,
+                storageId: delegate.storageId,
+                dragNotes: draggedNotes
+            },
+            pointerItem: delegate,
+            pointerLocalX: delegate.width / 2,
+            pointerLocalY: delegate.baseHeight / 2,
+            targetByDraggedTop: true
+        })
     }
 
     function updateGroupedDrag(delegate, dx, dy) {
-        if (activeDragDelegate !== delegate)
+        if (!activeDragDelegate || activeDragDelegate.sourceDelegate !== delegate)
             return
-        dragTranslationX = dx
-        dragTranslationY = dy
+        groupedReorderController.moveDrag(dx, dy)
+    }
+
+    function commitGroupedDrop(delegate, boundary) {
+        if (!delegate || !boundary)
+            return false
+        if (delegate.itemType === 0) {
+            return delegate.storageId !== boundary.storageId
+                    && workspace.moveStorage(delegate.storageId, boundary.storageId)
+        }
+        if (workspace.currentEditor && !checkpointEditor())
+            return false
+        const moved = workspace.moveNotes(delegate.dragNotes,
+                                          boundary.storageId,
+                                          boundary.anchorNoteId,
+                                          boundary.insertAfter)
+        if (moved)
+            selectedNotes = ({})
+        return moved
     }
 
     function finishGroupedDrag(delegate) {
-        if (delegate && delegate.internalDragActive)
-            delegate.Drag.drop()
-        if (delegate)
-            delegate.internalDragActive = false
-        activeDragDelegate = null
-        dragTranslationX = 0
-        dragTranslationY = 0
-        managerDragPreview.clear()
+        if (!delegate || !delegate.internalDragActive)
+            return
+        delegate.internalDragActive = false
+        groupedReorderController.finishDrag()
     }
 
     function openSearch() {
@@ -486,6 +776,11 @@ Item {
                         clip: true
                         model: root.workspace.groupedNotesModel
                         bottomMargin: root.touchActions ? 88 : 0
+                        rowHeightProvider: function(row) {
+                            const extent = root.groupedRowExtents[String(row)]
+                            return extent === undefined
+                                    ? (root.touchActions ? 44 : 34) : extent
+                        }
                         Component.onCompleted: Qt.callLater(function() { expandRecursively(-1, 1) })
                         selectionModel: ItemSelectionModel { model: notesTree.model }
 
@@ -509,29 +804,33 @@ Item {
                             required property int noteCount
                             required property string iconSource
                             property double suppressClickUntil: 0
-                            property var dragNotes: root.dragNotesFor(storageId, noteId, title)
                             property bool internalDragActive: false
-                            property bool dragHovered: false
-                            property real dragStartHeight: 0
                             readonly property real baseHeight: root.touchActions ? 44 : 34
+                            readonly property bool dragHovered: root.dropTargetDelegate === groupedDelegate
+                            readonly property bool noteSelected: itemType === 1
+                                                                 && root.noteIsSelected(storageId, noteId)
+                            readonly property bool selectionCheckBoxVisible: itemType === 1
+                                                                             && root.touchActions
                             readonly property bool partOfActiveDrag: root.activeDragDelegate
-                                    && (root.activeDragDelegate === groupedDelegate
+                                    && (root.activeDragDelegate.sourceDelegate === groupedDelegate
                                         || (root.draggedItemType === 0
                                             && root.activeDragDelegate.storageId
                                                === groupedDelegate.storageId)
                                         || (root.draggedItemType === 1
-                                            && root.noteIsSelected(
-                                                root.activeDragDelegate.storageId,
-                                                root.activeDragDelegate.noteId)
-                                            && root.noteIsSelected(groupedDelegate.storageId,
+                                            && groupedDelegate.itemType === 1
+                                            && root.sourceContains(groupedDelegate.storageId,
                                                                    groupedDelegate.noteId)))
-                            property real collapseSpace: partOfActiveDrag ? baseHeight : 0
-                            property real dropSpace: dragHovered && root.draggedItemType === 0
-                                                    ? managerDragPreview.totalHeight : 0
+                            readonly property bool dropBefore: dragHovered && !root.dropTargetAfter
+                            readonly property bool dropAfter: dragHovered && root.dropTargetAfter
+                            readonly property alias collapseSpace: groupedDisplacement.collapseSpace
+                            readonly property alias dropSpace: groupedDisplacement.beforeSpace
+                            readonly property alias dropAfterSpace: groupedDisplacement.afterSpace
+                            readonly property alias animatedDropSpace: groupedDisplacement.dropSpace
+                            readonly property alias reorderLayoutExtent: groupedDisplacement.layoutExtent
 
                             objectName: "groupedDelegate-" + storageId + "-" + noteId
                             width: notesTree.width
-                            implicitHeight: Math.max(0, baseHeight - collapseSpace) + dropSpace
+                            implicitHeight: baseHeight
                             hoverEnabled: true
                             highlighted: itemType === 0
                                          ? root.selectedStorageId === storageId && root.selectedNoteId.length === 0
@@ -539,9 +838,40 @@ Item {
                             leftPadding: 0
                             rightPadding: 0
                             topPadding: dropSpace
-                            bottomPadding: 0
+                            bottomPadding: dropAfterSpace
                             ToolTip.visible: hovered && (errorString.length > 0 || preview.length > 0)
                             ToolTip.text: errorString.length > 0 ? errorString : preview
+
+                            ReorderDisplacement {
+                                id: groupedDisplacement
+
+                                animationEnabled: root.activeDragDelegate !== null
+                                                  && !root.committingDrop
+                                sourceActive: groupedDelegate.partOfActiveDrag
+                                targetBefore: groupedDelegate.dropBefore
+                                targetAfter: groupedDelegate.dropAfter
+                                naturalExtent: groupedDelegate.baseHeight
+                                // Each collapsed TreeView row keeps one physical pixel
+                                // so the delegate cannot be recycled during the gesture.
+                                draggedExtent: Math.max(
+                                    0, root.draggedExtent
+                                       - groupedReorderController.sourceEntries.length)
+                            }
+
+                            onReorderLayoutExtentChanged: {
+                                if (groupedReorderController.dragging)
+                                    root.updateGroupedRowExtent(row, reorderLayoutExtent)
+                            }
+
+                            onRowChanged: {
+                                if (groupedReorderController.dragging)
+                                    root.updateGroupedRowExtent(row, reorderLayoutExtent)
+                            }
+
+                            TableView.onReused: {
+                                if (groupedReorderController.dragging)
+                                    root.updateGroupedRowExtent(row, reorderLayoutExtent)
+                            }
 
                             background: Rectangle {
                                 radius: 4
@@ -551,6 +881,10 @@ Item {
                                                  groupedDelegate.palette.highlight.b, 0.28)
                                        : groupedDelegate.highlighted
                                        ? groupedDelegate.palette.highlight
+                                       : groupedDelegate.noteSelected
+                                       ? Qt.rgba(groupedDelegate.palette.highlight.r,
+                                                 groupedDelegate.palette.highlight.g,
+                                                 groupedDelegate.palette.highlight.b, 0.38)
                                        : (groupedDelegate.hovered ? Qt.rgba(groupedDelegate.palette.button.r, groupedDelegate.palette.button.g, groupedDelegate.palette.button.b, 0.45) : "transparent")
                                 border.width: groupedDelegate.dragHovered ? 2 : 0
                                 border.color: groupedDelegate.palette.highlight
@@ -560,19 +894,18 @@ Item {
                                     anchors.right: parent.right
                                     y: Math.max(0, groupedDelegate.dropSpace - height)
                                     height: 3
-                                    visible: groupedDelegate.dropSpace > 0
+                                    visible: groupedDelegate.dropBefore
                                     color: groupedDelegate.palette.highlight
                                 }
-                            }
 
-                            Behavior on collapseSpace {
-                                enabled: root.activeDragDelegate !== null
-                                NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
-                            }
-
-                            Behavior on dropSpace {
-                                enabled: root.activeDragDelegate !== null
-                                NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    y: parent.height - groupedDelegate.dropAfterSpace
+                                    height: 3
+                                    visible: groupedDelegate.dropAfter
+                                    color: groupedDelegate.palette.highlight
+                                }
                             }
 
                             contentItem: RowLayout {
@@ -639,7 +972,10 @@ Item {
                                 }
 
                                 CheckBox {
-                                    visible: groupedDelegate.itemType === 1 && !root.touchActions
+                                    objectName: "groupedSelectionCheckBox-"
+                                                + groupedDelegate.storageId + "-"
+                                                + groupedDelegate.noteId
+                                    visible: groupedDelegate.selectionCheckBoxVisible
                                     checked: root.noteIsSelected(groupedDelegate.storageId,
                                                                  groupedDelegate.noteId)
                                     Accessible.name: qsTr("Select %1").arg(groupedDelegate.title)
@@ -649,14 +985,6 @@ Item {
                                                                         checked)
                                 }
                             }
-
-                            Drag.active: internalDragActive
-                            Drag.source: groupedDelegate
-                            Drag.keys: itemType === 0 ? ["qtnote-storage"] : ["qtnote-note"]
-                            Drag.hotSpot.x: width / 2 + noteDrag.activeTranslation.x
-                            Drag.hotSpot.y: dragStartHeight / 2 + noteDrag.activeTranslation.y
-                            Drag.supportedActions: Qt.MoveAction
-                            Drag.proposedAction: Qt.MoveAction
 
                             DragHandler {
                                 id: noteDrag
@@ -675,48 +1003,26 @@ Item {
                                 }
                             }
 
-                            DropArea {
-                                anchors.fill: parent
-                                enabled: groupedDelegate.itemType === 0
-                                keys: ["qtnote-note", "qtnote-storage"]
-                                onEntered: function(drag) {
-                                    const accepted = drag.source
-                                            && drag.source.storageId !== groupedDelegate.storageId
-                                            && (drag.source.itemType === 0
-                                                || groupedDelegate.itemType === 0)
-                                    drag.accepted = Boolean(accepted)
-                                    groupedDelegate.dragHovered = Boolean(accepted)
-                                }
-                                onExited: groupedDelegate.dragHovered = false
-                                onDropped: function(drop) {
-                                    groupedDelegate.dragHovered = false
-                                    if (!drop.source || drop.source.storageId === groupedDelegate.storageId)
-                                        return
-                                    if (drop.source.itemType === 0) {
-                                        if (groupedDelegate.itemType === 0
-                                                && root.workspace.moveStorage(drop.source.storageId,
-                                                                              groupedDelegate.storageId))
-                                            drop.acceptProposedAction()
-                                        return
-                                    }
-                                    if (groupedDelegate.itemType !== 0)
-                                        return
-                                    if (root.workspace.currentEditor && !root.checkpointEditor())
-                                        return
-                                    if (root.workspace.moveNotes(drop.source.dragNotes,
-                                                                 groupedDelegate.storageId)) {
-                                        root.selectedNotes = ({})
-                                        drop.acceptProposedAction()
-                                    }
-                                }
-                            }
-
                             TapHandler {
                                 acceptedButtons: Qt.LeftButton
                                 acceptedDevices: PointerDevice.Mouse
                                 enabled: groupedDelegate.itemType === 1 && root.embeddedEditor
                                 onDoubleTapped: root.openStandalone(groupedDelegate.storageId,
                                                                      groupedDelegate.noteId)
+                            }
+
+                            TapHandler {
+                                id: desktopSelectionHandler
+
+                                acceptedButtons: Qt.LeftButton
+                                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                                enabled: groupedDelegate.itemType === 1 && !root.touchActions
+                                gesturePolicy: TapHandler.DragThreshold
+                                onTapped: function(eventPoint, button) {
+                                    groupedDelegate.suppressClickUntil = Date.now() + 100
+                                    root.selectDesktopNote(groupedDelegate,
+                                                           desktopSelectionHandler.point.modifiers)
+                                }
                             }
 
                             onClicked: {
@@ -731,7 +1037,7 @@ Item {
                                     root.selectedNoteId = ""
                                     root.selectedTitle = title
                                     notesTree.toggleExpanded(row)
-                                } else {
+                                } else if (root.touchActions) {
                                     root.selectNote(storageId, noteId, title)
                                 }
                             }
@@ -1047,14 +1353,4 @@ Item {
         }
     }
 
-    DragPreviewLayer {
-        id: managerDragPreview
-
-        objectName: "managerDragPreview"
-        anchors.fill: parent
-        z: 100000
-        objectNamePrefix: "managerDragPreviewItem-"
-        translationX: root.dragTranslationX
-        translationY: root.dragTranslationY
-    }
 }

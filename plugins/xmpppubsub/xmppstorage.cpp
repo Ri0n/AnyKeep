@@ -670,13 +670,18 @@ void XmppStorage::prefetchNextBody()
 XmppRemoteNote XmppStorage::toRemote(const Note &note) const
 {
     XmppRemoteNote remote;
-    remote.id                    = note.id();
-    remote.revision              = note.backendValue(QStringLiteral("revision")).toString();
-    remote.parentRevision        = note.backendValue(QStringLiteral("parentRevision")).toString();
-    remote.originId              = note.backendValue(QStringLiteral("originId")).toString();
-    remote.title                 = note.title();
-    remote.content               = note.text();
-    remote.modified              = note.lastChangeUTC();
+    remote.id             = note.id();
+    remote.revision       = note.backendValue(QStringLiteral("revision")).toString();
+    remote.parentRevision = note.backendValue(QStringLiteral("parentRevision")).toString();
+    remote.originId       = note.backendValue(QStringLiteral("originId")).toString();
+    remote.title          = note.title();
+    remote.content        = note.text();
+    remote.modified       = note.lastChangeUTC();
+    const auto requestedModified
+        = note.backendValue(QString::fromLatin1(RequestedModificationTimeBackendKey)).toDateTime();
+    remote.preserveModified = requestedModified.isValid();
+    if (remote.preserveModified)
+        remote.modified = requestedModified;
     remote.format                = QStringLiteral("markdown");
     remote.tags                  = note.tags();
     remote.contentPresent        = note.isLoaded();

@@ -24,16 +24,26 @@ Item {
 
     function capture(sourceItems) {
         const captured = []
-        for (const sourceItem of sourceItems || []) {
+        for (const source of sourceItems || []) {
+            const descriptor = source && source.sourceItem ? source : null
+            const sourceItem = descriptor ? descriptor.sourceItem : source
             if (!sourceItem)
                 continue
-            const origin = sourceItem.mapToItem(root, 0, 0)
+            const sourceX = descriptor && descriptor.sourceX !== undefined
+                    ? Number(descriptor.sourceX) : 0
+            const sourceY = descriptor && descriptor.sourceY !== undefined
+                    ? Number(descriptor.sourceY) : 0
+            const origin = sourceItem.mapToItem(root, sourceX, sourceY)
             captured.push({
                 sourceItem: sourceItem,
                 x: origin.x,
                 y: origin.y,
-                width: sourceItem.width,
-                height: sourceItem.height
+                sourceX: sourceX,
+                sourceY: sourceY,
+                width: descriptor && descriptor.width !== undefined
+                       ? Number(descriptor.width) : sourceItem.width,
+                height: descriptor && descriptor.height !== undefined
+                        ? Number(descriptor.height) : sourceItem.height
             })
         }
         entries = captured
@@ -60,7 +70,8 @@ Item {
             y: Number(modelData.y) + root.translationY
             width: Number(modelData.width)
             height: Number(modelData.height)
-            sourceRect: Qt.rect(0, 0, width, height)
+            sourceRect: Qt.rect(Number(modelData.sourceX), Number(modelData.sourceY),
+                                width, height)
             opacity: root.previewOpacity
         }
     }

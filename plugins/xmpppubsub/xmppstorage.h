@@ -50,6 +50,7 @@ public:
     bool            canAcceptWrites() const override;
 
     QList<Note::Format> availableFormats() const override;
+    qint64              requestedModificationTimeResolutionMs() const override { return 1; }
     QList<Note>         noteList(int limit = 0) override;
     NoteListJob        *refreshNotesAsync(int limit = 0, QObject *owner = nullptr) override;
     Note                note(const QString &id) override;

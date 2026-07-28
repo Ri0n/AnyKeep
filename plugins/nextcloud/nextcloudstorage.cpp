@@ -279,7 +279,10 @@ NextcloudRemoteNote NextcloudStorage::toRemote(const Note &note) const
     remote.title          = note.title();
     remote.category       = note.backendValue(QStringLiteral("category")).toString();
     remote.favorite       = note.backendValue(QStringLiteral("favorite")).toBool();
-    remote.modified       = QDateTime::currentDateTimeUtc().toSecsSinceEpoch();
+    const auto requestedModified
+        = note.backendValue(QString::fromLatin1(RequestedModificationTimeBackendKey)).toDateTime();
+    remote.modified
+        = (requestedModified.isValid() ? requestedModified : QDateTime::currentDateTimeUtc()).toSecsSinceEpoch();
     return remote;
 }
 

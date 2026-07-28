@@ -1,3 +1,4 @@
+#include <QJsonDocument>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
@@ -131,7 +132,9 @@ private slots:
         };
         appendItem(QStringLiteral("storage-a"), {}, 0, QStringLiteral("Storage A"));
         appendItem(QStringLiteral("storage-a"), QStringLiteral("note-a"), 1, QStringLiteral("Note A"));
+        appendItem(QStringLiteral("storage-a"), QStringLiteral("note-a2"), 1, QStringLiteral("Note A2"));
         appendItem(QStringLiteral("storage-b"), {}, 0, QStringLiteral("Storage B"));
+        appendItem(QStringLiteral("storage-b"), QStringLiteral("note-b"), 1, QStringLiteral("Note B"));
         installThemedIconImageProvider(quick.engine());
         quick.rootContext()->setContextProperty(QStringLiteral("testNotesModel"), &notesModel);
         QQmlComponent component(quick.engine());
@@ -144,6 +147,8 @@ private slots:
                 objectName: "managerInteractionHarness"
                 property int movedNotes: workspace.movedNotes
                 property string noteDestination: workspace.noteDestination
+                property string noteAnchor: workspace.noteAnchor
+                property bool noteInsertAfter: workspace.noteInsertAfter
                 property int movedStorages: workspace.movedStorages
                 property string storageDestination: workspace.storageDestination
 
@@ -164,6 +169,8 @@ private slots:
                     property var storages: []
                     property int movedNotes: 0
                     property string noteDestination: ""
+                    property string noteAnchor: ""
+                    property bool noteInsertAfter: false
                     property int movedStorages: 0
                     property string storageDestination: ""
                     function saveCurrentNote() { return true }
@@ -176,9 +183,11 @@ private slots:
                     function copyNote(sourceStorageId, noteId, destinationStorageId) { return true }
                     function moveNote(sourceStorageId, noteId, destinationStorageId) { return true }
                     function openStorageSettings(storageId) {}
-                    function moveNotes(notes, destinationStorageId) {
+                    function moveNotes(notes, destinationStorageId, anchorNoteId, insertAfter) {
                         movedNotes = notes.length
                         noteDestination = destinationStorageId
+                        noteAnchor = anchorNoteId
+                        noteInsertAfter = insertAfter
                         return true
                     }
                     function moveStorage(sourceStorageId, destinationStorageId) {
@@ -218,7 +227,9 @@ private slots:
         };
         QQuickItem *storageA = nullptr;
         QQuickItem *noteA    = nullptr;
+        QQuickItem *noteA2   = nullptr;
         QQuickItem *storageB = nullptr;
+        QQuickItem *noteB    = nullptr;
         auto       *page     = root->findChild<QQuickItem *>(QStringLiteral("managerPage"));
         auto       *tree     = root->findChild<QQuickItem *>(QStringLiteral("notesTree"));
         auto       *preview  = root->findChild<QQuickItem *>(QStringLiteral("managerDragPreview"));
@@ -227,7 +238,10 @@ private slots:
         QVERIFY(preview);
         QTRY_VERIFY((storageA = delegate(page, 0)));
         QTRY_VERIFY((noteA = delegate(page, 1)));
-        QTRY_VERIFY((storageB = delegate(page, 2)));
+        QTRY_VERIFY((noteA2 = delegate(page, 2)));
+        QTRY_VERIFY((storageB = delegate(page, 3)));
+        QTRY_VERIFY((noteB = delegate(page, 4)));
+        QVERIFY(!noteA->property("selectionCheckBoxVisible").toBool());
 
         const QPointF storageAPoint = storageA->mapToItem(qobject_cast<QQuickItem *>(root),
                                                           QPointF(storageA->width() / 2, storageA->height() / 2));
@@ -243,25 +257,98 @@ private slots:
         QTRY_VERIFY(root->findChild<QObject *>(QStringLiteral("noteContextMenu"))->property("visible").toBool());
         QVERIFY(QMetaObject::invokeMethod(root->findChild<QObject *>(QStringLiteral("noteContextMenu")), "close"));
 
-        const auto drag = [&quick, root, preview](QQuickItem *source, QQuickItem *destination, int previewItems) {
-            auto         *rootItem = qobject_cast<QQuickItem *>(root);
-            const QPointF from     = source->mapToItem(rootItem, QPointF(source->width() / 2, source->height() / 2));
-            const QPointF to
-                = destination->mapToItem(rootItem, QPointF(destination->width() / 2, destination->height() / 2));
-            QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, from.toPoint());
-            for (int step = 1; step <= 8; ++step)
-                QTest::mouseMove(&quick, (from + (to - from) * (qreal(step) / 8)).toPoint(), 15);
-            QTRY_COMPARE(preview->property("previewCount").toInt(), previewItems);
-            QTRY_VERIFY(destination->property("dragHovered").toBool());
-            QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, to.toPoint());
-            QTRY_COMPARE(preview->property("previewCount").toInt(), 0);
-        };
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 1);
+        const QPointF noteA2Point
+            = noteA2->mapToItem(qobject_cast<QQuickItem *>(root), QPointF(noteA2->width() / 2, noteA2->height() / 2));
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::ControlModifier, noteA2Point.toPoint());
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
+        const QPointF noteBPoint
+            = noteB->mapToItem(qobject_cast<QQuickItem *>(root), QPointF(noteB->width() / 2, noteB->height() / 2));
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::ShiftModifier, noteBPoint.toPoint());
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
+        QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-a\nnote-a2")));
+        QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-b\nnote-b")));
 
-        drag(noteA, storageB, 1);
+        const auto drag
+            = [&quick, root, preview, page, &delegate](QQuickItem *source, QQuickItem *destination, int previewItems) {
+                  auto         *rootItem = qobject_cast<QQuickItem *>(root);
+                  const QPointF from = source->mapToItem(rootItem, QPointF(source->width() / 2, source->height() / 2));
+                  const QPointF to
+                      = destination->mapToItem(rootItem, QPointF(destination->width() / 2, destination->height() / 2));
+                  QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, from.toPoint());
+                  for (int step = 1; step <= 8; ++step)
+                      QTest::mouseMove(&quick, (from + (to - from) * (qreal(step) / 8)).toPoint(), 15);
+                  QTRY_COMPARE(preview->property("previewCount").toInt(), previewItems);
+                  QTRY_VERIFY(source->property("collapseSpace").toReal() > 0);
+                  QObject *dropTarget = nullptr;
+                  QTRY_VERIFY((dropTarget = page->property("dropTargetDelegate").value<QObject *>()));
+                  QTRY_VERIFY(dropTarget->property("dragHovered").toBool());
+                  QTRY_VERIFY(dropTarget->property("dropSpace").toReal() > 0
+                              || dropTarget->property("dropAfterSpace").toReal() > 0);
+                  QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, to.toPoint());
+                  QTRY_COMPARE(preview->property("previewCount").toInt(), 0);
+                  for (int row = 0; row < 5; ++row) {
+                      if (auto *item = delegate(page, row))
+                          QTRY_COMPARE(item->height(), item->property("baseHeight").toReal());
+                  }
+              };
+
+        page->setProperty("selectedNotes", QVariantMap());
+        const auto contentOrigin = [root](QQuickItem *item) {
+            auto *content
+                = item ? qobject_cast<QQuickItem *>(item->property("contentItem").value<QObject *>()) : nullptr;
+            return content ? content->mapToItem(qobject_cast<QQuickItem *>(root), QPointF()) : QPointF();
+        };
+        const QPointF noteA2OriginBeforeEarlyDrag   = contentOrigin(noteA2);
+        const QPointF storageBOriginBeforeEarlyDrag = contentOrigin(storageB);
+        const QPointF earlyDragPoint                = noteAPoint + QPointF(0, 12);
+        QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
+        QTest::mouseMove(&quick, earlyDragPoint.toPoint(), 15);
+        QTRY_COMPARE(preview->property("previewCount").toInt(), 1);
+        QTest::qWait(220);
+        QTRY_VERIFY(noteA2->property("dropSpace").toReal() > 0);
+        QCOMPARE(noteA2->property("dropAfterSpace").toReal(), 0.0);
+        const QPointF     noteA2OriginDuringEarlyDrag   = contentOrigin(noteA2);
+        const QPointF     storageBOriginDuringEarlyDrag = contentOrigin(storageB);
+        const QVariantMap rowExtents                    = page->property("groupedRowExtents").toMap();
+        QVERIFY2((noteA2OriginDuringEarlyDrag - noteA2OriginBeforeEarlyDrag).manhattanLength() < 1,
+                 qPrintable(QStringLiteral("second row moved on early drag: before=%1 during=%2 extents=%3")
+                                .arg(noteA2OriginBeforeEarlyDrag.y())
+                                .arg(noteA2OriginDuringEarlyDrag.y())
+                                .arg(QString::fromUtf8(
+                                    QJsonDocument::fromVariant(rowExtents).toJson(QJsonDocument::Compact)))));
+        QVERIFY2((storageBOriginDuringEarlyDrag - storageBOriginBeforeEarlyDrag).manhattanLength() < 1,
+                 qPrintable(QStringLiteral("following row moved on early drag: before=%1 during=%2")
+                                .arg(storageBOriginBeforeEarlyDrag.y())
+                                .arg(storageBOriginDuringEarlyDrag.y())));
+        const QPointF crossedHalfPoint = noteAPoint + QPointF(0, 20);
+        QTest::mouseMove(&quick, crossedHalfPoint.toPoint(), 15);
+        QTRY_VERIFY(noteA2->property("dropAfterSpace").toReal() > 0);
+        QTest::qWait(220);
+        QVERIFY(contentOrigin(noteA2).y() < noteA2OriginBeforeEarlyDrag.y() - 1);
+        QVERIFY((contentOrigin(storageB) - storageBOriginBeforeEarlyDrag).manhattanLength() < 1);
+        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, crossedHalfPoint.toPoint());
+        QTRY_COMPARE(preview->property("previewCount").toInt(), 0);
+        QTRY_VERIFY((noteA = delegate(page, 1)));
+        QTRY_VERIFY((noteA2 = delegate(page, 2)));
+        QTRY_VERIFY((storageB = delegate(page, 3)));
+        QTRY_VERIFY((noteB = delegate(page, 4)));
+        QTRY_COMPARE(noteA->height(), noteA->property("baseHeight").toReal());
+
+        drag(noteA, noteA2, 1);
+        QTRY_COMPARE(root->property("movedNotes").toInt(), 1);
+        QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-a"));
+        QCOMPARE(root->property("noteAnchor").toString(), QStringLiteral("note-a2"));
+        QVERIFY(root->property("noteInsertAfter").toBool());
+
+        drag(noteA, noteB, 1);
         QTRY_COMPARE(root->property("movedNotes").toInt(), 1);
         QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-b"));
+        QCOMPARE(root->property("noteAnchor").toString(), QStringLiteral("note-b"));
+        QVERIFY(root->property("noteInsertAfter").toBool());
 
-        drag(storageA, storageB, 2);
+        drag(storageA, storageB, 3);
         QTRY_COMPARE(root->property("movedStorages").toInt(), 1);
         QCOMPARE(root->property("storageDestination").toString(), QStringLiteral("storage-b"));
     }

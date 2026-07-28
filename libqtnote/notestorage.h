@@ -62,6 +62,9 @@ public:
 
     virtual QList<Note::Format> availableFormats() const = 0;
     virtual bool                supportsMedia() const { return false; }
+    // Smallest modification-time step that can survive a save and a reload.
+    // Zero means that an explicit modification time is unsupported.
+    virtual qint64 requestedModificationTimeResolutionMs() const { return 0; }
 
     /* 0 - not limit */
     virtual QList<Note> noteList(int limit = 0) = 0;

@@ -48,6 +48,7 @@ public:
 
     QString             findStorageDir() const override;
     QList<Note::Format> availableFormats() const override;
+    qint64              requestedModificationTimeResolutionMs() const override { return 1000; }
 
     static QString storageId;
 };

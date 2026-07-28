@@ -143,6 +143,14 @@ void Note::setBackendValue(const QString &key, const QVariant &value)
     d->setBackendValue(key, value);
 }
 
+void Note::removeBackendValue(const QString &key)
+{
+    if (!d)
+        return;
+    d.detach();
+    d->removeBackendValue(key);
+}
+
 NoteStorage *Note::storage() const { return d ? d->storage_.data() : nullptr; }
 
 QString Note::storageId() const { return d ? d->storageId() : QString(); }

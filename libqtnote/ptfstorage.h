@@ -49,6 +49,7 @@ public:
     void removeNote(const QString &noteId) override;
 
     QList<Note::Format> availableFormats() const override;
+    qint64              requestedModificationTimeResolutionMs() const override { return 1; }
     bool                supportsMedia() const override { return true; }
     QString             findStorageDir() const override;
 

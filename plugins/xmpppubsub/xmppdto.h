@@ -50,6 +50,7 @@ struct XmppRemoteNote {
     QString     title;
     QString     content;
     QDateTime   modified;
+    bool        preserveModified { false }; ///< Local save hint; never serialized.
     QString     format { QStringLiteral("markdown") };
     QStringList tags;
     bool        contentPresent { true }; ///< False for index-only list results.

@@ -76,7 +76,8 @@ public:
     Q_INVOKABLE bool moveCurrentNote(const QString &destinationStorageId);
     Q_INVOKABLE bool copyNote(const QString &sourceStorageId, const QString &noteId,
                               const QString &destinationStorageId);
-    Q_INVOKABLE bool moveNotes(const QVariantList &notes, const QString &destinationStorageId);
+    Q_INVOKABLE bool moveNotes(const QVariantList &notes, const QString &destinationStorageId,
+                               const QString &anchorNoteId = {}, bool insertAfter = false);
     Q_INVOKABLE bool moveStorage(const QString &sourceStorageId, const QString &destinationStorageId);
     Q_INVOKABLE void openStorageSettings(const QString &storageId);
     Q_INVOKABLE void refresh();
@@ -113,9 +114,14 @@ private:
     void setError(const QString &error);
     void beginOperation();
     void endOperation();
-    bool stageMove(const Note &source, const QString &destinationStorageId, QUuid *draftId);
+    bool stageMove(const Note &source, const QString &destinationStorageId, QUuid *draftId,
+                   const QDateTime &requestedModified = {});
     void startStagedMove(const QUuid &draftId, const Note &source);
-    bool beginMove(const Note &source, const QString &destinationStorageId);
+    bool beginMove(const Note &source, const QString &destinationStorageId, const QDateTime &requestedModified = {});
+    bool moveNoteAt(const QString &sourceStorageId, const QString &noteId, const QString &destinationStorageId,
+                    const QDateTime &requestedModified);
+    bool resaveNoteAt(const QString &storageId, const QString &noteId, const QDateTime &requestedModified);
+    bool saveLoadedNoteAt(Note note, const QDateTime &requestedModified);
     void connectEditorSignals(NoteEditor *editor);
 
     NotesModel               *notesModel_ { nullptr };

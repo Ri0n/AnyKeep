@@ -1078,7 +1078,8 @@ QCoro::Task<XmppNoteResult> XmppWorker::publishNoteTask(XmppRemoteNote note, qui
     qInfo().noquote() << "Conflict trace: XMPP publish note=" << note.id << "revision=" << note.revision
                       << "parent=" << note.parentRevision << "origin=" << note.originId
                       << "generation=" << clientGeneration;
-    note.modified       = QDateTime::currentDateTimeUtc();
+    if (!note.preserveModified || !note.modified.isValid())
+        note.modified = QDateTime::currentDateTimeUtc();
     note.format         = QStringLiteral("markdown");
     note.contentPresent = true;
 
