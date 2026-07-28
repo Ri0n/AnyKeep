@@ -127,7 +127,7 @@ namespace {
         const QCborMap map  = value.toMap();
         const qint64   type = map.value(QStringLiteral("type")).toInteger(-1);
         if (type < static_cast<qint64>(NoteFragmentBlockType::Text)
-            || type > static_cast<qint64>(NoteFragmentBlockType::Image)) {
+            || type > static_cast<qint64>(NoteFragmentBlockType::BlockQuote)) {
             *error = QStringLiteral("block has invalid type");
             return false;
         }

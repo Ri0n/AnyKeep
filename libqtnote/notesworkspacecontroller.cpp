@@ -6,9 +6,13 @@
 #include "notesmodel.h"
 #include "notessearchmodel.h"
 #include "notestorage.h"
+#include "notetransfercontroller.h"
 #include "recentnotesmodel.h"
 #include "storagejob.h"
+#include "storageprioritymodel.h"
 #include "utils.h"
+
+#include <algorithm>
 
 namespace QtNote {
 
@@ -17,7 +21,8 @@ NotesWorkspaceController::NotesWorkspaceController(QObject *parent) : QObject(pa
     notesModel_  = new NotesModel(this);
     searchModel_ = new NotesSearchModel(this);
     searchModel_->setSourceModel(notesModel_);
-    recentNotesModel_ = new RecentNotesModel(searchModel_, this);
+    recentNotesModel_     = new RecentNotesModel(searchModel_, this);
+    storagePriorityModel_ = new StoragePriorityModel(this);
 
     connect(notesModel_, &NotesModel::statsChanged, this, &NotesWorkspaceController::noteCountChanged);
     connect(notesModel_, &NotesModel::notesDropRequested, this,
@@ -35,6 +40,7 @@ NotesWorkspaceController::NotesWorkspaceController(QObject *parent) : QObject(pa
     connect(manager, &NoteManager::storageRemoved, this, &NotesWorkspaceController::storagesChanged);
     connect(manager, &NoteManager::storageChanged, this, &NotesWorkspaceController::storagesChanged);
     connect(manager, &NoteManager::storageReady, this, &NotesWorkspaceController::storagesChanged);
+    connect(manager, &NoteManager::storageOrderChanged, this, &NotesWorkspaceController::storagesChanged);
 
     auto *drafts = DraftManager::instance();
     connect(drafts, &DraftManager::draftPublished, this, [this, drafts](const QUuid &draftId, const Note &) {
@@ -61,6 +67,7 @@ NotesWorkspaceController::~NotesWorkspaceController() { closeCurrentNote(); }
 QAbstractItemModel *NotesWorkspaceController::notesModel() const { return searchModel_; }
 QAbstractItemModel *NotesWorkspaceController::groupedNotesModel() const { return searchModel_; }
 QAbstractItemModel *NotesWorkspaceController::recentNotesModel() const { return recentNotesModel_; }
+QAbstractItemModel *NotesWorkspaceController::storagePriorityModel() const { return storagePriorityModel_; }
 QObject            *NotesWorkspaceController::currentEditor() const { return currentEditor_; }
 NoteEditor         *NotesWorkspaceController::editor() const { return currentEditor_.data(); }
 QString             NotesWorkspaceController::currentStorageId() const
@@ -197,6 +204,7 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
 {
     if (storageId.isEmpty() || noteId.isEmpty())
         return false;
+    setError({});
     if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId) {
         if (!DraftManager::instance()->isLastEditingSession(currentEditor_->draftId())) {
             setError(tr("The note is open in another editor and cannot be deleted yet"));
@@ -224,6 +232,7 @@ bool NotesWorkspaceController::moveNote(const QString &sourceStorageId, const QS
         || sourceStorageId == destinationStorageId) {
         return false;
     }
+    setError({});
 
     if (currentEditor_ && currentEditor_->storageId() == sourceStorageId && currentEditor_->noteId() == noteId) {
         if (!DraftManager::instance()->isLastEditingSession(currentEditor_->draftId())) {
@@ -280,6 +289,79 @@ bool NotesWorkspaceController::moveCurrentNote(const QString &destinationStorage
     if (!currentEditor_)
         return false;
     return moveNote(currentEditor_->storageId(), currentEditor_->noteId(), destinationStorageId);
+}
+
+bool NotesWorkspaceController::copyNote(const QString &sourceStorageId, const QString &noteId,
+                                        const QString &destinationStorageId)
+{
+    if (sourceStorageId.isEmpty() || noteId.isEmpty() || destinationStorageId.isEmpty()
+        || sourceStorageId == destinationStorageId) {
+        return false;
+    }
+    setError({});
+
+    const auto stageAndPublish = [this, destinationStorageId](const Note &source) {
+        QUuid draftId;
+        if (!stageMove(source, destinationStorageId, &draftId))
+            return false;
+        DraftManager::instance()->publishPending();
+        return true;
+    };
+
+    if (currentEditor_ && currentEditor_->storageId() == sourceStorageId && currentEditor_->noteId() == noteId) {
+        if (!saveCurrentNote())
+            return false;
+        Note       source = currentEditor_->note();
+        const auto split  = Utils::splitTitle(currentEditor_->text());
+        source.setTitle(split.first);
+        source.setText(split.second, currentEditor_->format());
+        source.setMedia(currentEditor_->media());
+        return stageAndPublish(source);
+    }
+
+    beginOperation();
+    auto *job = NoteManager::instance()->loadNoteAsync(sourceStorageId, noteId, this);
+    connect(job, &StorageJob::finished, this, [this, job, destinationStorageId]() {
+        if (job->state() != StorageJob::Succeeded) {
+            if (job->state() != StorageJob::Cancelled)
+                setError(job->error().message.isEmpty() ? tr("Failed to load the note for copying")
+                                                        : job->error().message);
+            job->deleteLater();
+            endOperation();
+            return;
+        }
+        const Note source = job->result();
+        job->deleteLater();
+        QUuid draftId;
+        if (stageMove(source, destinationStorageId, &draftId))
+            DraftManager::instance()->publishPending();
+        endOperation();
+    });
+    return true;
+}
+
+bool NotesWorkspaceController::moveNotes(const QVariantList &notes, const QString &destinationStorageId)
+{
+    bool started = false;
+    for (const QVariant &value : notes) {
+        const QVariantMap note = value.toMap();
+        started                = moveNote(note.value(QStringLiteral("storageId")).toString(),
+                                          note.value(QStringLiteral("noteId")).toString(), destinationStorageId)
+            || started;
+    }
+    return started;
+}
+
+bool NotesWorkspaceController::moveStorage(const QString &sourceStorageId, const QString &destinationStorageId)
+{
+    return storagePriorityModel_ && storagePriorityModel_->moveStorageById(sourceStorageId, destinationStorageId);
+}
+
+void NotesWorkspaceController::openStorageSettings(const QString &storageId)
+{
+    const auto storage = NoteManager::instance()->storage(storageId);
+    if (storage && storage->isConfigurable())
+        emit storageSettingsRequested(storageId);
 }
 
 void NotesWorkspaceController::refresh() { notesModel_->refresh(); }
@@ -364,13 +446,25 @@ void NotesWorkspaceController::endOperation()
 bool NotesWorkspaceController::stageMove(const Note &source, const QString &destinationStorageId, QUuid *draftId)
 {
     auto destinationStorage = NoteManager::instance()->storage(destinationStorageId);
-    if (source.isNull() || !destinationStorage || !destinationStorage->isAccessible()) {
+    if (source.isNull() || !destinationStorage || !destinationStorage->canAcceptWrites()) {
         setError(tr("The destination storage is unavailable"));
         return false;
     }
-    if (!destinationStorage->availableFormats().contains(source.format())) {
-        setError(tr("The destination storage does not support this note format"));
-        return false;
+    const auto   formats           = destinationStorage->availableFormats();
+    Note::Format destinationFormat = source.format();
+    if (!formats.contains(destinationFormat)) {
+        const QList<Note::Format> conversionPreference {
+            Note::Markdown,
+            Note::PlainText,
+            Note::Html,
+        };
+        const auto supported = std::ranges::find_if(
+            conversionPreference, [&formats](Note::Format format) { return formats.contains(format); });
+        if (supported == conversionPreference.cend()) {
+            setError(tr("The destination storage does not support this note format"));
+            return false;
+        }
+        destinationFormat = *supported;
     }
     if (!source.media().isEmpty() && !destinationStorage->supportsMedia()) {
         setError(tr("The destination storage does not support note attachments"));
@@ -382,14 +476,16 @@ bool NotesWorkspaceController::stageMove(const Note &source, const QString &dest
         setError(tr("Could not create the destination note"));
         return false;
     }
-    destination.setTitle(source.title());
-    destination.setText(source.text(), source.format());
+    const QString title = NoteTransferController::convertTextFormat(source.title(), source.format(), destinationFormat);
+    const QString body  = NoteTransferController::convertTextFormat(source.text(), source.format(), destinationFormat);
+    destination.setTitle(title);
+    destination.setText(body, destinationFormat);
     destination.setTags(source.tags());
     destination.setMedia(source.media());
 
     auto       *drafts    = DraftManager::instance();
     const QUuid stagedId  = drafts->acquireEditingSession(destination);
-    const auto  saveError = drafts->saveEditing(stagedId, destination, source.title(), source.text(), source.format());
+    const auto  saveError = drafts->saveEditing(stagedId, destination, title, body, destinationFormat);
     if (saveError) {
         drafts->releaseEditingSession(stagedId);
         setError(saveError.message);

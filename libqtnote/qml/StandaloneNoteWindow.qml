@@ -6,8 +6,6 @@ import QtQuick.Controls
 Item {
     id: root
 
-    property string errorText: ""
-
     function flushPendingEditorChanges() { editorPane.flushPendingEditorChanges() }
     function insertTextAtCursor(text) { return editorPane.insertTextAtCursor(text) }
     function focusInitialEditor() { editorPane.focusInitialEditor() }
@@ -24,7 +22,7 @@ Item {
     Shortcut {
         sequence: StandardKey.Cancel
         context: Qt.WindowShortcut
-        enabled: !deleteDialog.visible && !errorDialog.visible
+        enabled: !deleteDialog.visible
         onActivated: standaloneHost.requestClose()
     }
 
@@ -53,23 +51,12 @@ Item {
         onAlwaysOnTopRequested: enabled => standaloneHost.setAlwaysOnTop(enabled)
         onMicrophoneRequested: desktopSpeech.start()
         onMicrophoneReleased: desktopSpeech.finish()
-        onCheckpointFailed: message => {
-            root.errorText = message
-            errorDialog.open()
-        }
+        onCheckpointFailed: message => standaloneHost.reportError(message)
     }
 
     Connections {
         target: desktopSpeech
         function onRecognizedText(text) { editorPane.insertTextAtCursor(text) }
-    }
-
-    Connections {
-        target: standaloneHost
-        function onOperationFailed(message) {
-            root.errorText = message
-            errorDialog.open()
-        }
     }
 
     Dialog {
@@ -82,16 +69,4 @@ Item {
         onAccepted: standaloneHost.deleteNote()
     }
 
-    Dialog {
-        id: errorDialog
-        anchors.centerIn: parent
-        modal: true
-        title: qsTr("QtNote")
-        standardButtons: Dialog.Ok
-        Label {
-            width: Math.min(420, root.width - 48)
-            wrapMode: Text.WordWrap
-            text: root.errorText
-        }
-    }
 }

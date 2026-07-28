@@ -43,6 +43,7 @@ public:
     // Touch UIs cannot rely on QAbstractItemView's internal drag-and-drop.
     // Move to the requested final row and persist the new storage priority.
     Q_INVOKABLE bool moveStorage(int sourceRow, int destinationRow);
+    Q_INVOKABLE bool moveStorageById(const QString &sourceStorageId, const QString &destinationStorageId);
 
 private:
     struct Item {

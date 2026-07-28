@@ -47,6 +47,7 @@ set(qtnote_CORE_SRCS
     conflictresolver.cpp
     corestorageregistry.cpp
     dialogservice.cpp
+    editorcursorcontroller.cpp
     editorplatformbackend.cpp
     draftmanager.cpp
     filedraftstore.cpp
@@ -93,6 +94,7 @@ set(qtnote_CORE_HDRS
     conflictresolver.h
     corestorageregistry.h
     dialogservice.h
+    editorcursorcontroller.h
     editorplatformbackend.h
     draftmanager.h
     draftstore.h

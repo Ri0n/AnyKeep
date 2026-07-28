@@ -95,6 +95,7 @@ signals:
     void storageRemoved(NoteStorage::Ptr);
     void storageChanged(NoteStorage::Ptr);
     void storageReady(NoteStorage::Ptr);
+    void storageOrderChanged();
 
 private slots:
     void handleStorageChanged();

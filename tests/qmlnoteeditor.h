@@ -67,6 +67,8 @@ public:
     Q_INVOKABLE QVariantList spellCheckRanges(QQuickTextDocument *document);
     Q_INVOKABLE QStringList  spellingSuggestions(const QString &word) const;
     Q_INVOKABLE void         addToSpellingDictionary(const QString &word);
+    Q_INVOKABLE QStringList  customSpellingDictionary() const;
+    Q_INVOKABLE void         setCustomSpellingDictionary(const QStringList &words);
     Q_INVOKABLE void         saveImageAs(const QString &url);
     Q_INVOKABLE bool         startImageDrag(int row);
     Q_INVOKABLE void         beginHistoryTransaction(const QString &kind, const QVariantMap &beforeView);
@@ -122,8 +124,9 @@ private:
     quint64                        loadGeneration_           = 0;
     bool                           suppressNextFocusRefresh_ = false;
     bool                           spellCheckEnabled_        = true;
-    bool                           imageInsertionEnabled_    = false;
-    bool                           imageDragAccepted_        = false;
+    QStringList                    customSpellingDictionary_;
+    bool                           imageInsertionEnabled_ = false;
+    bool                           imageDragAccepted_     = false;
     std::unique_ptr<QTemporaryDir> dragExportDirectory_;
 };
 } // namespace QtNote

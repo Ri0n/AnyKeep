@@ -17,11 +17,28 @@ Column {
     property var typeData: block.itemTypes
     property bool syncingItems: false
     property int blockIndex: block.index
+    property int itemsRevision: 0
+    property int handleHoverLevel: -1
+    property int handleHoverItem: -1
     readonly property int itemSpacing: Math.max(5, Math.round(editorView.editorFontMetricsHeight * 0.3))
+    readonly property int focusedItem: editorView.activeEditor
+                                       && editorView.activeEditor.blockIndex === blockIndex
+                                       && editorView.activeEditor.listItemIndex >= 0
+                                       ? editorView.activeEditor.listItemIndex : -1
+    readonly property int handleAnchorItem: handleHoverItem >= 0 ? handleHoverItem
+                                          : (editorView.touchMode ? focusedItem : -1)
+    readonly property int activeLevel: handleHoverLevel >= 0 ? handleHoverLevel
+                                  : (handleAnchorItem >= 0 ? itemIndent(handleAnchorItem) : -1)
+    readonly property var activeLevelRange: {
+        itemsRevision
+        return levelRangeForItem(handleAnchorItem)
+    }
+    readonly property bool showFocusedLevelHandle: editorView.touchMode && activeLevelRange.start >= 0
+    readonly property int levelHandleGutter: editorView.listLevelHandleGutter
 
     width: block.width
 
-    onItemDataChanged: syncItems()
+    onItemDataChanged: syncItems(reorderController.committingDrop)
     onCheckedDataChanged: syncItems()
     onIndentDataChanged: syncItems()
     onTypeDataChanged: syncItems()
@@ -31,7 +48,7 @@ Column {
     }
     Component.onDestruction: reorderController.unregisterListBlock(listRoot)
 
-    function syncItems() {
+    function syncItems(forceEditorText) {
         syncingItems = true
         const values = itemData || []
         while (listModel.count > values.length)
@@ -51,7 +68,18 @@ Column {
             if (listModel.get(index).itemType !== type)
                 listModel.setProperty(index, "itemType", type)
         }
+        // A focused editor normally defers source updates. Reordering changes which item
+        // its row represents, so keeping the old text would display a duplicate until blur.
+        if (forceEditorText) {
+            for (let index = 0; index < listModel.count; ++index) {
+                const row = rowAt(index)
+                const cell = row ? row.listEditor : null
+                if (cell && typeof cell.applySourceText === "function")
+                    cell.applySourceText(true)
+            }
+        }
         syncingItems = false
+        ++itemsRevision
     }
 
     function rowAt(index) {
@@ -60,6 +88,11 @@ Column {
 
     function itemCount() {
         return listModel.count
+    }
+
+    function itemIndent(index) {
+        const item = index >= 0 && index < listModel.count ? listModel.get(index) : null
+        return item ? Number(item.itemIndent) : 0
     }
 
     function itemText(index) {
@@ -83,11 +116,41 @@ Column {
     }
 
     function subtreeEnd(index) {
-        const level = Number(listModel.get(index).itemIndent)
+        const level = itemIndent(index)
         let end = index + 1
-        while (end < listModel.count && Number(listModel.get(end).itemIndent) > level)
+        while (end < listModel.count && itemIndent(end) > level)
             ++end
         return end
+    }
+
+    function levelRangeForItem(index) {
+        if (index < 0 || index >= listModel.count)
+            return { start: -1, end: -1, level: -1 }
+
+        const level = itemIndent(index)
+        let start = index
+        while (start > 0 && itemIndent(start - 1) >= level)
+            --start
+
+        let end = index + 1
+        while (end < listModel.count && itemIndent(end) >= level)
+            ++end
+
+        return { start: start, end: end, level: level }
+    }
+
+    function markerCenterXForIndent(indent) {
+        return listRoot.mapToItem(editorView.contentItem,
+                                  Math.max(0, Number(indent)) * editorView.listIndent
+                                  + editorView.listMarkerWidth / 2, 0).x
+    }
+
+    function levelHandleHeight(range) {
+        if (!range || range.start < 0)
+            return 0
+        const first = rowAt(range.start)
+        const last = rowAt(range.end - 1)
+        return first && last ? Math.max(0, last.y + last.naturalHeight - first.y) : 0
     }
 
     function isSourceIndex(index) {
@@ -167,13 +230,15 @@ Column {
         return position
     }
 
-    function focusItem(itemIndex, position) {
+    function focusItem(itemIndex, position, preserveViewport, viewportY) {
         editorView.focusEditorAddress({
             blockIndex: block.index,
             listItemIndex: itemIndex,
             tableCellIndex: -1,
             field: "listItem",
-            cursorPosition: position
+            cursorPosition: position,
+            preserveViewport: Boolean(preserveViewport),
+            viewportY: viewportY
         })
     }
 
@@ -230,9 +295,15 @@ Column {
             property alias listEditor: editorLoader.item
             property alias markerItem: markerSlot
             property alias dragContent: rowContent
-            property real dragOriginX: 0
-            property real dragOriginY: 0
+            property real swipeOffset: 0
             readonly property bool sourceRow: listRoot.isSourceIndex(index)
+            readonly property var ownLevelRange: {
+                listRoot.itemsRevision
+                return listRoot.levelRangeForItem(index)
+            }
+            readonly property bool startsLevelRange: ownLevelRange.start === index
+            readonly property bool ownsLevelHandle: listRoot.showFocusedLevelHandle
+                                                   && index === listRoot.activeLevelRange.start
             readonly property int remainingIndex: listRoot.remainingIndexForOriginal(index)
             readonly property bool dropBefore: !sourceRow
                                                    && reorderController.targetBlock === listRoot
@@ -245,9 +316,36 @@ Column {
             objectName: "listRow-" + listRoot.blockIndex + "-" + index
             width: listRoot.width
             height: Math.max(0, naturalHeight - collapseSpace) + dropSpace
+            z: ownsLevelHandle || (!editorView.touchMode && startsLevelRange) ? 20 : 0
+
+            function removeBySwipe() {
+                const firstItem = index
+                const endItem = listRoot.subtreeEnd(firstItem)
+                const removesWholeList = firstItem === 0 && endItem === listRoot.itemCount()
+                const focusItem = Math.min(firstItem,
+                                           listRoot.itemCount() - (endItem - firstItem) - 1)
+                editorView.runEditTransaction("delete-list-items", function() {
+                    editorView.prepareForStructuralMutation()
+                    editorView.blockModel.removeListItems(
+                                listRoot.blockIndex, firstItem, endItem - 1)
+                    if (removesWholeList) {
+                        editorView.focusBlock(
+                                    Math.min(listRoot.blockIndex,
+                                             editorView.blockModel.rowCount() - 1))
+                    } else {
+                        editorView.focusEditorAddress({
+                            blockIndex: listRoot.blockIndex,
+                            listItemIndex: focusItem,
+                            tableCellIndex: -1,
+                            field: "listItem",
+                            cursorPosition: 0
+                        })
+                    }
+                })
+            }
 
             Behavior on collapseSpace {
-                enabled: reorderController.dragging
+                enabled: reorderController.dragging && !reorderController.committingDrop
 
                 NumberAnimation {
                     duration: 160
@@ -256,7 +354,7 @@ Column {
             }
 
             Behavior on dropSpace {
-                enabled: reorderController.dragging
+                enabled: reorderController.dragging && !reorderController.committingDrop
 
                 NumberAnimation {
                     duration: 160
@@ -264,13 +362,32 @@ Column {
                 }
             }
 
+            Rectangle {
+                anchors.fill: parent
+                visible: editorView.touchMode && Math.abs(rowWrapper.swipeOffset) > 0
+                color: "#b3261e"
+
+                Label {
+                    anchors.left: rowWrapper.swipeOffset > 0 ? parent.left : undefined
+                    anchors.right: rowWrapper.swipeOffset < 0 ? parent.right : undefined
+                    anchors.leftMargin: 16
+                    anchors.rightMargin: 16
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Delete")
+                    color: "white"
+                    font.bold: true
+                }
+            }
+
             RowLayout {
                 id: rowContent
 
-                x: rowWrapper.itemIndent * editorView.listIndent
+                x: rowWrapper.itemIndent * editorView.listIndent + rowWrapper.swipeOffset
                 y: rowWrapper.dropSpace
-                width: Math.max(0, listRoot.width - x)
+                width: Math.max(0, listRoot.width
+                                  - rowWrapper.itemIndent * editorView.listIndent)
                 height: implicitHeight
+                spacing: 0
 
                 Item {
                     id: markerSlot
@@ -320,6 +437,7 @@ Column {
                     ReorderDragHandle {
                         objectName: "listReorderHandle-" + listRoot.blockIndex + "-" + rowWrapper.index
                         anchors.fill: parent
+                        hoverCursorShape: rowWrapper.itemType === 2 ? Qt.PointingHandCursor : Qt.OpenHandCursor
                         onDragStarted: reorderController.startListDrag(listRoot, rowWrapper)
                         onDragMoved: function(dx, dy) { reorderController.moveListDrag(dx, dy) }
                         onDragFinished: reorderController.finishListDrag()
@@ -344,6 +462,104 @@ Column {
                     Layout.preferredHeight: item ? item.implicitHeight : 0
                 }
             }
+
+            DragHandler {
+                id: swipeHandler
+
+                parent: editorLoader
+                enabled: editorView.touchMode && !reorderController.dragging
+                target: null
+                acceptedDevices: PointerDevice.TouchScreen
+                xAxis.enabled: true
+                yAxis.enabled: false
+
+                onActiveTranslationChanged: {
+                    rowWrapper.swipeOffset = activeTranslation.x
+                }
+                onActiveChanged: {
+                    if (active)
+                        return
+                    const removeThreshold = Math.min(120, rowWrapper.width * 0.35)
+                    if (Math.abs(rowWrapper.swipeOffset) >= removeThreshold) {
+                        rowWrapper.removeBySwipe()
+                    } else {
+                        rowWrapper.swipeOffset = 0
+                    }
+                }
+                onCanceled: rowWrapper.swipeOffset = 0
+            }
+
+            Behavior on swipeOffset {
+                enabled: !swipeHandler.active
+
+                NumberAnimation {
+                    duration: 160
+                    easing.type: Easing.OutCubic
+                }
+            }
+
+            ReorderDragHandle {
+                id: levelHandle
+
+                property bool hovered: false
+                readonly property var handleRange: editorView.touchMode ? listRoot.activeLevelRange
+                                                                         : rowWrapper.ownLevelRange
+                readonly property int handleLevel: editorView.touchMode ? listRoot.activeLevel
+                                                                        : rowWrapper.itemIndent
+                readonly property bool active: editorView.touchMode ? rowWrapper.ownsLevelHandle
+                                                                    : rowWrapper.startsLevelRange
+                readonly property bool shown: active && !reorderController.dragging
+                                              && (editorView.touchMode || hovered)
+
+                objectName: "listLevelReorderHandle-" + listRoot.blockIndex + "-"
+                            + handleLevel + "-" + rowWrapper.index
+                visible: active
+                opacity: shown ? 1 : 0
+                x: handleLevel * editorView.listIndent - levelHandleGutter
+                y: 0
+                width: Math.max(12, levelHandleGutter - 2)
+                height: listRoot.levelHandleHeight(handleRange)
+                z: 10
+
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: 480
+                        easing.type: Easing.OutCubic
+                    }
+                }
+
+                Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: 3
+                    radius: width / 2
+                    color: "#808080"
+                    opacity: 0.85
+                }
+
+                HoverHandler {
+                    onHoveredChanged: {
+                        levelHandle.hovered = hovered
+                        if (hovered) {
+                            listRoot.handleHoverLevel = levelHandle.handleLevel
+                            listRoot.handleHoverItem = levelHandle.handleRange.start
+                        } else if (listRoot.handleHoverLevel === levelHandle.handleLevel) {
+                            listRoot.handleHoverLevel = -1
+                            listRoot.handleHoverItem = -1
+                        }
+                    }
+                }
+
+                onDragStarted: reorderController.startListRangeDrag(
+                                   listRoot,
+                                   levelHandle.handleRange.start,
+                                   levelHandle.handleRange.end,
+                                   levelHandle,
+                                   listRoot.markerCenterXForIndent(levelHandle.handleLevel))
+                onDragMoved: function(dx, dy) { reorderController.moveListDrag(dx, dy) }
+                onDragFinished: reorderController.finishListDrag()
+            }
         }
     }
 
@@ -357,7 +573,7 @@ Column {
         height: dropSpace
 
         Behavior on dropSpace {
-            enabled: reorderController.dragging
+            enabled: reorderController.dragging && !reorderController.committingDrop
 
             NumberAnimation {
                 duration: 160

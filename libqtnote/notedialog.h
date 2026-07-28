@@ -44,6 +44,7 @@ public:
     Q_INVOKABLE bool deleteNote();
     Q_INVOKABLE bool pinNote();
     Q_INVOKABLE void setAlwaysOnTop(bool enabled);
+    Q_INVOKABLE void reportError(const QString &message);
 
 public slots:
     void trashRequested();

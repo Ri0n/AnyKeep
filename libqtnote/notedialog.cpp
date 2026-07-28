@@ -4,6 +4,7 @@
 #include "desktopeditorplatformbackend.h"
 #include "desktopnoteactions.h"
 #include "draftmanager.h"
+#include "editorcursorcontroller.h"
 #include "localmediaimageprovider.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
@@ -60,6 +61,7 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
     installLocalMediaImageProvider(engine());
     installStorageIconImageProvider(engine());
     installThemedIconImageProvider(engine());
+    installEditorCursorController(rootContext());
     rootContext()->setContextProperty(QStringLiteral("noteEditor"), editor_);
     rootContext()->setContextProperty(QStringLiteral("desktopEditorPlatform"), platformBackend_);
     rootContext()->setContextProperty(QStringLiteral("desktopNoteActions"), desktopActions_);
@@ -80,6 +82,7 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
     connect(platformBackend_, &EditorPlatformBackend::operationFailed, this, &NoteDialog::operationFailed);
     connect(desktopActions_, &DesktopNoteActions::operationFailed, this, &NoteDialog::operationFailed);
     connect(speechController_, &SpeechRecognitionController::operationFailed, this, &NoteDialog::operationFailed);
+    connect(this, SIGNAL(operationFailed(QString)), main_, SLOT(notifyError(QString)));
 
     setSource(QUrl(QStringLiteral("qrc:/qml/StandaloneNoteWindow.qml")));
     if (status() == QQuickView::Error)
@@ -140,6 +143,12 @@ void NoteDialog::setText(const QString &text)
 void NoteDialog::registerWindowGeometry() { main_->restoreWindowGeometry(this, windowGeometryKey_); }
 
 bool NoteDialog::alwaysOnTop() const { return flags().testFlag(Qt::WindowStaysOnTopHint); }
+
+void NoteDialog::reportError(const QString &message)
+{
+    if (!message.isEmpty())
+        emit operationFailed(message);
+}
 
 bool NoteDialog::pinAvailable() const
 {

@@ -36,6 +36,11 @@ Menu {
         enabled: menu.editor && menu.editor.canRemoveTableColumn
         onTriggered: menu.editor.removeColumn()
     }
+    MenuItem {
+        visible: menu.editor && menu.editor.tableCell
+        text: qsTr("Delete table")
+        onTriggered: menu.controller.removeTableBlock(menu.editor.blockIndex, true)
+    }
     MenuSeparator { visible: menu.editor && menu.editor.tableCell }
     MenuItem {
         visible: menu.platformBackend && menu.editor && menu.editor.contextWord.length > 0
@@ -52,6 +57,11 @@ Menu {
         checkable: true
         checked: menu.platformBackend ? menu.platformBackend.spellCheckEnabled : false
         onToggled: if (menu.platformBackend) menu.platformBackend.spellCheckEnabled = checked
+    }
+    MenuItem {
+        text: qsTr("Edit Custom Dictionary…")
+        visible: menu.platformBackend !== null
+        onTriggered: menu.controller.openCustomDictionaryEditor()
     }
     MenuSeparator { visible: menu.platformBackend !== null }
     MenuItem {
@@ -73,6 +83,13 @@ Menu {
         }
     }
     MenuSeparator {}
+    MenuItem {
+        objectName: "copyContextLinkMenuItem"
+        visible: menu.editor && menu.editor.contextLink.length > 0
+        text: qsTr("Copy Link")
+        onTriggered: if (menu.editorBackend && menu.editor) menu.editorBackend.copyToClipboard(menu.editor.contextLink)
+    }
+    MenuSeparator { visible: menu.editor && menu.editor.contextLink.length > 0 }
     MenuItem { action: Action { text: qsTr("Cut"); shortcut: StandardKey.Cut; enabled: menu.controller.documentSelectionAvailable; onTriggered: menu.controller.cutDocumentSelection() } }
     MenuItem { action: Action { text: qsTr("Copy"); shortcut: StandardKey.Copy; enabled: menu.controller.documentSelectionAvailable; onTriggered: menu.controller.copyDocumentSelection() } }
     MenuItem {

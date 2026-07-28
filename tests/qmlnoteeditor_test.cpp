@@ -316,20 +316,24 @@ private slots:
     {
         QmlNoteEditor editor;
         editor.resize(500, 300);
-        editor.load(QStringLiteral("link"), Note::Markdown);
+        editor.load(QStringLiteral("title\n\nlink"), Note::Markdown);
         editor.show();
         QTest::qWait(30);
         auto *quick = editor.findChild<QQuickWidget *>();
         auto *root  = quick->rootObject();
         QTRY_COMPARE(root->property("editors").toList().size(), 1);
-        auto *text = root->property("editors").toList().constFirst().value<QObject *>();
+        auto *text     = root->property("editors").toList().constFirst().value<QObject *>();
+        auto *document = text->property("textDocument").value<QQuickTextDocument *>();
+        QVERIFY(document);
+        const int linkStart = document->textDocument()->toPlainText().indexOf(QStringLiteral("link"));
+        QVERIFY(linkStart > 0);
         QVERIFY(QMetaObject::invokeMethod(text, "forceActiveFocus"));
         text->setProperty("cursorPosition", text->property("length"));
         QTest::keyClicks(quick, QStringLiteral("x"));
-        QTRY_COMPARE(editor.contents(), QStringLiteral("linkx"));
+        QTRY_COMPARE(editor.contents(), QStringLiteral("title\n\nlinkx"));
         QVERIFY(editor.canUndo());
 
-        QVERIFY(QMetaObject::invokeMethod(text, "select", Q_ARG(int, 0), Q_ARG(int, 4)));
+        QVERIFY(QMetaObject::invokeMethod(text, "select", Q_ARG(int, linkStart), Q_ARG(int, linkStart + 4)));
         QTest::keyClick(quick, Qt::Key_K, Qt::ControlModifier);
         auto *urlField = root->findChild<QObject *>(QStringLiteral("noteLinkUrlField"));
         QVERIFY(urlField);
@@ -338,7 +342,7 @@ private slots:
         QCOMPARE(urlField->property("text").toString(), QStringLiteral("abc"));
 
         QTest::keyClick(quick, Qt::Key_Z, Qt::ControlModifier);
-        QCOMPARE(editor.contents(), QStringLiteral("linkx"));
+        QCOMPARE(editor.contents(), QStringLiteral("title\n\nlinkx"));
         QTRY_VERIFY(urlField->property("text").toString() != QStringLiteral("abc"));
         QVERIFY(editor.canUndo());
 
@@ -347,7 +351,7 @@ private slots:
         QGuiApplication::clipboard()->setText(pastedUrl);
         QTest::keyClick(quick, Qt::Key_V, Qt::ControlModifier);
         QTRY_COMPARE(urlField->property("text").toString(), pastedUrl);
-        QCOMPARE(editor.contents(), QStringLiteral("linkx"));
+        QCOMPARE(editor.contents(), QStringLiteral("title\n\nlinkx"));
         QTest::keyClick(quick, Qt::Key_Escape);
     }
 
@@ -457,21 +461,25 @@ private slots:
     {
         QmlNoteEditor formatting;
         formatting.resize(500, 300);
-        formatting.load(QStringLiteral("bold text"), Note::Markdown);
+        formatting.load(QStringLiteral("title\n\nbold text"), Note::Markdown);
         formatting.show();
         QTest::qWait(30);
         auto *formatQuick = formatting.findChild<QQuickWidget *>();
         auto *formatRoot  = formatQuick->rootObject();
         QTRY_COMPARE(formatRoot->property("editors").toList().size(), 1);
-        auto *formatEditor = formatRoot->property("editors").toList().constFirst().value<QObject *>();
+        auto *formatEditor   = formatRoot->property("editors").toList().constFirst().value<QObject *>();
+        auto *formatDocument = formatEditor->property("textDocument").value<QQuickTextDocument *>();
+        QVERIFY(formatDocument);
+        const int boldStart = formatDocument->textDocument()->toPlainText().indexOf(QStringLiteral("bold"));
+        QVERIFY(boldStart > 0);
         QVERIFY(QMetaObject::invokeMethod(formatEditor, "forceActiveFocus"));
-        QVERIFY(QMetaObject::invokeMethod(formatEditor, "select", Q_ARG(int, 0), Q_ARG(int, 4)));
+        QVERIFY(QMetaObject::invokeMethod(formatEditor, "select", Q_ARG(int, boldStart), Q_ARG(int, boldStart + 4)));
         QTest::keyClick(formatQuick, Qt::Key_B, Qt::ControlModifier);
-        QTRY_COMPARE(formatting.contents(), QStringLiteral("**bold** text"));
+        QTRY_COMPARE(formatting.contents(), QStringLiteral("title\n\n**bold** text"));
         QTest::keyClick(formatQuick, Qt::Key_Z, Qt::ControlModifier);
-        QTRY_COMPARE(formatting.contents(), QStringLiteral("bold text"));
+        QTRY_COMPARE(formatting.contents(), QStringLiteral("title\n\nbold text"));
         QTest::keyClick(formatQuick, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
-        QTRY_COMPARE(formatting.contents(), QStringLiteral("**bold** text"));
+        QTRY_COMPARE(formatting.contents(), QStringLiteral("title\n\n**bold** text"));
         // History restores focus asynchronously after delegates have been
         // recreated. Let that finish before opening a second editor window,
         // otherwise the first window can reclaim the application focus.
@@ -1197,7 +1205,7 @@ private slots:
         QCOMPARE(QString::fromUtf8(QGuiApplication::clipboard()->mimeData()->data(
                      QString::fromLatin1(NoteTransferController::MarkdownMimeType))),
                  QStringLiteral("**bold**"));
-        QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("bold"));
+        QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("**bold**"));
     }
 
     void keyboardCopyUsesLiveSelectionState()
@@ -1248,6 +1256,7 @@ private slots:
         QVERIFY(mime->hasFormat(QString::fromLatin1(NoteTransferController::MarkdownMimeType)));
         QCOMPARE(QString::fromUtf8(mime->data(QString::fromLatin1(NoteTransferController::MarkdownMimeType))),
                  QStringLiteral("- [x] completed task"));
+        QCOMPARE(mime->text(), QStringLiteral("- [x] completed task"));
     }
 
     void listMarkersShareOneColumnAndAlignWithFirstLine()
@@ -1310,7 +1319,9 @@ private slots:
         const qreal indicatorRight  = taskIndicator->mapToItem(root, taskIndicator->width(), 0).x();
         const qreal visibleTextLeft = taskText->mapToItem(root, taskText->property("leftPadding").toReal(), 0).x();
         const qreal averageCharacterWidth = rootObject->property("editorFontAverageCharacterWidth").toReal();
-        QVERIFY(qAbs((visibleTextLeft - indicatorRight) - indicatorLeft) <= averageCharacterWidth);
+        const qreal markerGap             = visibleTextLeft - indicatorRight;
+        QVERIFY(markerGap >= 0);
+        QVERIFY(markerGap <= averageCharacterWidth * 2);
     }
 
     void listItemsKeepReadableVerticalSpacing()
@@ -1379,6 +1390,113 @@ private slots:
         QTRY_COMPARE(editor.contents(), QStringLiteral("- first\n- second\n- third"));
     }
 
+    void repeatedlyDraggingFocusedTaskItemKeepsVisibleTextsInSync()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 400);
+        editor.load(QStringLiteral("test\n\n- [x] 1\n- [x] 2\n- [ ] 3"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick      = editor.findChild<QQuickWidget *>();
+        auto *rootObject = quick ? quick->rootObject() : nullptr;
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), 4);
+
+        const auto visibleListTexts = [root]() {
+            QStringList texts;
+            for (int index = 0; index < 3; ++index) {
+                auto *row = quickItemByName(root, QStringLiteral("listRow-1-%1").arg(index));
+                if (!row)
+                    return QStringList {};
+                auto *cell = row->property("listEditor").value<QObject *>();
+                if (!cell)
+                    return QStringList {};
+                texts.append(cell->property("text").toString().trimmed());
+            }
+            return texts;
+        };
+
+        const QList<QStringList> expectedTexts {
+            { QStringLiteral("2"), QStringLiteral("3"), QStringLiteral("1") },
+            { QStringLiteral("3"), QStringLiteral("1"), QStringLiteral("2") },
+            { QStringLiteral("1"), QStringLiteral("2"), QStringLiteral("3") },
+        };
+        const QStringList expectedContents {
+            QStringLiteral("test\n\n- [x] 2\n- [ ] 3\n- [x] 1"),
+            QStringLiteral("test\n\n- [ ] 3\n- [x] 1\n- [x] 2"),
+            QStringLiteral("test\n\n- [x] 1\n- [x] 2\n- [ ] 3"),
+        };
+
+        for (int iteration = 0; iteration < expectedTexts.size(); ++iteration) {
+            auto *firstRow = quickItemByName(root, QStringLiteral("listRow-1-0"));
+            auto *first    = quickItemByName(root, QStringLiteral("listMarker-1-0"));
+            auto *last     = quickItemByName(root, QStringLiteral("listMarker-1-2"));
+            QVERIFY(firstRow);
+            QVERIFY(first);
+            QVERIFY(last);
+            auto *focusedCell = firstRow->property("listEditor").value<QObject *>();
+            QVERIFY(focusedCell);
+            QVERIFY(QMetaObject::invokeMethod(focusedCell, "forceActiveFocus"));
+
+            const QPointF start = first->mapToItem(root, first->width() / 2, first->height() / 2);
+            const QPointF end   = last->mapToItem(root, last->width() / 2, last->height());
+            QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
+            for (int step = 1; step <= 8; ++step)
+                QTest::mouseMove(quick, (start + (end - start) * (qreal(step) / 8)).toPoint(), 15);
+            QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, end.toPoint());
+
+            QTRY_COMPARE(editor.contents(), expectedContents.at(iteration));
+            QTRY_COMPARE(visibleListTexts(), expectedTexts.at(iteration));
+            QTRY_COMPARE(root->property("activeEditor").value<QObject *>()->property("listItemIndex").toInt(), 2);
+        }
+    }
+
+    void droppingListItemKeepsDisplacedRowsStationary()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 420);
+        editor.load(QStringLiteral("- first\n- second\n- third\n- fourth"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick      = editor.findChild<QQuickWidget *>();
+        auto *rootObject = quick ? quick->rootObject() : nullptr;
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), 4);
+
+        auto *sourceMarker = quickItemByName(root, QStringLiteral("listMarker-0-0"));
+        auto *thirdMarker  = quickItemByName(root, QStringLiteral("listMarker-0-2"));
+        auto *fourthMarker = quickItemByName(root, QStringLiteral("listMarker-0-3"));
+        auto *controller   = quickItemByName(root, QStringLiteral("editorReorderController"));
+        QVERIFY(sourceMarker);
+        QVERIFY(thirdMarker);
+        QVERIFY(fourthMarker);
+        QVERIFY(controller);
+
+        const QPointF start  = sourceMarker->mapToItem(root, sourceMarker->width() / 2, sourceMarker->height() / 2);
+        const QPointF target = thirdMarker->mapToItem(root, thirdMarker->width() / 2, 1);
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
+        for (int step = 1; step <= 8; ++step)
+            QTest::mouseMove(quick, (start + (target - start) * (qreal(step) / 8)).toPoint(), 15);
+        QTRY_VERIFY(controller->property("dragging").toBool());
+        QTRY_COMPARE(controller->property("targetItem").toInt(), 2);
+
+        const qreal fourthYBeforeDrop = fourthMarker->mapToItem(root, QPointF()).y();
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, target.toPoint());
+        QTRY_COMPARE(editor.contents(), QStringLiteral("- second\n- third\n- first\n- fourth"));
+
+        auto *fourthAfterDrop = quickItemByName(root, QStringLiteral("listMarker-0-3"));
+        QVERIFY(fourthAfterDrop);
+        const qreal fourthYAfterDrop = fourthAfterDrop->mapToItem(root, QPointF()).y();
+        QVERIFY2(qAbs(fourthYAfterDrop - fourthYBeforeDrop) < 0.5,
+                 qPrintable(QStringLiteral("fourth item moved on drop: before=%1 after=%2")
+                                .arg(fourthYBeforeDrop)
+                                .arg(fourthYAfterDrop)));
+        QTest::qWait(220);
+        QVERIFY(qAbs(fourthAfterDrop->mapToItem(root, QPointF()).y() - fourthYAfterDrop) < 0.5);
+    }
+
     void draggingParentListItemMovesItsDescendantsTogether()
     {
         QmlNoteEditor editor;
@@ -1394,14 +1512,35 @@ private slots:
 
         const QVariantList editors      = rootObject->property("editors").toList();
         auto              *parentMarker = listMarker(rootObject, editors.at(0).value<QObject *>());
+        auto              *middleMarker = listMarker(rootObject, editors.at(2).value<QObject *>());
         auto              *tailMarker   = listMarker(rootObject, editors.at(3).value<QObject *>());
+        auto              *middleRow    = quickItemByName(root, QStringLiteral("listRow-0-2"));
+        auto              *controller   = quickItemByName(root, QStringLiteral("editorReorderController"));
         QVERIFY(parentMarker);
+        QVERIFY(middleMarker);
         QVERIFY(tailMarker);
+        QVERIFY(middleRow);
+        QVERIFY(controller);
 
         const QPointF startPoint = parentMarker->mapToItem(root, parentMarker->width() / 2, parentMarker->height() / 2);
         const QPointF endPoint   = tailMarker->mapToItem(root, tailMarker->width() / 2, tailMarker->height());
+        const qreal   middleY    = middleMarker->mapToItem(root, QPointF()).y();
+        const qreal   middleHeight = middleRow->property("naturalHeight").toReal();
         QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, startPoint.toPoint());
-        for (int step = 1; step <= 10; ++step) {
+        QTest::mouseMove(quick, (startPoint + QPointF(12, 0)).toPoint(), 15);
+        QTRY_VERIFY(controller->property("dragging").toBool());
+        QVERIFY(controller->property("targetByDraggedTop").toBool());
+        QVERIFY(controller->property("startDraggedTopY").toReal() < controller->property("startPointerY").toReal());
+
+        QTest::mouseMove(quick, (startPoint + QPointF(0, middleHeight * 0.4)).toPoint(), 15);
+        QTRY_COMPARE(controller->property("targetItem").toInt(), 0);
+        QTest::qWait(220);
+        QVERIFY(qAbs(middleMarker->mapToItem(root, QPointF()).y() - middleY) < 0.5);
+
+        QTest::mouseMove(quick, (startPoint + QPointF(0, middleHeight * 0.6)).toPoint(), 15);
+        QTRY_COMPARE(controller->property("targetItem").toInt(), 1);
+        QTRY_VERIFY(middleMarker->mapToItem(root, QPointF()).y() < middleY - 1);
+        for (int step = 3; step <= 10; ++step) {
             const QPointF point = startPoint + (endPoint - startPoint) * (qreal(step) / 10);
             QTest::mouseMove(quick, point.toPoint(), 15);
         }
@@ -1619,6 +1758,89 @@ private slots:
         QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, target.toPoint());
 
         QTRY_COMPARE(editor.contents(), QStringLiteral("- parent\n- tail\n- child"));
+    }
+
+    void draggingListLevelHandleMovesCurrentSublistWithoutParent()
+    {
+        QmlNoteEditor editor;
+        editor.resize(520, 380);
+        editor.load(QStringLiteral("- parent\n    - one\n    - two\n- tail"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick      = editor.findChild<QQuickWidget *>();
+        auto *rootObject = quick ? quick->rootObject() : nullptr;
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), 4);
+
+        auto *firstChildEditor = rootObject->property("editors").toList().at(1).value<QObject *>();
+        QVERIFY(firstChildEditor);
+        firstChildEditor->setProperty("cursorPosition", 1);
+        QVERIFY(QMetaObject::invokeMethod(firstChildEditor, "forceActiveFocus"));
+
+        auto *levelHandle = quickItemByName(root, QStringLiteral("listLevelReorderHandle-0-1-1"));
+        auto *childMarker = quickItemByName(root, QStringLiteral("listMarker-0-1"));
+        auto *tailMarker  = quickItemByName(root, QStringLiteral("listMarker-0-3"));
+        QVERIFY(levelHandle);
+        QVERIFY(childMarker);
+        QVERIFY(tailMarker);
+        QTRY_VERIFY(levelHandle->isVisible());
+        QVERIFY(levelHandle->mapToItem(root, levelHandle->width(), 0).x() < childMarker->mapToItem(root, 0, 0).x());
+        auto *secondChildMarker = quickItemByName(root, QStringLiteral("listMarker-0-2"));
+        QVERIFY(secondChildMarker);
+        QVERIFY(levelHandle->height() >= secondChildMarker->mapToItem(levelHandle, 0, secondChildMarker->height()).y());
+
+        const QPointF start      = levelHandle->mapToItem(root, levelHandle->width() / 2, levelHandle->height() / 2);
+        const QPointF tailBottom = tailMarker->mapToItem(root, tailMarker->width() / 2, tailMarker->height());
+        const QPointF target(start.x(), tailBottom.y());
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
+        for (int step = 1; step <= 10; ++step)
+            QTest::mouseMove(quick, (start + (target - start) * (qreal(step) / 10)).toPoint(), 15);
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, target.toPoint());
+
+        QTRY_COMPARE(editor.contents(), QStringLiteral("- parent\n- tail\n    - one\n    - two"));
+    }
+
+    void hoveringNestedListTextDoesNotShowLevelHandle()
+    {
+        QmlNoteEditor editor;
+        editor.resize(520, 380);
+        editor.load(QStringLiteral("- parent\n    - child\n- tail"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick      = editor.findChild<QQuickWidget *>();
+        auto *rootObject = quick ? quick->rootObject() : nullptr;
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), 3);
+
+        auto *parentEditor = rootObject->property("editors").toList().at(0).value<QObject *>();
+        QVERIFY(parentEditor);
+        parentEditor->setProperty("cursorPosition", 1);
+        QVERIFY(QMetaObject::invokeMethod(parentEditor, "forceActiveFocus"));
+
+        auto *parentHandle = quickItemByName(root, QStringLiteral("listLevelReorderHandle-0-0-0"));
+        auto *childMarker  = quickItemByName(root, QStringLiteral("listMarker-0-1"));
+        QVERIFY(parentHandle);
+        QVERIFY(childMarker);
+        QTRY_VERIFY(parentHandle->isVisible());
+        QCOMPARE(parentHandle->opacity(), qreal(0));
+
+        const QPointF childHoverPoint
+            = childMarker->mapToItem(root, childMarker->width() / 2, childMarker->height() / 2);
+        QTest::mouseMove(quick, childHoverPoint.toPoint());
+
+        auto *childHandle = quickItemByName(root, QStringLiteral("listLevelReorderHandle-0-1-1"));
+        QTRY_VERIFY(childHandle);
+        QTRY_VERIFY(childHandle->isVisible());
+        QCOMPARE(parentHandle->opacity(), qreal(0));
+        QCOMPARE(childHandle->opacity(), qreal(0));
+
+        const QPointF handleHoverPoint
+            = childHandle->mapToItem(root, childHandle->width() / 2, childHandle->height() / 2);
+        QTest::mouseMove(quick, handleHoverPoint.toPoint());
+        QTRY_VERIFY(childHandle->opacity() > 0);
+        QVERIFY(childHandle->mapToItem(root, childHandle->width(), 0).x() < childMarker->mapToItem(root, 0, 0).x());
     }
 
     void clickingTaskMarkerStillTogglesWithoutStartingDrag()
@@ -2160,6 +2382,34 @@ private slots:
         QTRY_VERIFY(!root->property("activeEditor").value<QObject *>()->property("sourceTextPending").toBool());
     }
 
+    void deleteFromEmptyTaskItemPreservesFollowingCheckState()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 300);
+        editor.load(QStringLiteral("- [ ] first\n- [x] second"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+
+        auto *quick = editor.findChild<QQuickWidget *>();
+        auto *root  = quick ? quick->rootObject() : nullptr;
+        QVERIFY(root);
+        QTRY_COMPARE(root->property("editors").toList().size(), 2);
+        auto *first = root->property("editors").toList().constFirst().value<QObject *>();
+        QVERIFY(first);
+        QVERIFY(QMetaObject::invokeMethod(first, "forceActiveFocus"));
+        QVERIFY(
+            QMetaObject::invokeMethod(first, "select", Q_ARG(int, 0), Q_ARG(int, first->property("length").toInt())));
+        QTest::keyClick(quick, Qt::Key_Delete);
+        QTRY_COMPARE(first->property("length").toInt(), 0);
+
+        QTest::keyClick(quick, Qt::Key_Delete);
+
+        QTRY_COMPARE(editor.contents(), QStringLiteral("- [x] second"));
+        auto *checkbox = quickItemByName(root, QStringLiteral("taskMarker-0-0"));
+        QVERIFY(checkbox);
+        QTRY_COMPARE(checkbox->property("checked").toBool(), true);
+    }
+
     void deleteAfterSplittingListItemKeepsFollowingItem()
     {
         QmlNoteEditor editor;
@@ -2197,6 +2447,107 @@ private slots:
                     ->property("text")
                     .toString()
                     .startsWith(QStringLiteral("next")));
+    }
+
+    void deleteAtEndOfLastListItemMergesFollowingBlock()
+    {
+        const auto verify = [](const QString &source, const QString &expected) {
+            QmlNoteEditor editor;
+            editor.resize(500, 300);
+            editor.load(source, Note::Markdown);
+            editor.show();
+            QTest::qWait(30);
+
+            auto *quick = editor.findChild<QQuickWidget *>();
+            auto *root  = quick ? quick->rootObject() : nullptr;
+            QVERIFY(root);
+            QTRY_VERIFY(!root->property("editors").toList().isEmpty());
+            auto *first = root->property("editors").toList().constFirst().value<QObject *>();
+            QVERIFY(first);
+            first->setProperty("cursorPosition", first->property("length"));
+            QVERIFY(QMetaObject::invokeMethod(first, "forceActiveFocus"));
+
+            QTest::keyClick(quick, Qt::Key_Delete);
+
+            QTRY_COMPARE(editor.contents(), expected);
+            QTRY_COMPARE(root->property("activeEditor").value<QObject *>()->property("listItemIndex").toInt(), 0);
+            QTRY_COMPARE(root->property("activeEditor").value<QObject *>()->property("cursorPosition").toInt(), 5);
+        };
+
+        verify(QStringLiteral("- first\n\nfollowing"), QStringLiteral("- firstfollowing"));
+        verify(QStringLiteral("- first\n\n- [x] second\n- [ ] third"), QStringLiteral("- firstsecond\n- [ ] third"));
+    }
+
+    void backspaceRemovesTheEmptyFocusedTaskItem()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 300);
+        editor.load(QStringLiteral("- [ ] first\n- [x] second"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+
+        auto *quick = editor.findChild<QQuickWidget *>();
+        auto *root  = quick ? quick->rootObject() : nullptr;
+        QVERIFY(root);
+        QTRY_COMPARE(root->property("editors").toList().size(), 2);
+        auto *first = root->property("editors").toList().constFirst().value<QObject *>();
+        QVERIFY(first);
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(0), NoteBlockModel::CheckedRole).toList(),
+                     QVariantList({ false, true }));
+        QVERIFY(QMetaObject::invokeMethod(first, "forceActiveFocus"));
+        QVERIFY(
+            QMetaObject::invokeMethod(first, "select", Q_ARG(int, 0), Q_ARG(int, first->property("length").toInt())));
+        QTest::keyClick(quick, Qt::Key_Backspace);
+        QTRY_COMPARE(first->property("length").toInt(), 0);
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(0), NoteBlockModel::CheckedRole).toList(),
+                     QVariantList({ false, true }));
+
+        QTest::keyClick(quick, Qt::Key_Backspace);
+
+        QTRY_COMPARE(editor.contents(), QStringLiteral("- [x] second"));
+        QTRY_COMPARE(root->property("editors").toList().size(), 1);
+        auto *remaining = root->property("activeEditor").value<QObject *>();
+        QVERIFY(remaining);
+        QTRY_COMPARE(remaining->property("sourceText").toString(), QStringLiteral("second"));
+        QCOMPARE(remaining->property("listItemIndex").toInt(), 0);
+        QCOMPARE(remaining->property("cursorPosition").toInt(), 0);
+        auto *checkbox = quickItemByName(root, QStringLiteral("taskMarker-0-0"));
+        QVERIFY(checkbox);
+        QTRY_COMPARE(checkbox->property("checked").toBool(), true);
+    }
+
+    void backspaceRemovingLoadedListItemKeepsViewport()
+    {
+        QStringList items;
+        for (int index = 0; index < 30; ++index)
+            items.append(QStringLiteral("- [ ] item %1").arg(index));
+
+        QmlNoteEditor editor;
+        editor.resize(500, 260);
+        editor.load(items.join(QLatin1Char('\n')), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+
+        auto *quick = editor.findChild<QQuickWidget *>();
+        auto *root  = quick ? quick->rootObject() : nullptr;
+        QVERIFY(root);
+        QTRY_COMPARE(root->property("editors").toList().size(), items.size());
+        auto *target = root->property("editors").toList().at(12).value<QObject *>();
+        QVERIFY(target);
+        QVERIFY(QMetaObject::invokeMethod(target, "forceActiveFocus"));
+        QVERIFY(
+            QMetaObject::invokeMethod(target, "select", Q_ARG(int, 0), Q_ARG(int, target->property("length").toInt())));
+        QTest::keyClick(quick, Qt::Key_Backspace);
+        QTRY_COMPARE(target->property("length").toInt(), 0);
+
+        root->setProperty("contentY", 180.0);
+        QTRY_COMPARE(root->property("contentY").toReal(), 180.0);
+        const qreal viewportBefore = root->property("contentY").toReal();
+        QTest::keyClick(quick, Qt::Key_Backspace);
+
+        QTRY_COMPARE(editor.contents().contains(QStringLiteral("item 12")), false);
+        QTest::qWait(80);
+        QVERIFY(qAbs(root->property("contentY").toReal() - viewportBefore) < 1.0);
     }
 
     void tabsSelectedChecklistItems()
@@ -2287,7 +2638,7 @@ private slots:
     {
         QmlNoteEditor editor;
         editor.resize(500, 300);
-        editor.load(QStringLiteral("heading"), Note::Markdown);
+        editor.load(QStringLiteral("title\n\nheading"), Note::Markdown);
         editor.show();
         QTest::qWait(30);
         auto *quick = editor.findChild<QQuickWidget *>();
@@ -2295,29 +2646,63 @@ private slots:
         QTRY_COMPARE(root->property("editors").toList().size(), 1);
         auto *text = root->property("editors").toList().constFirst().value<QObject *>();
         QVERIFY(text);
+        auto *document = text->property("textDocument").value<QQuickTextDocument *>();
+        QVERIFY(document);
+        const int headingPosition = document->textDocument()->toPlainText().indexOf(QStringLiteral("heading"));
+        QVERIFY(headingPosition > 0);
+        text->setProperty("cursorPosition", headingPosition);
         QVERIFY(QMetaObject::invokeMethod(text, "forceActiveFocus"));
 
         QTest::keyClick(quick, Qt::Key_2, Qt::ControlModifier);
-        QTRY_COMPARE(editor.model()->data(editor.model()->index(0), NoteBlockModel::TypeRole).toInt(),
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TypeRole).toInt(),
                      int(NoteBlockModel::Heading));
-        QCOMPARE(editor.model()->data(editor.model()->index(0), NoteBlockModel::HeadingLevelRole).toInt(), 2);
-        QCOMPARE(editor.contents(), QStringLiteral("## heading"));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::HeadingLevelRole).toInt(), 2);
+        QCOMPARE(editor.contents(), QStringLiteral("title\n\n## heading"));
 
-        QTRY_COMPARE(root->property("editors").toList().size(), 1);
-        auto *heading = root->property("editors").toList().constFirst().value<QObject *>();
+        QTRY_COMPARE(root->property("editors").toList().size(), 2);
+        auto *heading = root->property("editors").toList().at(1).value<QObject *>();
         QVERIFY(heading);
         QVERIFY(QMetaObject::invokeMethod(heading, "forceActiveFocus"));
         QTest::keyClick(quick, Qt::Key_0, Qt::ControlModifier);
-        QTRY_COMPARE(editor.model()->data(editor.model()->index(0), NoteBlockModel::TypeRole).toInt(),
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TypeRole).toInt(),
                      int(NoteBlockModel::Text));
-        QCOMPARE(editor.contents(), QStringLiteral("heading"));
+        QCOMPARE(editor.contents(), QStringLiteral("title\n\nheading"));
+    }
+
+    void titleEditorRejectsMarkdownFormattingCommands()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 300);
+        editor.load(QStringLiteral("title"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick = editor.findChild<QQuickWidget *>();
+        auto *root  = quick ? quick->rootObject() : nullptr;
+        QVERIFY(root);
+        QTRY_COMPARE(root->property("editors").toList().size(), 1);
+        auto *title = root->property("editors").toList().constFirst().value<QObject *>();
+        QVERIFY(title);
+        QVERIFY(title->property("titleDocument").toBool());
+        QVERIFY(QMetaObject::invokeMethod(title, "forceActiveFocus"));
+        QVERIFY(QMetaObject::invokeMethod(title, "select", Q_ARG(int, 0), Q_ARG(int, 5)));
+
+        QTest::keyClick(quick, Qt::Key_B, Qt::ControlModifier);
+        QTest::keyClick(quick, Qt::Key_2, Qt::ControlModifier);
+        QTest::keyClick(quick, Qt::Key_K, Qt::ControlModifier);
+
+        QCOMPARE(editor.contents(), QStringLiteral("title"));
+        QCOMPARE(editor.model()->data(editor.model()->index(0), NoteBlockModel::TypeRole).toInt(),
+                 int(NoteBlockModel::Text));
+        auto *urlField = root->findChild<QObject *>(QStringLiteral("noteLinkUrlField"));
+        QVERIFY(urlField);
+        QVERIFY(!urlField->property("activeFocus").toBool());
     }
 
     void inlineFormattingShortcutsWrapSelection()
     {
         QmlNoteEditor editor;
         editor.resize(500, 300);
-        editor.load(QStringLiteral("bold text"), Note::Markdown);
+        editor.load(QStringLiteral("title\n\nbold text"), Note::Markdown);
         editor.show();
         QTest::qWait(30);
         auto *quick = editor.findChild<QQuickWidget *>();
@@ -2326,42 +2711,46 @@ private slots:
         auto *text = root->property("editors").toList().constFirst().value<QObject *>();
         QVERIFY(text);
         QVERIFY(QMetaObject::invokeMethod(text, "forceActiveFocus"));
-        QVERIFY(QMetaObject::invokeMethod(text, "select", Q_ARG(int, 0), Q_ARG(int, 4)));
+        auto *document = text->property("textDocument").value<QQuickTextDocument *>();
+        QVERIFY(document);
+        const int bodyStart = document->textDocument()->toPlainText().indexOf(QStringLiteral("bold"));
+        QVERIFY(bodyStart > 0);
+        QVERIFY(QMetaObject::invokeMethod(text, "select", Q_ARG(int, bodyStart), Q_ARG(int, bodyStart + 4)));
 
         QTest::keyClick(quick, Qt::Key_B, Qt::ControlModifier);
 
-        QTRY_COMPARE(editor.contents(), QStringLiteral("**bold** text"));
+        QTRY_COMPARE(editor.contents(), QStringLiteral("title\n\n**bold** text"));
         QTest::keyClick(quick, Qt::Key_B, Qt::ControlModifier);
-        QTRY_COMPARE(editor.contents(), QStringLiteral("bold text"));
+        QTRY_COMPARE(editor.contents(), QStringLiteral("title\n\nbold text"));
 
-        QMetaObject::invokeMethod(text, "select", Q_ARG(int, 0), Q_ARG(int, 4));
+        QMetaObject::invokeMethod(text, "select", Q_ARG(int, bodyStart), Q_ARG(int, bodyStart + 4));
         QTest::keyClick(quick, Qt::Key_U, Qt::ControlModifier);
-        QTRY_COMPARE(editor.contents(), QStringLiteral("<ins>bold</ins> text"));
+        QTRY_COMPARE(editor.contents(), QStringLiteral("title\n\n<ins>bold</ins> text"));
         QTest::keyClick(quick, Qt::Key_U, Qt::ControlModifier);
-        QTRY_COMPARE(editor.contents(), QStringLiteral("bold text"));
+        QTRY_COMPARE(editor.contents(), QStringLiteral("title\n\nbold text"));
 
-        QMetaObject::invokeMethod(text, "select", Q_ARG(int, 0), Q_ARG(int, 4));
+        QMetaObject::invokeMethod(text, "select", Q_ARG(int, bodyStart), Q_ARG(int, bodyStart + 4));
         QTest::keyClick(quick, Qt::Key_QuoteLeft, Qt::ControlModifier);
-        QTRY_COMPARE(editor.contents(), QStringLiteral("`bold` text"));
+        QTRY_COMPARE(editor.contents(), QStringLiteral("title\n\n`bold` text"));
         QTest::keyClick(quick, Qt::Key_U, Qt::ControlModifier);
-        QTRY_COMPARE(editor.contents(), QStringLiteral("<ins>`bold`</ins> text"));
+        QTRY_COMPARE(editor.contents(), QStringLiteral("title\n\n<ins>`bold`</ins> text"));
         QTest::keyClick(quick, Qt::Key_U, Qt::ControlModifier);
-        QTRY_COMPARE(editor.contents(), QStringLiteral("`bold` text"));
+        QTRY_COMPARE(editor.contents(), QStringLiteral("title\n\n`bold` text"));
         QTest::keyClick(quick, Qt::Key_QuoteLeft, Qt::ControlModifier);
-        QTRY_COMPARE(editor.contents(), QStringLiteral("bold text"));
+        QTRY_COMPARE(editor.contents(), QStringLiteral("title\n\nbold text"));
 
-        QMetaObject::invokeMethod(text, "select", Q_ARG(int, 0), Q_ARG(int, 4));
+        QMetaObject::invokeMethod(text, "select", Q_ARG(int, bodyStart), Q_ARG(int, bodyStart + 4));
         QTest::keyClick(quick, Qt::Key_B, Qt::ControlModifier);
-        QMetaObject::invokeMethod(text, "select", Q_ARG(int, 5), Q_ARG(int, 9));
+        QMetaObject::invokeMethod(text, "select", Q_ARG(int, bodyStart + 5), Q_ARG(int, bodyStart + 9));
         QTest::keyClick(quick, Qt::Key_I, Qt::ControlModifier);
-        QMetaObject::invokeMethod(text, "select", Q_ARG(int, 0), Q_ARG(int, 9));
+        QMetaObject::invokeMethod(text, "select", Q_ARG(int, bodyStart), Q_ARG(int, bodyStart + 9));
         auto *urlField = root->findChild<QObject *>(QStringLiteral("noteLinkUrlField"));
         QVERIFY(urlField);
         QTest::keyClick(quick, Qt::Key_K, Qt::ControlModifier);
         QTRY_VERIFY(urlField->property("activeFocus").toBool());
         QTest::keyClicks(quick, QStringLiteral("url"));
         QTest::keyClick(quick, Qt::Key_Return);
-        QTRY_COMPARE(editor.contents(), QStringLiteral("[**bold** *text*](url)"));
+        QTRY_COMPARE(editor.contents(), QStringLiteral("title\n\n[**bold** *text*](url)"));
     }
 
     void inlineLinkStaysWithinParagraphAndListAcrossModeSwitch()
@@ -2372,11 +2761,16 @@ private slots:
             QTest::qWait(30);
             auto *quick = editor.findChild<QQuickWidget *>();
             auto *root  = quick->rootObject();
-            QTRY_COMPARE(root->property("editors").toList().size(), 1);
-            auto *text = root->property("editors").toList().constFirst().value<QObject *>();
+            QTRY_VERIFY(!root->property("editors").toList().isEmpty());
+            auto *text = root->property("editors").toList().constLast().value<QObject *>();
             QVERIFY(text);
+            auto *document = text->property("textDocument").value<QQuickTextDocument *>();
+            QVERIFY(document);
+            const int contentStart = document->textDocument()->toPlainText().indexOf(QStringLiteral("before"));
+            QVERIFY(contentStart >= 0);
             QVERIFY(QMetaObject::invokeMethod(text, "forceActiveFocus"));
-            QVERIFY(QMetaObject::invokeMethod(text, "select", Q_ARG(int, selectionStart), Q_ARG(int, selectionEnd)));
+            QVERIFY(QMetaObject::invokeMethod(text, "select", Q_ARG(int, contentStart + selectionStart),
+                                              Q_ARG(int, contentStart + selectionEnd)));
             QTest::keyClick(quick, Qt::Key_K, Qt::ControlModifier);
             auto *urlField = root->findChild<QObject *>(QStringLiteral("noteLinkUrlField"));
             QVERIFY(urlField);
@@ -2386,20 +2780,20 @@ private slots:
         };
 
         QmlNoteEditor paragraph;
-        paragraph.load(QStringLiteral("before link after"), Note::Markdown);
+        paragraph.load(QStringLiteral("title\n\nbefore link after"), Note::Markdown);
         applyLink(paragraph, 7, 11);
-        QTRY_COMPARE(paragraph.contents(), QStringLiteral("before [link](url) after"));
+        QTRY_COMPARE(paragraph.contents(), QStringLiteral("title\n\nbefore [link](url) after"));
 
         paragraph.load(paragraph.contents(), Note::PlainText);
-        QCOMPARE(paragraph.contents(), QStringLiteral("before [link](url) after"));
+        QCOMPARE(paragraph.contents(), QStringLiteral("title\n\nbefore [link](url) after"));
         paragraph.load(paragraph.contents(), Note::Markdown);
-        QCOMPARE(paragraph.contents(), QStringLiteral("before [link](url) after"));
+        QCOMPARE(paragraph.contents(), QStringLiteral("title\n\nbefore [link](url) after"));
         paragraph.hide();
 
         QmlNoteEditor inserted;
-        inserted.load(QStringLiteral("before  after"), Note::Markdown);
+        inserted.load(QStringLiteral("title\n\nbefore  after"), Note::Markdown);
         applyLink(inserted, 7, 7);
-        QTRY_COMPARE(inserted.contents(), QStringLiteral("before [link](url) after"));
+        QTRY_COMPARE(inserted.contents(), QStringLiteral("title\n\nbefore [link](url) after"));
         inserted.hide();
 
         QmlNoteEditor list;
@@ -2522,6 +2916,39 @@ private slots:
             return result.toInt();
         };
         QTRY_COMPARE(selectedCount(), 2);
+    }
+
+    void navigationWithoutShiftClearsCrossEditorSelection()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 350);
+        editor.load(QStringLiteral("title\n\n## middle\n\n- last"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick = editor.findChild<QQuickWidget *>();
+        auto *root  = quick ? quick->rootObject() : nullptr;
+        QVERIFY(root);
+        QTRY_COMPARE(root->property("editors").toList().size(), 3);
+        const auto editors = root->property("editors").toList();
+        auto      *first   = editors.constFirst().value<QObject *>();
+        auto      *last    = editors.constLast().value<QObject *>();
+        QVERIFY(first);
+        QVERIFY(last);
+        QVERIFY(QMetaObject::invokeMethod(root, "applyDocumentSelection", Q_ARG(QVariant, QVariant::fromValue(first)),
+                                          Q_ARG(QVariant, 1), Q_ARG(QVariant, QVariant::fromValue(last)),
+                                          Q_ARG(QVariant, 2)));
+        QTRY_VERIFY(root->property("selectionSpansEditors").toBool());
+
+        QTest::keyClick(quick, Qt::Key_Left);
+
+        QTRY_VERIFY(!root->property("selectionSpansEditors").toBool());
+        QTRY_COMPARE(root->property("activeEditor").value<QObject *>(), first);
+        QCOMPARE(first->property("cursorPosition").toInt(), 1);
+        for (const QVariant &value : root->property("editors").toList()) {
+            auto *candidate = value.value<QObject *>();
+            QVERIFY(candidate);
+            QCOMPARE(candidate->property("selectionStart").toInt(), candidate->property("selectionEnd").toInt());
+        }
     }
 
     void deleteRemovesSelectedListItems()

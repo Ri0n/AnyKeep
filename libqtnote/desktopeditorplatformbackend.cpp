@@ -5,6 +5,7 @@
 #include "noteeditor.h"
 #include "notetransfercontroller.h"
 
+#include <QCursor>
 #include <QDir>
 #include <QDrag>
 #include <QFileDialog>
@@ -17,6 +18,7 @@
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QWidget>
+#include <QWindow>
 
 namespace QtNote {
 namespace {
@@ -31,6 +33,18 @@ namespace {
                 return true;
         }
         return QUrl(sourceUri).scheme().compare(QStringLiteral("qtnote-media"), Qt::CaseInsensitive) != 0;
+    }
+
+    bool cursorIsOutsideWindow(QObject *source)
+    {
+        const QPoint cursor = QCursor::pos();
+        if (auto *widget = qobject_cast<QWidget *>(source)) {
+            const QWidget *window = widget->window();
+            return window && !window->frameGeometry().contains(cursor);
+        }
+        if (auto *window = qobject_cast<QWindow *>(source))
+            return !window->frameGeometry().contains(cursor);
+        return false;
     }
 
 } // namespace
@@ -126,7 +140,10 @@ bool DesktopEditorPlatformBackend::startImageDrag(int row)
         drag.setHotSpot(QPoint(thumbnail.width() / 2, thumbnail.height() / 2));
     }
     drag.exec(Qt::CopyAction, Qt::CopyAction);
-    return true;
+    // The return value means "remove the source block", not merely "the drag
+    // started". QML can therefore keep the mutation in its normal undoable
+    // structural transaction.
+    return cursorIsOutsideWindow(dragSource_);
 }
 
 bool DesktopEditorPlatformBackend::insertImage(int row)

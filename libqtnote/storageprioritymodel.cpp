@@ -35,6 +35,11 @@ StoragePriorityModel::StoragePriorityModel(QObject *parent) : QAbstractListModel
         if (row >= 0)
             emit dataChanged(index(row), index(row));
     });
+    connect(NoteManager::instance(), &NoteManager::storageOrderChanged, this, [this] {
+        beginResetModel();
+        resetFromManager();
+        endResetModel();
+    });
 }
 
 int StoragePriorityModel::rowCount(const QModelIndex &parent) const { return parent.isValid() ? 0 : items_.count(); }
@@ -185,6 +190,11 @@ bool StoragePriorityModel::moveStorage(int sourceRow, int destinationRow)
 
     NoteManager::instance()->setPriorities(priorityList());
     return true;
+}
+
+bool StoragePriorityModel::moveStorageById(const QString &sourceStorageId, const QString &destinationStorageId)
+{
+    return moveStorage(rowForStorage(sourceStorageId), rowForStorage(destinationStorageId));
 }
 
 void StoragePriorityModel::resetFromManager()

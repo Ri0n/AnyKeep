@@ -23,6 +23,7 @@ private slots:
     void exportsGithubUnderlineAsHtmlUnderline();
     void roundTripsSingleImageAsPng();
     void malformedPrivateFormatFallsBackToPlainText();
+    void convertsPlainTextNotesToMarkdownWithoutChangingTheirText();
 };
 
 void NoteTransferControllerTest::exportsMultipleFormatsAndRestoresPrivateFragment()
@@ -83,7 +84,16 @@ void NoteTransferControllerTest::preservesMarkdownHardBreaksInPlainText()
     QVERIFY2(exported, qPrintable(exported.error));
     QVERIFY(exported.mimeData->hasFormat(QString::fromLatin1(NoteTransferController::MarkdownMimeType)));
     QVERIFY(exported.mimeData->hasHtml());
-    QCOMPARE(exported.mimeData->text(), QStringLiteral("first line\nsecond line\n\nthird paragraph"));
+    QCOMPARE(exported.mimeData->text(), QStringLiteral("first line  \nsecond line\n\nthird paragraph"));
+}
+
+void NoteTransferControllerTest::convertsPlainTextNotesToMarkdownWithoutChangingTheirText()
+{
+    const QString plain    = QStringLiteral("# literal heading\n* literal emphasis *\nordinary text");
+    const QString markdown = NoteTransferController::convertTextFormat(plain, Note::PlainText, Note::Markdown);
+
+    QVERIFY(markdown != plain);
+    QCOMPARE(NoteTransferController::convertTextFormat(markdown, Note::Markdown, Note::PlainText), plain);
 }
 
 void NoteTransferControllerTest::importsMarkdownBeforeHtmlAndPlainText()

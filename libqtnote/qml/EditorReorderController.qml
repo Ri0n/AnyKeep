@@ -17,9 +17,12 @@ Item {
     property real startPointerY: 0
     property real startContentX: 0
     property real startContentY: 0
+    property real startDraggedTopY: 0
+    property bool targetByDraggedTop: false
     property real translationX: 0
     property real translationY: 0
     property real draggedHeight: 0
+    property bool committingDrop: false
 
     property var targetBlock: null
     property int targetItem: -1
@@ -53,27 +56,38 @@ Item {
         if (!editorView || !blockModel || !listBlock || !row || dragging)
             return
 
+        startListRangeDrag(listBlock, row.index, listBlock.subtreeEnd(row.index), row.markerItem)
+    }
+
+    function startListRangeDrag(listBlock, firstItem, endItem, pointerItem, logicalPointerX) {
+        if (!editorView || !blockModel || !listBlock || dragging
+                || firstItem < 0 || endItem <= firstItem || !pointerItem)
+            return
+
         sourceBlock = listBlock
-        sourceItem = row.index
-        sourceEnd = listBlock.subtreeEnd(sourceItem)
+        sourceItem = firstItem
+        sourceEnd = endItem
         const rows = []
         draggedHeight = 0
+        let draggedTop = Number.POSITIVE_INFINITY
         for (let index = sourceItem; index < sourceEnd; ++index) {
             const sourceRow = listBlock.rowAt(index)
             if (!sourceRow)
                 continue
-            const origin = sourceRow.dragContent.mapToItem(controller, 0, 0)
-            sourceRow.dragOriginX = origin.x
-            sourceRow.dragOriginY = origin.y
+            const contentOrigin = sourceRow.dragContent.mapToItem(editorView.contentItem, 0, 0)
             rows.push(sourceRow)
             draggedHeight += sourceRow.naturalHeight
+            draggedTop = Math.min(draggedTop, contentOrigin.y)
         }
         sourceRows = rows
+        dragPreview.capture(rows.map(row => row.dragContent))
 
-        const markerCenter = row.markerItem.mapToItem(
-            editorView.contentItem, row.markerItem.width / 2, row.markerItem.height / 2)
-        startPointerX = markerCenter.x
+        const markerCenter = pointerItem.mapToItem(
+            editorView.contentItem, pointerItem.width / 2, pointerItem.height / 2)
+        startPointerX = logicalPointerX === undefined ? markerCenter.x : Number(logicalPointerX)
         startPointerY = markerCenter.y
+        startDraggedTopY = rows.length > 0 ? draggedTop : startPointerY
+        targetByDraggedTop = rows.length > 1
         startContentX = editorView.contentX
         startContentY = editorView.contentY
         translationX = 0
@@ -104,6 +118,11 @@ Item {
 
         const pointerX = startPointerX + translationX + editorView.contentX - startContentX
         const pointerY = startPointerY + translationY + editorView.contentY - startContentY
+        // Boundaries omit the source range. In that compressed geometry the preview top
+        // makes its physical bottom cross a lower row's midpoint before the target advances.
+        const targetProbeY = targetByDraggedTop
+                ? startDraggedTopY + translationY + editorView.contentY - startContentY
+                : pointerY
         let bestBlock = null
         let bestItem = -1
         let bestDistance = Number.POSITIVE_INFINITY
@@ -117,7 +136,7 @@ Item {
                 const logicalY = boundary.y
                                  - animatedDisplacementBeforeBlock(listBlock.blockIndex)
                                  - listBlock.animatedDisplacementBeforeBoundary(item)
-                const distance = Math.abs(pointerY - logicalY)
+                const distance = Math.abs(targetProbeY - logicalY)
                 if (distance < bestDistance) {
                     bestDistance = distance
                     bestBlock = listBlock
@@ -133,8 +152,9 @@ Item {
             return
         }
 
-        const blockOrigin = bestBlock.mapToItem(editorView.contentItem, 0, 0)
-        const markerCenter = blockOrigin.x + editorView.listMarkerWidth / 2
+        const markerCenter = typeof bestBlock.markerCenterXForIndent === "function"
+                ? bestBlock.markerCenterXForIndent(0)
+                : bestBlock.mapToItem(editorView.contentItem, 0, 0).x + editorView.listMarkerWidth / 2
         const requestedIndent = Math.round((pointerX - markerCenter) / editorView.listIndent)
         const maximumIndent = bestItem === 0 ? 0 : bestBlock.remainingIndentAt(bestItem - 1) + 1
         targetIndent = Math.max(0, Math.min(maximumIndent, requestedIndent))
@@ -146,16 +166,69 @@ Item {
 
         const fromBlock = sourceBlock.blockIndex
         const fromItem = sourceItem
+        const fromEnd = sourceEnd
         const toBlock = targetBlock ? targetBlock.blockIndex : -1
         const toItem = targetItem
         const toIndent = targetIndent
-        clearVisualState()
+        const activeEditor = editorView.activeEditor
+        const focusedOffset = activeEditor
+                && activeEditor.blockIndex === fromBlock
+                && activeEditor.listItemIndex >= fromItem
+                && activeEditor.listItemIndex < fromEnd
+                ? activeEditor.listItemIndex - fromItem : -1
+        const focusedCursor = focusedOffset >= 0 ? activeEditor.cursorPosition : 0
+        const focusedSelectionStart = focusedOffset >= 0 ? activeEditor.selectionStart : 0
+        const focusedSelectionEnd = focusedOffset >= 0 ? activeEditor.selectionEnd : 0
+        const removesSourceBlock = fromBlock !== toBlock
+                && fromItem === 0 && fromEnd === sourceBlock.itemCount()
+        const viewportX = startPointerX + translationX - editorView.contentX
+        const viewportY = startPointerY + translationY - editorView.contentY
+        const droppedOutside = !editorView.touchMode
+                && (viewportX < 0 || viewportY < 0
+                    || viewportX > editorView.width || viewportY > editorView.height)
 
-        if (toBlock < 0 || toItem < 0)
+        if (droppedOutside) {
+            committingDrop = true
+            try {
+                editorView.runEditTransaction("delete-list-items", function() {
+                    editorView.prepareForStructuralMutation()
+                    blockModel.removeListItems(fromBlock, fromItem, fromEnd - 1)
+                    editorView.focusBlock(Math.min(fromBlock, blockModel.rowCount() - 1))
+                })
+                clearVisualState()
+            } finally {
+                committingDrop = false
+            }
             return
-        editorView.runEditTransaction("move-list-item", function() {
-            blockModel.moveListSubtree(fromBlock, fromItem, toBlock, toItem, toIndent)
-        })
+        }
+
+        if (toBlock < 0 || toItem < 0) {
+            clearVisualState()
+            return
+        }
+        committingDrop = true
+        try {
+            editorView.runEditTransaction("move-list-item", function() {
+                if (!blockModel.moveListRange(fromBlock, fromItem, fromEnd - 1,
+                                              toBlock, toItem, toIndent)) {
+                    return
+                }
+                if (focusedOffset >= 0) {
+                    editorView.focusEditorAddress({
+                        blockIndex: removesSourceBlock && fromBlock < toBlock ? toBlock - 1 : toBlock,
+                        listItemIndex: toItem + focusedOffset,
+                        tableCellIndex: -1,
+                        field: "listItem",
+                        cursorPosition: focusedCursor,
+                        selectionStart: focusedSelectionStart,
+                        selectionEnd: focusedSelectionEnd
+                    })
+                }
+            })
+            clearVisualState()
+        } finally {
+            committingDrop = false
+        }
     }
 
     function cancelDrag() {
@@ -173,9 +246,13 @@ Item {
         targetIndent = 0
         startContentX = 0
         startContentY = 0
+        startDraggedTopY = 0
+        targetByDraggedTop = false
         translationX = 0
         translationY = 0
         draggedHeight = 0
+        committingDrop = false
+        dragPreview.clear()
     }
 
     Connections {
@@ -191,27 +268,12 @@ Item {
         }
     }
 
-    Repeater {
-        model: controller.sourceRows
+    DragPreviewLayer {
+        id: dragPreview
 
-        ShaderEffectSource {
-            required property int index
-            required property var modelData
-
-            readonly property var sourceRow: modelData
-
-            objectName: "listDragPreview-" + index
-            sourceItem: sourceRow ? sourceRow.dragContent : null
-            hideSource: true
-            live: true
-            recursive: true
-            smooth: true
-            x: sourceRow ? sourceRow.dragOriginX + controller.translationX : 0
-            y: sourceRow ? sourceRow.dragOriginY + controller.translationY : 0
-            width: sourceItem ? sourceItem.width : 0
-            height: sourceItem ? sourceItem.height : 0
-            sourceRect: Qt.rect(0, 0, width, height)
-            opacity: 0.9
-        }
+        anchors.fill: parent
+        objectNamePrefix: "listDragPreview-"
+        translationX: controller.translationX
+        translationY: controller.translationY
     }
 }

@@ -73,6 +73,12 @@ ToolBar {
         })
     }
 
+    function insertBlockQuote() {
+        return runMarkdownCommand("insert-or-convert-blockquote", function() {
+            return root.blockEditor.insertBlockQuoteBlock()
+        })
+    }
+
     function insertImage() {
         if (!root.platformBackend || !root.editorBackend || !root.blockEditor)
             return false
@@ -116,6 +122,9 @@ ToolBar {
     }
 
     function activeBlockStyleLabel() {
+        if (root.blockEditor && root.blockEditor.activeEditor
+                && root.blockEditor.activeEditor.editorField === "blockquote")
+            return qsTr("Quote")
         const level = activeHeadingLevel()
         return level > 0 ? qsTr("H%1").arg(level) : qsTr("P")
     }
@@ -319,6 +328,7 @@ ToolBar {
                 MenuItem { text: qsTr("Heading 2"); onTriggered: root.blockEditor.convertActiveToHeading(2) }
                 MenuItem { text: qsTr("Heading 3"); onTriggered: root.blockEditor.convertActiveToHeading(3) }
                 MenuItem { text: qsTr("Heading 4"); onTriggered: root.blockEditor.convertActiveToHeading(4) }
+                MenuItem { text: qsTr("Block quote"); onTriggered: root.blockEditor.convertActiveToQuote(true) }
             }
         }
 
@@ -471,6 +481,7 @@ ToolBar {
                     MenuItem { text: qsTr("Bullet list"); onTriggered: root.insertList(root.bulletListType) }
                     MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertList(root.numberedListType) }
                     MenuItem { text: qsTr("Task list"); onTriggered: root.insertList(root.taskListType) }
+                    MenuItem { text: qsTr("Block quote"); onTriggered: root.insertBlockQuote() }
                     MenuItem { text: qsTr("Table"); onTriggered: root.insertTable() }
                     MenuItem {
                         text: qsTr("Image")
@@ -486,6 +497,7 @@ ToolBar {
                     MenuItem { text: qsTr("Heading 2"); onTriggered: root.blockEditor.convertActiveToHeading(2) }
                     MenuItem { text: qsTr("Heading 3"); onTriggered: root.blockEditor.convertActiveToHeading(3) }
                     MenuItem { text: qsTr("Heading 4"); onTriggered: root.blockEditor.convertActiveToHeading(4) }
+                    MenuItem { text: qsTr("Block quote"); onTriggered: root.blockEditor.convertActiveToQuote(true) }
                 }
                 Menu {
                     title: qsTr("Formatting")
@@ -560,6 +572,7 @@ ToolBar {
                     MenuItem { text: qsTr("Bullet list"); onTriggered: root.insertList(root.bulletListType) }
                     MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertList(root.numberedListType) }
                     MenuItem { text: qsTr("Task list"); onTriggered: root.insertList(root.taskListType) }
+                    MenuItem { text: qsTr("Block quote"); onTriggered: root.insertBlockQuote() }
                     MenuItem { text: qsTr("Table"); onTriggered: root.insertTable() }
                     MenuItem {
                         text: qsTr("Image")
@@ -575,6 +588,7 @@ ToolBar {
                     MenuItem { text: qsTr("Heading 2"); onTriggered: root.blockEditor.convertActiveToHeading(2) }
                     MenuItem { text: qsTr("Heading 3"); onTriggered: root.blockEditor.convertActiveToHeading(3) }
                     MenuItem { text: qsTr("Heading 4"); onTriggered: root.blockEditor.convertActiveToHeading(4) }
+                    MenuItem { text: qsTr("Block quote"); onTriggered: root.blockEditor.convertActiveToQuote(true) }
                 }
                 Menu {
                     title: qsTr("Formatting")

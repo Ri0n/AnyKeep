@@ -2,8 +2,12 @@
 
 #include "desktopeditorplatformbackend.h"
 #include "desktopnoteactions.h"
+#include "editorcursorcontroller.h"
 #include "localmediaimageprovider.h"
+#include "notemanager.h"
+#include "notestorage.h"
 #include "notesworkspacecontroller.h"
+#include "settingswindow.h"
 #include "speechrecognitioncontroller.h"
 #include "storageiconimageprovider.h"
 #include "themediconimageprovider.h"
@@ -43,11 +47,26 @@ NotesManagerWindow::NotesManagerWindow(QObject *parent) : QObject(parent)
             &NotesManagerWindow::operationFailed);
     connect(workspace_, &NotesWorkspaceController::openStandaloneRequested, this,
             &NotesManagerWindow::openNoteRequested);
+    connect(workspace_, &NotesWorkspaceController::storageSettingsRequested, this, [this](const QString &storageId) {
+        const auto storage = NoteManager::instance()->storage(storageId);
+        if (!storage)
+            return;
+        auto *controller = storage->createSettingsController(nullptr);
+        if (!controller)
+            return;
+        QUrl component = storage->settingsComponent();
+        if (component.isEmpty())
+            component = QUrl(QStringLiteral("qrc:/qml/SettingsForm.qml"));
+        auto *settings
+            = new SettingsWindow(controller, component, storage->name() + QStringLiteral(": ") + tr("Settings"), this);
+        settings->show();
+    });
 
     engine_ = new QQmlApplicationEngine(this);
     installLocalMediaImageProvider(engine_);
     installStorageIconImageProvider(engine_);
     installThemedIconImageProvider(engine_);
+    installEditorCursorController(engine_->rootContext());
     engine_->rootContext()->setContextProperty(QStringLiteral("notesWorkspace"), workspace_);
     engine_->rootContext()->setContextProperty(QStringLiteral("desktopEditorPlatform"), platformBackend_);
     engine_->rootContext()->setContextProperty(QStringLiteral("desktopNoteActions"), desktopActions_);

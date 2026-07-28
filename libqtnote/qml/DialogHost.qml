@@ -33,10 +33,20 @@ Item {
         closePolicy: Popup.NoAutoClose
         title: root.dialogService ? root.dialogService.title : ""
 
-        contentItem: Label {
-            width: Math.min(420, root.width - 48)
-            wrapMode: Text.WordWrap
-            text: root.dialogService ? root.dialogService.message : ""
+        contentItem: ScrollView {
+            implicitWidth: Math.min(520, Math.max(240, root.width - 48))
+            implicitHeight: Math.min(360, Math.max(80, messageText.contentHeight))
+
+            TextArea {
+                id: messageText
+                readOnly: true
+                background: null
+                selectByMouse: true
+                wrapMode: TextEdit.Wrap
+                textFormat: TextEdit.RichText
+                text: root.dialogService ? root.dialogService.message : ""
+                onLinkActivated: link => Qt.openUrlExternally(link)
+            }
         }
 
         footer: RowLayout {

@@ -1,6 +1,7 @@
 #include "desktopnoteeditorhost.h"
 
 #include "desktopeditorplatformbackend.h"
+#include "editorcursorcontroller.h"
 #include "localmediaimageprovider.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
@@ -60,6 +61,7 @@ DesktopNoteEditorHost::DesktopNoteEditorHost(NoteEditor *editor, QWidget *parent
     quick_->setClearColor(palette().color(QPalette::Base));
     installLocalMediaImageProvider(quick_->engine());
     installThemedIconImageProvider(quick_->engine());
+    installEditorCursorController(quick_->rootContext());
     quick_->rootContext()->setContextProperty(QStringLiteral("noteBlockModel"), editor_->model());
     quick_->rootContext()->setContextProperty(QStringLiteral("noteEditor"), editor_);
     quick_->rootContext()->setContextProperty(QStringLiteral("desktopEditorPlatform"), platformBackend_);

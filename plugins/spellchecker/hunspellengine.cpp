@@ -107,9 +107,12 @@ static bool scanDictPaths(const QStringList &dictPaths, const QString &language,
     return false;
 }
 
-HunspellEngine::HunspellEngine(PluginHostInterface *host) : host(host)
+HunspellEngine::HunspellEngine(PluginHostInterface *host) :
+    // Editor backends may retain the provider until after PluginHost has been
+    // destroyed during application shutdown. The destructor must not consult it.
+    customDictionaryPath_(host ? host->qtnoteDataDir() + QLatin1String("/spellcheck-custom.words") : QString())
 {
-    QFile f(host->qtnoteDataDir() + QLatin1String("/spellcheck-custom.words"));
+    QFile f(customDictionaryPath_);
     if (f.open(QIODevice::ReadOnly)) {
         QDataStream in(&f);
         QString     w;
@@ -131,7 +134,7 @@ HunspellEngine::~HunspellEngine()
         delete li.decoder;
 #endif
     }
-    QFile f(host->qtnoteDataDir() + QLatin1String("/spellcheck-custom.words"));
+    QFile f(customDictionaryPath_);
     if (f.open(QIODevice::WriteOnly)) {
         QDataStream out(&f);
         for (auto &w : std::as_const(runtimeDict)) {

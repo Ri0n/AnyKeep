@@ -365,16 +365,10 @@ NoteTransferController::ExportResult NoteTransferController::createMimeData(cons
         return result;
     }
 
-    QString       error;
-    const QString plainText = plainTextForFragment(fragment, &error);
-    if (!error.isEmpty()) {
-        result.error = error;
-        return result;
-    }
+    QString error;
 
     auto mime = std::make_unique<QMimeData>();
     mime->setData(QString::fromLatin1(FragmentMimeType), encoded);
-    mime->setText(plainText);
 
     if (fragment.sourceFormat == NoteFragmentSourceFormat::Markdown) {
         const QString markdown = markdownForFragment(fragment, &error);
@@ -387,8 +381,16 @@ NoteTransferController::ExportResult NoteTransferController::createMimeData(cons
             result.error = error;
             return result;
         }
+        mime->setText(markdown);
         mime->setData(QString::fromLatin1(MarkdownMimeType), markdown.toUtf8());
         mime->setHtml(html);
+    } else {
+        const QString plainText = plainTextForFragment(fragment, &error);
+        if (!error.isEmpty()) {
+            result.error = error;
+            return result;
+        }
+        mime->setText(plainText);
     }
 
     const QString tsv = tsvForFragment(fragment);
@@ -555,6 +557,42 @@ QString NoteTransferController::tsvForFragment(const NoteFragment &fragment)
         rows.append(columns.join(QLatin1Char('\t')));
     }
     return rows.join(QLatin1Char('\n'));
+}
+
+QString NoteTransferController::convertTextFormat(const QString &text, Note::Format sourceFormat,
+                                                  Note::Format targetFormat)
+{
+    if (sourceFormat == targetFormat)
+        return text;
+
+    QTextDocument document;
+    switch (sourceFormat) {
+    case Note::PlainText:
+        document.setPlainText(text);
+        break;
+    case Note::Markdown:
+        setMarkdownPreservingGithubUnderlines(&document, text);
+        break;
+    case Note::Html:
+        document.setHtml(text);
+        break;
+    }
+
+    QString converted;
+    switch (targetFormat) {
+    case Note::PlainText:
+        converted = document.toPlainText();
+        break;
+    case Note::Markdown:
+        converted = document.toMarkdown(QTextDocument::MarkdownDialectGitHub);
+        while (converted.endsWith(QLatin1Char('\n')))
+            converted.chop(1);
+        break;
+    case Note::Html:
+        converted = document.toHtml();
+        break;
+    }
+    return converted;
 }
 
 } // namespace QtNote

@@ -45,6 +45,8 @@ public:
     Q_INVOKABLE QVariantList spellCheckRanges(QQuickTextDocument *document);
     Q_INVOKABLE QStringList  spellingSuggestions(const QString &word) const;
     Q_INVOKABLE void         addToSpellingDictionary(const QString &word);
+    Q_INVOKABLE QStringList  customSpellingDictionary() const;
+    Q_INVOKABLE void         setCustomSpellingDictionary(const QStringList &words);
     Q_INVOKABLE bool         insertClipboardImage(int row = -1);
     Q_INVOKABLE bool         insertImageData(const QByteArray &data, const QString &name, const QString &mediaType,
                                              int row = -1);
@@ -66,6 +68,7 @@ public:
 
 signals:
     void spellCheckEnabledChanged();
+    void customSpellingDictionaryChanged();
     void canInsertImagesChanged();
     void highlightingChanged();
     void mediaInserted(const QList<MediaReference> &references);
@@ -90,10 +93,13 @@ private:
     bool insertImportedImages(const QList<MediaReference> &references, int row, const QString &historyKind);
     void clearRegisteredDocuments();
     void installBuiltInExtensions();
+    bool isCustomSpellingWord(const QString &word) const;
+    void saveCustomSpellingDictionary();
 
     QList<HighlightExtension>             extensions_;
     QList<RegisteredHighlighter>          highlighters_;
     std::shared_ptr<HighlighterExtension> titleExtension_;
+    QStringList                           customSpellingDictionary_;
     bool                                  spellCheckEnabled_ { true };
 };
 

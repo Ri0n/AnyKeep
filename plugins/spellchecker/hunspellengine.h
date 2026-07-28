@@ -2,6 +2,7 @@
 #define HUNSPELLENGINE_H
 
 #include <QSet>
+#include <QString>
 
 #include "engineinterface.h"
 
@@ -52,10 +53,10 @@ private:
     int findLangItem(const QLocale &locale);
 
 private:
-    PluginHostInterface   *host;
     QList<LangItem>        languages;
     QSet<QString>          runtimeDict;
     QStringList            dictPaths;
+    QString                customDictionaryPath_;
     QNetworkAccessManager *qnam = nullptr;
     QString                lastError_;
 };

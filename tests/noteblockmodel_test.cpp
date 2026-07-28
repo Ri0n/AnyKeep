@@ -37,6 +37,33 @@ private slots:
         QVERIFY(model.contents().contains(QStringLiteral("[link](https://example.org)")));
     }
 
+    void parsesSerializesAndTransfersBlockQuotes()
+    {
+        const QString  markdown = QStringLiteral("title\n\n"
+                                                  "> quoted **text**\n"
+                                                  ">\n"
+                                                  "> second paragraph\n\n"
+                                                  "after");
+        NoteBlockModel model;
+        model.load(markdown, true);
+
+        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::BlockQuote));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(),
+                 QStringLiteral("quoted **text**\n\nsecond paragraph"));
+        QCOMPARE(model.contents(), markdown);
+
+        const NoteFragment fragment = model.extractBlockFragment(1, 1);
+        QCOMPARE(fragment.blocks.size(), 1);
+        QCOMPARE(fragment.blocks.constFirst().type, NoteFragmentBlockType::BlockQuote);
+
+        NoteBlockModel destination;
+        destination.load(QStringLiteral("before"), true);
+        QString error;
+        QVERIFY2(destination.insertBlockFragment(1, fragment, &error), qPrintable(error));
+        QCOMPARE(destination.contents(), QStringLiteral("before\n\n> quoted **text**\n>\n> second paragraph"));
+    }
+
     void preservesGithubUnderlineMarkup()
     {
         NoteBlockModel model;
@@ -277,6 +304,57 @@ private slots:
         model.setChecked(0, 0, true);
         model.setListItem(0, 0, QStringLiteral("changed"));
         QCOMPARE(model.contents(), QStringLiteral("- [x] changed"));
+    }
+
+    void nestedTaskChecksPropagateBetweenParentsAndDescendants()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("- [ ] parent\n"
+                                  "    - [ ] first\n"
+                                  "    - [ ] second\n"
+                                  "        - [ ] grandchild\n"
+                                  "- [ ] unrelated"),
+                   true);
+
+        model.setChecked(0, 1, true);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::CheckedRole).toList(),
+                 QVariantList({ false, true, false, false, false }));
+
+        model.setChecked(0, 2, true);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::CheckedRole).toList(),
+                 QVariantList({ true, true, true, true, false }));
+
+        model.setChecked(0, 3, false);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::CheckedRole).toList(),
+                 QVariantList({ false, true, false, false, false }));
+
+        model.setChecked(0, 0, true);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::CheckedRole).toList(),
+                 QVariantList({ true, true, true, true, false }));
+
+        model.setChecked(0, 0, false);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::CheckedRole).toList(),
+                 QVariantList({ false, false, false, false, false }));
+    }
+
+    void mergesLastListItemWithFollowingTextOrListItem()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("- first\n- second\n\nfollowing text"), true);
+        QVERIFY(model.mergeListItemWithFollowingBlock(0, 1));
+        QCOMPARE(model.contents(), QStringLiteral("- first\n- secondfollowing text"));
+        QCOMPARE(model.rowCount(), 1);
+
+        model.load(QStringLiteral("- first\n\n- [x] second\n- [ ] third"), true);
+        QVERIFY(model.mergeListItemWithFollowingBlock(0, 0));
+        QCOMPARE(model.contents(), QStringLiteral("- firstsecond\n- [ ] third"));
+        QCOMPARE(model.rowCount(), 1);
+
+        model.load(QStringLiteral("- first\n\n- [x] second\n  - nested\n- third"), true);
+        QCOMPARE(model.rowCount(), 2);
+        QVERIFY(model.mergeListItemWithFollowingBlock(0, 0));
+        QCOMPARE(model.contents(), QStringLiteral("- firstsecond\n    - nested\n- third"));
+        QCOMPARE(model.rowCount(), 1);
     }
 
     void equalScalarWritesAreNoOps()

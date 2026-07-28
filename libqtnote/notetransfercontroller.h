@@ -1,6 +1,7 @@
 #ifndef NOTETRANSFERCONTROLLER_H
 #define NOTETRANSFERCONTROLLER_H
 
+#include "note.h"
 #include "notefragment.h"
 #include "qtnote_export.h"
 
@@ -46,6 +47,7 @@ public:
     static QString plainTextForFragment(const NoteFragment &fragment, QString *error = nullptr);
     static QString htmlForFragment(const NoteFragment &fragment, QString *error = nullptr);
     static QString tsvForFragment(const NoteFragment &fragment);
+    static QString convertTextFormat(const QString &text, Note::Format sourceFormat, Note::Format targetFormat);
 };
 
 } // namespace QtNote

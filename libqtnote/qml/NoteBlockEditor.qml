@@ -30,6 +30,8 @@ ListView {
     property var keyboardSelectionAnchorEditor: null
     property int keyboardSelectionAnchorPosition: 0
     property int editTransactionDepth: 0
+    property bool suppressCursorVisibility: false
+    property int viewportRestoreGeneration: 0
     property var currentFindResult: ({})
     property string currentFindText: ""
     signal findRequested()
@@ -42,8 +44,10 @@ ListView {
     })
     readonly property int blockSpacing: Math.max(touchMode ? 8 : 1,
                                                  Math.round(editorFontMetrics.height * (touchMode ? 0.8 : 0.6)))
-    readonly property int editorInset: Math.max(touchMode ? 14 : 8,
-                                                Math.round(editorFontMetrics.height * (touchMode ? 0.9 : 0.67)))
+    readonly property int baseEditorInset: Math.max(touchMode ? 14 : 8,
+                                                    Math.round(editorFontMetrics.height * (touchMode ? 0.9 : 0.67)))
+    readonly property int listLevelHandleGutter: touchMode ? 18 : 14
+    readonly property int editorInset: baseEditorInset + Math.max(0, listLevelHandleGutter - 5)
     readonly property int listIndent: Math.max(touchMode ? 24 : 20,
                                                Math.round(editorFontMetrics.averageCharacterWidth * 4))
     readonly property int listMarkerWidth: Math.max(touchMode ? 44 : 24,
@@ -56,8 +60,8 @@ ListView {
     model: blockModel
     spacing: blockSpacing
     clip: true
-    topMargin: editorInset
-    bottomMargin: editorInset
+    topMargin: baseEditorInset
+    bottomMargin: baseEditorInset
     boundsBehavior: touchMode ? Flickable.DragAndOvershootBounds : Flickable.StopAtBounds
     activeFocusOnTab: true
     focus: true
@@ -357,7 +361,7 @@ ListView {
     }
 
     function scheduleCursorVisibility(editor) {
-        if (!editor || !editor.activeFocus)
+        if (suppressCursorVisibility || !editor || !editor.activeFocus)
             return
         cursorVisibilityRefresh.editor = editor
         cursorVisibilityRefresh.restart()
@@ -493,6 +497,9 @@ ListView {
     function applyEditorAddress(editor, address) {
         if (!editor || !address)
             return false
+        if (editor.sourceTextPending
+                && typeof editor.applyPendingSourceText === "function")
+            editor.applyPendingSourceText()
         editor.forceActiveFocus()
         const requested = Number(address.cursorPosition === undefined ? -1 : address.cursorPosition)
         const position = requested >= 0 ? requested : (Boolean(address.atEnd) ? editor.length : 0)
@@ -506,6 +513,8 @@ ListView {
             editor.cursorPosition = cursor
         activeEditor = editor
         pendingFocusAddress = null
+        if (address.preserveViewport)
+            return true
         // A structural change (notably a table-cell edit) may settle its
         // delegate's height after focus was restored.  Re-check on the next
         // two turns so ListView's scroll anchoring cannot leave the cursor
@@ -522,6 +531,25 @@ ListView {
             })
         })
         return true
+    }
+
+    function preserveViewportAt(requestedY) {
+        const generation = ++viewportRestoreGeneration
+        suppressCursorVisibility = true
+        cursorVisibilityRefresh.stop()
+        function restore(finalPass) {
+            if (generation !== root.viewportRestoreGeneration)
+                return
+            root.contentY = Math.max(root.originY,
+                                     Math.min(root.originY + Math.max(0, root.contentHeight - root.height),
+                                              requestedY))
+            if (finalPass) {
+                root.suppressCursorVisibility = false
+            } else {
+                Qt.callLater(function() { restore(true) })
+            }
+        }
+        Qt.callLater(function() { restore(false) })
     }
 
     function tryRestorePendingEditorState() {
@@ -570,7 +598,15 @@ ListView {
             return false
         const generation = ++focusRequestGeneration
         pendingFocusAddress = address
-        positionViewAtIndex(Number(address.blockIndex), ListView.Contain)
+        if (address.preserveViewport) {
+            const viewportY = address.viewportY === undefined
+                    ? contentY : Number(address.viewportY)
+            preserveViewportAt(viewportY)
+        } else {
+            ++viewportRestoreGeneration
+            suppressCursorVisibility = false
+            positionViewAtIndex(Number(address.blockIndex), ListView.Contain)
+        }
         if (!tryPendingEditorFocus())
             pendingFocusRetry.restart()
         Qt.callLater(function() {
@@ -726,11 +762,11 @@ ListView {
 
     function prepareForStructuralMutation() {
         // A focused delegate may defer applying a changed sourceText until it
-        // loses focus. Make that happen while its list/table indexes still
-        // refer to the old model, then mutate the structure.
+        // loses focus. The target address applies that pending source before
+        // restoring its cursor; do not move focus here, because doing so makes
+        // ListView reposition the viewport before the mutation.
         flushPendingEditorChanges()
         clearDocumentSelection()
-        forceActiveFocus()
         activeEditor = null
     }
 
@@ -763,11 +799,34 @@ ListView {
     function handleKeyboardSelection(event, editor) {
         const arrow = event.key === Qt.Key_Left || event.key === Qt.Key_Right
                    || event.key === Qt.Key_Up || event.key === Qt.Key_Down
-        if (!(event.modifiers & Qt.ShiftModifier) || !arrow) {
-            if (!(event.modifiers & Qt.ShiftModifier))
-                keyboardSelectionAnchorEditor = null
-            return false
+        const navigation = arrow || event.key === Qt.Key_Home || event.key === Qt.Key_End
+                         || event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown
+        if (!(event.modifiers & Qt.ShiftModifier)) {
+            keyboardSelectionAnchorEditor = null
+            if (!navigation || (!wholeDocumentSelected && !selectionSpansEditors
+                                && selectedEditorCount() < 2)) {
+                return false
+            }
+            const backwards = event.key === Qt.Key_Left || event.key === Qt.Key_Up
+                           || event.key === Qt.Key_Home || event.key === Qt.Key_PageUp
+            const ordered = orderedEditors()
+            const selected = ordered.filter(candidate => candidate.selectionStart !== candidate.selectionEnd)
+            const target = backwards
+                    ? (documentSelectionStartEditor || selected[0] || ordered[0])
+                    : (documentSelectionEndEditor || selected[selected.length - 1]
+                       || ordered[ordered.length - 1])
+            if (!target)
+                return true
+            const position = backwards ? target.selectionStart : target.selectionEnd
+            clearDocumentSelection()
+            target.forceActiveFocus()
+            target.cursorPosition = position
+            activeEditor = target
+            documentSelectionAvailable = false
+            return true
         }
+        if (!arrow)
+            return false
         if (!keyboardSelectionAnchorEditor) {
             keyboardSelectionAnchorEditor = editor
             keyboardSelectionAnchorPosition = editor.selectionStart !== editor.selectionEnd
@@ -1473,9 +1532,26 @@ ListView {
         })
     }
 
+    function insertBlockQuoteBlock() {
+        return runEditTransaction("insert-or-convert-blockquote", function() {
+            if (activeEditor && activeEditor.blockIndex >= 0 && !cursorTouchesTitle(activeEditor)) {
+                const converted = blockModel.convertTextBlockToQuote(activeEditor.blockIndex,
+                                                                     activeEditor.cursorPosition, true)
+                if (converted >= 0) {
+                    focusBlock(converted)
+                    return true
+                }
+            }
+            const row = insertionBlockIndex()
+            blockModel.insertBlockQuote(row)
+            focusBlock(row)
+            return true
+        })
+    }
+
     function insertListBlock(type) {
         return runEditTransaction("insert-or-convert-list", function() {
-            if (activeEditor && activeEditor.blockIndex >= 0) {
+            if (activeEditor && activeEditor.blockIndex >= 0 && !activeEditor.titleDocument) {
                 const activeBlock = activeEditor.blockIndex
                 if (blockModel.convertListLevel(activeBlock, activeEditor.listItemIndex, type))
                     return true
@@ -1487,9 +1563,38 @@ ListView {
         })
     }
 
-    function convertActiveToHeading(level) {
-        if (!activeEditor || activeEditor.blockIndex < 0)
+    function titleEnd(editor) {
+        if (!editor || !editor.titleDocument)
+            return -1
+        const text = editor.currentPlainText()
+        let end = text.length
+        for (const separator of ["\n", "\r", "\u2028", "\u2029"]) {
+            const position = text.indexOf(separator)
+            if (position >= 0)
+                end = Math.min(end, position)
+        }
+        return end
+    }
+
+    function cursorTouchesTitle(editor) {
+        const end = titleEnd(editor)
+        return end >= 0 && editor.cursorPosition <= end
+    }
+
+    function selectionTouchesTitle(editor) {
+        const end = titleEnd(editor)
+        if (end < 0)
             return false
+        if (editor.selectionStart === editor.selectionEnd)
+            return editor.cursorPosition <= end
+        return editor.selectionStart < end
+    }
+
+    function convertActiveToHeading(level) {
+        if (!activeEditor || activeEditor.blockIndex < 0 || cursorTouchesTitle(activeEditor))
+            return false
+        if (level === 0 && activeEditor.editorField === "blockquote")
+            return convertActiveToQuote(false)
         return runEditTransaction("convert-heading", function() {
             const row = blockModel.convertTextBlockToHeading(activeEditor.blockIndex,
                                                               activeEditor.cursorPosition, level)
@@ -1500,8 +1605,22 @@ ListView {
         })
     }
 
+    function convertActiveToQuote(quote) {
+        if (!activeEditor || activeEditor.blockIndex < 0 || cursorTouchesTitle(activeEditor))
+            return false
+        return runEditTransaction("convert-blockquote", function() {
+            const row = blockModel.convertTextBlockToQuote(activeEditor.blockIndex,
+                                                            activeEditor.cursorPosition,
+                                                            Boolean(quote))
+            if (row < 0)
+                return false
+            focusBlock(row)
+            return true
+        })
+    }
+
     function applyActiveInlineStyle(style) {
-        if (!activeEditor || !editorBackend)
+        if (!activeEditor || !editorBackend || selectionTouchesTitle(activeEditor))
             return false
         return runEditTransaction("inline-" + style, function() {
             applyInlineStyle(activeEditor, style)
@@ -1510,7 +1629,7 @@ ListView {
     }
 
     function editActiveLink() {
-        if (!activeEditor)
+        if (!activeEditor || selectionTouchesTitle(activeEditor))
             return false
         openLinkEditor(activeEditor)
         return true
@@ -1521,6 +1640,8 @@ ListView {
         if (!(modifiers & Qt.ControlModifier) || modifiers & (Qt.ShiftModifier | Qt.AltModifier | Qt.MetaModifier)
                 || event.key < Qt.Key_0 || event.key > Qt.Key_6)
             return false
+        if (cursorTouchesTitle(editor))
+            return true
         return runEditTransaction("convert-heading", function() {
             const level = event.key - Qt.Key_0
             const row = blockModel.convertTextBlockToHeading(editor.blockIndex, editor.cursorPosition, level)
@@ -1561,7 +1682,7 @@ ListView {
     }
 
     function openLinkEditor(editor) {
-        if (!editor || editor.textFormat !== TextEdit.MarkdownText)
+        if (!editor || selectionTouchesTitle(editor) || editor.textFormat !== TextEdit.MarkdownText)
             return
         const info = root.editorBackend.linkInfo(editor.textDocument,
                                             editor.selectionStart,
@@ -1580,6 +1701,10 @@ ListView {
         const position = editor.positionAt(localX, localY)
         editor.contextWord = ""
         editor.contextSuggestions = []
+        const renderedLink = root.editorBackend.linkInfo(editor.textDocument, position, position)
+        const plainLink = editor.plainLinkInfoAtPosition(position)
+        editor.contextLink = renderedLink.valid && renderedLink.href.length > 0
+                ? renderedLink.href : (plainLink ? plainLink.href : "")
         if (editor.isSpellingError(position)) {
             editor.cursorPosition = position
             editor.selectWord()
@@ -1598,6 +1723,14 @@ ListView {
         sharedContextMenu.popup(root, globalPosition.x, globalPosition.y)
     }
 
+    function openCustomDictionaryEditor() {
+        if (!platformBackend)
+            return
+        customDictionaryText.text = platformBackend.customSpellingDictionary().join("\n")
+        customDictionaryDialog.open()
+        customDictionaryText.forceActiveFocus()
+    }
+
     function handleInlineFormatting(event, editor) {
         const style = inlineMarkers(event)
         if (!style)
@@ -1605,21 +1738,60 @@ ListView {
         if (style === "link") {
             if (!editor || editor.textFormat !== TextEdit.MarkdownText)
                 return false
-            const selected = orderedEditors().filter(candidate => candidate.selectionStart !== candidate.selectionEnd)
+            const selected = orderedEditors().filter(candidate => candidate.selectionStart !== candidate.selectionEnd
+                                                      && !selectionTouchesTitle(candidate))
             openLinkEditor(selected.length === 1 ? selected[0] : editor)
             return true
         }
-        const selected = orderedEditors().filter(candidate => candidate.selectionStart !== candidate.selectionEnd)
+        const selected = orderedEditors().filter(candidate => candidate.selectionStart !== candidate.selectionEnd
+                                                  && !selectionTouchesTitle(candidate))
         runEditTransaction("inline-format", function() {
             if (selected.length > 1) {
                 for (const candidate of selected)
                     applyInlineStyle(candidate, style)
                 refreshSelectionState()
-            } else {
+            } else if (selected.length === 1) {
+                applyInlineStyle(selected[0], style)
+            } else if (!selectionTouchesTitle(editor)) {
                 applyInlineStyle(editor, style)
             }
         })
         return true
+    }
+
+    Dialog {
+        id: customDictionaryDialog
+        parent: Overlay.overlay
+        title: qsTr("Custom Dictionary")
+        modal: true
+        standardButtons: Dialog.Save | Dialog.Cancel
+        width: Math.min(480, Math.max(280, parent ? parent.width - 32 : 420))
+        height: Math.min(520, Math.max(260, parent ? parent.height - 48 : 420))
+        onAccepted: {
+            if (root.platformBackend)
+                root.platformBackend.setCustomSpellingDictionary(customDictionaryText.text.split(/\r?\n/))
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("One word per line")
+            }
+
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                TextArea {
+                    id: customDictionaryText
+                    objectName: "customDictionaryText"
+                    wrapMode: TextEdit.NoWrap
+                    selectByMouse: true
+                }
+            }
+        }
     }
 
     Popup {
@@ -1814,7 +1986,8 @@ ListView {
             sourceComponent: blockType === 1 || blockType === 2 || blockType === 5 ? listEditor
                            : blockType === 3 ? tableEditor
                            : blockType === 4 ? imageEditor
-                           : blockType === 6 ? headingEditor : textEditor
+                           : blockType === 6 ? headingEditor
+                           : blockType === 7 ? blockQuoteEditor : textEditor
         }
     }
 
@@ -1824,6 +1997,7 @@ ListView {
         property bool titleDocument: false
         property var spellingRanges: []
         property string contextWord: ""
+        property string contextLink: ""
         property int contextStart: 0
         property int contextEnd: 0
         property var contextSuggestions: []
@@ -2435,6 +2609,7 @@ ListView {
         BlockTextArea {
             id: headingCell
             property var block: parent
+            titleDocument: block.index === 0
             blockIndex: block.index
             editorField: "heading"
             width: block.width
@@ -2445,6 +2620,10 @@ ListView {
                             : block.headingLevel === 3 ? 1.3
                             : block.headingLevel === 4 ? 1.15
                             : block.headingLevel === 5 ? 1.0 : 0.9)
+            topPadding: Math.max(root.touchMode ? 8 : 4,
+                                 Math.round(root.editorFontMetricsHeight * 0.55))
+            bottomPadding: Math.max(root.touchMode ? 4 : 2,
+                                    Math.round(root.editorFontMetricsHeight * 0.18))
             keyHandler: function(event) { return root.handleHeadingShortcut(event, headingCell) }
             commitText: function() {
                 root.blockModel.setBlockText(
@@ -2457,6 +2636,44 @@ ListView {
     }
 
     Component {
+        id: blockQuoteEditor
+
+        Item {
+            id: quoteRoot
+            property var block: parent
+            width: block.width
+            implicitHeight: quoteCell.implicitHeight
+
+            Rectangle {
+                width: Math.max(3, Math.round(root.editorFontAverageCharacterWidth * 0.45))
+                radius: width / 2
+                color: quoteCell.palette.mid
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+            }
+
+            BlockTextArea {
+                id: quoteCell
+                property var block: quoteRoot.block
+                x: Math.max(12, Math.round(root.editorFontAverageCharacterWidth * 1.6))
+                width: Math.max(0, quoteRoot.width - x)
+                blockIndex: block.index
+                editorField: "blockquote"
+                sourceText: root.markdownForRendering(block.blockText)
+                textFormat: TextEdit.MarkdownText
+                font.italic: true
+                commitText: function() {
+                    root.blockModel.setBlockText(
+                        block.index, root.editorBackend.markdownText(textDocument))
+                }
+                onTextChanged: commitChangedText(activeFocus)
+                onLinkActivated: link => Qt.openUrlExternally(link)
+            }
+        }
+    }
+
+    Component {
         id: listItemEditorDelegate
 
         BlockTextArea {
@@ -2464,22 +2681,25 @@ ListView {
 
             readonly property var listRow: parent.listRow
             readonly property var listBlock: parent.listBlock
-            blockIndex: listBlock.blockIndex
-            listItemIndex: listRow.index
+            blockIndex: listBlock ? listBlock.blockIndex : -1
+            listItemIndex: listRow ? listRow.index : -1
             editorField: "listItem"
             width: parent.width
-            sourceText: root.markdownForRendering(listRow.itemText)
+            sourceText: root.markdownForRendering(listRow ? listRow.itemText : "")
             keyHandler: function(event) {
-                return listBlock.handleItemKey(event, listItemCell, listRow.index)
+                return listBlock && listRow
+                        ? listBlock.handleItemKey(event, listItemCell, listRow.index) : false
             }
             commitText: function() {
+                if (!listBlock || !listRow)
+                    return
                 root.blockModel.setListItem(
                     listBlock.blockIndex,
                     listRow.index,
                     root.editorBackend.markdownText(textDocument))
             }
             textFormat: TextEdit.MarkdownText
-            onTextChanged: commitChangedText(activeFocus && !listBlock.syncingItems)
+            onTextChanged: commitChangedText(activeFocus && listBlock && !listBlock.syncingItems)
             onLinkActivated: link => Qt.openUrlExternally(link)
         }
     }
@@ -2637,9 +2857,10 @@ ListView {
                     topPadding: root.touchMode ? 8 : 3
                     bottomPadding: root.touchMode ? 8 : 3
                     background: Rectangle {
-                        color: "transparent"
+                        color: Math.floor(tableCell.index / tableRoot.columns) % 2
+                               ? tableCell.palette.alternateBase : tableCell.palette.base
                         border.width: 1
-                        border.color: tableCell.palette.mid
+                        border.color: tableCell.palette.midlight
                     }
                     commitText: function() {
                         root.blockModel.setTableCell(
@@ -2690,7 +2911,8 @@ ListView {
                     onActiveChanged: {
                         if (active && !dragStarted) {
                             dragStarted = true
-                            root.platformBackend.startImageDrag(imageRoot.block.index)
+                            if (root.platformBackend.startImageDrag(imageRoot.block.index))
+                                root.removeImageBlock(imageRoot.block.index)
                         } else if (!active) {
                             dragStarted = false
                         }

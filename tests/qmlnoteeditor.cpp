@@ -39,6 +39,7 @@
 #include <QVector>
 #include <algorithm>
 
+#include "editorcursorcontroller.h"
 #include "localmediastore.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
@@ -721,6 +722,7 @@ QmlNoteEditor::QmlNoteEditor(NoteEditor *editor, QWidget *parent) : QWidget(pare
     quick_->setResizeMode(QQuickWidget::SizeRootObjectToView);
     quick_->setClearColor(palette().color(QPalette::Base));
     quick_->engine()->addImageProvider(QStringLiteral("qtnote-media"), new LocalMediaImageProvider);
+    installEditorCursorController(quick_->rootContext());
     quick_->rootContext()->setContextProperty(QStringLiteral("noteBlockModel"), model_);
     quick_->rootContext()->setContextProperty(QStringLiteral("noteEditor"), editor_);
     quick_->rootContext()->setContextProperty(QStringLiteral("qmlNoteEditor"), this);
@@ -921,7 +923,7 @@ bool QmlNoteEditor::startImageDrag(int row)
         drag.setHotSpot(QPoint(thumbnail.width() / 2, thumbnail.height() / 2));
     }
     drag.exec(Qt::CopyAction, Qt::CopyAction);
-    return true;
+    return false;
 }
 
 int QmlNoteEditor::insertionRowAt(const QPointF &position) const
@@ -1221,6 +1223,8 @@ void QmlNoteEditor::setSpellCheckEnabled(bool enabled)
 
 void QmlNoteEditor::addToSpellingDictionary(const QString &word)
 {
+    if (!customSpellingDictionary_.contains(word, Qt::CaseInsensitive))
+        customSpellingDictionary_.append(word);
     for (const auto &item : extensions_) {
         if (item.type != int(NoteHighlighter::SpellCheck))
             continue;
@@ -1230,6 +1234,19 @@ void QmlNoteEditor::addToSpellingDictionary(const QString &word)
             return;
         }
     }
+}
+
+QStringList QmlNoteEditor::customSpellingDictionary() const { return customSpellingDictionary_; }
+
+void QmlNoteEditor::setCustomSpellingDictionary(const QStringList &words)
+{
+    customSpellingDictionary_.clear();
+    for (QString word : words) {
+        word = word.trimmed();
+        if (!word.isEmpty() && !customSpellingDictionary_.contains(word, Qt::CaseInsensitive))
+            customSpellingDictionary_.append(word);
+    }
+    rehighlight();
 }
 
 void QmlNoteEditor::addHighlightExtension(const std::shared_ptr<HighlighterExtension> &extension, int type)

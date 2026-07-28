@@ -73,6 +73,7 @@ NotesModel::NotesModel(QObject *parent) : QAbstractItemModel(parent)
     connect(manager, &NoteManager::storageAboutToBeRemoved, this, &NotesModel::storageAboutToBeRemoved);
     connect(manager, &NoteManager::storageChanged, this, &NotesModel::storageChanged);
     connect(manager, &NoteManager::storageReady, this, &NotesModel::storageReady);
+    connect(manager, &NoteManager::storageOrderChanged, this, &NotesModel::storageOrderChanged);
     connect(manager->notesIndex(), &NotesIndex::storageNotesChanged, this, &NotesModel::storageIndexChanged);
     connect(manager->notesIndex(), &NotesIndex::storageStateChanged, this, &NotesModel::storageIndexStateChanged);
 }
@@ -382,6 +383,24 @@ void NotesModel::storageChanged(const NoteStorage::Ptr &storage)
 }
 
 void NotesModel::storageReady(const NoteStorage::Ptr &storage) { storageChanged(storage); }
+
+void NotesModel::storageOrderChanged()
+{
+    QList<NMMItem *> ordered;
+    ordered.reserve(storages_.size());
+    for (const auto &storage : NoteManager::instance()->prioritizedStorages(true)) {
+        if (auto *item = storageItem(storage ? storage->systemName() : QString()))
+            ordered.append(item);
+    }
+    for (auto *item : std::as_const(storages_))
+        if (!ordered.contains(item))
+            ordered.append(item);
+    if (ordered == storages_)
+        return;
+    beginResetModel();
+    storages_ = ordered;
+    endResetModel();
+}
 
 void NotesModel::storageIndexChanged(const QString &storageId)
 {

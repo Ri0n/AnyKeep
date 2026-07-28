@@ -2,6 +2,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 
+#include "editorcursorcontroller.h"
 #include "localmediaimageprovider.h"
 #include "mobileapplication.h"
 #include "storageiconimageprovider.h"
@@ -18,6 +19,7 @@ int main(int argc, char *argv[])
     QtNote::installLocalMediaImageProvider(&engine);
     QtNote::installStorageIconImageProvider(&engine);
     QtNote::installThemedIconImageProvider(&engine);
+    QtNote::installEditorCursorController(engine.rootContext());
     engine.rootContext()->setContextProperty(QStringLiteral("mobileApp"), &mobileApplication);
     engine.load(QUrl(QStringLiteral("qrc:/qt/qml/QtNote/Mobile/Main.qml")));
 

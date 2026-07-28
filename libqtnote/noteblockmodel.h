@@ -28,7 +28,7 @@ class QTNOTE_EXPORT NoteBlockModel : public QAbstractListModel {
     Q_PROPERTY(QString contents READ contents WRITE setContents NOTIFY contentsChanged)
 
 public:
-    enum BlockType { Text, BulletList, CheckList, Table, Image, NumberedList, Heading };
+    enum BlockType { Text, BulletList, CheckList, Table, Image, NumberedList, Heading, BlockQuote };
     Q_ENUM(BlockType)
     enum Role {
         TypeRole = Qt::UserRole + 1,
@@ -62,8 +62,11 @@ public:
     Q_INVOKABLE void setListItem(int row, int item, const QString &text);
     Q_INVOKABLE void insertListItem(int row, int item, const QString &text);
     Q_INVOKABLE void mergeListItemWithNext(int row, int item);
+    Q_INVOKABLE bool mergeListItemWithFollowingBlock(int row, int item);
     Q_INVOKABLE void removeListItem(int row, int item);
     Q_INVOKABLE void removeListItems(int row, int firstItem, int lastItem);
+    Q_INVOKABLE bool moveListRange(int sourceRow, int sourceFirstItem, int sourceLastItem, int targetRow,
+                                   int targetItem, int targetIndent);
     Q_INVOKABLE bool moveListSubtree(int sourceRow, int sourceItem, int targetRow, int targetItem, int targetIndent);
     Q_INVOKABLE void convertListToText(int row);
     Q_INVOKABLE void indentListItems(int row, int firstItem, int lastItem, int delta);
@@ -82,11 +85,13 @@ public:
     Q_INVOKABLE void insertImage(int row, const QString &url, const QString &alt);
     Q_INVOKABLE void insertTable(int row);
     Q_INVOKABLE void insertList(int row, BlockType type);
+    Q_INVOKABLE void insertBlockQuote(int row);
     Q_INVOKABLE int  blockTypeAt(int row) const;
     Q_INVOKABLE QVariantMap findText(const QString &text, const QVariantMap &after = {}, bool backwards = false,
                                      bool caseSensitive = false) const;
     Q_INVOKABLE bool        convertListLevel(int row, int item, BlockType type);
     Q_INVOKABLE int         convertTextBlockToHeading(int row, int position, int level);
+    Q_INVOKABLE int         convertTextBlockToQuote(int row, int position, bool quote);
     Q_INVOKABLE bool        moveBlock(int row, int targetRow);
     Q_INVOKABLE void        removeBlock(int row);
     void                    setPreviewUrls(const QHash<QString, QString> &urls);

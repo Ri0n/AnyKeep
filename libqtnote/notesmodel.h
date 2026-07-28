@@ -83,6 +83,7 @@ private slots:
     void storageAboutToBeRemoved(const NoteStorage::Ptr &storage);
     void storageChanged(const NoteStorage::Ptr &storage);
     void storageReady(const NoteStorage::Ptr &storage);
+    void storageOrderChanged();
     void storageIndexChanged(const QString &storageId);
     void storageIndexStateChanged(const QString &storageId);
 

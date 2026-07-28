@@ -73,32 +73,50 @@ function handleKey(host, controller, event, cell, itemIndex) {
         })
     }
     if (event.key === Qt.Key_Delete && !blocked && !(event.modifiers & Qt.ShiftModifier)
-            && cell.selectionStart === cell.selectionEnd && cell.cursorPosition === cell.length
-            && itemIndex + 1 < host.itemCount()) {
+            && cell.selectionStart === cell.selectionEnd && cell.cursorPosition === cell.length) {
         return controller.runEditTransaction("merge-list-items", function() {
             const position = cell.cursorPosition
-            controller.blockModel.mergeListItemWithNext(host.block.index, itemIndex)
-            Qt.callLater(function() {
-                const row = host.rowAt(itemIndex)
-                const editor = row ? row.listEditor : null
-                if (editor && editor.sourceTextPending
-                        && typeof editor.applyPendingSourceText === "function")
-                    editor.applyPendingSourceText()
-                host.focusItem(itemIndex, position)
-            })
-            return true
+            const viewportY = controller.contentY
+            controller.prepareForStructuralMutation()
+            let merged = false
+            if (itemIndex + 1 < host.itemCount()) {
+                controller.blockModel.mergeListItemWithNext(host.block.index, itemIndex)
+                merged = true
+            } else {
+                merged = controller.blockModel.mergeListItemWithFollowingBlock(host.block.index, itemIndex)
+            }
+            host.focusItem(itemIndex, position, true, viewportY)
+            if (merged) {
+                Qt.callLater(function() {
+                    const row = host.rowAt(itemIndex)
+                    const editor = row ? row.listEditor : null
+                    if (editor && editor.sourceTextPending
+                            && typeof editor.applyPendingSourceText === "function")
+                        editor.applyPendingSourceText()
+                })
+            }
+            return merged
         })
     }
     if (event.key === Qt.Key_Backspace && !blocked && cell.length === 0 && cell.cursorPosition === 0) {
         return controller.runEditTransaction("remove-list-item", function() {
+            const viewportY = controller.contentY
+            controller.prepareForStructuralMutation()
             if (host.itemCount() === 1) {
                 controller.blockModel.convertListToText(host.block.index)
-                controller.focusBlock(host.block.index)
+                controller.focusEditorAddress({
+                    blockIndex: host.block.index,
+                    listItemIndex: -1,
+                    tableCellIndex: -1,
+                    cursorPosition: 0,
+                    preserveViewport: true,
+                    viewportY: viewportY
+                })
             } else {
                 const target = itemIndex > 0 ? itemIndex - 1 : 0
                 const targetLength = itemIndex > 0 ? host.itemText(target).length : 0
                 controller.blockModel.removeListItem(host.block.index, itemIndex)
-                host.focusItem(target, targetLength)
+                host.focusItem(target, targetLength, true, viewportY)
             }
             return true
         })

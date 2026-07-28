@@ -108,6 +108,13 @@ namespace {
 
             QTextCharFormat format;
             format.setForeground(color_);
+            format.setFontWeight(QFont::Normal);
+            format.setFontItalic(false);
+            format.setFontUnderline(false);
+            format.setFontStrikeOut(false);
+            format.setFontFixedPitch(false);
+            format.setAnchor(false);
+            format.setAnchorHref(QString());
             qreal pointSize = block.charFormat().font().pointSizeF();
             if (pointSize <= 0)
                 pointSize = block.document()->defaultFont().pointSizeF();
@@ -124,6 +131,7 @@ namespace {
 
 EditorPlatformBackend::EditorPlatformBackend(QObject *parent) : QObject(parent)
 {
+    setCustomSpellingDictionary(QSettings().value(QStringLiteral("editor/customSpellingDictionary")).toStringList());
     installBuiltInExtensions();
     if (qGuiApp)
         qGuiApp->installEventFilter(this);
@@ -256,6 +264,11 @@ QVariantList EditorPlatformBackend::spellCheckRanges(QQuickTextDocument *documen
             const int start = block.position() + range.start;
             if (visibleTextIsHref(start))
                 continue;
+            QTextCursor wordCursor(textDocument);
+            wordCursor.setPosition(start);
+            wordCursor.setPosition(start + range.length, QTextCursor::KeepAnchor);
+            if (isCustomSpellingWord(wordCursor.selectedText()))
+                continue;
             result.append(
                 QVariantMap { { QStringLiteral("start"), start }, { QStringLiteral("length"), range.length } });
         }
@@ -278,15 +291,39 @@ QStringList EditorPlatformBackend::spellingSuggestions(const QString &word) cons
 
 void EditorPlatformBackend::addToSpellingDictionary(const QString &word)
 {
-    for (const auto &item : extensions_) {
-        if (item.type != int(NoteHighlighter::SpellCheck))
-            continue;
-        if (auto spell = std::dynamic_pointer_cast<SpellCheckExtension>(item.extension)) {
-            spell->addToDictionary(word);
-            rehighlight();
-            return;
-        }
+    QStringList words = customSpellingDictionary_;
+    words.append(word);
+    setCustomSpellingDictionary(words);
+}
+
+QStringList EditorPlatformBackend::customSpellingDictionary() const { return customSpellingDictionary_; }
+
+void EditorPlatformBackend::setCustomSpellingDictionary(const QStringList &words)
+{
+    QStringList normalized;
+    for (QString word : words) {
+        word = word.trimmed();
+        if (!word.isEmpty() && !normalized.contains(word, Qt::CaseInsensitive))
+            normalized.append(word);
     }
+    std::sort(normalized.begin(), normalized.end(),
+              [](const QString &left, const QString &right) { return QString::localeAwareCompare(left, right) < 0; });
+    if (normalized == customSpellingDictionary_)
+        return;
+    customSpellingDictionary_ = normalized;
+    saveCustomSpellingDictionary();
+    rehighlight();
+    emit customSpellingDictionaryChanged();
+}
+
+bool EditorPlatformBackend::isCustomSpellingWord(const QString &word) const
+{
+    return customSpellingDictionary_.contains(word.trimmed(), Qt::CaseInsensitive);
+}
+
+void EditorPlatformBackend::saveCustomSpellingDictionary()
+{
+    QSettings().setValue(QStringLiteral("editor/customSpellingDictionary"), customSpellingDictionary_);
 }
 
 bool EditorPlatformBackend::insertClipboardImage(int row)

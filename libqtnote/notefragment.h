@@ -31,6 +31,7 @@ enum class NoteFragmentBlockType {
     List,
     Table,
     Image,
+    BlockQuote,
 };
 
 enum class NoteFragmentListKind {

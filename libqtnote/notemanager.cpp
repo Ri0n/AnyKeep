@@ -392,9 +392,12 @@ NoteStorage::Ptr NoteManager::defaultStorage() const
 
 void NoteManager::setPriorities(const QStringList &storageCodes)
 {
+    if (_priorities == storageCodes)
+        return;
     _prioCache.clear();
     _priorities = storageCodes;
     QSettings().setValue("storage.priority", _priorities);
+    emit storageOrderChanged();
 }
 
 /*int NoteManager::notesAmount(const QString &storage = QString()) const
