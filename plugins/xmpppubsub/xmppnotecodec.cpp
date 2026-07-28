@@ -296,6 +296,14 @@ namespace {
             parent.removeChild(element);
     }
 
+    void insertBeforeOrAppend(QDomElement parent, const QDomNode &newChild, const QDomNode &anchor)
+    {
+        if (anchor.isNull())
+            parent.appendChild(newChild);
+        else
+            parent.insertBefore(newChild, anchor);
+    }
+
     CryptoResult<XmlRecordDocument> templateDocument(const QByteArray &recordTemplate, XmppEncryptedPayload::Kind kind)
     {
         if (recordTemplate.isEmpty()) {
@@ -381,12 +389,14 @@ namespace {
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("title"));
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"));
             const auto anchor = record.firstChild();
-            record.insertBefore(
+            insertBeforeOrAppend(
+                record,
                 createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("title"), note.title),
                 anchor);
             for (const auto &tag : note.tags) {
-                record.insertBefore(
-                    createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"), tag), anchor);
+                insertBeforeOrAppend(
+                    record, createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"), tag),
+                    anchor);
             }
         } else {
             if (note.revision.isEmpty())
@@ -394,7 +404,8 @@ namespace {
             record.setAttribute(QStringLiteral("id"), note.id);
             record.setAttribute(QStringLiteral("revision"), note.revision);
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("body"));
-            record.insertBefore(
+            insertBeforeOrAppend(
+                record,
                 createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("body"), note.content),
                 record.firstChild());
         }

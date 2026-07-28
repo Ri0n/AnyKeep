@@ -604,10 +604,10 @@ private slots:
         model.load(QStringLiteral("Target one\n\nsecond target"), true);
 
         auto match = model.findText(QStringLiteral("target"), {}, false, true);
-        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 7);
+        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 19);
 
         match = model.findText(QStringLiteral("target"), match, false, true);
-        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 7);
+        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 19);
         QVERIFY(match.value(QStringLiteral("wrapped")).toBool());
 
         const auto insensitive = model.findText(QStringLiteral("target"));

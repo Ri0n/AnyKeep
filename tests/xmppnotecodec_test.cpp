@@ -165,11 +165,11 @@ void XmppNoteCodecTest::plaintextUsesOneVersionedNamespace()
     const auto plaintext = openedPlaintext(encoded.value, masterKey(), XmppEncryptedPayload::Index);
     QVERIFY(!plaintext.contains("wire="));
     QVERIFY(!plaintext.contains("schema="));
-    QVERIFY(!plaintext.contains("note:"));
     const auto document = parseXml(plaintext);
     const auto root     = document.documentElement();
     QCOMPARE(root.localName(), QStringLiteral("envelope"));
     QCOMPARE(root.namespaceURI(), XmppNoteCodec::protocolNamespace);
+    QVERIFY(root.prefix().isEmpty());
     QCOMPARE(directChild(root, QStringLiteral("node")).text(), QStringLiteral("index-node"));
     const auto content = directChild(root, QStringLiteral("content"));
     const auto index   = directChild(content, QStringLiteral("index"));

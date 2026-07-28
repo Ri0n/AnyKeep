@@ -75,7 +75,7 @@ void NoteTransferControllerTest::preservesMarkdownHardBreaksInPlainText()
     fragment.sourceFormat = NoteFragmentSourceFormat::Markdown;
     NoteFragmentBlock block;
     block.type     = NoteFragmentBlockType::Text;
-    block.markdown = QStringLiteral("first line  \nsecond line");
+    block.markdown = QStringLiteral("first line  \nsecond line\n\nthird paragraph");
     fragment.blocks.append(block);
 
     NoteTransferController controller;
@@ -83,7 +83,7 @@ void NoteTransferControllerTest::preservesMarkdownHardBreaksInPlainText()
     QVERIFY2(exported, qPrintable(exported.error));
     QVERIFY(exported.mimeData->hasFormat(QString::fromLatin1(NoteTransferController::MarkdownMimeType)));
     QVERIFY(exported.mimeData->hasHtml());
-    QCOMPARE(exported.mimeData->text(), QStringLiteral("first line\nsecond line"));
+    QCOMPARE(exported.mimeData->text(), QStringLiteral("first line\nsecond line\n\nthird paragraph"));
 }
 
 void NoteTransferControllerTest::importsMarkdownBeforeHtmlAndPlainText()

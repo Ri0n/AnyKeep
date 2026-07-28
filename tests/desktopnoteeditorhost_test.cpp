@@ -70,7 +70,10 @@ private slots:
         QVERIFY(quick);
         QCOMPARE(quick->status(), QQuickWidget::Ready);
         QVERIFY(quick->rootObject());
-        QVERIFY(quick->rootObject()->property("blockEditor").value<QObject *>());
+        QVariant viewState;
+        QVERIFY(
+            QMetaObject::invokeMethod(quick->rootObject(), "captureEditorState", Q_RETURN_ARG(QVariant, viewState)));
+        QVERIFY(viewState.canConvert<QVariantMap>());
         QCOMPARE(host.model(), editor.model());
     }
 

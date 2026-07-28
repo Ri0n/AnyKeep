@@ -512,12 +512,17 @@ QString NoteTransferController::plainTextForFragment(const NoteFragment &fragmen
     const QString markdown = markdownForFragment(fragment, error);
     if (error && !error->isEmpty())
         return {};
+    static const QString hardBreakMarker   = QStringLiteral("QTNOTEPLAINHARDLINEBREAK8D27");
+    QString              protectedMarkdown = markdown;
+    protectedMarkdown.replace(QRegularExpression(QStringLiteral(" {2,}\\r?\\n")), hardBreakMarker);
     QTextDocument document;
-    setMarkdownPreservingGithubUnderlines(&document, markdown);
+    setMarkdownPreservingGithubUnderlines(&document, protectedMarkdown);
     QStringList paragraphs;
     for (QTextBlock block = document.begin(); block.isValid(); block = block.next())
         paragraphs.append(block.text());
-    return normalizePlainText(paragraphs.join(QStringLiteral("\n\n")));
+    QString plainText = normalizePlainText(paragraphs.join(QStringLiteral("\n\n")));
+    plainText.replace(hardBreakMarker, QStringLiteral("\n"));
+    return plainText;
 }
 
 QString NoteTransferController::htmlForFragment(const NoteFragment &fragment, QString *error)
