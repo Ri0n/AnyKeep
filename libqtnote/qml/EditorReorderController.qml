@@ -15,6 +15,8 @@ Item {
     property var sourceRows: []
     property real startPointerX: 0
     property real startPointerY: 0
+    property real startContentX: 0
+    property real startContentY: 0
     property real translationX: 0
     property real translationY: 0
     property real draggedHeight: 0
@@ -23,9 +25,11 @@ Item {
     property int targetItem: -1
     property int targetIndent: 0
 
-    visible: false
-    width: 0
-    height: 0
+    parent: editorView
+    anchors.fill: parent
+    visible: dragging
+    enabled: false
+    z: 100000
 
     function registerListBlock(listBlock) {
         if (!listBlock || listBlocks.indexOf(listBlock) >= 0)
@@ -52,27 +56,29 @@ Item {
         sourceBlock = listBlock
         sourceItem = row.index
         sourceEnd = listBlock.subtreeEnd(sourceItem)
-        sourceRows = []
+        const rows = []
         draggedHeight = 0
         for (let index = sourceItem; index < sourceEnd; ++index) {
             const sourceRow = listBlock.rowAt(index)
             if (!sourceRow)
                 continue
-            const origin = sourceRow.dragContent.mapToItem(editorView.contentItem, 0, 0)
+            const origin = sourceRow.dragContent.mapToItem(controller, 0, 0)
             sourceRow.dragOriginX = origin.x
             sourceRow.dragOriginY = origin.y
-            sourceRows.push(sourceRow)
+            rows.push(sourceRow)
             draggedHeight += sourceRow.naturalHeight
         }
+        sourceRows = rows
 
         const markerCenter = row.markerItem.mapToItem(
             editorView.contentItem, row.markerItem.width / 2, row.markerItem.height / 2)
         startPointerX = markerCenter.x
         startPointerY = markerCenter.y
+        startContentX = editorView.contentX
+        startContentY = editorView.contentY
         translationX = 0
         translationY = 0
         updateTarget()
-        Qt.callLater(positionSourceRows)
     }
 
     function moveListDrag(dx, dy) {
@@ -81,29 +87,23 @@ Item {
         translationX = dx
         translationY = dy
         updateTarget()
-        positionSourceRows()
     }
 
-    function positionSourceRows() {
-        if (!dragging || !editorView)
-            return
-        for (const row of sourceRows) {
-            if (!row || !row.dragContent)
-                continue
-            const mapped = row.dragContent.mapToItem(editorView.contentItem, 0, 0)
-            const baseX = mapped.x - row.dragTranslationX
-            const baseY = mapped.y - row.dragTranslationY
-            row.dragTranslationX = row.dragOriginX + translationX - baseX
-            row.dragTranslationY = row.dragOriginY + translationY - baseY
+    function animatedDisplacementBeforeBlock(blockIndex) {
+        let displacement = 0
+        for (const listBlock of listBlocks) {
+            if (listBlock && listBlock.blockIndex < blockIndex)
+                displacement += listBlock.animatedLayoutDisplacement()
         }
+        return displacement
     }
 
     function updateTarget() {
         if (!dragging || !editorView)
             return
 
-        const pointerX = startPointerX + translationX
-        const pointerY = startPointerY + translationY
+        const pointerX = startPointerX + translationX + editorView.contentX - startContentX
+        const pointerY = startPointerY + translationY + editorView.contentY - startContentY
         let bestBlock = null
         let bestItem = -1
         let bestDistance = Number.POSITIVE_INFINITY
@@ -114,7 +114,10 @@ Item {
             const count = listBlock.remainingItemCount()
             for (let item = 0; item <= count; ++item) {
                 const boundary = listBlock.boundaryPosition(item)
-                const distance = Math.abs(pointerY - boundary.y)
+                const logicalY = boundary.y
+                                 - animatedDisplacementBeforeBlock(listBlock.blockIndex)
+                                 - listBlock.animatedDisplacementBeforeBoundary(item)
+                const distance = Math.abs(pointerY - logicalY)
                 if (distance < bestDistance) {
                     bestDistance = distance
                     bestBlock = listBlock
@@ -161,7 +164,6 @@ Item {
     }
 
     function clearVisualState() {
-        const rows = sourceRows.slice()
         sourceBlock = null
         sourceItem = -1
         sourceEnd = -1
@@ -169,21 +171,47 @@ Item {
         targetBlock = null
         targetItem = -1
         targetIndent = 0
+        startContentX = 0
+        startContentY = 0
         translationX = 0
         translationY = 0
         draggedHeight = 0
-        for (const row of rows) {
-            if (!row)
-                continue
-            row.dragTranslationX = 0
-            row.dragTranslationY = 0
+    }
+
+    Connections {
+        target: controller.editorView
+        enabled: controller.dragging
+
+        function onContentXChanged() {
+            controller.updateTarget()
+        }
+
+        function onContentYChanged() {
+            controller.updateTarget()
         }
     }
 
-    Timer {
-        interval: 16
-        repeat: true
-        running: controller.dragging
-        onTriggered: controller.positionSourceRows()
+    Repeater {
+        model: controller.sourceRows
+
+        ShaderEffectSource {
+            required property int index
+            required property var modelData
+
+            readonly property var sourceRow: modelData
+
+            objectName: "listDragPreview-" + index
+            sourceItem: sourceRow ? sourceRow.dragContent : null
+            hideSource: true
+            live: true
+            recursive: true
+            smooth: true
+            x: sourceRow ? sourceRow.dragOriginX + controller.translationX : 0
+            y: sourceRow ? sourceRow.dragOriginY + controller.translationY : 0
+            width: sourceItem ? sourceItem.width : 0
+            height: sourceItem ? sourceItem.height : 0
+            sourceRect: Qt.rect(0, 0, width, height)
+            opacity: 0.9
+        }
     }
 }

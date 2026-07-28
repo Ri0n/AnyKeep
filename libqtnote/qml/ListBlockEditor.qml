@@ -21,10 +21,6 @@ Column {
 
     width: block.width
 
-    SystemPalette {
-        id: listPalette
-    }
-
     onItemDataChanged: syncItems()
     onCheckedDataChanged: syncItems()
     onIndentDataChanged: syncItems()
@@ -126,6 +122,34 @@ Column {
                 ? Number(listModel.get(original).itemIndent) : 0
     }
 
+    function animatedRowDisplacement(row) {
+        if (!row)
+            return 0
+        const sourceDisplacement = row.sourceRow
+                ? Math.max(0, row.naturalHeight - row.collapseSpace) : 0
+        return sourceDisplacement + row.dropSpace
+    }
+
+    function animatedLayoutDisplacement() {
+        let displacement = endDropSpacer.dropSpace
+        for (let index = 0; index < listModel.count; ++index)
+            displacement += animatedRowDisplacement(rowAt(index))
+        return displacement
+    }
+
+    function animatedDisplacementBeforeBoundary(index) {
+        const count = remainingItemCount()
+        if (count === 0)
+            return 0
+        const boundaryOriginal = index < count
+                ? originalIndexForRemaining(index)
+                : originalIndexForRemaining(count - 1)
+        let displacement = 0
+        for (let original = 0; original < boundaryOriginal; ++original)
+            displacement += animatedRowDisplacement(rowAt(original))
+        return displacement
+    }
+
     function boundaryPosition(index) {
         const count = remainingItemCount()
         if (count === 0)
@@ -139,21 +163,6 @@ Column {
             const lastRow = rowAt(originalIndexForRemaining(count - 1))
             position = lastRow ? lastRow.mapToItem(editorView.contentItem, 0, lastRow.naturalHeight)
                                : listRoot.mapToItem(editorView.contentItem, 0, 0)
-        }
-
-        // A visible drop gap must not move the hit-test boundary below it,
-        // otherwise the target chases the pointer and the last position is
-        // unreachable without dragging by an extra item height.
-        if (reorderController.targetBlock === listRoot
-                && index > reorderController.targetItem) {
-            const target = reorderController.targetItem
-            if (target >= 0 && target < count) {
-                const targetRow = rowAt(originalIndexForRemaining(target))
-                if (targetRow)
-                    position.y -= Math.max(0, targetRow.height - targetRow.naturalHeight)
-            } else if (target === count) {
-                position.y -= endDropSpacer.height
-            }
         }
         return position
     }
@@ -221,8 +230,6 @@ Column {
             property alias listEditor: editorLoader.item
             property alias markerItem: markerSlot
             property alias dragContent: rowContent
-            property alias dragTranslationX: dragTranslation.x
-            property alias dragTranslationY: dragTranslation.y
             property real dragOriginX: 0
             property real dragOriginY: 0
             readonly property bool sourceRow: listRoot.isSourceIndex(index)
@@ -230,29 +237,31 @@ Column {
             readonly property bool dropBefore: !sourceRow
                                                    && reorderController.targetBlock === listRoot
                                                    && reorderController.targetItem === remainingIndex
-            readonly property real dropSpace: dropBefore ? reorderController.draggedHeight : 0
+            property real collapseSpace: sourceRow ? naturalHeight : 0
+            property real dropSpace: dropBefore ? reorderController.draggedHeight : 0
             readonly property real trailingSpace: index + 1 < listModel.count ? listRoot.itemSpacing : 0
             readonly property real naturalHeight: rowContent.implicitHeight + trailingSpace
 
+            objectName: "listRow-" + listRoot.blockIndex + "-" + index
             width: listRoot.width
-            height: (sourceRow ? 0 : naturalHeight) + dropSpace
-            z: sourceRow ? 1000 : 0
+            height: Math.max(0, naturalHeight - collapseSpace) + dropSpace
 
-            Behavior on height {
+            Behavior on collapseSpace {
                 enabled: reorderController.dragging
+
                 NumberAnimation {
-                    duration: 140
+                    duration: 160
                     easing.type: Easing.OutCubic
                 }
             }
 
-            Rectangle {
-                visible: rowWrapper.dropSpace > 0
-                x: reorderController.targetIndent * editorView.listIndent + editorView.listMarkerWidth
-                y: Math.max(0, rowWrapper.dropSpace / 2 - height / 2)
-                width: Math.max(12, rowWrapper.width - x)
-                height: 2
-                color: listPalette.highlight
+            Behavior on dropSpace {
+                enabled: reorderController.dragging
+
+                NumberAnimation {
+                    duration: 160
+                    easing.type: Easing.OutCubic
+                }
             }
 
             RowLayout {
@@ -262,11 +271,6 @@ Column {
                 y: rowWrapper.dropSpace
                 width: Math.max(0, listRoot.width - x)
                 height: implicitHeight
-                z: rowWrapper.sourceRow ? 1000 : 0
-
-                transform: Translate {
-                    id: dragTranslation
-                }
 
                 Item {
                     id: markerSlot
@@ -348,24 +352,17 @@ Column {
 
         readonly property bool active: reorderController.targetBlock === listRoot
                                        && reorderController.targetItem === listRoot.remainingItemCount()
+        property real dropSpace: active ? reorderController.draggedHeight : 0
         width: listRoot.width
-        height: active ? reorderController.draggedHeight : 0
+        height: dropSpace
 
-        Behavior on height {
+        Behavior on dropSpace {
             enabled: reorderController.dragging
+
             NumberAnimation {
-                duration: 140
+                duration: 160
                 easing.type: Easing.OutCubic
             }
-        }
-
-        Rectangle {
-            visible: endDropSpacer.height > 0
-            x: reorderController.targetIndent * editorView.listIndent + editorView.listMarkerWidth
-            y: Math.max(0, parent.height / 2 - height / 2)
-            width: Math.max(12, parent.width - x)
-            height: 2
-            color: listPalette.highlight
         }
     }
 }

@@ -1364,6 +1364,17 @@ private slots:
         QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, endPoint.toPoint());
 
         QTRY_COMPARE(editor.contents(), QStringLiteral("- second\n- third\n- first"));
+        auto *droppedMarker = quickItemByName(root, QStringLiteral("listMarker-0-2"));
+        QVERIFY(droppedMarker);
+        for (int index = 0; index < 3; ++index) {
+            auto *row = quickItemByName(root, QStringLiteral("listRow-0-%1").arg(index));
+            QVERIFY(row);
+            QVERIFY(qAbs(row->property("collapseSpace").toReal()) < 0.01);
+            QVERIFY(qAbs(row->property("dropSpace").toReal()) < 0.01);
+        }
+        const qreal droppedY = droppedMarker->mapToItem(root, QPointF()).y();
+        QTest::qWait(220);
+        QVERIFY(qAbs(droppedMarker->mapToItem(root, QPointF()).y() - droppedY) < 0.5);
         QVERIFY(editor.undo());
         QTRY_COMPARE(editor.contents(), QStringLiteral("- first\n- second\n- third"));
     }
@@ -1419,24 +1430,134 @@ private slots:
         QVERIFY(targetMarker);
         QVERIFY(controller);
 
-        const QPointF start  = sourceMarker->mapToItem(root, sourceMarker->width() / 2, sourceMarker->height() / 2);
-        const QPointF target = targetMarker->mapToItem(root, targetMarker->width() / 2, 1);
+        auto *sourceRow = quickItemByName(root, QStringLiteral("listRow-0-0"));
+        QVERIFY(sourceRow);
+        auto *sourceContent = qobject_cast<QQuickItem *>(sourceRow->property("dragContent").value<QObject *>());
+        QVERIFY(sourceContent);
+        const QPointF sourceContentOrigin = sourceContent->mapToItem(root, QPointF());
+        const QPointF start = sourceMarker->mapToItem(root, sourceMarker->width() / 2, sourceMarker->height() / 2);
+        const QPointF initialTarget = targetMarker->mapToItem(root, targetMarker->width() / 2, 1);
         QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
         for (int step = 1; step <= 12; ++step)
-            QTest::mouseMove(quick, (start + (target - start) * (qreal(step) / 12)).toPoint(), 15);
+            QTest::mouseMove(quick, (start + (initialTarget - start) * (qreal(step) / 12)).toPoint(), 15);
+        QTest::qWait(180);
+        const QPointF target = targetMarker->mapToItem(root, targetMarker->width() / 2, 1);
+        QTest::mouseMove(quick, target.toPoint(), 15);
 
-        QTRY_VERIFY((sourceMarker->mapToItem(root, sourceMarker->width() / 2, sourceMarker->height() / 2) - target)
-                        .manhattanLength()
-                    < 3);
+        auto *preview = quickItemByName(root, QStringLiteral("listDragPreview-0"));
+        QTRY_VERIFY(preview);
+        QVERIFY(preview->isVisible());
+        QVERIFY(preview->width() > 0);
+        QVERIFY(preview->height() > 0);
+        const QPointF expectedPreviewOrigin = sourceContentOrigin + target - start;
+        QTRY_VERIFY((preview->mapToItem(root, QPointF()) - expectedPreviewOrigin).manhattanLength() < 3);
         auto *targetBlock = controller->property("targetBlock").value<QObject *>();
         QVERIFY(targetBlock);
         QCOMPARE(targetBlock->property("blockIndex").toInt(), 2);
         QCOMPARE(controller->property("targetItem").toInt(), 0);
+        auto *targetRow = quickItemByName(root, QStringLiteral("listRow-2-0"));
+        QVERIFY(targetRow);
+        QTRY_VERIFY(targetRow->property("dropSpace").toReal() > 0);
+        QTRY_VERIFY(qAbs(targetRow->property("dropSpace").toReal() - controller->property("draggedHeight").toReal())
+                    < 0.5);
         QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, target.toPoint());
 
         QTRY_COMPARE(editor.contents(), QStringLiteral("between\n\n- source\n- target\n- tail"));
         QVERIFY(editor.undo());
         QTRY_COMPARE(editor.contents(), QStringLiteral("- source\n\nbetween\n\n- target\n- tail"));
+    }
+
+    void scrollingWhileDraggingKeepsPreviewUnderPointer()
+    {
+        QStringList lines;
+        for (int index = 0; index < 18; ++index)
+            lines.append(QStringLiteral("- item %1").arg(index));
+
+        QmlNoteEditor editor;
+        editor.resize(400, 240);
+        editor.load(lines.join(QLatin1Char('\n')), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick      = editor.findChild<QQuickWidget *>();
+        auto *rootObject = quick ? quick->rootObject() : nullptr;
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), lines.size());
+        QTRY_VERIFY(rootObject->property("contentHeight").toReal() > root->height());
+
+        rootObject->setProperty("contentY", 70.0);
+        QTRY_COMPARE(rootObject->property("contentY").toReal(), 70.0);
+        auto *sourceMarker = quickItemByName(root, QStringLiteral("listMarker-0-4"));
+        auto *sourceRow    = quickItemByName(root, QStringLiteral("listRow-0-4"));
+        auto *controller   = quickItemByName(root, QStringLiteral("editorReorderController"));
+        QVERIFY(sourceMarker);
+        QVERIFY(sourceRow);
+        QVERIFY(controller);
+        auto *sourceContent = qobject_cast<QQuickItem *>(sourceRow->property("dragContent").value<QObject *>());
+        QVERIFY(sourceContent);
+
+        const QPointF start   = sourceMarker->mapToItem(root, sourceMarker->width() / 2, sourceMarker->height() / 2);
+        const QPointF pointer = start + QPointF(0, 16);
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
+        QTest::mouseMove(quick, pointer.toPoint(), 15);
+        QTRY_VERIFY(controller->property("dragging").toBool());
+
+        auto *preview = quickItemByName(root, QStringLiteral("listDragPreview-0"));
+        QTRY_VERIFY(preview);
+        const QPointF markerInContent
+            = sourceMarker->mapToItem(sourceContent, sourceMarker->width() / 2, sourceMarker->height() / 2);
+        const QPointF previewMarkerBeforeScroll = preview->mapToItem(root, markerInContent);
+        const int     targetBeforeScroll        = controller->property("targetItem").toInt();
+
+        rootObject->setProperty("contentY", 130.0);
+        QTRY_COMPARE(rootObject->property("contentY").toReal(), 130.0);
+        QTRY_VERIFY((preview->mapToItem(root, markerInContent) - previewMarkerBeforeScroll).manhattanLength() < 1);
+        QTRY_VERIFY(controller->property("targetItem").toInt() > targetBeforeScroll);
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, pointer.toPoint());
+    }
+
+    void slowlyDraggingFirstItemDownNeverMovesTargetBackward()
+    {
+        QmlNoteEditor editor;
+        editor.resize(400, 320);
+        editor.load(QStringLiteral("- first\n- second\n- third\n- fourth\n- fifth"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick      = editor.findChild<QQuickWidget *>();
+        auto *rootObject = quick ? quick->rootObject() : nullptr;
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), 5);
+
+        auto *source     = quickItemByName(root, QStringLiteral("listMarker-0-0"));
+        auto *sourceRow  = quickItemByName(root, QStringLiteral("listRow-0-0"));
+        auto *controller = quickItemByName(root, QStringLiteral("editorReorderController"));
+        QVERIFY(source);
+        QVERIFY(sourceRow);
+        QVERIFY(controller);
+        const QPointF start = source->mapToItem(root, source->width() / 2, source->height() / 2);
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
+
+        int previousTarget       = 0;
+        int firstAdvanceDistance = -1;
+        for (int distance = 12; distance <= 80; ++distance) {
+            const QPointF pointer = start + QPointF(0, distance);
+            QTest::mouseMove(quick, pointer.toPoint(), 4);
+            if (!controller->property("dragging").toBool())
+                continue;
+            const int target = controller->property("targetItem").toInt();
+            if (firstAdvanceDistance < 0 && target > 0)
+                firstAdvanceDistance = distance;
+            QVERIFY2(target >= previousTarget,
+                     qPrintable(QStringLiteral("target moved backward from %1 to %2 at y=%3")
+                                    .arg(previousTarget)
+                                    .arg(target)
+                                    .arg(distance)));
+            previousTarget = target;
+        }
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, (start + QPointF(0, 80)).toPoint());
+        QVERIFY(firstAdvanceDistance > 0);
+        QVERIFY(firstAdvanceDistance <= qCeil(sourceRow->property("naturalHeight").toReal() * 0.75));
     }
 
     void horizontalListDragChangesIndentation()
@@ -2034,6 +2155,48 @@ private slots:
         QCOMPARE(editor.model()->data(editor.model()->index(0), NoteBlockModel::CheckedRole).toList(),
                  QVariantList({ false, false }));
         QTRY_COMPARE(root->property("activeEditor").value<QObject *>()->property("cursorPosition").toInt(), 5);
+        QTRY_COMPARE(root->property("activeEditor").value<QObject *>()->property("sourceText").toString(),
+                     QStringLiteral("firstsecond"));
+        QTRY_VERIFY(!root->property("activeEditor").value<QObject *>()->property("sourceTextPending").toBool());
+    }
+
+    void deleteAfterSplittingListItemKeepsFollowingItem()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 300);
+        editor.load(QStringLiteral("- first\n- middle\n- next"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+
+        auto *quick = editor.findChild<QQuickWidget *>();
+        auto *root  = quick ? quick->rootObject() : nullptr;
+        QVERIFY(root);
+        QTRY_COMPARE(root->property("editors").toList().size(), 3);
+        auto *middle = root->property("editors").toList().at(1).value<QObject *>();
+        QVERIFY(middle);
+        QVERIFY(middle->setProperty("cursorPosition", middle->property("length")));
+        QVERIFY(QMetaObject::invokeMethod(middle, "forceActiveFocus"));
+
+        QTest::keyClick(quick, Qt::Key_Return);
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(0), NoteBlockModel::ItemsRole).toStringList(),
+                     QStringList({ "first", "middle", "", "next" }));
+        QTRY_COMPARE(root->property("editors").toList().size(), 4);
+        QTRY_COMPARE(root->property("activeEditor").value<QObject *>()->property("listItemIndex").toInt(), 2);
+
+        QTest::keyClick(quick, Qt::Key_Delete);
+
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(0), NoteBlockModel::ItemsRole).toStringList(),
+                     QStringList({ "first", "middle", "next" }));
+        QTRY_COMPARE(root->property("editors").toList().size(), 3);
+        QTRY_COMPARE(root->property("activeEditor").value<QObject *>()->property("listItemIndex").toInt(), 2);
+        QTRY_COMPARE(root->property("activeEditor").value<QObject *>()->property("sourceText").toString(),
+                     QStringLiteral("next"));
+        QTRY_VERIFY(!root->property("activeEditor").value<QObject *>()->property("sourceTextPending").toBool());
+        QVERIFY(root->property("activeEditor")
+                    .value<QObject *>()
+                    ->property("text")
+                    .toString()
+                    .startsWith(QStringLiteral("next")));
     }
 
     void tabsSelectedChecklistItems()

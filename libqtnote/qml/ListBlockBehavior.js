@@ -78,7 +78,14 @@ function handleKey(host, controller, event, cell, itemIndex) {
         return controller.runEditTransaction("merge-list-items", function() {
             const position = cell.cursorPosition
             controller.blockModel.mergeListItemWithNext(host.block.index, itemIndex)
-            host.focusItem(itemIndex, position)
+            Qt.callLater(function() {
+                const row = host.rowAt(itemIndex)
+                const editor = row ? row.listEditor : null
+                if (editor && editor.sourceTextPending
+                        && typeof editor.applyPendingSourceText === "function")
+                    editor.applyPendingSourceText()
+                host.focusItem(itemIndex, position)
+            })
             return true
         })
     }
