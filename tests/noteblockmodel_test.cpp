@@ -386,14 +386,57 @@ private slots:
         QCOMPARE(table[QStringLiteral("values")].toStringList().value(2), QStringLiteral("first\nsecond"));
     }
 
-    void stripsTrailingListBreaksButKeepsInternalBreaks()
+    void serializesListContinuationsUsingCommonMarkIndentation()
     {
         NoteBlockModel model;
         model.load(QStringLiteral("- [ ] first<br><br>"), true);
         QCOMPARE(model.data(model.index(0), NoteBlockModel::ItemsRole).toStringList().value(0),
                  QStringLiteral("first"));
         model.setListItem(0, 0, QStringLiteral("first\nsecond\n\n"));
-        QCOMPARE(model.contents(), QStringLiteral("- [ ] first<br>second"));
+        QCOMPARE(model.contents(), QStringLiteral("- [ ] first\n      second"));
+
+        model.load(QStringLiteral("- first\n- second\n1. numbered"), true);
+        model.setListItem(0, 0, QStringLiteral("first line\nsecond line"));
+        model.setListItem(1, 0, QStringLiteral("numbered line\ncontinuation"));
+        QCOMPARE(model.contents(),
+                 QStringLiteral("- first line\n  second line\n- second\n\n"
+                                "1. numbered line\n   continuation"));
+    }
+
+    void parsesIndentedListContinuationsAsOneItem()
+    {
+        NoteBlockModel bullets;
+        bullets.load(QStringLiteral("- bullet\n  continuation\n- tail"), true);
+        QCOMPARE(bullets.data(bullets.index(0), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ QStringLiteral("bullet\ncontinuation"), QStringLiteral("tail") }));
+        QCOMPARE(bullets.contents(), QStringLiteral("- bullet\n  continuation\n- tail"));
+
+        NoteBlockModel tasks;
+        tasks.load(QStringLiteral("- [ ] task\n      continuation\n- [x] tail"), true);
+        QCOMPARE(tasks.data(tasks.index(0), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ QStringLiteral("task\ncontinuation"), QStringLiteral("tail") }));
+        QCOMPARE(tasks.contents(), QStringLiteral("- [ ] task\n      continuation\n- [x] tail"));
+
+        NoteBlockModel numbered;
+        numbered.load(QStringLiteral("1. numbered\n   continuation\n2. tail"), true);
+        QCOMPARE(numbered.data(numbered.index(0), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ QStringLiteral("numbered\ncontinuation"), QStringLiteral("tail") }));
+        QCOMPARE(numbered.contents(), QStringLiteral("1. numbered\n   continuation\n2. tail"));
+    }
+
+    void keepsCanonicalWriterWrapInsideLongListItem()
+    {
+        const QString  item = QStringLiteral("a fairly long checklist item with enough ordinary words to make "
+                                              "QTextDocument wrap its canonical Markdown output across more than "
+                                              "one physical source line without an explicit user line break");
+        NoteBlockModel model;
+        model.load(QStringLiteral("- [ ] ") + item, true);
+
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::CheckList));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::ItemsRole).toStringList().size(), 1);
+        QVERIFY(model.contents().startsWith(QStringLiteral("- [ ] a fairly long checklist item")));
+        QVERIFY(model.contents().contains(QStringLiteral("\n      wrap its canonical Markdown")));
     }
 
     void supportsNumberedAndIndentedLists()
@@ -569,6 +612,59 @@ private slots:
         table.removeTableRows(0, 0, 1);
         const auto cells = table.data(table.index(0), NoteBlockModel::CellsRole).toMap();
         QCOMPARE(cells[QStringLiteral("values")].toStringList(), QStringList({ "three", "four" }));
+    }
+
+    void movesListSubtreesAcrossBlocks()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("- source\n"
+                                  "    - child\n\n"
+                                  "between\n\n"
+                                  "1. target\n"
+                                  "2. tail"),
+                   true);
+
+        QVERIFY(model.moveListSubtree(0, 0, 2, 1, 1));
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("between"));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ "target", "source", "child", "tail" }));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::IndentsRole).toList(), QVariantList({ 0, 1, 2, 0 }));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::ItemTypesRole).toList(),
+                 QVariantList({ int(NoteBlockModel::NumberedList), int(NoteBlockModel::BulletList),
+                                int(NoteBlockModel::BulletList), int(NoteBlockModel::NumberedList) }));
+        QCOMPARE(model.contents(),
+                 QStringLiteral("between\n\n"
+                                "1. target\n"
+                                "    - source\n"
+                                "        - child\n"
+                                "2. tail"));
+    }
+
+    void movesAndReindentsListSubtreesAtomically()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("- one\n- parent\n    - child\n- tail"), true);
+
+        QVERIFY(model.moveListSubtree(0, 3, 0, 1, 1));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ "one", "tail", "parent", "child" }));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::IndentsRole).toList(), QVariantList({ 0, 1, 0, 1 }));
+
+        QVERIFY(model.moveListSubtree(0, 1, 0, 3, 0));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ "one", "parent", "child", "tail" }));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::IndentsRole).toList(), QVariantList({ 0, 0, 1, 0 }));
+    }
+
+    void movesWholeBlocks()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("first\n\n- item\n\n![image](media://image)"), true);
+        QVERIFY(model.moveBlock(2, 0));
+        QCOMPARE(model.contents(), QStringLiteral("![image](media://image)\n\nfirst\n\n- item"));
+        QVERIFY(model.moveBlock(0, 2));
+        QCOMPARE(model.contents(), QStringLiteral("first\n\n- item\n\n![image](media://image)"));
     }
 
     void findsTextAcrossStructuredBlocks()

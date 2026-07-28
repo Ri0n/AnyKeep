@@ -46,6 +46,11 @@ ListView {
                                                 Math.round(editorFontMetrics.height * (touchMode ? 0.9 : 0.67)))
     readonly property int listIndent: Math.max(touchMode ? 24 : 20,
                                                Math.round(editorFontMetrics.averageCharacterWidth * 4))
+    readonly property int listMarkerWidth: Math.max(touchMode ? 44 : 24,
+                                                    Math.round(editorFontMetrics.averageCharacterWidth
+                                                               * (touchMode ? 4 : 3)))
+    readonly property real editorFontMetricsHeight: editorFontMetrics.height
+    readonly property real editorFontAverageCharacterWidth: editorFontMetrics.averageCharacterWidth
     readonly property int scrollBarInset: !touchMode && verticalScrollBar.visible
                                            ? Math.ceil(verticalScrollBar.width) : 0
     model: blockModel
@@ -103,6 +108,12 @@ ListView {
     FontMetrics {
         id: editorFontMetrics
         font: root.editorFont
+    }
+
+    EditorReorderController {
+        id: editorReorderController
+        editorView: root
+        blockModel: root.blockModel
     }
 
     function formattedLinkLabelRuns(label) {
@@ -884,6 +895,15 @@ ListView {
         return parts.join("\n")
     }
 
+    function selectionNeedsStructure(ranges) {
+        if (selectionSpansEditors)
+            return true
+        for (const range of ranges)
+            if (range.wholeEditor)
+                return true
+        return false
+    }
+
     function structuredSelectionRanges(includeBoundaryEditors) {
         const ordered = orderedEditors()
         let first = -1
@@ -953,9 +973,12 @@ ListView {
             root.editorBackend.copyDocumentToClipboard()
             return
         }
-        if (selectionSpansEditors
-                && root.editorBackend.copySelectionToClipboard(structuredSelectionRanges(false)))
-            return
+        if (root.editorBackend.markdown) {
+            const ranges = structuredSelectionRanges(false)
+            if (selectionNeedsStructure(ranges)
+                    && root.editorBackend.copySelectionToClipboard(ranges))
+                return
+        }
         if (root.editorBackend.markdown) {
             const markdown = selectedDocumentMarkdown()
             if (markdown.length > 0)
@@ -971,9 +994,12 @@ ListView {
     function copyDocumentSelectionToPrimary() {
         if (!hasDocumentSelection() || !root.editorBackend)
             return false
-        if (selectionSpansEditors
-                && root.editorBackend.copySelectionToPrimarySelection(structuredSelectionRanges(false)))
-            return true
+        if (root.editorBackend.markdown) {
+            const ranges = structuredSelectionRanges(false)
+            if (selectionNeedsStructure(ranges)
+                    && root.editorBackend.copySelectionToPrimarySelection(ranges))
+                return true
+        }
         if (root.editorBackend.markdown)
             return root.editorBackend.copyMarkdownToPrimarySelection(selectedDocumentMarkdown())
         return root.editorBackend.copyTextToPrimarySelection(selectedDocumentText())
@@ -2431,147 +2457,41 @@ ListView {
     }
 
     Component {
+        id: listItemEditorDelegate
+
+        BlockTextArea {
+            id: listItemCell
+
+            readonly property var listRow: parent.listRow
+            readonly property var listBlock: parent.listBlock
+            blockIndex: listBlock.blockIndex
+            listItemIndex: listRow.index
+            editorField: "listItem"
+            width: parent.width
+            sourceText: root.markdownForRendering(listRow.itemText)
+            keyHandler: function(event) {
+                return listBlock.handleItemKey(event, listItemCell, listRow.index)
+            }
+            commitText: function() {
+                root.blockModel.setListItem(
+                    listBlock.blockIndex,
+                    listRow.index,
+                    root.editorBackend.markdownText(textDocument))
+            }
+            textFormat: TextEdit.MarkdownText
+            onTextChanged: commitChangedText(activeFocus && !listBlock.syncingItems)
+            onLinkActivated: link => Qt.openUrlExternally(link)
+        }
+    }
+
+    Component {
         id: listEditor
-        ColumnLayout {
-            id: checkRoot
-            property var block: parent
-            property var itemData: block.items
-            property var checkedData: block.checkedItems
-            property var indentData: block.itemIndents
-            property var typeData: block.itemTypes
-            property bool syncingItems: false
-            width: block.width
-            onItemDataChanged: syncItems()
-            onCheckedDataChanged: syncItems()
-            onIndentDataChanged: syncItems()
-            onTypeDataChanged: syncItems()
-            Component.onCompleted: syncItems()
-            function syncItems() {
-                syncingItems = true
-                const values = itemData || []
-                while (checkModel.count > values.length)
-                    checkModel.remove(checkModel.count - 1)
-                while (checkModel.count < values.length)
-                    checkModel.append({ itemText: "", itemChecked: false, itemIndent: 0, itemType: 2 })
-                for (let index = 0; index < values.length; ++index) {
-                    if (checkModel.get(index).itemText !== values[index])
-                        checkModel.setProperty(index, "itemText", values[index])
-                    const checked = Boolean(checkedData[index])
-                    if (checkModel.get(index).itemChecked !== checked)
-                        checkModel.setProperty(index, "itemChecked", checked)
-                    const indent = Number(indentData[index] || 0)
-                    if (checkModel.get(index).itemIndent !== indent)
-                        checkModel.setProperty(index, "itemIndent", indent)
-                    const type = Number(typeData[index] === undefined ? block.blockType : typeData[index])
-                    if (checkModel.get(index).itemType !== type)
-                        checkModel.setProperty(index, "itemType", type)
-                }
-                syncingItems = false
-            }
-            ListModel { id: checkModel }
-            function focusItem(itemIndex, position) {
-                root.focusEditorAddress({
-                    blockIndex: block.index,
-                    listItemIndex: itemIndex,
-                    tableCellIndex: -1,
-                    field: "listItem",
-                    cursorPosition: position
-                })
-            }
-            function focusItemVertically(itemIndex, x, atBottom) {
-                Qt.callLater(function() {
-                    const row = checkRepeater.itemAt(itemIndex)
-                    const cell = row ? row.listEditor : null
-                    if (!cell)
-                        return
-                    cell.forceActiveFocus()
-                    const y = atBottom ? Math.max(0, cell.height - cell.bottomPadding - 1)
-                                       : cell.topPadding + 1
-                    cell.cursorPosition = cell.positionAt(x, y)
-                    root.activeEditor = cell
-                })
-            }
-            function itemCount() { return checkModel.count }
-            function itemText(index) { return checkModel.get(index).itemText }
-            function itemNumber(index) {
-                const current = checkModel.get(index)
-                if (!current)
-                    return 1
-                const level = current.itemIndent
-                let number = 1
-                for (let previous = index - 1; previous >= 0; --previous) {
-                    const item = checkModel.get(previous)
-                    if (item.itemIndent < level)
-                        break
-                    if (item.itemIndent === level && item.itemType === 5)
-                        ++number
-                }
-                return number
-            }
-            function selectedItemRange() {
-                let first = -1
-                let last = -1
-                for (let index = 0; index < checkModel.count; ++index) {
-                    const row = checkRepeater.itemAt(index)
-                    if (row && row.listEditor.selectionStart !== row.listEditor.selectionEnd) {
-                        if (first < 0)
-                            first = index
-                        last = index
-                    }
-                }
-                return { first: first, last: last }
-            }
-            function handleItemKey(event, cell, itemIndex) {
-                return ListBlockBehavior.handleKey(checkRoot, root, event, cell, itemIndex)
-            }
-            Repeater {
-                id: checkRepeater
-                model: checkModel
-                RowLayout {
-                    id: checkRow
-                    required property int index
-                    required property string itemText
-                    required property bool itemChecked
-                    required property int itemIndent
-                    required property int itemType
-                    property alias listEditor: checkCell
-                    Layout.leftMargin: itemIndent * root.listIndent
-                    CheckBox {
-                        visible: itemType === 2
-                        checked: itemChecked
-                        Layout.minimumWidth: root.touchMode ? 44 : 0
-                        Layout.minimumHeight: root.touchMode ? 44 : 0
-                        onClicked: root.runEditTransaction("toggle-task", function() {
-                            root.blockModel.setChecked(checkRoot.block.index, index, checked)
-                        })
-                    }
-                    Label {
-                        visible: itemType !== 2
-                        text: itemType === 5 ? checkRoot.itemNumber(index) + "." : "•"
-                        Layout.alignment: Qt.AlignTop
-                        Layout.minimumWidth: root.touchMode ? 32 : 0
-                        topPadding: root.touchMode ? 8 : 0
-                    }
-                    BlockTextArea {
-                        id: checkCell
-                        blockIndex: checkRoot.block.index
-                        listItemIndex: checkRow.index
-                        editorField: "listItem"
-                        Layout.fillWidth: true
-                        sourceText: root.markdownForRendering(itemText)
-                        keyHandler: function(event) { return checkRoot.handleItemKey(event, checkCell, checkRow.index) }
-                        commitText: function() {
-                            root.blockModel.setListItem(
-                                checkRoot.block.index,
-                                index,
-                                root.editorBackend.markdownText(textDocument))
-                        }
-                        textFormat: TextEdit.MarkdownText
-                        onTextChanged: commitChangedText(activeFocus && !checkRoot.syncingItems)
-                        onLinkActivated: link => Qt.openUrlExternally(link)
-                    }
-                }
-            }
+
+        ListBlockEditor {
+            block: parent
+            editorView: root
+            reorderController: editorReorderController
+            editorDelegate: listItemEditorDelegate
         }
     }
 

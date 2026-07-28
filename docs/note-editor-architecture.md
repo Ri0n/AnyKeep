@@ -77,6 +77,39 @@ spell checking, native image drag, file dialogs, image import, and Save As.
 Android passes `null` as `platformBackend` and uses Android-specific application
 services for Share, Export, launcher shortcuts, and opt-in speech recognition.
 
+## Structured list editing
+
+Lists keep one canonical representation in `NoteBlockModel`. The QML list
+component mirrors model roles only for delegate creation; a drag preview does
+not incrementally mutate either model. On release, one `moveListSubtree()`
+operation transfers the item and its descendants, preserves marker kinds and
+task state, and adjusts relative indentation.
+
+```mermaid
+flowchart LR
+    H[ReorderDragHandle.qml] -->|absolute dx/dy| RC[EditorReorderController.qml]
+    LB1[ListBlockEditor.qml source] -->|register rows and boundaries| RC
+    LB2[ListBlockEditor.qml target] -->|register rows and boundaries| RC
+    RC -->|collapse source / open target gap| LB1
+    RC -->|drop indicator and indent| LB2
+    RC -->|one operation on release| BM[NoteBlockModel::moveListSubtree]
+    BM --> HIST[NoteDocumentHistory]
+    BM --> LB1
+    BM --> LB2
+```
+
+`EditorReorderController.qml` is document-scoped, so hit testing includes every
+instantiated list block. It computes vertical insertion boundaries separately
+from animated gaps, while horizontal pointer position chooses a structurally
+valid indent. Dragged rows use absolute pointer translation plus layout
+compensation, preventing drift while neighboring rows animate into the vacated
+space.
+
+`ListBlockEditor.qml` owns marker geometry and vertical item spacing. Bullet,
+task, and numbered markers share one fixed-width slot and align with the first
+text line. Markdown continuation lines are normalized by `NoteBlockModel` to
+the CommonMark content column, including six spaces after a task marker.
+
 `DesktopNoteEditorHost` is only a `QQuickWidget` host and a desktop event
 adapter. It owns no document or draft state. The desktop note manager does not
 use this QWidget host: it is a pure Qt Quick top-level window and connects the

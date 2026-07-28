@@ -55,12 +55,6 @@ namespace {
         return text;
     }
 
-    QString encodeLineBreaks(QString text)
-    {
-        text.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
-        return text;
-    }
-
     QString decodeListItem(QString text)
     {
         text = decodeLineBreaks(std::move(text));
@@ -69,11 +63,27 @@ namespace {
         return text;
     }
 
-    QString encodeListItem(QString text)
+    int leadingSpaceCount(const QString &line)
+    {
+        int count = 0;
+        while (count < line.size() && line.at(count) == QLatin1Char(' '))
+            ++count;
+        return count;
+    }
+
+    QString serializeListItem(QString text, int indentColumns, const QString &marker)
     {
         while (text.endsWith(QLatin1Char('\n')))
             text.chop(1);
-        return encodeLineBreaks(std::move(text));
+        const QStringList lines  = text.split(QLatin1Char('\n'), Qt::KeepEmptyParts);
+        QString           result = QString(indentColumns, QLatin1Char(' ')) + marker + lines.value(0);
+        const QString     continuationIndent(indentColumns + marker.size(), QLatin1Char(' '));
+        for (int line = 1; line < lines.size(); ++line) {
+            result += QLatin1Char('\n');
+            if (!lines.at(line).isEmpty())
+                result += continuationIndent + lines.at(line);
+        }
+        return result;
     }
 
     QString coalesceAdjacentMarkdownLinks(QString text)
@@ -500,6 +510,86 @@ void NoteBlockModel::removeListItems(int row, int firstItem, int lastItem)
     changed(row, { ItemsRole, IndentsRole, ItemTypesRole, CheckedRole });
 }
 
+bool NoteBlockModel::moveListSubtree(int sourceRow, int sourceItem, int targetRow, int targetItem, int targetIndent)
+{
+    if (sourceRow < 0 || sourceRow >= blocks_.size() || targetRow < 0 || targetRow >= blocks_.size()
+        || !isListType(blocks_[sourceRow].type) || !isListType(blocks_[targetRow].type)) {
+        return false;
+    }
+
+    const auto normalizeList = [](Block &block) {
+        while (block.indents.size() < block.items.size())
+            block.indents.append(0);
+        while (block.itemTypes.size() < block.items.size())
+            block.itemTypes.append(block.type);
+        while (block.checked.size() < block.items.size())
+            block.checked.append(false);
+    };
+    normalizeList(blocks_[sourceRow]);
+    if (targetRow != sourceRow)
+        normalizeList(blocks_[targetRow]);
+
+    Block &source = blocks_[sourceRow];
+    if (sourceItem < 0 || sourceItem >= source.items.size())
+        return false;
+
+    const int sourceIndent = source.indents.at(sourceItem).toInt();
+    int       sourceEnd    = sourceItem + 1;
+    while (sourceEnd < source.items.size() && source.indents.at(sourceEnd).toInt() > sourceIndent)
+        ++sourceEnd;
+    const int movedCount = sourceEnd - sourceItem;
+
+    const int remainingTargetItems
+        = targetRow == sourceRow ? source.items.size() - movedCount : blocks_[targetRow].items.size();
+    if (targetItem < 0 || targetItem > remainingTargetItems)
+        return false;
+
+    const QStringList  movedItems     = source.items.mid(sourceItem, movedCount);
+    const QVariantList movedIndents   = source.indents.mid(sourceItem, movedCount);
+    const QVariantList movedItemTypes = source.itemTypes.mid(sourceItem, movedCount);
+    const QVariantList movedChecked   = source.checked.mid(sourceItem, movedCount);
+
+    const bool removeSourceBlock = source.items.size() == movedCount && sourceRow != targetRow;
+    if (removeSourceBlock)
+        beginResetModel();
+    for (int index = 0; index < movedCount; ++index) {
+        source.items.removeAt(sourceItem);
+        source.indents.removeAt(sourceItem);
+        source.itemTypes.removeAt(sourceItem);
+        source.checked.removeAt(sourceItem);
+    }
+
+    int adjustedTargetRow = targetRow;
+    if (removeSourceBlock) {
+        blocks_.removeAt(sourceRow);
+        if (sourceRow < targetRow)
+            --adjustedTargetRow;
+    }
+
+    Block &target = blocks_[adjustedTargetRow];
+    normalizeList(target);
+    const int maximumIndent = targetItem == 0 ? 0 : target.indents.value(targetItem - 1).toInt() + 1;
+    targetIndent            = qBound(0, targetIndent, maximumIndent);
+    const int indentDelta   = targetIndent - sourceIndent;
+    for (int index = 0; index < movedCount; ++index) {
+        target.items.insert(targetItem + index, movedItems.at(index));
+        target.indents.insert(targetItem + index, qMax(0, movedIndents.at(index).toInt() + indentDelta));
+        target.itemTypes.insert(targetItem + index, movedItemTypes.at(index));
+        target.checked.insert(targetItem + index, movedChecked.at(index));
+    }
+
+    if (removeSourceBlock) {
+        endResetModel();
+        emit contentsChanged();
+    } else if (sourceRow == targetRow) {
+        changed(sourceRow, { ItemsRole, IndentsRole, ItemTypesRole, CheckedRole });
+    } else {
+        changed(sourceRow, { ItemsRole, IndentsRole, ItemTypesRole, CheckedRole });
+        changed(targetRow, { ItemsRole, IndentsRole, ItemTypesRole, CheckedRole });
+    }
+    return true;
+}
+
 void NoteBlockModel::convertListToText(int row)
 {
     if (row < 0 || row >= blocks_.size() || !isListType(blocks_[row].type))
@@ -794,6 +884,17 @@ int NoteBlockModel::convertTextBlockToHeading(int row, int position, int level)
     endResetModel();
     emit contentsChanged();
     return row + headingOffset;
+}
+
+bool NoteBlockModel::moveBlock(int row, int targetRow)
+{
+    if (row < 0 || row >= blocks_.size() || targetRow < 0 || targetRow >= blocks_.size() || row == targetRow)
+        return false;
+    beginMoveRows({}, row, row, {}, targetRow > row ? targetRow + 1 : targetRow);
+    blocks_.move(row, targetRow);
+    endMoveRows();
+    emit contentsChanged();
+    return true;
 }
 
 void NoteBlockModel::removeBlock(int row)
@@ -1353,9 +1454,29 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdown(const QString &source
             sourceListIndents.append(numberedItem.capturedLength(1));
     }
     document.setMarkdown(protectedSource, QTextDocument::MarkdownDialectGitHub);
-    const QStringList sourceLines    = protectedSource.split('\n');
-    const QStringList canonicalLines = document.toMarkdown(QTextDocument::MarkdownDialectGitHub).split('\n');
-    const auto        hasTable       = [](const QStringList &candidate) {
+    const QStringList sourceLines         = protectedSource.split('\n');
+    const QStringList canonicalLines      = document.toMarkdown(QTextDocument::MarkdownDialectGitHub).split('\n');
+    const auto        hasListContinuation = [](const QStringList &candidate) {
+        int contentColumn = -1;
+        for (const QString &line : candidate) {
+            const auto taskItem     = task.match(line);
+            const auto bulletItem   = bullet.match(line);
+            const auto numberedItem = numbered.match(line);
+            if (taskItem.hasMatch()) {
+                contentColumn = taskItem.capturedStart(3);
+            } else if (bulletItem.hasMatch()) {
+                contentColumn = bulletItem.capturedStart(2);
+            } else if (numberedItem.hasMatch()) {
+                contentColumn = numberedItem.capturedStart(2);
+            } else if (!line.trimmed().isEmpty()) {
+                if (contentColumn >= 0 && leadingSpaceCount(line) >= contentColumn)
+                    return true;
+                contentColumn = -1;
+            }
+        }
+        return false;
+    };
+    const auto hasTable = [](const QStringList &candidate) {
         for (int index = 0; index + 1 < candidate.size(); ++index) {
             if (candidate.at(index).contains('|') && isTableSeparator(candidate.at(index + 1)))
                 return true;
@@ -1371,12 +1492,13 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdown(const QString &source
     // QTextDocument remains the Markdown reader for inline semantics, but its
     // writer wraps long paragraphs (very often around a link). Such a soft
     // wrap becomes a real newline in plain-text mode and can split a list.
-    // Preserve source line boundaries for linked content. Do the same when
-    // Qt flattens a GFM table following a task list.
-    const QStringList &lines = preserveInlineSourceLines || (hasTable(sourceLines) && !hasTable(canonicalLines))
-        ? sourceLines
-        : canonicalLines;
-    QList<Block>       result;
+    // Preserve source line boundaries for linked content and correctly
+    // indented list continuations. Do the same when Qt flattens a GFM table
+    // following a task list.
+    const bool preserveSourceLines = preserveInlineSourceLines || hasListContinuation(sourceLines)
+        || (hasTable(sourceLines) && !hasTable(canonicalLines));
+    const QStringList              &lines = preserveSourceLines ? sourceLines : canonicalLines;
+    QList<Block>                    result;
     static const QRegularExpression image(QStringLiteral(R"(^\s*!\[([^\]]*)\]\((\S+?)(?:\s+"[^"]*")?\)\s*$)"));
     static const QRegularExpression heading(QStringLiteral(R"(^\s*(#{1,6})\s+(.+?)\s*#*\s*$)"));
     int                             canonicalListItems = 0;
@@ -1425,9 +1547,11 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdown(const QString &source
                         break;
                     i = next;
                 }
-                const auto      taskItem     = task.match(lines[i]);
-                const auto      bulletItem   = bullet.match(lines[i]);
-                const auto      numberedItem = numbered.match(lines[i]);
+                const auto taskItem     = task.match(lines[i]);
+                const auto bulletItem   = bullet.match(lines[i]);
+                const auto numberedItem = numbered.match(lines[i]);
+                if (!taskItem.hasMatch() && !bulletItem.hasMatch() && !numberedItem.hasMatch())
+                    break;
                 BlockType       itemType;
                 const BlockType candidateType     = taskItem.hasMatch() ? CheckList
                         : numberedItem.hasMatch()                       ? NumberedList
@@ -1470,7 +1594,38 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdown(const QString &source
                 if (block.itemTypes.isEmpty())
                     block.type = itemType;
                 block.itemTypes.append(itemType);
+                const int contentColumn      = taskItem.hasMatch() ? taskItem.capturedStart(3)
+                         : bulletItem.hasMatch()                   ? bulletItem.capturedStart(2)
+                                                                   : numberedItem.capturedStart(2);
+                const int continuationColumn = preserveSourceLines ? contentColumn : candidateIndent.size() + 2;
                 ++i;
+                while (i < lines.size()) {
+                    if (task.match(lines[i]).hasMatch() || bullet.match(lines[i]).hasMatch()
+                        || numbered.match(lines[i]).hasMatch())
+                        break;
+                    if (lines[i].trimmed().isEmpty()) {
+                        int next = i + 1;
+                        while (next < lines.size() && lines[next].trimmed().isEmpty())
+                            ++next;
+                        if (next >= lines.size() || task.match(lines[next]).hasMatch()
+                            || bullet.match(lines[next]).hasMatch() || numbered.match(lines[next]).hasMatch()
+                            || leadingSpaceCount(lines[next]) < continuationColumn)
+                            break;
+                        if (!preserveSourceLines) {
+                            i = next;
+                            continue;
+                        }
+                        while (i < next) {
+                            block.items.last() += QLatin1Char('\n');
+                            ++i;
+                        }
+                        continue;
+                    }
+                    if (leadingSpaceCount(lines[i]) < continuationColumn)
+                        break;
+                    block.items.last() += QLatin1Char('\n') + lines[i].mid(continuationColumn);
+                    ++i;
+                }
             }
             result.append(block);
             continue;
@@ -1542,11 +1697,10 @@ QString NoteBlockModel::writeMarkdown(const QList<Block> &blocks)
             for (int i = 0; i < block.items.size(); ++i) {
                 const auto type    = BlockType(block.itemTypes.value(i, block.type).toInt());
                 const int  columns = qMax(0, block.indents.value(i).toInt()) * 4;
-                value += QString(columns, QLatin1Char(' '));
-                if (type == CheckList)
-                    value += QStringLiteral("- [%1] %2\n")
-                                 .arg(block.checked.value(i).toBool() ? "x" : " ", encodeListItem(block.items[i]));
-                else if (type == NumberedList) {
+                QString    marker;
+                if (type == CheckList) {
+                    marker = QStringLiteral("- [%1] ").arg(block.checked.value(i).toBool() ? "x" : " ");
+                } else if (type == NumberedList) {
                     const int level  = block.indents.value(i).toInt();
                     int       number = 1;
                     for (int previous = i - 1; previous >= 0; --previous) {
@@ -1557,9 +1711,11 @@ QString NoteBlockModel::writeMarkdown(const QList<Block> &blocks)
                         if (previousLevel == level && previousType == NumberedList)
                             ++number;
                     }
-                    value += QStringLiteral("%1. %2\n").arg(number).arg(encodeListItem(block.items[i]));
-                } else
-                    value += QStringLiteral("- %1\n").arg(encodeListItem(block.items[i]));
+                    marker = QStringLiteral("%1. ").arg(number);
+                } else {
+                    marker = QStringLiteral("- ");
+                }
+                value += serializeListItem(block.items[i], columns, marker) + QLatin1Char('\n');
             }
             value.chop(value.endsWith('\n') ? 1 : 0);
             break;

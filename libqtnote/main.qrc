@@ -21,6 +21,9 @@
     </qresource>
     <qresource prefix="/qml">
         <file alias="NoteBlockEditor.qml">qml/NoteBlockEditor.qml</file>
+        <file alias="EditorReorderController.qml">qml/EditorReorderController.qml</file>
+        <file alias="ListBlockEditor.qml">qml/ListBlockEditor.qml</file>
+        <file alias="ReorderDragHandle.qml">qml/ReorderDragHandle.qml</file>
         <file alias="ListBlockBehavior.js">qml/ListBlockBehavior.js</file>
         <file alias="TableBlockBehavior.js">qml/TableBlockBehavior.js</file>
         <file alias="EditorContextMenu.qml">qml/EditorContextMenu.qml</file>

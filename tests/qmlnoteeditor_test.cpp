@@ -30,6 +30,28 @@ NoteEditor *backend(QmlNoteEditor &editor)
     Q_ASSERT(result);
     return result;
 }
+
+QQuickItem *quickItemByName(QQuickItem *root, const QString &name)
+{
+    if (!root)
+        return nullptr;
+    if (root->objectName() == name)
+        return root;
+    for (QQuickItem *child : root->childItems())
+        if (auto *match = quickItemByName(child, name))
+            return match;
+    return nullptr;
+}
+
+QQuickItem *listMarker(QObject *root, QObject *editor)
+{
+    if (!root || !editor)
+        return nullptr;
+    const QString name = QStringLiteral("listMarker-%1-%2")
+                             .arg(editor->property("blockIndex").toInt())
+                             .arg(editor->property("listItemIndex").toInt());
+    return quickItemByName(qobject_cast<QQuickItem *>(root), name);
+}
 }
 
 class CountingHighlighter : public SpellCheckExtension {
@@ -380,6 +402,36 @@ private slots:
         QCOMPARE(editor.contents(), QStringLiteral("- first\n- second"));
         QVERIFY(editor.redo());
         QTRY_VERIFY(!editor.isMarkdown());
+    }
+
+    void plainLongListLineStaysOneItemAfterMarkdownConversion()
+    {
+        const QString item
+            = QStringLiteral(
+                  "a single long task line that visually wraps in a narrow editor but has no explicit line break ")
+                  .repeated(4);
+        QmlNoteEditor editor;
+        editor.resize(260, 320);
+        editor.load(QStringLiteral("- [ ] ") + item, Note::PlainText);
+        editor.show();
+        QTest::qWait(30);
+
+        editor.load(editor.contents(), Note::Markdown, NoteEditor::LoadPolicy::RecordFormatConversion);
+        QTRY_VERIFY(editor.isMarkdown());
+        QCOMPARE(editor.model()->rowCount(), 1);
+        const QStringList items
+            = editor.model()->data(editor.model()->index(0), NoteBlockModel::ItemsRole).toStringList();
+        QCOMPARE(items.size(), 1);
+        QCOMPARE(items.constFirst().split(QLatin1Char('\n')).join(QLatin1Char(' ')).simplified(), item.simplified());
+
+        const QStringList serializedLines = editor.contents().split(QLatin1Char('\n'));
+        QVERIFY(serializedLines.size() > 1);
+        QVERIFY(serializedLines.constFirst().startsWith(QStringLiteral("- [ ] ")));
+        for (qsizetype index = 1; index < serializedLines.size(); ++index) {
+            QVERIFY2(serializedLines.at(index).startsWith(QStringLiteral("      ")),
+                     qPrintable(QStringLiteral("unindented continuation: %1").arg(serializedLines.at(index))));
+        }
+        QVERIFY(!editor.contents().contains(QStringLiteral("\n\n")));
     }
 
     void sharedToolbarCommandsUseOneFormatConversionTransaction()
@@ -1171,6 +1223,304 @@ private slots:
         QVERIFY(mime->hasFormat(QString::fromLatin1(NoteTransferController::FragmentMimeType)));
         QCOMPARE(QString::fromUtf8(mime->data(QString::fromLatin1(NoteTransferController::MarkdownMimeType))),
                  QStringLiteral("**bold**"));
+    }
+
+    void copyingOneListItemPublishesSerializedMarkdown()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 400);
+        editor.load(QStringLiteral("- [x] completed task"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick = editor.findChild<QQuickWidget *>();
+        QVERIFY(quick);
+        auto *root = quick->rootObject();
+        QVERIFY(root);
+        QTRY_COMPARE(root->property("editors").toList().size(), 1);
+        auto *listItem = root->property("editors").toList().constFirst().value<QObject *>();
+        QVERIFY(listItem);
+        QVERIFY(QMetaObject::invokeMethod(listItem, "select", Q_ARG(int, 0),
+                                          Q_ARG(int, listItem->property("length").toInt())));
+        QTest::keyClick(quick, Qt::Key_C, Qt::ControlModifier);
+
+        const QMimeData *mime = QGuiApplication::clipboard()->mimeData();
+        QVERIFY(mime);
+        QVERIFY(mime->hasFormat(QString::fromLatin1(NoteTransferController::MarkdownMimeType)));
+        QCOMPARE(QString::fromUtf8(mime->data(QString::fromLatin1(NoteTransferController::MarkdownMimeType))),
+                 QStringLiteral("- [x] completed task"));
+    }
+
+    void listMarkersShareOneColumnAndAlignWithFirstLine()
+    {
+        QmlNoteEditor editor;
+        editor.resize(280, 400);
+        editor.load(QStringLiteral("- a bullet item long enough to wrap over several visual lines in this narrow editor"
+                                   "\n\n- [ ] task\n\n1. numbered"),
+                    Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick = editor.findChild<QQuickWidget *>();
+        QVERIFY(quick);
+        auto *rootObject = quick->rootObject();
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), 3);
+
+        const QVariantList  editors = rootObject->property("editors").toList();
+        QList<QQuickItem *> markers;
+        for (const QVariant &value : editors) {
+            auto *textItem = qobject_cast<QQuickItem *>(value.value<QObject *>());
+            QVERIFY(textItem);
+            QQuickItem *marker = listMarker(rootObject, textItem);
+            QVERIFY(marker);
+            markers.append(marker);
+        }
+        const qreal markerX = markers.constFirst()->mapToItem(root, QPointF()).x();
+        for (QQuickItem *marker : markers) {
+            QCOMPARE(marker->mapToItem(root, QPointF()).x(), markerX);
+            QCOMPARE(marker->width(), markers.constFirst()->width());
+        }
+
+        for (int block = 0; block < editors.size(); ++block) {
+            auto *textItem = qobject_cast<QQuickItem *>(editors.at(block).value<QObject *>());
+            QVERIFY(textItem);
+            QCOMPARE(markers.at(block)->mapToItem(root, QPointF()).y(), textItem->mapToItem(root, QPointF()).y());
+        }
+        auto *wrappedText = qobject_cast<QQuickItem *>(editors.constFirst().value<QObject *>());
+        QVERIFY(wrappedText);
+        QVERIFY(wrappedText->height() > markers.constFirst()->height());
+
+        auto *bulletGlyph = quickItemByName(root, QStringLiteral("listGlyph-0-0"));
+        auto *taskControl = quickItemByName(root, QStringLiteral("taskMarker-1-0"));
+        auto *numberGlyph = quickItemByName(root, QStringLiteral("listGlyph-2-0"));
+        QVERIFY(bulletGlyph);
+        QVERIFY(taskControl);
+        QVERIFY(numberGlyph);
+        auto *taskIndicator = qobject_cast<QQuickItem *>(taskControl->property("indicator").value<QObject *>());
+        QVERIFY(taskIndicator);
+        const qreal indicatorCenter = taskIndicator->mapToItem(root, taskIndicator->width() / 2, 0).x();
+        const qreal bulletCenter    = bulletGlyph->mapToItem(root, bulletGlyph->width() / 2, 0).x();
+        const qreal numberCenter    = numberGlyph->mapToItem(root, numberGlyph->width() / 2, 0).x();
+        QVERIFY(qAbs(bulletCenter - indicatorCenter) <= 1);
+        QVERIFY(qAbs(numberCenter - indicatorCenter) <= 1);
+
+        auto *taskText = qobject_cast<QQuickItem *>(editors.at(1).value<QObject *>());
+        QVERIFY(taskText);
+        const qreal indicatorLeft   = taskIndicator->mapToItem(root, 0, 0).x();
+        const qreal indicatorRight  = taskIndicator->mapToItem(root, taskIndicator->width(), 0).x();
+        const qreal visibleTextLeft = taskText->mapToItem(root, taskText->property("leftPadding").toReal(), 0).x();
+        const qreal averageCharacterWidth = rootObject->property("editorFontAverageCharacterWidth").toReal();
+        QVERIFY(qAbs((visibleTextLeft - indicatorRight) - indicatorLeft) <= averageCharacterWidth);
+    }
+
+    void listItemsKeepReadableVerticalSpacing()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 300);
+        editor.load(QStringLiteral("- [ ] first\n- [ ] second"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick = editor.findChild<QQuickWidget *>();
+        auto *root  = quick ? qobject_cast<QQuickItem *>(quick->rootObject()) : nullptr;
+        QVERIFY(root);
+        QTRY_COMPARE(quick->rootObject()->property("editors").toList().size(), 2);
+
+        auto *first  = quickItemByName(root, QStringLiteral("listMarker-0-0"));
+        auto *second = quickItemByName(root, QStringLiteral("listMarker-0-1"));
+        QVERIFY(first);
+        QVERIFY(second);
+        const qreal firstBottom = first->mapToItem(root, 0, first->height()).y();
+        const qreal secondTop   = second->mapToItem(root, 0, 0).y();
+        QVERIFY2(secondTop - firstBottom >= 5,
+                 qPrintable(QStringLiteral("list item gap is only %1 px").arg(secondTop - firstBottom)));
+    }
+
+    void draggingListMarkerReordersItemsAsOneHistoryOperation()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 400);
+        editor.load(QStringLiteral("- first\n- second\n- third"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick      = editor.findChild<QQuickWidget *>();
+        auto *rootObject = quick ? quick->rootObject() : nullptr;
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), 3);
+
+        const QVariantList editors     = rootObject->property("editors").toList();
+        auto              *firstMarker = listMarker(rootObject, editors.at(0).value<QObject *>());
+        auto              *lastMarker  = listMarker(rootObject, editors.at(2).value<QObject *>());
+        QVERIFY(firstMarker);
+        QVERIFY(lastMarker);
+
+        const QPointF startPoint = firstMarker->mapToItem(root, firstMarker->width() / 2, firstMarker->height() / 2);
+        const QPointF endPoint   = lastMarker->mapToItem(root, lastMarker->width() / 2, lastMarker->height());
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, startPoint.toPoint());
+        for (int step = 1; step <= 8; ++step) {
+            const QPointF point = startPoint + (endPoint - startPoint) * (qreal(step) / 8);
+            QTest::mouseMove(quick, point.toPoint(), 15);
+        }
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, endPoint.toPoint());
+
+        QTRY_COMPARE(editor.contents(), QStringLiteral("- second\n- third\n- first"));
+        QVERIFY(editor.undo());
+        QTRY_COMPARE(editor.contents(), QStringLiteral("- first\n- second\n- third"));
+    }
+
+    void draggingParentListItemMovesItsDescendantsTogether()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 400);
+        editor.load(QStringLiteral("- parent\n    - child\n- middle\n- tail"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick      = editor.findChild<QQuickWidget *>();
+        auto *rootObject = quick ? quick->rootObject() : nullptr;
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), 4);
+
+        const QVariantList editors      = rootObject->property("editors").toList();
+        auto              *parentMarker = listMarker(rootObject, editors.at(0).value<QObject *>());
+        auto              *tailMarker   = listMarker(rootObject, editors.at(3).value<QObject *>());
+        QVERIFY(parentMarker);
+        QVERIFY(tailMarker);
+
+        const QPointF startPoint = parentMarker->mapToItem(root, parentMarker->width() / 2, parentMarker->height() / 2);
+        const QPointF endPoint   = tailMarker->mapToItem(root, tailMarker->width() / 2, tailMarker->height());
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, startPoint.toPoint());
+        for (int step = 1; step <= 10; ++step) {
+            const QPointF point = startPoint + (endPoint - startPoint) * (qreal(step) / 10);
+            QTest::mouseMove(quick, point.toPoint(), 15);
+        }
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, endPoint.toPoint());
+
+        QTRY_COMPARE(editor.contents(), QStringLiteral("- middle\n- tail\n- parent\n    - child"));
+    }
+
+    void draggingListItemAcrossBlocksTracksPointerAndUsesOneHistoryStep()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 500);
+        editor.load(QStringLiteral("- source\n\nbetween\n\n- target\n- tail"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick      = editor.findChild<QQuickWidget *>();
+        auto *rootObject = quick ? quick->rootObject() : nullptr;
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), 4);
+
+        auto *sourceMarker = quickItemByName(root, QStringLiteral("listMarker-0-0"));
+        auto *targetMarker = quickItemByName(root, QStringLiteral("listMarker-2-0"));
+        auto *controller   = quickItemByName(root, QStringLiteral("editorReorderController"));
+        QVERIFY(sourceMarker);
+        QVERIFY(targetMarker);
+        QVERIFY(controller);
+
+        const QPointF start  = sourceMarker->mapToItem(root, sourceMarker->width() / 2, sourceMarker->height() / 2);
+        const QPointF target = targetMarker->mapToItem(root, targetMarker->width() / 2, 1);
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
+        for (int step = 1; step <= 12; ++step)
+            QTest::mouseMove(quick, (start + (target - start) * (qreal(step) / 12)).toPoint(), 15);
+
+        QTRY_VERIFY((sourceMarker->mapToItem(root, sourceMarker->width() / 2, sourceMarker->height() / 2) - target)
+                        .manhattanLength()
+                    < 3);
+        auto *targetBlock = controller->property("targetBlock").value<QObject *>();
+        QVERIFY(targetBlock);
+        QCOMPARE(targetBlock->property("blockIndex").toInt(), 2);
+        QCOMPARE(controller->property("targetItem").toInt(), 0);
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, target.toPoint());
+
+        QTRY_COMPARE(editor.contents(), QStringLiteral("between\n\n- source\n- target\n- tail"));
+        QVERIFY(editor.undo());
+        QTRY_COMPARE(editor.contents(), QStringLiteral("- source\n\nbetween\n\n- target\n- tail"));
+    }
+
+    void horizontalListDragChangesIndentation()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 350);
+        editor.load(QStringLiteral("- one\n- two\n- three"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick      = editor.findChild<QQuickWidget *>();
+        auto *rootObject = quick ? quick->rootObject() : nullptr;
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), 3);
+
+        auto *source     = quickItemByName(root, QStringLiteral("listMarker-0-2"));
+        auto *before     = quickItemByName(root, QStringLiteral("listMarker-0-1"));
+        auto *controller = quickItemByName(root, QStringLiteral("editorReorderController"));
+        QVERIFY(source);
+        QVERIFY(before);
+        QVERIFY(controller);
+        const qreal   indent = rootObject->property("listIndent").toReal();
+        const QPointF start  = source->mapToItem(root, source->width() / 2, source->height() / 2);
+        const QPointF target = before->mapToItem(root, before->width() / 2 + indent, 1);
+
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
+        for (int step = 1; step <= 10; ++step)
+            QTest::mouseMove(quick, (start + (target - start) * (qreal(step) / 10)).toPoint(), 15);
+        QTRY_COMPARE(controller->property("targetItem").toInt(), 1);
+        QTRY_COMPARE(controller->property("targetIndent").toInt(), 1);
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, target.toPoint());
+
+        QTRY_COMPARE(editor.contents(), QStringLiteral("- one\n    - three\n- two"));
+    }
+
+    void horizontalListDragCanOutdent()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 350);
+        editor.load(QStringLiteral("- parent\n    - child\n- tail"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick      = editor.findChild<QQuickWidget *>();
+        auto *rootObject = quick ? quick->rootObject() : nullptr;
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), 3);
+
+        auto *source = quickItemByName(root, QStringLiteral("listMarker-0-1"));
+        auto *tail   = quickItemByName(root, QStringLiteral("listMarker-0-2"));
+        QVERIFY(source);
+        QVERIFY(tail);
+        const QPointF start  = source->mapToItem(root, source->width() / 2, source->height() / 2);
+        const QPointF target = tail->mapToItem(root, tail->width() / 2, tail->height());
+
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
+        for (int step = 1; step <= 10; ++step)
+            QTest::mouseMove(quick, (start + (target - start) * (qreal(step) / 10)).toPoint(), 15);
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, target.toPoint());
+
+        QTRY_COMPARE(editor.contents(), QStringLiteral("- parent\n- tail\n- child"));
+    }
+
+    void clickingTaskMarkerStillTogglesWithoutStartingDrag()
+    {
+        QmlNoteEditor editor;
+        editor.resize(500, 300);
+        editor.load(QStringLiteral("- [ ] task\n- [ ] second"), Note::Markdown);
+        editor.show();
+        QTest::qWait(30);
+        auto *quick      = editor.findChild<QQuickWidget *>();
+        auto *rootObject = quick ? quick->rootObject() : nullptr;
+        auto *root       = qobject_cast<QQuickItem *>(rootObject);
+        QVERIFY(root);
+        QTRY_COMPARE(rootObject->property("editors").toList().size(), 2);
+
+        auto *textItem
+            = qobject_cast<QQuickItem *>(rootObject->property("editors").toList().constFirst().value<QObject *>());
+        QVERIFY(textItem);
+        auto *checkbox = quickItemByName(root, QStringLiteral("taskMarker-0-0"));
+        QVERIFY(checkbox);
+        const QPointF clickPoint = checkbox->mapToItem(root, checkbox->width() / 2, checkbox->height() / 2);
+        QTest::mouseClick(quick, Qt::LeftButton, Qt::NoModifier, clickPoint.toPoint());
+        QTRY_COMPARE(editor.contents(), QStringLiteral("- [x] task\n- [ ] second"));
     }
 
     void structuredPasteSplitsMarkdownTextBlock()
