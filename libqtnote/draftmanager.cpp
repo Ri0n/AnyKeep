@@ -81,7 +81,7 @@ namespace {
     bool hasSamePublishedContents(const DraftRecord &draft, const Note &note)
     {
         if (draft.title != note.title() || draft.body != note.text() || draft.format != note.format()
-            || draft.media.size() != note.media().size())
+            || draft.folderId != note.folderId() || draft.media.size() != note.media().size())
             return false;
         const auto media = note.media();
         for (qsizetype i = 0; i < draft.media.size(); ++i) {
@@ -205,6 +205,7 @@ DraftStoreError DraftManager::saveEditing(const QUuid &draftId, const Note &note
     record.body      = body;
     record.format    = format;
     record.tags      = NoteData::tagsFromText(body);
+    record.folderId  = note.folderId();
     record.media     = note.media();
     record.revision  = existing ? existing.value.revision + 1 : 1;
     record.updatedAt = QDateTime::currentDateTimeUtc();
@@ -610,6 +611,7 @@ void DraftManager::publish(const DraftRecord &record)
             note.setBackendData(record.backendData);
         note.setTitle(record.title);
         note.setText(record.body, record.format);
+        note.setFolderId(record.folderId);
         note.setMedia(record.media);
         qCInfo(logDraftPersistence) << "Submitting draft to storage: draft=" << record.id.toString(QUuid::WithoutBraces)
                                     << "storage=" << storage->systemName() << "noteIdPresent=" << !note.id().isEmpty();

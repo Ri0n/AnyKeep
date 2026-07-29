@@ -4,8 +4,10 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QUuid>
 
 #include <algorithm>
 
@@ -19,6 +21,19 @@ using namespace QtNote;
 
 class PTFStorageTest : public QObject {
     Q_OBJECT
+
+    static FolderCatalogSnapshot catalogWithFolder(const QUuid &folderId)
+    {
+        FolderRecord folder;
+        folder.id         = folderId;
+        folder.name       = QStringLiteral("Project");
+        folder.revision   = 1;
+        folder.modifiedAt = QDateTime::currentDateTimeUtc();
+
+        FolderCatalogSnapshot snapshot;
+        snapshot.folders.append(folder);
+        return snapshot;
+    }
 
 private slots:
     void noteSurvivesFreshStorageInstance()
@@ -287,6 +302,231 @@ private slots:
         QCOMPARE(after.size(), 3);
         QCOMPARE(after.constLast().id(), finalId);
         QCOMPARE(after.constLast().title(), QStringLiteral("Transferred"));
+    }
+
+    void folderMetadataRoundTripsWithoutRewritingTheNote()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+
+        PTFStorage storage;
+        QVERIFY(storage.setStoragePath(directory.path()));
+        QVERIFY(storage.supportsNativeFolders());
+        QVERIFY(storage.supportsNativeFolderCatalog());
+
+        const QUuid folderId = QUuid::createUuid();
+        auto       *catalog  = storage.replaceNativeFolderCatalogAsync(catalogWithFolder(folderId));
+        QVERIFY(catalog->isFinished());
+        QCOMPARE(catalog->state(), StorageJob::Succeeded);
+        delete catalog;
+
+        Note note = storage.createNote();
+        note.setTitle(QStringLiteral("Folderable note"));
+        note.setText(QStringLiteral("Body that must not be rewritten"), Note::Markdown);
+        QVERIFY(storage.saveNote(note));
+
+        const auto before = storage.noteList();
+        QCOMPARE(before.size(), 1);
+        Note       summary  = before.constFirst();
+        const auto fileName = summary.backendValue(QStringLiteral("fileName")).toString();
+        QFile      file(fileName);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto contents = file.readAll();
+        file.close();
+        const auto modified = QFileInfo(fileName).lastModified();
+
+        summary.setFolderId(folderId);
+        QSignalSpy changed(&storage, &NoteStorage::noteModified);
+        auto      *move = storage.changeNoteFolderAsync(summary);
+        QVERIFY(move->isFinished());
+        QCOMPARE(move->state(), StorageJob::Succeeded);
+        QCOMPARE(move->result().folderId(), folderId);
+        QCOMPARE(changed.size(), 1);
+        delete move;
+
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), contents);
+        file.close();
+        QCOMPARE(QFileInfo(fileName).lastModified(), modified);
+
+        const auto moved = storage.noteList();
+        QCOMPARE(moved.size(), 1);
+        QCOMPARE(moved.constFirst().folderId(), folderId);
+
+        PTFStorage reader;
+        QVERIFY(reader.setStoragePath(directory.path()));
+        QVERIFY(reader.folderCatalogAvailable());
+        const auto afterRestart = reader.noteList();
+        QCOMPARE(afterRestart.size(), 1);
+        QCOMPARE(afterRestart.constFirst().folderId(), folderId);
+    }
+
+    void folderAssignmentFollowsNoteRename()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+
+        PTFStorage storage;
+        QVERIFY(storage.setStoragePath(directory.path()));
+        const QUuid folderId = QUuid::createUuid();
+        auto       *catalog  = storage.replaceNativeFolderCatalogAsync(catalogWithFolder(folderId));
+        QVERIFY(catalog->isFinished());
+        QCOMPARE(catalog->state(), StorageJob::Succeeded);
+        delete catalog;
+
+        Note note = storage.createNote();
+        note.setTitle(QStringLiteral("Before rename"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        QVERIFY(storage.saveNote(note));
+
+        note = storage.noteList().constFirst();
+        note.setFolderId(folderId);
+        auto *move = storage.changeNoteFolderAsync(note);
+        QVERIFY(move->isFinished());
+        QCOMPARE(move->state(), StorageJob::Succeeded);
+        delete move;
+
+        const auto oldNoteId = note.id();
+        QVERIFY(note.load());
+        note.setTitle(QStringLiteral("After rename"));
+        QVERIFY(storage.saveNote(note));
+
+        const auto notes = storage.noteList();
+        QCOMPARE(notes.size(), 1);
+        const auto renamed = notes.constFirst();
+        QVERIFY(renamed.id() != oldNoteId);
+        QCOMPARE(renamed.folderId(), folderId);
+
+        FolderCatalog catalogView;
+        QVERIFY(!catalogView.replaceSnapshot(storage.nativeFolderCatalog()));
+        const auto *oldAssignment = catalogView.assignment(PTFStorage::storageId, oldNoteId);
+        QVERIFY(oldAssignment);
+        QVERIFY(oldAssignment->tombstone);
+        QCOMPARE(catalogView.folderForNote(PTFStorage::storageId, renamed.id()), folderId);
+
+        PTFStorage reader;
+        QVERIFY(reader.setStoragePath(directory.path()));
+        const auto persisted = reader.noteList();
+        QCOMPARE(persisted.size(), 1);
+        QCOMPARE(persisted.constFirst().folderId(), folderId);
+    }
+
+    void corruptFolderIndexDoesNotBlockNotesAndCanRestoreBackup()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+
+        PTFStorage storage;
+        QVERIFY(storage.setStoragePath(directory.path()));
+        const QUuid folderId = QUuid::createUuid();
+        auto       *catalog  = storage.replaceNativeFolderCatalogAsync(catalogWithFolder(folderId));
+        QVERIFY(catalog->isFinished());
+        QCOMPARE(catalog->state(), StorageJob::Succeeded);
+        delete catalog;
+
+        Note note = storage.createNote();
+        note.setTitle(QStringLiteral("Recoverable folder index"));
+        note.setText(QStringLiteral("Body remains readable"), Note::Markdown);
+        QVERIFY(storage.saveNote(note));
+        note = storage.noteList().constFirst();
+        note.setFolderId(folderId);
+        auto *move = storage.changeNoteFolderAsync(note);
+        QVERIFY(move->isFinished());
+        QCOMPARE(move->state(), StorageJob::Succeeded);
+        delete move;
+
+        // Save the healthy primary once more so it is also retained as a
+        // backup before simulating a damaged primary file.
+        catalog = storage.replaceNativeFolderCatalogAsync(storage.nativeFolderCatalog());
+        QVERIFY(catalog->isFinished());
+        QCOMPARE(catalog->state(), StorageJob::Succeeded);
+        delete catalog;
+
+        const auto indexPath = directory.filePath(QStringLiteral(".qtnote-folders.json"));
+        QVERIFY(QFile::exists(indexPath));
+        QVERIFY(QFile::exists(indexPath + QStringLiteral(".bak")));
+        QFile damaged(indexPath);
+        QVERIFY(damaged.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QVERIFY(damaged.write("not a folder index") > 0);
+        damaged.close();
+
+        PTFStorage reader;
+        QVERIFY(reader.setStoragePath(directory.path()));
+        QVERIFY(reader.isAccessible());
+        QVERIFY(!reader.folderCatalogAvailable());
+        QVERIFY(!reader.folderCatalogErrorString().isEmpty());
+        const auto withoutFolders = reader.noteList();
+        QCOMPARE(withoutFolders.size(), 1);
+        QVERIFY(withoutFolders.constFirst().folderId().isNull());
+        Note readable = withoutFolders.constFirst();
+        QVERIFY(readable.load());
+        QCOMPARE(readable.text(), QStringLiteral("Body remains readable"));
+
+        QString    preservedPath;
+        const auto restore = reader.restoreFolderCatalogBackup(&preservedPath);
+        QVERIFY(!restore);
+        QVERIFY(!preservedPath.isEmpty());
+        QVERIFY(QFile::exists(preservedPath));
+        QVERIFY(reader.folderCatalogAvailable());
+        const auto restored = reader.noteList();
+        QCOMPARE(restored.size(), 1);
+        QCOMPARE(restored.constFirst().folderId(), folderId);
+    }
+
+    void corruptFolderIndexDoesNotTurnACommittedBodySaveIntoFailure()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+
+        const QUuid  firstFolder  = QUuid::createUuid();
+        const QUuid  secondFolder = QUuid::createUuid();
+        auto         snapshot     = catalogWithFolder(firstFolder);
+        FolderRecord second;
+        second.id         = secondFolder;
+        second.name       = QStringLiteral("Later target");
+        second.revision   = 1;
+        second.modifiedAt = QDateTime::currentDateTimeUtc();
+        snapshot.folders.append(second);
+
+        PTFStorage storage;
+        QVERIFY(storage.setStoragePath(directory.path()));
+        auto *catalog = storage.replaceNativeFolderCatalogAsync(snapshot);
+        QVERIFY(catalog->isFinished());
+        QCOMPARE(catalog->state(), StorageJob::Succeeded);
+        delete catalog;
+
+        Note note = storage.createNote();
+        note.setTitle(QStringLiteral("Save despite index failure"));
+        note.setText(QStringLiteral("Original body"), Note::Markdown);
+        QVERIFY(storage.saveNote(note));
+        note = storage.noteList().constFirst();
+        note.setFolderId(firstFolder);
+        auto *move = storage.changeNoteFolderAsync(note);
+        QVERIFY(move->isFinished());
+        QCOMPARE(move->state(), StorageJob::Succeeded);
+        delete move;
+
+        // Retain the assignment in the backup, then damage only the primary.
+        catalog = storage.replaceNativeFolderCatalogAsync(storage.nativeFolderCatalog());
+        QVERIFY(catalog->isFinished());
+        QCOMPARE(catalog->state(), StorageJob::Succeeded);
+        delete catalog;
+        QFile damaged(directory.filePath(QStringLiteral(".qtnote-folders.json")));
+        QVERIFY(damaged.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QVERIFY(damaged.write("corrupt") > 0);
+        damaged.close();
+
+        QVERIFY(note.load());
+        note.setFolderId(secondFolder);
+        note.setText(QStringLiteral("Committed body"), Note::Markdown);
+        QSignalSpy errors(&storage, &NoteStorage::storageErorr);
+        QVERIFY(storage.saveNote(note));
+        QCOMPARE(errors.size(), 1);
+        QVERIFY(!storage.folderCatalogAvailable());
+
+        Note saved = storage.note(note.id());
+        QVERIFY(!saved.isNull());
+        QCOMPARE(saved.text(), QStringLiteral("Committed body"));
     }
 };
 

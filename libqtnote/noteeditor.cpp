@@ -103,21 +103,24 @@ void NoteEditor::loadFromNote()
         text_.clear();
         baselineText_ = text_;
         format_ = baselineFormat_ = Note::PlainText;
+        baselineFolderId_         = {};
         return;
     }
     if (!note_.isLoaded())
         note_.load();
-    format_         = note_.format() == Note::PlainText ? Note::PlainText : Note::Markdown;
-    text_           = format_ == Note::PlainText ? note_.title() + QLatin1Char('\n') + note_.text()
-                                                 : note_.title() + QLatin1String("\n\n") + note_.text();
-    baselineText_   = text_;
-    baselineFormat_ = format_;
+    format_           = note_.format() == Note::PlainText ? Note::PlainText : Note::Markdown;
+    text_             = format_ == Note::PlainText ? note_.title() + QLatin1Char('\n') + note_.text()
+                                                   : note_.title() + QLatin1String("\n\n") + note_.text();
+    baselineText_     = text_;
+    baselineFormat_   = format_;
+    baselineFolderId_ = note_.folderId();
 }
 
 void NoteEditor::adoptEditingDraft(const DraftRecord &draft)
 {
     note_.setTitle(draft.title);
     note_.setText(draft.body, draft.format);
+    note_.setFolderId(draft.folderId);
     note_.setMedia(draft.media);
     note_.setBackendData(draft.backendData);
     draftPersisted_ = true;
@@ -153,7 +156,8 @@ bool NoteEditor::save()
     }
 
     const bool hasEditingDraft = draftPersisted_ || bool(drafts_->editingDraft(draftId_));
-    if (text_ == baselineText_ && format_ == baselineFormat_ && !hasEditingDraft) {
+    if (text_ == baselineText_ && format_ == baselineFormat_ && !metadataDirty_ && !hasEditingDraft) {
+        setMetadataDirty(false);
         setDirty(false);
         return true;
     }
@@ -179,6 +183,8 @@ bool NoteEditor::save()
         return setError(result.message);
     }
 
+    baselineFolderId_ = note_.folderId();
+    setMetadataDirty(false);
     setDirty(false);
     draftPersisted_ = true;
     if (const auto draft = drafts_->editingDraft(draftId_); draft)
@@ -241,12 +247,30 @@ bool NoteEditor::discardAndClose()
     draftPersisted_ = false;
     drafts_->releaseEditingSession(draftId_);
     sessionReleased_ = true;
+    setMetadataDirty(false);
     setDirty(false);
     return true;
 }
 
 void NoteEditor::setDirty(bool dirty)
 {
+    if (contentDirty_ == dirty)
+        return;
+    contentDirty_ = dirty;
+    updateDirty();
+}
+
+void NoteEditor::setMetadataDirty(bool dirty)
+{
+    if (metadataDirty_ == dirty)
+        return;
+    metadataDirty_ = dirty;
+    updateDirty();
+}
+
+void NoteEditor::updateDirty()
+{
+    const auto dirty = contentDirty_ || metadataDirty_;
     if (dirty_ == dirty)
         return;
     dirty_ = dirty;
@@ -271,6 +295,23 @@ void NoteEditor::setMedia(const QList<MediaReference> &media)
     note_.setMedia(media);
     updateMediaPreviewUrls();
     emit mediaChanged(media);
+}
+
+void NoteEditor::setFolderId(const QUuid &folderId)
+{
+    if (note_.isNull() || note_.folderId() == folderId)
+        return;
+    note_.setFolderId(folderId);
+    setMetadataDirty(note_.folderId() != baselineFolderId_);
+    emit folderIdChanged();
+}
+
+void NoteEditor::markFolderPersisted(const QUuid &folderId)
+{
+    if (note_.isNull() || note_.folderId() != folderId)
+        return;
+    baselineFolderId_ = folderId;
+    setMetadataDirty(false);
 }
 
 QObject *NoteEditor::blockModel() const { return model_; }
@@ -410,14 +451,18 @@ bool NoteEditor::reloadNewerDraft()
     const auto draft = drafts_->editingDraft(draftId_);
     if (!draft || draft.value.state != DraftRecord::Editing || draft.value.revision <= draftRevision_)
         return false;
+    const auto previousFolderId = note_.folderId();
     adoptEditingDraft(draft.value);
     loadFromNote();
     media_ = note_.media();
     model_->load(text_, isMarkdown());
     updateMediaPreviewUrls();
+    setMetadataDirty(false);
     setDirty(false);
     emit textChanged();
     emit formatChanged();
+    if (previousFolderId != note_.folderId())
+        emit folderIdChanged();
     return true;
 }
 

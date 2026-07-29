@@ -17,5 +17,6 @@
         <file alias="preferences-system-symbolic.svg">images/preferences-system-symbolic.svg</file>
         <file alias="format-list-unordered-symbolic.svg">images/format-list-unordered-symbolic.svg</file>
         <file alias="user-trash-full-symbolic.svg">images/user-trash-full-symbolic.svg</file>
+        <file alias="folder-symbolic.svg">images/folder-symbolic.svg</file>
     </qresource>
 </RCC>

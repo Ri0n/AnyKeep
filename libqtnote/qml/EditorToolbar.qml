@@ -8,6 +8,7 @@ ToolBar {
     required property var editorBackend
     required property var blockEditor
     property var platformBackend: null
+    property var folderWorkspace: null
     property bool compact: false
     property bool showBackButton: false
     property bool showDeleteButton: false
@@ -99,6 +100,16 @@ ToolBar {
         return true
     }
 
+    function assignCurrentNoteFolder(folderId) {
+        if (!root.folderWorkspace || !root.editorBackend || !root.blockEditor)
+            return false
+        // A pending TextArea edit is not necessarily reflected in the C++
+        // backend yet.  Flush it before the workspace decides whether the
+        // assignment is metadata-only or needs to travel with a dirty draft.
+        root.blockEditor.flushPendingEditorChanges()
+        return root.folderWorkspace.assignCurrentNoteFolder(folderId)
+    }
+
     function setMarkdownMode(markdown) {
         if (!root.editorBackend || !root.blockEditor || root.editorBackend.markdown === markdown)
             return
@@ -132,9 +143,13 @@ ToolBar {
     readonly property int controlSize: 36
     readonly property int iconSize: 20
     readonly property string fallbackIconTintMode: showMobileActions ? "light" : "auto"
+    readonly property bool folderPickerAvailable: root.folderWorkspace !== null
+                                               && root.folderWorkspace !== undefined
+                                               && root.folderWorkspace.folderCatalogAvailable
     readonly property int mandatoryButtonCount: 3
                                                 + (showBackButton ? 1 : 0)
                                                 + (microphoneVisible ? 1 : 0)
+                                                + (folderPickerAvailable ? 1 : 0)
                                                 + (showDeleteButton ? 1 : 0)
     readonly property real optionalWidth: width - 16
                                           - mandatoryButtonCount * controlSize
@@ -388,6 +403,35 @@ ToolBar {
             Layout.minimumWidth: 0
             Layout.preferredWidth: 0
             Layout.fillHeight: true
+        }
+
+        ToolButton {
+            id: folderPickerButton
+            objectName: "editorFolderPickerButton"
+            visible: root.folderPickerAvailable
+            Layout.preferredWidth: root.controlSize
+            Layout.preferredHeight: root.controlSize
+            display: AbstractButton.IconOnly
+            contentItem: ThemedIcon {
+                themeName: "folder-symbolic"
+                fallbackName: "folder-symbolic.svg"
+                recolorFallback: true
+                fallbackTintMode: root.fallbackIconTintMode
+                pixelSize: root.iconSize
+            }
+            Accessible.name: qsTr("Move to folder")
+            ToolTip.visible: hovered
+            ToolTip.text: Accessible.name
+            onClicked: folderPicker.open()
+
+            FolderPickerMenu {
+                id: folderPicker
+                objectName: "editorFolderPicker"
+                workspace: root.folderWorkspace
+                currentFolderId: root.folderWorkspace
+                                 ? String(root.folderWorkspace.currentFolderId || "") : ""
+                onFolderSelected: function(folderId) { root.assignCurrentNoteFolder(folderId) }
+            }
         }
 
         ToolButton {

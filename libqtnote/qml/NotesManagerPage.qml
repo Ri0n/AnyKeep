@@ -11,6 +11,7 @@ Item {
 
     readonly property int recentMode: 0
     readonly property int groupedByStorageMode: 1
+    readonly property int foldersMode: 2
 
     required property var workspace
     property var platformBackend: null
@@ -200,6 +201,20 @@ Item {
             noteContextMenu.popup(root, position)
         else
             noteContextMenu.popup()
+    }
+
+    function selectedNoteFolderId() {
+        if (!selectedStorageId || !selectedNoteId)
+            return ""
+        return workspace.folderIdForNote(selectedStorageId, selectedNoteId)
+    }
+
+    function assignSelectedNoteFolder(folderId) {
+        if (!selectedStorageId || !selectedNoteId)
+            return false
+        if (workspace.currentEditor && !checkpointEditor())
+            return false
+        return workspace.assignNoteFolder(selectedStorageId, selectedNoteId, folderId)
     }
 
     function showStorageMenu(storageId, title, position) {
@@ -600,10 +615,11 @@ Item {
 
                         TabButton { text: qsTr("Recent") }
                         TabButton { text: qsTr("By storage") }
+                        TabButton { text: qsTr("Folders") }
                     }
 
                     RowLayout {
-                        visible: root.touchActions
+                        visible: root.touchActions && root.viewMode !== root.foldersMode
                         Layout.fillWidth: !root.showViewModeSelector
                         Layout.alignment: Qt.AlignRight
                         spacing: 4
@@ -627,10 +643,11 @@ Item {
 
                 Pane {
                     id: searchPane
+                    visible: root.viewMode !== root.foldersMode
                     Layout.fillWidth: true
-                    Layout.preferredHeight: root.searchExpanded
+                    Layout.preferredHeight: visible && root.searchExpanded
                                             ? searchLayout.implicitHeight + topPadding + bottomPadding : 0
-                    enabled: root.searchExpanded
+                    enabled: visible && root.searchExpanded
                     padding: 6
                     clip: true
                     opacity: root.searchExpanded ? 1 : 0
@@ -658,7 +675,7 @@ Item {
                             }
 
                             ToolButton {
-                                visible: root.showCreateButton
+                                visible: root.showCreateButton && root.viewMode !== root.foldersMode
                                 Layout.preferredWidth: 27
                                 Layout.preferredHeight: 27
                                 padding: 3
@@ -1162,9 +1179,37 @@ Item {
                         }
                     }
 
+                    Loader {
+                        id: foldersPageLoader
+
+                        anchors.fill: parent
+                        active: root.viewMode === root.foldersMode
+                        sourceComponent: Component {
+                            FoldersPage {
+                                anchors.fill: parent
+                                workspace: root.workspace
+                                touchActions: root.touchActions
+                                embeddedEditor: root.embeddedEditor
+                                currentStorageId: root.selectedStorageId
+                                currentNoteId: root.selectedNoteId
+                                checkpointHandler: function() { return root.checkpointEditor() }
+                                onNoteActivated: function(storageId, noteId, title) {
+                                    root.selectNote(storageId, noteId, title)
+                                }
+                                onNoteStandaloneRequested: function(storageId, noteId) {
+                                    root.openStandalone(storageId, noteId)
+                                }
+                                onNoteMenuRequested: function(storageId, noteId, title, position) {
+                                    root.showNoteMenu(storageId, noteId, title, position)
+                                }
+                            }
+                        }
+                    }
+
                     Label {
                         anchors.centerIn: parent
-                        visible: root.workspace.noteCount === 0 && !root.workspace.busy
+                        visible: root.viewMode !== root.foldersMode
+                                 && root.workspace.noteCount === 0 && !root.workspace.busy
                         width: Math.min(parent.width - 32, 360)
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
@@ -1174,7 +1219,8 @@ Item {
 
                     BusyIndicator {
                         anchors.centerIn: parent
-                        running: root.workspace.busy && root.workspace.noteCount === 0
+                        running: root.viewMode !== root.foldersMode
+                                 && root.workspace.busy && root.workspace.noteCount === 0
                         visible: running
                     }
                 }
@@ -1203,6 +1249,7 @@ Item {
                 visible: root.workspace.currentEditor !== null
                 editor: root.workspace.currentEditor
                 platformBackend: root.platformBackend
+                folderWorkspace: root.workspace
                 showDeleteButton: true
                 showDesktopActions: root.desktopActions !== null
                 microphoneVisible: root.speechController && root.speechController.available
@@ -1273,6 +1320,13 @@ Item {
         CompactContextMenuItem {
             text: qsTr("Move…")
             onTriggered: moveDialog.open()
+        }
+        FolderPickerMenu {
+            id: noteFolderPicker
+            visible: root.workspace.folderCatalogAvailable
+            workspace: root.workspace
+            currentFolderId: root.selectedNoteFolderId()
+            onFolderSelected: function(folderId) { root.assignSelectedNoteFolder(folderId) }
         }
         CompactContextSeparator { }
         CompactContextMenuItem {

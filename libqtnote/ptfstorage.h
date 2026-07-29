@@ -23,6 +23,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #define PTFSTORAGE_H
 
 #include "filestorage.h"
+#include "foldercatalog.h"
 
 namespace QtNote {
 
@@ -48,6 +49,20 @@ public:
     bool saveNote(const Note &note) override;
     void removeNote(const QString &noteId) override;
 
+    bool                  supportsNativeFolders() const override { return true; }
+    bool                  supportsNativeFolderCatalog() const override { return true; }
+    FolderCatalogSnapshot nativeFolderCatalog() const override;
+    bool                  nativeFolderCatalogAvailable() const override { return folderCatalogAvailable_; }
+    QString               nativeFolderCatalogErrorString() const override { return folderCatalogError_; }
+    NoteFolderChangeJob  *changeNoteFolderAsync(const Note &note, QObject *owner = nullptr) override;
+    FolderCatalogJob     *replaceNativeFolderCatalogAsync(const FolderCatalogSnapshot &snapshot,
+                                                          QObject                     *owner = nullptr) override;
+
+    bool               folderCatalogAvailable() const { return folderCatalogAvailable_; }
+    QString            folderCatalogErrorString() const { return folderCatalogError_; }
+    FolderCatalogError restoreFolderCatalogBackup(QString *preservedPath = nullptr);
+    FolderCatalogError recreateFolderCatalog(QString *preservedPath = nullptr);
+
     QList<Note::Format> availableFormats() const override;
     qint64              requestedModificationTimeResolutionMs() const override { return 1; }
     NoteReorderJob     *reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId,
@@ -56,6 +71,16 @@ public:
     QString             findStorageDir() const override;
 
     static QString storageId;
+
+private:
+    void               loadFolderCatalog();
+    QUuid              folderIdForNote(const QString &noteId) const;
+    FolderCatalogError replaceFolderCatalog(const FolderCatalogSnapshot &snapshot);
+    FolderCatalogError updateFolderAssignment(const QString &oldNoteId, const Note &saved);
+
+    FolderCatalogSnapshot folderCatalog_;
+    bool                  folderCatalogAvailable_ { true };
+    QString               folderCatalogError_;
 };
 
 } // namespace QtNote

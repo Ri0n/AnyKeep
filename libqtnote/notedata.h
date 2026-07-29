@@ -26,6 +26,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QSharedData>
 #include <QString>
 #include <QStringList>
+#include <QUuid>
 #include <QVariantMap>
 
 #include "note.h"
@@ -77,6 +78,7 @@ protected:
     QString               title_;
     QString               text_;
     QStringList           tags_;
+    QUuid                 folderId_;
     QDateTime             lastChange_;
     QVariantMap           backendData_;
     QList<MediaReference> media_;

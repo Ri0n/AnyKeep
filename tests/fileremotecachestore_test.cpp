@@ -1,6 +1,7 @@
 #include "fileremotecachestore.h"
 #include "secureenvelope.h"
 
+#include <QDataStream>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -20,6 +21,7 @@ private slots:
     void roundTrip();
     void rejectsWrongInstance();
     void rejectsTampering();
+    void readsVersionTwoWithoutFolder();
 };
 
 static RemoteCacheRecord sampleRecord()
@@ -32,6 +34,7 @@ static RemoteCacheRecord sampleRecord()
     record.format      = Note::Markdown;
     record.body        = QStringLiteral("# Cached note\nBody");
     record.bodyPresent = true;
+    record.folderId    = QUuid::createUuid();
     record.backendData.insert(QStringLiteral("revision"), QStringLiteral("r1"));
     record.syncState    = RemoteCacheRecord::Synced;
     record.lastOpenedAt = QDateTime::fromSecsSinceEpoch(1700000100, TimeZoneUTC);
@@ -62,6 +65,7 @@ void FileRemoteCacheStoreTest::roundTrip()
     QCOMPARE(record.id, QStringLiteral("note-1"));
     QCOMPARE(record.body, QStringLiteral("# Cached note\nBody"));
     QVERIFY(record.bodyPresent);
+    QCOMPARE(record.folderId, expected.folderId);
     QCOMPARE(record.backendData.value(QStringLiteral("revision")).toString(), QStringLiteral("r1"));
     QVERIFY(record.cachedAt.isValid());
     QCOMPARE(record.media.size(), 1);
@@ -73,6 +77,38 @@ void FileRemoteCacheStoreTest::roundTrip()
     QCOMPARE(store.records().value.first().body, QStringLiteral("changed"));
     QVERIFY(!store.remove(record.id));
     QVERIFY(store.records().value.isEmpty());
+}
+
+void FileRemoteCacheStoreTest::readsVersionTwoWithoutFolder()
+{
+    constexpr quint32 PayloadMagic = 0x514e5243; // QNRC
+    QTemporaryDir     directory;
+    QVERIFY(directory.isValid());
+    const auto path   = directory.filePath(QStringLiteral("cache.bin"));
+    const auto key    = SecureEnvelope::generateMasterKey();
+    const auto record = sampleRecord();
+
+    QByteArray  bytes;
+    QDataStream out(&bytes, QIODevice::WriteOnly);
+    out.setVersion(QDataStream::Qt_5_10);
+    out << PayloadMagic << quint16(2) << quint32(1) << record.id << record.title << record.tags << record.modified
+        << quint8(record.format) << record.body << record.bodyPresent << record.backendData << quint8(record.syncState)
+        << record.lastOpenedAt << record.cachedAt << quint32(0);
+    const AeadContext context { KeyDomain::LocalRemoteCache, QStringLiteral("qtnote-remote-cache"),
+                                QStringLiteral("instance-1"), 1, QStringLiteral("records") };
+    const auto        sealed = SecureEnvelope::seal(bytes, key, context);
+    QVERIFY2(sealed, qPrintable(sealed.error.message));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(sealed.value), sealed.value.size());
+    file.close();
+
+    FileRemoteCacheStore store(path, QStringLiteral("instance-1"), key);
+    const auto           loaded = store.records();
+    QVERIFY2(loaded, qPrintable(loaded.error.message));
+    QCOMPARE(loaded.value.size(), 1);
+    QCOMPARE(loaded.value.first().id, record.id);
+    QVERIFY(loaded.value.first().folderId.isNull());
 }
 
 void FileRemoteCacheStoreTest::rejectsWrongInstance()

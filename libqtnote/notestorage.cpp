@@ -205,6 +205,24 @@ NoteSaveJob *NoteStorage::saveNoteAsync(const Note &note, QObject *owner)
     return job;
 }
 
+NoteFolderChangeJob *NoteStorage::changeNoteFolderAsync(const Note &note, QObject *owner)
+{
+    Q_UNUSED(note)
+    auto *job = new NoteFolderChangeJob(owner ? owner : this);
+    job->start();
+    job->fail({ StorageError::Other, tr("This storage does not support folders"), false });
+    return job;
+}
+
+FolderCatalogJob *NoteStorage::replaceNativeFolderCatalogAsync(const FolderCatalogSnapshot &snapshot, QObject *owner)
+{
+    Q_UNUSED(snapshot)
+    auto *job = new FolderCatalogJob(owner ? owner : this);
+    job->start();
+    job->fail({ StorageError::Other, tr("This storage does not support a native folder catalog"), false });
+    return job;
+}
+
 NoteRemoveJob *NoteStorage::removeNoteAsync(const QString &id, QObject *owner)
 {
     auto *job = new NoteRemoveJob(owner ? owner : this);

@@ -8,6 +8,7 @@
 #include <QList>
 #include <QString>
 #include <QStringList>
+#include <QUuid>
 #include <QVariantMap>
 
 namespace QtNote {
@@ -22,6 +23,7 @@ struct QTNOTE_EXPORT RemoteCacheRecord {
     Note::Format          format { Note::PlainText };
     QString               body;
     bool                  bodyPresent { false };
+    QUuid                 folderId;
     QVariantMap           backendData;
     SyncState             syncState { Synced };
     QDateTime             lastOpenedAt;

@@ -30,6 +30,7 @@ class QTNOTE_EXPORT NoteEditor final : public QObject {
     Q_PROPERTY(QString draftId READ draftIdString CONSTANT)
     Q_PROPERTY(QString storageId READ storageId CONSTANT)
     Q_PROPERTY(QString noteId READ noteId CONSTANT)
+    Q_PROPERTY(QString folderId READ folderIdString NOTIFY folderIdChanged)
     Q_PROPERTY(bool supportsMedia READ supportsMedia CONSTANT)
     Q_PROPERTY(bool canInsertImages READ canInsertImages NOTIFY formatChanged)
     Q_PROPERTY(QObject *blockModel READ blockModel CONSTANT)
@@ -55,12 +56,14 @@ public:
     QString               draftIdString() const { return draftId_.toString(QUuid::WithoutBraces); }
     QString               storageId() const { return note_.storageId(); }
     QString               noteId() const { return note_.id(); }
+    QString               folderIdString() const { return folderId().toString(QUuid::WithoutBraces); }
     bool                  supportsMedia() const;
     bool                  canInsertImages() const;
     QString               text() const { return text_; }
     bool                  isMarkdown() const { return format_ != Note::PlainText; }
     Note::Format          format() const { return format_; }
     bool                  isDirty() const { return dirty_; }
+    QUuid                 folderId() const { return note_.folderId(); }
     bool                  hasPersistedDraft() const { return draftPersisted_; }
     QString               errorString() const { return errorString_; }
     QObject              *blockModel() const;
@@ -73,6 +76,9 @@ public:
     bool                  historyInTransaction() const;
 
     void setMedia(const QList<MediaReference> &media);
+    void setFolderId(const QUuid &folderId);
+    /** Marks the current folder metadata as durably stored without touching document content. */
+    void markFolderPersisted(const QUuid &folderId);
     void loadDocument(const QString &contents, Note::Format format, LoadPolicy policy = LoadPolicy::ResetHistory);
     void resetContent(const QString &text, Note::Format format);
     void resetHistory();
@@ -118,6 +124,7 @@ signals:
     void formatChanged();
     void dirtyChanged();
     void errorStringChanged();
+    void folderIdChanged();
     void mediaChanged(const QList<MediaReference> &media);
     void mediaInserted(const QList<MediaReference> &media);
     void documentLoaded(bool formatChanged, bool formatConversion);
@@ -135,6 +142,8 @@ private:
     NoteFragment          documentFragment() const;
     NoteFragment          withMedia(NoteFragment fragment) const;
     void                  setDirty(bool dirty);
+    void                  setMetadataDirty(bool dirty);
+    void                  updateDirty();
     bool                  setError(const QString &error);
     Note                  note_;
     DraftManager         *drafts_ { nullptr };
@@ -144,6 +153,9 @@ private:
     QString               baselineText_;
     Note::Format          format_ { Note::PlainText };
     Note::Format          baselineFormat_ { Note::PlainText };
+    QUuid                 baselineFolderId_;
+    bool                  contentDirty_ { false };
+    bool                  metadataDirty_ { false };
     bool                  dirty_ { false };
     bool                  draftPersisted_ { false };
     bool                  sessionReleased_ { false };

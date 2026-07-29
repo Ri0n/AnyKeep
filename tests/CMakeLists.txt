@@ -43,6 +43,27 @@ add_executable(filedraftstore_test filedraftstore_test.cpp)
 target_link_libraries(filedraftstore_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME filedraftstore_test COMMAND filedraftstore_test)
 
+add_executable(foldercatalog_test foldercatalog_test.cpp)
+target_link_libraries(foldercatalog_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME foldercatalog_test COMMAND foldercatalog_test)
+
+add_executable(foldercatalogmanager_test foldercatalogmanager_test.cpp)
+target_link_libraries(foldercatalogmanager_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME foldercatalogmanager_test COMMAND foldercatalogmanager_test)
+
+add_executable(foldernotesmodel_test foldernotesmodel_test.cpp)
+target_link_libraries(foldernotesmodel_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME foldernotesmodel_test COMMAND foldernotesmodel_test)
+
+add_executable(folderoperationscontroller_test folderoperationscontroller_test.cpp)
+target_link_libraries(folderoperationscontroller_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME folderoperationscontroller_test COMMAND folderoperationscontroller_test)
+
+add_executable(notesworkspacefolders_test notesworkspacefolders_test.cpp)
+target_link_libraries(notesworkspacefolders_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME notesworkspacefolders_test COMMAND notesworkspacefolders_test)
+set_tests_properties(notesworkspacefolders_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software")
+
 add_executable(fileremotecachestore_test fileremotecachestore_test.cpp)
 target_link_libraries(fileremotecachestore_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME fileremotecachestore_test COMMAND fileremotecachestore_test)

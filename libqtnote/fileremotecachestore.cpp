@@ -12,7 +12,7 @@
 namespace QtNote {
 namespace {
     constexpr quint32 PayloadMagic   = 0x514e5243; // QNRC
-    constexpr quint16 PayloadVersion = 2;
+    constexpr quint16 PayloadVersion = 3;
     // Consumer schema passed to SecureEnvelope::associatedData(); see AeadContext::schema.
     constexpr quint32 AeadContextSchema = 1;
 
@@ -52,7 +52,7 @@ namespace {
         for (const auto &record : records) {
             out << record.id << record.title << record.tags << record.modified << quint8(record.format) << record.body
                 << record.bodyPresent << record.backendData << quint8(record.syncState) << record.lastOpenedAt
-                << record.cachedAt;
+                << record.cachedAt << record.folderId;
             writeMedia(out, record.media);
         }
         return bytes;
@@ -66,7 +66,7 @@ namespace {
         QDataStream in(bytes);
         in.setVersion(QDataStream::Qt_5_10);
         in >> magic >> version >> count;
-        if (magic != PayloadMagic || version != PayloadVersion || count > 1000000)
+        if (magic != PayloadMagic || (version != 2 && version != PayloadVersion) || count > 1000000)
             return { {}, error(RemoteCacheError::Corrupt, QStringLiteral("Unsupported remote cache payload")) };
 
         QList<RemoteCacheRecord> records;
@@ -78,6 +78,8 @@ namespace {
             quint8            state  = 0;
             in >> record.id >> record.title >> record.tags >> record.modified >> format >> record.body
                 >> record.bodyPresent >> record.backendData >> state >> record.lastOpenedAt >> record.cachedAt;
+            if (version >= 3)
+                in >> record.folderId;
             if (!readMedia(in, record.media))
                 return { {}, error(RemoteCacheError::Corrupt, QStringLiteral("Invalid remote cache media manifest")) };
             if (record.id.isEmpty() || ids.contains(record.id) || format > Note::Html

@@ -65,15 +65,18 @@ private slots:
 
         edited.setTitle(QStringLiteral("Changed"));
         edited.setText(QStringLiteral("New body"), Note::PlainText);
+        edited.setFolderId(QUuid::createUuid());
         edited.setLastChangeUTC(QDateTime::currentDateTimeUtc());
         edited.setBackendValue(QStringLiteral("revision"), 2);
 
         QCOMPARE(original.title(), QStringLiteral("Title"));
         QCOMPARE(original.text(), QStringLiteral("Body"));
+        QVERIFY(original.folderId().isNull());
         QVERIFY(!original.lastChangeUTC().isValid());
         QVERIFY(!original.backendValue(QStringLiteral("revision")).isValid());
         QCOMPARE(edited.title(), QStringLiteral("Changed"));
         QCOMPARE(edited.text(), QStringLiteral("New body"));
+        QVERIFY(!edited.folderId().isNull());
     }
 
     void unchangedEditorDoesNotCreateDraft()
@@ -109,6 +112,65 @@ private slots:
 
         QVERIFY(editor.close());
         QCOMPARE(data->drafts.value(editor.draftId()).state, DraftRecord::NeedsRouting);
+    }
+
+    void folderOnlyChangeIsCheckpointed()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(plainNote(), drafts);
+        const auto   folder = QUuid::createUuid();
+
+        editor.setFolderId(folder);
+        QVERIFY(editor.isDirty());
+        QVERIFY(editor.save());
+        QVERIFY(!editor.isDirty());
+        QCOMPARE(data->drafts.value(editor.draftId()).folderId, folder);
+
+        editor.setFolderId({});
+        QVERIFY(editor.isDirty());
+        QVERIFY(editor.save());
+        QVERIFY(data->drafts.value(editor.draftId()).folderId.isNull());
+    }
+
+    void metadataOnlyFolderPersistenceLeavesContentDirtyStateIntact()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(plainNote(), drafts);
+        const auto   folder = QUuid::createUuid();
+        QSignalSpy   folderChanged(&editor, &NoteEditor::folderIdChanged);
+
+        editor.setFolderId(folder);
+        QCOMPARE(folderChanged.count(), 1);
+        QVERIFY(editor.isDirty());
+        editor.markFolderPersisted(folder);
+        QVERIFY(!editor.isDirty());
+
+        editor.setText(QStringLiteral("Changed\nBody"));
+        QVERIFY(editor.isDirty());
+        editor.markFolderPersisted(folder);
+        QVERIFY(editor.isDirty());
+    }
+
+    void editingDraftRestoresFolderMetadata()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        DraftRecord  draft;
+        draft.id       = QUuid::createUuid();
+        draft.title    = QStringLiteral("Draft title");
+        draft.body     = QStringLiteral("Draft body");
+        draft.format   = Note::PlainText;
+        draft.folderId = QUuid::createUuid();
+        draft.revision = 1;
+        data->drafts.insert(draft.id, draft);
+
+        NoteEditor editor(plainNote(), drafts, draft.id);
+        QCOMPARE(editor.folderId(), draft.folderId);
+        QVERIFY(!editor.isDirty());
     }
 
     void modelEditIsCheckpointed()

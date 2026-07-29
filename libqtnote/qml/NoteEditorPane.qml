@@ -9,6 +9,10 @@ Item {
 
     required property var editor
     property var platformBackend: null
+    // A NotesWorkspaceController when this editor belongs to a workspace.
+    // Standalone legacy editor hosts intentionally leave it null until they
+    // can participate in the same draft-aware folder assignment lifecycle.
+    property var folderWorkspace: null
     property bool compactToolbar: false
     property bool showBackButton: false
     property bool showDeleteButton: true
@@ -128,6 +132,7 @@ Item {
             editorBackend: root.editor
             blockEditor: editorView
             platformBackend: root.platformBackend
+            folderWorkspace: root.folderWorkspace
             compact: root.compactToolbar
             showBackButton: root.showBackButton
             showDeleteButton: root.showDeleteButton

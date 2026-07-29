@@ -13,12 +13,16 @@ set(CMAKE_AUTOUIC ON)
 file(GLOB libqtnote_SRCS CONFIGURE_DEPENDS "./*.cpp")
 file(GLOB libqtnote_HDRS CONFIGURE_DEPENDS "./*.h")
 file(GLOB libqtnote_UIS CONFIGURE_DEPENDS "./*.ui")
-set(libqtnote_PRIVATE_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/notedocumenthistory.h")
+set(libqtnote_PRIVATE_HDRS
+    "${CMAKE_CURRENT_SOURCE_DIR}/notedocumenthistory.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ptffolderindex.h"
+)
 list(APPEND libqtnote_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/iconutils.cpp")
 list(APPEND libqtnote_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/iconutils.h")
 list(REMOVE_DUPLICATES libqtnote_SRCS)
 list(REMOVE_DUPLICATES libqtnote_HDRS)
 list(FILTER libqtnote_HDRS EXCLUDE REGEX "/notedocumenthistory\\.h$")
+list(FILTER libqtnote_HDRS EXCLUDE REGEX "/ptffolderindex\\.h$")
 list(REMOVE_ITEM libqtnote_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/freedesktopnotifier.cpp")
 list(REMOVE_ITEM libqtnote_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/freedesktopnotifier.h")
 list(REMOVE_ITEM libqtnote_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/qtnotedbus.cpp")
@@ -51,8 +55,13 @@ set(qtnote_CORE_SRCS
     editorplatformbackend.cpp
     draftmanager.cpp
     filedraftstore.cpp
+    filefoldercatalogstore.cpp
     fileremotecachestore.cpp
     filestorage.cpp
+    foldercatalog.cpp
+    foldercatalogmanager.cpp
+    foldernotesmodel.cpp
+    folderoperationscontroller.cpp
     iconutils.cpp
     localdatakeystore.cpp
     localmediaimageprovider.cpp
@@ -78,6 +87,7 @@ set(qtnote_CORE_SRCS
     notestorage.cpp
     notetransfercontroller.cpp
     ptfstorage.cpp
+    ptffolderindex.cpp
     secureenvelope.cpp
     securekeystore.cpp
     spellcheckprovider.cpp
@@ -99,8 +109,13 @@ set(qtnote_CORE_HDRS
     draftmanager.h
     draftstore.h
     filedraftstore.h
+    filefoldercatalogstore.h
     fileremotecachestore.h
     filestorage.h
+    foldercatalog.h
+    foldercatalogmanager.h
+    foldernotesmodel.h
+    folderoperationscontroller.h
     localdatakeystore.h
     localmediaimageprovider.h
     localmediastore.h
@@ -126,6 +141,7 @@ set(qtnote_CORE_HDRS
     notestorage.h
     notetransfercontroller.h
     ptfstorage.h
+    ptffolderindex.h
     remotecachestore.h
     secureenvelope.h
     securekeystore.h

@@ -61,4 +61,12 @@ bool NoteSaveJob::complete(const Note &result)
     return StorageJob::complete();
 }
 
+bool NoteFolderChangeJob::complete(const Note &result)
+{
+    if (isFinished())
+        return false;
+    result_ = result;
+    return StorageJob::complete();
+}
+
 } // namespace QtNote

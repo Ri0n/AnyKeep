@@ -25,6 +25,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QExplicitlySharedDataPointer>
 #include <QString>
 #include <QStringList>
+#include <QUuid>
 #include <QVariant>
 #include <QVariantMap>
 #include <qdatetime.h>
@@ -63,6 +64,7 @@ public:
     void setId(const QString &id);
     void setFormat(Format format);
     void setTags(const QStringList &tags);
+    void setFolderId(const QUuid &folderId);
     void unload();
     void setLastChangeUTC(const QDateTime &lastChange);
     void setBackendValue(const QString &key, const QVariant &value);
@@ -75,6 +77,7 @@ public:
     QString               title() const;
     QString               displayTitle() const;
     QStringList           tags() const;
+    QUuid                 folderId() const;
     NoteData             *data() const;
     Format                format() const;
     QDateTime             lastChangeUTC() const;

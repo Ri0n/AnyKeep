@@ -96,6 +96,36 @@ private:
     Note result_;
 };
 
+/**
+ * Completes a metadata-only folder change and returns the canonical note
+ * summary.  It deliberately mirrors NoteSaveJob rather than reusing it: a
+ * storage can update folder metadata without rewriting the note body.
+ */
+class QTNOTE_EXPORT NoteFolderChangeJob final : public StorageJob {
+    Q_OBJECT
+public:
+    using StorageJob::StorageJob;
+
+    const Note &result() const { return result_; }
+    bool        complete(const Note &result);
+    using StorageJob::fail;
+
+private:
+    Note result_;
+};
+
+/**
+ * Signals completion of a native folder-catalog replacement.  The catalog is
+ * supplied by the caller, so a separate result payload is unnecessary.
+ */
+class QTNOTE_EXPORT FolderCatalogJob final : public StorageJob {
+    Q_OBJECT
+public:
+    using StorageJob::complete;
+    using StorageJob::fail;
+    using StorageJob::StorageJob;
+};
+
 class QTNOTE_EXPORT NoteRemoveJob final : public StorageJob {
     Q_OBJECT
 public:

@@ -119,6 +119,14 @@ void Note::setTags(const QStringList &tags)
     d->setTags(tags);
 }
 
+void Note::setFolderId(const QUuid &folderId)
+{
+    if (!d)
+        return;
+    d.detach();
+    d->folderId_ = folderId;
+}
+
 void Note::unload()
 {
     if (!d)
@@ -190,6 +198,8 @@ QString Note::displayTitle() const
 }
 
 QStringList Note::tags() const { return d ? d->tags() : QStringList(); }
+
+QUuid Note::folderId() const { return d ? d->folderId_ : QUuid {}; }
 
 NoteData *Note::data() const { return d.data(); }
 

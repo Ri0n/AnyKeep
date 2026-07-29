@@ -60,6 +60,8 @@ namespace {
             return QByteArrayLiteral("local-remote-cache");
         case KeyDomain::LocalMedia:
             return QByteArrayLiteral("local-media");
+        case KeyDomain::LocalFolderCatalog:
+            return QByteArrayLiteral("local-folder-catalog");
         }
         return {};
     }

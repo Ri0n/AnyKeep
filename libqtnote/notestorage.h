@@ -28,6 +28,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QPointer>
 #include <QUrl>
 
+#include "foldercatalog.h"
 #include "note.h"
 #include "qtnote_export.h"
 #include "storagejob.h"
@@ -63,6 +64,19 @@ public:
     virtual QList<Note::Format> availableFormats() const = 0;
     virtual bool                supportsMedia() const { return false; }
     virtual bool                supportsNoteReordering() const { return requestedModificationTimeResolutionMs() > 0; }
+    // Native folder support means the provider can persist a note's folder
+    // assignment independently from its body.  Providers without it use the
+    // encrypted application-local overlay instead.
+    virtual bool supportsNativeFolders() const { return false; }
+    // Some providers can also transport stable UUID folder-tree records. The
+    // returned snapshot is the provider's contribution to the global merge.
+    virtual bool                  supportsNativeFolderCatalog() const { return false; }
+    virtual FolderCatalogSnapshot nativeFolderCatalog() const { return {}; }
+    // A provider with a damaged local index must not look like a valid empty
+    // contribution: the global catalog manager uses this state to avoid
+    // overwriting recoverable native data during import/synchronization.
+    virtual bool    nativeFolderCatalogAvailable() const { return supportsNativeFolderCatalog(); }
+    virtual QString nativeFolderCatalogErrorString() const { return {}; }
     // Smallest modification-time step that can survive a save and a reload.
     // Zero means that an explicit modification time is unsupported.
     virtual qint64 requestedModificationTimeResolutionMs() const { return 0; }
@@ -90,15 +104,18 @@ public:
 
     // All consumers should use these methods. The synchronous API above is
     // retained temporarily while storage implementations are being migrated.
-    virtual StorageInitJob *initAsync(QObject *owner = nullptr);
-    virtual NoteListJob    *refreshNotesAsync(int limit = 0, QObject *owner = nullptr);
-    virtual NoteLoadJob    *loadNoteAsync(const QString &id, QObject *owner = nullptr);
-    virtual NoteSaveJob    *saveNoteAsync(const Note &note, QObject *owner = nullptr);
-    virtual NoteRemoveJob  *removeNoteAsync(const QString &id, QObject *owner = nullptr);
-    virtual NoteReorderJob *reorderNoteAsync(const QString &noteId, const QString &afterNoteId,
-                                             QObject *owner = nullptr);
-    virtual NoteReorderJob *reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId,
-                                              QObject *owner = nullptr);
+    virtual StorageInitJob      *initAsync(QObject *owner = nullptr);
+    virtual NoteListJob         *refreshNotesAsync(int limit = 0, QObject *owner = nullptr);
+    virtual NoteLoadJob         *loadNoteAsync(const QString &id, QObject *owner = nullptr);
+    virtual NoteSaveJob         *saveNoteAsync(const Note &note, QObject *owner = nullptr);
+    virtual NoteFolderChangeJob *changeNoteFolderAsync(const Note &note, QObject *owner = nullptr);
+    virtual FolderCatalogJob    *replaceNativeFolderCatalogAsync(const FolderCatalogSnapshot &snapshot,
+                                                                 QObject                     *owner = nullptr);
+    virtual NoteRemoveJob       *removeNoteAsync(const QString &id, QObject *owner = nullptr);
+    virtual NoteReorderJob      *reorderNoteAsync(const QString &noteId, const QString &afterNoteId,
+                                                  QObject *owner = nullptr);
+    virtual NoteReorderJob      *reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId,
+                                                   QObject *owner = nullptr);
 
     // Stops accepting work and synchronously drains implementation-owned workers.
     // Called before the storage object or its plugin code can be unloaded.

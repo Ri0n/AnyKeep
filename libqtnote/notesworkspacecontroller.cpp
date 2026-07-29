@@ -1,6 +1,9 @@
 #include "notesworkspacecontroller.h"
 
 #include "draftmanager.h"
+#include "foldercatalogmanager.h"
+#include "foldernotesmodel.h"
+#include "folderoperationscontroller.h"
 #include "noteeditor.h"
 #include "notemanager.h"
 #include "notesindex.h"
@@ -16,16 +19,26 @@
 #include <QSet>
 #include <QTimer>
 #include <algorithm>
+#include <limits>
 
 namespace QtNote {
 
-NotesWorkspaceController::NotesWorkspaceController(QObject *parent) : QObject(parent)
+NotesWorkspaceController::NotesWorkspaceController(QObject *parent) :
+    NotesWorkspaceController(FolderCatalogManager::instance(), parent)
+{
+}
+
+NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderCatalogManager, QObject *parent) :
+    QObject(parent)
 {
     notesModel_  = new NotesModel(this);
     searchModel_ = new NotesSearchModel(this);
     searchModel_->setSourceModel(notesModel_);
     recentNotesModel_     = new RecentNotesModel(searchModel_, this);
     storagePriorityModel_ = new StoragePriorityModel(this);
+    folderCatalogManager_ = folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance();
+    folderNotesModel_     = new FolderNotesModel(folderCatalogManager_, this);
+    folderOperations_     = new FolderOperationsController(folderCatalogManager_, NoteManager::instance(), this);
 
     connect(notesModel_, &NotesModel::statsChanged, this, &NotesWorkspaceController::noteCountChanged);
     connect(notesModel_, &NotesModel::notesDropRequested, this,
@@ -45,8 +58,33 @@ NotesWorkspaceController::NotesWorkspaceController(QObject *parent) : QObject(pa
     connect(manager, &NoteManager::storageReady, this, &NotesWorkspaceController::storagesChanged);
     connect(manager, &NoteManager::storageOrderChanged, this, &NotesWorkspaceController::storagesChanged);
 
+    connect(folderCatalogManager_, &FolderCatalogManager::availabilityChanged, this,
+            [this](bool) { emit folderCatalogAvailabilityChanged(); });
+    connect(folderOperations_, &FolderOperationsController::busyChanged, this, &NotesWorkspaceController::busyChanged);
+    connect(folderOperations_, &FolderOperationsController::errorStringChanged, this, [this] {
+        if (!folderOperations_->errorString().isEmpty())
+            setError(folderOperations_->errorString());
+    });
+    connect(folderOperations_, &FolderOperationsController::assignmentFinished, this,
+            [this](const QString &storageId, const QString &noteId, const QUuid &folderId, bool nativeStored) {
+                if (!nativeStored)
+                    return;
+                if (!currentEditor_ || currentEditor_->storageId() != storageId || currentEditor_->noteId() != noteId
+                    || currentEditor_->folderId() != folderId) {
+                    return;
+                }
+                currentEditor_->markFolderPersisted(folderId);
+                pendingFolderAssignments_.remove(currentEditor_->draftId());
+            });
+
     auto *drafts = DraftManager::instance();
     connect(drafts, &DraftManager::draftPublished, this, [this, drafts](const QUuid &draftId, const Note &note) {
+        const auto assignment = pendingFolderAssignments_.find(draftId);
+        if (assignment != pendingFolderAssignments_.end() && !note.storageId().isEmpty() && !note.id().isEmpty()) {
+            if (folderOperations_->storeOverlayAssignment(note.storageId(), note.id(), assignment->folderId))
+                pendingFolderAssignments_.erase(assignment);
+        }
+
         if (!pendingMoves_.contains(draftId))
             return;
         const auto move  = pendingMoves_.take(draftId);
@@ -58,6 +96,8 @@ NotesWorkspaceController::NotesWorkspaceController(QObject *parent) : QObject(pa
         endOperation();
     });
     connect(drafts, &DraftManager::draftPublishFailed, this, [this](const QUuid &draftId, const QString &message) {
+        if (pendingFolderAssignments_.contains(draftId))
+            setError(message);
         if (!pendingMoves_.contains(draftId))
             return;
         const auto move = pendingMoves_.take(draftId);
@@ -72,6 +112,7 @@ NotesWorkspaceController::~NotesWorkspaceController() { closeCurrentNote(); }
 QAbstractItemModel *NotesWorkspaceController::notesModel() const { return searchModel_; }
 QAbstractItemModel *NotesWorkspaceController::groupedNotesModel() const { return searchModel_; }
 QAbstractItemModel *NotesWorkspaceController::recentNotesModel() const { return recentNotesModel_; }
+QAbstractItemModel *NotesWorkspaceController::folderNotesModel() const { return folderNotesModel_; }
 QAbstractItemModel *NotesWorkspaceController::storagePriorityModel() const { return storagePriorityModel_; }
 QObject            *NotesWorkspaceController::currentEditor() const { return currentEditor_; }
 NoteEditor         *NotesWorkspaceController::editor() const { return currentEditor_.data(); }
@@ -89,10 +130,22 @@ QString NotesWorkspaceController::currentTitle() const
         return {};
     return Utils::splitTitle(currentEditor_->text()).first.trimmed();
 }
+QString NotesWorkspaceController::currentFolderId() const
+{
+    return currentEditor_ ? currentEditor_->folderIdString() : QString();
+}
+bool NotesWorkspaceController::busy() const
+{
+    return loading_ || pendingOperations_ > 0 || (folderOperations_ && folderOperations_->busy());
+}
 int     NotesWorkspaceController::noteCount() const { return notesModel_->noteCount(); }
 QString NotesWorkspaceController::searchText() const { return searchModel_->searchText(); }
 bool    NotesWorkspaceController::searchInBody() const { return searchModel_->searchInBody(); }
 bool    NotesWorkspaceController::searching() const { return searchModel_->searching(); }
+bool    NotesWorkspaceController::folderCatalogAvailable() const
+{
+    return folderCatalogManager_ && folderCatalogManager_->isAvailable();
+}
 
 QVariantList NotesWorkspaceController::storages() const
 {
@@ -151,13 +204,26 @@ bool NotesWorkspaceController::openNote(const Note &note, const QUuid &draftId)
         return false;
     if (currentEditor_ && !closeCurrentNote())
         return false;
-    setCurrentEditor(new NoteEditor(note, draftId, this));
+    auto editorNote = note;
+    editorNote.setFolderId(effectiveFolderId(note));
+    setCurrentEditor(new NoteEditor(editorNote, draftId, this));
     setError({});
     return true;
 }
 
-bool NotesWorkspaceController::createNote(const QString &storageId)
+bool NotesWorkspaceController::createNote(const QString &storageId) { return createNoteInFolder({}, storageId); }
+
+bool NotesWorkspaceController::createNoteInFolder(const QString &folderIdText, const QString &storageId)
 {
+    QUuid folderId;
+    if (!parseFolderId(folderIdText, &folderId))
+        return false;
+    if (!folderId.isNull() && (!ensureFolderCatalogAvailable() || !folderCatalogManager_->catalog().folder(folderId))) {
+        if (folderCatalogManager_ && folderCatalogManager_->isAvailable())
+            setError(tr("The selected folder no longer exists"));
+        return false;
+    }
+
     auto storage
         = storageId.isEmpty() ? NoteManager::instance()->defaultStorage() : NoteManager::instance()->storage(storageId);
     if (!storage || !storage->canAcceptWrites()) {
@@ -169,7 +235,14 @@ bool NotesWorkspaceController::createNote(const QString &storageId)
         setError(tr("Could not create a note"));
         return false;
     }
-    return openNote(note);
+    note.setFolderId(folderId);
+    if (!openNote(note))
+        return false;
+    if (!folderId.isNull()) {
+        rememberPendingFolderAssignment(currentEditor_->draftId(), folderId);
+        folderOperations_->prepareNativeFolderTree(storage->systemName());
+    }
+    return true;
 }
 
 bool NotesWorkspaceController::saveCurrentNote()
@@ -540,6 +613,200 @@ bool NotesWorkspaceController::openCurrentStandalone()
     return openStandalone(currentEditor_->storageId(), currentEditor_->noteId());
 }
 
+QString NotesWorkspaceController::createFolder(const QString &name, const QString &parentFolderIdText)
+{
+    if (!ensureFolderCatalogAvailable())
+        return {};
+
+    QUuid parentFolderId;
+    if (!parseFolderId(parentFolderIdText, &parentFolderId))
+        return {};
+    if (!parentFolderId.isNull() && !folderCatalogManager_->catalog().folder(parentFolderId)) {
+        setError(tr("The parent folder no longer exists"));
+        return {};
+    }
+
+    FolderRecord folder;
+    folder.name = name.trimmed();
+    if (folder.name.isEmpty())
+        folder.name = defaultFolderName(parentFolderId);
+    folder.parentId   = parentFolderId;
+    folder.sortOrder  = nextFolderSortOrder(parentFolderId);
+    const auto result = folderCatalogManager_->addFolder(std::move(folder));
+    if (!result) {
+        setError(result.error.message);
+        return {};
+    }
+    folderOperations_->prepareNativeFolderTrees();
+    return result.value.toString(QUuid::WithoutBraces);
+}
+
+bool NotesWorkspaceController::renameFolder(const QString &folderIdText, const QString &name)
+{
+    if (!ensureFolderCatalogAvailable())
+        return false;
+    QUuid folderId;
+    if (!parseFolderId(folderIdText, &folderId) || folderId.isNull()) {
+        if (folderId.isNull())
+            setError(tr("A folder is required"));
+        return false;
+    }
+    return applyFolderMutation(folderCatalogManager_->renameFolder(folderId, name));
+}
+
+bool NotesWorkspaceController::moveFolder(const QString &folderIdText, const QString &parentFolderIdText,
+                                          qint64 sortOrder)
+{
+    if (!ensureFolderCatalogAvailable())
+        return false;
+    QUuid folderId;
+    QUuid parentFolderId;
+    if (!parseFolderId(folderIdText, &folderId) || !parseFolderId(parentFolderIdText, &parentFolderId)
+        || folderId.isNull()) {
+        if (folderId.isNull())
+            setError(tr("A folder is required"));
+        return false;
+    }
+    return applyFolderMutation(folderCatalogManager_->moveFolder(folderId, parentFolderId, sortOrder));
+}
+
+bool NotesWorkspaceController::moveFolderBefore(const QString &folderIdText, const QString &parentFolderIdText,
+                                                const QString &beforeFolderIdText)
+{
+    if (!ensureFolderCatalogAvailable())
+        return false;
+    QUuid folderId;
+    QUuid parentFolderId;
+    QUuid beforeFolderId;
+    if (!parseFolderId(folderIdText, &folderId) || !parseFolderId(parentFolderIdText, &parentFolderId)
+        || !parseFolderId(beforeFolderIdText, &beforeFolderId) || folderId.isNull()) {
+        if (folderId.isNull())
+            setError(tr("A folder is required"));
+        return false;
+    }
+    return applyFolderMutation(folderCatalogManager_->moveFolderRelative(folderId, parentFolderId, beforeFolderId));
+}
+
+bool NotesWorkspaceController::setFolderCollapsed(const QString &folderIdText, bool collapsed)
+{
+    if (!ensureFolderCatalogAvailable())
+        return false;
+    QUuid folderId;
+    if (!parseFolderId(folderIdText, &folderId) || folderId.isNull()) {
+        if (folderId.isNull())
+            setError(tr("A folder is required"));
+        return false;
+    }
+    return applyFolderMutation(folderCatalogManager_->setFolderCollapsed(folderId, collapsed));
+}
+
+bool NotesWorkspaceController::setFolderFlags(const QString &folderIdText, bool favorite, bool archived)
+{
+    if (!ensureFolderCatalogAvailable())
+        return false;
+    QUuid folderId;
+    if (!parseFolderId(folderIdText, &folderId) || folderId.isNull()) {
+        if (folderId.isNull())
+            setError(tr("A folder is required"));
+        return false;
+    }
+    return applyFolderMutation(folderCatalogManager_->setFolderFlags(folderId, favorite, archived));
+}
+
+bool NotesWorkspaceController::collapseAllFolders()
+{
+    if (!ensureFolderCatalogAvailable())
+        return false;
+    return applyFolderMutation(folderCatalogManager_->setAllFoldersCollapsed(true));
+}
+
+QString NotesWorkspaceController::folderIdForNote(const QString &storageId, const QString &noteId) const
+{
+    if (storageId.isEmpty() || noteId.isEmpty())
+        return {};
+    if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId)
+        return currentEditor_->folderIdString();
+
+    Note note;
+    for (const auto &candidate : NoteManager::instance()->notesIndex()->notes(storageId)) {
+        if (candidate.id() == noteId) {
+            note = candidate;
+            break;
+        }
+    }
+    if (note.isNull()) {
+        const auto storage = NoteManager::instance()->storage(storageId);
+        if (storage)
+            note = storage->note(noteId);
+    }
+    if (note.isNull())
+        return {};
+    return effectiveFolderId(note).toString(QUuid::WithoutBraces);
+}
+
+bool NotesWorkspaceController::assignNoteFolder(const QString &storageId, const QString &noteId,
+                                                const QString &folderIdText)
+{
+    QUuid folderId;
+    if (!parseFolderId(folderIdText, &folderId))
+        return false;
+    if (!folderId.isNull() && (!ensureFolderCatalogAvailable() || !folderCatalogManager_->catalog().folder(folderId))) {
+        if (folderCatalogManager_ && folderCatalogManager_->isAvailable())
+            setError(tr("The selected folder no longer exists"));
+        return false;
+    }
+    if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId)
+        return assignCurrentNoteFolder(folderIdText);
+    return folderOperations_->assignNoteFolder(storageId, noteId, folderId);
+}
+
+bool NotesWorkspaceController::assignCurrentNoteFolder(const QString &folderIdText)
+{
+    if (!currentEditor_) {
+        setError(tr("No note is open"));
+        return false;
+    }
+
+    QUuid folderId;
+    if (!parseFolderId(folderIdText, &folderId))
+        return false;
+    if (!folderId.isNull() && (!ensureFolderCatalogAvailable() || !folderCatalogManager_->catalog().folder(folderId))) {
+        if (folderCatalogManager_ && folderCatalogManager_->isAvailable())
+            setError(tr("The selected folder no longer exists"));
+        return false;
+    }
+    if (currentEditor_->folderId() == folderId)
+        return true;
+
+    const QUuid previousFolderId = currentEditor_->folderId();
+    const bool  publishWithContent
+        = currentEditor_->isDirty() || currentEditor_->hasPersistedDraft() || currentEditor_->noteId().isEmpty();
+    currentEditor_->setFolderId(folderId);
+    rememberPendingFolderAssignment(currentEditor_->draftId(), folderId);
+
+    if (publishWithContent) {
+        if (!currentEditor_->save()) {
+            setError(currentEditor_->errorString());
+            return false;
+        }
+        if (!currentEditor_->noteId().isEmpty()
+            && !folderOperations_->storeOverlayAssignment(currentEditor_->storageId(), currentEditor_->noteId(),
+                                                          folderId)) {
+            return false;
+        }
+        if (!folderId.isNull())
+            folderOperations_->prepareNativeFolderTree(currentEditor_->storageId());
+        return true;
+    }
+
+    if (folderOperations_->assignNoteFolder(currentEditor_->storageId(), currentEditor_->noteId(), folderId))
+        return true;
+
+    pendingFolderAssignments_.remove(currentEditor_->draftId());
+    currentEditor_->setFolderId(previousFolderId);
+    return false;
+}
+
 void NotesWorkspaceController::setSearchText(const QString &text) { searchModel_->setSearchText(text); }
 void NotesWorkspaceController::setSearchInBody(bool enabled) { searchModel_->setSearchInBody(enabled); }
 
@@ -552,6 +819,7 @@ void NotesWorkspaceController::setCurrentEditor(NoteEditor *editor)
         connectEditorSignals(editor);
     emit currentEditorChanged();
     emit currentTitleChanged();
+    emit currentFolderIdChanged();
 }
 
 void NotesWorkspaceController::clearCurrentEditor()
@@ -560,9 +828,12 @@ void NotesWorkspaceController::clearCurrentEditor()
         return;
     auto *old = currentEditor_.data();
     currentEditor_.clear();
+    if (!old->hasPersistedDraft())
+        pendingFolderAssignments_.remove(old->draftId());
     old->deleteLater();
     emit currentEditorChanged();
     emit currentTitleChanged();
+    emit currentFolderIdChanged();
 }
 
 void NotesWorkspaceController::setLoading(bool loading)
@@ -638,6 +909,7 @@ bool NotesWorkspaceController::stageMove(const Note &source, const QString &dest
     destination.setTitle(title);
     destination.setText(body, destinationFormat);
     destination.setTags(source.tags());
+    destination.setFolderId(effectiveFolderId(source));
     destination.setMedia(source.media());
 
     auto       *drafts    = DraftManager::instance();
@@ -648,9 +920,14 @@ bool NotesWorkspaceController::stageMove(const Note &source, const QString &dest
         setError(saveError.message);
         return false;
     }
+    if (!destination.folderId().isNull()) {
+        rememberPendingFolderAssignment(stagedId, destination.folderId());
+        folderOperations_->prepareNativeFolderTree(destinationStorage->systemName());
+    }
     const auto readyError = drafts->markReady(stagedId);
     drafts->releaseEditingSession(stagedId);
     if (readyError) {
+        pendingFolderAssignments_.remove(stagedId);
         drafts->discard(stagedId);
         setError(readyError.message);
         return false;
@@ -682,7 +959,92 @@ bool NotesWorkspaceController::beginMove(const Note &source, const QString &dest
 void NotesWorkspaceController::connectEditorSignals(NoteEditor *editor)
 {
     connect(editor, &NoteEditor::textChanged, this, &NotesWorkspaceController::currentTitleChanged);
+    connect(editor, &NoteEditor::folderIdChanged, this, &NotesWorkspaceController::currentFolderIdChanged);
     connect(editor, &NoteEditor::errorStringChanged, this, [this, editor]() { setError(editor->errorString()); });
+}
+
+bool NotesWorkspaceController::ensureFolderCatalogAvailable()
+{
+    if (folderCatalogManager_ && folderCatalogManager_->isAvailable())
+        return true;
+    setError(folderCatalogManager_ && !folderCatalogManager_->lastError().isEmpty()
+                 ? folderCatalogManager_->lastError()
+                 : tr("The encrypted folder catalog is unavailable"));
+    return false;
+}
+
+bool NotesWorkspaceController::parseFolderId(const QString &text, QUuid *folderId)
+{
+    if (!folderId)
+        return false;
+    *folderId             = {};
+    const auto normalized = text.trimmed();
+    if (normalized.isEmpty())
+        return true;
+    *folderId = QUuid(normalized);
+    if (!folderId->isNull())
+        return true;
+    setError(tr("The folder identifier is invalid"));
+    return false;
+}
+
+QUuid NotesWorkspaceController::effectiveFolderId(const Note &note) const
+{
+    if (note.isNull() || !folderCatalogManager_ || !folderCatalogManager_->isAvailable())
+        return note.folderId();
+
+    const auto &catalog = folderCatalogManager_->catalog();
+    if (const auto *assignment = catalog.assignment(note.storageId(), note.id())) {
+        return !assignment->tombstone && catalog.folder(assignment->folderId) ? assignment->folderId : QUuid {};
+    }
+    return catalog.folder(note.folderId()) ? note.folderId() : QUuid {};
+}
+
+qint64 NotesWorkspaceController::nextFolderSortOrder(const QUuid &parentFolderId) const
+{
+    if (!folderCatalogManager_)
+        return 0;
+    const auto siblings = folderCatalogManager_->catalog().children(parentFolderId);
+    if (siblings.isEmpty())
+        return 0;
+
+    qint64 maximum = std::numeric_limits<qint64>::min();
+    for (const auto &sibling : siblings)
+        maximum = std::max(maximum, sibling.sortOrder);
+    return maximum == std::numeric_limits<qint64>::max() ? maximum : maximum + 1;
+}
+
+QString NotesWorkspaceController::defaultFolderName(const QUuid &parentFolderId) const
+{
+    const auto base = tr("New folder");
+    if (!folderCatalogManager_)
+        return base;
+
+    QSet<QString> siblingNames;
+    for (const auto &sibling : folderCatalogManager_->catalog().children(parentFolderId))
+        siblingNames.insert(sibling.name.trimmed().toCaseFolded());
+
+    for (int number = 1;; ++number) {
+        const auto candidate = number == 1 ? base : tr("%1 %2").arg(base).arg(number);
+        if (!siblingNames.contains(candidate.toCaseFolded()))
+            return candidate;
+    }
+}
+
+bool NotesWorkspaceController::applyFolderMutation(const FolderCatalogError &error)
+{
+    if (error) {
+        setError(error.message);
+        return false;
+    }
+    folderOperations_->prepareNativeFolderTrees();
+    return true;
+}
+
+void NotesWorkspaceController::rememberPendingFolderAssignment(const QUuid &draftId, const QUuid &folderId)
+{
+    if (!draftId.isNull())
+        pendingFolderAssignments_.insert(draftId, { folderId });
 }
 
 } // namespace QtNote

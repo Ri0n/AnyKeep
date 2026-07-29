@@ -32,6 +32,8 @@ set(qtnote_mobile_shared_qml
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteBlockEditor.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteFindBar.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteEditorPane.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/FolderPickerMenu.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/FoldersPage.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NotesManagerPage.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/TableBlockBehavior.js"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/ThemedIcon.qml"

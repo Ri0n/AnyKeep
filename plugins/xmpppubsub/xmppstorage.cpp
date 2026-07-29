@@ -598,6 +598,7 @@ bool XmppStorage::openPersistentCache(const XmppConfig &config)
         note.setTitle(record.title);
         note.setFormat(record.format);
         note.setLastChangeUTC(record.modified);
+        note.setFolderId(record.folderId);
         note.setBackendData(record.backendData);
         note.setMedia(record.media);
         if (record.bodyPresent)
@@ -628,6 +629,7 @@ void XmppStorage::persistCache()
         record.format      = note.format();
         record.body        = note.text();
         record.bodyPresent = note.isLoaded();
+        record.folderId    = note.folderId();
         record.backendData = note.backendData();
         record.media       = note.media();
         record.syncState   = RemoteCacheRecord::Synced;

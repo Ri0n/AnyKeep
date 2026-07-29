@@ -36,6 +36,9 @@ struct QTNOTE_EXPORT DraftRecord {
     QString      body;
     Note::Format format { Note::PlainText };
     QStringList  tags;
+    // Intended QtNote folder. It is local draft metadata until the target
+    // storage acknowledges the corresponding note update.
+    QUuid folderId;
     // Opaque storage-specific state (XMPP revision, Nextcloud ETag, Keep base
     // version, ...), captured when editing starts and restored before save.
     QVariantMap           backendData;

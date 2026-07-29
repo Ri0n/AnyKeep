@@ -161,6 +161,170 @@ private:
     QStringList ids_;
 };
 
+class FolderPageTestModel final : public QAbstractListModel {
+    Q_OBJECT
+
+public:
+    enum Role {
+        RowKindRole = Qt::UserRole + 1,
+        FolderIdRole,
+        ParentFolderIdRole,
+        StorageIdRole,
+        NoteIdRole,
+        TitleRole,
+        DepthRole,
+        CollapsedRole,
+        FavoriteRole,
+        ArchivedRole,
+        ChildFolderCountRole,
+        NoteCountRole,
+    };
+
+    struct Row {
+        int     rowKind { 0 };
+        QString folderId;
+        QString parentFolderId;
+        QString storageId;
+        QString noteId;
+        QString title;
+        int     depth { 0 };
+        bool    collapsed { false };
+        bool    favorite { false };
+        bool    archived { false };
+        int     childFolderCount { 0 };
+        int     noteCount { 0 };
+    };
+
+    FolderPageTestModel()
+    {
+        rows_ = {
+            { 0, QStringLiteral("inbox"), {}, {}, {}, QStringLiteral("Inbox"), 0, false, false, false, 0, 2 },
+            { 1,
+              QStringLiteral("inbox"),
+              {},
+              QStringLiteral("storage"),
+              QStringLiteral("note-a"),
+              QStringLiteral("Note A"),
+              1 },
+            { 1,
+              QStringLiteral("inbox"),
+              {},
+              QStringLiteral("storage"),
+              QStringLiteral("note-c"),
+              QStringLiteral("Note C"),
+              1 },
+            { 0, QStringLiteral("archive"), {}, {}, {}, QStringLiteral("Archive"), 0, false, false, false, 0, 0 },
+            { 2, {}, {}, {}, {}, QStringLiteral("Unsorted"), 0, false, false, false, 0, 1 },
+            { 1, {}, {}, QStringLiteral("storage"), QStringLiteral("note-b"), QStringLiteral("Note B"), 1 },
+        };
+    }
+
+    int rowCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : rows_.size(); }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (!index.isValid() || index.row() < 0 || index.row() >= rows_.size())
+            return {};
+        const auto &row = rows_.at(index.row());
+        switch (role) {
+        case RowKindRole:
+            return row.rowKind;
+        case FolderIdRole:
+            return row.folderId;
+        case ParentFolderIdRole:
+            return row.parentFolderId;
+        case StorageIdRole:
+            return row.storageId;
+        case NoteIdRole:
+            return row.noteId;
+        case TitleRole:
+            return row.title;
+        case DepthRole:
+            return row.depth;
+        case CollapsedRole:
+            return row.collapsed;
+        case FavoriteRole:
+            return row.favorite;
+        case ArchivedRole:
+            return row.archived;
+        case ChildFolderCountRole:
+            return row.childFolderCount;
+        case NoteCountRole:
+            return row.noteCount;
+        default:
+            return {};
+        }
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return {
+            { RowKindRole, "rowKind" },
+            { FolderIdRole, "folderId" },
+            { ParentFolderIdRole, "parentFolderId" },
+            { StorageIdRole, "storageId" },
+            { NoteIdRole, "noteId" },
+            { TitleRole, "title" },
+            { DepthRole, "depth" },
+            { CollapsedRole, "collapsed" },
+            { FavoriteRole, "favorite" },
+            { ArchivedRole, "archived" },
+            { ChildFolderCountRole, "childFolderCount" },
+            { NoteCountRole, "noteCount" },
+        };
+    }
+
+    Q_INVOKABLE QVariantMap itemAt(int index) const
+    {
+        if (index < 0 || index >= rows_.size())
+            return {};
+        const auto &row = rows_.at(index);
+        return {
+            { QStringLiteral("rowKind"), row.rowKind },
+            { QStringLiteral("folderId"), row.folderId },
+            { QStringLiteral("parentFolderId"), row.parentFolderId },
+            { QStringLiteral("storageId"), row.storageId },
+            { QStringLiteral("noteId"), row.noteId },
+            { QStringLiteral("title"), row.title },
+            { QStringLiteral("depth"), row.depth },
+            { QStringLiteral("collapsed"), row.collapsed },
+            { QStringLiteral("favorite"), row.favorite },
+            { QStringLiteral("archived"), row.archived },
+            { QStringLiteral("childFolderCount"), row.childFolderCount },
+            { QStringLiteral("noteCount"), row.noteCount },
+        };
+    }
+
+    Q_INVOKABLE int rowForFolder(const QString &folderId) const
+    {
+        for (int index = 0; index < rows_.size(); ++index) {
+            const auto &row = rows_.at(index);
+            if (row.rowKind == 0 && row.folderId == folderId)
+                return index;
+        }
+        return -1;
+    }
+
+    Q_INVOKABLE QVariantList folderPickerItems(bool = false) const
+    {
+        QVariantList items;
+        for (const auto &row : rows_) {
+            if (row.rowKind != 0)
+                continue;
+            const QVariantMap item {
+                { QStringLiteral("folderId"), row.folderId }, { QStringLiteral("parentFolderId"), row.parentFolderId },
+                { QStringLiteral("title"), row.title },       { QStringLiteral("depth"), row.depth },
+                { QStringLiteral("favorite"), row.favorite }, { QStringLiteral("archived"), row.archived },
+            };
+            items.append(item);
+        }
+        return items;
+    }
+
+private:
+    QList<Row> rows_;
+};
+
 class SettingsPluginSource final : public PluginListSource {
 public:
     using PluginListSource::PluginListSource;
@@ -481,6 +645,8 @@ private slots:
                     id: workspace
                     property var groupedNotesModel: testNotesModel
                     property var recentNotesModel: testNotesModel
+                    property var folderNotesModel: null
+                    property bool folderCatalogAvailable: false
                     property var currentEditor: null
                     property string currentStorageId: ""
                     property string currentNoteId: ""
@@ -503,6 +669,8 @@ private slots:
                     function reloadCurrentNote() { return true }
                     function openNote(storageId, noteId) { return true }
                     function createNote(storageId) { return true }
+                    function folderIdForNote(storageId, noteId) { return "" }
+                    function assignNoteFolder(storageId, noteId, folderId) { return true }
                     function openStandalone(storageId, noteId) { return true }
                     function deleteNote(storageId, noteId) { return true }
                     function copyNote(sourceStorageId, noteId, destinationStorageId) { return true }
@@ -629,6 +797,22 @@ private slots:
                            &waitFor](QQuickItem *source, QQuickItem *destination, int previewItems) {
             if (!source || !destination)
                 return false;
+            // A QStandardItemModel move can replace a TreeView delegate one
+            // event-loop turn after the previous drop animation has finished.
+            // Begin the next gesture only once both reused delegates have
+            // their normal geometry again; otherwise the synthetic press can
+            // land in a transient zero-height row.
+            if (!waitFor(
+                    [&]() {
+                        return preview->property("previewCount").toInt() == 0
+                            && !page->property("dragSelectionSuppressed").toBool()
+                            && qAbs(source->property("reorderOffset").toReal()) < 0.5
+                            && qAbs(destination->property("reorderOffset").toReal()) < 0.5 && source->width() > 0
+                            && source->height() > 0 && destination->width() > 0 && destination->height() > 0;
+                    },
+                    2500)) {
+                return false;
+            }
             auto         *rootItem = qobject_cast<QQuickItem *>(root);
             const QPointF from     = source->mapToItem(rootItem, QPointF(source->width() / 2, source->height() / 2));
             QPointF to = destination->mapToItem(rootItem, QPointF(destination->width() / 2, destination->height() / 2));
@@ -882,6 +1066,290 @@ private slots:
         QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-b"));
         QCOMPARE(root->property("noteAnchor").toString(), QString());
         QVERIFY(!root->property("noteInsertAfter").toBool());
+    }
+
+    void foldersPageUsesInlineRenameAndSharedDragLifecycle()
+    {
+        FolderPageTestModel foldersModel;
+        QQuickWidget        quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(420, 430);
+        installThemedIconImageProvider(quick.engine());
+        quick.rootContext()->setContextProperty(QStringLiteral("testFoldersModel"), &foldersModel);
+
+        QQmlComponent component(quick.engine());
+        component.setData(R"QML(
+            import QtQuick
+            import QtQuick.Controls
+
+            Item {
+                id: harness
+                objectName: "foldersHarness"
+
+                QtObject {
+                    id: workspace
+                    objectName: "foldersWorkspace"
+                    property var folderNotesModel: testFoldersModel
+                    property bool folderCatalogAvailable: true
+                    property var currentEditor: null
+                    property int noteCount: 3
+                    property int renameCount: 0
+                    property string renamedFolderId: ""
+                    property string renamedFolderName: ""
+                    property int assignmentCount: 0
+                    property string assignedFolderId: ""
+                    property int folderMoveCount: 0
+                    property string movedFolderId: ""
+                    property string movedParentFolderId: ""
+                    property string movedBeforeFolderId: ""
+
+                    function createNoteInFolder(folderId, storageId) { return true }
+                    function createFolder(name, parentFolderId) { return "" }
+                    function renameFolder(folderId, name) {
+                        ++renameCount
+                        renamedFolderId = folderId
+                        renamedFolderName = name
+                        return true
+                    }
+                    function moveFolderBefore(folderId, parentFolderId, beforeFolderId) {
+                        ++folderMoveCount
+                        movedFolderId = folderId
+                        movedParentFolderId = parentFolderId
+                        movedBeforeFolderId = beforeFolderId
+                        return true
+                    }
+                    function setFolderCollapsed(folderId, collapsed) { return true }
+                    function setFolderFlags(folderId, favorite, archived) { return true }
+                    function collapseAllFolders() { return true }
+                    function assignNoteFolder(storageId, noteId, folderId) {
+                        ++assignmentCount
+                        assignedFolderId = folderId
+                        return true
+                    }
+                }
+
+                FoldersPage {
+                    id: page
+                    objectName: "foldersPage"
+                    anchors.fill: parent
+                    workspace: workspace
+                    checkpointHandler: function() { return true }
+                }
+            }
+        )QML",
+                          QUrl(QStringLiteral("qrc:/qml/FoldersPageHarness.qml")));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QObject *root = component.create();
+        QVERIFY2(root, qPrintable(component.errorString()));
+        quick.setContent(QUrl(QStringLiteral("qrc:/qml/FoldersPageHarness.qml")), &component, root);
+        quick.show();
+        QTest::qWait(60);
+
+        auto *rootItem  = qobject_cast<QQuickItem *>(root);
+        auto *page      = quickItemByName(rootItem, QStringLiteral("foldersPage"));
+        auto *inbox     = quickItemByName(page, QStringLiteral("foldersRow-folder-inbox"));
+        auto *archive   = quickItemByName(page, QStringLiteral("foldersRow-folder-archive"));
+        auto *noteA     = quickItemByName(page, QStringLiteral("foldersRow-note-storage-note-a"));
+        auto *noteB     = quickItemByName(page, QStringLiteral("foldersRow-note-storage-note-b"));
+        auto *workspace = root->findChild<QObject *>(QStringLiteral("foldersWorkspace"));
+        QVERIFY(page);
+        QVERIFY(inbox);
+        QVERIFY(archive);
+        QVERIFY(noteA);
+        QVERIFY(noteB);
+        QVERIFY(workspace);
+
+        page->setProperty("editingFolderId", QStringLiteral("inbox"));
+        QQuickItem *rename = nullptr;
+        QTRY_VERIFY((rename = quickItemByName(page, QStringLiteral("folderRenameField-inbox"))));
+        rename->setProperty("text", QStringLiteral("Renamed Inbox"));
+        QVERIFY(QMetaObject::invokeMethod(inbox, "commitRename"));
+        QTRY_COMPARE(workspace->property("renameCount").toInt(), 1);
+        QCOMPARE(workspace->property("renamedFolderId").toString(), QStringLiteral("inbox"));
+        QCOMPARE(workspace->property("renamedFolderName").toString(), QStringLiteral("Renamed Inbox"));
+
+        const QPointF noteAPoint = noteA->mapToItem(rootItem, QPointF(noteA->width() / 2, noteA->height() / 2));
+        const QPointF noteBPoint = noteB->mapToItem(rootItem, QPointF(noteB->width() / 2, noteB->height() / 2));
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::ControlModifier, noteBPoint.toPoint());
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
+
+        const QPointF noteDragStart = noteA->mapToItem(rootItem, QPointF(noteA->width() - 12, noteA->height() / 2));
+        const QPointF archivePoint = archive->mapToItem(rootItem, QPointF(archive->width() / 2, archive->height() / 2));
+        QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, noteDragStart.toPoint());
+        for (int step = 1; step <= 8; ++step)
+            QTest::mouseMove(&quick, (noteDragStart + (archivePoint - noteDragStart) * (qreal(step) / 8)).toPoint(),
+                             15);
+        QTRY_VERIFY(page->property("dragging").toBool());
+        QTRY_COMPARE(page->property("previewCount").toInt(), 2);
+        auto *firstPreview  = quickItemByName(page, QStringLiteral("folderDragPreviewItem-0"));
+        auto *secondPreview = quickItemByName(page, QStringLiteral("folderDragPreviewItem-1"));
+        QTRY_VERIFY(firstPreview);
+        QTRY_VERIFY(secondPreview);
+        QVERIFY(qAbs(secondPreview->y() - firstPreview->y() - firstPreview->height()) < 0.5);
+        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, archivePoint.toPoint());
+        QTRY_VERIFY(!page->property("dragging").toBool());
+        QTRY_COMPARE(workspace->property("assignmentCount").toInt(), 2);
+        QCOMPARE(workspace->property("assignedFolderId").toString(), QStringLiteral("archive"));
+
+        const QPointF archiveDragStart
+            = archive->mapToItem(rootItem, QPointF(archive->width() - 12, archive->height() / 2));
+        const QPointF inboxPoint = inbox->mapToItem(rootItem, QPointF(inbox->width() / 2, inbox->height() / 2));
+        QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, archiveDragStart.toPoint());
+        for (int step = 1; step <= 8; ++step)
+            QTest::mouseMove(&quick, (archiveDragStart + (inboxPoint - archiveDragStart) * (qreal(step) / 8)).toPoint(),
+                             15);
+        QTRY_VERIFY(page->property("dragging").toBool());
+        QTRY_COMPARE(page->property("previewCount").toInt(), 1);
+        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, inboxPoint.toPoint());
+        QTRY_VERIFY(!page->property("dragging").toBool());
+        QTRY_COMPARE(workspace->property("folderMoveCount").toInt(), 1);
+        QCOMPARE(workspace->property("movedFolderId").toString(), QStringLiteral("archive"));
+        QCOMPARE(workspace->property("movedParentFolderId").toString(), QStringLiteral("inbox"));
+        QCOMPARE(workspace->property("movedBeforeFolderId").toString(), QString());
+    }
+
+    void folderPickerMenuBuildsTheCompleteFolderTree()
+    {
+        FolderPageTestModel foldersModel;
+        QQuickWidget        quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(360, 240);
+        quick.rootContext()->setContextProperty(QStringLiteral("testFoldersModel"), &foldersModel);
+
+        QQmlComponent component(quick.engine());
+        component.setData(R"QML(
+            import QtQuick
+            import QtQuick.Controls
+
+            Item {
+                QtObject {
+                    id: workspace
+                    property var folderNotesModel: testFoldersModel
+                    property bool folderCatalogAvailable: true
+                }
+
+                FolderPickerMenu {
+                    id: picker
+                    objectName: "folderPicker"
+                    workspace: workspace
+                    currentFolderId: "inbox"
+                }
+            }
+        )QML",
+                          QUrl(QStringLiteral("qrc:/qml/FolderPickerHarness.qml")));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QObject *root = component.create();
+        QVERIFY2(root, qPrintable(component.errorString()));
+        quick.setContent(QUrl(QStringLiteral("qrc:/qml/FolderPickerHarness.qml")), &component, root);
+        quick.show();
+
+        QObject *picker = nullptr;
+        QTRY_VERIFY((picker = root->findChild<QObject *>(QStringLiteral("folderPicker"))));
+        QVERIFY(QMetaObject::invokeMethod(picker, "open"));
+        QObject *inbox   = nullptr;
+        QObject *archive = nullptr;
+        QTRY_VERIFY((inbox = picker->findChild<QObject *>(QStringLiteral("folderPickerItem-inbox"))));
+        QTRY_VERIFY((archive = picker->findChild<QObject *>(QStringLiteral("folderPickerItem-archive"))));
+        QVERIFY(inbox->property("checked").toBool());
+        QVERIFY(!archive->property("checked").toBool());
+    }
+
+    void editorToolbarFolderPickerAssignsTheActiveNote()
+    {
+        FolderPageTestModel foldersModel;
+        QQuickWidget        quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(420, 56);
+        installThemedIconImageProvider(quick.engine());
+        quick.rootContext()->setContextProperty(QStringLiteral("testFoldersModel"), &foldersModel);
+
+        QQmlComponent component(quick.engine());
+        component.setData(R"QML(
+            import QtQuick
+            import QtQuick.Controls
+
+            Item {
+                QtObject {
+                    id: editorBackend
+                    property bool markdown: true
+                    property string undoText: ""
+                    property string redoText: ""
+                    property bool canUndo: false
+                    property bool canRedo: false
+                    property bool canInsertImages: false
+                    function beginHistoryTransaction(kind, beforeView) {}
+                    function endHistoryTransaction(afterView) {}
+                    function copyDocumentToClipboard() {}
+                    function undo() {}
+                    function redo() {}
+                }
+
+                QtObject {
+                    id: blockEditor
+                    property var activeEditor: null
+                    property var blockModel: null
+                    function flushPendingEditorChanges() {}
+                    function captureEditorState() { return ({}) }
+                    function insertionBlockIndex() { return 0 }
+                    function insertListBlock(type) { return true }
+                    function insertBlockQuoteBlock() { return true }
+                    function focusBlock(row) {}
+                    function convertActiveToHeading(level) {}
+                    function convertActiveToQuote(enabled) {}
+                    function applyActiveInlineStyle(style) {}
+                    function editActiveLink() {}
+                }
+
+                QtObject {
+                    id: workspace
+                    objectName: "editorFolderWorkspace"
+                    property var folderNotesModel: testFoldersModel
+                    property bool folderCatalogAvailable: true
+                    property string currentFolderId: "inbox"
+                    property string assignedFolderId: ""
+                    function assignCurrentNoteFolder(folderId) {
+                        assignedFolderId = folderId
+                        currentFolderId = folderId
+                        return true
+                    }
+                }
+
+                EditorToolbar {
+                    id: toolbar
+                    objectName: "editorToolbar"
+                    anchors.fill: parent
+                    editorBackend: editorBackend
+                    blockEditor: blockEditor
+                    folderWorkspace: workspace
+                }
+            }
+        )QML",
+                          QUrl(QStringLiteral("qrc:/qml/EditorToolbarFolderHarness.qml")));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QObject *root = component.create();
+        QVERIFY2(root, qPrintable(component.errorString()));
+        quick.setContent(QUrl(QStringLiteral("qrc:/qml/EditorToolbarFolderHarness.qml")), &component, root);
+        quick.show();
+
+        auto *rootItem = qobject_cast<QQuickItem *>(root);
+        QVERIFY(rootItem);
+        QQuickItem *button = nullptr;
+        QTRY_VERIFY((button = quickItemByName(rootItem, QStringLiteral("editorFolderPickerButton"))));
+        QVERIFY(button->isVisible());
+        const QPointF buttonPoint = button->mapToItem(rootItem, QPointF(button->width() / 2, button->height() / 2));
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, buttonPoint.toPoint());
+
+        auto *picker    = root->findChild<QObject *>(QStringLiteral("editorFolderPicker"));
+        auto *workspace = root->findChild<QObject *>(QStringLiteral("editorFolderWorkspace"));
+        QVERIFY(picker);
+        QVERIFY(workspace);
+        QTRY_VERIFY(picker->property("visible").toBool());
+        QObject *archive = nullptr;
+        QTRY_VERIFY((archive = picker->findChild<QObject *>(QStringLiteral("folderPickerItem-archive"))));
+        QVERIFY(QMetaObject::invokeMethod(picker, "selectFolder", Q_ARG(QVariant, QStringLiteral("archive"))));
+        QTRY_COMPARE(workspace->property("assignedFolderId").toString(), QStringLiteral("archive"));
+        QCOMPARE(workspace->property("currentFolderId").toString(), QStringLiteral("archive"));
     }
 
     void customSpellingDictionaryPersistsAndCanBeEdited()

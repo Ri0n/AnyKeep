@@ -49,6 +49,7 @@ Page {
         anchors.fill: parent
         editor: root.editor
         platformBackend: mobileApp.editorPlatformBackend
+        folderWorkspace: mobileApp.workspace
         saveHandler: function() { return mobileApp.saveCurrentNote() }
         closeHandler: function() { return mobileApp.closeCurrentNote() }
         compactToolbar: true

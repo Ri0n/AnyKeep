@@ -34,6 +34,7 @@
 #include "deintegrationinterface.h"
 #include "desktopeditorplatformbackend.h"
 #include "draftmanager.h"
+#include "foldercatalogmanager.h"
 #include "globalshortcutsinterface.h"
 #include "notedialog.h"
 #include "notemanager.h"
@@ -173,6 +174,16 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
         });
     });
 
+    // Folder organisation is useful but must never make the editor
+    // unavailable.  Unlike the draft store, a corrupt folder catalog starts
+    // as an empty, read-only Unsorted projection until the user explicitly
+    // restores a backup or recreates it from the future Folders UI.
+    auto   *folderCatalog = FolderCatalogManager::instance();
+    QString folderCatalogError;
+    if (!folderCatalog->initialize(&folderCatalogError))
+        qCWarning(logMain) << "Folder catalog recovery is required:" << folderCatalogError;
+    folderCatalog->observeNoteManager(NoteManager::instance());
+
     // Storage registration starts asynchronous initialization. Never touch a
     // storage while restoring drafts until its init job has completed.
     connect(NoteManager::instance(), &NoteManager::storageReady, this, [this](const NoteStorage::Ptr &storage) {
@@ -190,6 +201,7 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
                 continue;
             note.setTitle(draft.title);
             note.setText(draft.body, draft.format);
+            note.setFolderId(draft.folderId);
             note.setMedia(draft.media);
             note.setBackendData(draft.backendData);
             auto *dialog = new NoteDialog(note, this, draft.id);
