@@ -59,6 +59,14 @@ add_executable(folderoperationscontroller_test folderoperationscontroller_test.c
 target_link_libraries(folderoperationscontroller_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME folderoperationscontroller_test COMMAND folderoperationscontroller_test)
 
+add_executable(tomboyfolderoverlay_test
+    tomboyfolderoverlay_test.cpp
+    ../plugins/tomboy/tomboystorage.cpp
+)
+target_include_directories(tomboyfolderoverlay_test PRIVATE ../plugins/tomboy)
+target_link_libraries(tomboyfolderoverlay_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Xml)
+add_test(NAME tomboyfolderoverlay_test COMMAND tomboyfolderoverlay_test)
+
 add_executable(notesworkspacefolders_test notesworkspacefolders_test.cpp)
 target_link_libraries(notesworkspacefolders_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME notesworkspacefolders_test COMMAND notesworkspacefolders_test)

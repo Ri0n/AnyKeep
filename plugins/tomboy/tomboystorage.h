@@ -41,6 +41,10 @@ public:
     QIcon         noteIcon() const override;
     QList<Note>   noteListFromInfoList(const QFileInfoList &) override;
 
+    // Tomboy has tags but no folder/notebook contract that QtNote can safely
+    // extend. Folder membership is kept in QtNote's encrypted local overlay.
+    bool supportsNativeFolders() const override { return false; }
+
     Note createNote() override;
     Note note(const QString &id) override;
     bool loadNote(Note &note) override;
