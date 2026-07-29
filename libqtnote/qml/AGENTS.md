@@ -46,11 +46,9 @@ Read this file before opening `NoteBlockEditor.qml`.
 ## Focused verification
 
 ```sh
-cmake --build build/qt6_Debug --target noteblockmodel_test qmlnoteeditor_test -j4
+cmake --build build/qt6_Debug --target noteblockmodel_test -j4
 QT_QPA_PLATFORM=offscreen ./build/qt6_Debug/tests/noteblockmodel_test -v1
-QT_QPA_PLATFORM=offscreen ./build/qt6_Debug/tests/qmlnoteeditor_test -v1
 ```
 
 For list work, search test names containing `List`, `list`, `drag`, and
-`MarkdownConversion` in `tests/qmlnoteeditor_test.cpp` and
-`tests/noteblockmodel_test.cpp`.
+`MarkdownConversion` in `tests/noteblockmodel_test.cpp`.

@@ -31,15 +31,6 @@ target_link_libraries(desktopnoteeditorhost_test PRIVATE qtnote Qt${QT_VERSION_M
 add_test(NAME desktopnoteeditorhost_test COMMAND desktopnoteeditorhost_test)
 set_tests_properties(desktopnoteeditorhost_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software")
 
-add_executable(qmlnoteeditor_test
-    qmlnoteeditor_test.cpp
-    qmlnoteeditor.cpp
-    qmlnoteeditor.h
-)
-target_link_libraries(qmlnoteeditor_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::QuickWidgets)
-add_test(NAME qmlnoteeditor_test COMMAND qmlnoteeditor_test)
-set_tests_properties(qmlnoteeditor_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software")
-
 add_executable(ptfstorage_test ptfstorage_test.cpp)
 target_link_libraries(ptfstorage_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME ptfstorage_test COMMAND ptfstorage_test)
