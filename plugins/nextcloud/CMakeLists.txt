@@ -1,6 +1,8 @@
 include(QtNoteMacro)
 
 set(nextcloud_sources
+    nextcloudcategory.cpp
+    nextcloudcategory.h
     nextclouddto.h
     nextcloudworker.cpp
     nextcloudworker.h

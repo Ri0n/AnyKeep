@@ -25,6 +25,7 @@ public:
     NextcloudNoteResult   getNote(const QString &id);
     NextcloudNoteResult   createNote(const NextcloudRemoteNote &note);
     NextcloudNoteResult   updateNote(const NextcloudRemoteNote &note);
+    NextcloudNoteResult   updateNoteCategory(const QString &id, const QString &category, const QString &etag);
     NextcloudStatusResult deleteNote(const QString &id);
 
 private:
@@ -49,6 +50,7 @@ private:
     static std::optional<NextcloudRemoteNote> parseNote(const QByteArray &json, QString *error);
     static std::optional<NextcloudRemoteNote> parseNoteObject(const QJsonObject &object, QString *error);
     static QByteArray                         serializeNote(const NextcloudRemoteNote &note);
+    static QByteArray                         serializeCategory(const QString &category);
 
     NextcloudConfig        config_;
     QNetworkAccessManager *manager_ { nullptr };

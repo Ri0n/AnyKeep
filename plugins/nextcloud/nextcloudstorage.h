@@ -11,13 +11,14 @@
 namespace QtNote {
 
 class NextcloudWorker;
+class FolderCatalogManager;
 
 class NextcloudStorage final : public NoteStorage {
     Q_OBJECT
     Q_DISABLE_COPY(NextcloudStorage)
 
 public:
-    explicit NextcloudStorage(QObject *parent = nullptr);
+    explicit NextcloudStorage(QObject *parent = nullptr, FolderCatalogManager *folderCatalogManager = nullptr);
     ~NextcloudStorage() override;
     void shutdown() override;
 
@@ -42,6 +43,9 @@ public:
     void                removeNote(const QString &noteId) override;
     NoteRemoveJob      *removeNoteAsync(const QString &noteId, QObject *owner = nullptr) override;
 
+    bool                 supportsNativeFolders() const override { return true; }
+    NoteFolderChangeJob *changeNoteFolderAsync(const Note &note, QObject *owner = nullptr) override;
+
     bool                isConfigurable() const override { return true; }
     QUrl                settingsComponent() const override;
     SettingsController *createSettingsController(QObject *parent = nullptr) override;
@@ -51,18 +55,22 @@ public:
 
 private:
     friend class NextcloudSettingsController;
-    NextcloudConfig     readConfig() const;
-    bool                configIsValid(const NextcloudConfig &config, QString *error) const;
-    Note                fromRemote(const NextcloudRemoteNote &remote);
-    void                applyRemote(Note &note, const NextcloudRemoteNote &remote);
-    NextcloudRemoteNote toRemote(const Note &note) const;
-    void                reportError(const QString &error, bool invalidate = false);
-    void                applyConfig(const NextcloudConfig &config);
+    NextcloudConfig readConfig() const;
+    bool            configIsValid(const NextcloudConfig &config, QString *error) const;
+    Note            fromRemote(const NextcloudRemoteNote &remote);
+    void            applyRemote(Note &note, const NextcloudRemoteNote &remote);
+    bool            toRemote(const Note &note, NextcloudRemoteNote *remote, QString *error) const;
+    bool            categoryForNote(const Note &note, QString *category, QString *error) const;
+    bool            categoryForFolder(const QUuid &folderId, QString *category, QString *error) const;
+    void            reconcileRemoteFolders(const QList<NextcloudRemoteNote> &notes);
+    void            reportError(const QString &error, bool invalidate = false);
+    void            applyConfig(const NextcloudConfig &config);
 
-    NextcloudConfig      config_;
-    QThread              workerThread_;
-    NextcloudWorker     *worker_ { nullptr };
-    QHash<QString, Note> cache_;
+    NextcloudConfig       config_;
+    QThread               workerThread_;
+    NextcloudWorker      *worker_ { nullptr };
+    FolderCatalogManager *folderCatalogManager_ { nullptr };
+    QHash<QString, Note>  cache_;
     // Successful writes may briefly be absent from an eventually consistent
     // list response. Keep them until the server snapshot acknowledges them.
     QHash<QString, Note> locallySaved_;

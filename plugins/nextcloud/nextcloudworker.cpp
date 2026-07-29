@@ -266,6 +266,13 @@ QByteArray NextcloudWorker::serializeNote(const NextcloudRemoteNote &note)
     return QJsonDocument(object).toJson(QJsonDocument::Compact);
 }
 
+QByteArray NextcloudWorker::serializeCategory(const QString &category)
+{
+    QJsonObject object;
+    object.insert(QStringLiteral("category"), category);
+    return QJsonDocument(object).toJson(QJsonDocument::Compact);
+}
+
 NextcloudStatusResult NextcloudWorker::probe()
 {
     QUrl      url = apiUrl(QStringLiteral("notes"));
@@ -435,6 +442,42 @@ NextcloudNoteResult NextcloudWorker::updateNote(const NextcloudRemoteNote &note)
         return result;
     }
 
+    result.note = *updated;
+    result.ok   = true;
+    return result;
+}
+
+NextcloudNoteResult NextcloudWorker::updateNoteCategory(const QString &id, const QString &category, const QString &etag)
+{
+    QHash<QByteArray, QByteArray> headers;
+    if (!etag.isEmpty())
+        headers.insert(QByteArrayLiteral("If-Match"), etag.toUtf8());
+
+    const auto reply
+        = perform(Method::Put, apiUrl(QStringLiteral("notes/") + id), serializeCategory(category), headers);
+
+    NextcloudNoteResult result;
+    result.httpStatus = reply.status;
+    if (reply.status == 412) {
+        result.conflict = true;
+        QString parseError;
+        result.remoteOnConflict = parseNote(reply.body, &parseError);
+        result.error            = errorText(reply);
+        if (!parseError.isEmpty())
+            result.error += QStringLiteral("; ") + parseError;
+        return result;
+    }
+    if (!reply.ok) {
+        result.error = errorText(reply);
+        return result;
+    }
+
+    QString parseError;
+    auto    updated = parseNote(reply.body, &parseError);
+    if (!updated) {
+        result.error = parseError;
+        return result;
+    }
     result.note = *updated;
     result.ok   = true;
     return result;

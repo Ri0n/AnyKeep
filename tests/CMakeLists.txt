@@ -68,6 +68,32 @@ add_executable(fileremotecachestore_test fileremotecachestore_test.cpp)
 target_link_libraries(fileremotecachestore_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME fileremotecachestore_test COMMAND fileremotecachestore_test)
 
+add_executable(nextcloudcategory_test
+    nextcloudcategory_test.cpp
+    ../plugins/nextcloud/nextcloudcategory.cpp
+)
+target_include_directories(nextcloudcategory_test PRIVATE ../plugins/nextcloud)
+target_link_libraries(nextcloudcategory_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME nextcloudcategory_test COMMAND nextcloudcategory_test)
+
+add_executable(nextcloudworker_test
+    nextcloudworker_test.cpp
+    ../plugins/nextcloud/nextcloudworker.cpp
+)
+target_include_directories(nextcloudworker_test PRIVATE ../plugins/nextcloud)
+target_link_libraries(nextcloudworker_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Network)
+add_test(NAME nextcloudworker_test COMMAND nextcloudworker_test)
+
+add_executable(nextcloudstorage_test
+    nextcloudstorage_test.cpp
+    ../plugins/nextcloud/nextcloudcategory.cpp
+    ../plugins/nextcloud/nextcloudstorage.cpp
+    ../plugins/nextcloud/nextcloudworker.cpp
+)
+target_include_directories(nextcloudstorage_test PRIVATE ../plugins/nextcloud)
+target_link_libraries(nextcloudstorage_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Network)
+add_test(NAME nextcloudstorage_test COMMAND nextcloudstorage_test)
+
 add_executable(secureenvelope_test secureenvelope_test.cpp)
 target_link_libraries(secureenvelope_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME secureenvelope_test COMMAND secureenvelope_test)

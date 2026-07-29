@@ -1,5 +1,7 @@
 #include "nextcloudstorage.h"
 
+#include "foldercatalogmanager.h"
+#include "nextcloudcategory.h"
 #include "nextcloudworker.h"
 #include "notedata.h"
 #include "settingscontroller.h"
@@ -97,7 +99,9 @@ namespace {
 
 } // namespace
 
-NextcloudStorage::NextcloudStorage(QObject *parent) : NoteStorage(parent)
+NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folderCatalogManager) :
+    NoteStorage(parent),
+    folderCatalogManager_(folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance())
 {
     workerThread_.setObjectName(QStringLiteral("QtNoteNextcloudWorker"));
     worker_ = new NextcloudWorker;
@@ -253,6 +257,11 @@ void NextcloudStorage::applyRemote(Note &note, const NextcloudRemoteNote &remote
     note.setBackendValue(QStringLiteral("category"), remote.category);
     note.setBackendValue(QStringLiteral("favorite"), remote.favorite);
     note.setBackendValue(QStringLiteral("readOnly"), remote.readOnly);
+    if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
+        note.setFolderId(folderCatalogManager_->catalog().folderForNote(systemName(), remote.id));
+    } else {
+        note.setFolderId({});
+    }
     if (remote.modified > 0) {
 #if QT_VERSION < QT_VERSION_CHECK(6, 5, 0)
         note.setLastChangeUTC(QDateTime::fromSecsSinceEpoch(remote.modified, Qt::UTC));
@@ -268,22 +277,105 @@ void NextcloudStorage::applyRemote(Note &note, const NextcloudRemoteNote &remote
         note.unload();
 }
 
-NextcloudRemoteNote NextcloudStorage::toRemote(const Note &note) const
+bool NextcloudStorage::categoryForFolder(const QUuid &folderId, QString *category, QString *error) const
 {
-    NextcloudRemoteNote remote;
-    remote.id             = note.id();
-    remote.etag           = note.backendValue(QStringLiteral("etag")).toString();
-    remote.readOnly       = note.backendValue(QStringLiteral("readOnly")).toBool();
-    remote.content        = note.text();
-    remote.contentPresent = note.isLoaded();
-    remote.title          = note.title();
-    remote.category       = note.backendValue(QStringLiteral("category")).toString();
-    remote.favorite       = note.backendValue(QStringLiteral("favorite")).toBool();
+    if (category)
+        category->clear();
+    if (error)
+        error->clear();
+    if (folderId.isNull())
+        return true;
+    if (!folderCatalogManager_ || !folderCatalogManager_->isAvailable()) {
+        if (error)
+            *error = tr("The folder catalog is unavailable");
+        return false;
+    }
+
+    const auto path = folderCatalogManager_->catalog().pathForFolder(folderId);
+    if (path.isEmpty()) {
+        if (error)
+            *error = tr("The selected folder no longer exists");
+        return false;
+    }
+    return NextcloudCategory::encode(path, category, error);
+}
+
+bool NextcloudStorage::categoryForNote(const Note &note, QString *category, QString *error) const
+{
+    if (!note.folderId().isNull())
+        return categoryForFolder(note.folderId(), category, error);
+
+    if (category)
+        category->clear();
+    if (error)
+        error->clear();
+
+    if (note.id().isEmpty())
+        return true;
+    if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
+        const auto *assignment = folderCatalogManager_->catalog().assignment(systemName(), note.id());
+        if (assignment && assignment->tombstone)
+            return true;
+    }
+
+    if (category)
+        *category = note.backendValue(QStringLiteral("category")).toString();
+    return true;
+}
+
+bool NextcloudStorage::toRemote(const Note &note, NextcloudRemoteNote *remote, QString *error) const
+{
+    if (!remote)
+        return false;
+    NextcloudRemoteNote result;
+    result.id             = note.id();
+    result.etag           = note.backendValue(QStringLiteral("etag")).toString();
+    result.readOnly       = note.backendValue(QStringLiteral("readOnly")).toBool();
+    result.content        = note.text();
+    result.contentPresent = note.isLoaded();
+    result.title          = note.title();
+    result.favorite       = note.backendValue(QStringLiteral("favorite")).toBool();
+    if (!categoryForNote(note, &result.category, error))
+        return false;
     const auto requestedModified
         = note.backendValue(QString::fromLatin1(RequestedModificationTimeBackendKey)).toDateTime();
-    remote.modified
+    result.modified
         = (requestedModified.isValid() ? requestedModified : QDateTime::currentDateTimeUtc()).toSecsSinceEpoch();
-    return remote;
+    *remote = std::move(result);
+    return true;
+}
+
+void NextcloudStorage::reconcileRemoteFolders(const QList<NextcloudRemoteNote> &notes)
+{
+    if (!folderCatalogManager_ || !folderCatalogManager_->isAvailable())
+        return;
+
+    QList<ProviderFolderPathAssignment> assignments;
+    assignments.reserve(notes.size());
+    for (const auto &remote : notes) {
+        QStringList path;
+        QString     error;
+        if (!NextcloudCategory::decode(remote.category, &path, &error)) {
+            reportError(tr("Could not import a Nextcloud category as a folder path: %1").arg(error));
+            continue;
+        }
+        ProviderFolderPathAssignment assignment;
+        assignment.noteId = remote.id;
+        assignment.path   = std::move(path);
+        if (remote.modified > 0) {
+#if QT_VERSION < QT_VERSION_CHECK(6, 5, 0)
+            assignment.modifiedAt = QDateTime::fromSecsSinceEpoch(remote.modified, Qt::UTC);
+#else
+            assignment.modifiedAt = QDateTime::fromSecsSinceEpoch(remote.modified, QTimeZone::utc());
+#endif
+        }
+        assignments.append(std::move(assignment));
+    }
+    if (assignments.isEmpty())
+        return;
+
+    if (const auto result = folderCatalogManager_->reconcileProviderFolderPaths(systemName(), assignments))
+        reportError(tr("Could not merge Nextcloud folders: %1").arg(result.message));
 }
 
 QList<Note> NextcloudStorage::noteList(int limit)
@@ -302,6 +394,7 @@ QList<Note> NextcloudStorage::noteList(int limit)
     }
 
     accessible_ = true;
+    reconcileRemoteFolders(result.notes);
     QHash<QString, Note> refreshed;
     refreshed.reserve(result.notes.size());
 
@@ -309,7 +402,11 @@ QList<Note> NextcloudStorage::noteList(int limit)
         const auto old = cache_.constFind(remote.id);
         if (old != cache_.cend()) {
             if (old.value().backendValue(QStringLiteral("etag")).toString() == remote.etag) {
-                refreshed.insert(remote.id, old.value());
+                auto cached = old.value();
+                if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
+                    cached.setFolderId(folderCatalogManager_->catalog().folderForNote(systemName(), remote.id));
+                }
+                refreshed.insert(remote.id, cached);
                 continue;
             }
         }
@@ -378,14 +475,21 @@ NoteListJob *NextcloudStorage::refreshNotesAsync(int limit, QObject *owner)
                         guard->fail({ StorageError::Network, result.error, true });
                         return;
                     }
+                    reconcileRemoteFolders(result.notes);
                     QHash<QString, Note> refreshed;
                     for (const auto &remote : result.notes) {
                         const auto old = cache_.constFind(remote.id);
                         if (old != cache_.cend()
-                            && old.value().backendValue(QStringLiteral("etag")).toString() == remote.etag)
-                            refreshed.insert(remote.id, old.value());
-                        else
+                            && old.value().backendValue(QStringLiteral("etag")).toString() == remote.etag) {
+                            auto cached = old.value();
+                            if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
+                                cached.setFolderId(
+                                    folderCatalogManager_->catalog().folderForNote(systemName(), remote.id));
+                            }
+                            refreshed.insert(remote.id, cached);
+                        } else {
                             refreshed.insert(remote.id, fromRemote(remote));
+                        }
                     }
                     for (auto it = locallySaved_.begin(); it != locallySaved_.end();) {
                         const auto remote = refreshed.constFind(it.key());
@@ -438,6 +542,7 @@ Note NextcloudStorage::note(const QString &id)
         return {};
     }
 
+    reconcileRemoteFolders({ result.note });
     accessible_     = true;
     auto remoteNote = fromRemote(result.note);
     cache_.insert(result.note.id, remoteNote);
@@ -471,6 +576,7 @@ NoteLoadJob *NextcloudStorage::loadNoteAsync(const QString &id, QObject *owner)
                                       result.error, result.httpStatus != 404 });
                         return;
                     }
+                    reconcileRemoteFolders({ result.note });
                     auto loaded = fromRemote(result.note);
                     cache_.insert(result.note.id, loaded);
                     accessible_ = true;
@@ -507,6 +613,7 @@ bool NextcloudStorage::loadNote(Note &note)
         return false;
     }
 
+    reconcileRemoteFolders({ result.note });
     applyRemote(note, result.note);
     accessible_ = true;
     return true;
@@ -537,8 +644,13 @@ bool NextcloudStorage::saveNote(const Note &note)
         return false;
     }
 
-    const QString oldId = note.id();
-    const auto    local = toRemote(saved);
+    const QString       oldId = note.id();
+    NextcloudRemoteNote local;
+    QString             folderError;
+    if (!toRemote(saved, &local, &folderError)) {
+        reportError(folderError);
+        return false;
+    }
 
     const auto result = invokeWorker<NextcloudNoteResult>(
         worker_, [&]() { return oldId.isEmpty() ? worker_->createNote(local) : worker_->updateNote(local); });
@@ -546,6 +658,7 @@ bool NextcloudStorage::saveNote(const Note &note)
     if (!result.ok) {
         if (result.conflict) {
             if (result.remoteOnConflict) {
+                reconcileRemoteFolders({ *result.remoteOnConflict });
                 cache_.insert(result.remoteOnConflict->id, fromRemote(*result.remoteOnConflict));
             }
             reportError(tr("Save conflict: this note was changed on the server. "
@@ -558,6 +671,7 @@ bool NextcloudStorage::saveNote(const Note &note)
         return false;
     }
 
+    reconcileRemoteFolders({ result.note });
     applyRemote(saved, result.note);
     accessible_ = true;
 
@@ -600,9 +714,14 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
         return job;
     }
 
-    const auto            config = readConfig();
-    const auto            local  = toRemote(note);
-    const auto            oldId  = note.id();
+    const auto          config = readConfig();
+    NextcloudRemoteNote local;
+    QString             folderError;
+    if (!toRemote(note, &local, &folderError)) {
+        job->fail({ StorageError::Other, folderError, false });
+        return job;
+    }
+    const auto            oldId = note.id();
     QPointer<NoteSaveJob> guard(job);
     QMetaObject::invokeMethod(
         worker_,
@@ -618,11 +737,13 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                         StorageError error { result.conflict ? StorageError::Conflict : StorageError::Network,
                                              result.error, !result.conflict };
                         if (result.remoteOnConflict) {
+                            reconcileRemoteFolders({ *result.remoteOnConflict });
                             cache_.insert(result.remoteOnConflict->id, fromRemote(*result.remoteOnConflict));
                         }
                         guard->fail(error);
                         return;
                     }
+                    reconcileRemoteFolders({ result.note });
                     auto       saved   = fromRemote(result.note);
                     const bool existed = !oldId.isEmpty() && cache_.contains(oldId);
                     if (!oldId.isEmpty() && oldId != saved.id())
@@ -638,6 +759,88 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                         emit noteModified(saved);
                     else
                         emit noteAdded(saved);
+                },
+                Qt::QueuedConnection);
+        },
+        Qt::QueuedConnection);
+    return job;
+}
+
+NoteFolderChangeJob *NextcloudStorage::changeNoteFolderAsync(const Note &note, QObject *owner)
+{
+    auto *job = new NoteFolderChangeJob(owner ? owner : this);
+    job->start();
+    if (note.isNull() || note.storage() != this) {
+        job->fail({ StorageError::Other, tr("Attempted to move a note owned by another storage."), false });
+        return job;
+    }
+    if (note.id().isEmpty()) {
+        job->fail({ StorageError::NotFound, tr("The note must be saved before it can be moved."), false });
+        return job;
+    }
+    if (note.backendValue(QStringLiteral("readOnly")).toBool()) {
+        job->fail({ StorageError::Other, tr("The note is read-only and cannot be moved."), false });
+        return job;
+    }
+
+    QString category;
+    QString folderError;
+    if (!categoryForFolder(note.folderId(), &category, &folderError)) {
+        job->fail({ StorageError::Other, folderError, false });
+        return job;
+    }
+    const auto config = readConfig();
+    QString    configError;
+    if (!configIsValid(config, &configError)) {
+        job->fail({ StorageError::NotConfigured, configError, false });
+        return job;
+    }
+
+    const QString                 noteId   = note.id();
+    const QString                 etag     = note.backendValue(QStringLiteral("etag")).toString();
+    const QUuid                   folderId = note.folderId();
+    QPointer<NoteFolderChangeJob> guard(job);
+    QMetaObject::invokeMethod(
+        worker_,
+        [this, guard, config, noteId, category, etag, folderId]() {
+            worker_->setConfig(config);
+            const auto result = worker_->updateNoteCategory(noteId, category, etag);
+            QMetaObject::invokeMethod(
+                this,
+                [this, guard, result, noteId, folderId]() {
+                    if (!guard || guard->isFinished())
+                        return;
+                    if (!result.ok) {
+                        if (result.remoteOnConflict) {
+                            reconcileRemoteFolders({ *result.remoteOnConflict });
+                            cache_.insert(result.remoteOnConflict->id, fromRemote(*result.remoteOnConflict));
+                        }
+                        guard->fail({ result.conflict ? StorageError::Conflict : StorageError::Network, result.error,
+                                      !result.conflict });
+                        return;
+                    }
+
+                    reconcileRemoteFolders({ result.note });
+                    auto changed = fromRemote(result.note);
+                    if (!result.note.contentPresent) {
+                        const auto cached = cache_.value(noteId);
+                        if (!cached.isNull() && cached.isLoaded()) {
+                            changed.setText(cached.text(), cached.format());
+                            changed.setMedia(cached.media());
+                        }
+                    }
+                    // The catalog stores the optimistic intent before this
+                    // request starts. Keep the canonical summary aligned with
+                    // it even when a server response omits a category field.
+                    if (changed.folderId() != folderId)
+                        changed.setFolderId(folderId);
+
+                    cache_.insert(noteId, changed);
+                    locallySaved_.insert(noteId, changed);
+                    locallyRemoved_.remove(noteId);
+                    cacheValid_ = accessible_ = true;
+                    emit noteModified(changed);
+                    guard->complete(changed);
                 },
                 Qt::QueuedConnection);
         },
