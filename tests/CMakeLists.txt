@@ -51,6 +51,22 @@ add_executable(foldercatalogmanager_test foldercatalogmanager_test.cpp)
 target_link_libraries(foldercatalogmanager_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME foldercatalogmanager_test COMMAND foldercatalogmanager_test)
 
+add_executable(noterule_test noterule_test.cpp)
+target_link_libraries(noterule_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME noterule_test COMMAND noterule_test)
+
+add_executable(filenoterulestore_test filenoterulestore_test.cpp)
+target_link_libraries(filenoterulestore_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME filenoterulestore_test COMMAND filenoterulestore_test)
+
+add_executable(noterulemanager_test noterulemanager_test.cpp)
+target_link_libraries(noterulemanager_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME noterulemanager_test COMMAND noterulemanager_test)
+
+add_executable(rulescontroller_test rulescontroller_test.cpp)
+target_link_libraries(rulescontroller_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME rulescontroller_test COMMAND rulescontroller_test)
+
 add_executable(foldernotesmodel_test foldernotesmodel_test.cpp)
 target_link_libraries(foldernotesmodel_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME foldernotesmodel_test COMMAND foldernotesmodel_test)

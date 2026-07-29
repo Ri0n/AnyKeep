@@ -62,6 +62,8 @@ namespace {
             return QByteArrayLiteral("local-media");
         case KeyDomain::LocalFolderCatalog:
             return QByteArrayLiteral("local-folder-catalog");
+        case KeyDomain::LocalRuleStore:
+            return QByteArrayLiteral("local-rule-store");
         }
         return {};
     }

@@ -38,6 +38,7 @@
 #include "globalshortcutsinterface.h"
 #include "notedialog.h"
 #include "notemanager.h"
+#include "noterulemanager.h"
 #include "notesmanagerwindow.h"
 #include "notificationinterface.h"
 #include "optionsdlg.h"
@@ -183,6 +184,13 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     if (!folderCatalog->initialize(&folderCatalogError))
         qCWarning(logMain) << "Folder catalog recovery is required:" << folderCatalogError;
     folderCatalog->observeNoteManager(NoteManager::instance());
+
+    // Rules are optional automation. If their encrypted state cannot be
+    // opened, keep notes usable and disable routing until explicit recovery.
+    auto   *ruleManager = NoteRuleManager::instance();
+    QString ruleStoreError;
+    if (!ruleManager->initialize(&ruleStoreError))
+        qCWarning(logMain) << "Rule store recovery is required:" << ruleStoreError;
 
     // Storage registration starts asynchronous initialization. Never touch a
     // storage while restoring drafts until its init job has completed.

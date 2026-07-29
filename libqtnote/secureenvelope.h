@@ -16,7 +16,8 @@ enum class KeyDomain : quint8 {
     OmemoState,
     LocalRemoteCache,
     LocalMedia,
-    LocalFolderCatalog
+    LocalFolderCatalog,
+    LocalRuleStore
 };
 
 struct QTNOTE_EXPORT AeadContext {

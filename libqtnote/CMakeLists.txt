@@ -56,6 +56,7 @@ set(qtnote_CORE_SRCS
     draftmanager.cpp
     filedraftstore.cpp
     filefoldercatalogstore.cpp
+    filenoterulestore.cpp
     fileremotecachestore.cpp
     filestorage.cpp
     foldercatalog.cpp
@@ -77,6 +78,8 @@ set(qtnote_CORE_SRCS
     notefragment.cpp
     notefragmentmediatransfer.cpp
     notemanager.cpp
+    noterule.cpp
+    noterulemanager.cpp
     notesindex.cpp
     notesmodel.cpp
     notessearchmodel.cpp
@@ -84,6 +87,7 @@ set(qtnote_CORE_SRCS
     pluginhost.cpp
     pluginlistmodel.cpp
     recentnotesmodel.cpp
+    rulescontroller.cpp
     notestorage.cpp
     notetransfercontroller.cpp
     ptfstorage.cpp
@@ -110,6 +114,7 @@ set(qtnote_CORE_HDRS
     draftstore.h
     filedraftstore.h
     filefoldercatalogstore.h
+    filenoterulestore.h
     fileremotecachestore.h
     filestorage.h
     foldercatalog.h
@@ -126,6 +131,8 @@ set(qtnote_CORE_HDRS
     notedata.h
     noteeditor.h
     notehighlighter.h
+    noterule.h
+    noterulemanager.h
     notefragment.h
     notefragmentmediatransfer.h
     notemanager.h
@@ -138,6 +145,7 @@ set(qtnote_CORE_HDRS
     pluginlistmodel.h
     pluginlistsource.h
     recentnotesmodel.h
+    rulescontroller.h
     notestorage.h
     notetransfercontroller.h
     ptfstorage.h
