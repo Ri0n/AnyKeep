@@ -27,6 +27,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QSettings>
+#include <QVBoxLayout>
 
 #include "defaults.h"
 #include "filestorage.h"
@@ -36,6 +37,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "pluginmanager.h"
 #include "qtnote.h"
 #include "qtnote_config.h"
+#include "rulescontroller.h"
 #include "settingswindow.h"
 #include "shortcutedit.h"
 #include "shortcutsmanager.h"
@@ -73,6 +75,23 @@ OptionsDlg::OptionsDlg(Main *qtnote) : QDialog(0), ui(new Ui::OptionsDlg), qtnot
     } else {
         connect(priorityView->rootObject(), SIGNAL(configureRequested(QString)), this, SLOT(configureStorage(QString)));
     }
+
+    auto *rulesPage   = new QWidget(this);
+    auto *rulesLayout = new QVBoxLayout(rulesPage);
+    rulesLayout->setContentsMargins(0, 0, 0, 0);
+    rulesController = new RulesController(nullptr, nullptr, nullptr, rulesPage);
+    rulesView       = new QQuickWidget(rulesPage);
+    rulesView->setObjectName(QStringLiteral("rulesView"));
+    rulesView->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    rulesView->setClearColor(palette().color(QPalette::Base));
+    rulesView->rootContext()->setContextProperty(QStringLiteral("rulesController"), rulesController);
+    rulesView->setSource(QUrl(QStringLiteral("qrc:/qml/RulesPage.qml")));
+    rulesLayout->addWidget(rulesView);
+    rulesPage->setMinimumSize(640, 390);
+    ui->tabGeneral->addTab(rulesPage, tr("Rules"));
+    if (rulesView->status() != QQuickWidget::Ready)
+        qWarning() << "Failed to create the rules settings page:" << rulesView->errors();
+
     QSettings s;
     ui->ckAskDel->setChecked(s.value("ui.ask-on-delete", true).toBool());
     ui->spMenuNotesAmount->setValue(s.value("ui.menu-notes-amount", 15).toInt());

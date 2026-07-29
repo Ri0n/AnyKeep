@@ -45,5 +45,6 @@
         <file alias="NotesManagerWindow.qml">qml/NotesManagerWindow.qml</file>
         <file alias="SettingsWindow.qml">qml/SettingsWindow.qml</file>
         <file alias="AnimatedSettingsList.qml">qml/AnimatedSettingsList.qml</file>
+        <file alias="RulesPage.qml">qml/RulesPage.qml</file>
     </qresource>
 </RCC>

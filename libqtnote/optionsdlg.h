@@ -35,6 +35,7 @@ class QQuickWidget;
 namespace QtNote {
 
 class Main;
+class RulesController;
 class StoragePriorityModel;
 
 class OptionsDlg : public QDialog {
@@ -58,6 +59,8 @@ private:
     Main                 *qtnote;
     StoragePriorityModel *priorityModel;
     QQuickWidget         *priorityView;
+    RulesController      *rulesController;
+    QQuickWidget         *rulesView;
     QFont                 defaultFont;
 };
 

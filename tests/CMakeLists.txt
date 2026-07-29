@@ -67,6 +67,11 @@ add_executable(rulescontroller_test rulescontroller_test.cpp)
 target_link_libraries(rulescontroller_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME rulescontroller_test COMMAND rulescontroller_test)
 
+add_executable(rulespage_test rulespage_test.cpp)
+target_link_libraries(rulespage_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::QuickWidgets)
+add_test(NAME rulespage_test COMMAND rulespage_test)
+set_tests_properties(rulespage_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software")
+
 add_executable(foldernotesmodel_test foldernotesmodel_test.cpp)
 target_link_libraries(foldernotesmodel_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME foldernotesmodel_test COMMAND foldernotesmodel_test)
