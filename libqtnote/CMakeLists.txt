@@ -79,6 +79,7 @@ set(qtnote_CORE_SRCS
     notefragmentmediatransfer.cpp
     notemanager.cpp
     noterule.cpp
+    noteruleapplicationcontroller.cpp
     noterulemanager.cpp
     notesindex.cpp
     notesmodel.cpp
@@ -132,6 +133,7 @@ set(qtnote_CORE_HDRS
     noteeditor.h
     notehighlighter.h
     noterule.h
+    noteruleapplicationcontroller.h
     noterulemanager.h
     notefragment.h
     notefragmentmediatransfer.h

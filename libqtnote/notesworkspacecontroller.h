@@ -153,7 +153,8 @@ private:
     void    setError(const QString &error);
     void    beginOperation();
     void    endOperation();
-    bool    stageMove(const Note &source, const QString &destinationStorageId, QUuid *draftId);
+    bool    stageMove(const Note &source, const QString &destinationStorageId, QUuid *draftId,
+                      bool folderUserOverride = false);
     void    startStagedMove(const QUuid &draftId, const Note &source, const QUuid &reorderBatchId = {},
                             int reorderIndex = -1);
     bool    beginMove(const Note &source, const QString &destinationStorageId, const QUuid &reorderBatchId = {},

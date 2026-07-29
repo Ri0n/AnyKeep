@@ -265,38 +265,49 @@ bool NoteRuleManager::wasApplied(const QUuid &ruleId, const NoteRuleEvaluationIn
 
 NoteRuleError NoteRuleManager::recordApplied(const QList<QUuid> &ruleIds, const NoteRuleEvaluationInput &input)
 {
+    return recordApplied({ { ruleIds, input } });
+}
+
+NoteRuleError NoteRuleManager::recordApplied(const QList<NoteRuleApplication> &applications)
+{
     if (!available_)
         return unavailableError(lastError_);
-    if (input.storageId.isEmpty() || input.noteId.isEmpty())
-        return { NoteRuleError::InvalidArgument, tr("A storage and note ID are required for rule tracking") };
-    if (ruleIds.isEmpty())
+    if (applications.isEmpty())
         return {};
-    for (const auto &id : ruleIds) {
-        if (!rule(id))
-            return { NoteRuleError::NotFound, tr("The rule was not found") };
+    for (const auto &application : applications) {
+        if (application.input.storageId.isEmpty() || application.input.noteId.isEmpty()) {
+            return { NoteRuleError::InvalidArgument, tr("A storage and note ID are required for rule tracking") };
+        }
     }
-    const auto fingerprint = NoteRuleEvaluator::inputFingerprint(input);
-    return mutate([this, ruleIds, input, fingerprint](NoteRuleSnapshot &snapshot) {
+    return mutate([this, applications](NoteRuleSnapshot &snapshot) {
         const auto appliedAt = QDateTime::currentDateTimeUtc();
-        for (const auto &id : ruleIds) {
-            const auto *current = rule(id);
-            if (!current)
-                return NoteRuleError { NoteRuleError::NotFound, tr("The rule was not found") };
-            const auto key = markerKey(id, input.storageId, input.noteId);
-            auto found     = std::find_if(snapshot.markers.begin(), snapshot.markers.end(), [&key](const auto &marker) {
-                return markerKey(marker.ruleId, marker.storageId, marker.noteId) == key;
-            });
-            NoteRuleApplicationMarker marker;
-            marker.ruleId           = id;
-            marker.ruleRevision     = current->revision;
-            marker.storageId        = input.storageId;
-            marker.noteId           = input.noteId;
-            marker.inputFingerprint = fingerprint;
-            marker.appliedAt        = appliedAt;
-            if (found == snapshot.markers.end())
-                snapshot.markers.append(std::move(marker));
-            else
-                *found = std::move(marker);
+        for (const auto &application : applications) {
+            if (application.ruleIds.isEmpty())
+                continue;
+            const auto fingerprint = NoteRuleEvaluator::inputFingerprint(application.input);
+            for (const auto &id : application.ruleIds) {
+                const auto current = std::find_if(snapshot.rules.cbegin(), snapshot.rules.cend(),
+                                                  [&id](const NoteRule &rule) { return rule.id == id; });
+                // A queued batch can race with an edit or deletion from the
+                // settings page. The new rule revision needs no old marker.
+                if (current == snapshot.rules.cend())
+                    continue;
+                const auto key = markerKey(id, application.input.storageId, application.input.noteId);
+                auto found = std::find_if(snapshot.markers.begin(), snapshot.markers.end(), [&key](const auto &marker) {
+                    return markerKey(marker.ruleId, marker.storageId, marker.noteId) == key;
+                });
+                NoteRuleApplicationMarker marker;
+                marker.ruleId           = id;
+                marker.ruleRevision     = current->revision;
+                marker.storageId        = application.input.storageId;
+                marker.noteId           = application.input.noteId;
+                marker.inputFingerprint = fingerprint;
+                marker.appliedAt        = appliedAt;
+                if (found == snapshot.markers.end())
+                    snapshot.markers.append(std::move(marker));
+                else
+                    *found = std::move(marker);
+            }
         }
         NoteRuleManager::pruneMarkers(&snapshot);
         return NoteRuleError {};

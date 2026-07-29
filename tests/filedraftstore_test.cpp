@@ -19,6 +19,7 @@ private slots:
     void deletionRoundTrip();
     void copyConflictResolution();
     void readsVersionFiveWithoutFolder();
+    void readsVersionSevenWithoutFolderOverride();
     void rejectsWrongKey();
     void rejectsTampering();
 };
@@ -36,6 +37,9 @@ static DraftRecord sampleRecord()
     record.format       = Note::Markdown;
     record.tags         = QStringList { QStringLiteral("private"), QStringLiteral("work") };
     record.folderId     = QUuid::createUuid();
+    record.folderUserOverride = true;
+    record.removeSourceStorageId = QStringLiteral("tomboy");
+    record.removeSourceNoteId    = QStringLiteral("original-note");
     record.backendData.insert(QStringLiteral("etag"), QStringLiteral("base-etag"));
     record.backendData.insert(QStringLiteral("revision"), QStringLiteral("base-revision"));
     record.revision = 7;
@@ -83,6 +87,9 @@ void FileDraftStoreTest::roundTrip()
     QCOMPARE(loaded.value.format, record.format);
     QCOMPARE(loaded.value.tags, record.tags);
     QCOMPARE(loaded.value.folderId, record.folderId);
+    QCOMPARE(loaded.value.folderUserOverride, record.folderUserOverride);
+    QCOMPARE(loaded.value.removeSourceStorageId, record.removeSourceStorageId);
+    QCOMPARE(loaded.value.removeSourceNoteId, record.removeSourceNoteId);
     QCOMPARE(loaded.value.backendData, record.backendData);
     QCOMPARE(loaded.value.revision, record.revision);
     QCOMPARE(loaded.value.media.size(), 1);
@@ -126,7 +133,42 @@ void FileDraftStoreTest::readsVersionFiveWithoutFolder()
     QVERIFY2(loaded, qPrintable(loaded.error.message));
     QCOMPARE(loaded.value.title, record.title);
     QVERIFY(loaded.value.folderId.isNull());
+    QVERIFY(!loaded.value.folderUserOverride);
     QCOMPARE(loaded.value.revision, record.revision);
+}
+
+void FileDraftStoreTest::readsVersionSevenWithoutFolderOverride()
+{
+    constexpr quint32 PayloadMagic = 0x514e4450; // QNDP
+    QTemporaryDir     directory;
+    QVERIFY(directory.isValid());
+    const auto key    = FileDraftStore::generateMasterKey();
+    auto       record = sampleRecord();
+
+    QByteArray  bytes;
+    QDataStream out(&bytes, QIODevice::WriteOnly);
+    out.setVersion(QDataStream::Qt_5_10);
+    out << PayloadMagic << quint16(7) << record.id << quint8(record.state) << record.storageId << record.remoteNoteId
+        << record.title << record.body << quint8(record.format) << record.tags << record.folderId
+        << record.removeSourceStorageId << record.removeSourceNoteId << record.revision << record.updatedAt
+        << record.lastError << record.retryAt << quint8(record.operation) << record.backendData << quint32(0);
+    const AeadContext context { KeyDomain::LocalDraft, QStringLiteral("qtnote-local-drafts"),
+                                record.id.toString(QUuid::WithoutBraces), 1, QStringLiteral("draft") };
+    const auto sealed = SecureEnvelope::seal(bytes, key, context);
+    QVERIFY2(sealed, qPrintable(sealed.error.message));
+
+    QFile file(draftPath(directory.path(), record.id));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(sealed.value), sealed.value.size());
+    file.close();
+
+    FileDraftStore store(directory.path(), key);
+    const auto     loaded = store.load(record.id);
+    QVERIFY2(loaded, qPrintable(loaded.error.message));
+    QCOMPARE(loaded.value.folderId, record.folderId);
+    QVERIFY(!loaded.value.folderUserOverride);
+    QCOMPARE(loaded.value.removeSourceStorageId, record.removeSourceStorageId);
+    QCOMPARE(loaded.value.removeSourceNoteId, record.removeSourceNoteId);
 }
 
 void FileDraftStoreTest::copyConflictResolution()

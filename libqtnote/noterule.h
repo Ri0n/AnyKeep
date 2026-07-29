@@ -94,6 +94,12 @@ struct QTNOTE_EXPORT NoteRuleEvaluationInput {
     bool textAvailable { false };
 };
 
+/** One or more rules recorded atomically for one evaluated note input. */
+struct QTNOTE_EXPORT NoteRuleApplication {
+    QList<QUuid>             ruleIds;
+    NoteRuleEvaluationInput input;
+};
+
 /**
  * A declarative result. Applying it is intentionally separate: the caller
  * can first move storage, then assign a folder, and record a marker only after

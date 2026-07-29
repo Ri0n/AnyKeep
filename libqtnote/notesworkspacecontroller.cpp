@@ -239,6 +239,7 @@ bool NotesWorkspaceController::createNoteInFolder(const QString &folderIdText, c
     if (!openNote(note))
         return false;
     if (!folderId.isNull()) {
+        currentEditor_->setFolderUserOverride();
         rememberPendingFolderAssignment(currentEditor_->draftId(), folderId);
         folderOperations_->prepareNativeFolderTree(storage->systemName());
     }
@@ -334,7 +335,7 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
         source.setMedia(currentEditor_->media());
 
         QUuid destinationDraftId;
-        if (!stageMove(source, destinationStorageId, &destinationDraftId))
+        if (!stageMove(source, destinationStorageId, &destinationDraftId, currentEditor_->folderUserOverride()))
             return false;
 
         // Moving is not a normal close of the source editing session: publishing
@@ -391,13 +392,14 @@ bool NotesWorkspaceController::copyNote(const QString &sourceStorageId, const QS
     }
     setError({});
 
-    const auto stageAndPublish = [this, destinationStorageId](const Note &source) {
-        QUuid draftId;
-        if (!stageMove(source, destinationStorageId, &draftId))
-            return false;
-        DraftManager::instance()->publishPending();
-        return true;
-    };
+    const auto stageAndPublish
+        = [this, destinationStorageId](const Note &source, bool folderUserOverride = false) {
+            QUuid draftId;
+            if (!stageMove(source, destinationStorageId, &draftId, folderUserOverride))
+                return false;
+            DraftManager::instance()->publishPending();
+            return true;
+        };
 
     if (currentEditor_ && currentEditor_->storageId() == sourceStorageId && currentEditor_->noteId() == noteId) {
         if (!saveCurrentNote())
@@ -407,7 +409,7 @@ bool NotesWorkspaceController::copyNote(const QString &sourceStorageId, const QS
         source.setTitle(split.first);
         source.setText(split.second, currentEditor_->format());
         source.setMedia(currentEditor_->media());
-        return stageAndPublish(source);
+        return stageAndPublish(source, currentEditor_->folderUserOverride());
     }
 
     beginOperation();
@@ -778,10 +780,12 @@ bool NotesWorkspaceController::assignCurrentNoteFolder(const QString &folderIdTe
     if (currentEditor_->folderId() == folderId)
         return true;
 
-    const QUuid previousFolderId = currentEditor_->folderId();
+    const QUuid previousFolderId           = currentEditor_->folderId();
+    const bool  previousFolderUserOverride = currentEditor_->folderUserOverride();
     const bool  publishWithContent
         = currentEditor_->isDirty() || currentEditor_->hasPersistedDraft() || currentEditor_->noteId().isEmpty();
     currentEditor_->setFolderId(folderId);
+    currentEditor_->setFolderUserOverride();
     rememberPendingFolderAssignment(currentEditor_->draftId(), folderId);
 
     if (publishWithContent) {
@@ -804,6 +808,7 @@ bool NotesWorkspaceController::assignCurrentNoteFolder(const QString &folderIdTe
 
     pendingFolderAssignments_.remove(currentEditor_->draftId());
     currentEditor_->setFolderId(previousFolderId);
+    currentEditor_->setFolderUserOverride(previousFolderUserOverride);
     return false;
 }
 
@@ -871,7 +876,8 @@ void NotesWorkspaceController::endOperation()
         emit busyChanged();
 }
 
-bool NotesWorkspaceController::stageMove(const Note &source, const QString &destinationStorageId, QUuid *draftId)
+bool NotesWorkspaceController::stageMove(const Note &source, const QString &destinationStorageId, QUuid *draftId,
+                                         bool folderUserOverride)
 {
     auto destinationStorage = NoteManager::instance()->storage(destinationStorageId);
     if (source.isNull() || !destinationStorage || !destinationStorage->canAcceptWrites()) {
@@ -914,7 +920,8 @@ bool NotesWorkspaceController::stageMove(const Note &source, const QString &dest
 
     auto       *drafts    = DraftManager::instance();
     const QUuid stagedId  = drafts->acquireEditingSession(destination);
-    const auto  saveError = drafts->saveEditing(stagedId, destination, title, body, destinationFormat);
+    const auto saveError
+        = drafts->saveEditing(stagedId, destination, title, body, destinationFormat, folderUserOverride);
     if (saveError) {
         drafts->releaseEditingSession(stagedId);
         setError(saveError.message);

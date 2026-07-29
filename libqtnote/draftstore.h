@@ -39,6 +39,15 @@ struct QTNOTE_EXPORT DraftRecord {
     // Intended QtNote folder. It is local draft metadata until the target
     // storage acknowledges the corresponding note update.
     QUuid folderId;
+    // A direct folder choice in the active editor is stronger than an
+    // automatic publication rule for this draft. It is local-only metadata
+    // and is discarded once publication succeeds.
+    bool folderUserOverride { false };
+    // A cross-storage move publishes this draft to its target first, then
+    // durably queues deletion of this original.  Keeping the source in the
+    // encrypted draft makes the two-phase operation restart-safe.
+    QString removeSourceStorageId;
+    QString removeSourceNoteId;
     // Opaque storage-specific state (XMPP revision, Nextcloud ETag, Keep base
     // version, ...), captured when editing starts and restored before save.
     QVariantMap           backendData;

@@ -134,6 +134,19 @@ private slots:
         QVERIFY(data->drafts.value(editor.draftId()).folderId.isNull());
     }
 
+    void explicitFolderChoiceIsCheckpointed()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(plainNote(), drafts);
+
+        editor.setFolderId(QUuid::createUuid());
+        editor.setFolderUserOverride();
+        QVERIFY(editor.save());
+        QVERIFY(data->drafts.value(editor.draftId()).folderUserOverride);
+    }
+
     void metadataOnlyFolderPersistenceLeavesContentDirtyStateIntact()
     {
         auto         store = std::make_unique<MemoryDraftStore>();

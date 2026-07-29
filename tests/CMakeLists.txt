@@ -43,6 +43,10 @@ add_executable(filedraftstore_test filedraftstore_test.cpp)
 target_link_libraries(filedraftstore_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME filedraftstore_test COMMAND filedraftstore_test)
 
+add_executable(draftmanagertransfer_test draftmanagertransfer_test.cpp)
+target_link_libraries(draftmanagertransfer_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME draftmanagertransfer_test COMMAND draftmanagertransfer_test)
+
 add_executable(foldercatalog_test foldercatalog_test.cpp)
 target_link_libraries(foldercatalog_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME foldercatalog_test COMMAND foldercatalog_test)
@@ -62,6 +66,10 @@ add_test(NAME filenoterulestore_test COMMAND filenoterulestore_test)
 add_executable(noterulemanager_test noterulemanager_test.cpp)
 target_link_libraries(noterulemanager_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME noterulemanager_test COMMAND noterulemanager_test)
+
+add_executable(noteruleapplicationcontroller_test noteruleapplicationcontroller_test.cpp)
+target_link_libraries(noteruleapplicationcontroller_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME noteruleapplicationcontroller_test COMMAND noteruleapplicationcontroller_test)
 
 add_executable(rulescontroller_test rulescontroller_test.cpp)
 target_link_libraries(rulescontroller_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)

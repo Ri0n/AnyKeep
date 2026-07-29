@@ -296,7 +296,7 @@ The following serialized formats need a version bump with backward readers:
 
 | Payload | Existing role | Folder addition |
 | --- | --- | --- |
-| DraftRecord | crash-safe editing/publish queue | intended folderId and target storage fields; folder-only changes increment checkpoint revision |
+| DraftRecord | crash-safe editing/publish queue | intended folderId, local folderUserOverride and target storage fields; folder-only changes increment checkpoint revision |
 | FileDraftStore | encrypted individual draft payload | reader accepts all current pre-folder versions and initializes folder to null |
 | RemoteCacheRecord | encrypted remote offline snapshot | cached folderId plus pending folder synchronization state |
 | FileRemoteCacheStore | encrypted per-provider cache | reader accepts the previous payload version and initializes null folder |
@@ -306,7 +306,10 @@ DraftManager needs a metadata-dirty path. Its present document dirty flag is
 not sufficient because a user can assign a folder without changing text.
 Checkpoints, publication equality checks, recovery, duplicate/copy conflict
 resolution, and deferred routing must all preserve this metadata. A recovered
-draft restores its desired folder before the editor is presented.
+draft restores its desired folder before the editor is presented. A direct
+folder choice made in the active editor sets `folderUserOverride`; publication
+rules may still select a storage, but must not replace that folder unless the
+user explicitly reapplies rules.
 
 ### PTF implementation detail
 
@@ -525,12 +528,20 @@ Initial actions:
 Encryption is represented as a future action in the model/UI contract but is
 not enforced until its security policy is designed and implemented.
 
-Rules execute after a note is read/imported and before a new or modified note
-is published. Ordered rules use explicit stop/continue semantics, are
-idempotent, and record their last applied result to prevent refresh loops.
-Text conditions may require an asynchronous full-note load; summary-only list
-refreshes must not block on them. Applying a Tomboy rule changes only the
-local overlay assignment.
+Rules execute only when a new or modified draft is about to be published.
+Merely reading, indexing, or synchronizing a note must never apply a rule that
+changes it: a remote peer may have a reverse rule and otherwise cause an
+unbounded folder or storage loop. Ordered rules use explicit stop/continue
+semantics, are idempotent, and record their last successful publication result.
+Because a draft already contains complete text, text conditions never make a
+notes-list refresh load bodies in the background.
+
+Tomboy is the sole planned exception, with a deliberately separate local
+overlay import pass. When Tomboy notes are enumerated, that pass may evaluate
+only folder-assignment rules and write the encrypted QtNote overlay. It never
+edits Tomboy XML, never applies Select storage, and never turns a remote/import
+event into a provider write. This remains distinct from general publication
+routing and will be added with an explicit storage capability and tests.
 
 ### Rule data model and editor
 
@@ -561,26 +572,28 @@ and do not disappear when an old rule refers to an archived folder.
 
 ### Rule execution model
 
-There are two execution phases:
+There is one general execution phase:
 
-1. Import phase runs folder-safe summary conditions after a note is read from a
-   storage. Text conditions queue a low-priority full-note evaluation instead
-   of blocking list loading.
-2. Publication phase evaluates the complete rule set against the draft/live
-   note before routing and save. It can set the intended folder and target
-   storage atomically in the draft metadata transaction.
+1. Publication phase evaluates the complete rule set against the draft/live
+   note after its editing session closes and before any storage save starts.
+   It sets the intended folder and target storage in the same persisted draft
+   transition; a cross-storage result is a durable destination-first transfer.
+   Reading a note, including a network synchronization read, does not invoke
+   this phase.
 
 The evaluator receives an origin marker containing rule UUID, input
-revision/hash, and outcome. Re-evaluating the same unchanged note/rule pair is
-a no-op. A rule-generated storage change cannot make the import phase bounce a
-note endlessly between storages; such a cycle is detected and reported as a
-rule error. Rules never overwrite a direct user folder choice made later in
-the same editing session unless the user explicitly asks to reapply rules.
+revision/hash, and outcome. The persisted draft route makes retrying the same
+unchanged publication idempotent while the marker records its successful
+outcome. Publication routing persists the chosen target before the first save;
+after a successful destination acknowledgement it performs only the pending
+source deletion and does not route a second copy. Rules never overwrite a
+direct user folder choice made later in the same editing session unless the
+user explicitly asks to reapply rules.
 
-Text matching must have resource limits: a cancellable asynchronous load,
-bounded pattern execution, and no body content leaked to logs. A failed full
-load marks the text condition indeterminate and retries according to ordinary
-storage availability rather than treating it as a match.
+Text matching uses the already encrypted draft body, with bounded pattern
+execution and no body content leaked to logs. A storage failure retries the
+same persisted route; it never falls back to applying rules to freshly read
+remote notes.
 
 ## Format compatibility, recovery and privacy
 
@@ -619,7 +632,7 @@ Every stage supplies focused automated tests before its commit:
 | Nextcloud | category path conversion, ETag request semantics, remote path import and conflict behavior |
 | Tomboy | no XML/tag mutation from folder assignment, overlay persistence, rule-assigned folders and reconnect behavior |
 | Manager QML | Folders tab, Unsorted, inline rename, collapse all, picker ordering, selection, multi-drag compact preview, no hover expansion and context-menu click isolation |
-| Rules | validation, ALL/ANY/negation, ordering/stop behavior, storage/folder routing, idempotence and text-load cancellation |
+| Rules | validation, ALL/ANY/negation, ordering/stop behavior, publication routing, idempotence, no-load side effects and Tomboy-overlay isolation |
 
 QML tests must use an explicit offscreen/software configuration. Tests that
 exercise delete or recovery paths use a fake dialog/controller response and

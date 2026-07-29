@@ -38,6 +38,7 @@
 #include "globalshortcutsinterface.h"
 #include "notedialog.h"
 #include "notemanager.h"
+#include "noteruleapplicationcontroller.h"
 #include "noterulemanager.h"
 #include "notesmanagerwindow.h"
 #include "notificationinterface.h"
@@ -191,6 +192,7 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     QString ruleStoreError;
     if (!ruleManager->initialize(&ruleStoreError))
         qCWarning(logMain) << "Rule store recovery is required:" << ruleStoreError;
+    NoteRuleApplicationController::instance()->initialize();
 
     // Storage registration starts asynchronous initialization. Never touch a
     // storage while restoring drafts until its init job has completed.

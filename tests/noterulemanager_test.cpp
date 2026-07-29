@@ -37,6 +37,7 @@ private slots:
     void initTestCase();
     void persistsRelativeOrderAndInvalidatesMarkersOnEdit();
     void forgetsApplicationMarkersForExplicitReapply();
+    void batchesMarkersForSeveralNotes();
 };
 
 void NoteRuleManagerTest::initTestCase() { QVERIFY2(FileNoteRuleStore::cryptoAvailable(), "AES-256-GCM unavailable"); }
@@ -97,6 +98,33 @@ void NoteRuleManagerTest::forgetsApplicationMarkersForExplicitReapply()
     QVERIFY(manager.wasApplied(added.value, input));
     QVERIFY(!manager.forgetApplied(input.storageId, input.noteId));
     QVERIFY(!manager.wasApplied(added.value, input));
+}
+
+void NoteRuleManagerTest::batchesMarkersForSeveralNotes()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    NoteRuleManager manager(
+        makeStore(directory.filePath(QStringLiteral("rules.bin")), SecureEnvelope::generateMasterKey()));
+    QVERIFY(manager.initialize());
+    const auto first  = manager.addRule(makeRule(QStringLiteral("First"), QStringLiteral("ptf")));
+    const auto second = manager.addRule(makeRule(QStringLiteral("Second"), QStringLiteral("nextcloud")));
+    QVERIFY(first);
+    QVERIFY(second);
+
+    NoteRuleEvaluationInput one;
+    one.storageId = QStringLiteral("ptf");
+    one.noteId    = QStringLiteral("one");
+    one.title     = QStringLiteral("One");
+    NoteRuleEvaluationInput two;
+    two.storageId = QStringLiteral("tomboy");
+    two.noteId    = QStringLiteral("two");
+    two.title     = QStringLiteral("Two");
+    QVERIFY(!manager.recordApplied({ { { first.value, second.value }, one }, { { second.value }, two } }));
+    QVERIFY(manager.wasApplied(first.value, one));
+    QVERIFY(manager.wasApplied(second.value, one));
+    QVERIFY(manager.wasApplied(second.value, two));
+    QVERIFY(!manager.wasApplied(first.value, two));
 }
 
 QTEST_GUILESS_MAIN(NoteRuleManagerTest)

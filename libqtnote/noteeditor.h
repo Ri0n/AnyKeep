@@ -65,6 +65,7 @@ public:
     bool                  isDirty() const { return dirty_; }
     QUuid                 folderId() const { return note_.folderId(); }
     bool                  hasPersistedDraft() const { return draftPersisted_; }
+    bool                  folderUserOverride() const { return folderUserOverride_; }
     QString               errorString() const { return errorString_; }
     QObject              *blockModel() const;
     NoteBlockModel       *model() const { return model_; }
@@ -77,6 +78,8 @@ public:
 
     void setMedia(const QList<MediaReference> &media);
     void setFolderId(const QUuid &folderId);
+    /** Preserves a direct user folder choice against automatic routing rules. */
+    void setFolderUserOverride(bool enabled = true) { folderUserOverride_ = enabled; }
     /** Marks the current folder metadata as durably stored without touching document content. */
     void markFolderPersisted(const QUuid &folderId);
     void loadDocument(const QString &contents, Note::Format format, LoadPolicy policy = LoadPolicy::ResetHistory);
@@ -158,6 +161,7 @@ private:
     bool                  metadataDirty_ { false };
     bool                  dirty_ { false };
     bool                  draftPersisted_ { false };
+    bool                  folderUserOverride_ { false };
     bool                  sessionReleased_ { false };
     int                   draftRevision_ { 0 };
     QString               errorString_;
