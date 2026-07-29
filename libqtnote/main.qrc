@@ -31,6 +31,7 @@
         <file alias="ListBlockBehavior.js">qml/ListBlockBehavior.js</file>
         <file alias="TableBlockBehavior.js">qml/TableBlockBehavior.js</file>
         <file alias="EditorContextMenu.qml">qml/EditorContextMenu.qml</file>
+        <file alias="ThemedIcon.qml">qml/ThemedIcon.qml</file>
         <file alias="EditorToolbar.qml">qml/EditorToolbar.qml</file>
         <file alias="NoteEditorPane.qml">qml/NoteEditorPane.qml</file>
         <file alias="DialogHost.qml">qml/DialogHost.qml</file>
@@ -40,5 +41,6 @@
         <file alias="NotesManagerPage.qml">qml/NotesManagerPage.qml</file>
         <file alias="NotesManagerWindow.qml">qml/NotesManagerWindow.qml</file>
         <file alias="SettingsWindow.qml">qml/SettingsWindow.qml</file>
+        <file alias="AnimatedSettingsList.qml">qml/AnimatedSettingsList.qml</file>
     </qresource>
 </RCC>

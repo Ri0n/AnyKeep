@@ -80,7 +80,7 @@ PluginMetadata CinnamonPlugin::metadata()
 {
     PluginMetadata md;
     md.id          = pluginId;
-    md.icon        = QIcon(":/icons/qtnote");
+    md.icon        = QIcon(":/icons/cinnamon-logo");
     md.name        = "Cinnamon Integration";
     md.description = tr("Integration with Cinnamon desktop features");
     md.author      = "Sergei Ilinykh <rion4ik@gmail.com>";

@@ -33,6 +33,7 @@ set(qtnote_mobile_shared_qml
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteEditorPane.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NotesManagerPage.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/TableBlockBehavior.js"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/ThemedIcon.qml"
 )
 foreach(qtnote_mobile_qml_file IN LISTS qtnote_mobile_shared_qml)
     get_filename_component(qtnote_mobile_qml_alias "${qtnote_mobile_qml_file}" NAME)

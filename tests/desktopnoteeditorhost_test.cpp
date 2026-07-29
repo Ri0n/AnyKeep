@@ -1,7 +1,11 @@
 #include <QElapsedTimer>
+#include <QIcon>
 #include <QJsonDocument>
+#include <QPalette>
 #include <QQmlComponent>
 #include <QQmlContext>
+#include <QQmlEngine>
+#include <QQuickImageProvider>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QSettings>
@@ -18,6 +22,8 @@
 #include "notedata.h"
 #include "noteeditor.h"
 #include "notesmanagerwindow.h"
+#include "pluginlistmodel.h"
+#include "settingscontroller.h"
 #include "themediconimageprovider.h"
 
 using namespace QtNote;
@@ -56,6 +62,158 @@ private:
     QHash<QUuid, DraftRecord> records_;
 };
 
+class SettingsReorderTestModel final : public QAbstractListModel {
+    Q_OBJECT
+
+public:
+    enum Role {
+        StorageIdRole = Qt::UserRole + 1,
+        PluginIdRole,
+        NameRole,
+        VersionTextRole,
+        LoadStatusRole,
+        AccessibleRole,
+        ConfigurableRole,
+        TooltipRole,
+        IconSourceRole,
+        LoadPolicyRole,
+    };
+
+    explicit SettingsReorderTestModel(QObject *parent = nullptr) : QAbstractListModel(parent)
+    {
+        ids_ = { QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c") };
+    }
+
+    int rowCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : ids_.size(); }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (!index.isValid() || index.row() < 0 || index.row() >= ids_.size())
+            return {};
+        const QString id = ids_.at(index.row());
+        switch (role) {
+        case StorageIdRole:
+        case PluginIdRole:
+            return id;
+        case NameRole:
+            return id.toUpper();
+        case VersionTextRole:
+            return QStringLiteral("1.0");
+        case LoadStatusRole:
+            return 2;
+        case AccessibleRole:
+            return true;
+        case ConfigurableRole:
+            return id != QStringLiteral("b");
+        case TooltipRole:
+        case IconSourceRole:
+            return QString();
+        case LoadPolicyRole:
+            return 0;
+        default:
+            return {};
+        }
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return {
+            { StorageIdRole, "storageId" },       { PluginIdRole, "pluginId" },     { NameRole, "name" },
+            { VersionTextRole, "versionText" },   { LoadStatusRole, "loadStatus" }, { AccessibleRole, "accessible" },
+            { ConfigurableRole, "configurable" }, { TooltipRole, "tooltip" },       { IconSourceRole, "iconSource" },
+            { LoadPolicyRole, "loadPolicy" },
+        };
+    }
+
+    Q_INVOKABLE bool reorderStorage(int sourceRow, int destinationRow)
+    {
+        ++storageMoves;
+        return moveTo(sourceRow, destinationRow);
+    }
+
+    Q_INVOKABLE bool movePlugin(int sourceRow, int destinationRow)
+    {
+        ++pluginMoves;
+        return moveTo(sourceRow, destinationRow);
+    }
+
+    Q_INVOKABLE bool setLoadPolicy(int, int) { return true; }
+
+    QStringList ids() const { return ids_; }
+
+    int storageMoves { 0 };
+    int pluginMoves { 0 };
+
+private:
+    bool moveTo(int sourceRow, int destinationRow)
+    {
+        if (sourceRow < 0 || sourceRow >= ids_.size() || destinationRow < 0 || destinationRow >= ids_.size()
+            || sourceRow == destinationRow) {
+            return false;
+        }
+        const int destinationChild = destinationRow > sourceRow ? destinationRow + 1 : destinationRow;
+        beginMoveRows({}, sourceRow, sourceRow, {}, destinationChild);
+        ids_.move(sourceRow, destinationRow);
+        endMoveRows();
+        return true;
+    }
+
+    QStringList ids_;
+};
+
+class SettingsPluginSource final : public PluginListSource {
+public:
+    using PluginListSource::PluginListSource;
+
+    QStringList pluginIds() const override { return ids; }
+
+    Entry pluginEntry(const QString &pluginId) const override
+    {
+        Entry entry;
+        entry.id           = pluginId;
+        entry.name         = pluginId.toUpper();
+        entry.versionText  = QStringLiteral("1.0");
+        entry.loadPolicy   = LP_Auto;
+        entry.loadStatus   = LS_Initialized;
+        entry.loaded       = true;
+        entry.configurable = true;
+        return entry;
+    }
+
+    bool setPluginLoadPolicy(const QString &, LoadPolicy) override { return true; }
+
+    bool setPluginOrder(const QStringList &pluginIds) override
+    {
+        ids = pluginIds;
+        ++orderChanges;
+        emit pluginsReset();
+        return true;
+    }
+
+    QUrl                settingsComponent(const QString &) const override { return {}; }
+    SettingsController *createSettingsController(const QString &, QObject *) override { return nullptr; }
+
+    QStringList ids { QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c") };
+    int         orderChanges { 0 };
+};
+
+class SettingsFormTestController final : public SettingsController {
+public:
+    SettingsFormTestController()
+    {
+        addField(
+            { QStringLiteral("apiKey"), QStringLiteral("API key"), QString(), Password, QStringLiteral("secret") });
+        addField({ QStringLiteral("model"), QStringLiteral("Model"), QString(), Text, QStringLiteral("gemini-test") });
+        addField(
+            { QStringLiteral("prompt"), QStringLiteral("Prompt"), QString(), Multiline, QStringLiteral("Transcribe") });
+        addField({ QStringLiteral("usage"), QStringLiteral("Usage"), QString(), ReadOnly,
+                   QStringLiteral("<b>Used:</b> 0 seconds") });
+    }
+
+protected:
+    bool applyValues(const QVariantMap &, QString *) override { return true; }
+};
+
 Note plainNote()
 {
     Note note(new NoteData(nullptr));
@@ -63,12 +221,177 @@ Note plainNote()
     note.setText(QStringLiteral("Body"), Note::PlainText);
     return note;
 }
+
+QQuickItem *quickItemByName(QQuickItem *root, const QString &name)
+{
+    if (!root)
+        return nullptr;
+    if (root->objectName() == name)
+        return root;
+    for (QQuickItem *child : root->childItems())
+        if (auto *match = quickItemByName(child, name))
+            return match;
+    return nullptr;
+}
 }
 
 class DesktopNoteEditorHostTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void themedIconsStayUntintedAndFallbackRecoloringIsExplicit()
+    {
+        QQmlEngine engine;
+        installThemedIconImageProvider(&engine);
+        auto *provider = dynamic_cast<QQuickImageProvider *>(engine.imageProvider(QStringLiteral("qtnoteicons")));
+        QVERIFY(provider);
+
+        const auto request = [provider](const QString &id) {
+            QSize  actualSize;
+            QImage image = provider->requestImage(id, &actualSize, QSize(20, 20));
+            return image;
+        };
+
+        const QIcon themed = QIcon::fromTheme(QStringLiteral("preferences-system-symbolic"));
+        if (!themed.isNull()) {
+            const QImage expected = themed.pixmap(20, 20).toImage();
+            const QImage actual
+                = request(QStringLiteral("preferences-system-symbolic/preferences-system-symbolic.svg/%23ff0000"));
+            QCOMPARE(actual, expected);
+        }
+
+        const QString missingTheme = QStringLiteral("__missing_theme_icon__/");
+        const QImage  original     = request(missingTheme + QStringLiteral("preferences-system-symbolic.svg/original"));
+        const QImage  recolored = request(missingTheme + QStringLiteral("preferences-system-symbolic.svg/%23ff0000"));
+        QVERIFY(!original.isNull());
+        QVERIFY(!recolored.isNull());
+        QCOMPARE(original.size(), recolored.size());
+        QVERIFY(original != recolored);
+
+        bool foundRedPixel = false;
+        for (int y = 0; y < recolored.height() && !foundRedPixel; ++y) {
+            for (int x = 0; x < recolored.width(); ++x) {
+                const auto pixel = recolored.pixel(x, y);
+                if (qAlpha(pixel) > 0 && qRed(pixel) == 255 && qGreen(pixel) == 0 && qBlue(pixel) == 0) {
+                    foundRedPixel = true;
+                    break;
+                }
+            }
+        }
+        QVERIFY(foundRedPixel);
+    }
+
+    void genericSettingsFormCreatesBoundEditors()
+    {
+        SettingsFormTestController controller;
+        QQmlEngine                 engine;
+        QQmlComponent              component(&engine, QUrl(QStringLiteral("qrc:/qml/SettingsForm.qml")));
+        QCOMPARE(component.status(), QQmlComponent::Ready);
+
+        QVariantMap properties;
+        properties.insert(QStringLiteral("controller"), QVariant::fromValue(static_cast<QObject *>(&controller)));
+        std::unique_ptr<QObject> form(component.createWithInitialProperties(properties));
+        QVERIFY2(form, qPrintable(component.errorString()));
+        auto *formItem = qobject_cast<QQuickItem *>(form.get());
+        QVERIFY(formItem);
+        for (int row = 0; row < controller.rowCount(); ++row) {
+            const auto objectName = QStringLiteral("settingsFieldEditor-%1").arg(row);
+            QTRY_VERIFY2(quickItemByName(formItem, objectName), qPrintable(objectName));
+        }
+        auto *usage = quickItemByName(formItem, QStringLiteral("settingsFieldEditor-3"));
+        QVERIFY(usage);
+        QVERIFY(usage->property("textFormat").toInt() != 0);
+    }
+
+    void settingsListsUseAnimatedReordering()
+    {
+        const auto exercise = [](bool pluginMode) {
+            SettingsReorderTestModel model;
+            QQuickWidget             quick;
+            quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+            quick.resize(360, 180);
+            installThemedIconImageProvider(quick.engine());
+            quick.rootContext()->setContextProperty(QStringLiteral("settingsReorderModel"), &model);
+            quick.rootContext()->setContextProperty(QStringLiteral("settingsPluginMode"), pluginMode);
+            quick.setSource(QUrl(QStringLiteral("qrc:/qml/AnimatedSettingsList.qml")));
+            QCOMPARE(quick.status(), QQuickWidget::Ready);
+            quick.show();
+            QTest::qWait(30);
+
+            auto *root = qobject_cast<QQuickItem *>(quick.rootObject());
+            QVERIFY(root);
+            QCOMPARE(root->property("backgroundColor").value<QColor>(),
+                     QGuiApplication::palette().color(QPalette::Base));
+            auto *first  = quickItemByName(root, QStringLiteral("settingsRow-a"));
+            auto *second = quickItemByName(root, QStringLiteral("settingsRow-b"));
+            auto *last   = quickItemByName(root, QStringLiteral("settingsRow-c"));
+            QTRY_VERIFY(first);
+            QTRY_VERIFY(second);
+            QTRY_VERIFY(last);
+            if (pluginMode) {
+                auto *firstCheck  = quickItemByName(root, QStringLiteral("settingsPolicyCheck-a"));
+                auto *secondCheck = quickItemByName(root, QStringLiteral("settingsPolicyCheck-b"));
+                auto *configure   = quickItemByName(root, QStringLiteral("settingsConfigureButton-a"));
+                QTRY_VERIFY(firstCheck);
+                QTRY_VERIFY(secondCheck);
+                QTRY_VERIFY(configure);
+                const qreal firstX  = firstCheck->mapToItem(root, QPointF()).x();
+                const qreal secondX = secondCheck->mapToItem(root, QPointF()).x();
+                QVERIFY(qAbs(firstX - secondX) < 0.5);
+                QVERIFY(configure->mapToItem(root, QPointF()).x() < firstX);
+            }
+
+            const QPointF from = first->mapToItem(root, QPointF(13, first->height() / 2));
+            const QPointF to   = last->mapToItem(root, QPointF(13, last->height() / 2));
+            QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, from.toPoint());
+            for (int step = 1; step <= 8; ++step)
+                QTest::mouseMove(&quick, (from + (to - from) * (qreal(step) / 8)).toPoint(), 15);
+            QTRY_VERIFY(root->property("dragging").toBool());
+            QTRY_COMPARE(root->property("previewCount").toInt(), 1);
+            QTRY_VERIFY(second->property("reorderOffset").toReal() < -1);
+
+            QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, to.toPoint());
+            QTRY_VERIFY(!root->property("dragging").toBool());
+            QCOMPARE(model.ids(), QStringList({ QStringLiteral("b"), QStringLiteral("c"), QStringLiteral("a") }));
+            QCOMPARE(model.storageMoves, pluginMode ? 0 : 1);
+            QCOMPARE(model.pluginMoves, pluginMode ? 1 : 0);
+        };
+
+        exercise(false);
+        exercise(true);
+
+        // PluginListModel persists through its source and synchronously resets
+        // itself during the drop. Keep that real lifecycle covered as well.
+        SettingsPluginSource source;
+        PluginListModel      model(&source);
+        QQuickWidget         quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(360, 180);
+        installThemedIconImageProvider(quick.engine());
+        quick.rootContext()->setContextProperty(QStringLiteral("settingsReorderModel"), &model);
+        quick.rootContext()->setContextProperty(QStringLiteral("settingsPluginMode"), true);
+        quick.setSource(QUrl(QStringLiteral("qrc:/qml/AnimatedSettingsList.qml")));
+        QCOMPARE(quick.status(), QQuickWidget::Ready);
+        quick.show();
+        QTest::qWait(30);
+
+        auto *root  = qobject_cast<QQuickItem *>(quick.rootObject());
+        auto *first = quickItemByName(root, QStringLiteral("settingsRow-a"));
+        auto *last  = quickItemByName(root, QStringLiteral("settingsRow-c"));
+        QTRY_VERIFY(first);
+        QTRY_VERIFY(last);
+        const QPointF from = first->mapToItem(root, QPointF(13, first->height() / 2));
+        const QPointF to   = last->mapToItem(root, QPointF(13, last->height() / 2));
+        QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, from.toPoint());
+        for (int step = 1; step <= 8; ++step)
+            QTest::mouseMove(&quick, (from + (to - from) * (qreal(step) / 8)).toPoint(), 15);
+        QTRY_VERIFY(root->property("dragging").toBool());
+        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, to.toPoint());
+        QTRY_VERIFY(!root->property("dragging").toBool());
+        QCOMPARE(source.ids, QStringList({ QStringLiteral("b"), QStringLiteral("c"), QStringLiteral("a") }));
+        QCOMPARE(source.orderChanges, 1);
+    }
+
     void loadsSharedQmlShell()
     {
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
@@ -480,8 +803,59 @@ private slots:
         notesModel.appendRow(storageBRow);
         notesModel.appendRow(noteBRow);
         QTRY_COMPARE(tree->property("rows").toInt(), 19);
+
+        // Scrolling can reuse the delegate that initiated a drag for a
+        // different row. The preview must remain a frozen image of the note,
+        // and the newly represented row must not be hidden.
+        tree->setProperty("contentY", 0);
+        QQuickItem *recycledSource = nullptr;
+        QTRY_VERIFY((recycledSource = delegateForNote(QStringLiteral("note-a"))));
+        const QPointF recycledSourcePoint = recycledSource->mapToItem(
+            qobject_cast<QQuickItem *>(root), QPointF(recycledSource->width() / 2, recycledSource->height() / 2));
+        QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, recycledSourcePoint.toPoint());
+        QTest::mouseMove(&quick, (recycledSourcePoint + QPointF(0, 12)).toPoint(), 15);
+        QTRY_COMPARE(preview->property("previewCount").toInt(), 1);
+        auto *frozenPreview = quickItemByName(preview, QStringLiteral("managerDragPreviewItem-0"));
+        QTRY_VERIFY(frozenPreview);
+        QVERIFY(!frozenPreview->property("live").toBool());
+        QVERIFY(!frozenPreview->property("hideSource").toBool());
+
+        tree->setProperty("contentY", qMax(0.0, tree->property("contentHeight").toReal() - tree->height()));
+        QTRY_VERIFY(delegateForNote(QStringLiteral("note-a")) == nullptr);
+        QTRY_COMPARE(page->property("draggedItemType").toInt(), 1);
+        QTRY_COMPARE(page->property("activeDraggedNoteId").toString(), QStringLiteral("note-a"));
+        if (recycledSource->property("noteId").toString() != QStringLiteral("note-a"))
+            QCOMPARE(recycledSource->opacity(), 1.0);
+        QVERIFY(QMetaObject::invokeMethod(page, "cancelGroupedDrag"));
+        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, recycledSourcePoint.toPoint());
+        QTRY_COMPARE(preview->property("previewCount").toInt(), 0);
+
         tree->setProperty("contentY", qMax(0.0, tree->property("contentHeight").toReal() - tree->height()));
         QTRY_VERIFY(delegate(page, 0) == nullptr);
+
+        QQuickItem *nonConsecutiveFirst  = nullptr;
+        QQuickItem *nonConsecutiveSecond = nullptr;
+        QTRY_VERIFY((nonConsecutiveFirst = delegateForNote(QStringLiteral("scroll-note-10"))));
+        QTRY_VERIFY((nonConsecutiveSecond = delegateForNote(QStringLiteral("scroll-note-12"))));
+        const auto    rootItem                 = qobject_cast<QQuickItem *>(root);
+        const QPointF nonConsecutiveFirstPoint = nonConsecutiveFirst->mapToItem(
+            rootItem, QPointF(nonConsecutiveFirst->width() / 2, nonConsecutiveFirst->height() / 2));
+        const QPointF nonConsecutiveSecondPoint = nonConsecutiveSecond->mapToItem(
+            rootItem, QPointF(nonConsecutiveSecond->width() / 2, nonConsecutiveSecond->height() / 2));
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, nonConsecutiveFirstPoint.toPoint());
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::ControlModifier, nonConsecutiveSecondPoint.toPoint());
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
+        QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, nonConsecutiveFirstPoint.toPoint());
+        QTest::mouseMove(&quick, (nonConsecutiveFirstPoint + QPointF(0, 12)).toPoint(), 15);
+        QTRY_COMPARE(preview->property("previewCount").toInt(), 2);
+        auto *compactFirst  = quickItemByName(preview, QStringLiteral("managerDragPreviewItem-0"));
+        auto *compactSecond = quickItemByName(preview, QStringLiteral("managerDragPreviewItem-1"));
+        QTRY_VERIFY(compactFirst);
+        QTRY_VERIFY(compactSecond);
+        QVERIFY(qAbs(compactSecond->y() - compactFirst->y() - compactFirst->height()) < 0.5);
+        QVERIFY(QMetaObject::invokeMethod(page, "cancelGroupedDrag"));
+        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, nonConsecutiveFirstPoint.toPoint());
+        QTRY_COMPARE(preview->property("previewCount").toInt(), 0);
 
         QQuickItem *scrolledSource = nullptr;
         QQuickItem *scrolledTarget = nullptr;
@@ -493,7 +867,6 @@ private slots:
 
         QQuickItem *visibleStorageB = nullptr;
         QTRY_VERIFY((visibleStorageB = delegate(page, 17)));
-        const auto    rootItem = qobject_cast<QQuickItem *>(root);
         const QPointF sourcePoint
             = scrolledTarget->mapToItem(rootItem, QPointF(scrolledTarget->width() / 2, scrolledTarget->height() / 2));
         const QPointF headerPoint = visibleStorageB->mapToItem(

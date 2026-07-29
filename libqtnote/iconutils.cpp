@@ -69,11 +69,12 @@ QIcon IconUtils::themedIcon(const QString &name, const QString &fallbackPath)
 
 QIcon IconUtils::themedIcon(const QString &name, const QString &fallbackPath, const QColor &color)
 {
-    auto source = QIcon::fromTheme(name);
-    if (source.isNull())
-        source = QIcon(fallbackPath);
-    auto icon = tintedIcon(source, color);
-    return icon.isNull() ? source : icon;
+    auto icon = QIcon::fromTheme(name);
+    if (!icon.isNull())
+        return icon;
+
+    icon = tintedSymbolicIcon(fallbackPath, color);
+    return icon.isNull() ? QIcon(fallbackPath) : icon;
 }
 
 } // namespace QtNote

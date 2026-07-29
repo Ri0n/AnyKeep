@@ -41,11 +41,11 @@ public:
     explicit TomboyPlugin(QObject *parent = 0);
     ~TomboyPlugin();
 
-    int                    metadataVersion() const override;
-    void                   setHost(PluginHostInterface *host) override;
-    PluginMetadata         metadata() override;
-    bool                   initialize() override;
-    void                   shutdown() override;
+    int            metadataVersion() const override;
+    void           setHost(PluginHostInterface *host) override;
+    PluginMetadata metadata() override;
+    bool           initialize() override;
+    void           shutdown() override;
 };
 
 } // namespace QtNote

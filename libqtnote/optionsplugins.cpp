@@ -1,295 +1,120 @@
-#include <QAbstractTableModel>
-#include <QDataStream>
-#include <QDebug>
-#include <QMimeData>
-#include <QMouseEvent>
-#include <QPainter>
-#include <QSettings>
-#include <QStyledItemDelegate>
-#include <QTransform>
-
 #include "optionsplugins.h"
+
 #include "pluginlistmodel.h"
 #include "pluginmanager.h"
 #include "qtnote.h"
 #include "settingswindow.h"
+#include "themediconimageprovider.h"
 #include "ui_optionsplugins.h"
+
+#include <QDebug>
+#include <QIcon>
+#include <QImage>
+#include <QPointer>
+#include <QQmlContext>
+#include <QQmlEngine>
+#include <QQuickImageProvider>
+#include <QQuickItem>
+#include <QQuickWidget>
+#include <QUrl>
 
 namespace QtNote {
 
-class ButtonDelegate : public QStyledItemDelegate {
-    Q_OBJECT
+namespace {
+    constexpr auto PluginIconProviderId = "qtnote-plugin-icon";
 
-    QModelIndex sunken;
-
-public:
-    explicit ButtonDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) { }
-
-    // painting
-    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
-    {
-        QStyleOptionViewItem opt = option;
-        initStyleOption(&opt, index);
-        if (opt.icon.isNull()) {
-            return;
-        }
-        painter->save();
-        if (opt.state & QStyle::State_Selected) {
-            painter->setPen(QPen(Qt::NoPen));
-            if (opt.state & QStyle::State_Active) {
-                painter->setBrush(QBrush(QPalette().highlight()));
-            } else {
-                painter->setBrush(QBrush(QPalette().color(QPalette::Inactive, QPalette::Highlight)));
-            }
-            painter->drawRect(opt.rect);
+    class PluginIconImageProvider final : public QQuickImageProvider {
+    public:
+        explicit PluginIconImageProvider(PluginListModel *model) :
+            QQuickImageProvider(QQuickImageProvider::Image), model_(model)
+        {
         }
 
-        QStyleOptionButton buttonOption;
-        buttonOption.icon     = opt.icon;
-        buttonOption.iconSize = option.decorationSize;
-        buttonOption.text     = opt.text;
-        buttonOption.features = QStyleOptionButton::Flat;
-        buttonOption.rect     = opt.rect;
-        buttonOption.state    = QStyle::State_Enabled;
-        if (index == sunken) {
-            buttonOption.state |= QStyle::State_Sunken;
-        }
-        if (option.state & QStyle::State_MouseOver) {
-            buttonOption.state |= (QStyle::State_Active | QStyle::State_MouseOver);
-        }
+        QImage requestImage(const QString &id, QSize *size, const QSize &requestedSize) override
+        {
+            if (!model_)
+                return {};
 
-        QApplication::style()->drawControl(QStyle::CE_PushButton, &buttonOption, painter);
-        painter->restore();
-    }
-
-    bool editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option,
-                     const QModelIndex &index)
-    {
-        Q_UNUSED(model);
-        Q_UNUSED(option);
-
-        if (!(event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease)) {
-            return true;
-        }
-
-        sunken = QModelIndex();
-
-        if (event->type() == QEvent::MouseButtonPress) {
-            sunken = index;
-        }
-        return true;
-    }
-};
-
-class PluginsModel : public QAbstractTableModel {
-    Q_OBJECT
-
-    static constexpr auto MimeType = "application/qtnote.plugin.id";
-
-    PluginListModel plugins;
-    QIcon           settingIcon;
-
-public:
-    PluginsModel(PluginManager *pluginManager, QObject *parent) :
-        QAbstractTableModel(parent), plugins(pluginManager, this)
-    {
-        QPixmap pix(":/icons/options");
-        settingIcon = QIcon(pix);
-        QTransform transform;
-        transform.rotate(45);
-        pix.transformed(transform, Qt::SmoothTransformation);
-
-        settingIcon.addPixmap(pix.transformed(transform), QIcon::Active);
-    }
-
-    int rowCount(const QModelIndex &parent = QModelIndex()) const override
-    {
-        return parent.isValid() ? 0 : plugins.rowCount();
-    }
-
-    int columnCount(const QModelIndex &parent = QModelIndex()) const override
-    {
-        if (parent.isValid()) {
-            return 0;
-        }
-        return 3;
-    }
-
-    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override
-    {
-        if (!index.isValid() || index.row() < 0 || index.row() >= plugins.rowCount())
-            return {};
-
-        const QModelIndex pluginIndex = plugins.index(index.row());
-        if (index.column() == 0) {
-            switch (role) {
-            case Qt::DisplayRole:
-            case Qt::DecorationRole:
-            case Qt::CheckStateRole:
-            case Qt::ToolTipRole:
-            case Qt::FontRole:
-            case Qt::ForegroundRole:
-                return plugins.data(pluginIndex, role);
-            }
-        } else if (index.column() == 1) { // version
-            if (role == Qt::DisplayRole)
-                return plugins.data(pluginIndex, PluginListModel::VersionTextRole);
-        } else if (index.column() == 2) { // settings button
-            // options button
-            if (role == Qt::DecorationRole && plugins.data(pluginIndex, PluginListModel::ConfigurableRole).toBool())
-                return settingIcon;
-        }
-        return QVariant();
-    }
-
-    bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override
-    {
-        if (index.column() == 0 && role == Qt::CheckStateRole) {
-            if (!plugins.setData(plugins.index(index.row()), value, role))
-                return false;
-            emit dataChanged(this->index(index.row(), 0), this->index(index.row(), 2));
-            return true;
-        }
-        return false;
-    }
-
-    QStringList mimeTypes() const override { return { QLatin1String(MimeType) }; }
-
-    QMimeData *mimeData(const QModelIndexList &indexes) const override
-    {
-        if (indexes.isEmpty()) {
-            return nullptr;
-        }
-
-        const auto row = indexes.first().row();
-        if (row < 0 || row >= plugins.rowCount()) {
-            return nullptr;
-        }
-
-        auto        mimeData = new QMimeData();
-        QByteArray  encodedData;
-        QDataStream out(&encodedData, QIODevice::WriteOnly);
-        out << plugins.pluginId(row);
-        mimeData->setData(QLatin1String(MimeType), encodedData);
-        return mimeData;
-    }
-
-    bool dropMimeData(const QMimeData *data, Qt::DropAction action, int row, int column,
-                      const QModelIndex &parent) override
-    {
-        Q_UNUSED(column);
-
-        if (action == Qt::IgnoreAction) {
-            return true;
-        }
-        if (action != Qt::MoveAction || !data->hasFormat(QLatin1String(MimeType))) {
-            return false;
-        }
-
-        QString     pluginId;
-        QByteArray  encodedData = data->data(QLatin1String(MimeType));
-        QDataStream in(&encodedData, QIODevice::ReadOnly);
-        in >> pluginId;
-
-        int sourceRow = -1;
-        for (int row = 0; row < plugins.rowCount(); ++row) {
-            if (plugins.pluginId(row) == pluginId) {
-                sourceRow = row;
+            const QString pluginId = QUrl::fromPercentEncoding(id.toUtf8());
+            QIcon         icon;
+            for (int row = 0; row < model_->rowCount(); ++row) {
+                const auto index = model_->index(row);
+                if (model_->data(index, PluginListModel::PluginIdRole).toString() != pluginId)
+                    continue;
+                icon = model_->data(index, PluginListModel::IconRole).value<QIcon>();
                 break;
             }
-        }
-        if (sourceRow < 0) {
-            return false;
-        }
+            if (icon.isNull())
+                return {};
 
-        int destinationRow = row;
-        if (destinationRow < 0) {
-            destinationRow = parent.isValid() ? parent.row() : plugins.rowCount();
-        }
-        return moveRows(QModelIndex(), sourceRow, 1, QModelIndex(), destinationRow);
-    }
-
-    bool moveRows(const QModelIndex &sourceParent, int sourceRow, int count, const QModelIndex &destinationParent,
-                  int destinationChild) override
-    {
-        if (sourceParent.isValid() || destinationParent.isValid() || count != 1 || sourceRow < 0
-            || sourceRow >= plugins.rowCount() || destinationChild < 0 || destinationChild > plugins.rowCount()
-            || destinationChild == sourceRow || destinationChild == sourceRow + 1) {
-            return false;
+            QSize target = requestedSize.isValid() ? requestedSize : QSize(22, 22);
+            target.setWidth(qMax(1, target.width()));
+            target.setHeight(qMax(1, target.height()));
+            QImage image = icon.pixmap(target).toImage();
+            if (size)
+                *size = image.size();
+            return image;
         }
 
-        beginMoveRows(sourceParent, sourceRow, sourceRow, destinationParent, destinationChild);
-        const bool moved = plugins.moveRows({}, sourceRow, 1, {}, destinationChild);
-        endMoveRows();
-        return moved;
-    }
+    private:
+        QPointer<PluginListModel> model_;
+    };
 
-    Qt::DropActions supportedDragActions() const override { return Qt::MoveAction; }
-    Qt::DropActions supportedDropActions() const override { return Qt::MoveAction; }
+    class MouseDisabler : public QObject {
+    public:
+        using QObject::QObject;
 
-    Qt::ItemFlags flags(const QModelIndex &index) const override
-    {
-        if (!index.isValid()) {
-            return QAbstractTableModel::flags(index) | Qt::ItemIsDropEnabled;
+        bool eventFilter(QObject *object, QEvent *event) override
+        {
+            if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease)
+                return true;
+            return QObject::eventFilter(object, event);
         }
-
-        auto flags = QAbstractTableModel::flags(index) | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled;
-        if (index.column() == 0) {
-            flags |= Qt::ItemIsUserTristate | Qt::ItemIsUserCheckable;
-        }
-        return flags;
-    }
-
-    QString pluginId(int row) const { return plugins.pluginId(row); }
-};
-
-class MouseDisabler : public QObject {
-public:
-    MouseDisabler(QObject *parent) : QObject(parent) { }
-    bool eventFilter(QObject *obj, QEvent *event)
-    {
-        if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease) {
-            return true;
-        }
-        return QObject::eventFilter(obj, event);
-    }
-};
+    };
+}
 
 OptionsPlugins::OptionsPlugins(Main *qtnote, QWidget *parent) :
     QWidget(parent), ui(new Ui::OptionsPlugins), qtnote(qtnote)
 {
     ui->setupUi(this);
 
-    MouseDisabler *md = new MouseDisabler(this);
-    ui->ckLegendAuto->installEventFilter(md);
-    ui->ckLegendEnabled->installEventFilter(md);
-    ui->ckLegendDisabled->installEventFilter(md);
+    auto *mouseDisabler = new MouseDisabler(this);
+    ui->ckLegendAuto->installEventFilter(mouseDisabler);
+    ui->ckLegendEnabled->installEventFilter(mouseDisabler);
+    ui->ckLegendDisabled->installEventFilter(mouseDisabler);
     ui->ckLegendAuto->setCheckState(Qt::PartiallyChecked);
 
-    pluginsModel = new PluginsModel(qtnote->pluginManager(), this);
-    ui->tblPlugins->setModel(pluginsModel);
-    ui->tblPlugins->setDragDropMode(QAbstractItemView::InternalMove);
-    ui->tblPlugins->setDefaultDropAction(Qt::MoveAction);
-    ui->tblPlugins->setSelectionBehavior(QAbstractItemView::SelectRows);
-    ui->tblPlugins->setSelectionMode(QAbstractItemView::SingleSelection);
-    ButtonDelegate *btnsDelegate = new ButtonDelegate();
-    ui->tblPlugins->setItemDelegateForColumn(2, btnsDelegate);
-    ui->tblPlugins->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    ui->tblPlugins->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    ui->tblPlugins->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    connect(ui->tblPlugins, SIGNAL(clicked(QModelIndex)), SLOT(pluginClicked(QModelIndex)));
+    pluginsModel = new PluginListModel(qtnote->pluginManager(), this);
+    pluginsView  = new QQuickWidget(this);
+    pluginsView->setObjectName(QStringLiteral("animatedPluginsView"));
+    pluginsView->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    pluginsView->setClearColor(palette().color(QPalette::Base));
+    pluginsView->engine()->addImageProvider(QLatin1String(PluginIconProviderId),
+                                            new PluginIconImageProvider(pluginsModel));
+    installThemedIconImageProvider(pluginsView->engine());
+    pluginsView->rootContext()->setContextProperty(QStringLiteral("settingsReorderModel"), pluginsModel);
+    pluginsView->rootContext()->setContextProperty(QStringLiteral("settingsPluginMode"), true);
+    pluginsView->rootContext()->setContextProperty(
+        QStringLiteral("settingsPluginIconProviderPrefix"),
+        QStringLiteral("image://%1/").arg(QLatin1String(PluginIconProviderId)));
+    pluginsView->setSource(QUrl(QStringLiteral("qrc:/qml/AnimatedSettingsList.qml")));
+
+    delete ui->verticalLayout->replaceWidget(ui->tblPlugins, pluginsView);
+    ui->tblPlugins->hide();
+
+    if (pluginsView->status() != QQuickWidget::Ready) {
+        qWarning() << "Failed to create the animated plugin settings list:" << pluginsView->errors();
+    } else {
+        connect(pluginsView->rootObject(), SIGNAL(configureRequested(QString)), this, SLOT(configurePlugin(QString)));
+    }
 }
 
 OptionsPlugins::~OptionsPlugins() { delete ui; }
 
-void OptionsPlugins::pluginClicked(const QModelIndex &index)
+void OptionsPlugins::configurePlugin(const QString &id)
 {
-    if (index.column() != 2)
-        return;
-
-    const QString id         = pluginsModel->pluginId(index.row());
-    auto         *manager    = qtnote->pluginManager();
-    auto         *controller = manager->createSettingsController(id, nullptr);
+    auto *manager    = qtnote->pluginManager();
+    auto *controller = manager->createSettingsController(id, nullptr);
     if (!controller)
         return;
 
@@ -307,5 +132,3 @@ void OptionsPlugins::pluginClicked(const QModelIndex &index)
 }
 
 } // namespace QtNote
-
-#include "optionsplugins.moc"

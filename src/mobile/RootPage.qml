@@ -32,13 +32,12 @@ Page {
                 Layout.preferredHeight: root.headerButtonSize
                 padding: 0
                 display: AbstractButton.IconOnly
-                contentItem: Image {
-                    width: 14
-                    height: 14
-                    source: "image://qtnoteicons/preferences-system-symbolic/preferences-system-symbolic.svg/light"
-                    sourceSize.width: 14
-                    sourceSize.height: 14
-                    fillMode: Image.PreserveAspectFit
+                contentItem: ThemedIcon {
+                    themeName: "preferences-system-symbolic"
+                    fallbackName: "preferences-system-symbolic.svg"
+                    recolorFallback: true
+                    fallbackTintMode: "light"
+                    pixelSize: 14
                 }
                 Accessible.name: qsTr("Settings")
                 ToolTip.visible: hovered

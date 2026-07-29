@@ -30,7 +30,7 @@ namespace Ui {
 class OptionsDlg;
 }
 
-class QModelIndex;
+class QQuickWidget;
 
 namespace QtNote {
 
@@ -50,13 +50,14 @@ public slots:
     void accept();
 
 private slots:
-    void storage_doubleClicked(const QModelIndex &index);
+    void configureStorage(const QString &storageId);
     void on_pbDefaultFontAdv_clicked();
 
 private:
     Ui::OptionsDlg       *ui;
     Main                 *qtnote;
     StoragePriorityModel *priorityModel;
+    QQuickWidget         *priorityView;
     QFont                 defaultFont;
 };
 

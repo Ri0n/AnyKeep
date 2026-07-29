@@ -7,6 +7,7 @@ set(qtnote_cinnamon_desklet_uuid qtnote-sticky@ri0n.github.io)
 add_qtnote_plugin(cinnamon "Cinnamon integration" ON unix SOURCES
     cinnamon.cpp
     cinnamon.h
+    cinnamon.qrc
 )
 
 target_link_libraries(cinnamon ${EXTRA_LINK_TARGET} Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets)

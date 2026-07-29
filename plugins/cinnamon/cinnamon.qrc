@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="cinnamon-logo">cinnamon-logo.svg</file>
+    </qresource>
+</RCC>

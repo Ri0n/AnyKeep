@@ -44,6 +44,8 @@ public:
     // Move to the requested final row and persist the new storage priority.
     Q_INVOKABLE bool moveStorage(int sourceRow, int destinationRow);
     Q_INVOKABLE bool moveStorageById(const QString &sourceStorageId, const QString &destinationStorageId);
+    // The desktop Options dialog persists its working order only on accept.
+    Q_INVOKABLE bool reorderStorage(int sourceRow, int destinationRow);
 
 private:
     struct Item {

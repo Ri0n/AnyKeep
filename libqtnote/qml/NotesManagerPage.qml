@@ -64,6 +64,12 @@ Item {
         compensateForScroll: false
         previewObjectName: "managerDragPreview"
         previewObjectNamePrefix: "managerDragPreviewItem-"
+        // TreeView recycles delegates while the wheel scrolls during a drag.
+        // Keep the preview texture frozen and hide rows by their snapshotted
+        // identity instead of hiding the reusable delegate object.
+        previewHideSources: false
+        previewLive: false
+        previewCompact: true
         boundaryProvider: function() {
             return root.groupedDropBoundaries()
         }
@@ -491,6 +497,9 @@ Item {
                     sourceItems.push(candidate)
             }
         }
+        sourceItems.sort(function(left, right) {
+            return Number(left.row) - Number(right.row)
+        })
         const sources = []
         const sourceRows = []
         for (const sourceItem of sourceItems) {
@@ -631,13 +640,11 @@ Item {
                         ToolButton {
                             id: searchButton
                             display: AbstractButton.IconOnly
-                            contentItem: Image {
-                                width: 20
-                                height: 20
-                                source: "image://qtnoteicons/edit-find-symbolic/edit-find-symbolic.svg/light"
-                                sourceSize.width: 20
-                                sourceSize.height: 20
-                                fillMode: Image.PreserveAspectFit
+                            contentItem: ThemedIcon {
+                                themeName: "edit-find-symbolic"
+                                fallbackName: "edit-find-symbolic.svg"
+                                recolorFallback: true
+                                fallbackTintMode: "light"
                             }
                             Accessible.name: root.searchExpanded ? qsTr("Close search") : qsTr("Search notes")
                             onClicked: root.searchExpanded ? root.closeSearch() : root.openSearch()
@@ -928,6 +935,7 @@ Item {
                             objectName: "groupedDelegate-" + storageId + "-" + noteId
                             width: notesTree.width
                             implicitHeight: baseHeight
+                            opacity: partOfActiveDrag ? 0 : 1
                             hoverEnabled: !root.dragSelectionSuppressed
                             highlighted: !root.dragSelectionSuppressed
                                          && (itemType === 0

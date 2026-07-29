@@ -14,6 +14,9 @@ Item {
     property var resetHandler: null
     property string previewObjectName: ""
     property string previewObjectNamePrefix: "reorderPreview-"
+    property bool previewHideSources: true
+    property bool previewLive: true
+    property bool previewCompact: false
 
     readonly property bool dragging: active
     property bool active: false
@@ -242,6 +245,9 @@ Item {
         anchors.fill: parent
         objectName: controller.previewObjectName
         objectNamePrefix: controller.previewObjectNamePrefix
+        hideSources: controller.previewHideSources
+        liveSources: controller.previewLive
+        compactEntries: controller.previewCompact
         translationX: controller.translationX
         translationY: controller.translationY
     }

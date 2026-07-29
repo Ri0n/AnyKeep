@@ -9,6 +9,8 @@ Item {
     property real translationX: 0
     property real translationY: 0
     property bool hideSources: true
+    property bool liveSources: true
+    property bool compactEntries: false
     property real previewOpacity: 0.9
     property string objectNamePrefix: "dragPreview-"
     readonly property int previewCount: entries.length
@@ -24,6 +26,7 @@ Item {
 
     function capture(sourceItems) {
         const captured = []
+        let compactY = Number.NaN
         for (const source of sourceItems || []) {
             const descriptor = source && source.sourceItem ? source : null
             const sourceItem = descriptor ? descriptor.sourceItem : source
@@ -34,17 +37,23 @@ Item {
             const sourceY = descriptor && descriptor.sourceY !== undefined
                     ? Number(descriptor.sourceY) : 0
             const origin = sourceItem.mapToItem(root, sourceX, sourceY)
+            const width = descriptor && descriptor.width !== undefined
+                    ? Number(descriptor.width) : sourceItem.width
+            const height = descriptor && descriptor.height !== undefined
+                    ? Number(descriptor.height) : sourceItem.height
+            const outputY = compactEntries && Number.isFinite(compactY)
+                    ? compactY : origin.y
             captured.push({
                 sourceItem: sourceItem,
                 x: origin.x,
-                y: origin.y,
+                y: outputY,
                 sourceX: sourceX,
                 sourceY: sourceY,
-                width: descriptor && descriptor.width !== undefined
-                       ? Number(descriptor.width) : sourceItem.width,
-                height: descriptor && descriptor.height !== undefined
-                        ? Number(descriptor.height) : sourceItem.height
+                width: width,
+                height: height
             })
+            if (compactEntries)
+                compactY = outputY + height
         }
         entries = captured
     }
@@ -63,7 +72,7 @@ Item {
             objectName: root.objectNamePrefix + index
             sourceItem: modelData.sourceItem
             hideSource: root.hideSources
-            live: true
+            live: root.liveSources
             recursive: true
             smooth: true
             x: Number(modelData.x) + root.translationX

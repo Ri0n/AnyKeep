@@ -50,14 +50,70 @@ Flickable {
                     wrapMode: Text.WordWrap
                 }
 
-                Loader {
+                TextField {
                     Layout.fillWidth: true
-                    sourceComponent: fieldDelegate.fieldType === 3 ? booleanEditor
-                                   : fieldDelegate.fieldType === 4 ? integerEditor
-                                   : fieldDelegate.fieldType === 5 ? choiceEditor
-                                   : fieldDelegate.fieldType === 6 ? readOnlyEditor
-                                   : fieldDelegate.fieldType === 2 ? multilineEditor
-                                   : textEditor
+                    visible: fieldDelegate.fieldType === 0 || fieldDelegate.fieldType === 1
+                    objectName: visible ? "settingsFieldEditor-" + fieldDelegate.index : ""
+                    text: root.stringValue(fieldDelegate.fieldValue)
+                    placeholderText: fieldDelegate.placeholder
+                    echoMode: fieldDelegate.fieldType === 1 ? TextInput.Password : TextInput.Normal
+                    onTextEdited: root.controller.setValue(fieldDelegate.index, text)
+                }
+
+                ScrollView {
+                    Layout.fillWidth: true
+                    visible: fieldDelegate.fieldType === 2
+                    objectName: visible ? "settingsFieldEditor-" + fieldDelegate.index : ""
+                    implicitHeight: visible ? 110 : 0
+
+                    TextArea {
+                        text: root.stringValue(fieldDelegate.fieldValue)
+                        placeholderText: fieldDelegate.placeholder
+                        wrapMode: TextEdit.Wrap
+                        onTextChanged: {
+                            if (activeFocus)
+                                root.controller.setValue(fieldDelegate.index, text)
+                        }
+                    }
+                }
+
+                Switch {
+                    visible: fieldDelegate.fieldType === 3
+                    objectName: visible ? "settingsFieldEditor-" + fieldDelegate.index : ""
+                    checked: Boolean(fieldDelegate.fieldValue)
+                    onToggled: root.controller.setValue(fieldDelegate.index, checked)
+                }
+
+                SpinBox {
+                    Layout.fillWidth: true
+                    visible: fieldDelegate.fieldType === 4
+                    objectName: visible ? "settingsFieldEditor-" + fieldDelegate.index : ""
+                    from: fieldDelegate.minimum
+                    to: fieldDelegate.maximum
+                    value: Number(fieldDelegate.fieldValue)
+                    editable: true
+                    onValueModified: root.controller.setValue(fieldDelegate.index, value)
+                }
+
+                ComboBox {
+                    Layout.fillWidth: true
+                    visible: fieldDelegate.fieldType === 5
+                    objectName: visible ? "settingsFieldEditor-" + fieldDelegate.index : ""
+                    model: fieldDelegate.options
+                    currentIndex: Math.max(0, fieldDelegate.options.indexOf(fieldDelegate.fieldValue))
+                    onActivated: root.controller.setValue(fieldDelegate.index, currentValue)
+                }
+
+                TextArea {
+                    Layout.fillWidth: true
+                    visible: fieldDelegate.fieldType === 6
+                    objectName: visible ? "settingsFieldEditor-" + fieldDelegate.index : ""
+                    readOnly: true
+                    text: root.stringValue(fieldDelegate.fieldValue)
+                    textFormat: TextEdit.AutoText
+                    wrapMode: TextEdit.Wrap
+                    background: null
+                    selectByMouse: true
                 }
 
                 Label {
@@ -71,71 +127,6 @@ Flickable {
                     color: palette.mid
                     font.pixelSize: 12
                     wrapMode: Text.WordWrap
-                }
-
-                Component {
-                    id: textEditor
-                    TextField {
-                        text: root.stringValue(fieldDelegate.fieldValue)
-                        placeholderText: fieldDelegate.placeholder
-                        echoMode: fieldDelegate.fieldType === 1 ? TextInput.Password : TextInput.Normal
-                        onTextEdited: root.controller.setValue(fieldDelegate.index, text)
-                    }
-                }
-
-                Component {
-                    id: multilineEditor
-                    ScrollView {
-                        implicitHeight: 110
-                        TextArea {
-                            text: root.stringValue(fieldDelegate.fieldValue)
-                            placeholderText: fieldDelegate.placeholder
-                            wrapMode: TextEdit.Wrap
-                            onTextChanged: {
-                                if (activeFocus)
-                                    root.controller.setValue(fieldDelegate.index, text)
-                            }
-                        }
-                    }
-                }
-
-                Component {
-                    id: booleanEditor
-                    Switch {
-                        checked: Boolean(fieldDelegate.fieldValue)
-                        onToggled: root.controller.setValue(fieldDelegate.index, checked)
-                    }
-                }
-
-                Component {
-                    id: integerEditor
-                    SpinBox {
-                        from: fieldDelegate.minimum
-                        to: fieldDelegate.maximum
-                        value: Number(fieldDelegate.fieldValue)
-                        editable: true
-                        onValueModified: root.controller.setValue(fieldDelegate.index, value)
-                    }
-                }
-
-                Component {
-                    id: choiceEditor
-                    ComboBox {
-                        model: fieldDelegate.options
-                        currentIndex: Math.max(0, fieldDelegate.options.indexOf(fieldDelegate.fieldValue))
-                        onActivated: root.controller.setValue(fieldDelegate.index, currentValue)
-                    }
-                }
-
-                Component {
-                    id: readOnlyEditor
-                    TextArea {
-                        readOnly: true
-                        text: root.stringValue(fieldDelegate.fieldValue)
-                        wrapMode: TextEdit.Wrap
-                        background: null
-                        selectByMouse: true
-                    }
                 }
             }
         }

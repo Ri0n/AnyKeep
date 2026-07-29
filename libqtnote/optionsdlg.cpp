@@ -23,6 +23,9 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QFile>
 #include <QFileInfo>
 #include <QFontDialog>
+#include <QQmlContext>
+#include <QQuickItem>
+#include <QQuickWidget>
 #include <QSettings>
 
 #include "defaults.h"
@@ -36,7 +39,9 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "settingswindow.h"
 #include "shortcutedit.h"
 #include "shortcutsmanager.h"
+#include "storageiconimageprovider.h"
 #include "storageprioritymodel.h"
+#include "themediconimageprovider.h"
 #include "ui_optionsdlg.h"
 #include "utils.h"
 
@@ -52,7 +57,22 @@ OptionsDlg::OptionsDlg(Main *qtnote) : QDialog(0), ui(new Ui::OptionsDlg), qtnot
     ui->ckAutostart->setVisible(false);
 #endif
     priorityModel = new StoragePriorityModel(this);
-    ui->priorityView->setModel(priorityModel);
+    priorityView  = new QQuickWidget(this);
+    priorityView->setObjectName(QStringLiteral("animatedStoragePriorityView"));
+    priorityView->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    priorityView->setClearColor(palette().color(QPalette::Base));
+    installStorageIconImageProvider(priorityView->engine());
+    installThemedIconImageProvider(priorityView->engine());
+    priorityView->rootContext()->setContextProperty(QStringLiteral("settingsReorderModel"), priorityModel);
+    priorityView->rootContext()->setContextProperty(QStringLiteral("settingsPluginMode"), false);
+    priorityView->setSource(QUrl(QStringLiteral("qrc:/qml/AnimatedSettingsList.qml")));
+    delete ui->verticalLayout_2->replaceWidget(ui->priorityView, priorityView);
+    ui->priorityView->hide();
+    if (priorityView->status() != QQuickWidget::Ready) {
+        qWarning() << "Failed to create the animated storage priority list:" << priorityView->errors();
+    } else {
+        connect(priorityView->rootObject(), SIGNAL(configureRequested(QString)), this, SLOT(configureStorage(QString)));
+    }
     QSettings s;
     ui->ckAskDel->setChecked(s.value("ui.ask-on-delete", true).toBool());
     ui->spMenuNotesAmount->setValue(s.value("ui.menu-notes-amount", 15).toInt());
@@ -91,9 +111,8 @@ OptionsDlg::OptionsDlg(Main *qtnote) : QDialog(0), ui(new Ui::OptionsDlg), qtnot
 
     ui->plugins->layout()->addWidget(new OptionsPlugins(qtnote, this));
 
-    resize(0, 0);
-
-    connect(ui->priorityView, &QListView::doubleClicked, this, &OptionsDlg::storage_doubleClicked);
+    adjustSize();
+    resize(width(), height() + 100);
 }
 
 OptionsDlg::~OptionsDlg() { delete ui; }
@@ -140,10 +159,9 @@ void OptionsDlg::accept()
     QDialog::accept();
 }
 
-void OptionsDlg::storage_doubleClicked(const QModelIndex &index)
+void OptionsDlg::configureStorage(const QString &storageId)
 {
-    const QString storageId = priorityModel->storageId(index);
-    const auto    storage   = NoteManager::instance()->storage(storageId);
+    const auto storage = NoteManager::instance()->storage(storageId);
     if (!storage)
         return;
 

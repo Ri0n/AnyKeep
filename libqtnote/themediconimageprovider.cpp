@@ -39,18 +39,22 @@ namespace {
 
             const QString themeName    = QUrl::fromPercentEncoding(parts.at(0).toUtf8());
             const QString fallbackName = QUrl::fromPercentEncoding(parts.at(1).toUtf8());
-            const QString tintMode
-                = parts.size() >= 3 ? QUrl::fromPercentEncoding(parts.at(2).toUtf8()) : QStringLiteral("auto");
-            const auto   fallbackPath = QStringLiteral(":/svg/%1").arg(fallbackName);
-            const QColor tint         = requestedTint(tintMode);
+            const QString fallbackMode
+                = parts.size() >= 3 ? QUrl::fromPercentEncoding(parts.at(2).toUtf8()) : QStringLiteral("original");
+            const auto fallbackPath    = QStringLiteral(":/svg/%1").arg(fallbackName);
+            const bool recolorFallback = fallbackMode != QStringLiteral("original");
+            const auto tint            = requestedTint(fallbackMode);
 
             QIcon icon;
-            if (themeName == QStringLiteral("__bundled__")) {
-                icon = tint.isValid() ? IconUtils::tintedSymbolicIcon(fallbackPath, tint)
-                                      : IconUtils::symbolicIcon(fallbackPath);
-            } else {
-                icon = tint.isValid() ? IconUtils::themedIcon(themeName, fallbackPath, tint)
-                                      : IconUtils::themedIcon(themeName, fallbackPath);
+            if (themeName != QStringLiteral("__bundled__"))
+                icon = QIcon::fromTheme(themeName);
+
+            if (icon.isNull()) {
+                if (!recolorFallback)
+                    icon = QIcon(fallbackPath);
+                else
+                    icon = tint.isValid() ? IconUtils::tintedSymbolicIcon(fallbackPath, tint)
+                                          : IconUtils::symbolicIcon(fallbackPath);
             }
             if (icon.isNull())
                 return {};

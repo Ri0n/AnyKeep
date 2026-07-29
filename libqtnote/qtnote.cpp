@@ -1,5 +1,5 @@
-#include <QAction>
 #include <QAbstractButton>
+#include <QAction>
 #include <QApplication>
 #include <QClipboard>
 #include <QDataStream>
@@ -141,14 +141,14 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     QString draftStoreError;
     while (!draftManager->initialize(&draftStoreError)) {
         QMessageBox recoveryDialog(QMessageBox::Critical, tr("Draft Recovery Needed"),
-                                    tr("QtNote could not read its encrypted crash-recovery drafts. Existing drafts "
-                                       "have not been deleted.\n\n"
-                                       "You can quit and investigate the problem, or start with a new empty draft "
-                                       "store. Recreating it keeps the unreadable drafts in a backup folder, but "
-                                       "they will not be available in QtNote.\n\n%1")
-                                        .arg(draftStoreError),
-                                    QMessageBox::NoButton);
-        auto *recreateButton = recoveryDialog.addButton(tr("Recreate Draft Store"), QMessageBox::DestructiveRole);
+                                   tr("QtNote could not read its encrypted crash-recovery drafts. Existing drafts "
+                                      "have not been deleted.\n\n"
+                                      "You can quit and investigate the problem, or start with a new empty draft "
+                                      "store. Recreating it keeps the unreadable drafts in a backup folder, but "
+                                      "they will not be available in QtNote.\n\n%1")
+                                       .arg(draftStoreError),
+                                   QMessageBox::NoButton);
+        auto       *recreateButton = recoveryDialog.addButton(tr("Recreate Draft Store"), QMessageBox::DestructiveRole);
         recoveryDialog.addButton(tr("Quit QtNote"), QMessageBox::RejectRole);
         recoveryDialog.exec();
         if (recoveryDialog.clickedButton() != static_cast<QAbstractButton *>(recreateButton))

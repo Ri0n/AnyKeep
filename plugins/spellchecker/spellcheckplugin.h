@@ -66,9 +66,9 @@ public:
     ~SpellCheckPlugin();
 
     // PluginInterface
-    int                    metadataVersion() const override;
-    PluginMetadata         metadata() override;
-    void                   setHost(PluginHostInterface *host) override;
+    int            metadataVersion() const override;
+    PluginMetadata metadata() override;
+    void           setHost(PluginHostInterface *host) override;
 
     // RegularPluginInterface
     bool initialize() override;

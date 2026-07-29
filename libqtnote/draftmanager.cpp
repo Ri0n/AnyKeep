@@ -166,7 +166,7 @@ bool DraftManager::recreateStore(QString *errorText)
     if (store_)
         return true;
 
-    const QString draftsPath = Utils::qtnoteDataDir() + QStringLiteral("/drafts");
+    const QString   draftsPath = Utils::qtnoteDataDir() + QStringLiteral("/drafts");
     const QFileInfo draftsInfo(draftsPath);
     if (draftsInfo.exists()) {
         const QString backupName

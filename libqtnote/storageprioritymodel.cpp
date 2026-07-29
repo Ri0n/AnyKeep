@@ -177,6 +177,15 @@ QStringList StoragePriorityModel::priorityList() const
 
 bool StoragePriorityModel::moveStorage(int sourceRow, int destinationRow)
 {
+    if (!reorderStorage(sourceRow, destinationRow))
+        return false;
+
+    NoteManager::instance()->setPriorities(priorityList());
+    return true;
+}
+
+bool StoragePriorityModel::reorderStorage(int sourceRow, int destinationRow)
+{
     if (sourceRow < 0 || sourceRow >= items_.size() || destinationRow < 0 || destinationRow >= items_.size()
         || sourceRow == destinationRow) {
         return false;
@@ -185,11 +194,7 @@ bool StoragePriorityModel::moveStorage(int sourceRow, int destinationRow)
     // moveRows() receives the insertion point before the source row is
     // removed, while this API receives the desired final row.
     const int destinationChild = destinationRow > sourceRow ? destinationRow + 1 : destinationRow;
-    if (!moveRows({}, sourceRow, 1, {}, destinationChild))
-        return false;
-
-    NoteManager::instance()->setPriorities(priorityList());
-    return true;
+    return moveRows({}, sourceRow, 1, {}, destinationChild);
 }
 
 bool StoragePriorityModel::moveStorageById(const QString &sourceStorageId, const QString &destinationStorageId)

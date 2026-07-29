@@ -7,12 +7,12 @@ namespace Ui {
 class OptionsPlugins;
 }
 
-class QModelIndex;
+class QQuickWidget;
 
 namespace QtNote {
 
 class Main;
-class PluginsModel;
+class PluginListModel;
 
 class OptionsPlugins : public QWidget {
     Q_OBJECT
@@ -22,12 +22,13 @@ public:
     ~OptionsPlugins();
 
 private slots:
-    void pluginClicked(const QModelIndex &index);
+    void configurePlugin(const QString &id);
 
 private:
     Ui::OptionsPlugins *ui;
     Main               *qtnote;
-    PluginsModel       *pluginsModel;
+    PluginListModel    *pluginsModel;
+    QQuickWidget       *pluginsView;
 };
 
 } // namespace QtNote

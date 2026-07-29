@@ -1333,9 +1333,10 @@ private slots:
 
         auto *taskText = qobject_cast<QQuickItem *>(editors.at(1).value<QObject *>());
         QVERIFY(taskText);
-        const qreal indicatorLeft   = taskIndicator->mapToItem(root, QPointF(0, 0)).x();
-        const qreal indicatorRight  = taskIndicator->mapToItem(root, QPointF(taskIndicator->width(), 0)).x();
-        const qreal visibleTextLeft = taskText->mapToItem(root, QPointF(taskText->property("leftPadding").toReal(), 0)).x();
+        const qreal indicatorLeft  = taskIndicator->mapToItem(root, QPointF(0, 0)).x();
+        const qreal indicatorRight = taskIndicator->mapToItem(root, QPointF(taskIndicator->width(), 0)).x();
+        const qreal visibleTextLeft
+            = taskText->mapToItem(root, QPointF(taskText->property("leftPadding").toReal(), 0)).x();
         const qreal averageCharacterWidth = rootObject->property("editorFontAverageCharacterWidth").toReal();
         const qreal markerGap             = visibleTextLeft - indicatorRight;
         QVERIFY(markerGap >= 0);
@@ -1383,8 +1384,9 @@ private slots:
         QVERIFY(firstMarker);
         QVERIFY(lastMarker);
 
-        const QPointF startPoint = firstMarker->mapToItem(root, QPointF(firstMarker->width() / 2, firstMarker->height() / 2));
-        const QPointF endPoint   = lastMarker->mapToItem(root, QPointF(lastMarker->width() / 2, lastMarker->height()));
+        const QPointF startPoint
+            = firstMarker->mapToItem(root, QPointF(firstMarker->width() / 2, firstMarker->height() / 2));
+        const QPointF endPoint = lastMarker->mapToItem(root, QPointF(lastMarker->width() / 2, lastMarker->height()));
         QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, startPoint.toPoint());
         for (int step = 1; step <= 8; ++step) {
             const QPointF point = startPoint + (endPoint - startPoint) * (qreal(step) / 8);
@@ -1492,7 +1494,8 @@ private slots:
         QVERIFY(fourthMarker);
         QVERIFY(controller);
 
-        const QPointF start  = sourceMarker->mapToItem(root, QPointF(sourceMarker->width() / 2, sourceMarker->height() / 2));
+        const QPointF start
+            = sourceMarker->mapToItem(root, QPointF(sourceMarker->width() / 2, sourceMarker->height() / 2));
         const QPointF target = thirdMarker->mapToItem(root, QPointF(thirdMarker->width() / 2, 1));
         QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
         for (int step = 1; step <= 8; ++step)
@@ -1540,9 +1543,10 @@ private slots:
         QVERIFY(middleRow);
         QVERIFY(controller);
 
-        const QPointF startPoint = parentMarker->mapToItem(root, QPointF(parentMarker->width() / 2, parentMarker->height() / 2));
-        const QPointF endPoint   = tailMarker->mapToItem(root, QPointF(tailMarker->width() / 2, tailMarker->height()));
-        const qreal   middleY    = middleMarker->mapToItem(root, QPointF()).y();
+        const QPointF startPoint
+            = parentMarker->mapToItem(root, QPointF(parentMarker->width() / 2, parentMarker->height() / 2));
+        const QPointF endPoint = tailMarker->mapToItem(root, QPointF(tailMarker->width() / 2, tailMarker->height()));
+        const qreal   middleY  = middleMarker->mapToItem(root, QPointF()).y();
         const qreal   middleHeight = middleRow->property("naturalHeight").toReal();
         QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, startPoint.toPoint());
         QTest::mouseMove(quick, (startPoint + QPointF(12, 0)).toPoint(), 15);
@@ -1592,7 +1596,8 @@ private slots:
         auto *sourceContent = qobject_cast<QQuickItem *>(sourceRow->property("dragContent").value<QObject *>());
         QVERIFY(sourceContent);
         const QPointF sourceContentOrigin = sourceContent->mapToItem(root, QPointF());
-        const QPointF start = sourceMarker->mapToItem(root, QPointF(sourceMarker->width() / 2, sourceMarker->height() / 2));
+        const QPointF start
+            = sourceMarker->mapToItem(root, QPointF(sourceMarker->width() / 2, sourceMarker->height() / 2));
         const QPointF initialTarget = targetMarker->mapToItem(root, QPointF(targetMarker->width() / 2, 1));
         QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
         for (int step = 1; step <= 12; ++step)
@@ -1653,7 +1658,8 @@ private slots:
         auto *sourceContent = qobject_cast<QQuickItem *>(sourceRow->property("dragContent").value<QObject *>());
         QVERIFY(sourceContent);
 
-        const QPointF start   = sourceMarker->mapToItem(root, QPointF(sourceMarker->width() / 2, sourceMarker->height() / 2));
+        const QPointF start
+            = sourceMarker->mapToItem(root, QPointF(sourceMarker->width() / 2, sourceMarker->height() / 2));
         const QPointF pointer = start + QPointF(0, 16);
         QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
         QTest::mouseMove(quick, pointer.toPoint(), 15);
@@ -1803,12 +1809,15 @@ private slots:
         QVERIFY(childMarker);
         QVERIFY(tailMarker);
         QTRY_VERIFY(levelHandle->isVisible());
-        QVERIFY(levelHandle->mapToItem(root, QPointF(levelHandle->width(), 0)).x() < childMarker->mapToItem(root, QPointF(0, 0)).x());
+        QVERIFY(levelHandle->mapToItem(root, QPointF(levelHandle->width(), 0)).x()
+                < childMarker->mapToItem(root, QPointF(0, 0)).x());
         auto *secondChildMarker = quickItemByName(root, QStringLiteral("listMarker-0-2"));
         QVERIFY(secondChildMarker);
-        QVERIFY(levelHandle->height() >= secondChildMarker->mapToItem(levelHandle, QPointF(0, secondChildMarker->height())).y());
+        QVERIFY(levelHandle->height()
+                >= secondChildMarker->mapToItem(levelHandle, QPointF(0, secondChildMarker->height())).y());
 
-        const QPointF start      = levelHandle->mapToItem(root, QPointF(levelHandle->width() / 2, levelHandle->height() / 2));
+        const QPointF start
+            = levelHandle->mapToItem(root, QPointF(levelHandle->width() / 2, levelHandle->height() / 2));
         const QPointF tailBottom = tailMarker->mapToItem(root, QPointF(tailMarker->width() / 2, tailMarker->height()));
         const QPointF target(start.x(), tailBottom.y());
         QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start.toPoint());
@@ -1858,7 +1867,8 @@ private slots:
             = childHandle->mapToItem(root, QPointF(childHandle->width() / 2, childHandle->height() / 2));
         QTest::mouseMove(quick, handleHoverPoint.toPoint());
         QTRY_VERIFY(childHandle->opacity() > 0);
-        QVERIFY(childHandle->mapToItem(root, QPointF(childHandle->width(), 0)).x() < childMarker->mapToItem(root, QPointF(0, 0)).x());
+        QVERIFY(childHandle->mapToItem(root, QPointF(childHandle->width(), 0)).x()
+                < childMarker->mapToItem(root, QPointF(0, 0)).x());
     }
 
     void clickingTaskMarkerStillTogglesWithoutStartingDrag()

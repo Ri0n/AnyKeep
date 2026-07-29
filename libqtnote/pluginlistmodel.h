@@ -50,6 +50,7 @@ public:
 
     Q_INVOKABLE bool setLoadPolicy(int row, int loadPolicy);
     Q_INVOKABLE bool setEnabled(int row, bool enabled);
+    Q_INVOKABLE bool movePlugin(int sourceRow, int destinationRow);
 
 private slots:
     void resetFromSource();

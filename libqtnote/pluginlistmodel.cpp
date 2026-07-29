@@ -226,6 +226,16 @@ bool PluginListModel::setEnabled(int row, bool enabled)
     return setLoadPolicy(row, enabled ? PluginListSource::LP_Auto : PluginListSource::LP_Disabled);
 }
 
+bool PluginListModel::movePlugin(int sourceRow, int destinationRow)
+{
+    if (sourceRow < 0 || sourceRow >= pluginIds_.size() || destinationRow < 0 || destinationRow >= pluginIds_.size()
+        || sourceRow == destinationRow) {
+        return false;
+    }
+    const int destinationChild = destinationRow > sourceRow ? destinationRow + 1 : destinationRow;
+    return moveRows({}, sourceRow, 1, {}, destinationChild);
+}
+
 void PluginListModel::resetFromSource()
 {
     beginResetModel();

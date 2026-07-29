@@ -107,11 +107,10 @@ Page {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 display: AbstractButton.IconOnly
-                contentItem: Image {
-                    source: "image://qtnoteicons/user-trash-full-symbolic/user-trash-full-symbolic.svg/auto"
-                    sourceSize.width: 20
-                    sourceSize.height: 20
-                    fillMode: Image.PreserveAspectFit
+                contentItem: ThemedIcon {
+                    themeName: "user-trash-full-symbolic"
+                    fallbackName: "user-trash-full-symbolic.svg"
+                    recolorFallback: true
                 }
                 Accessible.name: qsTr("Discard draft")
                 ToolTip.visible: hovered

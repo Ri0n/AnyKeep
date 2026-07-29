@@ -131,6 +131,7 @@ ToolBar {
 
     readonly property int controlSize: 36
     readonly property int iconSize: 20
+    readonly property string fallbackIconTintMode: showMobileActions ? "light" : "auto"
     readonly property int mandatoryButtonCount: 3
                                                 + (showBackButton ? 1 : 0)
                                                 + (microphoneVisible ? 1 : 0)
@@ -141,36 +142,6 @@ ToolBar {
     readonly property int optionalSlotCount: Math.max(0, Math.floor(optionalWidth / (controlSize + 2)))
     readonly property int styleSlot: platformBackend !== null ? 4 : 3
     implicitHeight: controlSize + 8
-
-    function themedIconSource(themeName, fallbackName, tintMode) {
-        const tint = tintMode && tintMode.length > 0 ? tintMode : "auto"
-        return "image://qtnoteicons/" + encodeURIComponent(themeName)
-                + "/" + encodeURIComponent(fallbackName)
-                + "/" + encodeURIComponent(tint)
-    }
-
-    component ThemedIconContent: Item {
-        id: iconContent
-        required property string themeName
-        required property string fallbackName
-        property string tintMode: root.showMobileActions ? "light" : "auto"
-        property int pixelSize: root.iconSize
-        implicitWidth: pixelSize
-        implicitHeight: pixelSize
-
-        Image {
-            anchors.centerIn: parent
-            width: iconContent.pixelSize
-            height: iconContent.pixelSize
-            source: root.themedIconSource(iconContent.themeName, iconContent.fallbackName,
-                                          iconContent.tintMode)
-            sourceSize.width: iconContent.pixelSize
-            sourceSize.height: iconContent.pixelSize
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            opacity: iconContent.enabled ? 1.0 : 0.38
-        }
-    }
 
     RowLayout {
         anchors.fill: parent
@@ -202,11 +173,14 @@ ToolBar {
                 implicitWidth: root.iconSize
                 implicitHeight: root.iconSize
 
-                ThemedIconContent {
+                ThemedIcon {
                     anchors.centerIn: parent
                     visible: !root.microphoneBusy
                     themeName: "audio-input-microphone-symbolic"
                     fallbackName: "microphone.svg"
+                    recolorFallback: true
+                    fallbackTintMode: root.fallbackIconTintMode
+                    pixelSize: root.iconSize
                 }
 
                 BusyIndicator {
@@ -240,7 +214,7 @@ ToolBar {
             Layout.preferredHeight: root.controlSize
             padding: 0
             display: AbstractButton.IconOnly
-            contentItem: ThemedIconContent {
+            contentItem: ThemedIcon {
                 themeName: "__bundled__"
                 fallbackName: root.editorBackend && root.editorBackend.markdown ? "markdown.svg" : "txt.svg"
                 pixelSize: 22
@@ -258,9 +232,12 @@ ToolBar {
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
             display: AbstractButton.IconOnly
-            contentItem: ThemedIconContent {
+            contentItem: ThemedIcon {
                 themeName: "format-list-unordered-symbolic"
                 fallbackName: "format-list-unordered-symbolic.svg"
+                recolorFallback: true
+                fallbackTintMode: root.fallbackIconTintMode
+                pixelSize: root.iconSize
             }
             enabled: root.editorBackend !== null
             Accessible.name: qsTr("Insert list")
@@ -281,9 +258,12 @@ ToolBar {
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
             display: AbstractButton.IconOnly
-            contentItem: ThemedIconContent {
+            contentItem: ThemedIcon {
                 themeName: "table-symbolic"
                 fallbackName: "table-symbolic.svg"
+                recolorFallback: true
+                fallbackTintMode: root.fallbackIconTintMode
+                pixelSize: root.iconSize
             }
             enabled: root.editorBackend !== null
             Accessible.name: qsTr("Insert table")
@@ -297,9 +277,12 @@ ToolBar {
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
             display: AbstractButton.IconOnly
-            contentItem: ThemedIconContent {
+            contentItem: ThemedIcon {
                 themeName: "insert-image-symbolic"
                 fallbackName: "insert-image-symbolic.svg"
+                recolorFallback: true
+                fallbackTintMode: root.fallbackIconTintMode
+                pixelSize: root.iconSize
             }
             enabled: root.platformBackend && root.editorBackend && root.editorBackend.canInsertImages
             Accessible.name: qsTr("Insert image")
@@ -411,9 +394,12 @@ ToolBar {
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
             display: AbstractButton.IconOnly
-            contentItem: ThemedIconContent {
+            contentItem: ThemedIcon {
                 themeName: "edit-find-symbolic"
                 fallbackName: "edit-find-symbolic.svg"
+                recolorFallback: true
+                fallbackTintMode: root.fallbackIconTintMode
+                pixelSize: root.iconSize
             }
             Accessible.name: qsTr("Find in note")
             ToolTip.visible: hovered
@@ -426,9 +412,12 @@ ToolBar {
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
             display: AbstractButton.IconOnly
-            contentItem: ThemedIconContent {
+            contentItem: ThemedIcon {
                 themeName: "user-trash-full-symbolic"
                 fallbackName: "user-trash-full-symbolic.svg"
+                recolorFallback: true
+                fallbackTintMode: root.fallbackIconTintMode
+                pixelSize: root.iconSize
             }
             Accessible.name: qsTr("Delete note")
             ToolTip.visible: hovered
