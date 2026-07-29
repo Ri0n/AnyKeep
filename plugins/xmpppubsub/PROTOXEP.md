@@ -1,8 +1,8 @@
 # Private Encrypted Notes over XMPP
 
 Status: **ProtoXEP / implementation draft**
-Version: **0.5**
-Namespaces: `urn:xmpp:qtnote:notes:1`, `urn:xmpp:qtnote:key-sync:1`
+Version: **0.6**
+Namespaces: `urn:xmpp:qtnote:notes:1`, `urn:xmpp:qtnote:folders:1`, `urn:xmpp:qtnote:content-revision:1`, `urn:xmpp:qtnote:key-sync:1`
 
 > This document describes the protocol implemented by QtNote. It has not been
 > submitted to or accepted by the XMPP Standards Foundation and does not have
@@ -303,12 +303,68 @@ An index record is metadata used for listing and synchronization:
   <title>Portable note</title>
   <tag>one</tag>
   <tag>two</tag>
+  <folder xmlns='urn:xmpp:qtnote:folders:1'>
+    <segment>Projects</segment>
+    <segment>2026</segment>
+  </folder>
 </index>
 ```
 
 `id`, `revision`, and `modified` MUST be non-empty. `modified` MUST be an ISO
 8601 UTC instant ending in `Z`. Protocol major 1 defines only the format value `markdown`. Exactly one `title` is required; zero or more `tag` elements are
-allowed. `parent-revision` and `origin-id` are optional.
+allowed. `parent-revision` and `origin-id` are optional. The optional folder
+path is defined by the `urn:xmpp:qtnote:folders:1` extension below.
+
+`revision` is the revision of the complete index and is the optimistic
+concurrency token. Normally it also identifies the corresponding content
+record. An index-only metadata update uses the required content-revision
+extension below to retain the body revision while generating a new index
+revision.
+
+### Folder-path extension
+
+An index MAY contain at most one direct `<folder/>` child in the
+`urn:xmpp:qtnote:folders:1` namespace. Its absence means the note is
+unsorted. If present, it MUST contain one or more direct `<segment/>` children
+in the same namespace. A segment MUST be non-empty and already trimmed; a
+folder or segment MUST NOT have attributes or other child elements.
+
+The ordered segments represent the root-to-leaf folder path. They deliberately
+carry names rather than QtNote's local folder UUIDs: each installation merges
+the observed path into its own shared folder catalog and retains its stable
+local UUID mapping. The extension remains inside the encrypted index payload,
+so it is not visible to the XMPP server.
+
+### Content-revision extension
+
+An index-only update changes metadata such as the folder without uploading the
+body again. Its index revision MUST be fresh, but the existing content record
+still carries the old body revision. In that case the envelope MUST declare
+the required `urn:xmpp:qtnote:content-revision:1` feature and the index MUST
+carry exactly one extension child:
+
+```xml
+<envelope xmlns='urn:xmpp:qtnote:notes:1'>
+  <node>urn:xmpp:qtnote:notes:1:index</node>
+  <required feature='urn:xmpp:qtnote:content-revision:1'/>
+  <content>
+    <index id='note-id' revision='folder-revision'
+           modified='2026-07-27T18:01:00.123Z' format='markdown'>
+      <title>Portable note</title>
+      <content-revision xmlns='urn:xmpp:qtnote:content-revision:1'>
+        body-revision
+      </content-revision>
+    </index>
+  </content>
+</envelope>
+```
+
+The `content-revision` value MUST be non-empty, MUST have no attributes or
+child elements, and MUST differ from the index `revision`. Its required feature
+declaration MUST appear exactly once. If the extension is absent, the content
+revision is the index revision for compatibility with earlier records. A
+client that does not support this required extension MUST treat the index as
+unsupported and MUST NOT rewrite it.
 
 ### Content record
 
@@ -323,8 +379,10 @@ A content record contains the note body:
 ```
 
 The content ID and revision MUST exactly match the corresponding decrypted
-index record. The body MAY be empty. A mismatch MUST be treated as incomplete
-or inconsistent remote state, never as valid note content.
+index **content revision**. When the required content-revision extension is
+absent, that is the index `revision`; when it is present, it is the extension
+value. The body MAY be empty. A mismatch MUST be treated as incomplete or
+inconsistent remote state, never as valid note content.
 
 ## Synchronization operations
 
@@ -337,12 +395,13 @@ result MUST be marked partial; the client MUST NOT infer that missing local
 notes were deleted.
 
 To load a note, the client requests and validates its index item, then requests
-and validates the content item with the same ID and revision. Because the two
-items are stored in separate nodes, a reader can observe an old index and new
-content while a writer is between the two publications. An ID/revision mismatch
-in this specific situation SHOULD be treated as a transient inconsistent
-snapshot: the reader SHOULD request both items again. It MUST NOT combine the
-two revisions or report either payload as corrupt solely because of this race.
+and validates the content item with the same ID and the index's content
+revision. Because the two items are stored in separate nodes, a reader can
+observe an old index and new content while a writer is between the two
+publications. An ID/revision mismatch in this specific situation SHOULD be
+treated as a transient inconsistent snapshot: the reader SHOULD request both
+items again. It MUST NOT combine the two revisions or report either payload as
+corrupt solely because of this race.
 
 ### Creating and updating
 
@@ -351,14 +410,30 @@ MUST first load the current server index and compare its revision with the
 revision on which the local edit was based. If they differ, the client MUST
 report a conflict and MUST NOT silently publish over the remote revision.
 
-On a successful update the old revision becomes `parentRevision`, a new
-revision is generated, and `modified` is set to the current UTC time.
+On a successful full update the old revision becomes `parentRevision`, a new
+index revision is generated, that same value becomes the content revision, and
+`modified` is set to the current UTC time.
 
 The content item MUST be published before the index item. This ordering avoids
 an index notification pointing to content that has not yet been uploaded.
 Publication is not transactional: after interruption, a content record can be
 newer than the index. Readers MUST regard the index revision as authoritative;
 writers SHOULD retry or repair incomplete publication.
+
+An index-only metadata update MUST first compare the current index revision
+with its local base revision. On success it sets the old index revision as
+`parentRevision`, creates a fresh index revision, preserves the current content
+revision through the required extension, and publishes only the index item.
+It MUST NOT publish the unchanged content item merely to change a folder or
+other index metadata.
+
+A pending full-body edit MAY rebase over one direct index-only update made by
+the same installation. This exception is safe only when the server index has
+the same `origin-id`, names the local base as `parent-revision`, and resolves
+to the same content revision as the local edit. The full publication then uses
+that server index revision as its parent. A client MUST treat every other
+revision mismatch—including an update from another resource of the same
+account—as a conflict.
 
 ### Concurrent updates and conflict resolution
 

@@ -10,7 +10,9 @@
 
 namespace QtNote {
 
-const QString XmppNoteCodec::protocolNamespace = QStringLiteral("urn:xmpp:qtnote:notes:1");
+const QString XmppNoteCodec::protocolNamespace        = QStringLiteral("urn:xmpp:qtnote:notes:1");
+const QString XmppNoteCodec::folderNamespace          = QStringLiteral("urn:xmpp:qtnote:folders:1");
+const QString XmppNoteCodec::contentRevisionNamespace = QStringLiteral("urn:xmpp:qtnote:content-revision:1");
 
 namespace {
     constexpr int MaxXmlDepth      = 32;
@@ -18,10 +20,11 @@ namespace {
     constexpr int MaxXmlAttributes = 256;
 
     struct XmlRecordDocument {
-        QDomDocument document;
-        QDomElement  root;
-        QDomElement  content;
-        QDomElement  record;
+        QDomDocument  document;
+        QDomElement   root;
+        QDomElement   content;
+        QDomElement   record;
+        QSet<QString> requiredFeatures;
     };
 
     CryptoError cryptoError(CryptoError::Code code, const QString &message) { return { code, message }; }
@@ -195,7 +198,7 @@ namespace {
         return kind == XmppEncryptedPayload::Index ? QStringLiteral("index") : QStringLiteral("note");
     }
 
-    CryptoError validateRequiredExtensions(const QDomElement &root)
+    CryptoResult<QSet<QString>> requiredExtensions(const QDomElement &root)
     {
         const auto    required = directChildren(root, XmppNoteCodec::protocolNamespace, QStringLiteral("required"));
         QSet<QString> features;
@@ -203,17 +206,22 @@ namespace {
             const auto feature = element.attribute(QStringLiteral("feature"));
             if (feature.isEmpty() || features.contains(feature) || protocolAttributeCount(element) != 1
                 || !element.firstChild().isNull()) {
-                return corrupt(QStringLiteral("Invalid required-extension declaration"));
+                return { {}, corrupt(QStringLiteral("Invalid required-extension declaration")) };
             }
             features.insert(feature);
         }
-        if (!features.isEmpty()) {
-            auto list = features.values();
+        QSet<QString> unsupportedFeatures = features;
+        unsupportedFeatures.remove(XmppNoteCodec::contentRevisionNamespace);
+        if (!unsupportedFeatures.isEmpty()) {
+            auto list = unsupportedFeatures.values();
             std::sort(list.begin(), list.end());
-            return unsupported(
-                QStringLiteral("Unsupported required QtNote extensions: %1").arg(list.join(QStringLiteral(", "))));
+            return {
+                {},
+                unsupported(
+                    QStringLiteral("Unsupported required QtNote extensions: %1").arg(list.join(QStringLiteral(", "))))
+            };
         }
-        return {};
+        return { features, {} };
     }
 
     CryptoResult<XmlRecordDocument> locateRecord(QDomDocument document, XmppEncryptedPayload::Kind kind,
@@ -234,8 +242,14 @@ namespace {
                 QStringLiteral("encrypted QtNote envelope"));
             error)
             return { {}, error };
-        if (const auto error = validateRequiredExtensions(result.root); error)
-            return { {}, error };
+        const auto requiredFeatures = requiredExtensions(result.root);
+        if (!requiredFeatures)
+            return { {}, requiredFeatures.error };
+        result.requiredFeatures = requiredFeatures.value;
+        if (kind != XmppEncryptedPayload::Index
+            && result.requiredFeatures.contains(XmppNoteCodec::contentRevisionNamespace)) {
+            return { {}, corrupt(QStringLiteral("XMPP content-revision extension is valid only for an index record")) };
+        }
         if (hasNonWhitespaceDirectText(result.root))
             return { {}, corrupt(QStringLiteral("Unexpected text in encrypted QtNote XML envelope")) };
 
@@ -304,6 +318,121 @@ namespace {
             parent.insertBefore(newChild, anchor);
     }
 
+    CryptoResult<QStringList> folderPath(const QDomElement &record)
+    {
+        const auto folders = directChildren(record, XmppNoteCodec::folderNamespace, QStringLiteral("folder"));
+        if (folders.size() > 1)
+            return { {}, corrupt(QStringLiteral("Encrypted QtNote index contains more than one folder path")) };
+        if (folders.isEmpty())
+            return { {}, {} };
+
+        const auto folder = folders.constFirst();
+        if (const auto error = validateAttributes(folder, {}, QStringLiteral("encrypted QtNote folder"), false); error)
+            return { {}, error };
+        if (hasNonWhitespaceDirectText(folder))
+            return { {}, corrupt(QStringLiteral("Unexpected text in encrypted QtNote folder")) };
+
+        QList<QDomElement> segments;
+        for (auto node = folder.firstChild(); !node.isNull(); node = node.nextSibling()) {
+            const auto element = node.toElement();
+            if (element.isNull())
+                continue;
+            if (element.namespaceURI() != XmppNoteCodec::folderNamespace
+                || localName(element) != QStringLiteral("segment")) {
+                return { {}, corrupt(QStringLiteral("Invalid child in encrypted QtNote folder")) };
+            }
+            segments.append(element);
+        }
+        if (segments.isEmpty())
+            return { {}, corrupt(QStringLiteral("Encrypted QtNote folder must contain one or more segments")) };
+
+        QStringList result;
+        result.reserve(segments.size());
+        for (const auto &segmentElement : segments) {
+            if (const auto error = validateLeaf(segmentElement, QStringLiteral("encrypted QtNote folder segment"));
+                error)
+                return { {}, error };
+            const auto segment = simpleText(segmentElement, QStringLiteral("folder segment"));
+            if (!segment)
+                return { {}, segment.error };
+            if (segment.value.isEmpty() || segment.value != segment.value.trimmed()) {
+                return { {},
+                         corrupt(QStringLiteral("Encrypted QtNote folder segments must be non-empty and trimmed")) };
+            }
+            result.append(segment.value);
+        }
+        return { result, {} };
+    }
+
+    CryptoResult<QStringList> validatedFolderPath(const QStringList &path)
+    {
+        QStringList result;
+        result.reserve(path.size());
+        for (const auto &segment : path) {
+            if (segment.isEmpty() || segment != segment.trimmed()) {
+                return { {},
+                         cryptoError(CryptoError::InvalidArgument,
+                                     QStringLiteral("XMPP folder path segments must be non-empty and trimmed")) };
+            }
+            result.append(segment);
+        }
+        return { result, {} };
+    }
+
+    CryptoResult<QString> contentRevision(const XmlRecordDocument &opened, const QString &indexRevision)
+    {
+        const auto values   = directChildren(opened.record, XmppNoteCodec::contentRevisionNamespace,
+                                             QStringLiteral("content-revision"));
+        const bool required = opened.requiredFeatures.contains(XmppNoteCodec::contentRevisionNamespace);
+        if (values.isEmpty()) {
+            if (required) {
+                return {
+                    {}, corrupt(QStringLiteral("Required XMPP content-revision extension is missing from the index"))
+                };
+            }
+            return { indexRevision, {} };
+        }
+        if (values.size() != 1) {
+            return { {}, corrupt(QStringLiteral("Encrypted QtNote index contains more than one content revision")) };
+        }
+        if (!required) {
+            return { {}, corrupt(QStringLiteral("XMPP content-revision extension must be declared as required")) };
+        }
+        const auto value = values.constFirst();
+        if (const auto error = validateLeaf(value, QStringLiteral("encrypted QtNote content revision")); error)
+            return { {}, error };
+        const auto revision = simpleText(value, QStringLiteral("content revision"));
+        if (!revision || revision.value.isEmpty()) {
+            return { {}, corrupt(QStringLiteral("Invalid encrypted QtNote content revision")) };
+        }
+        if (revision.value == indexRevision) {
+            return { {},
+                     corrupt(QStringLiteral("XMPP content-revision extension must differ from the index revision")) };
+        }
+        return revision;
+    }
+
+    void removeRequiredFeature(QDomElement root, const QString &feature)
+    {
+        const auto required = directChildren(root, XmppNoteCodec::protocolNamespace, QStringLiteral("required"));
+        for (const auto &element : required) {
+            if (element.attribute(QStringLiteral("feature")) == feature)
+                root.removeChild(element);
+        }
+    }
+
+    void setRequiredFeature(QDomDocument &document, QDomElement root, const QString &feature, bool required)
+    {
+        removeRequiredFeature(root, feature);
+        if (!required)
+            return;
+        auto declaration = document.createElementNS(XmppNoteCodec::protocolNamespace, QStringLiteral("required"));
+        declaration.setAttribute(QStringLiteral("feature"), feature);
+        insertBeforeOrAppend(
+            root, declaration,
+            directChildren(root, XmppNoteCodec::protocolNamespace, QStringLiteral("content")).constFirst());
+    }
+
     CryptoResult<XmlRecordDocument> templateDocument(const QByteArray &recordTemplate, XmppEncryptedPayload::Kind kind)
     {
         if (recordTemplate.isEmpty()) {
@@ -338,6 +467,9 @@ namespace {
             }
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("title"));
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"));
+            removeDirectChildren(record, XmppNoteCodec::folderNamespace, QStringLiteral("folder"));
+            removeDirectChildren(record, XmppNoteCodec::contentRevisionNamespace, QStringLiteral("content-revision"));
+            removeRequiredFeature(root, XmppNoteCodec::contentRevisionNamespace);
         } else {
             record.removeAttribute(QStringLiteral("id"));
             record.removeAttribute(QStringLiteral("revision"));
@@ -374,6 +506,14 @@ namespace {
         if (kind == XmppEncryptedPayload::Index) {
             if (note.revision.isEmpty() || !note.modified.isValid() || note.format != QStringLiteral("markdown"))
                 return { {}, cryptoError(CryptoError::InvalidArgument, QStringLiteral("Invalid XMPP note index")) };
+            const auto noteContentRevision = note.contentRevision.isEmpty() ? note.revision : note.contentRevision;
+            if (noteContentRevision.isEmpty()) {
+                return { {},
+                         cryptoError(CryptoError::InvalidArgument, QStringLiteral("Invalid XMPP content revision")) };
+            }
+            const auto noteFolderPath = validatedFolderPath(note.folderPath);
+            if (!noteFolderPath)
+                return { {}, noteFolderPath.error };
             record.setAttribute(QStringLiteral("id"), note.id);
             record.setAttribute(QStringLiteral("revision"), note.revision);
             if (note.parentRevision.isEmpty())
@@ -388,6 +528,10 @@ namespace {
             record.setAttribute(QStringLiteral("format"), QStringLiteral("markdown"));
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("title"));
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"));
+            removeDirectChildren(record, XmppNoteCodec::folderNamespace, QStringLiteral("folder"));
+            removeDirectChildren(record, XmppNoteCodec::contentRevisionNamespace, QStringLiteral("content-revision"));
+            setRequiredFeature(document, root, XmppNoteCodec::contentRevisionNamespace,
+                               noteContentRevision != note.revision);
             const auto anchor = record.firstChild();
             insertBeforeOrAppend(
                 record,
@@ -398,11 +542,26 @@ namespace {
                     record, createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"), tag),
                     anchor);
             }
+            if (!noteFolderPath.value.isEmpty()) {
+                auto folder = document.createElementNS(XmppNoteCodec::folderNamespace, QStringLiteral("folder"));
+                for (const auto &segment : noteFolderPath.value) {
+                    folder.appendChild(createTextElement(document, XmppNoteCodec::folderNamespace,
+                                                         QStringLiteral("segment"), segment));
+                }
+                insertBeforeOrAppend(record, folder, anchor);
+            }
+            if (noteContentRevision != note.revision) {
+                insertBeforeOrAppend(record,
+                                     createTextElement(document, XmppNoteCodec::contentRevisionNamespace,
+                                                       QStringLiteral("content-revision"), noteContentRevision),
+                                     anchor);
+            }
         } else {
-            if (note.revision.isEmpty())
+            const auto noteContentRevision = note.contentRevision.isEmpty() ? note.revision : note.contentRevision;
+            if (noteContentRevision.isEmpty())
                 return { {}, cryptoError(CryptoError::InvalidArgument, QStringLiteral("Invalid XMPP note content")) };
             record.setAttribute(QStringLiteral("id"), note.id);
-            record.setAttribute(QStringLiteral("revision"), note.revision);
+            record.setAttribute(QStringLiteral("revision"), noteContentRevision);
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("body"));
             insertBeforeOrAppend(
                 record,
@@ -517,15 +676,23 @@ namespace {
         const auto title = simpleText(titles.constFirst(), QStringLiteral("title"));
         if (!title)
             return title.error;
+        const auto decodedFolderPath = folderPath(record);
+        if (!decodedFolderPath)
+            return decodedFolderPath.error;
+        const auto decodedContentRevision = contentRevision(opened, revision);
+        if (!decodedContentRevision)
+            return decodedContentRevision.error;
 
         XmppRemoteNote decoded;
-        decoded.id             = id;
-        decoded.revision       = revision;
-        decoded.parentRevision = record.attribute(QStringLiteral("parent-revision"));
-        decoded.originId       = record.attribute(QStringLiteral("origin-id"));
-        decoded.title          = title.value;
-        decoded.modified       = modified.value;
-        decoded.format         = QStringLiteral("markdown");
+        decoded.id              = id;
+        decoded.revision        = revision;
+        decoded.contentRevision = decodedContentRevision.value;
+        decoded.parentRevision  = record.attribute(QStringLiteral("parent-revision"));
+        decoded.originId        = record.attribute(QStringLiteral("origin-id"));
+        decoded.title           = title.value;
+        decoded.modified        = modified.value;
+        decoded.format          = QStringLiteral("markdown");
+        decoded.folderPath      = decodedFolderPath.value;
         for (const auto &tagElement : directChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"))) {
             if (const auto error = validateLeaf(tagElement, QStringLiteral("encrypted QtNote tag")); error)
                 return error;
@@ -613,7 +780,8 @@ CryptoResult<XmppRemoteNote> XmppNoteCodec::decodeContent(const XmppEncryptedPay
     QString content;
     if (const auto error = validateContentRecord(opened.value, payload, &revision, &content); error)
         return { {}, error };
-    if (payload.id != index.id || revision != index.revision)
+    const auto expectedContentRevision = index.contentRevision.isEmpty() ? index.revision : index.contentRevision;
+    if (payload.id != index.id || revision != expectedContentRevision)
         return { {}, corrupt(QStringLiteral("QtNote content does not match its index revision")) };
     auto note                  = index;
     note.content               = std::move(content);

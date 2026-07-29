@@ -132,7 +132,8 @@ A basic index request:
     "title": "Portable note",
     "modified": "2026-07-27T18:00:00.123Z",
     "format": "markdown",
-    "tags": ["one", "two"]
+    "tags": ["one", "two"],
+    "folder_path": ["Projects", "2026"]
   }
 }
 ```
@@ -253,13 +254,26 @@ extensions must use another XML namespace, for example:
        modified='2026-07-27T18:00:00.123Z' format='markdown'
        media:preview='available'>
   <title>Portable note</title>
+  <folder xmlns='urn:xmpp:qtnote:folders:1'>
+    <segment>Projects</segment>
+  </folder>
   <media:attachments count='1'/>
 </index>
 ```
 
 A rewriting implementation must preserve unknown optional authenticated
 attributes and subtrees. Namespace-aware DOM subtree preservation is the
-simplest approach.
+simplest approach. `urn:xmpp:qtnote:folders:1` is the currently defined
+optional folder-path extension: it contains at most one direct `folder` with
+one or more trimmed, non-empty `segment` values. A missing folder means an
+empty `folder_path` in the reference codec.
+
+`urn:xmpp:qtnote:content-revision:1` is a known **required** extension used
+only when an index revision changes without republishing the note body. Its
+single `content-revision` child identifies the revision encoded by the content
+item. It must differ from the index `revision`; without this extension the
+content revision equals the index revision. The reference codec exposes the
+resolved value as `content_revision`.
 
 An extension required for safe interpretation is declared inside the
 authenticated envelope:
@@ -277,14 +291,16 @@ not malformed and must not be deleted by the maintenance tool.
 `qtnote-encrypted-vectors.json` contains:
 
 - `protocol_namespace`: the one supported major namespace;
+- `folder_namespace` and `content_revision_namespace`: defined extension namespaces;
 - `crypto`: normative constants in machine-readable form;
-- `positive`: five complete requests, encrypted documents, and expected
+- `positive`: complete requests, encrypted documents, and expected
   semantic results;
-- `negative`: thirteen documents with one intentional fault and an expected
-  stable error category.
+- `negative`: documents with one intentional fault and an expected stable
+  error category.
 
 Positive cases cover normal index/content records, Unicode, foreign-namespace
-extensions, empty optional index data, and an empty body.
+extensions, an index-only metadata update, empty optional index data, and an
+empty body.
 
 Negative cases cover a legacy pre-unified payload, wrong key, wrong node, moved
 item ID, modified GCM tag, missing fields, non-canonical Base64, unknown core

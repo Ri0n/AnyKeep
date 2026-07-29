@@ -696,6 +696,11 @@ void XmppWorker::saveNoteAsync(XmppRemoteNote note, NoteCallback callback)
     saveNoteTask(std::move(note)).then(std::move(callback));
 }
 
+void XmppWorker::updateNoteIndexAsync(XmppRemoteNote note, NoteCallback callback)
+{
+    updateNoteIndexTask(std::move(note)).then(std::move(callback));
+}
+
 void XmppWorker::deleteNoteAsync(QString id, StatusCallback callback)
 {
     deleteNoteTask(std::move(id)).then(std::move(callback));
@@ -986,6 +991,35 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
     co_return output;
 }
 
+QCoro::Task<XmppNoteResult> XmppWorker::requestIndexTask(QString id, quint64 clientGeneration)
+{
+    XmppNoteResult output;
+    auto           result
+        = co_await pubSub_
+              ->requestItem<QtNotePubSubItem>(QXmppUtils::jidToBareJid(config_.jid), config_.indexNodeName(), id)
+              .toFuture(this);
+    if (clientGeneration != clientGeneration_)
+        co_return configurationChangedResult<XmppNoteResult>();
+    if (const auto *error = std::get_if<QXmppError>(&result)) {
+        setXmppFailure(output, *error, errorText(*error));
+        output.notFound = isItemNotFound(*error);
+        co_return output;
+    }
+    const auto &item = std::get<QtNotePubSubItem>(result);
+    if (!item.isValid()) {
+        output.error = item.parseError();
+        co_return output;
+    }
+    auto index = XmppNoteCodec::decodeIndex(item.payload(), config_.masterKey, config_.indexNodeName());
+    if (!index) {
+        output.error = index.error.message;
+        co_return output;
+    }
+    output.note = std::move(index.value);
+    output.ok   = true;
+    co_return output;
+}
+
 QCoro::Task<XmppNoteResult> XmppWorker::requestNoteTask(QString id, quint64 clientGeneration)
 {
     // Content and index live in separate PubSub nodes and therefore cannot be
@@ -996,27 +1030,11 @@ QCoro::Task<XmppNoteResult> XmppWorker::requestNoteTask(QString id, quint64 clie
 
     for (int attempt = 1; attempt <= snapshotAttempts; ++attempt) {
         XmppNoteResult output;
-        auto           indexResult
-            = co_await pubSub_
-                  ->requestItem<QtNotePubSubItem>(QXmppUtils::jidToBareJid(config_.jid), config_.indexNodeName(), id)
-                  .toFuture(this);
+        auto           index = co_await requestIndexTask(id, clientGeneration);
         if (clientGeneration != clientGeneration_)
             co_return configurationChangedResult<XmppNoteResult>();
-        if (const auto *error = std::get_if<QXmppError>(&indexResult)) {
-            setXmppFailure(output, *error, errorText(*error));
-            output.notFound = isItemNotFound(*error);
-            co_return output;
-        }
-        const auto &indexItem = std::get<QtNotePubSubItem>(indexResult);
-        if (!indexItem.isValid()) {
-            output.error = indexItem.parseError();
-            co_return output;
-        }
-        auto index = XmppNoteCodec::decodeIndex(indexItem.payload(), config_.masterKey, config_.indexNodeName());
-        if (!index) {
-            output.error = index.error.message;
-            co_return output;
-        }
+        if (!index.ok)
+            co_return index;
 
         auto contentResult
             = co_await pubSub_
@@ -1034,11 +1052,11 @@ QCoro::Task<XmppNoteResult> XmppWorker::requestNoteTask(QString id, quint64 clie
             co_return output;
         }
         auto content = XmppNoteCodec::decodeContent(contentItem.payload(), config_.masterKey, config_.contentNodeName(),
-                                                    index.value);
+                                                    index.note);
         if (!content) {
             if (content.error.message == inconsistentSnapshotError) {
                 qInfo().noquote() << "Conflict trace: XMPP inconsistent snapshot note=" << id << "attempt=" << attempt
-                                  << "index-revision=" << index.value.revision;
+                                  << "index-revision=" << index.note.revision;
                 if (attempt < snapshotAttempts)
                     continue;
                 output.errorKind = XmppErrorKind::Transient;
@@ -1072,9 +1090,10 @@ QCoro::Task<XmppNoteResult> XmppWorker::getNoteTask(QString id)
 QCoro::Task<XmppNoteResult> XmppWorker::publishNoteTask(XmppRemoteNote note, quint64 clientGeneration)
 {
     XmppNoteResult output;
-    note.parentRevision = note.revision;
-    note.revision       = newUuid();
-    note.originId       = config_.originId;
+    note.parentRevision  = note.revision;
+    note.revision        = newUuid();
+    note.contentRevision = note.revision;
+    note.originId        = config_.originId;
     qInfo().noquote() << "Conflict trace: XMPP publish note=" << note.id << "revision=" << note.revision
                       << "parent=" << note.parentRevision << "origin=" << note.originId
                       << "generation=" << clientGeneration;
@@ -1142,17 +1161,99 @@ QCoro::Task<XmppNoteResult> XmppWorker::saveNoteTask(XmppRemoteNote note)
                           << "server=" << server.note.revision << "server-parent=" << server.note.parentRevision
                           << "server-origin=" << server.note.originId;
         if (server.note.revision != note.revision) {
-            qInfo().noquote() << "Conflict trace: XMPP optimistic conflict note=" << note.id
+            // A folder tree rename/reparent can publish an index-only update
+            // while this editor still holds the preceding note revision. That
+            // update has no body change, is a direct child of this local
+            // revision, and carries this installation's origin ID. Rebase the
+            // pending full save over exactly that case; every other revision
+            // mismatch remains a real optimistic-concurrency conflict.
+            const auto localContentRevision = note.contentRevision.isEmpty() ? note.revision : note.contentRevision;
+            const auto serverContentRevision
+                = server.note.contentRevision.isEmpty() ? server.note.revision : server.note.contentRevision;
+            const bool ownIndexOnlyUpdate = server.note.originId == config_.originId
+                && server.note.parentRevision == note.revision && serverContentRevision == localContentRevision;
+            if (!ownIndexOnlyUpdate) {
+                qInfo().noquote() << "Conflict trace: XMPP optimistic conflict note=" << note.id
+                                  << "local=" << note.revision << "server=" << server.note.revision;
+                XmppNoteResult conflict;
+                conflict.conflict         = true;
+                conflict.remoteOnConflict = std::move(server.note);
+                conflict.error            = QStringLiteral(
+                    "The note was modified on another XMPP resource; the local version was not published");
+                co_return conflict;
+            }
+
+            qInfo().noquote() << "Conflict trace: XMPP rebasing local save over own index-only update note=" << note.id
                               << "local=" << note.revision << "server=" << server.note.revision;
-            XmppNoteResult conflict;
-            conflict.conflict         = true;
-            conflict.remoteOnConflict = std::move(server.note);
-            conflict.error
-                = QStringLiteral("The note was modified on another XMPP resource; the local version was not published");
-            co_return conflict;
+            note.revision        = server.note.revision;
+            note.contentRevision = serverContentRevision;
         }
     }
     co_return co_await publishNoteTask(std::move(note), generation);
+}
+
+QCoro::Task<XmppNoteResult> XmppWorker::updateNoteIndexTask(XmppRemoteNote note)
+{
+    const auto generation = clientGeneration_;
+    const auto ready      = co_await ensureReadyTask();
+    if (generation != clientGeneration_)
+        co_return configurationChangedResult<XmppNoteResult>();
+    if (!ready.ok) {
+        XmppNoteResult output;
+        output.error     = ready.error;
+        output.errorKind = ready.errorKind;
+        co_return output;
+    }
+    if (note.id.isEmpty()) {
+        XmppNoteResult output;
+        output.error = QStringLiteral("A saved XMPP note ID is required for an index update");
+        co_return output;
+    }
+
+    auto server = co_await requestIndexTask(note.id, generation);
+    if (generation != clientGeneration_)
+        co_return configurationChangedResult<XmppNoteResult>();
+    if (!server.ok)
+        co_return server;
+    if (server.note.revision != note.revision) {
+        XmppNoteResult conflict;
+        conflict.conflict         = true;
+        conflict.remoteOnConflict = std::move(server.note);
+        conflict.error = QStringLiteral("The note was modified on another XMPP resource; the folder was not published");
+        co_return conflict;
+    }
+
+    auto updated           = std::move(server.note);
+    updated.folderPath     = std::move(note.folderPath);
+    updated.parentRevision = updated.revision;
+    updated.revision       = newUuid();
+    updated.originId       = config_.originId;
+    updated.modified       = QDateTime::currentDateTimeUtc();
+    updated.format         = QStringLiteral("markdown");
+    updated.contentPresent = false;
+    auto payload           = XmppNoteCodec::encodeIndex(updated, config_.masterKey, config_.indexNodeName());
+    if (!payload) {
+        XmppNoteResult output;
+        output.error = payload.error.message;
+        co_return output;
+    }
+
+    auto published
+        = co_await pubSub_
+              ->publishOwnPepItem(config_.indexNodeName(), QtNotePubSubItem(payload.value), privatePublishOptions())
+              .toFuture(this);
+    if (generation != clientGeneration_)
+        co_return configurationChangedResult<XmppNoteResult>();
+    if (const auto *error = resultError(published)) {
+        XmppNoteResult output;
+        setXmppFailure(output, *error, errorText(*error));
+        co_return output;
+    }
+
+    XmppNoteResult output;
+    output.note = std::move(updated);
+    output.ok   = true;
+    co_return output;
 }
 
 QCoro::Task<XmppStatusResult> XmppWorker::deleteNoteTask(QString id)

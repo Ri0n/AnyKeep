@@ -152,16 +152,17 @@ then uses the appropriate metadata-only storage operation where possible.
 
 ### Catalog merge
 
-Providers with stable folder UUIDs, initially PTF and XMPP, import their
+Providers with a stable full folder catalog, initially PTF, import their
 records directly. The catalog merges equal UUIDs field by field using
 revision/tombstone ordering and imports their assignments.
 
-Providers that only expose paths, initially Nextcloud, are reconciled by a
-normalized ancestor path. A matching path reuses the existing global folder;
-a new path creates the missing branch. The locally persisted path hint makes
-this deterministic across restarts. Name collisions under different parents
-are distinct. If external changes make a path ambiguous, QtNote preserves both
-records and presents a repairable conflict instead of silently moving notes.
+Providers that only expose paths, initially Nextcloud and XMPP, are reconciled
+by a normalized ancestor path. A matching path reuses the existing global
+folder; a new path creates the missing branch. The locally persisted path hint
+makes this deterministic across restarts. Name collisions under different
+parents are distinct. If external changes make a path ambiguous, QtNote
+preserves both records and presents a repairable conflict instead of silently
+moving notes.
 
 Tomboy imports no folders; it only receives local overlay assignments.
 
@@ -215,11 +216,11 @@ Merging is not a destructive import. For every storage refresh:
    to a missing node.
 7. Emit one catalog transaction and persist it once.
 
-PTF and XMPP have stable UUID records. Nextcloud supplies a category path, so
-it uses the path branch of this algorithm. Tomboy does not participate in tree
-import. A collision that cannot be resolved unambiguously remains a catalog
-conflict with both data sources preserved; it is not repaired by choosing a
-random sibling or moving a note.
+PTF has stable UUID records. Nextcloud and XMPP supply a category/folder path,
+so they use the path branch of this algorithm. Tomboy does not participate in
+tree import. A collision that cannot be resolved unambiguously remains a
+catalog conflict with both data sources preserved; it is not repaired by
+choosing a random sibling or moving a note.
 
 ### Assignment state transitions
 
@@ -253,7 +254,7 @@ assignment.
 | Draft store | encrypted draft payload | persist pending folder metadata with every checkpoint |
 | Remote cache | encrypted cache record | cache folderId and synchronization state |
 | PTF | .qtnote-folders.json beside the PTF notes | atomic catalog/index; preserve current note IDs and media layout rather than moving files |
-| XMPP | encrypted index/catalog records | publish folder ID/path and catalog changes; no migration from the previous XMPP format is required |
+| XMPP | encrypted folder-path extension in each note index | publish the root-to-leaf path in the index; a clean move rewrites only the index, never the body |
 | Nextcloud | Notes API category path | map tree paths to category paths and use a metadata-only conditional update; empty folders and folder flags remain local |
 | Tomboy | none in Tomboy data | encrypted local overlay only; never alter XML tags for folders |
 | Other plugins | capability fallback | overlay until their specifications are reviewed |
@@ -332,18 +333,25 @@ but their state does not need to leak into individual Markdown or text files.
 
 ### XMPP implementation detail
 
-XMPP gets a new encrypted catalog/index representation containing global
-folder UUIDs, parent relations, relevant flags, revisions, assignments, and
-path snapshots. Folder-only updates receive their own revision so changing a
-folder does not require uploading note content again.
+XMPP stores an optional root-to-leaf folder path in every encrypted note index,
+using the dedicated `urn:xmpp:qtnote:folders:1` extension namespace. It does
+not publish a provider-global UUID catalog: on import the path is reconciled
+into QtNote's shared catalog through a persistent provider-path hint, and on
+publish the current global folder UUID is resolved back to its visible path.
+A folder-only update gets a new index revision and publishes only that index,
+so it never uploads the note body merely to move a note. Because the content
+payload remains bound to its older body revision, the index carries the
+required encrypted `content-revision` extension when those two revisions
+differ.
 
-There is intentionally no migration from the previous XMPP folder-less
-protocol: this product does not require backwards compatibility for XMPP.
-The new codec must nevertheless reject mixed or malformed versions safely,
-bind every encrypted payload to its account/node context, and preserve
-concurrent remote updates as conflicts rather than dropping either revision.
-The remote cache reflects the newly decoded folder metadata before the manager
-model is updated.
+There is intentionally no migration needed for existing folder-less indexes:
+they simply decode as Unsorted. The codec must nevertheless reject malformed
+folder paths safely, bind every encrypted payload to its account/node context,
+and preserve concurrent remote updates as conflicts rather than dropping
+either revision. Renaming or reparenting a global folder must enqueue
+metadata-only index refreshes for its affected XMPP notes; this is required to
+keep other devices' path views current. The remote cache reflects the newly
+decoded folder metadata before the manager model is updated.
 
 ### Nextcloud implementation detail
 
@@ -644,8 +652,8 @@ on both the catalog and the editor/publication routing.
    draft changes publishable.
 3. **Storage contract and PTF** — add jobs/capabilities, PTF index merge and
    metadata-only moves, with file/recovery tests.
-4. **Backend adapters** — XMPP's new encrypted catalog/index, Nextcloud path
-   mapping/conditional metadata update, and the Tomboy overlay-only adapter.
+4. **Backend adapters** — XMPP's encrypted note-index folder path, Nextcloud
+   path mapping/conditional metadata update, and the Tomboy overlay-only adapter.
    Each provider gets capability and conflict tests.
 5. **Manager and editor UI** — folder projection, picker, inline rename,
    hierarchy drag/drop and shared reorder extraction. QML tests run headless;

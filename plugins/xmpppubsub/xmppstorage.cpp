@@ -2,6 +2,7 @@
 
 #include "draftmanager.h"
 #include "fileremotecachestore.h"
+#include "foldercatalogmanager.h"
 #include "iconutils.h"
 #include "localdatakeystore.h"
 #include "notedata.h"
@@ -31,12 +32,14 @@
 namespace QtNote {
 
 namespace {
-    constexpr int MinimumRetryDelaySeconds = 30;
-    constexpr int MaximumRetryDelaySeconds = 300;
-    const QString QtNoteKeychainService    = QStringLiteral("com.github.ri0n.qtnote");
-    const QString PsiKeychainService       = QStringLiteral("xmpp");
-    const QString IndexRecordTemplateKey   = QStringLiteral("xmpp.xml.v1.index-template");
-    const QString ContentRecordTemplateKey = QStringLiteral("xmpp.xml.v1.content-template");
+    constexpr int MinimumRetryDelaySeconds  = 30;
+    constexpr int MaximumRetryDelaySeconds  = 300;
+    const QString QtNoteKeychainService     = QStringLiteral("com.github.ri0n.qtnote");
+    const QString PsiKeychainService        = QStringLiteral("xmpp");
+    const QString IndexRecordTemplateKey    = QStringLiteral("xmpp.xml.v1.index-template");
+    const QString ContentRecordTemplateKey  = QStringLiteral("xmpp.xml.v1.content-template");
+    const QString ContentRevisionBackendKey = QStringLiteral("xmpp.xml.v1.content-revision");
+    const QString FolderPathBackendKey      = QStringLiteral("xmpp.xml.v1.folder-path");
 
     QString passwordKeyName(const QString &jid)
     {
@@ -73,7 +76,9 @@ namespace {
 
 } // namespace
 
-XmppStorage::XmppStorage(QObject *parent, XmppBackend *backend) : NoteStorage(parent), icon_(xmppStorageIcon())
+XmppStorage::XmppStorage(QObject *parent, XmppBackend *backend, FolderCatalogManager *folderCatalogManager) :
+    NoteStorage(parent), icon_(xmppStorageIcon()),
+    folderCatalogManager_(folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance())
 {
     dialogPresenter_ = new XmppDialogPresenter(this);
     backend_         = backend ? backend : new XmppWorker;
@@ -105,6 +110,18 @@ XmppStorage::XmppStorage(QObject *parent, XmppBackend *backend) : NoteStorage(pa
     retryTimer_ = new QTimer(this);
     retryTimer_->setSingleShot(true);
     connect(retryTimer_, &QTimer::timeout, this, &XmppStorage::retryInitialization);
+
+    if (folderCatalogManager_) {
+        connect(folderCatalogManager_, &FolderCatalogManager::availabilityChanged, this, [this](bool available) {
+            if (!available)
+                return;
+            reconcileCachedFolders();
+            scheduleFolderPathSynchronization();
+            emit invalidated();
+        });
+        connect(folderCatalogManager_, &FolderCatalogManager::catalogChanged, this,
+                &XmppStorage::scheduleFolderPathSynchronization);
+    }
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     QNetworkInformation::loadDefaultBackend();
@@ -314,6 +331,11 @@ void XmppStorage::shutdown()
     shuttingDown_ = true;
     abortKeyResolution();
     cancelRefreshAttempt();
+    folderPathUpdateQueue_.clear();
+    folderPathUpdateQueued_.clear();
+    folderPathUpdateInFlight_.clear();
+    folderPathUpdateRunning_   = false;
+    folderPathUpdateScheduled_ = false;
     ++configEpoch_;
     if (retryTimer_)
         retryTimer_->stop();
@@ -506,6 +528,7 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
                         cacheValid_ = false;
                         if (result.ok) {
                             resetRetryBackoff();
+                            scheduleFolderPathSynchronization();
                             guard->complete();
                         } else {
                             if (result.retryable())
@@ -555,15 +578,296 @@ void XmppStorage::applyRemote(Note &note, const XmppRemoteNote &remote)
     note.setFormat(Note::Markdown);
     note.setLastChangeUTC(remote.modified);
     note.setBackendValue(QStringLiteral("revision"), remote.revision);
+    note.setBackendValue(ContentRevisionBackendKey, remote.contentRevision);
     note.setBackendValue(QStringLiteral("parentRevision"), remote.parentRevision);
     note.setBackendValue(QStringLiteral("originId"), remote.originId);
     note.setBackendValue(IndexRecordTemplateKey, remote.indexRecordTemplate);
     note.setBackendValue(ContentRecordTemplateKey, remote.contentRecordTemplate);
+    note.setBackendValue(FolderPathBackendKey, remote.folderPath);
+    if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
+        note.setFolderId(folderCatalogManager_->catalog().folderForNote(systemName(), remote.id));
+    } else {
+        note.setFolderId({});
+    }
     if (remote.contentPresent)
         note.setText(remote.content, Note::Markdown);
     else
         note.unload();
     note.setTags(remote.tags);
+}
+
+bool XmppStorage::folderPathForFolder(const QUuid &folderId, QStringList *path, QString *error) const
+{
+    if (path)
+        path->clear();
+    if (error)
+        error->clear();
+    if (folderId.isNull())
+        return true;
+    if (!folderCatalogManager_ || !folderCatalogManager_->isAvailable()) {
+        if (error)
+            *error = tr("The folder catalog is unavailable");
+        return false;
+    }
+
+    const auto folderPath = folderCatalogManager_->catalog().pathForFolder(folderId);
+    if (folderPath.isEmpty()) {
+        if (error)
+            *error = tr("The selected folder no longer exists");
+        return false;
+    }
+    if (path)
+        *path = folderPath;
+    return true;
+}
+
+bool XmppStorage::folderPathForNote(const Note &note, QStringList *path, QString *error) const
+{
+    if (!note.folderId().isNull())
+        return folderPathForFolder(note.folderId(), path, error);
+
+    if (path)
+        path->clear();
+    if (error)
+        error->clear();
+    if (note.id().isEmpty())
+        return true;
+    if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
+        const auto assignedFolder = folderCatalogManager_->catalog().folderForNote(systemName(), note.id());
+        if (!assignedFolder.isNull())
+            return folderPathForFolder(assignedFolder, path, error);
+        const auto *assignment = folderCatalogManager_->catalog().assignment(systemName(), note.id());
+        if (assignment && assignment->tombstone)
+            return true;
+    }
+
+    if (path)
+        *path = note.backendValue(FolderPathBackendKey).toStringList();
+    return true;
+}
+
+bool XmppStorage::toRemote(const Note &note, XmppRemoteNote *remote, QString *error) const
+{
+    if (!remote)
+        return false;
+
+    XmppRemoteNote result;
+    result.id              = note.id();
+    result.revision        = note.backendValue(QStringLiteral("revision")).toString();
+    result.contentRevision = note.backendValue(ContentRevisionBackendKey).toString();
+    result.parentRevision  = note.backendValue(QStringLiteral("parentRevision")).toString();
+    result.originId        = note.backendValue(QStringLiteral("originId")).toString();
+    result.title           = note.title();
+    result.content         = note.text();
+    result.modified        = note.lastChangeUTC();
+    const auto requestedModified
+        = note.backendValue(QString::fromLatin1(RequestedModificationTimeBackendKey)).toDateTime();
+    result.preserveModified = requestedModified.isValid();
+    if (result.preserveModified)
+        result.modified = requestedModified;
+    result.format                = QStringLiteral("markdown");
+    result.tags                  = note.tags();
+    result.contentPresent        = note.isLoaded();
+    result.indexRecordTemplate   = note.backendValue(IndexRecordTemplateKey).toByteArray();
+    result.contentRecordTemplate = note.backendValue(ContentRecordTemplateKey).toByteArray();
+    if (!folderPathForNote(note, &result.folderPath, error))
+        return false;
+    *remote = std::move(result);
+    return true;
+}
+
+void XmppStorage::reconcileRemoteFolders(const QList<XmppRemoteNote> &notes)
+{
+    if (!folderCatalogManager_ || !folderCatalogManager_->isAvailable())
+        return;
+
+    QList<ProviderFolderPathAssignment> assignments;
+    assignments.reserve(notes.size());
+    for (const auto &remote : notes) {
+        if (remote.id.isEmpty())
+            continue;
+        ProviderFolderPathAssignment assignment;
+        assignment.noteId     = remote.id;
+        assignment.path       = remote.folderPath;
+        assignment.modifiedAt = remote.modified;
+        assignments.append(std::move(assignment));
+    }
+    if (assignments.isEmpty())
+        return;
+    if (const auto result = folderCatalogManager_->reconcileProviderFolderPaths(systemName(), assignments))
+        reportError(tr("Could not merge XMPP folders: %1").arg(result.message));
+}
+
+void XmppStorage::reconcileCachedFolders()
+{
+    if (!folderCatalogManager_ || !folderCatalogManager_->isAvailable())
+        return;
+
+    QList<XmppRemoteNote> notes;
+    notes.reserve(cache_.size());
+    for (const auto &cached : std::as_const(cache_)) {
+        if (!cached.backendData().contains(FolderPathBackendKey))
+            continue;
+        XmppRemoteNote remote;
+        remote.id         = cached.id();
+        remote.modified   = cached.lastChangeUTC();
+        remote.folderPath = cached.backendValue(FolderPathBackendKey).toStringList();
+        notes.append(std::move(remote));
+    }
+    reconcileRemoteFolders(notes);
+
+    bool changed = false;
+    for (auto it = cache_.begin(); it != cache_.end(); ++it) {
+        const auto folderId = folderCatalogManager_->catalog().folderForNote(systemName(), it.key());
+        if (it.value().folderId() == folderId)
+            continue;
+        it.value().setFolderId(folderId);
+        changed = true;
+    }
+    if (changed)
+        persistCache();
+}
+
+void XmppStorage::scheduleFolderPathSynchronization()
+{
+    if (folderPathUpdateScheduled_ || shuttingDown_ || errorState_ || !accessible_ || !folderCatalogManager_
+        || !folderCatalogManager_->isAvailable()) {
+        return;
+    }
+    folderPathUpdateScheduled_ = true;
+    QTimer::singleShot(0, this, [this]() {
+        folderPathUpdateScheduled_ = false;
+        enqueueFolderPathUpdates();
+    });
+}
+
+void XmppStorage::enqueueFolderPathUpdates()
+{
+    if (shuttingDown_ || errorState_ || !accessible_ || !folderCatalogManager_
+        || !folderCatalogManager_->isAvailable()) {
+        return;
+    }
+
+    const auto &catalog = folderCatalogManager_->catalog();
+    for (const auto &cached : std::as_const(cache_)) {
+        if (cached.isNull() || cached.id().isEmpty() || folderPathUpdateInFlight_.contains(cached.id()))
+            continue;
+
+        Note desired = cached;
+        if (const auto *assignment = catalog.assignment(systemName(), cached.id()))
+            desired.setFolderId(assignment->tombstone ? QUuid {} : assignment->folderId);
+        else
+            desired.setFolderId({});
+
+        QStringList path;
+        QString     error;
+        if (!folderPathForNote(desired, &path, &error)) {
+            reportError(tr("Could not resolve the XMPP folder path for a note: %1").arg(error));
+            continue;
+        }
+        if (path == cached.backendValue(FolderPathBackendKey).toStringList())
+            continue;
+        if (!folderPathUpdateQueued_.contains(cached.id())) {
+            folderPathUpdateQueued_.insert(cached.id());
+            folderPathUpdateQueue_.append(cached.id());
+        }
+    }
+    publishNextFolderPathUpdate();
+}
+
+void XmppStorage::publishNextFolderPathUpdate()
+{
+    if (folderPathUpdateRunning_ || shuttingDown_ || errorState_ || !accessible_)
+        return;
+
+    while (!folderPathUpdateQueue_.isEmpty()) {
+        const auto noteId = folderPathUpdateQueue_.takeFirst();
+        folderPathUpdateQueued_.remove(noteId);
+        if (folderPathUpdateInFlight_.contains(noteId))
+            continue;
+
+        const auto cached = cache_.value(noteId);
+        if (cached.isNull())
+            continue;
+
+        Note desired = cached;
+        if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
+            if (const auto *assignment = folderCatalogManager_->catalog().assignment(systemName(), noteId))
+                desired.setFolderId(assignment->tombstone ? QUuid {} : assignment->folderId);
+            else
+                desired.setFolderId({});
+        }
+
+        QStringList path;
+        QString     error;
+        if (!folderPathForNote(desired, &path, &error)) {
+            reportError(tr("Could not resolve the XMPP folder path for a note: %1").arg(error));
+            continue;
+        }
+        if (path == cached.backendValue(FolderPathBackendKey).toStringList())
+            continue;
+
+        XmppRemoteNote local;
+        if (!toRemote(desired, &local, &error)) {
+            reportError(tr("Could not prepare an XMPP folder update: %1").arg(error));
+            continue;
+        }
+        if (local.revision.isEmpty())
+            continue;
+        local.folderPath = std::move(path);
+
+        folderPathUpdateRunning_ = true;
+        folderPathUpdateInFlight_.insert(noteId);
+        const auto config = config_;
+        const auto epoch  = configEpoch_;
+        QMetaObject::invokeMethod(
+            backend_,
+            [this, config, local = std::move(local), noteId, epoch]() {
+                if (shuttingDown_ || epoch != configEpoch_)
+                    return;
+                backend_->setConfig(config);
+                backend_->updateNoteIndexAsync(local, [this, noteId, epoch](XmppNoteResult result) {
+                    QMetaObject::invokeMethod(
+                        this,
+                        [this, noteId, epoch, result = std::move(result)]() {
+                            folderPathUpdateInFlight_.remove(noteId);
+                            folderPathUpdateRunning_ = false;
+                            if (shuttingDown_ || epoch != configEpoch_)
+                                return;
+
+                            if (!result.ok) {
+                                if (result.remoteOnConflict) {
+                                    reconcileRemoteFolders({ *result.remoteOnConflict });
+                                    cache_.insert(result.remoteOnConflict->id, fromRemote(*result.remoteOnConflict));
+                                    persistCache();
+                                }
+                                if (result.retryable())
+                                    handleTransientFailure(result.error, false);
+                                else
+                                    reportError(
+                                        tr("Could not synchronize an XMPP folder change: %1").arg(result.error));
+                            } else {
+                                reconcileRemoteFolders({ result.note });
+                                auto       changed  = fromRemote(result.note);
+                                const auto previous = cache_.value(noteId);
+                                if (!previous.isNull() && previous.isLoaded()) {
+                                    changed.setText(previous.text(), previous.format());
+                                    changed.setMedia(previous.media());
+                                }
+                                cache_.insert(noteId, changed);
+                                cacheValid_ = accessible_ = true;
+                                persistCache();
+                                emit noteModified(changed);
+                            }
+
+                            QTimer::singleShot(0, this, &XmppStorage::publishNextFolderPathUpdate);
+                        },
+                        Qt::QueuedConnection);
+                });
+            },
+            Qt::QueuedConnection);
+        return;
+    }
 }
 
 bool XmppStorage::openPersistentCache(const XmppConfig &config)
@@ -610,6 +914,7 @@ bool XmppStorage::openPersistentCache(const XmppConfig &config)
     }
     cacheAvailable_ = !records.value.isEmpty();
     cacheValid_     = cacheAvailable_;
+    reconcileCachedFolders();
     return true;
 }
 
@@ -667,29 +972,6 @@ void XmppStorage::prefetchNextBody()
     connect(job, &StorageJob::finished, this, finish);
     if (job->isFinished())
         finish();
-}
-
-XmppRemoteNote XmppStorage::toRemote(const Note &note) const
-{
-    XmppRemoteNote remote;
-    remote.id             = note.id();
-    remote.revision       = note.backendValue(QStringLiteral("revision")).toString();
-    remote.parentRevision = note.backendValue(QStringLiteral("parentRevision")).toString();
-    remote.originId       = note.backendValue(QStringLiteral("originId")).toString();
-    remote.title          = note.title();
-    remote.content        = note.text();
-    remote.modified       = note.lastChangeUTC();
-    const auto requestedModified
-        = note.backendValue(QString::fromLatin1(RequestedModificationTimeBackendKey)).toDateTime();
-    remote.preserveModified = requestedModified.isValid();
-    if (remote.preserveModified)
-        remote.modified = requestedModified;
-    remote.format                = QStringLiteral("markdown");
-    remote.tags                  = note.tags();
-    remote.contentPresent        = note.isLoaded();
-    remote.indexRecordTemplate   = note.backendValue(IndexRecordTemplateKey).toByteArray();
-    remote.contentRecordTemplate = note.backendValue(ContentRecordTemplateKey).toByteArray();
-    return remote;
 }
 
 QList<Note> XmppStorage::noteList(int limit)
@@ -770,13 +1052,19 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                             }
                             return;
                         }
+                        reconcileRemoteFolders(result.notes);
                         QHash<QString, Note> refreshed = result.partial ? cache_ : QHash<QString, Note> {};
                         QStringList          missingBodies;
                         for (const auto &remote : result.notes) {
                             const auto old = cache_.constFind(remote.id);
                             if (old != cache_.cend()
                                 && old.value().backendValue(QStringLiteral("revision")).toString() == remote.revision) {
-                                refreshed.insert(remote.id, old.value());
+                                auto cached = old.value();
+                                if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
+                                    cached.setFolderId(
+                                        folderCatalogManager_->catalog().folderForNote(systemName(), remote.id));
+                                }
+                                refreshed.insert(remote.id, cached);
                                 if (!old.value().isLoaded())
                                     missingBodies.append(remote.id);
                             } else {
@@ -788,6 +1076,7 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                         cacheValid_ = accessible_ = true;
                         resetRetryBackoff();
                         persistCache();
+                        scheduleFolderPathSynchronization();
                         auto notes = cache_.values();
                         std::sort(notes.begin(), notes.end(), noteListItemModifyComparer);
                         qInfo() << "XMPP index refresh loaded" << notes.size() << "note(s) for"
@@ -873,6 +1162,7 @@ NoteLoadJob *XmppStorage::loadNoteAsync(const QString &id, QObject *owner)
                                 storageError(result, result.notFound ? StorageError::NotFound : StorageError::Network));
                             return;
                         }
+                        reconcileRemoteFolders({ result.note });
                         auto loaded = fromRemote(result.note);
                         cache_.insert(id, loaded);
                         accessible_ = true;
@@ -926,9 +1216,14 @@ NoteSaveJob *XmppStorage::saveNoteAsync(const Note &note, QObject *owner)
                     errorState_ ? errorStateMessage_ : tr("The note cannot be saved in its current state."), false });
         return job;
     }
+    XmppRemoteNote local;
+    QString        folderError;
+    if (!toRemote(note, &local, &folderError)) {
+        job->fail({ StorageError::Other, folderError, false });
+        return job;
+    }
     const auto            config = config_;
     const auto            epoch  = configEpoch_;
-    const auto            local  = toRemote(note);
     const auto            oldId  = note.id();
     QPointer<NoteSaveJob> guard(job);
     QMetaObject::invokeMethod(
@@ -954,11 +1249,13 @@ NoteSaveJob *XmppStorage::saveNoteAsync(const Note &note, QObject *owner)
                             auto error = storageError(result,
                                                       result.conflict ? StorageError::Conflict : StorageError::Network);
                             if (result.remoteOnConflict) {
+                                reconcileRemoteFolders({ *result.remoteOnConflict });
                                 cache_.insert(result.remoteOnConflict->id, fromRemote(*result.remoteOnConflict));
                             }
                             guard->fail(error);
                             return;
                         }
+                        reconcileRemoteFolders({ result.note });
                         auto       saved   = fromRemote(result.note);
                         const bool existed = !oldId.isEmpty() && cache_.contains(oldId);
                         if (!oldId.isEmpty() && oldId != saved.id())
@@ -973,6 +1270,106 @@ NoteSaveJob *XmppStorage::saveNoteAsync(const Note &note, QObject *owner)
                             emit noteModified(saved);
                         else
                             emit noteAdded(saved);
+                    },
+                    Qt::QueuedConnection);
+            });
+        },
+        Qt::QueuedConnection);
+    return job;
+}
+
+NoteFolderChangeJob *XmppStorage::changeNoteFolderAsync(const Note &note, QObject *owner)
+{
+    auto *job = new NoteFolderChangeJob(owner ? owner : this);
+    job->start();
+    if (note.isNull() || note.storage() != this) {
+        job->fail({ StorageError::Other, tr("Attempted to move a note owned by another storage."), false });
+        return job;
+    }
+    if (note.id().isEmpty()) {
+        job->fail({ StorageError::NotFound, tr("The note must be saved before it can be moved."), false });
+        return job;
+    }
+    if (errorState_) {
+        job->fail({ StorageError::Unavailable, errorStateMessage_, false });
+        return job;
+    }
+    if (folderPathUpdateInFlight_.contains(note.id())) {
+        job->fail({ StorageError::Network, tr("Another folder update for this note is already in progress."), true });
+        return job;
+    }
+
+    QStringList folderPath;
+    QString     folderError;
+    if (!folderPathForFolder(note.folderId(), &folderPath, &folderError)) {
+        job->fail({ StorageError::Other, folderError, false });
+        return job;
+    }
+
+    XmppRemoteNote local;
+    QString        remoteError;
+    if (!toRemote(note, &local, &remoteError)) {
+        job->fail({ StorageError::Other, remoteError, false });
+        return job;
+    }
+    local.folderPath = std::move(folderPath);
+
+    const auto                    config   = config_;
+    const auto                    epoch    = configEpoch_;
+    const auto                    noteId   = note.id();
+    const auto                    folderId = note.folderId();
+    QPointer<NoteFolderChangeJob> guard(job);
+    folderPathUpdateInFlight_.insert(noteId);
+    QMetaObject::invokeMethod(
+        backend_,
+        [this, guard, config, local, noteId, folderId, epoch]() {
+            if (shuttingDown_ || epoch != configEpoch_) {
+                if (guard)
+                    guard->cancel();
+                return;
+            }
+            backend_->setConfig(config);
+            backend_->updateNoteIndexAsync(local, [this, guard, noteId, folderId, epoch](XmppNoteResult result) {
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, guard, result = std::move(result), noteId, folderId, epoch]() {
+                        folderPathUpdateInFlight_.remove(noteId);
+                        if (!guard || guard->isFinished())
+                            return;
+                        if (shuttingDown_ || epoch != configEpoch_) {
+                            guard->cancel();
+                            return;
+                        }
+                        if (!result.ok) {
+                            if (result.remoteOnConflict) {
+                                reconcileRemoteFolders({ *result.remoteOnConflict });
+                                cache_.insert(result.remoteOnConflict->id, fromRemote(*result.remoteOnConflict));
+                                persistCache();
+                            }
+                            guard->fail(
+                                storageError(result, result.conflict ? StorageError::Conflict : StorageError::Network));
+                            return;
+                        }
+
+                        reconcileRemoteFolders({ result.note });
+                        auto       changed = fromRemote(result.note);
+                        const auto cached  = cache_.value(noteId);
+                        if (!cached.isNull() && cached.isLoaded()) {
+                            changed.setText(cached.text(), cached.format());
+                            changed.setMedia(cached.media());
+                        }
+                        // The folder controller already recorded the local
+                        // assignment before this request. Keep the summary
+                        // aligned with that intent if a catalog merge is
+                        // temporarily delayed by a timestamp tie.
+                        if (changed.folderId() != folderId)
+                            changed.setFolderId(folderId);
+                        cache_.insert(noteId, changed);
+                        cacheValid_ = accessible_ = true;
+                        persistCache();
+                        emit noteModified(changed);
+                        guard->complete(changed);
+                        scheduleFolderPathSynchronization();
                     },
                     Qt::QueuedConnection);
             });
@@ -1062,6 +1459,7 @@ void XmppStorage::onRemoteNotePublished(const XmppRemoteNote &remote)
     const bool siblingConflict = !previous.isNull() && !previousParentRevision.isEmpty()
         && previousParentRevision == remote.parentRevision && previousRevision != remote.revision;
 
+    reconcileRemoteFolders({ remote });
     auto       incoming               = fromRemote(remote);
     const auto previousOrigin         = previous.backendValue(QStringLiteral("originId")).toString();
     const bool ownedDisplacedRevision = previousOrigin == config_.originId;
@@ -1141,6 +1539,8 @@ void XmppStorage::onConnectionChanged(bool connected)
         retryTimer_->stop();
         QTimer::singleShot(0, this, &XmppStorage::retryInitialization);
     }
+    if (connected)
+        scheduleFolderPathSynchronization();
 }
 
 void XmppStorage::reportError(const QString &error, bool invalidate)
@@ -1256,6 +1656,11 @@ void XmppStorage::applyConfig(const XmppConfig &config)
 {
     abortKeyResolution();
     cancelRefreshAttempt();
+    folderPathUpdateQueue_.clear();
+    folderPathUpdateQueued_.clear();
+    folderPathUpdateInFlight_.clear();
+    folderPathUpdateRunning_   = false;
+    folderPathUpdateScheduled_ = false;
     ++configEpoch_;
     shuttingDown_ = false;
     QSettings  settings;

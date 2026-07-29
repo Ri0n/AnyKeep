@@ -6,6 +6,7 @@
 
 #include <QHash>
 #include <QPointer>
+#include <QSet>
 #include <QTimer>
 
 #include <memory>
@@ -14,6 +15,7 @@ namespace QtNote {
 
 class XmppBackend;
 class XmppDialogPresenter;
+class FolderCatalogManager;
 class XmppKeyResolutionController;
 class XmppSettingsController;
 class RemoteCacheStore;
@@ -36,7 +38,8 @@ class XmppStorage final : public NoteStorage {
     Q_DISABLE_COPY(XmppStorage)
 
 public:
-    explicit XmppStorage(QObject *parent = nullptr, XmppBackend *backend = nullptr);
+    explicit XmppStorage(QObject *parent = nullptr, XmppBackend *backend = nullptr,
+                         FolderCatalogManager *folderCatalogManager = nullptr);
     ~XmppStorage() override;
     void shutdown() override;
 
@@ -61,6 +64,9 @@ public:
     NoteSaveJob        *saveNoteAsync(const Note &note, QObject *owner = nullptr) override;
     void                removeNote(const QString &noteId) override;
     NoteRemoveJob      *removeNoteAsync(const QString &noteId, QObject *owner = nullptr) override;
+
+    bool                 supportsNativeFolders() const override { return true; }
+    NoteFolderChangeJob *changeNoteFolderAsync(const Note &note, QObject *owner = nullptr) override;
 
     bool                isConfigurable() const override { return true; }
     QUrl                settingsComponent() const override;
@@ -90,33 +96,42 @@ private:
     };
 
     friend class XmppSettingsController;
-    XmppConfig     readConfig() const;
-    bool           connectionConfigIsValid(const XmppConfig &config, QString *error) const;
-    bool           configIsValid(const XmppConfig &config, QString *error) const;
-    Note           fromRemote(const XmppRemoteNote &remote);
-    void           applyRemote(Note &note, const XmppRemoteNote &remote);
-    XmppRemoteNote toRemote(const Note &note) const;
-    void           reportError(const QString &error, bool invalidate = false);
-    void           enterErrorState(const QString &error, bool invalidate = false);
-    void           clearErrorState();
-    void           handleTransientFailure(const QString &error, bool invalidate = true);
-    void           scheduleRetry();
-    void           retryInitialization();
-    void           resetRetryBackoff();
-    void           applyConfig(const XmppConfig &config);
-    void           installReceivedStorageKey(const QString &jid, const QByteArray &key);
-    void           resolveStorageKeys(const QString &jid, XmppSettingsController *settings = nullptr);
-    void           abortKeyResolution();
-    bool           openPersistentCache(const XmppConfig &config);
-    void           persistCache();
-    void           startBodyPrefetch(const QStringList &ids);
-    void           prefetchNextBody();
-    void           cancelRefreshAttempt();
+    XmppConfig readConfig() const;
+    bool       connectionConfigIsValid(const XmppConfig &config, QString *error) const;
+    bool       configIsValid(const XmppConfig &config, QString *error) const;
+    Note       fromRemote(const XmppRemoteNote &remote);
+    void       applyRemote(Note &note, const XmppRemoteNote &remote);
+    bool       toRemote(const Note &note, XmppRemoteNote *remote, QString *error) const;
+    bool       folderPathForFolder(const QUuid &folderId, QStringList *path, QString *error) const;
+    bool       folderPathForNote(const Note &note, QStringList *path, QString *error) const;
+    void       reconcileRemoteFolders(const QList<XmppRemoteNote> &notes);
+    void       reconcileCachedFolders();
+    void       scheduleFolderPathSynchronization();
+    void       enqueueFolderPathUpdates();
+    void       publishNextFolderPathUpdate();
+    void       reportError(const QString &error, bool invalidate = false);
+    void       enterErrorState(const QString &error, bool invalidate = false);
+    void       clearErrorState();
+    void       handleTransientFailure(const QString &error, bool invalidate = true);
+    void       scheduleRetry();
+    void       retryInitialization();
+    void       resetRetryBackoff();
+    void       applyConfig(const XmppConfig &config);
+    void       installReceivedStorageKey(const QString &jid, const QByteArray &key);
+    void       resolveStorageKeys(const QString &jid, XmppSettingsController *settings = nullptr);
+    void       abortKeyResolution();
+    bool       openPersistentCache(const XmppConfig &config);
+    void       persistCache();
+    void       startBodyPrefetch(const QStringList &ids);
+    void       prefetchNextBody();
+    void       cancelRefreshAttempt();
 
     /// Stable configuration snapshot used by operations until applyConfig().
     XmppConfig config_;
     /// Protocol implementation; parented to this storage when constructed internally.
     XmppBackend *backend_ { nullptr };
+    /// Shared global tree used to translate provider folder paths and UUIDs.
+    FolderCatalogManager *folderCatalogManager_ { nullptr };
     /// Most recently loaded remote note index, keyed by note ID.
     QHash<QString, Note>              cache_;
     std::unique_ptr<RemoteCacheStore> persistentCache_;
@@ -124,6 +139,12 @@ private:
     bool                              cacheAvailable_ { false };
     QStringList                       bodyPrefetchQueue_;
     bool                              bodyPrefetchRunning_ { false };
+    /// Coalesces folder-tree renames/reparents into metadata-only index updates.
+    QStringList   folderPathUpdateQueue_;
+    QSet<QString> folderPathUpdateQueued_;
+    QSet<QString> folderPathUpdateInFlight_;
+    bool          folderPathUpdateScheduled_ { false };
+    bool          folderPathUpdateRunning_ { false };
     /// One network index refresh shared by simultaneous model/UI callers.
     std::shared_ptr<RefreshAttempt> refreshAttempt_;
     /// Whether cache_ is a complete representation of the current remote index.

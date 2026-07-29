@@ -54,6 +54,7 @@ public:
     void           listNotesAsync(ListCallback callback) override;
     void           getNoteAsync(QString id, NoteCallback callback) override;
     void           saveNoteAsync(XmppRemoteNote localNote, NoteCallback callback) override;
+    void           updateNoteIndexAsync(XmppRemoteNote localNote, NoteCallback callback) override;
     void           deleteNoteAsync(QString id, StatusCallback callback) override;
     XmppDeviceInfo ownOmemoDevice() const override;
     void           ownOmemoDevicesAsync(DevicesCallback callback) override;
@@ -91,10 +92,12 @@ private:
     QCoro::Task<XmppStatusResult> ensureReadyTask();
 
     QCoro::Task<XmppListResult>   listNotesTask();
+    QCoro::Task<XmppNoteResult>   requestIndexTask(QString id, quint64 clientGeneration);
     QCoro::Task<XmppNoteResult>   requestNoteTask(QString id, quint64 clientGeneration);
     QCoro::Task<XmppNoteResult>   getNoteTask(QString id);
     QCoro::Task<XmppNoteResult>   publishNoteTask(XmppRemoteNote note, quint64 clientGeneration);
     QCoro::Task<XmppNoteResult>   saveNoteTask(XmppRemoteNote localNote);
+    QCoro::Task<XmppNoteResult>   updateNoteIndexTask(XmppRemoteNote localNote);
     QCoro::Task<XmppStatusResult> deleteNoteTask(QString id);
     QCoro::Task<std::pair<QList<XmppDeviceInfo>, QString>> ownOmemoDevicesTask();
     QCoro::Task<XmppStatusResult>                          ownOmemoBundleValidTask();

@@ -39,13 +39,15 @@ public:
     using QObject::QObject;
     ~XmppBackend() override = default;
 
-    virtual void           start()                                                                          = 0;
-    virtual void           setConfig(const XmppConfig &config)                                              = 0;
-    virtual void           shutdown()                                                                       = 0;
-    virtual void           probeAsync(StatusCallback callback)                                              = 0;
-    virtual void           listNotesAsync(ListCallback callback)                                            = 0;
-    virtual void           getNoteAsync(QString id, NoteCallback callback)                                  = 0;
-    virtual void           saveNoteAsync(XmppRemoteNote note, NoteCallback callback)                        = 0;
+    virtual void start()                                                   = 0;
+    virtual void setConfig(const XmppConfig &config)                       = 0;
+    virtual void shutdown()                                                = 0;
+    virtual void probeAsync(StatusCallback callback)                       = 0;
+    virtual void listNotesAsync(ListCallback callback)                     = 0;
+    virtual void getNoteAsync(QString id, NoteCallback callback)           = 0;
+    virtual void saveNoteAsync(XmppRemoteNote note, NoteCallback callback) = 0;
+    /** Republishes metadata in the encrypted index without uploading note content. */
+    virtual void           updateNoteIndexAsync(XmppRemoteNote note, NoteCallback callback)                 = 0;
     virtual void           deleteNoteAsync(QString id, StatusCallback callback)                             = 0;
     virtual XmppDeviceInfo ownOmemoDevice() const                                                           = 0;
     virtual void           ownOmemoDevicesAsync(DevicesCallback callback)                                   = 0;

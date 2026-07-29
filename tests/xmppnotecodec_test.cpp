@@ -13,6 +13,8 @@ static_assert(
     std::is_same_v<decltype(&XmppBackend::getNoteAsync), void (XmppBackend::*)(QString, XmppBackend::NoteCallback)>);
 static_assert(std::is_same_v<decltype(&XmppBackend::saveNoteAsync),
                              void (XmppBackend::*)(XmppRemoteNote, XmppBackend::NoteCallback)>);
+static_assert(std::is_same_v<decltype(&XmppBackend::updateNoteIndexAsync),
+                             void (XmppBackend::*)(XmppRemoteNote, XmppBackend::NoteCallback)>);
 static_assert(std::is_same_v<decltype(&XmppBackend::deleteNoteAsync),
                              void (XmppBackend::*)(QString, XmppBackend::StatusCallback)>);
 
@@ -28,6 +30,7 @@ XmppRemoteNote note()
     value.content        = QStringLiteral("# Body\n\nHello XML");
     value.modified       = QDateTime::fromString(QStringLiteral("2026-07-27T19:00:00.123Z"), Qt::ISODateWithMs);
     value.tags           = { QStringLiteral("one"), QStringLiteral("two") };
+    value.folderPath     = { QStringLiteral("Projects"), QStringLiteral("2026") };
     return value;
 }
 
@@ -79,12 +82,12 @@ XmppEncryptedPayload mutatePlaintext(XmppEncryptedPayload payload, const QByteAr
     return encryptedPlaintext(payload, document.toByteArray(-1), key, kind);
 }
 
-QDomElement directChild(const QDomElement &parent, const QString &name)
+QDomElement directChild(const QDomElement &parent, const QString &name,
+                        const QString &nameSpace = XmppNoteCodec::protocolNamespace)
 {
     for (auto node = parent.firstChild(); !node.isNull(); node = node.nextSibling()) {
         const auto element = node.toElement();
-        if (!element.isNull() && element.namespaceURI() == XmppNoteCodec::protocolNamespace
-            && element.localName() == name) {
+        if (!element.isNull() && element.namespaceURI() == nameSpace && element.localName() == name) {
             return element;
         }
     }
@@ -103,6 +106,11 @@ private slots:
     void rejectsUnknownCoreAttribute();
     void rejectsUnknownCoreElement();
     void templatesDoNotDuplicateKnownNoteData();
+    void rejectsMalformedFolderPath();
+    void rejectsInvalidFolderPathOnEncode();
+    void metadataOnlyIndexKeepsBodyBinding();
+    void rejectsUndeclaredContentRevisionExtension();
+    void rejectsContentRevisionRequirementOnContent();
     void rejectsUnknownRequiredExtension();
     void rejectsUnknownNoteFormat();
     void rejectsEmptyOptionalIdentifiers();
@@ -132,11 +140,13 @@ void XmppNoteCodecTest::roundTrip()
     QVERIFY2(decodedIndex, qPrintable(decodedIndex.error.message));
     QCOMPARE(decodedIndex.value.id, source.id);
     QCOMPARE(decodedIndex.value.revision, source.revision);
+    QCOMPARE(decodedIndex.value.contentRevision, source.revision);
     QCOMPARE(decodedIndex.value.parentRevision, source.parentRevision);
     QCOMPARE(decodedIndex.value.originId, source.originId);
     QCOMPARE(decodedIndex.value.title, source.title);
     QCOMPARE(decodedIndex.value.modified, source.modified);
     QCOMPARE(decodedIndex.value.tags, source.tags);
+    QCOMPARE(decodedIndex.value.folderPath, source.folderPath);
     QVERIFY(!decodedIndex.value.contentPresent);
 
     const auto encodedContent = XmppNoteCodec::encodeContent(source, key, contentNode);
@@ -175,6 +185,10 @@ void XmppNoteCodecTest::plaintextUsesOneVersionedNamespace()
     const auto index   = directChild(content, QStringLiteral("index"));
     QCOMPARE(index.attribute(QStringLiteral("id")), note().id);
     QCOMPARE(directChild(index, QStringLiteral("title")).text(), note().title);
+    const auto folder = directChild(index, QStringLiteral("folder"), XmppNoteCodec::folderNamespace);
+    QVERIFY(!folder.isNull());
+    QCOMPARE(directChild(folder, QStringLiteral("segment"), XmppNoteCodec::folderNamespace).text(),
+             note().folderPath.constFirst());
 }
 
 void XmppNoteCodecTest::preservesUnknownOptionalXml()
@@ -235,6 +249,118 @@ void XmppNoteCodecTest::templatesDoNotDuplicateKnownNoteData()
     QVERIFY(decoded);
     QVERIFY(!decoded.value.indexRecordTemplate.contains(note().id.toUtf8()));
     QVERIFY(!decoded.value.indexRecordTemplate.contains(note().title.toUtf8()));
+    QVERIFY(!decoded.value.indexRecordTemplate.contains(note().folderPath.constFirst().toUtf8()));
+}
+
+void XmppNoteCodecTest::rejectsMalformedFolderPath()
+{
+    const auto key     = masterKey();
+    auto       payload = XmppNoteCodec::encodeIndex(note(), key, QStringLiteral("index"));
+    QVERIFY(payload);
+
+    payload.value = mutatePlaintext(payload.value, key, XmppEncryptedPayload::Index, [](QDomDocument &document) {
+        const auto content = directChild(document.documentElement(), QStringLiteral("content"));
+        auto       index   = directChild(content, QStringLiteral("index"));
+        const auto folder  = directChild(index, QStringLiteral("folder"), XmppNoteCodec::folderNamespace);
+        index.appendChild(folder.cloneNode(true));
+    });
+    auto decoded  = XmppNoteCodec::decodeIndex(payload.value, key, QStringLiteral("index"));
+    QVERIFY(!decoded);
+    QCOMPARE(decoded.error.code, CryptoError::Corrupt);
+
+    payload = XmppNoteCodec::encodeIndex(note(), key, QStringLiteral("index"));
+    QVERIFY(payload);
+    payload.value = mutatePlaintext(payload.value, key, XmppEncryptedPayload::Index, [](QDomDocument &document) {
+        const auto content = directChild(document.documentElement(), QStringLiteral("content"));
+        const auto index   = directChild(content, QStringLiteral("index"));
+        const auto folder  = directChild(index, QStringLiteral("folder"), XmppNoteCodec::folderNamespace);
+        const auto segment = directChild(folder, QStringLiteral("segment"), XmppNoteCodec::folderNamespace);
+        segment.firstChild().setNodeValue(QStringLiteral(" "));
+    });
+    decoded       = XmppNoteCodec::decodeIndex(payload.value, key, QStringLiteral("index"));
+    QVERIFY(!decoded);
+    QCOMPARE(decoded.error.code, CryptoError::Corrupt);
+}
+
+void XmppNoteCodecTest::rejectsInvalidFolderPathOnEncode()
+{
+    auto source        = note();
+    source.folderPath  = { QStringLiteral(" Projects") };
+    const auto encoded = XmppNoteCodec::encodeIndex(source, masterKey(), QStringLiteral("index"));
+    QVERIFY(!encoded);
+    QCOMPARE(encoded.error.code, CryptoError::InvalidArgument);
+}
+
+void XmppNoteCodecTest::metadataOnlyIndexKeepsBodyBinding()
+{
+    const auto key         = masterKey();
+    const auto indexNode   = QStringLiteral("urn:xmpp:qtnote:notes:1:index");
+    const auto contentNode = QStringLiteral("urn:xmpp:qtnote:notes:1:content");
+
+    auto bodyRevision     = note();
+    bodyRevision.revision = QStringLiteral("body-revision");
+    const auto content    = XmppNoteCodec::encodeContent(bodyRevision, key, contentNode);
+    QVERIFY2(content, qPrintable(content.error.message));
+
+    auto metadataRevision            = bodyRevision;
+    metadataRevision.revision        = QStringLiteral("folder-revision");
+    metadataRevision.contentRevision = bodyRevision.revision;
+    metadataRevision.parentRevision  = bodyRevision.revision;
+    metadataRevision.folderPath      = { QStringLiteral("Archive") };
+    const auto index                 = XmppNoteCodec::encodeIndex(metadataRevision, key, indexNode);
+    QVERIFY2(index, qPrintable(index.error.message));
+
+    const auto plaintext = openedPlaintext(index.value, key, XmppEncryptedPayload::Index);
+    QVERIFY(plaintext.contains(XmppNoteCodec::contentRevisionNamespace.toUtf8()));
+    const auto decodedIndex = XmppNoteCodec::decodeIndex(index.value, key, indexNode);
+    QVERIFY2(decodedIndex, qPrintable(decodedIndex.error.message));
+    QCOMPARE(decodedIndex.value.revision, metadataRevision.revision);
+    QCOMPARE(decodedIndex.value.contentRevision, bodyRevision.revision);
+    QCOMPARE(decodedIndex.value.folderPath, metadataRevision.folderPath);
+
+    const auto decoded = XmppNoteCodec::decodeContent(content.value, key, contentNode, decodedIndex.value);
+    QVERIFY2(decoded, qPrintable(decoded.error.message));
+    QCOMPARE(decoded.value.content, bodyRevision.content);
+}
+
+void XmppNoteCodecTest::rejectsUndeclaredContentRevisionExtension()
+{
+    const auto key         = masterKey();
+    auto       source      = note();
+    source.revision        = QStringLiteral("metadata-revision");
+    source.contentRevision = QStringLiteral("body-revision");
+    auto payload           = XmppNoteCodec::encodeIndex(source, key, QStringLiteral("index"));
+    QVERIFY(payload);
+    payload.value      = mutatePlaintext(payload.value, key, XmppEncryptedPayload::Index, [](QDomDocument &document) {
+        auto root = document.documentElement();
+        for (auto node = root.firstChild(); !node.isNull(); node = node.nextSibling()) {
+            const auto element = node.toElement();
+            if (!element.isNull() && element.namespaceURI() == XmppNoteCodec::protocolNamespace
+                && element.localName() == QStringLiteral("required")) {
+                root.removeChild(element);
+                break;
+            }
+        }
+    });
+    const auto decoded = XmppNoteCodec::decodeIndex(payload.value, key, QStringLiteral("index"));
+    QVERIFY(!decoded);
+    QCOMPARE(decoded.error.code, CryptoError::Corrupt);
+}
+
+void XmppNoteCodecTest::rejectsContentRevisionRequirementOnContent()
+{
+    const auto key     = masterKey();
+    auto       payload = XmppNoteCodec::encodeContent(note(), key, QStringLiteral("content"));
+    QVERIFY(payload);
+    payload.value      = mutatePlaintext(payload.value, key, XmppEncryptedPayload::Content, [](QDomDocument &document) {
+        auto required = document.createElementNS(XmppNoteCodec::protocolNamespace, QStringLiteral("required"));
+        required.setAttribute(QStringLiteral("feature"), XmppNoteCodec::contentRevisionNamespace);
+        auto root = document.documentElement();
+        root.insertBefore(required, directChild(root, QStringLiteral("content")));
+    });
+    const auto decoded = XmppNoteCodec::decodeContent(payload.value, key, QStringLiteral("content"), note());
+    QVERIFY(!decoded);
+    QCOMPARE(decoded.error.code, CryptoError::Corrupt);
 }
 
 void XmppNoteCodecTest::rejectsUnknownRequiredExtension()
@@ -371,11 +497,11 @@ void XmppNoteCodecTest::rejectsMultipleCoreRecords()
 
 void XmppNoteCodecTest::rejectsContentRevisionMismatch()
 {
-    const auto source           = note();
-    const auto index            = XmppNoteCodec::encodeIndex(source, masterKey(), QStringLiteral("index"));
-    const auto content          = XmppNoteCodec::encodeContent(source, masterKey(), QStringLiteral("content"));
-    auto       decodedIndex     = XmppNoteCodec::decodeIndex(index.value, masterKey(), QStringLiteral("index"));
-    decodedIndex.value.revision = QStringLiteral("other-revision");
+    const auto source                  = note();
+    const auto index                   = XmppNoteCodec::encodeIndex(source, masterKey(), QStringLiteral("index"));
+    const auto content                 = XmppNoteCodec::encodeContent(source, masterKey(), QStringLiteral("content"));
+    auto       decodedIndex            = XmppNoteCodec::decodeIndex(index.value, masterKey(), QStringLiteral("index"));
+    decodedIndex.value.contentRevision = QStringLiteral("other-revision");
     const auto decoded
         = XmppNoteCodec::decodeContent(content.value, masterKey(), QStringLiteral("content"), decodedIndex.value);
     QVERIFY(!decoded);

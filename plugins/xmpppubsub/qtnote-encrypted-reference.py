@@ -26,6 +26,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 PUBSUB_NS = "http://jabber.org/protocol/pubsub"
 PROTOCOL_NS = "urn:xmpp:qtnote:notes:1"
+FOLDER_NS = "urn:xmpp:qtnote:folders:1"
+CONTENT_REVISION_NS = "urn:xmpp:qtnote:content-revision:1"
 LEGACY_ENCRYPTED_NS = "urn:xmpp:qtnote:encrypted:1"
 MAX_XML_SIZE = 16 * 1024 * 1024
 HKDF_SALT = b"QtNote HKDF salt v1"
@@ -33,6 +35,8 @@ HKDF_INFO_PREFIX = b"QtNote key domain v1:"
 KEY_ID_PREFIX = b"QtNote storage key id v1\0"
 
 ET.register_namespace("qtn", PROTOCOL_NS)
+ET.register_namespace("folder", FOLDER_NS)
+ET.register_namespace("content-revision", CONTENT_REVISION_NS)
 ET.register_namespace("legacy", LEGACY_ENCRYPTED_NS)
 
 
@@ -126,8 +130,8 @@ def parse_xml(data: bytes, name: str) -> ET.Element:
         fail("malformed", f"invalid {name} XML: {error}")
 
 
-def direct_children(parent: ET.Element, local: str) -> list[ET.Element]:
-    return [child for child in list(parent) if child.tag == qname(local)]
+def direct_children(parent: ET.Element, local: str, namespace: str = PROTOCOL_NS) -> list[ET.Element]:
+    return [child for child in list(parent) if child.tag == qname(local, namespace)]
 
 
 def simple_text(element: ET.Element, name: str) -> str:
@@ -175,6 +179,55 @@ def validate_leaf(element: ET.Element, context: str) -> None:
         fail("malformed", f"{context} must not contain child elements")
 
 
+def folder_path(record: ET.Element) -> list[str]:
+    folders = direct_children(record, "folder", FOLDER_NS)
+    if len(folders) > 1:
+        fail("malformed", "index contains more than one folder path")
+    if not folders:
+        return []
+
+    folder = folders[0]
+    validate_attributes(folder, set(), "folder", allow_foreign=False)
+    if not direct_text_is_whitespace(folder):
+        fail("malformed", "unexpected text in folder")
+    segments = direct_children(folder, "segment", FOLDER_NS)
+    if not segments:
+        fail("malformed", "folder must contain one or more segments")
+    for child in list(folder):
+        namespace, local = split_tag(child.tag)
+        if namespace != FOLDER_NS or local != "segment":
+            fail("malformed", "invalid child in folder")
+
+    result = []
+    for segment in segments:
+        validate_leaf(segment, "folder segment")
+        value = simple_text(segment, "folder segment")
+        if not value or value != value.strip():
+            fail("malformed", "folder segments must be non-empty and trimmed")
+        result.append(value)
+    return result
+
+
+def content_revision(record: ET.Element, index_revision: str, required_features: set[str]) -> str:
+    values = direct_children(record, "content-revision", CONTENT_REVISION_NS)
+    required = CONTENT_REVISION_NS in required_features
+    if not values:
+        if required:
+            fail("malformed", "required content-revision extension is missing from index")
+        return index_revision
+    if len(values) != 1:
+        fail("malformed", "index contains more than one content revision")
+    if not required:
+        fail("malformed", "content-revision extension must be declared as required")
+    validate_leaf(values[0], "content revision")
+    value = simple_text(values[0], "content revision")
+    if not value:
+        fail("malformed", "content revision must be non-empty")
+    if value == index_revision:
+        fail("malformed", "content revision extension must differ from index revision")
+    return value
+
+
 def build_plaintext(request: dict[str, Any]) -> bytes:
     supplied = request.get("plaintext_xml")
     if supplied is not None:
@@ -195,9 +248,10 @@ def build_plaintext(request: dict[str, Any]) -> bytes:
 
     if kind == "index":
         revision = record.get("revision")
+        content_revision_value = record.get("content_revision", revision)
         modified = record.get("modified")
         fmt = record.get("format", "markdown")
-        if not all(isinstance(v, str) and v for v in (revision, modified, fmt)):
+        if not all(isinstance(v, str) and v for v in (revision, content_revision_value, modified, fmt)):
             fail("invalid_argument", "index revision, modified and format are required")
         attributes = [f"id={quoteattr(item_id)}", f"revision={quoteattr(revision)}",
                       f"modified={quoteattr(modified)}", f"format={quoteattr(fmt)}"]
@@ -210,8 +264,21 @@ def build_plaintext(request: dict[str, Any]) -> bytes:
         tags = record.get("tags", [])
         if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
             fail("invalid_argument", "tags must be an array of strings")
+        folder = record.get("folder_path", [])
+        if not isinstance(folder, list) or not all(isinstance(segment, str) and segment and segment == segment.strip()
+                                                    for segment in folder):
+            fail("invalid_argument", "folder_path must be an array of non-empty trimmed strings")
         children = f"<title>{escape(str(record.get('title', '')))}</title>" + "".join(
             f"<tag>{escape(tag)}</tag>" for tag in tags)
+        if folder:
+            children += f"<folder xmlns={quoteattr(FOLDER_NS)}>" + "".join(
+                f"<segment>{escape(segment)}</segment>" for segment in folder
+            ) + "</folder>"
+        required_xml = ""
+        if content_revision_value != revision:
+            required_xml = f"<required feature={quoteattr(CONTENT_REVISION_NS)}/>"
+            children += (f"<content-revision xmlns={quoteattr(CONTENT_REVISION_NS)}>"
+                         f"{escape(content_revision_value)}</content-revision>")
         record_xml = f"<index {' '.join(attributes)}>{children}</index>"
     else:
         revision = record.get("revision")
@@ -220,7 +287,7 @@ def build_plaintext(request: dict[str, Any]) -> bytes:
         body = escape(str(record.get("body", "")))
         record_xml = f"<note id={quoteattr(item_id)} revision={quoteattr(revision)}><body>{body}</body></note>"
 
-    return (f"<envelope xmlns={quoteattr(PROTOCOL_NS)}><node>{escape(node)}</node>"
+    return (f"<envelope xmlns={quoteattr(PROTOCOL_NS)}><node>{escape(node)}</node>{required_xml if kind == 'index' else ''}"
             f"<content>{record_xml}</content></envelope>").encode("utf-8")
 
 
@@ -284,13 +351,19 @@ def validate_plaintext(plaintext: bytes, kind: str, actual_node: str, item_id: s
     validate_leaf(nodes[0], "node")
     if simple_text(nodes[0], "node") != actual_node:
         fail("context_mismatch", "authenticated node binding differs")
-    supported = set(supported_features)
+    supported = {CONTENT_REVISION_NS, *supported_features}
+    required_features: set[str] = set()
     for required in direct_children(root, "required"):
         if set(required.attrib) != {"feature"} or list(required) or (required.text or "").strip():
             fail("malformed", "invalid required extension declaration")
         feature = required.attrib["feature"]
+        if feature in required_features:
+            fail("malformed", "duplicate required extension declaration")
+        required_features.add(feature)
         if feature not in supported:
             fail("unsupported", f"unsupported required extension {feature}")
+    if kind != "index" and CONTENT_REVISION_NS in required_features:
+        fail("malformed", "content-revision extension is valid only for an index record")
     validate_attributes(contents[0], set(), "authenticated QtNote content")
     validate_children(contents[0], {"index", "note"}, "authenticated QtNote content")
     if not direct_text_is_whitespace(contents[0]):
@@ -321,13 +394,17 @@ def validate_plaintext(plaintext: bytes, kind: str, actual_node: str, item_id: s
         validate_leaf(titles[0], "title")
         for tag in direct_children(record, "tag"):
             validate_leaf(tag, "tag")
+        path = folder_path(record)
+        body_revision = content_revision(record, revision, required_features)
         return {
             "kind": kind, "id": item_id, "revision": revision,
+            "content_revision": body_revision,
             "parent_revision": record.attrib.get("parent-revision", ""),
             "origin_id": record.attrib.get("origin-id", ""),
             "title": simple_text(titles[0], "title"),
             "modified": record.attrib["modified"], "format": "markdown",
             "tags": [simple_text(tag, "tag") for tag in direct_children(record, "tag")],
+            "folder_path": path,
         }
     validate_attributes(record, {"id", "revision"}, "authenticated QtNote content record")
     validate_children(record, {"body"}, "authenticated QtNote content record")
@@ -431,7 +508,16 @@ def reference_requests() -> list[tuple[str, str, dict[str, Any]]]:
             "nonce_hex": "000102030405060708090a0b",
             "record": {"revision": "018f0be0-df0d-7c70-a2ef-1f5c973ec92a", "origin_id": "device-a",
                        "title": "Portable note", "modified": "2026-07-27T18:00:00.123Z",
-                       "format": "markdown", "tags": ["one", "two"]},
+                       "format": "markdown", "tags": ["one", "two"],
+                       "folder_path": ["Projects", "2026"]},
+        }),
+        ("index-metadata-only", "Metadata-only index update bound to an existing body", {
+            "kind": "index", "master_key_hex": key, "node": f"{PROTOCOL_NS}:index", "item_id": item,
+            "nonce_hex": "101112131415161718191a1b",
+            "record": {"revision": "folder-revision", "content_revision": "body-revision",
+                       "parent_revision": "body-revision", "origin_id": "device-a", "title": "Portable note",
+                       "modified": "2026-07-27T18:01:00.123Z", "format": "markdown", "tags": ["one"],
+                       "folder_path": ["Archive"]},
         }),
         ("content", "Complete content record", {
             "kind": "content", "master_key_hex": key, "node": f"{PROTOCOL_NS}:content", "item_id": item,
@@ -504,6 +590,26 @@ def generate_vectors() -> dict[str, Any]:
     plaintext = base["plaintext_xml"].replace("</index>", "<future/></index>", 1).encode()
     value = reencrypt_plaintext(copy.deepcopy(base), plaintext)
     add("unknown-core-element", "Unknown element in the current core namespace", "malformed", value)
+    plaintext = base["plaintext_xml"].replace(
+        "<segment>Projects</segment>", "<segment> </segment>", 1).encode()
+    value = reencrypt_plaintext(copy.deepcopy(base), plaintext)
+    add("untrimmed-folder-segment", "Folder segments must be non-empty and trimmed", "malformed", value)
+    plaintext = base["plaintext_xml"].replace(
+        "</folder>",
+        "</folder><folder xmlns=\"urn:xmpp:qtnote:folders:1\"><segment>Duplicate</segment></folder>",
+        1).encode()
+    value = reencrypt_plaintext(copy.deepcopy(base), plaintext)
+    add("duplicate-folder-path", "An index may contain only one folder path", "malformed", value)
+    metadata = positives[1]["encoded"]
+    plaintext = metadata["plaintext_xml"].replace(
+        f'<required feature="{CONTENT_REVISION_NS}"/>', "", 1).encode()
+    value = reencrypt_plaintext(copy.deepcopy(metadata), plaintext)
+    add("undeclared-content-revision", "Metadata-only content revision requires a declaration", "malformed", value)
+    content_case = next(case["encoded"] for case in positives if case["name"] == "content")
+    plaintext = content_case["plaintext_xml"].replace(
+        "<content>", f'<required feature="{CONTENT_REVISION_NS}"/><content>', 1).encode()
+    value = reencrypt_plaintext(copy.deepcopy(content_case), plaintext)
+    add("content-revision-on-content", "Content payloads cannot declare an index-only extension", "malformed", value)
     value = copy.deepcopy(base)
     root = ET.fromstring(value["xml"]); list(root)[0].tag = qname("encrypted", "urn:xmpp:qtnote:notes:2"); value["xml"] = ET.tostring(root, encoding="unicode")
     add("future-major-namespace", "Unknown major namespace", "unsupported", value)
@@ -520,6 +626,8 @@ def generate_vectors() -> dict[str, Any]:
         "description": "Portable XML/AES-GCM conformance vectors for QtNote PubSub records",
         "generated_by": "qtnote-encrypted-reference.py",
         "protocol_namespace": PROTOCOL_NS,
+        "folder_namespace": FOLDER_NS,
+        "content_revision_namespace": CONTENT_REVISION_NS,
         "crypto": {"cipher": "AES-256-GCM", "nonce_bytes": 12, "tag_bytes": 16, "aad_hex": "",
                    "hkdf_hash": "SHA-256", "hkdf_salt_utf8": HKDF_SALT.decode(),
                    "hkdf_info_prefix_utf8": HKDF_INFO_PREFIX.decode()},

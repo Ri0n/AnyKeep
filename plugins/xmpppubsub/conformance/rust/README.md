@@ -22,7 +22,8 @@ cargo run -- encoded.json
 
 The Rust code independently checks the PubSub XML envelope, canonical Base64,
 HKDF key derivation, storage key ID, AES-256-GCM with empty AAD, exact reference
-plaintext bytes and the authenticated XML node/item bindings.
+plaintext bytes, authenticated XML node/item bindings, folder paths, and the
+required content-revision extension used by metadata-only index updates.
 
 XML serialization itself is deliberately not canonical. A production Rust
 client may emit different prefixes, whitespace and attribute order. Cross-

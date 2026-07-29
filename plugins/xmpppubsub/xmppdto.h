@@ -43,8 +43,11 @@ struct XmppConfig {
 
 /** @brief Backend-neutral representation of a remotely synchronized note. */
 struct XmppRemoteNote {
-    QString     id;
-    QString     revision;
+    QString id;
+    /** Revision of the index metadata and the optimistic-concurrency token. */
+    QString revision;
+    /** Revision bound into the separately published content payload. */
+    QString     contentRevision;
     QString     parentRevision;
     QString     originId;
     QString     title;
@@ -53,6 +56,8 @@ struct XmppRemoteNote {
     bool        preserveModified { false }; ///< Local save hint; never serialized.
     QString     format { QStringLiteral("markdown") };
     QStringList tags;
+    /** Folder names from the root to this note's folder, stored in the encrypted index. */
+    QStringList folderPath;
     bool        contentPresent { true }; ///< False for index-only list results.
     /** UTF-8 XML template containing only extensions and unknown index fields. */
     QByteArray indexRecordTemplate;

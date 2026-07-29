@@ -84,10 +84,12 @@ Open QtNote's plugin settings and configure **XMPP Private Notes**:
 The default base node is `urn:xmpp:qtnote:notes:1`; the final `1` is the
 incompatible protocol major version. It expands to:
 
-- `urn:xmpp:qtnote:notes:1:index` — encrypted title, tags, timestamp, format,
-  revision, parent revision, and origin;
+- `urn:xmpp:qtnote:notes:1:index` — encrypted title, tags, optional folder
+  path, timestamp, format, index revision, parent revision, and origin;
 - `urn:xmpp:qtnote:notes:1:content` — encrypted note body bound to the same
-  note ID and revision.
+  note ID and content revision. Folder-only moves publish a fresh index while
+  keeping the existing body revision through a required encrypted extension,
+  so they do not upload the body again.
 
 The same namespace is used by the outer encrypted element and authenticated
 plaintext. There are no separate `wire`, `schema`, or minor-version fields. Compatible optional

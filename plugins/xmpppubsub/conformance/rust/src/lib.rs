@@ -7,6 +7,8 @@ use sha2::{Digest, Sha256};
 
 const PUBSUB_NS: &str = "http://jabber.org/protocol/pubsub";
 const PROTOCOL_NS: &str = "urn:xmpp:qtnote:notes:1";
+const FOLDER_NS: &str = "urn:xmpp:qtnote:folders:1";
+const CONTENT_REVISION_NS: &str = "urn:xmpp:qtnote:content-revision:1";
 const HKDF_SALT: &[u8] = b"QtNote HKDF salt v1";
 const HKDF_INFO_PREFIX: &[u8] = b"QtNote key domain v1:";
 const KEY_ID_PREFIX: &[u8] = b"QtNote storage key id v1\0";
@@ -46,12 +48,16 @@ fn storage_key_id(master_key: &[u8]) -> Result<[u8; 32], String> {
     Ok(digest.finalize().into())
 }
 
-fn children<'a, 'input>(node: Node<'a, 'input>, name: &str) -> Vec<Node<'a, 'input>> {
+fn children_in_namespace<'a, 'input>(node: Node<'a, 'input>, name: &str, namespace: &str) -> Vec<Node<'a, 'input>> {
     node.children()
         .filter(|child| child.is_element()
-            && child.tag_name().namespace() == Some(PROTOCOL_NS)
+            && child.tag_name().namespace() == Some(namespace)
             && child.tag_name().name() == name)
         .collect()
+}
+
+fn children<'a, 'input>(node: Node<'a, 'input>, name: &str) -> Vec<Node<'a, 'input>> {
+    children_in_namespace(node, name, PROTOCOL_NS)
 }
 
 fn simple_text(node: Node<'_, '_>, name: &str) -> Result<String, String> {
@@ -98,6 +104,64 @@ fn validate_leaf(node: Node<'_, '_>, name: &str) -> Result<(), String> {
         return Err(format!("{name} must not contain child elements"));
     }
     Ok(())
+}
+
+fn folder_path(record: Node<'_, '_>) -> Result<Vec<String>, String> {
+    let folders = children_in_namespace(record, "folder", FOLDER_NS);
+    if folders.len() > 1 {
+        return Err("index contains more than one folder path".into());
+    }
+    if folders.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let folder = folders[0];
+    validate_attributes(folder, &[], "folder", false)?;
+    if !direct_text_is_whitespace(folder) {
+        return Err("unexpected text in folder".into());
+    }
+    let segments = children_in_namespace(folder, "segment", FOLDER_NS);
+    if segments.is_empty() {
+        return Err("folder must contain one or more segments".into());
+    }
+    for child in folder.children().filter(|child| child.is_element()) {
+        if child.tag_name().namespace() != Some(FOLDER_NS) || child.tag_name().name() != "segment" {
+            return Err("invalid child in folder".into());
+        }
+    }
+    segments.into_iter().map(|segment| {
+        validate_leaf(segment, "folder segment")?;
+        let value = simple_text(segment, "folder segment")?;
+        if value.is_empty() || value.trim() != value {
+            return Err("folder segments must be non-empty and trimmed".into());
+        }
+        Ok(value)
+    }).collect()
+}
+
+fn content_revision(record: Node<'_, '_>, index_revision: &str, required: bool) -> Result<String, String> {
+    let values = children_in_namespace(record, "content-revision", CONTENT_REVISION_NS);
+    if values.is_empty() {
+        if required {
+            return Err("required content-revision extension is missing from index".into());
+        }
+        return Ok(index_revision.into());
+    }
+    if values.len() != 1 {
+        return Err("index contains more than one content revision".into());
+    }
+    if !required {
+        return Err("content-revision extension must be declared as required".into());
+    }
+    validate_leaf(values[0], "content revision")?;
+    let value = simple_text(values[0], "content revision")?;
+    if value.is_empty() {
+        return Err("content revision must be non-empty".into());
+    }
+    if value == index_revision {
+        return Err("content revision extension must differ from index revision".into());
+    }
+    Ok(value)
 }
 
 fn canonical_base64(value: &str, name: &str) -> Result<Vec<u8>, String> {
@@ -177,9 +241,21 @@ fn validate_plaintext(plaintext: &str, kind: &str, actual_node: &str, item_id: &
     if !direct_text_is_whitespace(envelope) {
         return Err("unexpected text in authenticated QtNote envelope".into());
     }
-    let required = children(envelope, "required");
-    if !required.is_empty() {
-        return Err("unsupported required extension".into());
+    let mut content_revision_required = false;
+    for required in children(envelope, "required") {
+        validate_attributes(required, &["feature"], "required extension", false)?;
+        if required.children().any(|child| child.is_element()) || !direct_text_is_whitespace(required) {
+            return Err("invalid required extension declaration".into());
+        }
+        let feature = required.attribute("feature").filter(|value| !value.is_empty())
+            .ok_or_else(|| "invalid required extension declaration".to_string())?;
+        if feature != CONTENT_REVISION_NS || content_revision_required {
+            return Err("unsupported required extension".into());
+        }
+        content_revision_required = true;
+    }
+    if kind != "index" && content_revision_required {
+        return Err("content-revision extension is valid only for an index record".into());
     }
     let nodes = children(envelope, "node");
     let contents = children(envelope, "content");
@@ -228,16 +304,20 @@ fn validate_plaintext(plaintext: &str, kind: &str, actual_node: &str, item_id: &
             validate_leaf(tag, "tag")?;
             simple_text(tag, "tag")
         }).collect();
+        let decoded_folder_path = folder_path(record)?;
+        let decoded_content_revision = content_revision(record, revision, content_revision_required)?;
         Ok(json!({
             "kind": kind,
             "id": item_id,
             "revision": revision,
+            "content_revision": decoded_content_revision,
             "parent_revision": record.attribute("parent-revision").unwrap_or(""),
             "origin_id": record.attribute("origin-id").unwrap_or(""),
             "title": simple_text(titles[0], "title")?,
             "modified": record.attribute("modified").unwrap_or(""),
             "format": record.attribute("format").unwrap_or(""),
             "tags": tags?,
+            "folder_path": decoded_folder_path,
         }))
     } else {
         validate_attributes(record, &["id", "revision"], "authenticated QtNote content record", true)?;
