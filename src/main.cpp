@@ -99,7 +99,8 @@ int main(int argc, char *argv[])
         QLatin1String v(argv[i]);
         if (v == "-h" || v == "--help") {
             std::cout << "QtNote - note taking application\n\n"
-                      << " -n [type] - Create new note from 'type'. 'selection' type is the only supported.\n\n";
+                      << " -n [type]          Create a new note from 'type'. 'selection' is the only supported type.\n"
+                      << " -m, --note-manager Open the Notes Manager.\n\n";
             return 0;
         }
     }

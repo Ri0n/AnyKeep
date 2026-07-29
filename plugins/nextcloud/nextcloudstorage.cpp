@@ -257,7 +257,7 @@ void NextcloudStorage::applyRemote(Note &note, const NextcloudRemoteNote &remote
 #if QT_VERSION < QT_VERSION_CHECK(6, 5, 0)
         note.setLastChangeUTC(QDateTime::fromSecsSinceEpoch(remote.modified, Qt::UTC));
 #else
-        note.setLastChangeUTC(QDateTime::fromSecsSinceEpoch(remote.modified, QTimeZone(QTimeZone::UTC)));
+        note.setLastChangeUTC(QDateTime::fromSecsSinceEpoch(remote.modified, QTimeZone::utc()));
 #endif
     } else {
         note.setLastChangeUTC({});

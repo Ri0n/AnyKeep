@@ -11,9 +11,13 @@
 #include "utils.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDebug>
+#include <QDir>
+#include <QFileInfo>
 #include <QLoggingCategory>
 #include <QTimer>
+#include <QUuid>
 
 // Uncomment for detailed draft publication/conflict diagnostics.
 // #define QTNOTE_ENABLE_CONFLICT_TRACE
@@ -155,6 +159,32 @@ bool DraftManager::initialize(QString *errorText)
             [this](NoteStorage::Ptr storage) { storageBecameReady(storage.data()); });
     QTimer::singleShot(0, this, &DraftManager::publishPending);
     return true;
+}
+
+bool DraftManager::recreateStore(QString *errorText)
+{
+    if (store_)
+        return true;
+
+    const QString draftsPath = Utils::qtnoteDataDir() + QStringLiteral("/drafts");
+    const QFileInfo draftsInfo(draftsPath);
+    if (draftsInfo.exists()) {
+        const QString backupName
+            = QStringLiteral("drafts-unrecoverable-%1-%2")
+                  .arg(QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd-hhmmss-zzz")),
+                       QUuid::createUuid().toString(QUuid::WithoutBraces));
+        QDir parent(draftsInfo.absolutePath());
+        if (!parent.rename(draftsInfo.fileName(), backupName)) {
+            lastError_ = tr("Failed to preserve the unreadable draft store for recovery.");
+            if (errorText)
+                *errorText = lastError_;
+            return false;
+        }
+        qCWarning(logDraftPersistence) << "Moved unreadable draft store to" << parent.filePath(backupName);
+    }
+
+    lastError_.clear();
+    return initialize(errorText);
 }
 
 DraftStoreError DraftManager::saveEditing(const QUuid &draftId, const Note &note, const QString &title,

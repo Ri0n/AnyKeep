@@ -26,6 +26,8 @@ public:
     ~DraftManager() override;
 
     bool    initialize(QString *error = nullptr);
+    /// Backs up an unreadable on-disk draft store and starts a new empty one.
+    bool    recreateStore(QString *error = nullptr);
     bool    isReady() const { return bool(store_); }
     QString lastError() const { return lastError_; }
 

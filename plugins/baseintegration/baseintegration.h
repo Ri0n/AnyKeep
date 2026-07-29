@@ -39,17 +39,17 @@ public:
     explicit BaseIntegration(QObject *parent = 0);
     ~BaseIntegration() override;
 
-    int            metadataVersion() const;
-    PluginMetadata metadata();
-    void           setHost(PluginHostInterface *host);
+    int            metadataVersion() const override;
+    PluginMetadata metadata() override;
+    void           setHost(PluginHostInterface *host) override;
 
-    void      activateWindow(QWindow *window);
-    TrayImpl *initTray(Main *qtnote);
-    void      notifyError(const QString &message);
+    void      activateWindow(QWindow *window) override;
+    TrayImpl *initTray(Main *qtnote) override;
+    void      notifyError(const QString &message) override;
 
-    bool registerGlobalShortcut(const QString &id, const QKeySequence &key, QAction *action);
-    bool updateGlobalShortcut(const QString &id, const QKeySequence &key);
-    void setGlobalShortcutEnabled(const QString &id, bool enabled = true);
+    bool registerGlobalShortcut(const QString &id, const QKeySequence &key, QAction *action) override;
+    bool updateGlobalShortcut(const QString &id, const QKeySequence &key) override;
+    void setGlobalShortcutEnabled(const QString &id, bool enabled = true) override;
 
     void  initializeStickyNotes(StickyNotesServiceInterface *service) override;
     bool  stickyNotesRequireApplicationAutostart() const override { return true; }

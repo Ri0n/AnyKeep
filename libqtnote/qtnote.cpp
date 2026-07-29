@@ -1,4 +1,5 @@
 #include <QAction>
+#include <QAbstractButton>
 #include <QApplication>
 #include <QClipboard>
 #include <QDataStream>
@@ -14,6 +15,7 @@
 #include <QPluginLoader>
 #include <QPointer>
 #include <QProcess>
+#include <QPushButton>
 #include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
@@ -135,17 +137,28 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
 
     initResources();
 
+    auto   *draftManager = DraftManager::instance();
     QString draftStoreError;
-    if (!DraftManager::instance()->initialize(&draftStoreError)) {
-        QMessageBox::critical(nullptr, tr("Initialization Error"),
-                              tr("The encrypted draft store could not be opened. QtNote will not start because "
-                                 "editing without crash-safe storage could lose sensitive data.\n\n%1")
-                                  .arg(draftStoreError));
-        return;
+    while (!draftManager->initialize(&draftStoreError)) {
+        QMessageBox recoveryDialog(QMessageBox::Critical, tr("Draft Recovery Needed"),
+                                    tr("QtNote could not read its encrypted crash-recovery drafts. Existing drafts "
+                                       "have not been deleted.\n\n"
+                                       "You can quit and investigate the problem, or start with a new empty draft "
+                                       "store. Recreating it keeps the unreadable drafts in a backup folder, but "
+                                       "they will not be available in QtNote.\n\n%1")
+                                        .arg(draftStoreError),
+                                    QMessageBox::NoButton);
+        auto *recreateButton = recoveryDialog.addButton(tr("Recreate Draft Store"), QMessageBox::DestructiveRole);
+        recoveryDialog.addButton(tr("Quit QtNote"), QMessageBox::RejectRole);
+        recoveryDialog.exec();
+        if (recoveryDialog.clickedButton() != static_cast<QAbstractButton *>(recreateButton))
+            return;
+        if (draftManager->recreateStore(&draftStoreError))
+            break;
     }
-    connect(DraftManager::instance(), &DraftManager::publicationAbandoned, this, &Main::notifyError);
-    connect(DraftManager::instance(), &DraftManager::conflictResolved, this, &Main::notifyError);
-    connect(DraftManager::instance(), &DraftManager::draftPublished, this, [](const QUuid &draftId, const Note &note) {
+    connect(draftManager, &DraftManager::publicationAbandoned, this, &Main::notifyError);
+    connect(draftManager, &DraftManager::conflictResolved, this, &Main::notifyError);
+    connect(draftManager, &DraftManager::draftPublished, this, [](const QUuid &draftId, const Note &note) {
         // A new note has no stable note id while its window is closing. The compositor
         // therefore saves its final frame under the draft id first. Migrate it after the
         // asynchronous unmanaged/store round trip has had time to complete.
@@ -272,6 +285,9 @@ void Main::parseAppArguments(const QStringList &args)
             } else {
                 createNewNote();
             }
+            argsHandled = true;
+        } else if (args.at(i) == QLatin1String("-m") || args.at(i) == QLatin1String("--note-manager")) {
+            showNoteManager();
             argsHandled = true;
         }
         i++;

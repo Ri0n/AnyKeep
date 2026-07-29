@@ -8,6 +8,12 @@
 #include <algorithm>
 #include <utility>
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+constexpr auto TimeZoneUTC = QTimeZone::Initialization::UTC;
+#else
+constexpr auto TimeZoneUTC = Qt::UTC;
+#endif
+
 namespace QtNote {
 
 namespace {
@@ -305,7 +311,7 @@ QList<NoteStorage::NoteReorderChange> NoteStorage::noteReorderChanges(const QStr
     qint64 cursorTick = maxTick + 1;
     for (const auto &id : std::as_const(orderedIds)) {
         cursorTick -= spacingTicks;
-        changes.append({ notesById.value(id), QDateTime::fromMSecsSinceEpoch(cursorTick * timeStep, QTimeZone::UTC) });
+        changes.append({ notesById.value(id), QDateTime::fromMSecsSinceEpoch(cursorTick * timeStep, TimeZoneUTC) });
     }
 
     // If the neighboring timestamps leave no representable gap, move the
@@ -315,7 +321,7 @@ QList<NoteStorage::NoteReorderChange> NoteStorage::noteReorderChanges(const QStr
         const auto existingTime = remaining.at(i).lastChangeUTC();
         if (!existingTime.isValid() || existingTime.toMSecsSinceEpoch() >= cursorMs) {
             cursorMs -= timeStep;
-            changes.append({ remaining.at(i), QDateTime::fromMSecsSinceEpoch(cursorMs, QTimeZone::UTC) });
+            changes.append({ remaining.at(i), QDateTime::fromMSecsSinceEpoch(cursorMs, TimeZoneUTC) });
         } else {
             cursorMs = existingTime.toMSecsSinceEpoch();
         }

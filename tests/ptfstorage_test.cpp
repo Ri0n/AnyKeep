@@ -9,6 +9,12 @@
 
 #include <algorithm>
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+constexpr auto TimeZoneUTC = QTimeZone::Initialization::UTC;
+#else
+constexpr auto TimeZoneUTC = Qt::UTC;
+#endif
+
 using namespace QtNote;
 
 class PTFStorageTest : public QObject {
@@ -136,7 +142,7 @@ private slots:
 
         note = storage.noteList().first();
         QVERIFY(note.load());
-        const auto requested = QDateTime::fromMSecsSinceEpoch(1'720'000'000'123, QTimeZone::UTC);
+        const auto requested = QDateTime::fromMSecsSinceEpoch(1'720'000'000'123, TimeZoneUTC);
         note.setLastChangeUTC(requested);
         note.setBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey), requested);
         QVERIFY(storage.saveNote(note));

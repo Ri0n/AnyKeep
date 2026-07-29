@@ -66,16 +66,16 @@ public:
     ~SpellCheckPlugin();
 
     // PluginInterface
-    int                    metadataVersion() const;
-    virtual PluginMetadata metadata();
-    void                   setHost(PluginHostInterface *host);
+    int                    metadataVersion() const override;
+    PluginMetadata         metadata() override;
+    void                   setHost(PluginHostInterface *host) override;
 
     // RegularPluginInterface
     bool initialize() override;
     void shutdown() override;
 
     // PluginOptionsTooltipInterface
-    QString tooltip() const;
+    QString tooltip() const override;
 
     // SettingsProviderInterface
     QUrl                settingsComponent() const override;

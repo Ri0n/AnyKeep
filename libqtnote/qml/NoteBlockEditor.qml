@@ -2117,9 +2117,15 @@ ListView {
 
         onSourceTextChanged: {
             synchronizeSourceText()
-            Qt.callLater(function() { blockArea.registerTextDocument() })
+            Qt.callLater(function() {
+                if (blockArea)
+                    blockArea.registerTextDocument()
+            })
         }
-        onTextFormatChanged: Qt.callLater(function() { blockArea.registerTextDocument() })
+        onTextFormatChanged: Qt.callLater(function() {
+            if (blockArea)
+                blockArea.registerTextDocument()
+        })
         onTitleDocumentChanged: registerTextDocument()
         onActiveFocusChanged: {
             if (activeFocus) {

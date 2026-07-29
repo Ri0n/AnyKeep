@@ -101,8 +101,8 @@ Item {
 
     function flushEditorChanges() {
         Qt.inputMethod.commit()
-        if (editorPanel.visible && editorLoader.item)
-            editorLoader.item.blockEditor.flushPendingEditorChanges()
+        if (editorPanel.visible && workspace.currentEditor)
+            managerEditorPane.blockEditor.flushPendingEditorChanges()
     }
 
     function checkpointEditor() {
@@ -122,9 +122,9 @@ Item {
     }
 
     function insertionRowAtPoint(x, y) {
-        if (!embeddedEditor || !editorLoader.item)
+        if (!embeddedEditor || !workspace.currentEditor)
             return -1
-        const editor = editorLoader.item.blockEditor
+        const editor = managerEditorPane.blockEditor
         const point = editor.mapFromItem(root, x, y)
         if (point.x < 0 || point.y < 0 || point.x >= editor.width || point.y >= editor.height)
             return -1
@@ -165,18 +165,24 @@ Item {
         return false
     }
 
-    function showNoteMenu(storageId, noteId, title) {
+    function showNoteMenu(storageId, noteId, title, position) {
         selectedStorageId = storageId
         selectedNoteId = noteId
         selectedTitle = title
-        noteContextMenu.popup()
+        if (position !== undefined)
+            noteContextMenu.popup(root, position)
+        else
+            noteContextMenu.popup()
     }
 
-    function showStorageMenu(storageId, title) {
+    function showStorageMenu(storageId, title, position) {
         selectedStorageId = storageId
         selectedNoteId = ""
         selectedTitle = title
-        storageContextMenu.popup()
+        if (position !== undefined)
+            storageContextMenu.popup(root, position)
+        else
+            storageContextMenu.popup()
     }
 
     function noteSelectionKey(storageId, noteId) {
@@ -817,11 +823,18 @@ Item {
                                                                      recentDelegate.noteId)
                             }
 
-                            ContextMenu.menu: noteContextMenu
-                            ContextMenu.onRequested: function(position) {
-                                root.selectedStorageId = recentDelegate.storageId
-                                root.selectedNoteId = recentDelegate.noteId
-                                root.selectedTitle = recentDelegate.title
+                            MouseArea {
+                                id: recentContextArea
+
+                                anchors.fill: parent
+                                acceptedButtons: Qt.RightButton
+                                onClicked: function(mouse) {
+                                    root.showNoteMenu(recentDelegate.storageId,
+                                                      recentDelegate.noteId,
+                                                      recentDelegate.title,
+                                                      recentContextArea.mapToItem(
+                                                          root, Qt.point(mouse.x, mouse.y)))
+                                }
                             }
 
                             TapHandler {
@@ -846,12 +859,19 @@ Item {
                         visible: root.viewMode === root.groupedByStorageMode
                         clip: true
                         model: root.workspace.groupedNotesModel
+                        // Delegate selection, dragging, and context menus are
+                        // handled explicitly below. Letting TableView also
+                        // navigate on pointer presses makes Qt 6.4 deliver the
+                        // first menu click to the row underneath the popup.
+                        pointerNavigationEnabled: false
                         // Row geometry stays fixed during reorder; neighboring
                         // delegates move by transform, so TableView can reuse
                         // items only for ordinary viewport scrolling.
                         reuseItems: true
                         bottomMargin: root.touchActions ? 88 : 0
+                        columnWidthProvider: function(column) { return Math.floor(notesTree.width) }
                         rowHeightProvider: function(row) { return root.touchActions ? 44 : 34 }
+                        onWidthChanged: Qt.callLater(function() { notesTree.forceLayout() })
                         Component.onCompleted: Qt.callLater(function() { expandRecursively(-1, 1) })
                         selectionModel: ItemSelectionModel { model: notesTree.model }
 
@@ -1101,8 +1121,12 @@ Item {
                                     suppressClickUntil = 0
                                     return
                                 }
-                                notesTree.selectionModel.setCurrentIndex(notesTree.index(row, column),
-                                                                         ItemSelectionModel.ClearAndSelect)
+                                // TableView.index() was added in Qt 6.4.3.
+                                if (typeof notesTree.index === "function") {
+                                    notesTree.selectionModel.setCurrentIndex(
+                                                notesTree.index(row, column),
+                                                ItemSelectionModel.ClearAndSelect)
+                                }
                                 if (itemType === 0) {
                                     root.selectedStorageId = storageId
                                     root.selectedNoteId = ""
@@ -1113,13 +1137,28 @@ Item {
                                 }
                             }
 
-                            ContextMenu.menu: groupedDelegate.itemType === 1
-                                              ? noteContextMenu : storageContextMenu
-                            ContextMenu.onRequested: function(position) {
-                                root.selectedStorageId = groupedDelegate.storageId
-                                root.selectedNoteId = groupedDelegate.itemType === 1
-                                        ? groupedDelegate.noteId : ""
-                                root.selectedTitle = groupedDelegate.title
+                            MouseArea {
+                                id: groupedContextArea
+
+                                anchors.fill: parent
+                                acceptedButtons: Qt.RightButton
+                                preventStealing: true
+                                onClicked: function(mouse) {
+                                    if (mouse.button !== Qt.RightButton)
+                                        return
+                                    const position = groupedContextArea.mapToItem(
+                                                               root, Qt.point(mouse.x, mouse.y))
+                                    if (groupedDelegate.itemType === 1) {
+                                        root.showNoteMenu(groupedDelegate.storageId,
+                                                          groupedDelegate.noteId,
+                                                          groupedDelegate.title,
+                                                          position)
+                                    } else {
+                                        root.showStorageMenu(groupedDelegate.storageId,
+                                                             groupedDelegate.title,
+                                                             position)
+                                    }
+                                }
                             }
 
                             TapHandler {
@@ -1177,33 +1216,27 @@ Item {
             padding: 0
             background: Rectangle { color: palette.base }
 
-            Loader {
-                id: editorLoader
+            NoteEditorPane {
+                id: managerEditorPane
                 anchors.fill: parent
-                active: root.workspace.currentEditor !== null
-
-                sourceComponent: Component {
-                    NoteEditorPane {
-                        id: managerEditorPane
-                        editor: root.workspace.currentEditor
-                        platformBackend: root.platformBackend
-                        showDeleteButton: true
-                        showDesktopActions: root.desktopActions !== null
-                        microphoneVisible: root.speechController && root.speechController.available
-                        microphoneBusy: root.speechController && root.speechController.busy
-                        microphoneHoldToRecord: true
-                        saveHandler: function() { return root.workspace.saveCurrentNote() }
-                        onDeleteRequested: root.requestDelete(editor.storageId, editor.noteId,
-                                                              root.workspace.currentTitle)
-                        onPrintRequested: root.desktopActions.printNote()
-                        onExportRequested: root.desktopActions.exportNote()
-                        onMicrophoneRequested: root.speechController.start()
-                        onMicrophoneReleased: root.speechController.finish()
-                        Connections {
-                            target: root.speechController
-                            function onRecognizedText(text) { managerEditorPane.insertTextAtCursor(text) }
-                        }
-                    }
+                visible: root.workspace.currentEditor !== null
+                editor: root.workspace.currentEditor
+                platformBackend: root.platformBackend
+                showDeleteButton: true
+                showDesktopActions: root.desktopActions !== null
+                microphoneVisible: root.speechController && root.speechController.available
+                microphoneBusy: root.speechController && root.speechController.busy
+                microphoneHoldToRecord: true
+                saveHandler: function() { return root.workspace.saveCurrentNote() }
+                onDeleteRequested: root.requestDelete(editor.storageId, editor.noteId,
+                                                      root.workspace.currentTitle)
+                onPrintRequested: root.desktopActions.printNote()
+                onExportRequested: root.desktopActions.exportNote()
+                onMicrophoneRequested: root.speechController.start()
+                onMicrophoneReleased: root.speechController.finish()
+                Connections {
+                    target: root.speechController
+                    function onRecognizedText(text) { managerEditorPane.insertTextAtCursor(text) }
                 }
             }
 
@@ -1238,6 +1271,9 @@ Item {
     Menu {
         id: noteContextMenu
         objectName: "noteContextMenu"
+        modal: true
+        dim: false
+        focus: true
         width: root.touchActions ? Math.min(280, root.width - 32) : implicitWidth
 
         CompactContextMenuItem {
@@ -1267,6 +1303,9 @@ Item {
     Menu {
         id: storageContextMenu
         objectName: "storageContextMenu"
+        modal: true
+        dim: false
+        focus: true
         width: root.touchActions ? Math.min(280, root.width - 32) : implicitWidth
 
         CompactContextMenuItem {
@@ -1390,8 +1429,7 @@ Item {
             }
             if (root.workspace.currentEditor && root.embeddedEditor) {
                 Qt.callLater(function() {
-                    if (editorLoader.item)
-                        editorLoader.item.blockEditor.focusInitialEditor()
+                    managerEditorPane.blockEditor.focusInitialEditor()
                 })
             }
         }
@@ -1415,8 +1453,8 @@ Item {
         target: root.Window.window
         function onActiveFocusItemChanged() {
             Qt.callLater(function() {
-                const ownsFocus = editorLoader.item
-                    && editorLoader.item.blockEditor.documentHistoryOwnsFocus()
+                const ownsFocus = root.workspace.currentEditor
+                    && managerEditorPane.blockEditor.documentHistoryOwnsFocus()
                 if (root.editorFocusOwned && !ownsFocus)
                     root.checkpointEditor()
                 root.editorFocusOwned = ownsFocus

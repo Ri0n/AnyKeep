@@ -5,6 +5,12 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+constexpr auto TimeZoneUTC = QTimeZone::Initialization::UTC;
+#else
+constexpr auto TimeZoneUTC = Qt::UTC;
+#endif
+
 using namespace QtNote;
 
 class FileRemoteCacheStoreTest : public QObject {
@@ -22,13 +28,13 @@ static RemoteCacheRecord sampleRecord()
     record.id          = QStringLiteral("note-1");
     record.title       = QStringLiteral("Cached note");
     record.tags        = { QStringLiteral("offline") };
-    record.modified    = QDateTime::fromSecsSinceEpoch(1700000000, QTimeZone::UTC);
+    record.modified    = QDateTime::fromSecsSinceEpoch(1700000000, TimeZoneUTC);
     record.format      = Note::Markdown;
     record.body        = QStringLiteral("# Cached note\nBody");
     record.bodyPresent = true;
     record.backendData.insert(QStringLiteral("revision"), QStringLiteral("r1"));
     record.syncState    = RemoteCacheRecord::Synced;
-    record.lastOpenedAt = QDateTime::fromSecsSinceEpoch(1700000100, QTimeZone::UTC);
+    record.lastOpenedAt = QDateTime::fromSecsSinceEpoch(1700000100, TimeZoneUTC);
     MediaReference media;
     media.id           = QUuid::createUuid();
     media.blobId       = QByteArray::fromHex("01020304");

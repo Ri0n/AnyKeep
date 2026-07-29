@@ -306,7 +306,8 @@ namespace {
 
             switch (type) {
             case NoteBlockModel::Text:
-            case NoteBlockModel::Heading: {
+            case NoteBlockModel::Heading:
+            case NoteBlockModel::BlockQuote: {
                 const QString text     = model->data(modelIndex, NoteBlockModel::TextRole).toString();
                 const QString restored = restoreLinkLabels(text);
                 if (restored != text)

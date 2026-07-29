@@ -250,14 +250,30 @@ private slots:
         QTest::mouseClick(&quick, Qt::RightButton, Qt::NoModifier, storageAPoint.toPoint());
         QTRY_COMPARE(page->property("selectedStorageId").toString(), QStringLiteral("storage-a"));
         QTRY_VERIFY(root->findChild<QObject *>(QStringLiteral("storageContextMenu"))->property("visible").toBool());
-        QVERIFY(QMetaObject::invokeMethod(root->findChild<QObject *>(QStringLiteral("storageContextMenu")), "close"));
+        auto *storageContextMenu = root->findChild<QObject *>(QStringLiteral("storageContextMenu"));
+        QVERIFY(QMetaObject::invokeMethod(storageContextMenu, "close"));
+        QTRY_VERIFY(!storageContextMenu->property("visible").toBool());
 
         const QPointF noteAPoint
             = noteA->mapToItem(qobject_cast<QQuickItem *>(root), QPointF(noteA->width() / 2, noteA->height() / 2));
         QTest::mouseClick(&quick, Qt::RightButton, Qt::NoModifier, noteAPoint.toPoint());
         QTRY_COMPARE(page->property("selectedNoteId").toString(), QStringLiteral("note-a"));
-        QTRY_VERIFY(root->findChild<QObject *>(QStringLiteral("noteContextMenu"))->property("visible").toBool());
-        QVERIFY(QMetaObject::invokeMethod(root->findChild<QObject *>(QStringLiteral("noteContextMenu")), "close"));
+        auto *noteContextMenu = root->findChild<QObject *>(QStringLiteral("noteContextMenu"));
+        QTRY_VERIFY(noteContextMenu->property("visible").toBool());
+        QCOMPARE(noteContextMenu->property("modal").toBool(), true);
+        QVERIFY(QMetaObject::invokeMethod(noteContextMenu, "close"));
+        QTRY_VERIFY(!noteContextMenu->property("visible").toBool());
+
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 1);
+        QVERIFY(!noteContextMenu->property("visible").toBool());
+        const QPointF noteBPoint
+            = noteB->mapToItem(qobject_cast<QQuickItem *>(root), QPointF(noteB->width() / 2, noteB->height() / 2));
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::ShiftModifier, noteBPoint.toPoint());
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 3);
+        QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-a\nnote-a")));
+        QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-a\nnote-a2")));
+        QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-b\nnote-b")));
 
         QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
         QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 1);
@@ -265,8 +281,6 @@ private slots:
             = noteA2->mapToItem(qobject_cast<QQuickItem *>(root), QPointF(noteA2->width() / 2, noteA2->height() / 2));
         QTest::mouseClick(&quick, Qt::LeftButton, Qt::ControlModifier, noteA2Point.toPoint());
         QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
-        const QPointF noteBPoint
-            = noteB->mapToItem(qobject_cast<QQuickItem *>(root), QPointF(noteB->width() / 2, noteB->height() / 2));
         QTest::mouseClick(&quick, Qt::LeftButton, Qt::ShiftModifier, noteBPoint.toPoint());
         QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
         QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-a\nnote-a2")));
@@ -345,6 +359,13 @@ private slots:
                 return true;
             });
         };
+
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::ControlModifier, noteA2Point.toPoint());
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
+        QVERIFY2(drag(noteA, noteB, 2), "Dragging a Ctrl-selected note group failed");
+        QTRY_COMPARE(root->property("movedNotes").toInt(), 2);
+        QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-b"));
 
         const auto contentOrigin = [root](QQuickItem *item) {
             auto *content
