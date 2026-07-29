@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "reorder" as Reorder
 
 Item {
     id: root
@@ -41,60 +42,40 @@ Item {
         return listView.itemAtIndex(row)
     }
 
-    function logicalPosition(item, after) {
-        if (!item)
-            return 0
-        const mapped = item.mapToItem(root, 0, after ? item.height : 0)
-        let position = mapped.y - item.reorderOffset
-        if (item.index > sourceRow)
-            position -= rowHeight
-        return position
+    function rowItems() {
+        const result = []
+        for (let row = 0; row < listView.count; ++row) {
+            const item = itemAt(row)
+            if (item)
+                result.push(item)
+        }
+        return result
     }
 
     function boundaries() {
         if (!activePayload)
             return []
-        const remaining = []
-        for (let row = 0; row < listView.count; ++row) {
-            const item = itemAt(row)
-            if (item && row !== sourceRow)
-                remaining.push(item)
-        }
+        const remaining = reorderLayout.remainingItems(rowItems())
         if (remaining.length === 0) {
             return [{
                 position: reorderController.startDraggedTopY,
                 owner: null,
                 finalRow: 0,
+                finalIndex: 0,
                 afterOwner: false
             }]
         }
-
-        const result = []
-        for (let row = 0; row < remaining.length; ++row) {
-            const item = remaining[row]
-            result.push({
-                position: logicalPosition(item, false),
-                owner: item,
-                finalRow: row,
-                afterOwner: false
-            })
-        }
-        const last = remaining[remaining.length - 1]
-        result.push({
-            position: logicalPosition(last, true),
-            owner: last,
-            finalRow: remaining.length,
-            afterOwner: true
+        return reorderLayout.boundaries(rowItems(), function(item, after, index) {
+            return {
+                finalRow: index
+            }
         })
-        return result
     }
 
     function rowTranslation(row) {
-        if (!activePayload || row === sourceRow || targetRow < 0)
-            return 0
-        const remainingRow = row - (row > sourceRow ? 1 : 0)
-        const finalRow = remainingRow >= targetRow ? remainingRow + 1 : remainingRow
-        return (finalRow - row) * rowHeight
+        return reorderLayout.translationByOrder(
+                    itemAt(row), reorderController.targetBoundary,
+                    reorderController.draggedExtent)
     }
 
     function beginDrag(delegate) {
@@ -103,6 +84,8 @@ Item {
         const started = reorderController.beginDrag({
             sources: [{
                 item: delegate,
+                key: delegate.itemId,
+                order: delegate.index,
                 previewItem: delegate,
                 geometryItem: delegate,
                 naturalExtent: rowHeight,
@@ -138,7 +121,17 @@ Item {
         reorderController.cancelDrag()
     }
 
-    GenericReorderController {
+    Reorder.LinearReorderLayout {
+        id: reorderLayout
+
+        geometryItem: root
+        sourceEntries: reorderController.sourceEntries
+        keyProvider: function(item) { return String(item.itemId) }
+        orderProvider: function(item) { return Number(item.index) }
+        extentProvider: function() { return root.rowHeight }
+    }
+
+    Reorder.GenericReorderController {
         id: reorderController
 
         anchors.fill: parent
@@ -235,7 +228,7 @@ Item {
             ToolTip.visible: hovered && String(model.tooltip || "").length > 0
             ToolTip.text: String(model.tooltip || "")
 
-            ReorderDisplacement {
+            Reorder.ReorderDisplacement {
                 id: displacement
 
                 animationEnabled: root.dragging && !reorderController.committingDrop
@@ -290,7 +283,7 @@ Item {
                         font.pixelSize: 16
                     }
 
-                    ReorderDragHandle {
+                    Reorder.ReorderDragHandle {
                         anchors.fill: parent
                         onDragStarted: root.beginDrag(rowDelegate)
                         onDragMoved: function(dx, dy) {

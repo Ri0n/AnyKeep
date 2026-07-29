@@ -87,7 +87,8 @@ task state, and adjusts relative indentation.
 
 ```mermaid
 flowchart LR
-    H[ReorderDragHandle.qml] -->|absolute dx/dy| RC[EditorReorderController.qml]
+    H[reorder/ReorderDragHandle.qml] -->|absolute dx/dy| RC[EditorReorderController.qml]
+    RL[reorder/LinearReorderLayout.qml] -->|normalized boundaries| RC
     LB1[ListBlockEditor.qml source] -->|register rows and boundaries| RC
     LB2[ListBlockEditor.qml target] -->|register rows and boundaries| RC
     RC -->|collapse source / open target gap| LB1
@@ -99,11 +100,11 @@ flowchart LR
 ```
 
 `EditorReorderController.qml` is document-scoped, so hit testing includes every
-instantiated list block. It computes vertical insertion boundaries separately
-from animated gaps, while horizontal pointer position chooses a structurally
-valid indent. Dragged rows use absolute pointer translation plus layout
-compensation, preventing drift while neighboring rows animate into the vacated
-space.
+instantiated list block. The shared reorder layout normalizes vertical
+insertion boundaries separately from animated gaps, while horizontal pointer
+position chooses a structurally valid indent. Dragged rows use absolute pointer
+translation plus layout compensation, preventing drift while neighboring rows
+animate into the vacated space.
 
 `ListBlockEditor.qml` owns marker geometry and vertical item spacing. Bullet,
 task, and numbered markers share one fixed-width slot and align with the first

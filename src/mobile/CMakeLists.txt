@@ -8,7 +8,9 @@ else()
     find_package(Qt6 6.4 REQUIRED COMPONENTS Network)
 endif()
 
-qt_policy(SET QTP0001 NEW)
+if(COMMAND qt_policy)
+    qt_policy(SET QTP0001 NEW)
+endif()
 
 set(qtnote_mobile_xmpp_available OFF)
 if(TARGET qtnote_bundled_xmpppubsub)
@@ -28,16 +30,30 @@ set(qtnote_mobile_shared_qml
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/ListBlockBehavior.js"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/ListBlockEditor.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteBlockEditor.qml"
-    "${CMAKE_SOURCE_DIR}/libqtnote/qml/ReorderDragHandle.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteFindBar.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteEditorPane.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NotesManagerPage.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/TableBlockBehavior.js"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/ThemedIcon.qml"
 )
+set(qtnote_mobile_reorder_qml
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/reorder/DragPreviewLayer.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/reorder/GenericReorderController.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/reorder/LinearReorderLayout.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/reorder/ReorderDisplacement.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/reorder/ReorderDragHandle.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/reorder/ReorderGeometry.qml"
+)
 foreach(qtnote_mobile_qml_file IN LISTS qtnote_mobile_shared_qml)
     get_filename_component(qtnote_mobile_qml_alias "${qtnote_mobile_qml_file}" NAME)
     set_source_files_properties("${qtnote_mobile_qml_file}" PROPERTIES QT_RESOURCE_ALIAS "${qtnote_mobile_qml_alias}")
+endforeach()
+foreach(qtnote_mobile_qml_file IN LISTS qtnote_mobile_reorder_qml)
+    get_filename_component(qtnote_mobile_qml_alias "${qtnote_mobile_qml_file}" NAME)
+    set_source_files_properties(
+        "${qtnote_mobile_qml_file}"
+        PROPERTIES QT_RESOURCE_ALIAS "reorder/${qtnote_mobile_qml_alias}"
+    )
 endforeach()
 
 qt_add_executable(qtnote_mobile
@@ -60,6 +76,7 @@ qt_add_qml_module(qtnote_mobile
         StorageSettingsPage.qml
         StoragesPage.qml
         ${qtnote_mobile_shared_qml}
+        ${qtnote_mobile_reorder_qml}
     SOURCES
         androidplatformservices.cpp
         androidplatformservices.h

@@ -94,6 +94,8 @@ Item {
             const origin = geometrySource.mapToItem(geometryItem, geometryX, geometryY)
             entries.push({
                 item: item,
+                key: descriptor.key,
+                order: descriptor.order,
                 naturalExtent: naturalExtent
             })
             previewItems.push({

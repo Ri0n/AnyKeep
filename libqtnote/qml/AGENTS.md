@@ -10,13 +10,16 @@ Read this file before opening `NoteBlockEditor.qml`.
   block delegates, and the shared `BlockTextArea` implementation.
 - `ListBlockEditor.qml`: list rows, marker geometry, item spacing, local mirror
   model, drop gaps, and keyboard delegation to `ListBlockBehavior.js`.
-- `GenericReorderController.qml`: shared drag lifecycle, stable preview,
+- `reorder/GenericReorderController.qml`: shared drag lifecycle, stable preview,
   compressed-geometry boundary selection, translation, and atomic
   commit/cancel hooks for every reorderable view.
+- `reorder/LinearReorderLayout.qml`: shared source exclusion, logical boundary
+  coordinates, remaining-row indexes, flow-layout correction, and fixed-row
+  translation. Use its order-snapshot APIs for recycled delegates.
 - `EditorReorderController.qml`: editor adapter for the generic controller. It
   supplies cross-list boundaries, indentation, focus restoration, and the
   `moveListRange()` commit.
-- `ReorderDragHandle.qml`: pointer gesture only. It reports absolute
+- `reorder/ReorderDragHandle.qml`: pointer gesture only. It reports absolute
   `activeTranslation`; it must not mutate a document model.
 - `ListBlockBehavior.js`: Enter/Backspace/Tab and list boundary keyboard rules.
 - `TableBlockBehavior.js`: table keyboard rules.

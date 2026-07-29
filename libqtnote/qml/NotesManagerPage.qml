@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQml.Models
+import "reorder" as Reorder
 
 Item {
     id: root
@@ -35,7 +36,11 @@ Item {
     readonly property var dropBoundary: storageHeaderDropBoundary
                                         ? storageHeaderDropBoundary
                                         : groupedReorderController.targetBoundary
-    readonly property var dropTargetDelegate: dropBoundary ? dropBoundary.owner : null
+    readonly property var dropTargetDelegate: dropBoundary
+                                              && dropBoundary.ownerOrder !== undefined
+                                              ? groupedItemAtRow(
+                                                    Number(dropBoundary.ownerOrder))
+                                              : null
     readonly property bool dropOnStorageHeader: Boolean(dropBoundary
                                                         && dropBoundary.storageHeaderTarget)
     readonly property bool dropTargetAfter: dropBoundary
@@ -55,7 +60,23 @@ Item {
                                            || workspace.searchText.length > 0 || workspace.searchInBody
     readonly property bool searchOptionsVisible: searchField.activeFocus || searchInTextCheckBox.pressed
 
-    GenericReorderController {
+    Reorder.LinearReorderLayout {
+        id: reorderLayout
+
+        geometryItem: root
+        sourceEntries: groupedReorderController.sourceEntries
+        keyProvider: function(item) {
+            return Number(item.itemType) + ":" + String(item.storageId)
+                    + ":" + String(item.noteId)
+        }
+        orderProvider: function(item) { return Number(item.row) }
+        extentProvider: function(item) {
+            return item && item.baseHeight !== undefined
+                    ? Number(item.baseHeight) : Number(item ? item.height : 0)
+        }
+    }
+
+    Reorder.GenericReorderController {
         id: groupedReorderController
 
         anchors.fill: parent
@@ -250,42 +271,13 @@ Item {
         return result
     }
 
-    function sourceExtentBeforeRow(row) {
-        return sourceCountBeforeRow(row) * (touchActions ? 44 : 34)
-    }
-
-    function sourceCountBeforeRow(row) {
-        if (!activeDragDelegate)
-            return 0
-        let count = 0
-        for (const sourceRow of activeDragDelegate.sourceRows)
-            if (sourceRow < row)
-                ++count
-        return count
-    }
-
-    function logicalBoundaryPosition(owner, afterOwner) {
-        if (!owner)
-            return 0
-        const position = owner.mapToItem(root, 0, afterOwner ? owner.baseHeight : 0)
-        return position.y - owner.reorderOffset - sourceExtentBeforeRow(owner.row)
-    }
-
     function groupedRowTranslation(delegate) {
-        if (!activeDragDelegate || !dropBoundary || !delegate || delegate.partOfActiveDrag)
-            return 0
+        return reorderLayout.translationByOrder(delegate, dropBoundary,
+                                                draggedExtent)
+    }
 
-        const sourceCount = groupedReorderController.sourceEntries.length
-        const ownerRow = Number(dropBoundary.ownerRow)
-        if (sourceCount <= 0 || !Number.isFinite(ownerRow))
-            return 0
-        const remainingIndex = delegate.row - sourceCountBeforeRow(delegate.row)
-        let insertionIndex = ownerRow - sourceCountBeforeRow(ownerRow)
-        if (dropBoundary.afterOwner)
-            ++insertionIndex
-        const finalIndex = remainingIndex >= insertionIndex
-                ? remainingIndex + sourceCount : remainingIndex
-        return (finalIndex - delegate.row) * delegate.baseHeight
+    function makeDropBoundary(owner, afterOwner, payload) {
+        return reorderLayout.boundaryByOrder(owner, afterOwner, payload, 0, true)
     }
 
     function noteDropBoundaries(delegates) {
@@ -320,38 +312,27 @@ Item {
             if (remaining.length === 0) {
                 if (!candidateGroup.header)
                     continue
-                boundaries.push({
-                    position: logicalBoundaryPosition(candidateGroup.header, true),
-                    owner: candidateGroup.header,
-                    ownerRow: candidateGroup.header.row,
-                    afterOwner: true,
+                boundaries.push(makeDropBoundary(
+                    candidateGroup.header, true, {
                     storageId: candidateGroup.header.storageId,
                     anchorNoteId: "",
                     insertAfter: false
-                })
+                }))
                 continue
             }
             for (const note of remaining) {
-                boundaries.push({
-                    position: logicalBoundaryPosition(note, false),
-                    owner: note,
-                    ownerRow: note.row,
-                    afterOwner: false,
+                boundaries.push(makeDropBoundary(note, false, {
                     storageId: note.storageId,
                     anchorNoteId: note.noteId,
                     insertAfter: false
-                })
+                }))
             }
             const last = remaining[remaining.length - 1]
-            boundaries.push({
-                position: logicalBoundaryPosition(last, true),
-                owner: last,
-                ownerRow: last.row,
-                afterOwner: true,
+            boundaries.push(makeDropBoundary(last, true, {
                 storageId: last.storageId,
                 anchorNoteId: last.noteId,
                 insertAfter: true
-            })
+            }))
         }
         return boundaries
     }
@@ -367,16 +348,12 @@ Item {
             if (local.x < 0 || local.y < 0
                     || local.x >= delegate.width || local.y >= delegate.baseHeight)
                 continue
-            return {
-                position: logicalBoundaryPosition(delegate, true),
-                owner: delegate,
-                ownerRow: delegate.row,
-                afterOwner: true,
+            return makeDropBoundary(delegate, true, {
                 storageId: delegate.storageId,
                 anchorNoteId: "",
                 insertAfter: false,
                 storageHeaderTarget: true
-            }
+            })
         }
         return null
     }
@@ -389,13 +366,9 @@ Item {
         })
         const boundaries = []
         for (const storage of remainingStorages) {
-            boundaries.push({
-                position: logicalBoundaryPosition(storage, false),
-                owner: storage,
-                ownerRow: storage.row,
-                afterOwner: false,
+            boundaries.push(makeDropBoundary(storage, false, {
                 storageId: storage.storageId
-            })
+            }))
         }
         if (remainingStorages.length > 0) {
             const lastStorage = remainingStorages[remainingStorages.length - 1]
@@ -404,13 +377,9 @@ Item {
                 if (delegate.storageId === lastStorage.storageId)
                     lastOwner = delegate
             }
-            boundaries.push({
-                position: logicalBoundaryPosition(lastOwner, true),
-                owner: lastOwner,
-                ownerRow: lastOwner.row,
-                afterOwner: true,
+            boundaries.push(makeDropBoundary(lastOwner, true, {
                 storageId: lastStorage.storageId
-            })
+            }))
         }
         return boundaries
     }
@@ -506,6 +475,10 @@ Item {
             sourceRows.push(sourceItem.row)
             sources.push({
                 item: sourceItem,
+                key: Number(sourceItem.itemType) + ":"
+                     + String(sourceItem.storageId) + ":"
+                     + String(sourceItem.noteId),
+                order: sourceItem.row,
                 previewItem: sourceItem,
                 geometryItem: sourceItem,
                 naturalExtent: sourceItem.baseHeight,
@@ -952,7 +925,7 @@ Item {
                                              && (errorString.length > 0 || preview.length > 0)
                             ToolTip.text: errorString.length > 0 ? errorString : preview
 
-                            ReorderDisplacement {
+                            Reorder.ReorderDisplacement {
                                 id: groupedDisplacement
 
                                 animationEnabled: root.activeDragDelegate !== null

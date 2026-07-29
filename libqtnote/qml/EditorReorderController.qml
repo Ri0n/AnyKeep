@@ -1,4 +1,5 @@
 import QtQuick
+import "reorder" as Reorder
 
 Item {
     id: controller
@@ -34,7 +35,19 @@ Item {
     enabled: false
     z: 100000
 
-    GenericReorderController {
+    Reorder.LinearReorderLayout {
+        id: reorderLayout
+
+        geometryItem: controller.editorView ? controller.editorView.contentItem : null
+        sourceEntries: reorderCore.sourceEntries
+        extentProvider: function(item) {
+            return item && item.naturalHeight !== undefined
+                    ? Number(item.naturalHeight) : Number(item ? item.height : 0)
+        }
+        offsetProvider: function() { return 0 }
+    }
+
+    Reorder.GenericReorderController {
         id: reorderCore
 
         anchors.fill: parent
@@ -99,6 +112,8 @@ Item {
             rows.push(sourceRow)
             sources.push({
                 item: sourceRow,
+                key: listBlock.blockIndex + ":" + index,
+                order: listBlock.blockIndex * 1000000 + index,
                 previewItem: sourceRow.dragContent,
                 geometryItem: sourceRow.dragContent,
                 naturalExtent: sourceRow.naturalHeight
@@ -144,11 +159,16 @@ Item {
                 continue
             const count = listBlock.remainingItemCount()
             for (let item = 0; item <= count; ++item) {
-                const boundary = listBlock.boundaryPosition(item)
+                const boundary = listBlock.boundaryDescriptor(item)
+                if (!boundary || !boundary.owner)
+                    continue
+                const correction =
+                        animatedDisplacementBeforeBlock(listBlock.blockIndex)
+                        + listBlock.animatedDisplacementBeforeBoundary(item)
                 boundaries.push({
-                    position: boundary.y
-                              - animatedDisplacementBeforeBlock(listBlock.blockIndex)
-                              - listBlock.animatedDisplacementBeforeBoundary(item),
+                    position: reorderLayout.logicalPosition(
+                                  boundary.owner, boundary.afterOwner,
+                                  correction, false),
                     block: listBlock,
                     item: item
                 })

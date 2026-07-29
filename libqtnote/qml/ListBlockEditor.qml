@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "ListBlockBehavior.js" as ListBlockBehavior
+import "reorder" as Reorder
 
 Column {
     id: listRoot
@@ -213,21 +214,16 @@ Column {
         return displacement
     }
 
-    function boundaryPosition(index) {
+    function boundaryDescriptor(index) {
         const count = remainingItemCount()
         if (count === 0)
-            return listRoot.mapToItem(editorView.contentItem, 0, 0)
-        let position
+            return { owner: listRoot, afterOwner: false }
         if (index < count) {
             const row = rowAt(originalIndexForRemaining(index))
-            position = row ? row.mapToItem(editorView.contentItem, 0, 0)
-                           : listRoot.mapToItem(editorView.contentItem, 0, 0)
-        } else {
-            const lastRow = rowAt(originalIndexForRemaining(count - 1))
-            position = lastRow ? lastRow.mapToItem(editorView.contentItem, 0, lastRow.naturalHeight)
-                               : listRoot.mapToItem(editorView.contentItem, 0, 0)
+            return { owner: row || listRoot, afterOwner: false }
         }
-        return position
+        const lastRow = rowAt(originalIndexForRemaining(count - 1))
+        return { owner: lastRow || listRoot, afterOwner: Boolean(lastRow) }
     }
 
     function focusItem(itemIndex, position, preserveViewport, viewportY) {
@@ -318,7 +314,7 @@ Column {
             height: rowDisplacement.layoutExtent
             z: ownsLevelHandle || (!editorView.touchMode && startsLevelRange) ? 20 : 0
 
-            ReorderDisplacement {
+            Reorder.ReorderDisplacement {
                 id: rowDisplacement
 
                 animationEnabled: reorderController.dragging && !reorderController.committingDrop
@@ -426,7 +422,7 @@ Column {
                         verticalAlignment: Text.AlignVCenter
                     }
 
-                    ReorderDragHandle {
+                    Reorder.ReorderDragHandle {
                         objectName: "listReorderHandle-" + listRoot.blockIndex + "-" + rowWrapper.index
                         anchors.fill: parent
                         hoverCursorShape: rowWrapper.itemType === 2 ? Qt.PointingHandCursor : Qt.OpenHandCursor
@@ -490,7 +486,7 @@ Column {
                 }
             }
 
-            ReorderDragHandle {
+            Reorder.ReorderDragHandle {
                 id: levelHandle
 
                 property bool hovered: false
@@ -564,7 +560,7 @@ Column {
         width: listRoot.width
         height: dropSpace
 
-        ReorderDisplacement {
+        Reorder.ReorderDisplacement {
             id: endDisplacement
 
             animationEnabled: reorderController.dragging && !reorderController.committingDrop
