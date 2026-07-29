@@ -1,9 +1,12 @@
 #include <QtTest>
 
 #include "notedata.h"
+#include "notemanager.h"
 #include "notesindex.h"
+#include "notesmodel.h"
 
 #include <QPointer>
+#include <QScopeGuard>
 
 #include <algorithm>
 #include <utility>
@@ -13,15 +16,19 @@ using namespace QtNote;
 class FakeStorage final : public NoteStorage {
     Q_OBJECT
 public:
-    explicit FakeStorage(QObject *parent = nullptr) : NoteStorage(parent) { }
+    explicit FakeStorage(QString storageId = QStringLiteral("fake"), QObject *parent = nullptr) :
+        NoteStorage(parent), storageId_(std::move(storageId))
+    {
+    }
 
     bool                init() override { return true; }
-    const QString       systemName() const override { return QStringLiteral("fake"); }
+    const QString       systemName() const override { return storageId_; }
     const QString       name() const override { return QStringLiteral("Fake"); }
     QIcon               storageIcon() const override { return {}; }
     QIcon               noteIcon() const override { return {}; }
     bool                isAccessible() const override { return accessible; }
     QList<Note::Format> availableFormats() const override { return { Note::Markdown }; }
+    qint64              requestedModificationTimeResolutionMs() const override { return reorderResolutionMs; }
 
     QList<Note> noteList(int limit = 0) override
     {
@@ -64,7 +71,17 @@ public:
 
     bool saveNote(const Note &note) override
     {
-        emit noteModified(note);
+        Note saved = note;
+        saved.removeBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey));
+        for (auto &existing : sourceNotes) {
+            if (existing.id() == saved.id()) {
+                existing = saved;
+                break;
+            }
+        }
+        std::stable_sort(sourceNotes.begin(), sourceNotes.end(), noteListItemModifyComparer);
+        ++saveCalls;
+        emit noteModified(saved);
         return true;
     }
 
@@ -103,9 +120,14 @@ public:
     QPointer<NoteListJob> heldRefreshJob;
     int                   noteListCalls { 0 };
     int                   refreshCalls { 0 };
+    int                   saveCalls { 0 };
+    qint64                reorderResolutionMs { 0 };
     bool                  accessible { true };
     bool                  failRefreshSynchronously { false };
     bool                  holdRefresh { false };
+
+private:
+    QString storageId_;
 };
 
 class NotesIndexTest : public QObject {
@@ -323,6 +345,78 @@ private slots:
         QTRY_VERIFY(!index.isLoading(storage.systemName()));
         QCOMPARE(index.errorString(storage.systemName()), QStringLiteral("Synchronous failure"));
         QVERIFY(!index.hasSnapshot(storage.systemName()));
+    }
+
+    void defaultStorageReorderFallbackUsesTheCapability()
+    {
+        FakeStorage storage;
+        auto       *unsupported = storage.reorderNoteAsync(QStringLiteral("one"), {});
+        QVERIFY(unsupported->isFinished());
+        QCOMPARE(unsupported->state(), StorageJob::Failed);
+        delete unsupported;
+
+        storage.reorderResolutionMs = 1;
+        const auto baseTime         = QDateTime::currentDateTimeUtc().addSecs(-10);
+        auto       first            = storage.makeNote(QStringLiteral("first"), QStringLiteral("First"));
+        auto       second           = storage.makeNote(QStringLiteral("second"), QStringLiteral("Second"));
+        auto       third            = storage.makeNote(QStringLiteral("third"), QStringLiteral("Third"));
+        first.setLastChangeUTC(baseTime);
+        second.setLastChangeUTC(baseTime.addSecs(-1));
+        third.setLastChangeUTC(baseTime.addSecs(-2));
+        storage.sourceNotes = { first, second, third };
+
+        auto *job = storage.reorderNoteAsync(third.id(), {});
+        QTRY_VERIFY(job->isFinished());
+        QCOMPARE(job->state(), StorageJob::Succeeded);
+        QCOMPARE(storage.saveCalls, 1);
+        QCOMPARE(storage.sourceNotes.at(0).id(), third.id());
+        QCOMPARE(storage.sourceNotes.at(1).id(), first.id());
+        QCOMPARE(storage.sourceNotes.at(2).id(), second.id());
+        delete job;
+    }
+
+    void visiblePageKeepsItsTailWhenAnInsertedNoteIncreasesTheCount()
+    {
+        auto       storage  = std::make_unique<FakeStorage>(QStringLiteral("fake-visible-page"));
+        auto      *raw      = storage.get();
+        const auto baseTime = QDateTime::currentDateTimeUtc().addSecs(-60);
+        for (int index = 0; index < 35; ++index) {
+            auto note = raw->makeNote(QStringLiteral("note-%1").arg(index), QStringLiteral("Note %1").arg(index));
+            note.setLastChangeUTC(baseTime.addSecs(-index));
+            raw->sourceNotes.append(note);
+        }
+
+        auto *manager = NoteManager::instance();
+        manager->registerStorage(std::move(storage));
+        const auto unregister = qScopeGuard([manager, raw]() {
+            if (manager->storage(raw->systemName()) == raw)
+                manager->unregisterStorage(raw);
+        });
+        QTRY_COMPARE(manager->notesIndex()->noteCount(raw->systemName()), 35);
+
+        NotesModel  model;
+        QModelIndex storageIndex;
+        for (int row = 0; row < model.rowCount(); ++row) {
+            const auto candidate = model.index(row, 0);
+            if (candidate.data(NotesModel::StorageIdRole).toString() == raw->systemName()) {
+                storageIndex = candidate;
+                break;
+            }
+        }
+        QVERIFY(storageIndex.isValid());
+        QCOMPARE(model.rowCount(storageIndex), model.pageSize());
+        QCOMPARE(model.index(29, 0, storageIndex).data(NotesModel::NoteIdRole).toString(), QStringLiteral("note-29"));
+
+        auto inserted = raw->makeNote(QStringLiteral("inserted"), QStringLiteral("Inserted"));
+        inserted.setLastChangeUTC(baseTime.addSecs(-28).addMSecs(-500));
+        raw->sourceNotes.append(inserted);
+        std::stable_sort(raw->sourceNotes.begin(), raw->sourceNotes.end(), noteListItemModifyComparer);
+        raw->announceAdded(inserted);
+
+        QTRY_COMPARE(manager->notesIndex()->noteCount(raw->systemName()), 36);
+        QTRY_COMPARE(model.rowCount(storageIndex), model.pageSize() + 1);
+        QCOMPARE(model.index(29, 0, storageIndex).data(NotesModel::NoteIdRole).toString(), QStringLiteral("inserted"));
+        QCOMPARE(model.index(30, 0, storageIndex).data(NotesModel::NoteIdRole).toString(), QStringLiteral("note-29"));
     }
 };
 

@@ -62,6 +62,7 @@ public:
 
     virtual QList<Note::Format> availableFormats() const = 0;
     virtual bool                supportsMedia() const { return false; }
+    virtual bool                supportsNoteReordering() const { return requestedModificationTimeResolutionMs() > 0; }
     // Smallest modification-time step that can survive a save and a reload.
     // Zero means that an explicit modification time is unsupported.
     virtual qint64 requestedModificationTimeResolutionMs() const { return 0; }
@@ -94,10 +95,23 @@ public:
     virtual NoteLoadJob    *loadNoteAsync(const QString &id, QObject *owner = nullptr);
     virtual NoteSaveJob    *saveNoteAsync(const Note &note, QObject *owner = nullptr);
     virtual NoteRemoveJob  *removeNoteAsync(const QString &id, QObject *owner = nullptr);
+    virtual NoteReorderJob *reorderNoteAsync(const QString &noteId, const QString &afterNoteId,
+                                             QObject *owner = nullptr);
+    virtual NoteReorderJob *reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId,
+                                              QObject *owner = nullptr);
 
     // Stops accepting work and synchronously drains implementation-owned workers.
     // Called before the storage object or its plugin code can be unloaded.
     virtual void shutdown() { }
+
+protected:
+    struct NoteReorderChange {
+        Note      note;
+        QDateTime modified;
+    };
+
+    QList<NoteReorderChange> noteReorderChanges(const QStringList &noteIds, const QString &afterNoteId,
+                                                StorageError *error = nullptr);
 
 signals:
     void noteAdded(const Note &);

@@ -104,6 +104,14 @@ public:
     using StorageJob::StorageJob;
 };
 
+class QTNOTE_EXPORT NoteReorderJob final : public StorageJob {
+    Q_OBJECT
+public:
+    using StorageJob::complete;
+    using StorageJob::fail;
+    using StorageJob::StorageJob;
+};
+
 } // namespace QtNote
 
 #endif // STORAGEJOB_H

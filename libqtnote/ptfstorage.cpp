@@ -478,6 +478,72 @@ bool PTFStorage::saveNote(const Note &note)
     return true;
 }
 
+NoteReorderJob *PTFStorage::reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId, QObject *owner)
+{
+    auto *job = new NoteReorderJob(owner ? owner : this);
+    job->start();
+    StorageError error;
+    const auto   changes = noteReorderChanges(noteIds, afterNoteId, &error);
+    if (error) {
+        job->fail(error);
+        return job;
+    }
+    if (changes.isEmpty()) {
+        job->complete();
+        return job;
+    }
+
+    struct AppliedChange {
+        QString   fileName;
+        QDateTime previousModified;
+    };
+    QList<AppliedChange> applied;
+    applied.reserve(changes.size());
+
+    const auto rollBack = [&applied]() {
+        for (auto it = applied.crbegin(); it != applied.crend(); ++it) {
+            QFile file(it->fileName);
+            if (file.open(QIODevice::ReadWrite)) {
+                file.setFileTime(it->previousModified, QFileDevice::FileModificationTime);
+                file.close();
+            }
+        }
+    };
+
+    for (const auto &change : changes) {
+        QString fileName = change.note.backendValue(QStringLiteral("fileName")).toString();
+        if (fileName.isEmpty()) {
+            for (const auto &ext : std::as_const(fileExt)) {
+                const auto candidate = notesDir.absoluteFilePath(change.note.id() + QLatin1Char('.') + ext);
+                if (QFileInfo::exists(candidate)) {
+                    fileName = candidate;
+                    break;
+                }
+            }
+        }
+
+        QFile      file(fileName);
+        const auto previousModified = QFileInfo(fileName).lastModified();
+        if (fileName.isEmpty() || !previousModified.isValid() || !file.open(QIODevice::ReadWrite)
+            || !file.setFileTime(change.modified, QFileDevice::FileModificationTime)) {
+            const auto message = fileName.isEmpty() ? tr("The note file used for reordering was not found")
+                                                    : tr("Failed to update the note order: %1").arg(file.errorString());
+            file.close();
+            rollBack();
+            job->fail({ StorageError::Io, message, false });
+            return job;
+        }
+        file.close();
+        applied.append({ fileName, previousModified });
+    }
+
+    // One refresh is enough for the whole block and prevents observers from
+    // rebuilding an intermediate order once per changed timestamp.
+    emit invalidated();
+    job->complete();
+    return job;
+}
+
 void PTFStorage::removeNote(const QString &noteId)
 {
     qCInfo(logPtfStorage) << "Removing PTF note idHash=" << diagnosticName(noteId);

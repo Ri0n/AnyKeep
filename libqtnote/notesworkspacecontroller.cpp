@@ -14,7 +14,7 @@
 #include "utils.h"
 
 #include <QSet>
-#include <QTimeZone>
+#include <QTimer>
 #include <algorithm>
 
 namespace QtNote {
@@ -46,20 +46,22 @@ NotesWorkspaceController::NotesWorkspaceController(QObject *parent) : QObject(pa
     connect(manager, &NoteManager::storageOrderChanged, this, &NotesWorkspaceController::storagesChanged);
 
     auto *drafts = DraftManager::instance();
-    connect(drafts, &DraftManager::draftPublished, this, [this, drafts](const QUuid &draftId, const Note &) {
+    connect(drafts, &DraftManager::draftPublished, this, [this, drafts](const QUuid &draftId, const Note &note) {
         if (!pendingMoves_.contains(draftId))
             return;
         const auto move  = pendingMoves_.take(draftId);
         const auto error = drafts->queueRemoval(move.sourceStorageId, move.sourceNoteId);
         if (error)
             setError(error.message);
+        completePendingReorderMove(move.reorderBatchId, move.reorderIndex, note.id());
         drafts->publishPending();
         endOperation();
     });
     connect(drafts, &DraftManager::draftPublishFailed, this, [this](const QUuid &draftId, const QString &message) {
         if (!pendingMoves_.contains(draftId))
             return;
-        pendingMoves_.remove(draftId);
+        const auto move = pendingMoves_.take(draftId);
+        completePendingReorderMove(move.reorderBatchId, move.reorderIndex, {});
         setError(message);
         endOperation();
     });
@@ -103,6 +105,7 @@ QVariantList NotesWorkspaceController::storages() const
         item.insert(QStringLiteral("name"), storage->name());
         item.insert(QStringLiteral("accessible"), storage->isAccessible());
         item.insert(QStringLiteral("supportsMedia"), storage->supportsMedia());
+        item.insert(QStringLiteral("supportsNoteReordering"), storage->supportsNoteReordering());
         result.append(item);
     }
     return result;
@@ -231,11 +234,12 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
 bool NotesWorkspaceController::moveNote(const QString &sourceStorageId, const QString &noteId,
                                         const QString &destinationStorageId)
 {
-    return moveNoteAt(sourceStorageId, noteId, destinationStorageId, {});
+    return moveNoteAt(sourceStorageId, noteId, destinationStorageId);
 }
 
 bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const QString &noteId,
-                                          const QString &destinationStorageId, const QDateTime &requestedModified)
+                                          const QString &destinationStorageId, const QUuid &reorderBatchId,
+                                          int reorderIndex)
 {
     if (sourceStorageId.isEmpty() || noteId.isEmpty() || destinationStorageId.isEmpty()
         || sourceStorageId == destinationStorageId) {
@@ -257,7 +261,7 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
         source.setMedia(currentEditor_->media());
 
         QUuid destinationDraftId;
-        if (!stageMove(source, destinationStorageId, &destinationDraftId, requestedModified))
+        if (!stageMove(source, destinationStorageId, &destinationDraftId))
             return false;
 
         // Moving is not a normal close of the source editing session: publishing
@@ -270,26 +274,31 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
             return false;
         }
         clearCurrentEditor();
-        startStagedMove(destinationDraftId, source);
+        startStagedMove(destinationDraftId, source, reorderBatchId, reorderIndex);
         return true;
     }
 
     beginOperation();
-    auto *job = NoteManager::instance()->loadNoteAsync(sourceStorageId, noteId, this);
-    connect(job, &StorageJob::finished, this, [this, job, destinationStorageId, requestedModified]() {
+    auto      *job    = NoteManager::instance()->loadNoteAsync(sourceStorageId, noteId, this);
+    const auto loaded = [this, job, destinationStorageId, reorderBatchId, reorderIndex]() {
         if (job->state() != StorageJob::Succeeded) {
             if (job->state() != StorageJob::Cancelled)
                 setError(job->error().message.isEmpty() ? tr("Failed to load the note for moving")
                                                         : job->error().message);
             job->deleteLater();
             endOperation();
+            completePendingReorderMove(reorderBatchId, reorderIndex, {});
             return;
         }
         const Note source = job->result();
         job->deleteLater();
         endOperation();
-        beginMove(source, destinationStorageId, requestedModified);
-    });
+        if (!beginMove(source, destinationStorageId, reorderBatchId, reorderIndex))
+            completePendingReorderMove(reorderBatchId, reorderIndex, {});
+    };
+    connect(job, &StorageJob::finished, this, loaded);
+    if (job->isFinished())
+        QTimer::singleShot(0, this, loaded);
     return true;
 }
 
@@ -359,11 +368,7 @@ bool NotesWorkspaceController::moveNotes(const QVariantList &notes, const QStrin
         setError(tr("The destination storage is unavailable"));
         return false;
     }
-    const qint64 timeStep = destinationStorage->requestedModificationTimeResolutionMs();
-    if (timeStep <= 0) {
-        setError(tr("The destination storage does not support manual note ordering"));
-        return false;
-    }
+    setError({});
 
     struct Source {
         QString storageId;
@@ -384,7 +389,8 @@ bool NotesWorkspaceController::moveNotes(const QVariantList &notes, const QStrin
     if (sources.isEmpty())
         return false;
 
-    const auto  indexed = NoteManager::instance()->notesIndex()->notes(destinationStorageId);
+    const bool  reorderSupported = destinationStorage->supportsNoteReordering();
+    const auto  indexed          = NoteManager::instance()->notesIndex()->notes(destinationStorageId);
     QList<Note> remaining;
     remaining.reserve(indexed.size());
     for (const auto &note : indexed) {
@@ -393,122 +399,114 @@ bool NotesWorkspaceController::moveNotes(const QVariantList &notes, const QStrin
             remaining.append(note);
     }
 
-    int insertionIndex = 0;
-    if (!anchorNoteId.isEmpty()) {
-        const auto anchor = std::find_if(remaining.cbegin(), remaining.cend(),
-                                         [&anchorNoteId](const Note &note) { return note.id() == anchorNoteId; });
-        if (anchor == remaining.cend()) {
-            setError(tr("The note used as the drop boundary is no longer available"));
-            return false;
+    QString afterNoteId;
+    if (reorderSupported) {
+        qsizetype insertionIndex = 0;
+        if (!anchorNoteId.isEmpty()) {
+            const auto anchor = std::find_if(remaining.cbegin(), remaining.cend(),
+                                             [&anchorNoteId](const Note &note) { return note.id() == anchorNoteId; });
+            if (anchor == remaining.cend()) {
+                setError(tr("The note used as the drop boundary is no longer available"));
+                return false;
+            }
+            insertionIndex = std::distance(remaining.cbegin(), anchor) + (insertAfter ? 1 : 0);
         }
-        insertionIndex = int(std::distance(remaining.cbegin(), anchor)) + (insertAfter ? 1 : 0);
+        if (insertionIndex > 0)
+            afterNoteId = remaining.at(insertionIndex - 1).id();
     }
 
-    const auto nowMs  = QDateTime::currentMSecsSinceEpoch();
-    const auto now    = QDateTime::fromMSecsSinceEpoch(nowMs - nowMs % timeStep, QTimeZone::UTC);
-    QDateTime  cursor = insertionIndex > 0 && remaining.at(insertionIndex - 1).lastChangeUTC().isValid()
-         ? remaining.at(insertionIndex - 1).lastChangeUTC()
-         : now.addMSecs(timeStep);
-    if (cursor > now.addMSecs(timeStep))
-        cursor = now.addMSecs(timeStep);
-
-    QList<QDateTime> requestedTimes;
-    requestedTimes.reserve(sources.size());
-    for (qsizetype i = 0; i < sources.size(); ++i) {
-        cursor = cursor.addMSecs(-timeStep);
-        requestedTimes.append(cursor);
+    int sameStorageCount = 0;
+    int pendingMoveCount = 0;
+    for (const auto &source : std::as_const(sources)) {
+        if (source.storageId == destinationStorageId)
+            ++sameStorageCount;
+        else
+            ++pendingMoveCount;
     }
 
-    // Normally the neighboring timestamps have a wide gap. If several notes
-    // share one storage-resolution tick, shift only the colliding tail
-    // backwards; this keeps every timestamp out of the future.
-    QHash<QString, QDateTime> adjustedExisting;
-    for (qsizetype i = insertionIndex; i < remaining.size(); ++i) {
-        const auto existingTime = remaining.at(i).lastChangeUTC();
-        if (!existingTime.isValid() || existingTime >= cursor) {
-            cursor = cursor.addMSecs(-timeStep);
-            adjustedExisting.insert(remaining.at(i).id(), cursor);
-        } else {
-            cursor = existingTime;
+    if (pendingMoveCount == 0) {
+        if (!reorderSupported)
+            return true;
+        QStringList noteIds;
+        noteIds.reserve(sources.size());
+        for (const auto &source : std::as_const(sources))
+            noteIds.append(source.noteId);
+        return startStorageReorder(destinationStorage, noteIds, afterNoteId);
+    }
+
+    QUuid reorderBatchId;
+    if (reorderSupported) {
+        reorderBatchId = QUuid::createUuid();
+        PendingReorder batch;
+        batch.storage      = destinationStorage;
+        batch.afterNoteId  = afterNoteId;
+        batch.pendingMoves = pendingMoveCount;
+        batch.orderedNoteIds.reserve(sources.size());
+        for (const auto &source : std::as_const(sources)) {
+            batch.orderedNoteIds.append(source.storageId == destinationStorageId ? source.noteId : QString());
         }
+        pendingReorders_.insert(reorderBatchId, std::move(batch));
     }
 
     bool started = false;
     for (qsizetype i = 0; i < sources.size(); ++i) {
         const auto &source = sources.at(i);
         if (source.storageId == destinationStorageId)
-            started = resaveNoteAt(source.storageId, source.noteId, requestedTimes.at(i)) || started;
-        else
-            started
-                = moveNoteAt(source.storageId, source.noteId, destinationStorageId, requestedTimes.at(i)) || started;
+            continue;
+        const bool moveStarted
+            = moveNoteAt(source.storageId, source.noteId, destinationStorageId, reorderBatchId, int(i));
+        started = moveStarted || started;
+        if (!moveStarted)
+            completePendingReorderMove(reorderBatchId, int(i), {});
     }
-    for (auto it = adjustedExisting.cbegin(); it != adjustedExisting.cend(); ++it)
-        started = resaveNoteAt(destinationStorageId, it.key(), it.value()) || started;
-    return started;
+    return started || sameStorageCount > 0;
 }
 
-bool NotesWorkspaceController::resaveNoteAt(const QString &storageId, const QString &noteId,
-                                            const QDateTime &requestedModified)
+bool NotesWorkspaceController::startStorageReorder(NoteStorage *storage, const QStringList &noteIds,
+                                                   const QString &afterNoteId)
 {
-    if (storageId.isEmpty() || noteId.isEmpty() || !requestedModified.isValid())
+    if (!storage || noteIds.isEmpty())
         return false;
-
-    if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId) {
-        if (!DraftManager::instance()->isLastEditingSession(currentEditor_->draftId())) {
-            setError(tr("The note is open in another editor and cannot be reordered yet"));
-            return false;
-        }
-        if (!saveCurrentNote())
-            return false;
-        Note       source = currentEditor_->note();
-        const auto split  = Utils::splitTitle(currentEditor_->text());
-        source.setTitle(split.first);
-        source.setText(split.second, currentEditor_->format());
-        source.setMedia(currentEditor_->media());
-        if (!currentEditor_->discardAndClose()) {
-            setError(currentEditor_->errorString());
-            return false;
-        }
-        clearCurrentEditor();
-        return saveLoadedNoteAt(source, requestedModified);
-    }
-
+    if (!storage->supportsNoteReordering())
+        return true;
     beginOperation();
-    auto *job = NoteManager::instance()->loadNoteAsync(storageId, noteId, this);
-    connect(job, &StorageJob::finished, this, [this, job, requestedModified]() {
-        if (job->state() != StorageJob::Succeeded) {
-            if (job->state() != StorageJob::Cancelled)
-                setError(job->error().message.isEmpty() ? tr("Failed to load the note for reordering")
-                                                        : job->error().message);
-            job->deleteLater();
-            endOperation();
-            return;
-        }
-        Note note = job->result();
-        job->deleteLater();
-        endOperation();
-        saveLoadedNoteAt(std::move(note), requestedModified);
-    });
-    return true;
-}
-
-bool NotesWorkspaceController::saveLoadedNoteAt(Note note, const QDateTime &requestedModified)
-{
-    auto *storage = note.storage();
-    if (note.isNull() || !note.isLoaded() || !storage || !requestedModified.isValid())
-        return false;
-    note.setLastChangeUTC(requestedModified);
-    note.setBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey), requestedModified);
-
-    beginOperation();
-    auto *job = storage->saveNoteAsync(note, this);
-    connect(job, &StorageJob::finished, this, [this, job]() {
-        if (job->state() != StorageJob::Succeeded && job->state() != StorageJob::Cancelled)
+    auto      *job      = storage->reorderNotesAsync(noteIds, afterNoteId, this);
+    const auto finished = [this, job]() {
+        if (job->state() != StorageJob::Succeeded && job->state() != StorageJob::Cancelled) {
             setError(job->error().message.isEmpty() ? tr("Failed to reorder the note") : job->error().message);
+        }
         job->deleteLater();
         endOperation();
-    });
+    };
+    connect(job, &StorageJob::finished, this, finished);
+    if (job->isFinished())
+        QTimer::singleShot(0, this, finished);
     return true;
+}
+
+void NotesWorkspaceController::completePendingReorderMove(const QUuid &batchId, int index,
+                                                          const QString &destinationNoteId)
+{
+    if (batchId.isNull())
+        return;
+    auto it = pendingReorders_.find(batchId);
+    if (it == pendingReorders_.end())
+        return;
+    if (index >= 0 && index < it->orderedNoteIds.size())
+        it->orderedNoteIds[index] = destinationNoteId;
+    it->pendingMoves = qMax(0, it->pendingMoves - 1);
+    if (it->pendingMoves > 0)
+        return;
+
+    const auto  batch = pendingReorders_.take(batchId);
+    QStringList reorderedIds;
+    reorderedIds.reserve(batch.orderedNoteIds.size());
+    for (const auto &noteId : batch.orderedNoteIds) {
+        if (!noteId.isEmpty())
+            reorderedIds.append(noteId);
+    }
+    if (!reorderedIds.isEmpty() && batch.storage)
+        startStorageReorder(batch.storage, reorderedIds, batch.afterNoteId);
 }
 
 bool NotesWorkspaceController::moveStorage(const QString &sourceStorageId, const QString &destinationStorageId)
@@ -602,8 +600,7 @@ void NotesWorkspaceController::endOperation()
         emit busyChanged();
 }
 
-bool NotesWorkspaceController::stageMove(const Note &source, const QString &destinationStorageId, QUuid *draftId,
-                                         const QDateTime &requestedModified)
+bool NotesWorkspaceController::stageMove(const Note &source, const QString &destinationStorageId, QUuid *draftId)
 {
     auto destinationStorage = NoteManager::instance()->storage(destinationStorageId);
     if (source.isNull() || !destinationStorage || !destinationStorage->canAcceptWrites()) {
@@ -642,10 +639,6 @@ bool NotesWorkspaceController::stageMove(const Note &source, const QString &dest
     destination.setText(body, destinationFormat);
     destination.setTags(source.tags());
     destination.setMedia(source.media());
-    if (requestedModified.isValid()) {
-        destination.setLastChangeUTC(requestedModified);
-        destination.setBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey), requestedModified);
-    }
 
     auto       *drafts    = DraftManager::instance();
     const QUuid stagedId  = drafts->acquireEditingSession(destination);
@@ -668,20 +661,21 @@ bool NotesWorkspaceController::stageMove(const Note &source, const QString &dest
     return true;
 }
 
-void NotesWorkspaceController::startStagedMove(const QUuid &draftId, const Note &source)
+void NotesWorkspaceController::startStagedMove(const QUuid &draftId, const Note &source, const QUuid &reorderBatchId,
+                                               int reorderIndex)
 {
-    pendingMoves_.insert(draftId, { source.storageId(), source.id() });
+    pendingMoves_.insert(draftId, { source.storageId(), source.id(), reorderBatchId, reorderIndex });
     beginOperation();
     DraftManager::instance()->publishPending();
 }
 
 bool NotesWorkspaceController::beginMove(const Note &source, const QString &destinationStorageId,
-                                         const QDateTime &requestedModified)
+                                         const QUuid &reorderBatchId, int reorderIndex)
 {
     QUuid draftId;
-    if (!stageMove(source, destinationStorageId, &draftId, requestedModified))
+    if (!stageMove(source, destinationStorageId, &draftId))
         return false;
-    startStagedMove(draftId, source);
+    startStagedMove(draftId, source, reorderBatchId, reorderIndex);
     return true;
 }
 

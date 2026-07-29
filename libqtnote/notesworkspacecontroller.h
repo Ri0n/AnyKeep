@@ -16,6 +16,7 @@ namespace QtNote {
 
 class NoteEditor;
 class NoteLoadJob;
+class NoteStorage;
 class NotesModel;
 class NotesSearchModel;
 class RecentNotesModel;
@@ -106,6 +107,15 @@ private:
     struct PendingMove {
         QString sourceStorageId;
         QString sourceNoteId;
+        QUuid   reorderBatchId;
+        int     reorderIndex { -1 };
+    };
+
+    struct PendingReorder {
+        QPointer<NoteStorage> storage;
+        QString               afterNoteId;
+        QStringList           orderedNoteIds;
+        int                   pendingMoves { 0 };
     };
 
     void setCurrentEditor(NoteEditor *editor);
@@ -114,26 +124,28 @@ private:
     void setError(const QString &error);
     void beginOperation();
     void endOperation();
-    bool stageMove(const Note &source, const QString &destinationStorageId, QUuid *draftId,
-                   const QDateTime &requestedModified = {});
-    void startStagedMove(const QUuid &draftId, const Note &source);
-    bool beginMove(const Note &source, const QString &destinationStorageId, const QDateTime &requestedModified = {});
+    bool stageMove(const Note &source, const QString &destinationStorageId, QUuid *draftId);
+    void startStagedMove(const QUuid &draftId, const Note &source, const QUuid &reorderBatchId = {},
+                         int reorderIndex = -1);
+    bool beginMove(const Note &source, const QString &destinationStorageId, const QUuid &reorderBatchId = {},
+                   int reorderIndex = -1);
     bool moveNoteAt(const QString &sourceStorageId, const QString &noteId, const QString &destinationStorageId,
-                    const QDateTime &requestedModified);
-    bool resaveNoteAt(const QString &storageId, const QString &noteId, const QDateTime &requestedModified);
-    bool saveLoadedNoteAt(Note note, const QDateTime &requestedModified);
+                    const QUuid &reorderBatchId = {}, int reorderIndex = -1);
+    bool startStorageReorder(NoteStorage *storage, const QStringList &noteIds, const QString &afterNoteId);
+    void completePendingReorderMove(const QUuid &batchId, int index, const QString &destinationNoteId);
     void connectEditorSignals(NoteEditor *editor);
 
-    NotesModel               *notesModel_ { nullptr };
-    NotesSearchModel         *searchModel_ { nullptr };
-    RecentNotesModel         *recentNotesModel_ { nullptr };
-    StoragePriorityModel     *storagePriorityModel_ { nullptr };
-    QPointer<NoteEditor>      currentEditor_;
-    QPointer<NoteLoadJob>     loadJob_;
-    QHash<QUuid, PendingMove> pendingMoves_;
-    bool                      loading_ { false };
-    int                       pendingOperations_ { 0 };
-    QString                   errorString_;
+    NotesModel                  *notesModel_ { nullptr };
+    NotesSearchModel            *searchModel_ { nullptr };
+    RecentNotesModel            *recentNotesModel_ { nullptr };
+    StoragePriorityModel        *storagePriorityModel_ { nullptr };
+    QPointer<NoteEditor>         currentEditor_;
+    QPointer<NoteLoadJob>        loadJob_;
+    QHash<QUuid, PendingMove>    pendingMoves_;
+    QHash<QUuid, PendingReorder> pendingReorders_;
+    bool                         loading_ { false };
+    int                          pendingOperations_ { 0 };
+    QString                      errorString_;
 };
 
 } // namespace QtNote

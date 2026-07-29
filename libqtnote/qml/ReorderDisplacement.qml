@@ -11,6 +11,7 @@ Item {
     property bool targetAfter: false
     property real naturalExtent: 0
     property real draggedExtent: 0
+    property real displacement: 0
     property int animationDuration: 160
     property bool afterSide: false
 
@@ -45,6 +46,15 @@ Item {
     }
 
     Behavior on dropSpace {
+        enabled: root.animationEnabled
+
+        NumberAnimation {
+            duration: root.animationDuration
+            easing.type: Easing.OutCubic
+        }
+    }
+
+    Behavior on displacement {
         enabled: root.animationEnabled
 
         NumberAnimation {

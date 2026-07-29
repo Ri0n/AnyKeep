@@ -50,6 +50,8 @@ public:
 
     QList<Note::Format> availableFormats() const override;
     qint64              requestedModificationTimeResolutionMs() const override { return 1; }
+    NoteReorderJob     *reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId,
+                                          QObject *owner = nullptr) override;
     bool                supportsMedia() const override { return true; }
     QString             findStorageDir() const override;
 

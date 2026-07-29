@@ -61,6 +61,8 @@ public:
     QString              preview;
     QDateTime            lastChange;
     int                  preSearchVisibleCount { 0 };
+    int                  indexedCount { 0 };
+    bool                 indexedCountInitialized { false };
 };
 
 NotesModel::NotesModel(QObject *parent) : QAbstractItemModel(parent)
@@ -349,7 +351,9 @@ void NotesModel::storageAdded(const NoteStorage::Ptr &storage)
             ++row;
     }
     beginInsertRows({}, row, row);
-    auto *item = new NMMItem(storage);
+    auto *item                    = new NMMItem(storage);
+    item->indexedCount            = NoteManager::instance()->notesIndex()->noteCount(item->id);
+    item->indexedCountInitialized = NoteManager::instance()->notesIndex()->hasSnapshot(item->id);
     storages_.insert(row, item);
     endInsertRows();
     replaceVisibleNotes(item, searchActive_ ? indexedNotes(item->id).size() : pageSize_);
@@ -407,7 +411,16 @@ void NotesModel::storageIndexChanged(const QString &storageId)
     auto *item = storageItem(storageId);
     if (!item)
         return;
-    const int desiredCount = searchActive_ ? indexedNotes(storageId).size() : qMax(item->children.size(), pageSize_);
+    const int indexedCount = indexedNotes(storageId).size();
+    int       desiredCount = searchActive_ ? indexedCount : qMax(item->children.size(), pageSize_);
+    if (!searchActive_ && item->indexedCountInitialized && indexedCount > item->indexedCount) {
+        // Keep the previously visible tail when a newly published note lands
+        // inside the current page. Otherwise the old last row is displaced
+        // just beyond the pagination boundary and appears to have vanished.
+        desiredCount += indexedCount - item->indexedCount;
+    }
+    item->indexedCount            = indexedCount;
+    item->indexedCountInitialized = true;
     replaceVisibleNotes(item, desiredCount);
     emit statsChanged();
 }

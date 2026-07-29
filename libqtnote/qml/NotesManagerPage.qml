@@ -30,19 +30,27 @@ Item {
     property string selectionAnchorKey: ""
     property bool editorFocusOwned: false
     property bool mobileSearchExpanded: false
-    property var groupedRowExtents: ({})
-    property bool groupedLayoutPending: false
+    property var storageHeaderDropBoundary: null
     readonly property var activeDragDelegate: groupedReorderController.sourcePayload
-    readonly property var dropBoundary: groupedReorderController.targetBoundary
+    readonly property var dropBoundary: storageHeaderDropBoundary
+                                        ? storageHeaderDropBoundary
+                                        : groupedReorderController.targetBoundary
     readonly property var dropTargetDelegate: dropBoundary ? dropBoundary.owner : null
+    readonly property bool dropOnStorageHeader: Boolean(dropBoundary
+                                                        && dropBoundary.storageHeaderTarget)
     readonly property bool dropTargetAfter: dropBoundary
                                                    ? Boolean(dropBoundary.afterOwner) : false
     readonly property real dragTranslationX: groupedReorderController.translationX
     readonly property real dragTranslationY: groupedReorderController.translationY
     readonly property real draggedExtent: groupedReorderController.draggedExtent
     readonly property bool committingDrop: groupedReorderController.committingDrop
+    readonly property bool dragSelectionSuppressed: groupedReorderController.dragging
     readonly property int draggedItemType: activeDragDelegate
                                             ? Number(activeDragDelegate.itemType) : -1
+    readonly property string activeDraggedNoteId: activeDragDelegate
+                                                   && draggedItemType === 1
+                                                   && activeDragDelegate.dragNotes.length > 0
+                                                   ? activeDragDelegate.dragNotes[0].noteId : ""
     readonly property bool searchExpanded: !touchActions || mobileSearchExpanded
                                            || workspace.searchText.length > 0 || workspace.searchInBody
     readonly property bool searchOptionsVisible: searchField.activeFocus || searchInTextCheckBox.pressed
@@ -60,11 +68,27 @@ Item {
             return root.groupedDropBoundaries()
         }
         commitHandler: function(delegate, boundary) {
-            return root.commitGroupedDrop(delegate, boundary)
+            return root.commitGroupedDrop(delegate, root.dropBoundary)
+        }
+        targetChangedHandler: function(boundary, pointerX, pointerY) {
+            root.storageHeaderDropBoundary
+                    = root.storageHeaderBoundaryAt(pointerX, pointerY)
         }
         resetHandler: function() {
-            root.resetGroupedRowExtents()
+            root.storageHeaderDropBoundary = null
         }
+    }
+
+    Connections {
+        target: root.workspace.groupedNotesModel
+        enabled: groupedReorderController.dragging
+
+        // A storage can finish an earlier asynchronous operation while another
+        // gesture is already in progress. TreeView then replaces its delegates,
+        // invalidating both the captured sources and their row-number geometry.
+        function onModelAboutToBeReset() { root.cancelGroupedDrag() }
+        function onRowsAboutToBeRemoved() { root.cancelGroupedDrag() }
+        function onLayoutAboutToBeChanged() { root.cancelGroupedDrag() }
     }
 
     component CompactContextMenuItem: MenuItem {
@@ -214,38 +238,66 @@ Item {
         return result
     }
 
-    function animatedRowDisplacement(delegate) {
-        if (!delegate)
-            return 0
-        const sourceDisplacement = delegate.partOfActiveDrag
-                ? Math.max(0, delegate.baseHeight - delegate.collapseSpace) : 0
-        return sourceDisplacement + delegate.animatedDropSpace
+    function sourceExtentBeforeRow(row) {
+        return sourceCountBeforeRow(row) * (touchActions ? 44 : 34)
     }
 
-    function animatedDisplacementBeforeRow(row) {
-        let displacement = 0
-        for (let visualRow = 0; visualRow < row; ++visualRow)
-            displacement += animatedRowDisplacement(groupedItemAtRow(visualRow))
-        return displacement
+    function sourceCountBeforeRow(row) {
+        if (!activeDragDelegate)
+            return 0
+        let count = 0
+        for (const sourceRow of activeDragDelegate.sourceRows)
+            if (sourceRow < row)
+                ++count
+        return count
     }
 
     function logicalBoundaryPosition(owner, afterOwner) {
         if (!owner)
             return 0
         const position = owner.mapToItem(root, 0, afterOwner ? owner.baseHeight : 0)
-        return position.y - animatedDisplacementBeforeRow(owner.row)
+        return position.y - owner.reorderOffset - sourceExtentBeforeRow(owner.row)
+    }
+
+    function groupedRowTranslation(delegate) {
+        if (!activeDragDelegate || !dropBoundary || !delegate || delegate.partOfActiveDrag)
+            return 0
+
+        const sourceCount = groupedReorderController.sourceEntries.length
+        const ownerRow = Number(dropBoundary.ownerRow)
+        if (sourceCount <= 0 || !Number.isFinite(ownerRow))
+            return 0
+        const remainingIndex = delegate.row - sourceCountBeforeRow(delegate.row)
+        let insertionIndex = ownerRow - sourceCountBeforeRow(ownerRow)
+        if (dropBoundary.afterOwner)
+            ++insertionIndex
+        const finalIndex = remainingIndex >= insertionIndex
+                ? remainingIndex + sourceCount : remainingIndex
+        return (finalIndex - delegate.row) * delegate.baseHeight
     }
 
     function noteDropBoundaries(delegates) {
         const groups = []
-        let group = null
         for (const delegate of delegates) {
-            if (delegate.itemType === 0) {
-                group = { header: delegate, notes: [] }
-                groups.push(group)
-            } else if (group) {
-                group.notes.push(delegate)
+            let group = null
+            for (const candidate of groups) {
+                if (candidate.storageId === delegate.storageId) {
+                    group = candidate
+                    break
+                }
             }
+            if (!group) {
+                group = {
+                    storageId: delegate.storageId,
+                    header: null,
+                    notes: []
+                }
+                groups.push(group)
+            }
+            if (delegate.itemType === 0)
+                group.header = delegate
+            else
+                group.notes.push(delegate)
         }
 
         const boundaries = []
@@ -254,9 +306,12 @@ Item {
                 return !sourceContains(note.storageId, note.noteId)
             })
             if (remaining.length === 0) {
+                if (!candidateGroup.header)
+                    continue
                 boundaries.push({
                     position: logicalBoundaryPosition(candidateGroup.header, true),
                     owner: candidateGroup.header,
+                    ownerRow: candidateGroup.header.row,
                     afterOwner: true,
                     storageId: candidateGroup.header.storageId,
                     anchorNoteId: "",
@@ -268,6 +323,7 @@ Item {
                 boundaries.push({
                     position: logicalBoundaryPosition(note, false),
                     owner: note,
+                    ownerRow: note.row,
                     afterOwner: false,
                     storageId: note.storageId,
                     anchorNoteId: note.noteId,
@@ -278,6 +334,7 @@ Item {
             boundaries.push({
                 position: logicalBoundaryPosition(last, true),
                 owner: last,
+                ownerRow: last.row,
                 afterOwner: true,
                 storageId: last.storageId,
                 anchorNoteId: last.noteId,
@@ -285,6 +342,31 @@ Item {
             })
         }
         return boundaries
+    }
+
+    function storageHeaderBoundaryAt(pointerX, pointerY) {
+        if (draggedItemType !== 1)
+            return null
+        const delegates = visibleGroupedDelegates()
+        for (const delegate of delegates) {
+            if (delegate.itemType !== 0)
+                continue
+            const local = delegate.mapFromItem(root, pointerX, pointerY)
+            if (local.x < 0 || local.y < 0
+                    || local.x >= delegate.width || local.y >= delegate.baseHeight)
+                continue
+            return {
+                position: logicalBoundaryPosition(delegate, true),
+                owner: delegate,
+                ownerRow: delegate.row,
+                afterOwner: true,
+                storageId: delegate.storageId,
+                anchorNoteId: "",
+                insertAfter: false,
+                storageHeaderTarget: true
+            }
+        }
+        return null
     }
 
     function storageDropBoundaries(delegates) {
@@ -298,6 +380,7 @@ Item {
             boundaries.push({
                 position: logicalBoundaryPosition(storage, false),
                 owner: storage,
+                ownerRow: storage.row,
                 afterOwner: false,
                 storageId: storage.storageId
             })
@@ -312,6 +395,7 @@ Item {
             boundaries.push({
                 position: logicalBoundaryPosition(lastOwner, true),
                 owner: lastOwner,
+                ownerRow: lastOwner.row,
                 afterOwner: true,
                 storageId: lastStorage.storageId
             })
@@ -325,38 +409,9 @@ Item {
                 ? storageDropBoundaries(delegates) : noteDropBoundaries(delegates)
     }
 
-    function updateGroupedRowExtent(row, extent) {
-        if (row < 0)
-            return
-        const key = String(row)
-        // Keep animated rows instantiated. A zero-height TableView row may be
-        // pooled and reused while the drag controller still references it.
-        const rounded = Math.max(1, Math.round(Number(extent)))
-        if (groupedRowExtents[key] === rounded)
-            return
-        const copy = Object.assign({}, groupedRowExtents)
-        copy[key] = rounded
-        groupedRowExtents = copy
-        requestGroupedLayout()
-    }
-
-    function requestGroupedLayout() {
-        if (groupedLayoutPending)
-            return
-        groupedLayoutPending = true
-        Qt.callLater(function() {
-            groupedLayoutPending = false
-            if (notesTree)
-                notesTree.forceLayout()
-        })
-    }
-
-    function resetGroupedRowExtents() {
-        groupedRowExtents = ({})
-        requestGroupedLayout()
-    }
-
     function selectDesktopNote(delegate, modifiers) {
+        if (dragSelectionSuppressed)
+            return
         const key = noteSelectionKey(delegate.storageId, delegate.noteId)
         const control = Boolean(modifiers & Qt.ControlModifier)
         const shift = Boolean(modifiers & Qt.ShiftModifier)
@@ -431,7 +486,9 @@ Item {
             }
         }
         const sources = []
+        const sourceRows = []
         for (const sourceItem of sourceItems) {
+            sourceRows.push(sourceItem.row)
             sources.push({
                 item: sourceItem,
                 previewItem: sourceItem,
@@ -441,19 +498,27 @@ Item {
                 previewHeight: sourceItem.baseHeight
             })
         }
-        delegate.internalDragActive = groupedReorderController.beginDrag({
+        const started = groupedReorderController.beginDrag({
             sources: sources,
             payload: {
                 sourceDelegate: delegate,
                 itemType: delegate.itemType,
                 storageId: delegate.storageId,
-                dragNotes: draggedNotes
+                dragNotes: draggedNotes,
+                sourceRows: sourceRows
             },
             pointerItem: delegate,
             pointerLocalX: delegate.width / 2,
             pointerLocalY: delegate.baseHeight / 2,
             targetByDraggedTop: true
         })
+        delegate.internalDragActive = started
+        if (started) {
+            selectedNotes = ({})
+            selectionAnchorKey = ""
+            delegate.suppressClickUntil = Date.now() + 500
+            notesTree.selectionModel.clearSelection()
+        }
     }
 
     function updateGroupedDrag(delegate, dx, dy) {
@@ -485,6 +550,12 @@ Item {
             return
         delegate.internalDragActive = false
         groupedReorderController.finishDrag()
+    }
+
+    function cancelGroupedDrag() {
+        if (activeDragDelegate && activeDragDelegate.sourceDelegate)
+            activeDragDelegate.sourceDelegate.internalDragActive = false
+        groupedReorderController.cancelDrag()
     }
 
     function openSearch() {
@@ -775,12 +846,12 @@ Item {
                         visible: root.viewMode === root.groupedByStorageMode
                         clip: true
                         model: root.workspace.groupedNotesModel
+                        // Row geometry stays fixed during reorder; neighboring
+                        // delegates move by transform, so TableView can reuse
+                        // items only for ordinary viewport scrolling.
+                        reuseItems: true
                         bottomMargin: root.touchActions ? 88 : 0
-                        rowHeightProvider: function(row) {
-                            const extent = root.groupedRowExtents[String(row)]
-                            return extent === undefined
-                                    ? (root.touchActions ? 44 : 34) : extent
-                        }
+                        rowHeightProvider: function(row) { return root.touchActions ? 44 : 34 }
                         Component.onCompleted: Qt.callLater(function() { expandRecursively(-1, 1) })
                         selectionModel: ItemSelectionModel { model: notesTree.model }
 
@@ -807,39 +878,50 @@ Item {
                             property bool internalDragActive: false
                             readonly property real baseHeight: root.touchActions ? 44 : 34
                             readonly property bool dragHovered: root.dropTargetDelegate === groupedDelegate
-                            readonly property bool noteSelected: itemType === 1
+                            readonly property bool storageDropHovered: itemType === 0
+                                                                       && dragHovered
+                                                                       && root.dropOnStorageHeader
+                            readonly property bool noteSelected: !root.dragSelectionSuppressed
+                                                                 && itemType === 1
                                                                  && root.noteIsSelected(storageId, noteId)
                             readonly property bool selectionCheckBoxVisible: itemType === 1
                                                                              && root.touchActions
                             readonly property bool partOfActiveDrag: root.activeDragDelegate
-                                    && (root.activeDragDelegate.sourceDelegate === groupedDelegate
-                                        || (root.draggedItemType === 0
-                                            && root.activeDragDelegate.storageId
-                                               === groupedDelegate.storageId)
+                                    && ((root.draggedItemType === 0
+                                         && root.activeDragDelegate.storageId
+                                            === groupedDelegate.storageId)
                                         || (root.draggedItemType === 1
                                             && groupedDelegate.itemType === 1
                                             && root.sourceContains(groupedDelegate.storageId,
                                                                    groupedDelegate.noteId)))
-                            readonly property bool dropBefore: dragHovered && !root.dropTargetAfter
-                            readonly property bool dropAfter: dragHovered && root.dropTargetAfter
+                            readonly property bool dropBefore: dragHovered
+                                                               && !root.dropOnStorageHeader
+                                                               && !root.dropTargetAfter
+                            readonly property bool dropAfter: dragHovered
+                                                              && !root.dropOnStorageHeader
+                                                              && root.dropTargetAfter
                             readonly property alias collapseSpace: groupedDisplacement.collapseSpace
                             readonly property alias dropSpace: groupedDisplacement.beforeSpace
                             readonly property alias dropAfterSpace: groupedDisplacement.afterSpace
-                            readonly property alias animatedDropSpace: groupedDisplacement.dropSpace
-                            readonly property alias reorderLayoutExtent: groupedDisplacement.layoutExtent
+                            readonly property alias reorderOffset: groupedDisplacement.displacement
 
                             objectName: "groupedDelegate-" + storageId + "-" + noteId
                             width: notesTree.width
                             implicitHeight: baseHeight
-                            hoverEnabled: true
-                            highlighted: itemType === 0
-                                         ? root.selectedStorageId === storageId && root.selectedNoteId.length === 0
-                                         : root.selectedStorageId === storageId && root.selectedNoteId === noteId
+                            hoverEnabled: !root.dragSelectionSuppressed
+                            highlighted: !root.dragSelectionSuppressed
+                                         && (itemType === 0
+                                             ? root.selectedStorageId === storageId
+                                               && root.selectedNoteId.length === 0
+                                             : root.selectedStorageId === storageId
+                                               && root.selectedNoteId === noteId)
                             leftPadding: 0
                             rightPadding: 0
-                            topPadding: dropSpace
-                            bottomPadding: dropAfterSpace
-                            ToolTip.visible: hovered && (errorString.length > 0 || preview.length > 0)
+                            topPadding: 0
+                            bottomPadding: 0
+                            transform: Translate { y: groupedDelegate.reorderOffset }
+                            ToolTip.visible: !root.dragSelectionSuppressed && hovered
+                                             && (errorString.length > 0 || preview.length > 0)
                             ToolTip.text: errorString.length > 0 ? errorString : preview
 
                             ReorderDisplacement {
@@ -851,34 +933,19 @@ Item {
                                 targetBefore: groupedDelegate.dropBefore
                                 targetAfter: groupedDelegate.dropAfter
                                 naturalExtent: groupedDelegate.baseHeight
-                                // Each collapsed TreeView row keeps one physical pixel
-                                // so the delegate cannot be recycled during the gesture.
-                                draggedExtent: Math.max(
-                                    0, root.draggedExtent
-                                       - groupedReorderController.sourceEntries.length)
+                                draggedExtent: root.draggedExtent
+                                displacement: root.groupedRowTranslation(groupedDelegate)
                             }
 
-                            onReorderLayoutExtentChanged: {
-                                if (groupedReorderController.dragging)
-                                    root.updateGroupedRowExtent(row, reorderLayoutExtent)
-                            }
-
-                            onRowChanged: {
-                                if (groupedReorderController.dragging)
-                                    root.updateGroupedRowExtent(row, reorderLayoutExtent)
-                            }
-
-                            TableView.onReused: {
-                                if (groupedReorderController.dragging)
-                                    root.updateGroupedRowExtent(row, reorderLayoutExtent)
+                            Component.onDestruction: {
+                                if (internalDragActive)
+                                    root.cancelGroupedDrag()
                             }
 
                             background: Rectangle {
                                 radius: 4
-                                color: groupedDelegate.dragHovered
-                                       ? Qt.rgba(groupedDelegate.palette.highlight.r,
-                                                 groupedDelegate.palette.highlight.g,
-                                                 groupedDelegate.palette.highlight.b, 0.28)
+                                color: groupedDelegate.storageDropHovered
+                                       ? Qt.rgba(0.30, 0.76, 0.38, 0.34)
                                        : groupedDelegate.highlighted
                                        ? groupedDelegate.palette.highlight
                                        : groupedDelegate.noteSelected
@@ -886,13 +953,13 @@ Item {
                                                  groupedDelegate.palette.highlight.g,
                                                  groupedDelegate.palette.highlight.b, 0.38)
                                        : (groupedDelegate.hovered ? Qt.rgba(groupedDelegate.palette.button.r, groupedDelegate.palette.button.g, groupedDelegate.palette.button.b, 0.45) : "transparent")
-                                border.width: groupedDelegate.dragHovered ? 2 : 0
-                                border.color: groupedDelegate.palette.highlight
+                                border.width: groupedDelegate.storageDropHovered ? 2 : 0
+                                border.color: Qt.rgba(0.22, 0.68, 0.30, 0.95)
 
                                 Rectangle {
                                     anchors.left: parent.left
                                     anchors.right: parent.right
-                                    y: Math.max(0, groupedDelegate.dropSpace - height)
+                                    y: 0
                                     height: 3
                                     visible: groupedDelegate.dropBefore
                                     color: groupedDelegate.palette.highlight
@@ -901,7 +968,7 @@ Item {
                                 Rectangle {
                                     anchors.left: parent.left
                                     anchors.right: parent.right
-                                    y: parent.height - groupedDelegate.dropAfterSpace
+                                    y: parent.height - height
                                     height: 3
                                     visible: groupedDelegate.dropAfter
                                     color: groupedDelegate.palette.highlight
@@ -1007,6 +1074,7 @@ Item {
                                 acceptedButtons: Qt.LeftButton
                                 acceptedDevices: PointerDevice.Mouse
                                 enabled: groupedDelegate.itemType === 1 && root.embeddedEditor
+                                         && !root.dragSelectionSuppressed
                                 onDoubleTapped: root.openStandalone(groupedDelegate.storageId,
                                                                      groupedDelegate.noteId)
                             }
@@ -1017,6 +1085,7 @@ Item {
                                 acceptedButtons: Qt.LeftButton
                                 acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                                 enabled: groupedDelegate.itemType === 1 && !root.touchActions
+                                         && !root.dragSelectionSuppressed
                                 gesturePolicy: TapHandler.DragThreshold
                                 onTapped: function(eventPoint, button) {
                                     groupedDelegate.suppressClickUntil = Date.now() + 100
@@ -1026,6 +1095,8 @@ Item {
                             }
 
                             onClicked: {
+                                if (root.dragSelectionSuppressed)
+                                    return
                                 if (Date.now() < suppressClickUntil) {
                                     suppressClickUntil = 0
                                     return

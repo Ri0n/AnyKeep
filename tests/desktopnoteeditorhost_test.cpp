@@ -1,3 +1,4 @@
+#include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -151,6 +152,7 @@ private slots:
                 property bool noteInsertAfter: workspace.noteInsertAfter
                 property int movedStorages: workspace.movedStorages
                 property string storageDestination: workspace.storageDestination
+                property string lastDraggedNoteId: ""
 
                 QtObject {
                     id: workspace
@@ -270,31 +272,80 @@ private slots:
         QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-a\nnote-a2")));
         QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-b\nnote-b")));
 
-        const auto drag
-            = [&quick, root, preview, page, &delegate](QQuickItem *source, QQuickItem *destination, int previewItems) {
-                  auto         *rootItem = qobject_cast<QQuickItem *>(root);
-                  const QPointF from = source->mapToItem(rootItem, QPointF(source->width() / 2, source->height() / 2));
-                  const QPointF to
-                      = destination->mapToItem(rootItem, QPointF(destination->width() / 2, destination->height() / 2));
-                  QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, from.toPoint());
-                  for (int step = 1; step <= 8; ++step)
-                      QTest::mouseMove(&quick, (from + (to - from) * (qreal(step) / 8)).toPoint(), 15);
-                  QTRY_COMPARE(preview->property("previewCount").toInt(), previewItems);
-                  QTRY_VERIFY(source->property("collapseSpace").toReal() > 0);
-                  QObject *dropTarget = nullptr;
-                  QTRY_VERIFY((dropTarget = page->property("dropTargetDelegate").value<QObject *>()));
-                  QTRY_VERIFY(dropTarget->property("dragHovered").toBool());
-                  QTRY_VERIFY(dropTarget->property("dropSpace").toReal() > 0
-                              || dropTarget->property("dropAfterSpace").toReal() > 0);
-                  QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, to.toPoint());
-                  QTRY_COMPARE(preview->property("previewCount").toInt(), 0);
-                  for (int row = 0; row < 5; ++row) {
-                      if (auto *item = delegate(page, row))
-                          QTRY_COMPARE(item->height(), item->property("baseHeight").toReal());
-                  }
-              };
+        const auto delegateForNote = [&delegate, page, tree](const QString &noteId) -> QQuickItem * {
+            for (int row = 0; row < tree->property("rows").toInt(); ++row) {
+                if (auto *item = delegate(page, row);
+                    item && item->property("noteId").toString() == noteId && item->property("itemType").toInt() == 1) {
+                    return item;
+                }
+            }
+            return nullptr;
+        };
+        const auto waitFor = [](const std::function<bool()> &condition, int timeout = 1500) {
+            QElapsedTimer timer;
+            timer.start();
+            while (!condition() && timer.elapsed() < timeout)
+                QTest::qWait(10);
+            return condition();
+        };
+        const auto drag = [&quick, root, preview, page, tree, &delegate,
+                           &waitFor](QQuickItem *source, QQuickItem *destination, int previewItems) {
+            if (!source || !destination)
+                return false;
+            auto         *rootItem = qobject_cast<QQuickItem *>(root);
+            const QPointF from     = source->mapToItem(rootItem, QPointF(source->width() / 2, source->height() / 2));
+            QPointF to = destination->mapToItem(rootItem, QPointF(destination->width() / 2, destination->height() / 2));
+            to.ry() += from.y() < to.y() ? destination->height() / 2 - 2 : -destination->height() / 2 + 2;
+            QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, from.toPoint());
+            for (int step = 1; step <= 8; ++step)
+                QTest::mouseMove(&quick, (from + (to - from) * (qreal(step) / 8)).toPoint(), 15);
+            if (!waitFor([&]() { return preview->property("previewCount").toInt() == previewItems; }))
+                return false;
+            const auto animatedSource = [&]() {
+                for (int row = 0; row < tree->property("rows").toInt(); ++row) {
+                    if (auto *item = delegate(page, row); item && item->property("partOfActiveDrag").toBool()
+                        && item->property("collapseSpace").toReal() > 0) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            if (!waitFor(animatedSource))
+                return false;
+            root->setProperty("lastDraggedNoteId", page->property("activeDraggedNoteId"));
+            QObject *dropTarget = nullptr;
+            if (!waitFor([&]() {
+                    dropTarget = page->property("dropTargetDelegate").value<QObject *>();
+                    return dropTarget && dropTarget->property("dragHovered").toBool()
+                        && (dropTarget->property("dropSpace").toReal() > 0
+                            || dropTarget->property("dropAfterSpace").toReal() > 0);
+                })) {
+                return false;
+            }
+            const auto displacedNeighbor = [&]() {
+                for (int row = 0; row < tree->property("rows").toInt(); ++row) {
+                    if (auto *item = delegate(page, row); item && !item->property("partOfActiveDrag").toBool()
+                        && qAbs(item->property("reorderOffset").toReal()) > 1) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            if (!waitFor(displacedNeighbor))
+                return false;
+            QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, to.toPoint());
+            return waitFor([&]() {
+                if (preview->property("previewCount").toInt() != 0)
+                    return false;
+                for (int row = 0; row < tree->property("rows").toInt(); ++row)
+                    if (auto *item = delegate(page, row);
+                        item && qAbs(item->property("reorderOffset").toReal()) > 0.5) {
+                        return false;
+                    }
+                return true;
+            });
+        };
 
-        page->setProperty("selectedNotes", QVariantMap());
         const auto contentOrigin = [root](QQuickItem *item) {
             auto *content
                 = item ? qobject_cast<QQuickItem *>(item->property("contentItem").value<QObject *>()) : nullptr;
@@ -306,6 +357,12 @@ private slots:
         QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
         QTest::mouseMove(&quick, earlyDragPoint.toPoint(), 15);
         QTRY_COMPARE(preview->property("previewCount").toInt(), 1);
+        QTRY_VERIFY(page->property("dragSelectionSuppressed").toBool());
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 0);
+        QTRY_VERIFY(!noteA->property("highlighted").toBool());
+        QTRY_VERIFY(!noteA2->property("highlighted").toBool());
+        QTRY_VERIFY(!noteA->property("hoverEnabled").toBool());
+        QTRY_VERIFY(!noteA2->property("hoverEnabled").toBool());
         QTest::qWait(220);
         QTRY_VERIFY(noteA2->property("dropSpace").toReal() > 0);
         QCOMPARE(noteA2->property("dropAfterSpace").toReal(), 0.0);
@@ -330,27 +387,107 @@ private slots:
         QVERIFY((contentOrigin(storageB) - storageBOriginBeforeEarlyDrag).manhattanLength() < 1);
         QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, crossedHalfPoint.toPoint());
         QTRY_COMPARE(preview->property("previewCount").toInt(), 0);
+        QTRY_VERIFY(!page->property("dragSelectionSuppressed").toBool());
         QTRY_VERIFY((noteA = delegate(page, 1)));
         QTRY_VERIFY((noteA2 = delegate(page, 2)));
         QTRY_VERIFY((storageB = delegate(page, 3)));
         QTRY_VERIFY((noteB = delegate(page, 4)));
         QTRY_COMPARE(noteA->height(), noteA->property("baseHeight").toReal());
 
-        drag(noteA, noteA2, 1);
-        QTRY_COMPARE(root->property("movedNotes").toInt(), 1);
-        QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-a"));
-        QCOMPARE(root->property("noteAnchor").toString(), QStringLiteral("note-a2"));
-        QVERIFY(root->property("noteInsertAfter").toBool());
+        const auto modelRowForNote = [&notesModel](const QString &noteId) {
+            for (int row = 0; row < notesModel.rowCount(); ++row) {
+                if (notesModel.index(row, 0).data(Qt::UserRole + 2).toString() == noteId)
+                    return row;
+            }
+            return -1;
+        };
+        const auto applyRecordedMove = [&]() {
+            const QString movedId  = root->property("lastDraggedNoteId").toString();
+            const QString anchorId = root->property("noteAnchor").toString();
+            int           movedRow = modelRowForNote(movedId);
+            QVERIFY(movedRow >= 0);
+            auto movedItems = notesModel.takeRow(movedRow);
+            int  anchorRow  = modelRowForNote(anchorId);
+            QVERIFY(anchorRow >= 0);
+            const int insertionRow = anchorRow + (root->property("noteInsertAfter").toBool() ? 1 : 0);
+            notesModel.insertRow(insertionRow, movedItems);
+        };
 
-        drag(noteA, noteB, 1);
+        // Exercise delegate replacement between gestures. This is what real
+        // storage notifications do after every successful reorder.
+        for (int iteration = 0; iteration < 6; ++iteration) {
+            const QString firstId  = notesModel.index(1, 0).data(Qt::UserRole + 2).toString();
+            const QString secondId = notesModel.index(2, 0).data(Qt::UserRole + 2).toString();
+            QQuickItem   *first    = nullptr;
+            QQuickItem   *second   = nullptr;
+            QTRY_VERIFY((first = delegateForNote(firstId)));
+            QTRY_VERIFY((second = delegateForNote(secondId)));
+            QVERIFY2(drag(first, second, 1), "A repeated note drag did not keep its animated displacement");
+            QTRY_COMPARE(root->property("movedNotes").toInt(), 1);
+            QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-a"));
+            QVERIFY(!root->property("lastDraggedNoteId").toString().isEmpty());
+            QVERIFY(root->property("lastDraggedNoteId").toString() != root->property("noteAnchor").toString());
+            applyRecordedMove();
+            QTRY_VERIFY(delegate(page, 1));
+            QTRY_VERIFY(delegate(page, 2));
+        }
+
+        QTRY_VERIFY((noteA = delegateForNote(QStringLiteral("note-a"))));
+        QTRY_VERIFY((noteA2 = delegateForNote(QStringLiteral("note-a2"))));
+        QTRY_VERIFY((storageB = delegate(page, 3)));
+        QTRY_VERIFY((noteB = delegateForNote(QStringLiteral("note-b"))));
+
+        QVERIFY(drag(noteA, noteB, 1));
         QTRY_COMPARE(root->property("movedNotes").toInt(), 1);
         QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-b"));
         QCOMPARE(root->property("noteAnchor").toString(), QStringLiteral("note-b"));
         QVERIFY(root->property("noteInsertAfter").toBool());
 
-        drag(storageA, storageB, 3);
+        QTRY_VERIFY((storageA = delegate(page, 0)));
+        QTRY_VERIFY((storageB = delegate(page, 3)));
+        QVERIFY(drag(storageA, storageB, 3));
         QTRY_COMPARE(root->property("movedStorages").toInt(), 1);
         QCOMPARE(root->property("storageDestination").toString(), QStringLiteral("storage-b"));
+
+        // Keep target notes visible while their storage header is above the
+        // viewport. Drop boundaries must still be attributed to storage A.
+        auto storageBRow = notesModel.takeRow(3);
+        auto noteBRow    = notesModel.takeRow(3);
+        for (int index = 0; index < 14; ++index)
+            appendItem(QStringLiteral("storage-a"), QStringLiteral("scroll-note-%1").arg(index), 1,
+                       QStringLiteral("Scroll note %1").arg(index));
+        notesModel.appendRow(storageBRow);
+        notesModel.appendRow(noteBRow);
+        QTRY_COMPARE(tree->property("rows").toInt(), 19);
+        tree->setProperty("contentY", qMax(0.0, tree->property("contentHeight").toReal() - tree->height()));
+        QTRY_VERIFY(delegate(page, 0) == nullptr);
+
+        QQuickItem *scrolledSource = nullptr;
+        QQuickItem *scrolledTarget = nullptr;
+        QTRY_VERIFY((scrolledSource = delegateForNote(QStringLiteral("note-b"))));
+        QTRY_VERIFY((scrolledTarget = delegateForNote(QStringLiteral("scroll-note-12"))));
+        QVERIFY2(drag(scrolledSource, scrolledTarget, 1),
+                 "Notes whose storage header is scrolled out must remain valid animated drop targets");
+        QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-a"));
+
+        QQuickItem *visibleStorageB = nullptr;
+        QTRY_VERIFY((visibleStorageB = delegate(page, 17)));
+        const auto    rootItem = qobject_cast<QQuickItem *>(root);
+        const QPointF sourcePoint
+            = scrolledTarget->mapToItem(rootItem, QPointF(scrolledTarget->width() / 2, scrolledTarget->height() / 2));
+        const QPointF headerPoint = visibleStorageB->mapToItem(
+            rootItem, QPointF(visibleStorageB->width() / 2, visibleStorageB->height() / 2));
+        QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, sourcePoint.toPoint());
+        for (int step = 1; step <= 8; ++step)
+            QTest::mouseMove(&quick, (sourcePoint + (headerPoint - sourcePoint) * (qreal(step) / 8)).toPoint(), 15);
+        QTRY_VERIFY(visibleStorageB->property("storageDropHovered").toBool());
+        QVERIFY(!visibleStorageB->property("dropBefore").toBool());
+        QVERIFY(!visibleStorageB->property("dropAfter").toBool());
+        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, headerPoint.toPoint());
+        QTRY_VERIFY(!page->property("dragSelectionSuppressed").toBool());
+        QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-b"));
+        QCOMPARE(root->property("noteAnchor").toString(), QString());
+        QVERIFY(!root->property("noteInsertAfter").toBool());
     }
 
     void customSpellingDictionaryPersistsAndCanBeEdited()
