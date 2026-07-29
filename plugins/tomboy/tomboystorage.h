@@ -44,6 +44,7 @@ public:
     // Tomboy has tags but no folder/notebook contract that QtNote can safely
     // extend. Folder membership is kept in QtNote's encrypted local overlay.
     bool supportsNativeFolders() const override { return false; }
+    bool supportsFolderRuleOverlayImport() const override { return true; }
 
     Note createNote() override;
     Note note(const QString &id) override;

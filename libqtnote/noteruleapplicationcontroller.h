@@ -7,6 +7,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QSet>
 
 namespace QtNote {
 
@@ -15,11 +16,14 @@ class FolderCatalogManager;
 class FolderOperationsController;
 class NoteManager;
 class NoteRuleManager;
+class NoteStorage;
 
 /**
- * Applies routing rules only at the draft publication boundary. This prevents
+ * Applies routing rules at the draft publication boundary. This prevents
  * merely reading a remote note from changing it or creating cross-device
- * rule loops. The controller mutates the persisted draft before DraftManager
+ * rule loops. The only separate path is an explicit provider opt-in for a
+ * local folder-overlay import; it cannot perform provider writes or storage
+ * routing. The controller mutates the persisted draft before DraftManager
  * starts any storage operation, then records successful rule outcomes after
  * publication is acknowledged.
  */
@@ -53,17 +57,32 @@ private:
     FolderOperationsController *folderOperations_ { nullptr };
     QHash<QUuid, PendingMarkers> publicationMarkers_;
     QHash<QString, PendingMarkers> pendingMarkers_;
+    QSet<QString> pendingFolderOverlayStorageIds_;
+    QSet<QString> pendingFolderOverlayLoads_;
     bool markerFlushScheduled_ { false };
+    bool folderOverlayImportScheduled_ { false };
     bool initialized_ { false };
 
-    DraftStoreError          routeDraft(DraftRecord *record);
-    void                     handleDraftPublished(const QUuid &draftId, const Note &note);
-    void                     flushMarkers();
-    void                     enqueueMarkers(const QList<QUuid> &ruleIds, const NoteRuleEvaluationInput &input);
-    void                     reportFailure(const QString &storageId, const QString &noteId, const QString &message);
-    NoteRuleEvaluation       evaluateRules(const NoteRuleEvaluationInput &input) const;
-    NoteRuleEvaluationInput  evaluationInput(const DraftRecord &record) const;
-    static QString           markerBatchKey(const NoteRuleEvaluationInput &input);
+    DraftStoreError         routeDraft(DraftRecord *record);
+    void                    handleDraftPublished(const QUuid &draftId, const Note &note);
+    void                    flushMarkers();
+    void                    enqueueMarkers(const QList<QUuid> &ruleIds, const NoteRuleEvaluationInput &input);
+    void                    queueFolderOverlayImport(const QString &storageId);
+    void                    queueAllFolderOverlayImports();
+    void                    processFolderOverlayImports();
+    void                    importFolderOverlays(const QString &storageId);
+    void                    loadAndImportFolderOverlay(const QString &storageId, const QString &noteId);
+    void                    applyFolderOverlayRules(const Note &note);
+    void                    applyFolderOverlayEvaluation(const NoteRuleEvaluationInput &input,
+                                                          const NoteRuleEvaluation      &evaluation);
+    bool                    supportsFolderOverlayImport(const QString &storageId) const;
+    void                    reportFailure(const QString &storageId, const QString &noteId, const QString &message);
+    NoteRuleEvaluation      evaluateRules(const NoteRuleEvaluationInput &input) const;
+    NoteRuleEvaluation      evaluateFolderOverlayRules(const NoteRuleEvaluationInput &input) const;
+    NoteRuleEvaluationInput evaluationInput(const DraftRecord &record) const;
+    static NoteRuleEvaluationInput overlayInput(const Note &note);
+    static QString          markerBatchKey(const NoteRuleEvaluationInput &input);
+    static QString          overlayLoadKey(const QString &storageId, const QString &noteId);
 };
 
 } // namespace QtNote

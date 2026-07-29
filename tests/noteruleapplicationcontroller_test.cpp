@@ -68,6 +68,7 @@ public:
     bool                isAccessible() const override { return true; }
     QList<Note::Format> availableFormats() const override { return { Note::Markdown }; }
     bool                supportsMedia() const override { return true; }
+    bool                supportsFolderRuleOverlayImport() const override { return importsFolderRules_; }
     QList<Note>         noteList(int limit = 0) override { return limit > 0 ? notes_.mid(0, limit) : notes_; }
     Note                note(const QString &id) override
     {
@@ -87,6 +88,7 @@ public:
 
     bool saveNote(const Note &note) override
     {
+        ++saveCalls_;
         auto saved = note;
         if (saved.id().isEmpty())
             saved.setId(QStringLiteral("%1-%2").arg(id_).arg(++nextId_));
@@ -125,6 +127,8 @@ public:
     }
 
     QList<Note> notes_;
+    bool        importsFolderRules_ { false };
+    int         saveCalls_ { 0 };
 
 private:
     QString id_;
@@ -201,6 +205,18 @@ NoteRule storageRule(const QString &destinationStorageId, const QString &pattern
     return rule;
 }
 
+NoteRule textFolderRule(const QUuid &folderId, const QString &text)
+{
+    NoteRule rule;
+    rule.name       = QStringLiteral("Text folder rule");
+    rule.conditions = { { NoteRuleConditionKind::TextContains, text, false } };
+    NoteRuleAction action;
+    action.kind     = NoteRuleActionKind::AssignFolder;
+    action.folderId = folderId;
+    rule.actions    = { action };
+    return rule;
+}
+
 } // namespace
 
 class NoteRuleApplicationControllerTest : public QObject {
@@ -213,6 +229,7 @@ private slots:
     void routesNewDraftBeforeItsFirstSave();
     void preservesExplicitFolderChoiceDuringPublication();
     void loadingANoteDoesNotRunRules();
+    void importsFolderOnlyFromOptInStorage();
 };
 
 void NoteRuleApplicationControllerTest::initTestCase()
@@ -427,6 +444,47 @@ void NoteRuleApplicationControllerTest::loadingANoteDoesNotRunRules()
 
     QVERIFY(folders.catalog().folderForNote(raw->systemName(), note.id()).isNull());
     QVERIFY(!rules.wasApplied(rules.rules().constFirst().id, inputFor(readyDraft(note))));
+}
+
+void NoteRuleApplicationControllerTest::importsFolderOnlyFromOptInStorage()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto key = SecureEnvelope::generateMasterKey();
+    FolderCatalogManager folders(std::make_unique<FileFolderCatalogStore>(
+        directory.filePath(QStringLiteral("folders.bin")), key));
+    QVERIFY(folders.initialize());
+    const auto imported = folders.addFolder(folder(QStringLiteral("Imported")));
+    QVERIFY(imported);
+    NoteRuleManager rules(std::make_unique<FileNoteRuleStore>(directory.filePath(QStringLiteral("rules.bin")), key));
+    QVERIFY(rules.initialize());
+    QVERIFY(rules.addRule(textFolderRule(imported.value, QStringLiteral("classified"))));
+    QVERIFY(rules.addRule(storageRule(QStringLiteral("rule-overlay-destination"), QStringLiteral("*"))));
+
+    auto sourceStorage = std::make_unique<RuleStorage>(QStringLiteral("rule-overlay-source"));
+    sourceStorage->importsFolderRules_ = true;
+    const auto note = sourceStorage->add(QStringLiteral("note"), QStringLiteral("Imported note"),
+                                         QStringLiteral("classified body"));
+    auto destinationStorage = std::make_unique<RuleStorage>(QStringLiteral("rule-overlay-destination"));
+
+    auto store = std::make_unique<MemoryDraftStore>();
+    DraftManager drafts(std::move(store));
+    NoteRuleApplicationController controller(&rules, &folders, NoteManager::instance(), &drafts);
+    controller.initialize();
+
+    auto *sourceRaw      = registerStorage(std::move(sourceStorage));
+    auto *destinationRaw = registerStorage(std::move(destinationStorage));
+    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(sourceRaw->systemName()) == sourceRaw)
+            manager->unregisterStorage(sourceRaw);
+        if (manager->storage(destinationRaw->systemName()) == destinationRaw)
+            manager->unregisterStorage(destinationRaw);
+    });
+
+    QTRY_COMPARE(folders.catalog().folderForNote(sourceRaw->systemName(), note.id()), imported.value);
+    QCOMPARE(sourceRaw->saveCalls_, 0);
+    QCOMPARE(destinationRaw->notes_.size(), 0);
 }
 
 QTEST_GUILESS_MAIN(NoteRuleApplicationControllerTest)

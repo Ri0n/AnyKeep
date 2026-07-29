@@ -4,8 +4,11 @@
 #include "foldercatalogmanager.h"
 #include "folderoperationscontroller.h"
 #include "notemanager.h"
+#include "notesindex.h"
 #include "noterulemanager.h"
+#include "notestorage.h"
 
+#include <algorithm>
 #include <QCoreApplication>
 #include <QLoggingCategory>
 #include <QTimer>
@@ -47,12 +50,35 @@ void NoteRuleApplicationController::initialize()
         return;
     initialized_ = true;
 
-    if (!draftManager_)
-        return;
-    draftManager_->setPrePublicationHandler(
-        [this](DraftRecord *record) { return routeDraft(record); });
-    connect(draftManager_, &DraftManager::draftPublished, this,
-            [this](const QUuid &draftId, const Note &note) { handleDraftPublished(draftId, note); });
+    if (draftManager_) {
+        draftManager_->setPrePublicationHandler(
+            [this](DraftRecord *record) { return routeDraft(record); });
+        connect(draftManager_, &DraftManager::draftPublished, this,
+                [this](const QUuid &draftId, const Note &note) { handleDraftPublished(draftId, note); });
+    }
+
+    if (noteManager_ && noteManager_->notesIndex()) {
+        connect(noteManager_->notesIndex(), &NotesIndex::storageNotesChanged, this,
+                [this](const QString &storageId) { queueFolderOverlayImport(storageId); });
+        connect(noteManager_, &NoteManager::storageRemoved, this, [this](const NoteStorage::Ptr &storage) {
+            if (storage)
+                pendingFolderOverlayStorageIds_.remove(storage->systemName());
+        });
+    }
+    if (ruleManager_) {
+        connect(ruleManager_, &NoteRuleManager::rulesChanged, this, &NoteRuleApplicationController::queueAllFolderOverlayImports);
+        connect(ruleManager_, &NoteRuleManager::availabilityChanged, this, [this](bool available) {
+            if (available)
+                queueAllFolderOverlayImports();
+        });
+    }
+    if (folderCatalogManager_) {
+        connect(folderCatalogManager_, &FolderCatalogManager::availabilityChanged, this, [this](bool available) {
+            if (available)
+                queueAllFolderOverlayImports();
+        });
+    }
+    queueAllFolderOverlayImports();
 }
 
 DraftStoreError NoteRuleApplicationController::routeDraft(DraftRecord *record)
@@ -168,6 +194,128 @@ void NoteRuleApplicationController::enqueueMarkers(const QList<QUuid> &ruleIds,
     QTimer::singleShot(0, this, &NoteRuleApplicationController::flushMarkers);
 }
 
+void NoteRuleApplicationController::queueFolderOverlayImport(const QString &storageId)
+{
+    if (!supportsFolderOverlayImport(storageId))
+        return;
+    pendingFolderOverlayStorageIds_.insert(storageId);
+    if (folderOverlayImportScheduled_)
+        return;
+    folderOverlayImportScheduled_ = true;
+    QTimer::singleShot(0, this, &NoteRuleApplicationController::processFolderOverlayImports);
+}
+
+void NoteRuleApplicationController::queueAllFolderOverlayImports()
+{
+    if (!noteManager_)
+        return;
+    for (const auto &storage : noteManager_->storages()) {
+        if (storage)
+            queueFolderOverlayImport(storage->systemName());
+    }
+}
+
+void NoteRuleApplicationController::processFolderOverlayImports()
+{
+    folderOverlayImportScheduled_ = false;
+    const auto storageIds         = std::exchange(pendingFolderOverlayStorageIds_, {});
+    for (const auto &storageId : storageIds)
+        importFolderOverlays(storageId);
+}
+
+void NoteRuleApplicationController::importFolderOverlays(const QString &storageId)
+{
+    if (!ruleManager_ || !ruleManager_->isAvailable() || !folderCatalogManager_
+        || !folderCatalogManager_->isAvailable() || !noteManager_ || !noteManager_->notesIndex()
+        || !supportsFolderOverlayImport(storageId)) {
+        return;
+    }
+
+    for (const auto &note : noteManager_->notesIndex()->notes(storageId))
+        applyFolderOverlayRules(note);
+}
+
+void NoteRuleApplicationController::loadAndImportFolderOverlay(const QString &storageId, const QString &noteId)
+{
+    if (!noteManager_ || !supportsFolderOverlayImport(storageId) || noteId.isEmpty())
+        return;
+    const auto key = overlayLoadKey(storageId, noteId);
+    if (pendingFolderOverlayLoads_.contains(key))
+        return;
+    pendingFolderOverlayLoads_.insert(key);
+
+    auto *job = noteManager_->loadNoteAsync(storageId, noteId, this);
+    const auto finished = [this, job, key, storageId, noteId]() {
+        pendingFolderOverlayLoads_.remove(key);
+        if (job->state() == StorageJob::Succeeded) {
+            if (supportsFolderOverlayImport(storageId))
+                applyFolderOverlayRules(job->result());
+        } else if (job->state() != StorageJob::Cancelled) {
+            reportFailure(storageId, noteId, job->error().message);
+        }
+        job->deleteLater();
+    };
+    connect(job, &StorageJob::finished, this, finished);
+    if (job->isFinished())
+        QTimer::singleShot(0, this, finished);
+}
+
+void NoteRuleApplicationController::applyFolderOverlayRules(const Note &note)
+{
+    const auto input = overlayInput(note);
+    if (input.storageId.isEmpty() || input.noteId.isEmpty() || !folderCatalogManager_
+        || !folderCatalogManager_->isAvailable()) {
+        return;
+    }
+
+    // An existing overlay is either an earlier import or a direct user choice.
+    // In both cases this restricted Tomboy pass must not overwrite it.
+    if (!folderCatalogManager_->catalog().folderForNote(input.storageId, input.noteId).isNull())
+        return;
+
+    const auto evaluation = evaluateFolderOverlayRules(input);
+    if (evaluation.error) {
+        reportFailure(input.storageId, input.noteId, evaluation.error.message);
+        return;
+    }
+    if (evaluation.requiresText) {
+        if (!input.textAvailable)
+            loadAndImportFolderOverlay(input.storageId, input.noteId);
+        else
+            reportFailure(input.storageId, input.noteId, tr("A folder rule could not evaluate note text"));
+        return;
+    }
+    applyFolderOverlayEvaluation(input, evaluation);
+}
+
+void NoteRuleApplicationController::applyFolderOverlayEvaluation(const NoteRuleEvaluationInput &input,
+                                                                  const NoteRuleEvaluation      &evaluation)
+{
+    if (!evaluation.folderId || evaluation.folderId->isNull())
+        return;
+    if (!folderCatalogManager_ || !folderCatalogManager_->isAvailable())
+        return;
+    if (!folderCatalogManager_->catalog().folder(*evaluation.folderId)) {
+        reportFailure(input.storageId, input.noteId, tr("A rule refers to a folder that no longer exists"));
+        return;
+    }
+    if (!folderCatalogManager_->catalog().folderForNote(input.storageId, input.noteId).isNull())
+        return;
+    if (!folderOperations_->storeOverlayAssignment(input.storageId, input.noteId, *evaluation.folderId)) {
+        reportFailure(input.storageId, input.noteId, folderOperations_->errorString());
+        return;
+    }
+    enqueueMarkers(evaluation.matchedRuleIds, input);
+}
+
+bool NoteRuleApplicationController::supportsFolderOverlayImport(const QString &storageId) const
+{
+    if (!noteManager_ || storageId.isEmpty())
+        return false;
+    const auto storage = noteManager_->storage(storageId);
+    return storage && storage->supportsFolderRuleOverlayImport();
+}
+
 void NoteRuleApplicationController::reportFailure(const QString &storageId, const QString &noteId,
                                                    const QString &message)
 {
@@ -185,6 +333,24 @@ NoteRuleEvaluation NoteRuleApplicationController::evaluateRules(const NoteRuleEv
     return ruleManager_ ? ruleManager_->evaluate(input) : NoteRuleEvaluation {};
 }
 
+NoteRuleEvaluation NoteRuleApplicationController::evaluateFolderOverlayRules(
+    const NoteRuleEvaluationInput &input) const
+{
+    if (!ruleManager_ || !ruleManager_->isAvailable())
+        return {};
+
+    QList<NoteRule> folderRules;
+    for (auto rule : ruleManager_->rules()) {
+        rule.actions.erase(std::remove_if(rule.actions.begin(), rule.actions.end(), [](const NoteRuleAction &action) {
+                               return action.kind != NoteRuleActionKind::AssignFolder;
+                           }),
+                           rule.actions.end());
+        if (!rule.actions.isEmpty())
+            folderRules.append(std::move(rule));
+    }
+    return NoteRuleEvaluator::evaluate(folderRules, input);
+}
+
 NoteRuleEvaluationInput NoteRuleApplicationController::evaluationInput(const DraftRecord &record) const
 {
     NoteRuleEvaluationInput input;
@@ -199,10 +365,28 @@ NoteRuleEvaluationInput NoteRuleApplicationController::evaluationInput(const Dra
     return input;
 }
 
+NoteRuleEvaluationInput NoteRuleApplicationController::overlayInput(const Note &note)
+{
+    NoteRuleEvaluationInput input;
+    input.storageId    = note.storageId();
+    input.noteId       = note.id();
+    input.title        = note.title();
+    input.tags         = note.tags();
+    input.textAvailable = note.isLoaded();
+    if (input.textAvailable)
+        input.text = note.text();
+    return input;
+}
+
 QString NoteRuleApplicationController::markerBatchKey(const NoteRuleEvaluationInput &input)
 {
     return input.storageId + QChar(0x1f) + input.noteId + QChar(0x1f)
         + QString::fromLatin1(NoteRuleEvaluator::inputFingerprint(input).toHex());
+}
+
+QString NoteRuleApplicationController::overlayLoadKey(const QString &storageId, const QString &noteId)
+{
+    return storageId + QChar(0x1f) + noteId;
 }
 
 } // namespace QtNote

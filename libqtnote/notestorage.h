@@ -68,6 +68,11 @@ public:
     // assignment independently from its body.  Providers without it use the
     // encrypted application-local overlay instead.
     virtual bool supportsNativeFolders() const { return false; }
+    // This opt-in is deliberately narrower than generic rule execution on a
+    // loaded note. A provider returning true permits only the local,
+    // folder-assignment overlay import pass; it never permits a rule to save,
+    // move, or otherwise modify provider data while it is being read.
+    virtual bool supportsFolderRuleOverlayImport() const { return false; }
     // Some providers can also transport stable UUID folder-tree records. The
     // returned snapshot is the provider's contribution to the global merge.
     virtual bool                  supportsNativeFolderCatalog() const { return false; }

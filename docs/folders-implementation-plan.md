@@ -536,12 +536,14 @@ semantics, are idempotent, and record their last successful publication result.
 Because a draft already contains complete text, text conditions never make a
 notes-list refresh load bodies in the background.
 
-Tomboy is the sole planned exception, with a deliberately separate local
-overlay import pass. When Tomboy notes are enumerated, that pass may evaluate
-only folder-assignment rules and write the encrypted QtNote overlay. It never
-edits Tomboy XML, never applies Select storage, and never turns a remote/import
-event into a provider write. This remains distinct from general publication
-routing and will be added with an explicit storage capability and tests.
+Tomboy is the sole explicit exception. Its opt-in local overlay import pass
+runs from the indexed Tomboy snapshot, evaluates only folder-assignment
+actions, and writes only the encrypted QtNote overlay for notes that do not
+already have a folder assignment. It never edits Tomboy XML, never applies
+Select storage, and never turns an import event into a provider write. Text
+conditions load only the individual Tomboy note needed for that local overlay
+decision. The capability is deliberately provider-specific rather than a
+generic "run rules on load" mechanism.
 
 ### Rule data model and editor
 
@@ -580,6 +582,11 @@ There is one general execution phase:
    transition; a cross-storage result is a durable destination-first transfer.
    Reading a note, including a network synchronization read, does not invoke
    this phase.
+
+The only non-publication path is the Tomboy `supportsFolderRuleOverlayImport`
+capability described above. It is a restricted folder-only projection of the
+rules, preserves existing overlay assignments, and is not a precedent for
+network or general storage imports.
 
 The evaluator receives an origin marker containing rule UUID, input
 revision/hash, and outcome. The persisted draft route makes retrying the same

@@ -1,8 +1,11 @@
 #include "filefoldercatalogstore.h"
+#include "filenoterulestore.h"
 #include "foldercatalogmanager.h"
 #include "folderoperationscontroller.h"
 #include "notemanager.h"
 #include "notesindex.h"
+#include "noteruleapplicationcontroller.h"
+#include "noterulemanager.h"
 #include "secureenvelope.h"
 #include "tomboystorage.h"
 
@@ -52,11 +55,13 @@ class TomboyFolderOverlayTest : public QObject {
 private slots:
     void initTestCase();
     void folderAssignmentNeverWritesTomboyFolderData();
+    void folderRulesCreateOnlyALocalOverlay();
 };
 
 void TomboyFolderOverlayTest::initTestCase()
 {
     QVERIFY2(FileFolderCatalogStore::cryptoAvailable(), "AES-256-GCM unavailable");
+    QVERIFY2(FileNoteRuleStore::cryptoAvailable(), "AES-256-GCM unavailable");
 }
 
 void TomboyFolderOverlayTest::folderAssignmentNeverWritesTomboyFolderData()
@@ -129,6 +134,77 @@ void TomboyFolderOverlayTest::folderAssignmentNeverWritesTomboyFolderData()
     const auto reloaded = raw->note(QStringLiteral("imported"));
     QVERIFY(!reloaded.isNull());
     QCOMPARE(reloaded.tags(), QStringList { QStringLiteral("personal") });
+}
+
+void TomboyFolderOverlayTest::folderRulesCreateOnlyALocalOverlay()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto notePath = directory.filePath(QStringLiteral("imported.note"));
+    QFile      noteFile(notePath);
+    QVERIFY(noteFile.open(QIODevice::WriteOnly));
+    QCOMPARE(noteFile.write(tomboyNoteXml().toUtf8()), tomboyNoteXml().toUtf8().size());
+    noteFile.close();
+    const auto originalXml = readFile(notePath);
+    QVERIFY(!originalXml.isEmpty());
+
+    QSettings      settings;
+    const auto     settingsKey     = QStringLiteral("storage.tomboy.path");
+    const QVariant previousPath    = settings.value(settingsKey);
+    const bool     hadPreviousPath = settings.contains(settingsKey);
+    const auto     restoreSettings = qScopeGuard([settingsKey, previousPath, hadPreviousPath]() {
+        QSettings restore;
+        if (hadPreviousPath)
+            restore.setValue(settingsKey, previousPath);
+        else
+            restore.remove(settingsKey);
+    });
+    settings.setValue(settingsKey, directory.path());
+
+    QTemporaryDir catalogDirectory;
+    QVERIFY(catalogDirectory.isValid());
+    const auto key = SecureEnvelope::generateMasterKey();
+    FolderCatalogManager catalog(std::make_unique<FileFolderCatalogStore>(
+        catalogDirectory.filePath(QStringLiteral("folders.bin")), key));
+    QVERIFY(catalog.initialize());
+    FolderRecord folder;
+    folder.name        = QStringLiteral("Imported Tomboy");
+    const auto created = catalog.addFolder(folder);
+    QVERIFY(created);
+
+    NoteRuleManager rules(std::make_unique<FileNoteRuleStore>(catalogDirectory.filePath(QStringLiteral("rules.bin")), key));
+    QVERIFY(rules.initialize());
+    NoteRule rule;
+    rule.name       = QStringLiteral("Import Tomboy folder");
+    rule.conditions = { { NoteRuleConditionKind::TitleMatches, QStringLiteral("Imported Tomboy*"), false } };
+    NoteRuleAction folderAction;
+    folderAction.kind     = NoteRuleActionKind::AssignFolder;
+    folderAction.folderId = created.value;
+    NoteRuleAction ignoredStorageAction;
+    ignoredStorageAction.kind      = NoteRuleActionKind::SelectStorage;
+    ignoredStorageAction.storageId = QStringLiteral("not-a-real-destination");
+    rule.actions                   = { folderAction, ignoredStorageAction };
+    QVERIFY(rules.addRule(rule));
+
+    auto *manager = NoteManager::instance();
+    QVERIFY(!manager->storage(TomboyStorage::storageId));
+    NoteRuleApplicationController controller(&rules, &catalog, manager);
+    controller.initialize();
+
+    auto  storage = std::make_unique<TomboyStorage>(nullptr);
+    auto *raw     = storage.get();
+    QVERIFY(raw->init());
+    QVERIFY(raw->supportsFolderRuleOverlayImport());
+    QSignalSpy providerWrites(raw, &NoteStorage::noteModified);
+    manager->registerStorage(std::move(storage));
+    const auto unregisterStorage = qScopeGuard([manager, raw]() {
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+
+    QTRY_COMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("imported")), created.value);
+    QCOMPARE(providerWrites.count(), 0);
+    QCOMPARE(readFile(notePath), originalXml);
 }
 
 QTEST_GUILESS_MAIN(TomboyFolderOverlayTest)
