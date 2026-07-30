@@ -613,6 +613,7 @@ private slots:
 
                 QtObject {
                     id: workspace
+                    objectName: "managerFoldersWorkspace"
                     property var groupedNotesModel: null
                     property var recentNotesModel: null
                     property var folderNotesModel: testFoldersModel
@@ -680,6 +681,25 @@ private slots:
         QQuickItem *foldersList = nullptr;
         QTRY_VERIFY((foldersList = quickItemByName(page, QStringLiteral("foldersList"))));
         QVERIFY(foldersList->isVisible());
+
+        auto *contextMenu = quick.rootObject()->findChild<QObject *>(QStringLiteral("noteContextMenu"));
+        auto *workspace   = quick.rootObject()->findChild<QObject *>(QStringLiteral("managerFoldersWorkspace"));
+        QVERIFY(contextMenu);
+        QVERIFY(workspace);
+
+        QObject *folderPicker = nullptr;
+        QTRY_VERIFY((folderPicker = quick.rootObject()->findChild<QObject *>(QStringLiteral("noteFolderPicker"))));
+        QVERIFY(!folderPicker->property("visible").toBool());
+        QCOMPARE(contextMenu->property("count").toInt(), 8);
+
+        QVERIFY(workspace->setProperty("folderCatalogAvailable", false));
+        QTRY_VERIFY(!quick.rootObject()->findChild<QObject *>(QStringLiteral("noteFolderPicker")));
+        QCOMPARE(contextMenu->property("count").toInt(), 7);
+
+        QVERIFY(workspace->setProperty("folderCatalogAvailable", true));
+        QTRY_VERIFY(quick.rootObject()->findChild<QObject *>(QStringLiteral("noteFolderPicker")));
+        QCOMPARE(contextMenu->property("count").toInt(), 8);
+        QVERIFY(!contextMenu->property("visible").toBool());
     }
 
     void notesManagerContextMenusAndInternalDragsWork()
