@@ -128,10 +128,10 @@ void FolderCatalogTest::sortsFavoritesBeforeOtherSiblings()
 void FolderCatalogTest::sortsArchivedAndRecycleBinAfterNormalFolders()
 {
     FolderCatalog catalog;
-    const auto    normal = catalog.addFolder(folder(QStringLiteral("Normal"), {}, 100));
+    const auto    normal         = catalog.addFolder(folder(QStringLiteral("Normal"), {}, 100));
     FolderRecord  archivedRecord = folder(QStringLiteral("Archived"), {}, -100);
-    archivedRecord.archived       = true;
-    const auto archived = catalog.addFolder(archivedRecord);
+    archivedRecord.archived      = true;
+    const auto archived          = catalog.addFolder(archivedRecord);
     QVERIFY(normal);
     QVERIFY(archived);
 
@@ -229,11 +229,11 @@ void FolderCatalogTest::retainsAssignmentTombstones()
 void FolderCatalogTest::recyclesAndRestoresNotesWithOriginalFolder()
 {
     FolderCatalog catalog;
-    const auto inbox = catalog.addFolder(folder(QStringLiteral("Inbox")));
+    const auto    inbox = catalog.addFolder(folder(QStringLiteral("Inbox")));
     QVERIFY(inbox);
 
     QVERIFY(!catalog.recycleNote(QStringLiteral("ptf"), QStringLiteral("note-1"), inbox.value));
-    const auto trash = FolderCatalog::recycleBinId();
+    const auto  trash       = FolderCatalog::recycleBinId();
     const auto *trashFolder = catalog.folder(trash);
     QVERIFY(trashFolder);
     QVERIFY(trashFolder->archived);

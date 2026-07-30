@@ -98,8 +98,7 @@ QtNoteDBus::QtNoteDBus(Main *qtnote, QObject *parent) : QObject(parent), m_qtnot
     // Folder flags determine which entries are exposed by menu consumers.
     // They live in the catalog rather than NoteManager, so notify D-Bus
     // clients explicitly when a folder is favorited, archived, moved, etc.
-    connect(FolderCatalogManager::instance(), &FolderCatalogManager::catalogChanged, this,
-            &QtNoteDBus::notesChanged);
+    connect(FolderCatalogManager::instance(), &FolderCatalogManager::catalogChanged, this, &QtNoteDBus::notesChanged);
     connect(qtnote, &Main::settingsUpdated, this, &QtNoteDBus::notesChanged);
     connect(qtnote, &Main::settingsUpdated, this, &QtNoteDBus::globalShortcutsChanged);
     connect(qtnote->stickyNotesManager(), &StickyNotesManager::notesChanged, this, &QtNoteDBus::stickyNotesChanged);
@@ -138,11 +137,11 @@ QString QtNoteDBus::notesJson(int offset, int limit, const QString &query) const
         bool favorite { false };
     };
 
-    const QString          filter = query.trimmed();
-    const auto             *catalogManager = FolderCatalogManager::instance();
-    const FolderCatalog    *catalog = catalogManager->isAvailable() ? &catalogManager->catalog() : nullptr;
-    QList<MenuNote>         notes;
-    const auto               allNotes = NoteManager::instance()->noteList(-1);
+    const QString        filter         = query.trimmed();
+    const auto          *catalogManager = FolderCatalogManager::instance();
+    const FolderCatalog *catalog        = catalogManager->isAvailable() ? &catalogManager->catalog() : nullptr;
+    QList<MenuNote>      notes;
+    const auto           allNotes = NoteManager::instance()->noteList(-1);
     notes.reserve(allNotes.size());
     for (const auto &note : allNotes) {
         if (!matchesMenuQuery(note, filter))

@@ -17,8 +17,8 @@
 #include "utils.h"
 
 #include <QLoggingCategory>
-#include <QSettings>
 #include <QSet>
+#include <QSettings>
 #include <QTimer>
 #include <algorithm>
 #include <limits>
@@ -36,14 +36,14 @@ NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderC
     QObject(parent)
 {
     folderCatalogManager_ = folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance();
-    notesModel_  = new NotesModel(folderCatalogManager_, this);
-    searchModel_ = new NotesSearchModel(this);
+    notesModel_           = new NotesModel(folderCatalogManager_, this);
+    searchModel_          = new NotesSearchModel(this);
     searchModel_->setSourceModel(notesModel_);
     recentNotesModel_     = new RecentNotesModel(searchModel_, this);
     storagePriorityModel_ = new StoragePriorityModel(this);
     folderNotesModel_     = new FolderNotesModel(folderCatalogManager_, this);
     folderNotesModel_->setSearchModel(searchModel_);
-    folderOperations_     = new FolderOperationsController(folderCatalogManager_, NoteManager::instance(), this);
+    folderOperations_ = new FolderOperationsController(folderCatalogManager_, NoteManager::instance(), this);
 
     connect(notesModel_, &NotesModel::statsChanged, this, &NotesWorkspaceController::noteCountChanged);
     connect(notesModel_, &NotesModel::notesDropRequested, this,
@@ -471,14 +471,13 @@ bool NotesWorkspaceController::copyNote(const QString &sourceStorageId, const QS
     }
     setError({});
 
-    const auto stageAndPublish
-        = [this, destinationStorageId](const Note &source, bool folderUserOverride = false) {
-            QUuid draftId;
-            if (!stageMove(source, destinationStorageId, &draftId, folderUserOverride))
-                return false;
-            DraftManager::instance()->publishPending();
-            return true;
-        };
+    const auto stageAndPublish = [this, destinationStorageId](const Note &source, bool folderUserOverride = false) {
+        QUuid draftId;
+        if (!stageMove(source, destinationStorageId, &draftId, folderUserOverride))
+            return false;
+        DraftManager::instance()->publishPending();
+        return true;
+    };
 
     if (currentEditor_ && currentEditor_->storageId() == sourceStorageId && currentEditor_->noteId() == noteId) {
         if (!saveCurrentNote())
@@ -617,7 +616,7 @@ bool NotesWorkspaceController::moveNotes(const QVariantList &notes, const QStrin
 }
 
 bool NotesWorkspaceController::reorderRecentNotes(const QVariantList &notes, const QString &anchorStorageId,
-                                                   const QString &anchorNoteId, bool insertAfter)
+                                                  const QString &anchorNoteId, bool insertAfter)
 {
     if (notes.isEmpty() || anchorStorageId.isEmpty() || anchorNoteId.isEmpty()) {
         setError(tr("The note used as the drop boundary is no longer available"));
@@ -868,14 +867,12 @@ bool NotesWorkspaceController::assignNoteFolder(const QString &storageId, const 
                                                 const QString &folderIdText)
 {
     qCInfo(logWorkspaceFolders) << "Workspace folder assignment received: storage=" << storageId
-                                << "note=" << noteId.left(16) << "folder=" << folderIdText
-                                << "currentEditor="
+                                << "note=" << noteId.left(16) << "folder=" << folderIdText << "currentEditor="
                                 << bool(currentEditor_ && currentEditor_->storageId() == storageId
                                         && currentEditor_->noteId() == noteId);
     QUuid folderId;
     if (!parseFolderId(folderIdText, &folderId)) {
-        qCWarning(logWorkspaceFolders) << "Workspace folder assignment rejected: invalid folder id"
-                                       << folderIdText;
+        qCWarning(logWorkspaceFolders) << "Workspace folder assignment rejected: invalid folder id" << folderIdText;
         return false;
     }
     if (!folderId.isNull() && (!ensureFolderCatalogAvailable() || !folderCatalogManager_->catalog().folder(folderId))) {
@@ -916,8 +913,7 @@ bool NotesWorkspaceController::assignCurrentNoteFolder(const QString &folderIdTe
     qCInfo(logWorkspaceFolders) << "Assigning current editor folder: storage=" << currentEditor_->storageId()
                                 << "note=" << currentEditor_->noteId().left(16)
                                 << "folder=" << folderId.toString(QUuid::WithoutBraces)
-                                << "publishWithContent=" << publishWithContent
-                                << "dirty=" << currentEditor_->isDirty()
+                                << "publishWithContent=" << publishWithContent << "dirty=" << currentEditor_->isDirty()
                                 << "persistedDraft=" << currentEditor_->hasPersistedDraft();
     currentEditor_->setFolderId(folderId);
     currentEditor_->setFolderUserOverride();
@@ -1053,9 +1049,9 @@ bool NotesWorkspaceController::stageMove(const Note &source, const QString &dest
     destination.setFolderId(effectiveFolderId(source));
     destination.setMedia(source.media());
 
-    auto       *drafts    = DraftManager::instance();
-    const QUuid stagedId  = drafts->acquireEditingSession(destination);
-    const auto saveError
+    auto       *drafts   = DraftManager::instance();
+    const QUuid stagedId = drafts->acquireEditingSession(destination);
+    const auto  saveError
         = drafts->saveEditing(stagedId, destination, title, body, destinationFormat, folderUserOverride);
     if (saveError) {
         drafts->releaseEditingSession(stagedId);

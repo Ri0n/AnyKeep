@@ -71,7 +71,7 @@ NotesModel::NotesModel(QObject *parent) : NotesModel(nullptr, parent) { }
 NotesModel::NotesModel(FolderCatalogManager *folderCatalogManager, QObject *parent) : QAbstractItemModel(parent)
 {
     folderCatalogManager_ = folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance();
-    const auto manager = NoteManager::instance();
+    const auto manager    = NoteManager::instance();
     for (const auto &storage : manager->prioritizedStorages(true))
         storageAdded(storage);
 
@@ -84,8 +84,7 @@ NotesModel::NotesModel(FolderCatalogManager *folderCatalogManager, QObject *pare
     connect(manager->notesIndex(), &NotesIndex::storageStateChanged, this, &NotesModel::storageIndexStateChanged);
     connect(folderCatalogManager_, &FolderCatalogManager::catalogChanged, this, [this] {
         for (auto *item : std::as_const(storages_)) {
-            const int desired = searchActive_ ? indexedNotes(item->id).size()
-                                              : qMax(item->children.size(), pageSize_);
+            const int desired = searchActive_ ? indexedNotes(item->id).size() : qMax(item->children.size(), pageSize_);
             replaceVisibleNotes(item, desired);
         }
         emit statsChanged();
@@ -292,7 +291,7 @@ bool NotesModel::dropMimeData(const QMimeData *data, Qt::DropAction action, int,
 
 int NotesModel::noteCount() const
 {
-    int         count = 0;
+    int count = 0;
     for (const auto *storage : storages_)
         count += indexedNotes(storage->id).size();
     return count;
@@ -502,9 +501,11 @@ QList<Note> NotesModel::indexedNotes(const QString &storageId) const
     auto notes = NoteManager::instance()->notesIndex()->notes(storageId);
     if (!folderCatalogManager_ || !folderCatalogManager_->isAvailable())
         return notes;
-    notes.erase(std::remove_if(notes.begin(), notes.end(), [this, &storageId](const Note &note) {
-                    return !note.isNull() && folderCatalogManager_->catalog().isRecycled(storageId, note.id());
-                }),
+    notes.erase(std::remove_if(notes.begin(), notes.end(),
+                               [this, &storageId](const Note &note) {
+                                   return !note.isNull()
+                                       && folderCatalogManager_->catalog().isRecycled(storageId, note.id());
+                               }),
                 notes.end());
     return notes;
 }

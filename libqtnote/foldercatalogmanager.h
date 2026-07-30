@@ -70,7 +70,7 @@ public:
     FolderCatalogError         setFolderFlags(const QUuid &id, bool favorite, bool archived);
     FolderCatalogError         assignNote(const QString &storageId, const QString &noteId, const QUuid &folderId);
     FolderCatalogError         clearNoteAssignment(const QString &storageId, const QString &noteId);
-    FolderCatalogError         recycleNote(const QString &storageId, const QString &noteId, const QUuid &previousFolderId);
+    FolderCatalogError recycleNote(const QString &storageId, const QString &noteId, const QUuid &previousFolderId);
     FolderCatalogResult<QUuid> restoreRecycledNote(const QString &storageId, const QString &noteId);
     FolderCatalogError         reconcileProviderFolderPaths(const QString                             &storageId,
                                                             const QList<ProviderFolderPathAssignment> &assignments);

@@ -49,9 +49,9 @@ namespace {
         out.setVersion(QDataStream::Qt_5_10);
         out << PayloadMagic << PayloadVersion << record.id << quint8(record.state) << record.storageId
             << record.remoteNoteId << record.title << record.body << quint8(record.format) << record.tags
-            << record.folderId << record.folderUserOverride << record.removeSourceStorageId
-            << record.removeSourceNoteId << record.revision << record.updatedAt << record.lastError << record.retryAt
-            << quint8(record.operation) << record.backendData;
+            << record.folderId << record.folderUserOverride << record.removeSourceStorageId << record.removeSourceNoteId
+            << record.revision << record.updatedAt << record.lastError << record.retryAt << quint8(record.operation)
+            << record.backendData;
         writeMedia(out, record.media);
         return bytes;
     }

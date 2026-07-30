@@ -96,7 +96,7 @@ struct QTNOTE_EXPORT NoteRuleEvaluationInput {
 
 /** One or more rules recorded atomically for one evaluated note input. */
 struct QTNOTE_EXPORT NoteRuleApplication {
-    QList<QUuid>             ruleIds;
+    QList<QUuid>            ruleIds;
     NoteRuleEvaluationInput input;
 };
 

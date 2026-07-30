@@ -57,10 +57,10 @@ public:
     bool            hasPendingTransferFrom(const QString &storageId, const QString &noteId) const;
     void            setPrePublicationHandler(PrePublicationHandler handler);
     /** Safely converts a pending draft into a restart-safe storage transfer. */
-    DraftStoreError retargetDraftForPublication(DraftRecord *record, const QString &destinationStorageId) const;
-    void                          publishPending();
-    QList<DraftRecord>            recoverableDrafts() const;
-    void                          setConflictResolver(std::unique_ptr<ConflictResolver> resolver);
+    DraftStoreError    retargetDraftForPublication(DraftRecord *record, const QString &destinationStorageId) const;
+    void               publishPending();
+    QList<DraftRecord> recoverableDrafts() const;
+    void               setConflictResolver(std::unique_ptr<ConflictResolver> resolver);
     /// Resolves a conflict discovered after a storage operation was acknowledged.
     void resolveConcurrentEdit(const Note &localVersion, const Note &remoteVersion, const QString &message);
 

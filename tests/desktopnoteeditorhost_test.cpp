@@ -1060,10 +1060,8 @@ private slots:
             const QString secondId = notesModel.index(2, 0).data(Qt::UserRole + 2).toString();
             QQuickItem   *first    = nullptr;
             QQuickItem   *second   = nullptr;
-            QTRY_VERIFY((first = delegateForNote(firstId))
-                        && first->property("row").toInt() == 1);
-            QTRY_VERIFY((second = delegateForNote(secondId))
-                        && second->property("row").toInt() == 2);
+            QTRY_VERIFY((first = delegateForNote(firstId)) && first->property("row").toInt() == 1);
+            QTRY_VERIFY((second = delegateForNote(secondId)) && second->property("row").toInt() == 2);
             QVERIFY2(drag(first, second, 1), "A repeated note drag did not keep its animated displacement");
             QTRY_COMPARE(root->property("movedNotes").toInt(), 1);
             QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-a"));
@@ -1154,8 +1152,7 @@ private slots:
         QVERIFY(qAbs(compactSecond->y() - compactFirst->y() - compactFirst->height()) < 0.5);
         const qreal previewTop = compactFirst->mapToItem(rootItem, QPointF()).y();
         const qreal expectedPreviewTop
-            = nonConsecutiveFirst->mapToItem(rootItem, QPointF()).y()
-              + page->property("dragTranslationY").toReal();
+            = nonConsecutiveFirst->mapToItem(rootItem, QPointF()).y() + page->property("dragTranslationY").toReal();
         QVERIFY2(qAbs(previewTop - expectedPreviewTop) < 1,
                  qPrintable(QStringLiteral("Scrolled preview top %1, expected %2 (contentY %3)")
                                 .arg(previewTop)
@@ -1179,8 +1176,7 @@ private slots:
         const QPointF sourcePoint
             = scrolledTarget->mapToItem(rootItem, QPointF(scrolledTarget->width() / 2, scrolledTarget->height() / 2));
         const QPointF headerPoint = visibleStorageB->mapToItem(
-            rootItem, QPointF(visibleStorageB->width() / 2,
-                              visibleStorageB->height() + scrolledTarget->height() / 2));
+            rootItem, QPointF(visibleStorageB->width() / 2, visibleStorageB->height() + scrolledTarget->height() / 2));
         QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, sourcePoint.toPoint());
         for (int step = 1; step <= 8; ++step)
             QTest::mouseMove(&quick, (sourcePoint + (headerPoint - sourcePoint) * (qreal(step) / 8)).toPoint(), 15);
@@ -1247,14 +1243,13 @@ private slots:
         quick.setContent(QUrl(QStringLiteral("qrc:/qml/SwipeHarness.qml")), &component, root);
         quick.show();
 
-        auto *rootItem = qobject_cast<QQuickItem *>(root);
-        QQuickItem *second = nullptr;
-        QQuickItem *action = nullptr;
+        auto       *rootItem = qobject_cast<QQuickItem *>(root);
+        QQuickItem *second   = nullptr;
+        QQuickItem *action   = nullptr;
         QTRY_VERIFY((second = quickItemByName(rootItem, QStringLiteral("swipeRow-second"))));
 
         QVERIFY(QMetaObject::invokeMethod(second, "openDeleteSwipe"));
-        QTRY_VERIFY((action = quickItemByName(
-                         rootItem, QStringLiteral("noteSwipeDelete-storage-second"))));
+        QTRY_VERIFY((action = quickItemByName(rootItem, QStringLiteral("noteSwipeDelete-storage-second"))));
         QTRY_VERIFY(action->opacity() > 0.99);
         QVERIFY(QMetaObject::invokeMethod(second, "closeDeleteSwipe"));
         QTRY_VERIFY(action->opacity() < 0.01);
@@ -1348,7 +1343,7 @@ private slots:
         quick.show();
 
         auto *workspace = root->findChild<QObject *>(QStringLiteral("permanentDropWorkspace"));
-        auto *page = root->findChild<QQuickItem *>(QStringLiteral("permanentDropPage"));
+        auto *page      = root->findChild<QQuickItem *>(QStringLiteral("permanentDropPage"));
         QVERIFY(workspace);
         QVERIFY(page);
 
@@ -1361,8 +1356,8 @@ private slots:
                           { QStringLiteral("title"), QStringLiteral("Recycled") } },
         };
         QVariant dropped;
-        QVERIFY(QMetaObject::invokeMethod(root, "dropNotes", Q_RETURN_ARG(QVariant, dropped),
-                                           Q_ARG(QVariant, mixedNotes)));
+        QVERIFY(
+            QMetaObject::invokeMethod(root, "dropNotes", Q_RETURN_ARG(QVariant, dropped), Q_ARG(QVariant, mixedNotes)));
         QVERIFY(dropped.toBool());
         QCOMPARE(workspace->property("trashCount").toInt(), 1);
         QCOMPARE(workspace->property("deleteCount").toInt(), 1);
@@ -1370,7 +1365,7 @@ private slots:
         root->setProperty("askPermanent", true);
         const QVariantList recycledOnly { mixedNotes.constLast() };
         QVERIFY(QMetaObject::invokeMethod(root, "dropNotes", Q_RETURN_ARG(QVariant, dropped),
-                                           Q_ARG(QVariant, recycledOnly)));
+                                          Q_ARG(QVariant, recycledOnly)));
         QVERIFY(dropped.toBool());
         QCOMPARE(workspace->property("deleteCount").toInt(), 1);
         QObject *dialog = root->findChild<QObject *>(QStringLiteral("permanentDeleteDialog"));
@@ -1398,8 +1393,7 @@ private slots:
             { Qt::UserRole + 3, "itemType" },
             { Qt::UserRole + 4, "title" },
         });
-        QStringList noteIds { QStringLiteral("first"), QStringLiteral("second"),
-                              QStringLiteral("third") };
+        QStringList noteIds { QStringLiteral("first"), QStringLiteral("second"), QStringLiteral("third") };
         for (int index = 3; index < 30; ++index)
             noteIds.push_back(QStringLiteral("note-%1").arg(index, 2, 10, QLatin1Char('0')));
         for (const auto &id : noteIds) {
@@ -1460,13 +1454,13 @@ private slots:
         quick.setContent(QUrl(QStringLiteral("qrc:/qml/FlatTreeDragHarness.qml")), &component, root);
         quick.show();
 
-        auto *rootItem   = qobject_cast<QQuickItem *>(root);
-        auto *collection = quickItemByName(rootItem, QStringLiteral("flatTreeCollection"));
-        auto *tree       = quickItemByName(rootItem, QStringLiteral("flatTreeView"));
-        auto *preview    = quickItemByName(rootItem, QStringLiteral("flatTreePreview"));
-        QQuickItem *first  = nullptr;
-        QQuickItem *second = nullptr;
-        QQuickItem *third  = nullptr;
+        auto       *rootItem   = qobject_cast<QQuickItem *>(root);
+        auto       *collection = quickItemByName(rootItem, QStringLiteral("flatTreeCollection"));
+        auto       *tree       = quickItemByName(rootItem, QStringLiteral("flatTreeView"));
+        auto       *preview    = quickItemByName(rootItem, QStringLiteral("flatTreePreview"));
+        QQuickItem *first      = nullptr;
+        QQuickItem *second     = nullptr;
+        QQuickItem *third      = nullptr;
         QVERIFY(collection);
         QVERIFY(tree);
         QVERIFY(preview);
@@ -1477,9 +1471,8 @@ private slots:
         QVERIFY(first->property("compactFlatNoteRow").toBool());
         QCOMPARE(first->property("leadingInset").toReal(), 8.0);
 
-        const QPointF from
-            = first->mapToItem(rootItem, QPointF(first->width() / 2, first->height() / 2));
-        QPointF to = third->mapToItem(rootItem, QPointF(third->width() / 2, third->height() - 2));
+        const QPointF from = first->mapToItem(rootItem, QPointF(first->width() / 2, first->height() / 2));
+        QPointF       to   = third->mapToItem(rootItem, QPointF(third->width() / 2, third->height() - 2));
         QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, from.toPoint());
         for (int step = 1; step <= 8; ++step)
             QTest::mouseMove(&quick, (from + (to - from) * (qreal(step) / 8)).toPoint(), 15);
@@ -1496,21 +1489,16 @@ private slots:
         QQuickItem *beforeScrolledSource = nullptr;
         QQuickItem *scrolledSource       = nullptr;
         QQuickItem *scrolledTarget       = nullptr;
-        QTRY_VERIFY((beforeScrolledSource
-                     = quickItemByName(rootItem, QStringLiteral("flatTreeRow-note-19"))));
-        QTRY_VERIFY((scrolledSource
-                     = quickItemByName(rootItem, QStringLiteral("flatTreeRow-note-20"))));
-        QTRY_VERIFY((scrolledTarget
-                     = quickItemByName(rootItem, QStringLiteral("flatTreeRow-note-22"))));
-        const QPointF scrolledFrom = scrolledSource->mapToItem(
-            rootItem, QPointF(scrolledSource->width() / 2, scrolledSource->height() / 2));
-        const QPointF scrolledTo = scrolledTarget->mapToItem(
-            rootItem, QPointF(scrolledTarget->width() / 2, scrolledTarget->height() - 2));
+        QTRY_VERIFY((beforeScrolledSource = quickItemByName(rootItem, QStringLiteral("flatTreeRow-note-19"))));
+        QTRY_VERIFY((scrolledSource = quickItemByName(rootItem, QStringLiteral("flatTreeRow-note-20"))));
+        QTRY_VERIFY((scrolledTarget = quickItemByName(rootItem, QStringLiteral("flatTreeRow-note-22"))));
+        const QPointF scrolledFrom
+            = scrolledSource->mapToItem(rootItem, QPointF(scrolledSource->width() / 2, scrolledSource->height() / 2));
+        const QPointF scrolledTo
+            = scrolledTarget->mapToItem(rootItem, QPointF(scrolledTarget->width() / 2, scrolledTarget->height() - 2));
         QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, scrolledFrom.toPoint());
         for (int step = 1; step <= 8; ++step)
-            QTest::mouseMove(
-                &quick,
-                (scrolledFrom + (scrolledTo - scrolledFrom) * (qreal(step) / 8)).toPoint(), 15);
+            QTest::mouseMove(&quick, (scrolledFrom + (scrolledTo - scrolledFrom) * (qreal(step) / 8)).toPoint(), 15);
         QTRY_VERIFY(collection->property("dragging").toBool());
         QTest::qWait(220);
         QVERIFY2(qAbs(beforeScrolledSource->property("reorderOffset").toReal()) < 1,
@@ -1740,19 +1728,16 @@ private slots:
 
         QTRY_VERIFY((inbox = quickItemByName(page, QStringLiteral("foldersRow-folder-inbox"))));
         QTRY_VERIFY((archive = quickItemByName(page, QStringLiteral("foldersRow-folder-archive"))));
-        const QPointF archiveDragStart
-            = archive->mapToItem(rootItem, QPointF(80, archive->height() / 2));
-        const QPointF inboxBottom = inbox->mapToItem(rootItem, QPointF(80, inbox->height()));
+        const QPointF archiveDragStart = archive->mapToItem(rootItem, QPointF(80, archive->height() / 2));
+        const QPointF inboxBottom      = inbox->mapToItem(rootItem, QPointF(80, inbox->height()));
         // One indent step to the right while targeting the gap below Inbox
         // makes Archive its child. Keeping x unchanged would keep both at the
         // root level.
-        const QPointF inboxChildPoint
-            = inboxBottom + QPointF(18, archive->height() / 2);
+        const QPointF inboxChildPoint = inboxBottom + QPointF(18, archive->height() / 2);
         QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, archiveDragStart.toPoint());
         for (int step = 1; step <= 8; ++step)
             QTest::mouseMove(
-                &quick,
-                (archiveDragStart + (inboxChildPoint - archiveDragStart) * (qreal(step) / 8)).toPoint(), 15);
+                &quick, (archiveDragStart + (inboxChildPoint - archiveDragStart) * (qreal(step) / 8)).toPoint(), 15);
         QTRY_VERIFY(page->property("dragging").toBool());
         QTRY_COMPARE(page->property("previewCount").toInt(), 1);
         QTRY_VERIFY(inbox->property("dropAfter").toBool());
@@ -1766,15 +1751,11 @@ private slots:
         QTest::qWait(220);
         QTRY_VERIFY((inbox = quickItemByName(page, QStringLiteral("foldersRow-folder-inbox"))));
         QTRY_VERIFY((archive = quickItemByName(page, QStringLiteral("foldersRow-folder-archive"))));
-        const QPointF siblingStart
-            = archive->mapToItem(rootItem, QPointF(80, archive->height() / 2));
-        const QPointF siblingTarget
-            = inbox->mapToItem(rootItem, QPointF(80, inbox->height() + archive->height() / 2));
+        const QPointF siblingStart  = archive->mapToItem(rootItem, QPointF(80, archive->height() / 2));
+        const QPointF siblingTarget = inbox->mapToItem(rootItem, QPointF(80, inbox->height() + archive->height() / 2));
         QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, siblingStart.toPoint());
         for (int step = 1; step <= 8; ++step)
-            QTest::mouseMove(
-                &quick,
-                (siblingStart + (siblingTarget - siblingStart) * (qreal(step) / 8)).toPoint(), 15);
+            QTest::mouseMove(&quick, (siblingStart + (siblingTarget - siblingStart) * (qreal(step) / 8)).toPoint(), 15);
         QTRY_VERIFY(page->property("dragging").toBool());
         QTRY_VERIFY(inbox->property("dropAfter").toBool());
         QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, siblingTarget.toPoint());
@@ -1835,12 +1816,12 @@ private slots:
         quick.setContent(QUrl(QStringLiteral("qrc:/qml/RecycleMenuHarness.qml")), &component, root);
         quick.show();
 
-        auto *rootItem = qobject_cast<QQuickItem *>(root);
-        auto *page     = quickItemByName(rootItem, QStringLiteral("foldersPage"));
+        auto       *rootItem   = qobject_cast<QQuickItem *>(root);
+        auto       *page       = quickItemByName(rootItem, QStringLiteral("foldersPage"));
         QQuickItem *recycleBin = nullptr;
         QTRY_VERIFY((recycleBin = quickItemByName(page, QStringLiteral("foldersRow-folder-recycle"))));
-        const QPointF point = recycleBin->mapToItem(rootItem,
-                                                     QPointF(recycleBin->width() / 2, recycleBin->height() / 2));
+        const QPointF point
+            = recycleBin->mapToItem(rootItem, QPointF(recycleBin->width() / 2, recycleBin->height() / 2));
         QTest::mouseClick(&quick, Qt::RightButton, Qt::NoModifier, point.toPoint());
 
         QObject *menu = nullptr;

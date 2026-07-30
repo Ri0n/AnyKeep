@@ -32,7 +32,7 @@ class QTNOTE_EXPORT NoteRuleApplicationController final : public QObject {
 public:
     static NoteRuleApplicationController *instance();
 
-    explicit NoteRuleApplicationController(NoteRuleManager *ruleManager = nullptr,
+    explicit NoteRuleApplicationController(NoteRuleManager      *ruleManager          = nullptr,
                                            FolderCatalogManager *folderCatalogManager = nullptr,
                                            NoteManager *noteManager = nullptr, DraftManager *draftManager = nullptr,
                                            QObject *parent = nullptr);
@@ -50,39 +50,38 @@ private:
         QList<QUuid>            ruleIds;
     };
 
-    NoteRuleManager            *ruleManager_ { nullptr };
-    FolderCatalogManager       *folderCatalogManager_ { nullptr };
-    NoteManager                *noteManager_ { nullptr };
-    DraftManager               *draftManager_ { nullptr };
-    FolderOperationsController *folderOperations_ { nullptr };
-    QHash<QUuid, PendingMarkers> publicationMarkers_;
+    NoteRuleManager               *ruleManager_ { nullptr };
+    FolderCatalogManager          *folderCatalogManager_ { nullptr };
+    NoteManager                   *noteManager_ { nullptr };
+    DraftManager                  *draftManager_ { nullptr };
+    FolderOperationsController    *folderOperations_ { nullptr };
+    QHash<QUuid, PendingMarkers>   publicationMarkers_;
     QHash<QString, PendingMarkers> pendingMarkers_;
-    QSet<QString> pendingFolderOverlayStorageIds_;
-    QSet<QString> pendingFolderOverlayLoads_;
-    bool markerFlushScheduled_ { false };
-    bool folderOverlayImportScheduled_ { false };
-    bool initialized_ { false };
+    QSet<QString>                  pendingFolderOverlayStorageIds_;
+    QSet<QString>                  pendingFolderOverlayLoads_;
+    bool                           markerFlushScheduled_ { false };
+    bool                           folderOverlayImportScheduled_ { false };
+    bool                           initialized_ { false };
 
-    DraftStoreError         routeDraft(DraftRecord *record);
-    void                    handleDraftPublished(const QUuid &draftId, const Note &note);
-    void                    flushMarkers();
-    void                    enqueueMarkers(const QList<QUuid> &ruleIds, const NoteRuleEvaluationInput &input);
-    void                    queueFolderOverlayImport(const QString &storageId);
-    void                    queueAllFolderOverlayImports();
-    void                    processFolderOverlayImports();
-    void                    importFolderOverlays(const QString &storageId);
-    void                    loadAndImportFolderOverlay(const QString &storageId, const QString &noteId);
-    void                    applyFolderOverlayRules(const Note &note);
-    void                    applyFolderOverlayEvaluation(const NoteRuleEvaluationInput &input,
-                                                          const NoteRuleEvaluation      &evaluation);
-    bool                    supportsFolderOverlayImport(const QString &storageId) const;
-    void                    reportFailure(const QString &storageId, const QString &noteId, const QString &message);
-    NoteRuleEvaluation      evaluateRules(const NoteRuleEvaluationInput &input) const;
-    NoteRuleEvaluation      evaluateFolderOverlayRules(const NoteRuleEvaluationInput &input) const;
-    NoteRuleEvaluationInput evaluationInput(const DraftRecord &record) const;
+    DraftStoreError routeDraft(DraftRecord *record);
+    void            handleDraftPublished(const QUuid &draftId, const Note &note);
+    void            flushMarkers();
+    void            enqueueMarkers(const QList<QUuid> &ruleIds, const NoteRuleEvaluationInput &input);
+    void            queueFolderOverlayImport(const QString &storageId);
+    void            queueAllFolderOverlayImports();
+    void            processFolderOverlayImports();
+    void            importFolderOverlays(const QString &storageId);
+    void            loadAndImportFolderOverlay(const QString &storageId, const QString &noteId);
+    void            applyFolderOverlayRules(const Note &note);
+    void applyFolderOverlayEvaluation(const NoteRuleEvaluationInput &input, const NoteRuleEvaluation &evaluation);
+    bool supportsFolderOverlayImport(const QString &storageId) const;
+    void reportFailure(const QString &storageId, const QString &noteId, const QString &message);
+    NoteRuleEvaluation             evaluateRules(const NoteRuleEvaluationInput &input) const;
+    NoteRuleEvaluation             evaluateFolderOverlayRules(const NoteRuleEvaluationInput &input) const;
+    NoteRuleEvaluationInput        evaluationInput(const DraftRecord &record) const;
     static NoteRuleEvaluationInput overlayInput(const Note &note);
-    static QString          markerBatchKey(const NoteRuleEvaluationInput &input);
-    static QString          overlayLoadKey(const QString &storageId, const QString &noteId);
+    static QString                 markerBatchKey(const NoteRuleEvaluationInput &input);
+    static QString                 overlayLoadKey(const QString &storageId, const QString &noteId);
 };
 
 } // namespace QtNote

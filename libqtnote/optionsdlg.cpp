@@ -151,7 +151,7 @@ void OptionsDlg::changeEvent(QEvent *e)
 void OptionsDlg::accept()
 {
     if (rulesView && rulesView->rootObject()) {
-        QVariant saved;
+        QVariant   saved;
         const bool invoked
             = QMetaObject::invokeMethod(rulesView->rootObject(), "saveCurrent", Q_RETURN_ARG(QVariant, saved));
         if (!invoked || !saved.toBool()) {

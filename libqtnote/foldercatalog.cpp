@@ -401,13 +401,13 @@ FolderCatalogError FolderCatalog::assignNote(const QString &storageId, const QSt
         record.modifiedAt = currentTime();
         candidate.assignments.append(std::move(record));
     } else {
-        auto &record      = candidate.assignments[index];
-        record.folderId   = folderId;
+        auto &record            = candidate.assignments[index];
+        record.folderId         = folderId;
         record.previousFolderId = {};
-        record.recycledAt = {};
-        record.tombstone  = false;
-        record.revision   = std::max<quint64>(record.revision + 1, 1);
-        record.modifiedAt = currentTime();
+        record.recycledAt       = {};
+        record.tombstone        = false;
+        record.revision         = std::max<quint64>(record.revision + 1, 1);
+        record.modifiedAt       = currentTime();
     }
     return replaceSnapshot(std::move(candidate));
 }
@@ -428,13 +428,13 @@ FolderCatalogError FolderCatalog::clearNoteAssignment(const QString &storageId, 
         record.tombstone  = true;
         candidate.assignments.append(std::move(record));
     } else {
-        auto &record      = candidate.assignments[index];
-        record.folderId   = {};
+        auto &record            = candidate.assignments[index];
+        record.folderId         = {};
         record.previousFolderId = {};
-        record.recycledAt = {};
-        record.tombstone  = true;
-        record.revision   = std::max<quint64>(record.revision + 1, 1);
-        record.modifiedAt = currentTime();
+        record.recycledAt       = {};
+        record.tombstone        = true;
+        record.revision         = std::max<quint64>(record.revision + 1, 1);
+        record.modifiedAt       = currentTime();
     }
     return replaceSnapshot(std::move(candidate));
 }
@@ -445,9 +445,9 @@ FolderCatalogError FolderCatalog::recycleNote(const QString &storageId, const QS
     if (storageId.isEmpty() || noteId.isEmpty())
         return error(FolderCatalogError::InvalidArgument, QStringLiteral("Storage id and note id are required"));
 
-    auto candidate = snapshot_;
-    const auto trashId = recycleBinId();
-    auto trashIndex = -1;
+    auto       candidate  = snapshot_;
+    const auto trashId    = recycleBinId();
+    auto       trashIndex = -1;
     for (int index = 0; index < candidate.folders.size(); ++index) {
         if (candidate.folders.at(index).id == trashId) {
             trashIndex = index;
@@ -456,37 +456,37 @@ FolderCatalogError FolderCatalog::recycleNote(const QString &storageId, const QS
     }
     if (trashIndex < 0) {
         FolderRecord trash;
-        trash.id = trashId;
-        trash.name = QStringLiteral("Recycle Bin");
-        trash.sortOrder = std::numeric_limits<qint64>::max() / 4;
-        trash.archived = true;
-        trash.revision = 1;
+        trash.id         = trashId;
+        trash.name       = QStringLiteral("Recycle Bin");
+        trash.sortOrder  = std::numeric_limits<qint64>::max() / 4;
+        trash.archived   = true;
+        trash.revision   = 1;
         trash.modifiedAt = currentTime();
         candidate.folders.append(std::move(trash));
     }
 
     const auto index = indexOfAssignment(storageId, noteId);
-    const auto now = currentTime();
+    const auto now   = currentTime();
     if (index < 0) {
         NoteFolderAssignment record;
-        record.storageId = storageId;
-        record.noteId = noteId;
-        record.folderId = trashId;
+        record.storageId        = storageId;
+        record.noteId           = noteId;
+        record.folderId         = trashId;
         record.previousFolderId = previousFolderId;
-        record.recycledAt = now;
-        record.revision = 1;
-        record.modifiedAt = now;
+        record.recycledAt       = now;
+        record.revision         = 1;
+        record.modifiedAt       = now;
         candidate.assignments.append(std::move(record));
     } else {
         auto &record = candidate.assignments[index];
         if (!record.tombstone && isRecycleBinId(record.folderId))
             return {};
-        record.folderId = trashId;
+        record.folderId         = trashId;
         record.previousFolderId = previousFolderId;
-        record.recycledAt = now;
-        record.tombstone = false;
-        record.revision = std::max<quint64>(record.revision + 1, 1);
-        record.modifiedAt = now;
+        record.recycledAt       = now;
+        record.tombstone        = false;
+        record.revision         = std::max<quint64>(record.revision + 1, 1);
+        record.modifiedAt       = now;
     }
     return replaceSnapshot(std::move(candidate));
 }
@@ -499,21 +499,21 @@ FolderCatalogResult<QUuid> FolderCatalog::restoreRecycledNote(const QString &sto
         return { {}, error(FolderCatalogError::NotFound, QStringLiteral("Recycled note was not found")) };
     }
 
-    auto candidate = snapshot_;
-    auto &record = candidate.assignments[index];
-    const QUuid previous = record.previousFolderId;
-    const bool restoreToFolder = !previous.isNull() && folder(previous);
+    auto        candidate       = snapshot_;
+    auto       &record          = candidate.assignments[index];
+    const QUuid previous        = record.previousFolderId;
+    const bool  restoreToFolder = !previous.isNull() && folder(previous);
     if (restoreToFolder) {
-        record.folderId = previous;
+        record.folderId  = previous;
         record.tombstone = false;
     } else {
-        record.folderId = {};
+        record.folderId  = {};
         record.tombstone = true;
     }
     record.previousFolderId = {};
-    record.recycledAt = {};
-    record.revision = std::max<quint64>(record.revision + 1, 1);
-    record.modifiedAt = currentTime();
+    record.recycledAt       = {};
+    record.revision         = std::max<quint64>(record.revision + 1, 1);
+    record.modifiedAt       = currentTime();
     if (const auto validation = validate(candidate))
         return { {}, validation };
     snapshot_ = std::move(candidate);
@@ -726,8 +726,7 @@ FolderCatalogError FolderCatalog::validate(const FolderCatalogSnapshot &snapshot
         const auto folder = folders.constFind(record.folderId);
         if (record.folderId.isNull() || folder == folders.cend() || folder.value()->tombstone)
             return error(FolderCatalogError::NotFound, QStringLiteral("Assignment folder was not found"));
-        if (!isRecycleBinId(record.folderId)
-            && (!record.previousFolderId.isNull() || record.recycledAt.isValid())) {
+        if (!isRecycleBinId(record.folderId) && (!record.previousFolderId.isNull() || record.recycledAt.isValid())) {
             return error(FolderCatalogError::InvalidArgument,
                          QStringLiteral("Only recycled assignments may have restore metadata"));
         }

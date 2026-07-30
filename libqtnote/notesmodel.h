@@ -96,9 +96,9 @@ private:
     NMMItem    *storageItem(const QString &storageId) const;
     QList<Note> indexedNotes(const QString &storageId) const;
 
-    QList<NMMItem *> storages_;
-    int              pageSize_ { 30 };
-    bool             searchActive_ { false };
+    QList<NMMItem *>      storages_;
+    int                   pageSize_ { 30 };
+    bool                  searchActive_ { false };
     FolderCatalogManager *folderCatalogManager_ { nullptr };
 };
 

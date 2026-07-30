@@ -4,14 +4,14 @@
 #include "foldercatalogmanager.h"
 #include "folderoperationscontroller.h"
 #include "notemanager.h"
-#include "notesindex.h"
 #include "noterulemanager.h"
+#include "notesindex.h"
 #include "notestorage.h"
 
-#include <algorithm>
 #include <QCoreApplication>
 #include <QLoggingCategory>
 #include <QTimer>
+#include <algorithm>
 
 #include <utility>
 
@@ -19,7 +19,7 @@ namespace QtNote {
 
 Q_LOGGING_CATEGORY(logRuleApplication, "qtnote.rules")
 
-NoteRuleApplicationController::NoteRuleApplicationController(NoteRuleManager *ruleManager,
+NoteRuleApplicationController::NoteRuleApplicationController(NoteRuleManager      *ruleManager,
                                                              FolderCatalogManager *folderCatalogManager,
                                                              NoteManager *noteManager, DraftManager *draftManager,
                                                              QObject *parent) :
@@ -39,8 +39,8 @@ NoteRuleApplicationController::~NoteRuleApplicationController()
 
 NoteRuleApplicationController *NoteRuleApplicationController::instance()
 {
-    static auto *controller = new NoteRuleApplicationController(nullptr, nullptr, nullptr, nullptr,
-                                                                 QCoreApplication::instance());
+    static auto *controller
+        = new NoteRuleApplicationController(nullptr, nullptr, nullptr, nullptr, QCoreApplication::instance());
     return controller;
 }
 
@@ -51,8 +51,7 @@ void NoteRuleApplicationController::initialize()
     initialized_ = true;
 
     if (draftManager_) {
-        draftManager_->setPrePublicationHandler(
-            [this](DraftRecord *record) { return routeDraft(record); });
+        draftManager_->setPrePublicationHandler([this](DraftRecord *record) { return routeDraft(record); });
         connect(draftManager_, &DraftManager::draftPublished, this,
                 [this](const QUuid &draftId, const Note &note) { handleDraftPublished(draftId, note); });
     }
@@ -66,7 +65,8 @@ void NoteRuleApplicationController::initialize()
         });
     }
     if (ruleManager_) {
-        connect(ruleManager_, &NoteRuleManager::rulesChanged, this, &NoteRuleApplicationController::queueAllFolderOverlayImports);
+        connect(ruleManager_, &NoteRuleManager::rulesChanged, this,
+                &NoteRuleApplicationController::queueAllFolderOverlayImports);
         connect(ruleManager_, &NoteRuleManager::availabilityChanged, this, [this](bool available) {
             if (available)
                 queueAllFolderOverlayImports();
@@ -115,7 +115,7 @@ DraftStoreError NoteRuleApplicationController::routeDraft(DraftRecord *record)
         if (!folderId.isNull()) {
             if (!folderCatalogManager_ || !folderCatalogManager_->isAvailable()) {
                 const auto message = folderCatalogManager_ ? folderCatalogManager_->lastError()
-                                                            : tr("The encrypted folder catalog is unavailable");
+                                                           : tr("The encrypted folder catalog is unavailable");
                 reportFailure(input.storageId, input.noteId, message);
                 return { DraftStoreError::Locked, message };
             }
@@ -177,8 +177,7 @@ void NoteRuleApplicationController::flushMarkers()
         reportFailure({}, {}, error.message);
 }
 
-void NoteRuleApplicationController::enqueueMarkers(const QList<QUuid> &ruleIds,
-                                                    const NoteRuleEvaluationInput &input)
+void NoteRuleApplicationController::enqueueMarkers(const QList<QUuid> &ruleIds, const NoteRuleEvaluationInput &input)
 {
     if (ruleIds.isEmpty() || input.storageId.isEmpty() || input.noteId.isEmpty())
         return;
@@ -225,9 +224,8 @@ void NoteRuleApplicationController::processFolderOverlayImports()
 
 void NoteRuleApplicationController::importFolderOverlays(const QString &storageId)
 {
-    if (!ruleManager_ || !ruleManager_->isAvailable() || !folderCatalogManager_
-        || !folderCatalogManager_->isAvailable() || !noteManager_ || !noteManager_->notesIndex()
-        || !supportsFolderOverlayImport(storageId)) {
+    if (!ruleManager_ || !ruleManager_->isAvailable() || !folderCatalogManager_ || !folderCatalogManager_->isAvailable()
+        || !noteManager_ || !noteManager_->notesIndex() || !supportsFolderOverlayImport(storageId)) {
         return;
     }
 
@@ -244,7 +242,7 @@ void NoteRuleApplicationController::loadAndImportFolderOverlay(const QString &st
         return;
     pendingFolderOverlayLoads_.insert(key);
 
-    auto *job = noteManager_->loadNoteAsync(storageId, noteId, this);
+    auto      *job      = noteManager_->loadNoteAsync(storageId, noteId, this);
     const auto finished = [this, job, key, storageId, noteId]() {
         pendingFolderOverlayLoads_.remove(key);
         if (job->state() == StorageJob::Succeeded) {
@@ -289,7 +287,7 @@ void NoteRuleApplicationController::applyFolderOverlayRules(const Note &note)
 }
 
 void NoteRuleApplicationController::applyFolderOverlayEvaluation(const NoteRuleEvaluationInput &input,
-                                                                  const NoteRuleEvaluation      &evaluation)
+                                                                 const NoteRuleEvaluation      &evaluation)
 {
     if (!evaluation.folderId || evaluation.folderId->isNull())
         return;
@@ -317,7 +315,7 @@ bool NoteRuleApplicationController::supportsFolderOverlayImport(const QString &s
 }
 
 void NoteRuleApplicationController::reportFailure(const QString &storageId, const QString &noteId,
-                                                   const QString &message)
+                                                  const QString &message)
 {
     if (message.isEmpty())
         return;
@@ -333,17 +331,17 @@ NoteRuleEvaluation NoteRuleApplicationController::evaluateRules(const NoteRuleEv
     return ruleManager_ ? ruleManager_->evaluate(input) : NoteRuleEvaluation {};
 }
 
-NoteRuleEvaluation NoteRuleApplicationController::evaluateFolderOverlayRules(
-    const NoteRuleEvaluationInput &input) const
+NoteRuleEvaluation NoteRuleApplicationController::evaluateFolderOverlayRules(const NoteRuleEvaluationInput &input) const
 {
     if (!ruleManager_ || !ruleManager_->isAvailable())
         return {};
 
     QList<NoteRule> folderRules;
     for (auto rule : ruleManager_->rules()) {
-        rule.actions.erase(std::remove_if(rule.actions.begin(), rule.actions.end(), [](const NoteRuleAction &action) {
-                               return action.kind != NoteRuleActionKind::AssignFolder;
-                           }),
+        rule.actions.erase(std::remove_if(rule.actions.begin(), rule.actions.end(),
+                                          [](const NoteRuleAction &action) {
+                                              return action.kind != NoteRuleActionKind::AssignFolder;
+                                          }),
                            rule.actions.end());
         if (!rule.actions.isEmpty())
             folderRules.append(std::move(rule));
@@ -354,24 +352,23 @@ NoteRuleEvaluation NoteRuleApplicationController::evaluateFolderOverlayRules(
 NoteRuleEvaluationInput NoteRuleApplicationController::evaluationInput(const DraftRecord &record) const
 {
     NoteRuleEvaluationInput input;
-    const bool transferPending
-        = !record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty();
-    input.storageId    = transferPending ? record.removeSourceStorageId : record.storageId;
-    input.noteId       = transferPending ? record.removeSourceNoteId : record.remoteNoteId;
-    input.title        = record.title;
-    input.tags         = record.tags;
-    input.text         = record.body;
-    input.textAvailable = true;
+    const bool transferPending = !record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty();
+    input.storageId            = transferPending ? record.removeSourceStorageId : record.storageId;
+    input.noteId               = transferPending ? record.removeSourceNoteId : record.remoteNoteId;
+    input.title                = record.title;
+    input.tags                 = record.tags;
+    input.text                 = record.body;
+    input.textAvailable        = true;
     return input;
 }
 
 NoteRuleEvaluationInput NoteRuleApplicationController::overlayInput(const Note &note)
 {
     NoteRuleEvaluationInput input;
-    input.storageId    = note.storageId();
-    input.noteId       = note.id();
-    input.title        = note.title();
-    input.tags         = note.tags();
+    input.storageId     = note.storageId();
+    input.noteId        = note.id();
+    input.title         = note.title();
+    input.tags          = note.tags();
     input.textAvailable = note.isLoaded();
     if (input.textAvailable)
         input.text = note.text();

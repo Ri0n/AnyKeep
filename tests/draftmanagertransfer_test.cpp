@@ -152,13 +152,13 @@ private slots:
 
 void DraftManagerTransferTest::publishesDestinationBeforeDeletingSource()
 {
-    auto sourceStorage      = std::make_unique<TransferStorage>(QStringLiteral("transfer-source"));
-    const auto source       = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Source"),
-                                                        QStringLiteral("Body"));
-    auto *sourceRaw         = registerStorage(std::move(sourceStorage));
-    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("transfer-destination"));
-    auto *destinationRaw    = registerStorage(std::move(destinationStorage));
-    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+    auto       sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("transfer-source"));
+    const auto source
+        = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Source"), QStringLiteral("Body"));
+    auto      *sourceRaw          = registerStorage(std::move(sourceStorage));
+    auto       destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("transfer-destination"));
+    auto      *destinationRaw     = registerStorage(std::move(destinationStorage));
+    const auto cleanup            = qScopeGuard([sourceRaw, destinationRaw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(sourceRaw->systemName()) == sourceRaw)
             manager->unregisterStorage(sourceRaw);
@@ -172,7 +172,7 @@ void DraftManagerTransferTest::publishesDestinationBeforeDeletingSource()
     QSignalSpy   published(&drafts, &DraftManager::draftPublished);
     const auto   folder = QUuid::createUuid();
     QUuid        draftId;
-    const auto error = drafts.stageTransfer(source, destinationRaw->systemName(), folder, &draftId);
+    const auto   error = drafts.stageTransfer(source, destinationRaw->systemName(), folder, &draftId);
     QVERIFY2(!error, qPrintable(error.message));
     QVERIFY(!draftId.isNull());
     QVERIFY(drafts.hasPendingTransferFrom(sourceRaw->systemName(), source.id()));
@@ -194,14 +194,14 @@ void DraftManagerTransferTest::publishesDestinationBeforeDeletingSource()
 
 void DraftManagerTransferTest::preservesSourceWhenDestinationPublicationFails()
 {
-    auto sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("transfer-failure-source"));
-    const auto source  = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Source"),
-                                                   QStringLiteral("Body"));
-    auto *sourceRaw    = registerStorage(std::move(sourceStorage));
-    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("transfer-failure-destination"));
+    auto       sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("transfer-failure-source"));
+    const auto source
+        = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Source"), QStringLiteral("Body"));
+    auto *sourceRaw                = registerStorage(std::move(sourceStorage));
+    auto  destinationStorage       = std::make_unique<TransferStorage>(QStringLiteral("transfer-failure-destination"));
     destinationStorage->failSaves_ = true;
-    auto *destinationRaw           = registerStorage(std::move(destinationStorage));
-    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+    auto      *destinationRaw      = registerStorage(std::move(destinationStorage));
+    const auto cleanup             = qScopeGuard([sourceRaw, destinationRaw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(sourceRaw->systemName()) == sourceRaw)
             manager->unregisterStorage(sourceRaw);
@@ -213,7 +213,7 @@ void DraftManagerTransferTest::preservesSourceWhenDestinationPublicationFails()
     auto        *data  = store.get();
     DraftManager drafts(std::move(store));
     QUuid        draftId;
-    const auto error = drafts.stageTransfer(source, destinationRaw->systemName(), {}, &draftId);
+    const auto   error = drafts.stageTransfer(source, destinationRaw->systemName(), {}, &draftId);
     QVERIFY2(!error, qPrintable(error.message));
 
     QTRY_VERIFY(data->records_.contains(draftId));

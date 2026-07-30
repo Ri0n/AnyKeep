@@ -124,8 +124,8 @@ void NoteEditor::adoptEditingDraft(const DraftRecord &draft)
     note_.setMedia(draft.media);
     note_.setBackendData(draft.backendData);
     folderUserOverride_ = draft.folderUserOverride;
-    draftPersisted_ = true;
-    draftRevision_  = draft.revision;
+    draftPersisted_     = true;
+    draftRevision_      = draft.revision;
 }
 
 void NoteEditor::setText(const QString &text)
@@ -177,8 +177,7 @@ bool NoteEditor::save()
         emit mediaChanged(media_);
     }
 
-    const auto result
-        = drafts_->saveEditing(draftId_, note_, split.first, split.second, format_, folderUserOverride_);
+    const auto result = drafts_->saveEditing(draftId_, note_, split.first, split.second, format_, folderUserOverride_);
     if (result) {
         qCWarning(logEditorPersistence) << "Editor checkpoint failed:" << draftId_.toString(QUuid::WithoutBraces)
                                         << int(result.code) << result.message;

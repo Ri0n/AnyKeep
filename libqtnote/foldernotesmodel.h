@@ -124,17 +124,17 @@ private:
     bool                  catalogAvailable_ { false };
     bool                  unsortedCollapsed_ { false };
 
-    void       rebuild();
-    QList<Row> buildRows() const;
-    void       replaceRows(QList<Row> nextRows);
+    void           rebuild();
+    QList<Row>     buildRows() const;
+    void           replaceRows(QList<Row> nextRows);
     static QString rowKey(const Row &row);
     static bool    sameRow(const Row &left, const Row &right);
-    bool  matchesSearch(const Note &note) const;
-    QUuid effectiveFolderId(const Note &note) const;
-    void  appendFolder(QList<Row> *rows, const QUuid &folderId, int depth,
-                       const QHash<QUuid, QList<Note>> &notesByFolder) const;
-    void  appendNotes(QList<Row> *rows, const QList<Note> &notes, const QUuid &folderId, int depth) const;
-    void  appendFolderPickerItems(const QUuid &folderId, int depth, bool includeArchived, QVariantList *items) const;
+    bool           matchesSearch(const Note &note) const;
+    QUuid          effectiveFolderId(const Note &note) const;
+    void           appendFolder(QList<Row> *rows, const QUuid &folderId, int depth,
+                                const QHash<QUuid, QList<Note>> &notesByFolder) const;
+    void           appendNotes(QList<Row> *rows, const QList<Note> &notes, const QUuid &folderId, int depth) const;
+    void appendFolderPickerItems(const QUuid &folderId, int depth, bool includeArchived, QVariantList *items) const;
 };
 
 } // namespace QtNote

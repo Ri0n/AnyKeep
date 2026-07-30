@@ -27,9 +27,9 @@ struct QTNOTE_EXPORT FolderRecord {
 };
 
 struct QTNOTE_EXPORT NoteFolderAssignment {
-    QString   storageId;
-    QString   noteId;
-    QUuid     folderId;
+    QString storageId;
+    QString noteId;
+    QUuid   folderId;
     // Meaningful only while folderId is recycleBinId().  The original folder
     // is kept with the assignment so Restore is independent of a provider's
     // native note payload.

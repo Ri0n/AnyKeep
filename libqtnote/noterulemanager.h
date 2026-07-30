@@ -48,8 +48,8 @@ public:
     bool               wasApplied(const QUuid &ruleId, const NoteRuleEvaluationInput &input) const;
     NoteRuleError      recordApplied(const QList<QUuid> &ruleIds, const NoteRuleEvaluationInput &input);
     /** Persists multiple note markers in one encrypted atomic replacement. */
-    NoteRuleError      recordApplied(const QList<NoteRuleApplication> &applications);
-    NoteRuleError      forgetApplied(const QString &storageId, const QString &noteId);
+    NoteRuleError recordApplied(const QList<NoteRuleApplication> &applications);
+    NoteRuleError forgetApplied(const QString &storageId, const QString &noteId);
 
     NoteRuleError restoreBackup(QString *preservedPath = nullptr);
     NoteRuleError recreate(QString *preservedPath = nullptr);

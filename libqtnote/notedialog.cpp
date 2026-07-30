@@ -198,7 +198,8 @@ bool NoteDialog::trashNote()
             return false;
         }
         auto *folderOperations = FolderOperationsController::instance();
-        if (!folderOperations->assignNoteFolder(editor_->storageId(), editor_->noteId(), FolderCatalog::recycleBinId(), true)) {
+        if (!folderOperations->assignNoteFolder(editor_->storageId(), editor_->noteId(), FolderCatalog::recycleBinId(),
+                                                true)) {
             emit operationFailed(folderOperations->errorString());
             return false;
         }

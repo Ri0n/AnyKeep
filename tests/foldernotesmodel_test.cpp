@@ -175,14 +175,14 @@ void FolderNotesModelTest::recyclingNoteUpdatesProjectionWithoutReset()
     QVERIFY(manager.initialize());
 
     FolderRecord inbox;
-    inbox.name = QStringLiteral("Inbox");
+    inbox.name             = QStringLiteral("Inbox");
     const auto inboxResult = manager.addFolder(inbox);
     QVERIFY(inboxResult);
 
-    auto storage = std::make_unique<FolderModelStorage>(QStringLiteral("folder-model-recycle"));
-    auto *raw    = storage.get();
-    raw->notes   = { raw->makeNote(QStringLiteral("discarded"), QStringLiteral("Discarded"), inboxResult.value) };
-    auto *notes  = NoteManager::instance();
+    auto  storage = std::make_unique<FolderModelStorage>(QStringLiteral("folder-model-recycle"));
+    auto *raw     = storage.get();
+    raw->notes    = { raw->makeNote(QStringLiteral("discarded"), QStringLiteral("Discarded"), inboxResult.value) };
+    auto *notes   = NoteManager::instance();
     notes->registerStorage(std::move(storage));
     const auto cleanup = qScopeGuard([notes, raw]() {
         if (notes->storage(raw->systemName()) == raw)

@@ -165,7 +165,7 @@ FolderCatalogError FolderCatalogManager::clearNoteAssignment(const QString &stor
 }
 
 FolderCatalogError FolderCatalogManager::recycleNote(const QString &storageId, const QString &noteId,
-                                                      const QUuid &previousFolderId)
+                                                     const QUuid &previousFolderId)
 {
     return mutate([storageId, noteId, previousFolderId](FolderCatalog &catalog) {
         return catalog.recycleNote(storageId, noteId, previousFolderId);

@@ -51,12 +51,12 @@ public:
     NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draftId = {}, QObject *parent = nullptr);
     ~NoteEditor() override;
 
-    Note                  note() const { return note_; }
-    QUuid                 draftId() const { return draftId_; }
-    QString               draftIdString() const { return draftId_.toString(QUuid::WithoutBraces); }
-    QString               storageId() const { return note_.storageId(); }
-    QString               noteId() const { return note_.id(); }
-    QString               folderIdString() const
+    Note    note() const { return note_; }
+    QUuid   draftId() const { return draftId_; }
+    QString draftIdString() const { return draftId_.toString(QUuid::WithoutBraces); }
+    QString storageId() const { return note_.storageId(); }
+    QString noteId() const { return note_.id(); }
+    QString folderIdString() const
     {
         const auto id = folderId();
         return id.isNull() ? QString() : id.toString(QUuid::WithoutBraces);

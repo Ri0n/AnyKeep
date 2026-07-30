@@ -3,9 +3,9 @@
 #include "foldercatalogmanager.h"
 #include "folderoperationscontroller.h"
 #include "notemanager.h"
-#include "notesindex.h"
 #include "noteruleapplicationcontroller.h"
 #include "noterulemanager.h"
+#include "notesindex.h"
 #include "secureenvelope.h"
 #include "tomboystorage.h"
 
@@ -163,16 +163,17 @@ void TomboyFolderOverlayTest::folderRulesCreateOnlyALocalOverlay()
 
     QTemporaryDir catalogDirectory;
     QVERIFY(catalogDirectory.isValid());
-    const auto key = SecureEnvelope::generateMasterKey();
-    FolderCatalogManager catalog(std::make_unique<FileFolderCatalogStore>(
-        catalogDirectory.filePath(QStringLiteral("folders.bin")), key));
+    const auto           key = SecureEnvelope::generateMasterKey();
+    FolderCatalogManager catalog(
+        std::make_unique<FileFolderCatalogStore>(catalogDirectory.filePath(QStringLiteral("folders.bin")), key));
     QVERIFY(catalog.initialize());
     FolderRecord folder;
     folder.name        = QStringLiteral("Imported Tomboy");
     const auto created = catalog.addFolder(folder);
     QVERIFY(created);
 
-    NoteRuleManager rules(std::make_unique<FileNoteRuleStore>(catalogDirectory.filePath(QStringLiteral("rules.bin")), key));
+    NoteRuleManager rules(
+        std::make_unique<FileNoteRuleStore>(catalogDirectory.filePath(QStringLiteral("rules.bin")), key));
     QVERIFY(rules.initialize());
     NoteRule rule;
     rule.name       = QStringLiteral("Import Tomboy folder");

@@ -29,15 +29,15 @@ void FileDraftStoreTest::initTestCase() { QVERIFY2(FileDraftStore::cryptoAvailab
 static DraftRecord sampleRecord()
 {
     DraftRecord record;
-    record.id           = QUuid::createUuid();
-    record.storageId    = QStringLiteral("nextcloud");
-    record.remoteNoteId = QStringLiteral("remote-42");
-    record.title        = QStringLiteral("Sensitive title");
-    record.body         = QStringLiteral("Sensitive body that must not occur in the ciphertext");
-    record.format       = Note::Markdown;
-    record.tags         = QStringList { QStringLiteral("private"), QStringLiteral("work") };
-    record.folderId     = QUuid::createUuid();
-    record.folderUserOverride = true;
+    record.id                    = QUuid::createUuid();
+    record.storageId             = QStringLiteral("nextcloud");
+    record.remoteNoteId          = QStringLiteral("remote-42");
+    record.title                 = QStringLiteral("Sensitive title");
+    record.body                  = QStringLiteral("Sensitive body that must not occur in the ciphertext");
+    record.format                = Note::Markdown;
+    record.tags                  = QStringList { QStringLiteral("private"), QStringLiteral("work") };
+    record.folderId              = QUuid::createUuid();
+    record.folderUserOverride    = true;
     record.removeSourceStorageId = QStringLiteral("tomboy");
     record.removeSourceNoteId    = QStringLiteral("original-note");
     record.backendData.insert(QStringLiteral("etag"), QStringLiteral("base-etag"));
@@ -154,7 +154,7 @@ void FileDraftStoreTest::readsVersionSevenWithoutFolderOverride()
         << record.lastError << record.retryAt << quint8(record.operation) << record.backendData << quint32(0);
     const AeadContext context { KeyDomain::LocalDraft, QStringLiteral("qtnote-local-drafts"),
                                 record.id.toString(QUuid::WithoutBraces), 1, QStringLiteral("draft") };
-    const auto sealed = SecureEnvelope::seal(bytes, key, context);
+    const auto        sealed = SecureEnvelope::seal(bytes, key, context);
     QVERIFY2(sealed, qPrintable(sealed.error.message));
 
     QFile file(draftPath(directory.path(), record.id));

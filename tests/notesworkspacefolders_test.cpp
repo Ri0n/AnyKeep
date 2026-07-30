@@ -154,7 +154,6 @@ void NotesWorkspaceFoldersTest::exposesFoldersAndMovesCleanEditorMetadata()
     QCOMPARE(workspace.folderNotesModel()->index(unsortedRow, 0).data(FolderNotesModel::RowKindRole).toInt(),
              int(FolderNotesModel::UnsortedRow));
     QVERIFY(workspace.folderNotesModel()->index(unsortedRow, 0).data(FolderNotesModel::CollapsedRole).toBool());
-
 }
 
 void NotesWorkspaceFoldersTest::recycleBinHidesNotesUntilRestored()
@@ -164,10 +163,10 @@ void NotesWorkspaceFoldersTest::recycleBinHidesNotesUntilRestored()
     FolderCatalogManager catalog(makeCatalogStore(directory));
     QVERIFY(catalog.initialize());
 
-    auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-recycle"));
+    auto storage   = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-recycle"));
     storage->notes = { storage->makeNote(QStringLiteral("note"), QStringLiteral("Recyclable note")) };
-    auto *raw = storage.get();
-    auto *manager = NoteManager::instance();
+    auto *raw      = storage.get();
+    auto *manager  = NoteManager::instance();
     manager->registerStorage(std::move(storage));
     const auto cleanup = qScopeGuard([manager, raw] {
         if (manager->storage(raw->systemName()) == raw)

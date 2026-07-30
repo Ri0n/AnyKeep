@@ -95,10 +95,9 @@ namespace {
     bool sameDraftRecord(const DraftRecord &left, const DraftRecord &right)
     {
         if (left.id != right.id || left.operation != right.operation || left.state != right.state
-            || left.storageId != right.storageId || left.remoteNoteId != right.remoteNoteId
-            || left.title != right.title || left.body != right.body || left.format != right.format
-            || left.tags != right.tags || left.folderId != right.folderId
-            || left.folderUserOverride != right.folderUserOverride
+            || left.storageId != right.storageId || left.remoteNoteId != right.remoteNoteId || left.title != right.title
+            || left.body != right.body || left.format != right.format || left.tags != right.tags
+            || left.folderId != right.folderId || left.folderUserOverride != right.folderUserOverride
             || left.removeSourceStorageId != right.removeSourceStorageId
             || left.removeSourceNoteId != right.removeSourceNoteId || left.backendData != right.backendData
             || left.revision != right.revision || left.updatedAt != right.updatedAt || left.lastError != right.lastError
@@ -247,15 +246,15 @@ DraftStoreError DraftManager::saveEditing(const QUuid &draftId, const Note &note
         record.remoteNoteId = note.id();
         record.backendData  = note.backendData();
     }
-    record.title     = title;
-    record.body      = body;
-    record.format    = format;
-    record.tags      = NoteData::tagsFromText(body);
-    record.folderId  = note.folderId();
+    record.title              = title;
+    record.body               = body;
+    record.format             = format;
+    record.tags               = NoteData::tagsFromText(body);
+    record.folderId           = note.folderId();
     record.folderUserOverride = existing ? existing.value.folderUserOverride || folderUserOverride : folderUserOverride;
-    record.media     = note.media();
-    record.revision  = existing ? existing.value.revision + 1 : 1;
-    record.updatedAt = QDateTime::currentDateTimeUtc();
+    record.media              = note.media();
+    record.revision           = existing ? existing.value.revision + 1 : 1;
+    record.updatedAt          = QDateTime::currentDateTimeUtc();
     CONFLICT_TRACE << "Conflict trace: draft captured id=" << draftId.toString(QUuid::WithoutBraces)
                    << "storage=" << record.storageId << "note=" << record.remoteNoteId
                    << "base=" << concurrencySummary(record.backendData);
@@ -466,8 +465,7 @@ DraftStoreError DraftManager::stageTransfer(const Note &source, const QString &d
     if (const auto formatError = resolveDestinationFormat(destinationStorage, source.format(), &destinationFormat))
         return formatError;
     if (!source.media().isEmpty() && !destinationStorage->supportsMedia()) {
-        return { DraftStoreError::InvalidArgument,
-                 tr("The destination storage does not support note attachments") };
+        return { DraftStoreError::InvalidArgument, tr("The destination storage does not support note attachments") };
     }
 
     Note destination = destinationStorage->createNote();
@@ -530,7 +528,7 @@ void DraftManager::setPrePublicationHandler(PrePublicationHandler handler)
     prePublicationHandler_ = std::move(handler);
 }
 
-DraftStoreError DraftManager::retargetDraftForPublication(DraftRecord *record,
+DraftStoreError DraftManager::retargetDraftForPublication(DraftRecord   *record,
                                                           const QString &destinationStorageId) const
 {
     if (!record)
@@ -543,8 +541,7 @@ DraftStoreError DraftManager::retargetDraftForPublication(DraftRecord *record,
     if (!destinationStorage || !destinationStorage->canAcceptWrites())
         return { DraftStoreError::Io, tr("The destination storage is unavailable") };
     if (!record->media.isEmpty() && !destinationStorage->supportsMedia()) {
-        return { DraftStoreError::InvalidArgument,
-                 tr("The destination storage does not support note attachments") };
+        return { DraftStoreError::InvalidArgument, tr("The destination storage does not support note attachments") };
     }
     if (record->removeSourceStorageId.isEmpty() != record->removeSourceNoteId.isEmpty()) {
         return { DraftStoreError::InvalidArgument, tr("The draft transfer source is incomplete") };
@@ -579,8 +576,8 @@ DraftStoreError DraftManager::retargetDraftForPublication(DraftRecord *record,
         return { DraftStoreError::InvalidArgument, tr("The draft source storage is missing") };
     }
     if (targetFormat != record->format) {
-        record->title = NoteTransferController::convertTextFormat(record->title, record->format, targetFormat);
-        record->body  = NoteTransferController::convertTextFormat(record->body, record->format, targetFormat);
+        record->title  = NoteTransferController::convertTextFormat(record->title, record->format, targetFormat);
+        record->body   = NoteTransferController::convertTextFormat(record->body, record->format, targetFormat);
         record->format = targetFormat;
     }
     if (hasPublishedSource) {
@@ -640,8 +637,7 @@ void DraftManager::publishPending()
             if (!record.retryAt.isValid())
                 continue;
             if (record.retryAt > now) {
-                QTimer::singleShot(qMax<qint64>(1, now.msecsTo(record.retryAt)), this,
-                                   &DraftManager::publishPending);
+                QTimer::singleShot(qMax<qint64>(1, now.msecsTo(record.retryAt)), this, &DraftManager::publishPending);
                 continue;
             }
         }
@@ -650,10 +646,11 @@ void DraftManager::publishPending()
                 || record.state == DraftRecord::Retry)
             && !publishing_.contains(record.id);
         if (canRoute && prePublicationHandler_) {
-            auto routed = record;
+            auto       routed     = record;
             const auto routeError = prePublicationHandler_(&routed);
             if (routeError) {
-                const bool retryable = routeError.code == DraftStoreError::Io || routeError.code == DraftStoreError::Locked
+                const bool retryable = routeError.code == DraftStoreError::Io
+                    || routeError.code == DraftStoreError::Locked
                     || routeError.code == DraftStoreError::CryptoUnavailable;
                 retry(record, routeError.message, retryable);
                 continue;
@@ -926,8 +923,8 @@ void DraftManager::finishPublishedDraft(const DraftRecord &record, const Note &n
         // Capture the destination identity before queuing source deletion. If
         // the process stops afterwards, a retry updates this exact destination
         // rather than creating a duplicate copy.
-        auto completed      = record;
-        completed.storageId = note.storageId();
+        auto completed         = record;
+        completed.storageId    = note.storageId();
         completed.remoteNoteId = note.id();
         completed.backendData  = note.backendData();
         completed.state        = DraftRecord::Ready;

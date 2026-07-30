@@ -169,20 +169,19 @@ QVariantMap FolderNotesModel::itemAt(int row) const
         { QStringLiteral("childFolderCount"), item.childFolderCount },
         { QStringLiteral("noteCount"), item.noteCount },
         { QStringLiteral("itemType"), item.kind == NoteRow ? 1 : 0 },
-        { QStringLiteral("groupKind"), item.kind == FolderRow ? QStringLiteral("folder")
-                                                               : (item.kind == UnsortedRow
-                                                                      ? QStringLiteral("unsorted") : QString()) },
-        { QStringLiteral("groupId"), item.kind == FolderRow ? item.folderId.toString(QUuid::WithoutBraces)
-                                                             : (item.kind == UnsortedRow
-                                                                    ? QStringLiteral("unsorted") : QString()) },
+        { QStringLiteral("groupKind"),
+          item.kind == FolderRow ? QStringLiteral("folder")
+                                 : (item.kind == UnsortedRow ? QStringLiteral("unsorted") : QString()) },
+        { QStringLiteral("groupId"),
+          item.kind == FolderRow ? item.folderId.toString(QUuid::WithoutBraces)
+                                 : (item.kind == UnsortedRow ? QStringLiteral("unsorted") : QString()) },
         { QStringLiteral("preview"), item.preview },
         { QStringLiteral("storageName"), item.storageName },
         { QStringLiteral("accessible"), item.accessible },
         { QStringLiteral("loading"), false },
         { QStringLiteral("errorString"), QString() },
         { QStringLiteral("hasMore"), false },
-        { QStringLiteral("iconSource"), item.kind == NoteRow ? storageIconSource(item.storageId, true)
-                                                              : QString() },
+        { QStringLiteral("iconSource"), item.kind == NoteRow ? storageIconSource(item.storageId, true) : QString() },
         { QStringLiteral("systemFolder"), item.systemFolder },
     };
 }
@@ -231,10 +230,7 @@ void FolderNotesModel::setSearchModel(NotesSearchModel *model)
     rebuild();
 }
 
-void FolderNotesModel::rebuild()
-{
-    replaceRows(buildRows());
-}
+void FolderNotesModel::rebuild() { replaceRows(buildRows()); }
 
 QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
 {
@@ -450,17 +446,17 @@ void FolderNotesModel::appendNotes(QList<Row> *rows, const QList<Note> &notes, c
         return;
     for (const auto &note : notes) {
         Row row;
-        row.kind      = NoteRow;
-        row.folderId  = folderId;
-        row.storageId = note.storageId();
-        row.noteId    = note.id();
-        row.title     = note.title();
-        row.preview   = notePreview(note);
-        row.depth     = depth;
-        row.noteCount = 1;
+        row.kind           = NoteRow;
+        row.folderId       = folderId;
+        row.storageId      = note.storageId();
+        row.noteId         = note.id();
+        row.title          = note.title();
+        row.preview        = notePreview(note);
+        row.depth          = depth;
+        row.noteCount      = 1;
         const auto storage = NoteManager::instance()->storage(row.storageId);
-        row.storageName = storage ? storage->name() : row.storageId;
-        row.accessible  = storage && storage->isAccessible();
+        row.storageName    = storage ? storage->name() : row.storageId;
+        row.accessible     = storage && storage->isAccessible();
         rows->append(std::move(row));
     }
 }

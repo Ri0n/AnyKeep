@@ -152,11 +152,11 @@ FolderRecord folder(const QString &name)
 NoteRuleEvaluationInput inputFor(const DraftRecord &record)
 {
     NoteRuleEvaluationInput input;
-    input.storageId    = record.storageId;
-    input.noteId       = record.remoteNoteId;
-    input.title        = record.title;
-    input.tags         = record.tags;
-    input.text         = record.body;
+    input.storageId     = record.storageId;
+    input.noteId        = record.remoteNoteId;
+    input.title         = record.title;
+    input.tags          = record.tags;
+    input.text          = record.body;
     input.textAvailable = true;
     return input;
 }
@@ -242,9 +242,9 @@ void NoteRuleApplicationControllerTest::routesFolderBeforePublicationAndRecordsM
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    const auto key = SecureEnvelope::generateMasterKey();
-    FolderCatalogManager folders(std::make_unique<FileFolderCatalogStore>(
-        directory.filePath(QStringLiteral("folders.bin")), key));
+    const auto           key = SecureEnvelope::generateMasterKey();
+    FolderCatalogManager folders(
+        std::make_unique<FileFolderCatalogStore>(directory.filePath(QStringLiteral("folders.bin")), key));
     QVERIFY(folders.initialize());
     const auto inbox = folders.addFolder(folder(QStringLiteral("Inbox")));
     QVERIFY(inbox);
@@ -253,18 +253,18 @@ void NoteRuleApplicationControllerTest::routesFolderBeforePublicationAndRecordsM
     const auto added = rules.addRule(folderRule(inbox.value, QStringLiteral("Mail*")));
     QVERIFY(added);
 
-    auto storage = std::make_unique<RuleStorage>(QStringLiteral("rule-folder"));
+    auto       storage = std::make_unique<RuleStorage>(QStringLiteral("rule-folder"));
     const auto note = storage->add(QStringLiteral("note"), QStringLiteral("Mail from Alice"), QStringLiteral("Body"));
-    auto *raw = registerStorage(std::move(storage));
+    auto      *raw  = registerStorage(std::move(storage));
     const auto cleanup = qScopeGuard([raw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(raw->systemName()) == raw)
             manager->unregisterStorage(raw);
     });
 
-    auto store = std::make_unique<MemoryDraftStore>();
-    auto *storeRaw = store.get();
-    DraftManager drafts(std::move(store));
+    auto                          store    = std::make_unique<MemoryDraftStore>();
+    auto                         *storeRaw = store.get();
+    DraftManager                  drafts(std::move(store));
     NoteRuleApplicationController controller(&rules, &folders, NoteManager::instance(), &drafts);
     controller.initialize();
     const auto record = readyDraft(note);
@@ -281,21 +281,21 @@ void NoteRuleApplicationControllerTest::routesExistingDraftAcrossStorages()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    const auto key = SecureEnvelope::generateMasterKey();
-    FolderCatalogManager folders(std::make_unique<FileFolderCatalogStore>(
-        directory.filePath(QStringLiteral("folders.bin")), key));
+    const auto           key = SecureEnvelope::generateMasterKey();
+    FolderCatalogManager folders(
+        std::make_unique<FileFolderCatalogStore>(directory.filePath(QStringLiteral("folders.bin")), key));
     QVERIFY(folders.initialize());
     NoteRuleManager rules(std::make_unique<FileNoteRuleStore>(directory.filePath(QStringLiteral("rules.bin")), key));
     QVERIFY(rules.initialize());
     const auto added = rules.addRule(storageRule(QStringLiteral("rule-destination"), QStringLiteral("Invoice*")));
     QVERIFY(added);
 
-    auto sourceStorage = std::make_unique<RuleStorage>(QStringLiteral("rule-source"));
+    auto       sourceStorage = std::make_unique<RuleStorage>(QStringLiteral("rule-source"));
     const auto note = sourceStorage->add(QStringLiteral("note"), QStringLiteral("Invoice 1"), QStringLiteral("Body"));
-    auto *sourceRaw = registerStorage(std::move(sourceStorage));
-    auto destinationStorage = std::make_unique<RuleStorage>(QStringLiteral("rule-destination"));
-    auto *destinationRaw = registerStorage(std::move(destinationStorage));
-    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+    auto      *sourceRaw          = registerStorage(std::move(sourceStorage));
+    auto       destinationStorage = std::make_unique<RuleStorage>(QStringLiteral("rule-destination"));
+    auto      *destinationRaw     = registerStorage(std::move(destinationStorage));
+    const auto cleanup            = qScopeGuard([sourceRaw, destinationRaw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(sourceRaw->systemName()) == sourceRaw)
             manager->unregisterStorage(sourceRaw);
@@ -303,9 +303,9 @@ void NoteRuleApplicationControllerTest::routesExistingDraftAcrossStorages()
             manager->unregisterStorage(destinationRaw);
     });
 
-    auto store = std::make_unique<MemoryDraftStore>();
-    auto *storeRaw = store.get();
-    DraftManager drafts(std::move(store));
+    auto                          store    = std::make_unique<MemoryDraftStore>();
+    auto                         *storeRaw = store.get();
+    DraftManager                  drafts(std::move(store));
     NoteRuleApplicationController controller(&rules, &folders, NoteManager::instance(), &drafts);
     controller.initialize();
     const auto record = readyDraft(note);
@@ -323,19 +323,19 @@ void NoteRuleApplicationControllerTest::routesNewDraftBeforeItsFirstSave()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    const auto key = SecureEnvelope::generateMasterKey();
-    FolderCatalogManager folders(std::make_unique<FileFolderCatalogStore>(
-        directory.filePath(QStringLiteral("folders.bin")), key));
+    const auto           key = SecureEnvelope::generateMasterKey();
+    FolderCatalogManager folders(
+        std::make_unique<FileFolderCatalogStore>(directory.filePath(QStringLiteral("folders.bin")), key));
     QVERIFY(folders.initialize());
     NoteRuleManager rules(std::make_unique<FileNoteRuleStore>(directory.filePath(QStringLiteral("rules.bin")), key));
     QVERIFY(rules.initialize());
     QVERIFY(rules.addRule(storageRule(QStringLiteral("rule-new-destination"), QStringLiteral("Invoice*"))));
 
-    auto sourceStorage = std::make_unique<RuleStorage>(QStringLiteral("rule-new-source"));
-    auto *sourceRaw = registerStorage(std::move(sourceStorage));
-    auto destinationStorage = std::make_unique<RuleStorage>(QStringLiteral("rule-new-destination"));
-    auto *destinationRaw = registerStorage(std::move(destinationStorage));
-    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+    auto       sourceStorage      = std::make_unique<RuleStorage>(QStringLiteral("rule-new-source"));
+    auto      *sourceRaw          = registerStorage(std::move(sourceStorage));
+    auto       destinationStorage = std::make_unique<RuleStorage>(QStringLiteral("rule-new-destination"));
+    auto      *destinationRaw     = registerStorage(std::move(destinationStorage));
+    const auto cleanup            = qScopeGuard([sourceRaw, destinationRaw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(sourceRaw->systemName()) == sourceRaw)
             manager->unregisterStorage(sourceRaw);
@@ -343,9 +343,9 @@ void NoteRuleApplicationControllerTest::routesNewDraftBeforeItsFirstSave()
             manager->unregisterStorage(destinationRaw);
     });
 
-    auto store = std::make_unique<MemoryDraftStore>();
-    auto *storeRaw = store.get();
-    DraftManager drafts(std::move(store));
+    auto                          store    = std::make_unique<MemoryDraftStore>();
+    auto                         *storeRaw = store.get();
+    DraftManager                  drafts(std::move(store));
     NoteRuleApplicationController controller(&rules, &folders, NoteManager::instance(), &drafts);
     controller.initialize();
 
@@ -372,12 +372,12 @@ void NoteRuleApplicationControllerTest::preservesExplicitFolderChoiceDuringPubli
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    const auto key = SecureEnvelope::generateMasterKey();
-    FolderCatalogManager folders(std::make_unique<FileFolderCatalogStore>(
-        directory.filePath(QStringLiteral("folders.bin")), key));
+    const auto           key = SecureEnvelope::generateMasterKey();
+    FolderCatalogManager folders(
+        std::make_unique<FileFolderCatalogStore>(directory.filePath(QStringLiteral("folders.bin")), key));
     QVERIFY(folders.initialize());
     const auto automaticFolder = folders.addFolder(folder(QStringLiteral("Automatic")));
-    const auto explicitFolder = folders.addFolder(folder(QStringLiteral("Explicit")));
+    const auto explicitFolder  = folders.addFolder(folder(QStringLiteral("Explicit")));
     QVERIFY(automaticFolder);
     QVERIFY(explicitFolder);
     NoteRuleManager rules(std::make_unique<FileNoteRuleStore>(directory.filePath(QStringLiteral("rules.bin")), key));
@@ -385,22 +385,22 @@ void NoteRuleApplicationControllerTest::preservesExplicitFolderChoiceDuringPubli
     QVERIFY(rules.addRule(folderRule(automaticFolder.value, QStringLiteral("Mail*"))));
 
     auto storage = std::make_unique<RuleStorage>(QStringLiteral("rule-explicit-folder"));
-    auto note = storage->add(QStringLiteral("note"), QStringLiteral("Mail from Alice"), QStringLiteral("Body"));
+    auto note    = storage->add(QStringLiteral("note"), QStringLiteral("Mail from Alice"), QStringLiteral("Body"));
     note.setFolderId(explicitFolder.value);
     QVERIFY(storage->saveNote(note));
-    auto *raw = registerStorage(std::move(storage));
+    auto      *raw     = registerStorage(std::move(storage));
     const auto cleanup = qScopeGuard([raw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(raw->systemName()) == raw)
             manager->unregisterStorage(raw);
     });
 
-    auto store = std::make_unique<MemoryDraftStore>();
-    auto *storeRaw = store.get();
-    DraftManager drafts(std::move(store));
+    auto                          store    = std::make_unique<MemoryDraftStore>();
+    auto                         *storeRaw = store.get();
+    DraftManager                  drafts(std::move(store));
     NoteRuleApplicationController controller(&rules, &folders, NoteManager::instance(), &drafts);
     controller.initialize();
-    auto record = readyDraft(note);
+    auto record               = readyDraft(note);
     record.folderUserOverride = true;
     QVERIFY(!storeRaw->write(record));
 
@@ -414,9 +414,9 @@ void NoteRuleApplicationControllerTest::loadingANoteDoesNotRunRules()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    const auto key = SecureEnvelope::generateMasterKey();
-    FolderCatalogManager folders(std::make_unique<FileFolderCatalogStore>(
-        directory.filePath(QStringLiteral("folders.bin")), key));
+    const auto           key = SecureEnvelope::generateMasterKey();
+    FolderCatalogManager folders(
+        std::make_unique<FileFolderCatalogStore>(directory.filePath(QStringLiteral("folders.bin")), key));
     QVERIFY(folders.initialize());
     const auto inbox = folders.addFolder(folder(QStringLiteral("Inbox")));
     QVERIFY(inbox);
@@ -424,17 +424,17 @@ void NoteRuleApplicationControllerTest::loadingANoteDoesNotRunRules()
     QVERIFY(rules.initialize());
     QVERIFY(rules.addRule(folderRule(inbox.value, QStringLiteral("Network*"))));
 
-    auto storage = std::make_unique<RuleStorage>(QStringLiteral("rule-load-only"));
-    const auto note = storage->add(QStringLiteral("note"), QStringLiteral("Network note"), QStringLiteral("Body"));
-    auto *raw = registerStorage(std::move(storage));
+    auto       storage = std::make_unique<RuleStorage>(QStringLiteral("rule-load-only"));
+    const auto note    = storage->add(QStringLiteral("note"), QStringLiteral("Network note"), QStringLiteral("Body"));
+    auto      *raw     = registerStorage(std::move(storage));
     const auto cleanup = qScopeGuard([raw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(raw->systemName()) == raw)
             manager->unregisterStorage(raw);
     });
 
-    auto store = std::make_unique<MemoryDraftStore>();
-    DraftManager drafts(std::move(store));
+    auto                          store = std::make_unique<MemoryDraftStore>();
+    DraftManager                  drafts(std::move(store));
     NoteRuleApplicationController controller(&rules, &folders, NoteManager::instance(), &drafts);
     controller.initialize();
 
@@ -450,9 +450,9 @@ void NoteRuleApplicationControllerTest::importsFolderOnlyFromOptInStorage()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    const auto key = SecureEnvelope::generateMasterKey();
-    FolderCatalogManager folders(std::make_unique<FileFolderCatalogStore>(
-        directory.filePath(QStringLiteral("folders.bin")), key));
+    const auto           key = SecureEnvelope::generateMasterKey();
+    FolderCatalogManager folders(
+        std::make_unique<FileFolderCatalogStore>(directory.filePath(QStringLiteral("folders.bin")), key));
     QVERIFY(folders.initialize());
     const auto imported = folders.addFolder(folder(QStringLiteral("Imported")));
     QVERIFY(imported);
@@ -461,20 +461,20 @@ void NoteRuleApplicationControllerTest::importsFolderOnlyFromOptInStorage()
     QVERIFY(rules.addRule(textFolderRule(imported.value, QStringLiteral("classified"))));
     QVERIFY(rules.addRule(storageRule(QStringLiteral("rule-overlay-destination"), QStringLiteral("*"))));
 
-    auto sourceStorage = std::make_unique<RuleStorage>(QStringLiteral("rule-overlay-source"));
+    auto sourceStorage                 = std::make_unique<RuleStorage>(QStringLiteral("rule-overlay-source"));
     sourceStorage->importsFolderRules_ = true;
-    const auto note = sourceStorage->add(QStringLiteral("note"), QStringLiteral("Imported note"),
-                                         QStringLiteral("classified body"));
-    auto destinationStorage = std::make_unique<RuleStorage>(QStringLiteral("rule-overlay-destination"));
+    const auto note                    = sourceStorage->add(QStringLiteral("note"), QStringLiteral("Imported note"),
+                                                            QStringLiteral("classified body"));
+    auto       destinationStorage      = std::make_unique<RuleStorage>(QStringLiteral("rule-overlay-destination"));
 
-    auto store = std::make_unique<MemoryDraftStore>();
-    DraftManager drafts(std::move(store));
+    auto                          store = std::make_unique<MemoryDraftStore>();
+    DraftManager                  drafts(std::move(store));
     NoteRuleApplicationController controller(&rules, &folders, NoteManager::instance(), &drafts);
     controller.initialize();
 
-    auto *sourceRaw      = registerStorage(std::move(sourceStorage));
-    auto *destinationRaw = registerStorage(std::move(destinationStorage));
-    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+    auto      *sourceRaw      = registerStorage(std::move(sourceStorage));
+    auto      *destinationRaw = registerStorage(std::move(destinationStorage));
+    const auto cleanup        = qScopeGuard([sourceRaw, destinationRaw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(sourceRaw->systemName()) == sourceRaw)
             manager->unregisterStorage(sourceRaw);

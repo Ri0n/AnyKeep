@@ -89,7 +89,7 @@ void RulesPageTest::savesPendingEditsThroughPublicMethod()
 {
     RuleEnvironment environment;
     FolderRecord    folder;
-    folder.name = QStringLiteral("Confidential");
+    folder.name            = QStringLiteral("Confidential");
     const auto addedFolder = environment.folders.addFolder(folder);
     QVERIFY2(addedFolder, qPrintable(addedFolder.error.message));
 

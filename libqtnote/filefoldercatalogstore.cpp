@@ -61,8 +61,9 @@ namespace {
         in >> magic >> version >> folderCount >> assignmentCount;
         if (version >= 2)
             in >> pathHintCount;
-        if (magic != PayloadMagic || (version != 1 && version != 2 && version != PayloadVersion) || folderCount > MaximumFolderCount
-            || assignmentCount > MaximumAssignmentCount || pathHintCount > MaximumPathHintCount) {
+        if (magic != PayloadMagic || (version != 1 && version != 2 && version != PayloadVersion)
+            || folderCount > MaximumFolderCount || assignmentCount > MaximumAssignmentCount
+            || pathHintCount > MaximumPathHintCount) {
             return { {}, error(FolderCatalogError::Corrupt, QStringLiteral("Unsupported folder catalog payload")) };
         }
 
