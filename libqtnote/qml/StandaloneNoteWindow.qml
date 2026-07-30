@@ -22,7 +22,7 @@ Item {
     Shortcut {
         sequence: StandardKey.Cancel
         context: Qt.WindowShortcut
-        enabled: !deleteDialog.visible
+        enabled: true
         onActivated: standaloneHost.requestClose()
     }
 
@@ -39,12 +39,7 @@ Item {
         pinActionsVisible: true
         pinVisible: standaloneHost.pinAvailable
         alwaysOnTop: standaloneHost.alwaysOnTop
-        onDeleteRequested: {
-            if (standaloneHost.askBeforeDelete && noteEditor.text.trim().length > 0)
-                deleteDialog.open()
-            else
-                standaloneHost.deleteNote()
-        }
+        onDeleteRequested: standaloneHost.trashNote()
         onPrintRequested: desktopNoteActions.printNote()
         onExportRequested: desktopNoteActions.exportNote()
         onPinRequested: standaloneHost.pinNote()
@@ -57,16 +52,6 @@ Item {
     Connections {
         target: desktopSpeech
         function onRecognizedText(text) { editorPane.insertTextAtCursor(text) }
-    }
-
-    Dialog {
-        id: deleteDialog
-        anchors.centerIn: parent
-        modal: true
-        title: qsTr("Delete note")
-        standardButtons: Dialog.Yes | Dialog.No
-        Label { text: qsTr("Delete this note?") }
-        onAccepted: standaloneHost.deleteNote()
     }
 
 }

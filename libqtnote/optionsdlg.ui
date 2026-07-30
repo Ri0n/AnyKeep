@@ -56,7 +56,7 @@
        <item>
         <widget class="QCheckBox" name="ckAskDel">
          <property name="text">
-          <string>Delete notes with confirmation</string>
+          <string>Confirm permanent deletion</string>
          </property>
         </widget>
        </item>

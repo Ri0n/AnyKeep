@@ -16,6 +16,7 @@ public:
     ~EditorCursorController() override;
 
     Q_INVOKABLE void setOverrideCursor(int shape);
+    Q_INVOKABLE void setTrashCursor();
     Q_INVOKABLE void restoreOverrideCursor();
 
 private:

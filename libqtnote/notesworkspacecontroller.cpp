@@ -16,12 +16,16 @@
 #include "storageprioritymodel.h"
 #include "utils.h"
 
+#include <QLoggingCategory>
+#include <QSettings>
 #include <QSet>
 #include <QTimer>
 #include <algorithm>
 #include <limits>
 
 namespace QtNote {
+
+Q_LOGGING_CATEGORY(logWorkspaceFolders, "qtnote.workspace.folders")
 
 NotesWorkspaceController::NotesWorkspaceController(QObject *parent) :
     NotesWorkspaceController(FolderCatalogManager::instance(), parent)
@@ -31,13 +35,14 @@ NotesWorkspaceController::NotesWorkspaceController(QObject *parent) :
 NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderCatalogManager, QObject *parent) :
     QObject(parent)
 {
-    notesModel_  = new NotesModel(this);
+    folderCatalogManager_ = folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance();
+    notesModel_  = new NotesModel(folderCatalogManager_, this);
     searchModel_ = new NotesSearchModel(this);
     searchModel_->setSourceModel(notesModel_);
     recentNotesModel_     = new RecentNotesModel(searchModel_, this);
     storagePriorityModel_ = new StoragePriorityModel(this);
-    folderCatalogManager_ = folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance();
     folderNotesModel_     = new FolderNotesModel(folderCatalogManager_, this);
+    folderNotesModel_->setSearchModel(searchModel_);
     folderOperations_     = new FolderOperationsController(folderCatalogManager_, NoteManager::instance(), this);
 
     connect(notesModel_, &NotesModel::statsChanged, this, &NotesWorkspaceController::noteCountChanged);
@@ -305,6 +310,80 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
     return true;
 }
 
+bool NotesWorkspaceController::trashNote(const QString &storageId, const QString &noteId)
+{
+    if (storageId.isEmpty() || noteId.isEmpty() || !ensureFolderCatalogAvailable())
+        return false;
+    setError({});
+
+    const QUuid previousFolderId(folderIdForNote(storageId, noteId));
+    if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId) {
+        if (!DraftManager::instance()->isLastEditingSession(currentEditor_->draftId())) {
+            setError(tr("The note is open in another editor and cannot be moved to the recycle bin yet"));
+            return false;
+        }
+        if (!currentEditor_->discardAndClose()) {
+            setError(currentEditor_->errorString());
+            return false;
+        }
+        clearCurrentEditor();
+    }
+
+    if (const auto error = folderCatalogManager_->recycleNote(storageId, noteId, previousFolderId)) {
+        setError(error.message);
+        return false;
+    }
+    return folderOperations_->assignNoteFolder(storageId, noteId, FolderCatalog::recycleBinId(), true);
+}
+
+bool NotesWorkspaceController::restoreRecycledNote(const QString &storageId, const QString &noteId)
+{
+    if (storageId.isEmpty() || noteId.isEmpty() || !ensureFolderCatalogAvailable())
+        return false;
+    setError({});
+    const auto restored = folderCatalogManager_->restoreRecycledNote(storageId, noteId);
+    if (!restored) {
+        setError(restored.error.message);
+        return false;
+    }
+    return folderOperations_->assignNoteFolder(storageId, noteId, restored.value, true);
+}
+
+bool NotesWorkspaceController::emptyRecycleBin()
+{
+    if (!ensureFolderCatalogAvailable())
+        return false;
+    setError({});
+
+    QList<QPair<QString, QString>> recycledNotes;
+    for (const auto &assignment : folderCatalogManager_->catalog().snapshot().assignments) {
+        if (!assignment.tombstone && FolderCatalog::isRecycleBinId(assignment.folderId))
+            recycledNotes.append({ assignment.storageId, assignment.noteId });
+    }
+
+    for (const auto &[storageId, noteId] : recycledNotes) {
+        if (!deleteNote(storageId, noteId))
+            return false;
+    }
+    return true;
+}
+
+bool NotesWorkspaceController::isRecycledNote(const QString &storageId, const QString &noteId) const
+{
+    return folderCatalogManager_ && folderCatalogManager_->isAvailable()
+        && folderCatalogManager_->catalog().isRecycled(storageId, noteId);
+}
+
+bool NotesWorkspaceController::askBeforePermanentDelete() const
+{
+    return QSettings().value(QStringLiteral("ui.ask-on-delete"), true).toBool();
+}
+
+void NotesWorkspaceController::setAskBeforePermanentDelete(bool enabled)
+{
+    QSettings().setValue(QStringLiteral("ui.ask-on-delete"), enabled);
+}
+
 bool NotesWorkspaceController::moveNote(const QString &sourceStorageId, const QString &noteId,
                                         const QString &destinationStorageId)
 {
@@ -537,6 +616,30 @@ bool NotesWorkspaceController::moveNotes(const QVariantList &notes, const QStrin
     return started || sameStorageCount > 0;
 }
 
+bool NotesWorkspaceController::reorderRecentNotes(const QVariantList &notes, const QString &anchorStorageId,
+                                                   const QString &anchorNoteId, bool insertAfter)
+{
+    if (notes.isEmpty() || anchorStorageId.isEmpty() || anchorNoteId.isEmpty()) {
+        setError(tr("The note used as the drop boundary is no longer available"));
+        return false;
+    }
+
+    for (const QVariant &value : notes) {
+        const auto note = value.toMap();
+        if (note.value(QStringLiteral("storageId")).toString() != anchorStorageId) {
+            setError(tr("Recent notes can only be reordered within the same storage"));
+            return false;
+        }
+    }
+
+    const auto storage = NoteManager::instance()->storage(anchorStorageId);
+    if (!storage || !storage->supportsNoteReordering()) {
+        setError(tr("This storage does not support manual note ordering"));
+        return false;
+    }
+    return moveNotes(notes, anchorStorageId, anchorNoteId, insertAfter);
+}
+
 bool NotesWorkspaceController::startStorageReorder(NoteStorage *storage, const QStringList &noteIds,
                                                    const QString &afterNoteId)
 {
@@ -587,6 +690,11 @@ void NotesWorkspaceController::completePendingReorderMove(const QUuid &batchId, 
 bool NotesWorkspaceController::moveStorage(const QString &sourceStorageId, const QString &destinationStorageId)
 {
     return storagePriorityModel_ && storagePriorityModel_->moveStorageById(sourceStorageId, destinationStorageId);
+}
+
+bool NotesWorkspaceController::moveStorageToRow(const QString &sourceStorageId, int destinationRow)
+{
+    return storagePriorityModel_ && storagePriorityModel_->moveStorageToRow(sourceStorageId, destinationRow);
 }
 
 void NotesWorkspaceController::openStorageSettings(const QString &storageId)
@@ -702,6 +810,13 @@ bool NotesWorkspaceController::setFolderCollapsed(const QString &folderIdText, b
     return applyFolderMutation(folderCatalogManager_->setFolderCollapsed(folderId, collapsed));
 }
 
+bool NotesWorkspaceController::setUnsortedCollapsed(bool collapsed)
+{
+    if (!ensureFolderCatalogAvailable())
+        return false;
+    return folderNotesModel_->setUnsortedCollapsed(collapsed);
+}
+
 bool NotesWorkspaceController::setFolderFlags(const QString &folderIdText, bool favorite, bool archived)
 {
     if (!ensureFolderCatalogAvailable())
@@ -719,7 +834,10 @@ bool NotesWorkspaceController::collapseAllFolders()
 {
     if (!ensureFolderCatalogAvailable())
         return false;
-    return applyFolderMutation(folderCatalogManager_->setAllFoldersCollapsed(true));
+    const bool changed = applyFolderMutation(folderCatalogManager_->setAllFoldersCollapsed(true));
+    if (changed)
+        folderNotesModel_->setUnsortedCollapsed(true);
+    return changed;
 }
 
 QString NotesWorkspaceController::folderIdForNote(const QString &storageId, const QString &noteId) const
@@ -749,16 +867,27 @@ QString NotesWorkspaceController::folderIdForNote(const QString &storageId, cons
 bool NotesWorkspaceController::assignNoteFolder(const QString &storageId, const QString &noteId,
                                                 const QString &folderIdText)
 {
+    qCInfo(logWorkspaceFolders) << "Workspace folder assignment received: storage=" << storageId
+                                << "note=" << noteId.left(16) << "folder=" << folderIdText
+                                << "currentEditor="
+                                << bool(currentEditor_ && currentEditor_->storageId() == storageId
+                                        && currentEditor_->noteId() == noteId);
     QUuid folderId;
-    if (!parseFolderId(folderIdText, &folderId))
+    if (!parseFolderId(folderIdText, &folderId)) {
+        qCWarning(logWorkspaceFolders) << "Workspace folder assignment rejected: invalid folder id"
+                                       << folderIdText;
         return false;
+    }
     if (!folderId.isNull() && (!ensureFolderCatalogAvailable() || !folderCatalogManager_->catalog().folder(folderId))) {
         if (folderCatalogManager_ && folderCatalogManager_->isAvailable())
             setError(tr("The selected folder no longer exists"));
         return false;
     }
-    if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId)
+    if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId) {
+        qCInfo(logWorkspaceFolders) << "Routing folder assignment through current editor";
         return assignCurrentNoteFolder(folderIdText);
+    }
+    qCInfo(logWorkspaceFolders) << "Routing folder assignment directly to folder operations";
     return folderOperations_->assignNoteFolder(storageId, noteId, folderId);
 }
 
@@ -784,6 +913,12 @@ bool NotesWorkspaceController::assignCurrentNoteFolder(const QString &folderIdTe
     const bool  previousFolderUserOverride = currentEditor_->folderUserOverride();
     const bool  publishWithContent
         = currentEditor_->isDirty() || currentEditor_->hasPersistedDraft() || currentEditor_->noteId().isEmpty();
+    qCInfo(logWorkspaceFolders) << "Assigning current editor folder: storage=" << currentEditor_->storageId()
+                                << "note=" << currentEditor_->noteId().left(16)
+                                << "folder=" << folderId.toString(QUuid::WithoutBraces)
+                                << "publishWithContent=" << publishWithContent
+                                << "dirty=" << currentEditor_->isDirty()
+                                << "persistedDraft=" << currentEditor_->hasPersistedDraft();
     currentEditor_->setFolderId(folderId);
     currentEditor_->setFolderUserOverride();
     rememberPendingFolderAssignment(currentEditor_->draftId(), folderId);
@@ -990,6 +1125,8 @@ bool NotesWorkspaceController::parseFolderId(const QString &text, QUuid *folderI
         return true;
     *folderId = QUuid(normalized);
     if (!folderId->isNull())
+        return true;
+    if (normalized == QUuid().toString(QUuid::WithoutBraces) || normalized == QUuid().toString())
         return true;
     setError(tr("The folder identifier is invalid"));
     return false;

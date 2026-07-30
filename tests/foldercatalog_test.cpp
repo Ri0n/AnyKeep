@@ -17,9 +17,11 @@ private slots:
     void maintainsValidatedTree();
     void movesFoldersRelativeToSiblings();
     void sortsFavoritesBeforeOtherSiblings();
+    void sortsArchivedAndRecycleBinAfterNormalFolders();
     void buildsFolderPaths();
     void reconcilesPathOnlyProviderAssignments();
     void retainsAssignmentTombstones();
+    void recyclesAndRestoresNotesWithOriginalFolder();
     void mergesNewerRecords();
     void detectsEqualRevisionConflict();
     void encryptedRoundTripAndBackupRecovery();
@@ -123,6 +125,25 @@ void FolderCatalogTest::sortsFavoritesBeforeOtherSiblings()
     QCOMPARE(siblings.last().id, first.value);
 }
 
+void FolderCatalogTest::sortsArchivedAndRecycleBinAfterNormalFolders()
+{
+    FolderCatalog catalog;
+    const auto    normal = catalog.addFolder(folder(QStringLiteral("Normal"), {}, 100));
+    FolderRecord  archivedRecord = folder(QStringLiteral("Archived"), {}, -100);
+    archivedRecord.archived       = true;
+    const auto archived = catalog.addFolder(archivedRecord);
+    QVERIFY(normal);
+    QVERIFY(archived);
+
+    QVERIFY(!catalog.recycleNote(QStringLiteral("ptf"), QStringLiteral("discarded"), {}));
+    const auto siblings = catalog.children();
+    QCOMPARE(siblings.size(), 3);
+    QCOMPARE(siblings.at(0).id, normal.value);
+    QCOMPARE(siblings.at(1).id, archived.value);
+    QCOMPARE(siblings.at(2).id, FolderCatalog::recycleBinId());
+    QVERIFY(FolderCatalog::isRecycleBinId(siblings.at(2).id));
+}
+
 void FolderCatalogTest::buildsFolderPaths()
 {
     FolderCatalog catalog;
@@ -203,6 +224,35 @@ void FolderCatalogTest::retainsAssignmentTombstones()
     QVERIFY(assignment->tombstone);
     QVERIFY(assignment->folderId.isNull());
     QCOMPARE(assignment->revision, quint64(2));
+}
+
+void FolderCatalogTest::recyclesAndRestoresNotesWithOriginalFolder()
+{
+    FolderCatalog catalog;
+    const auto inbox = catalog.addFolder(folder(QStringLiteral("Inbox")));
+    QVERIFY(inbox);
+
+    QVERIFY(!catalog.recycleNote(QStringLiteral("ptf"), QStringLiteral("note-1"), inbox.value));
+    const auto trash = FolderCatalog::recycleBinId();
+    const auto *trashFolder = catalog.folder(trash);
+    QVERIFY(trashFolder);
+    QVERIFY(trashFolder->archived);
+    QVERIFY(catalog.isRecycled(QStringLiteral("ptf"), QStringLiteral("note-1")));
+    const auto *recycled = catalog.assignment(QStringLiteral("ptf"), QStringLiteral("note-1"));
+    QVERIFY(recycled);
+    QCOMPARE(recycled->folderId, trash);
+    QCOMPARE(recycled->previousFolderId, inbox.value);
+    QVERIFY(recycled->recycledAt.isValid());
+
+    const auto restored = catalog.restoreRecycledNote(QStringLiteral("ptf"), QStringLiteral("note-1"));
+    QVERIFY(restored);
+    QCOMPARE(restored.value, inbox.value);
+    QCOMPARE(catalog.folderForNote(QStringLiteral("ptf"), QStringLiteral("note-1")), inbox.value);
+    QVERIFY(!catalog.isRecycled(QStringLiteral("ptf"), QStringLiteral("note-1")));
+    const auto *assignment = catalog.assignment(QStringLiteral("ptf"), QStringLiteral("note-1"));
+    QVERIFY(assignment);
+    QVERIFY(assignment->previousFolderId.isNull());
+    QVERIFY(!assignment->recycledAt.isValid());
 }
 
 void FolderCatalogTest::mergesNewerRecords()

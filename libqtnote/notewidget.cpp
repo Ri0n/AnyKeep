@@ -1,5 +1,4 @@
 #include <QApplication>
-#include <QCheckBox>
 #include <QClipboard>
 #include <QCryptographicHash>
 #include <QDebug>
@@ -9,7 +8,6 @@
 #include <QGuiApplication>
 #include <QLocale>
 #include <QMenu>
-#include <QMessageBox>
 #include <QPalette>
 #include <QPrintDialog>
 #include <QPrinter>
@@ -547,21 +545,6 @@ void NoteWidget::onSaveClicked()
 
 void NoteWidget::onTrashClicked()
 {
-    QSettings s;
-    if (!text().isEmpty() && s.value("ui.ask-on-delete", true).toBool()) {
-        auto mb = new QMessageBox(QMessageBox::Question, tr("Deletion confirmation"),
-                                  tr("Are you sure you want to delete this note?"), QMessageBox::Yes | QMessageBox::No);
-        mb->setCheckBox(new QCheckBox(tr("Don't ask again")));
-        auto res     = mb->exec();
-        auto dontAsk = mb->checkBox()->isChecked();
-        delete mb;
-        if (res != QMessageBox::Yes) {
-            return;
-        }
-        if (dontAsk) {
-            s.setValue("ui.ask-on-delete", false);
-        }
-    }
     _trashRequested = true;
     emit trashRequested();
 }

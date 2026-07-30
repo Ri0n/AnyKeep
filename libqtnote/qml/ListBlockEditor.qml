@@ -117,27 +117,11 @@ Column {
     }
 
     function subtreeEnd(index) {
-        const level = itemIndent(index)
-        let end = index + 1
-        while (end < listModel.count && itemIndent(end) > level)
-            ++end
-        return end
+        return hierarchyRange.subtreeEnd(index)
     }
 
     function levelRangeForItem(index) {
-        if (index < 0 || index >= listModel.count)
-            return { start: -1, end: -1, level: -1 }
-
-        const level = itemIndent(index)
-        let start = index
-        while (start > 0 && itemIndent(start - 1) >= level)
-            --start
-
-        let end = index + 1
-        while (end < listModel.count && itemIndent(end) >= level)
-            ++end
-
-        return { start: start, end: end, level: level }
+        return hierarchyRange.levelRange(index)
     }
 
     function markerCenterXForIndent(indent) {
@@ -273,6 +257,13 @@ Column {
 
     ListModel {
         id: listModel
+    }
+
+    Reorder.HierarchyRange {
+        id: hierarchyRange
+
+        countProvider: function() { return listRoot.itemCount() }
+        depthProvider: function(index) { return listRoot.itemIndent(index) }
     }
 
     Repeater {

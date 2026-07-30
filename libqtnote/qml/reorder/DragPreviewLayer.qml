@@ -73,7 +73,7 @@ Item {
             sourceItem: modelData.sourceItem
             hideSource: root.hideSources
             live: root.liveSources
-            recursive: true
+            recursive: false
             smooth: true
             x: Number(modelData.x) + root.translationX
             y: Number(modelData.y) + root.translationY
@@ -82,6 +82,15 @@ Item {
             sourceRect: Qt.rect(Number(modelData.sourceX), Number(modelData.sourceY),
                                 width, height)
             opacity: root.previewOpacity
+
+            // A reusable TreeView delegate can still carry the previous
+            // row's scene-graph texture when the source is assigned.  With a
+            // frozen source, explicitly render the current contents once on
+            // the next frame and then animate that texture independently.
+            Component.onCompleted: {
+                if (!live)
+                    scheduleUpdate()
+            }
         }
     }
 }

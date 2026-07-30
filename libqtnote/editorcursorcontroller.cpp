@@ -2,6 +2,7 @@
 
 #include <QCursor>
 #include <QGuiApplication>
+#include <QPixmap>
 #include <QQmlContext>
 #include <QString>
 
@@ -20,6 +21,24 @@ void EditorCursorController::setOverrideCursor(int shape)
     }
 
     QGuiApplication::setOverrideCursor(QCursor(cursorShape));
+    overrideCursorActive_ = true;
+}
+
+void EditorCursorController::setTrashCursor()
+{
+    const QPixmap trashPixmap(QStringLiteral(":/icons/trash"));
+    if (trashPixmap.isNull()) {
+        setOverrideCursor(Qt::ForbiddenCursor);
+        return;
+    }
+
+    const QCursor cursor(trashPixmap, trashPixmap.width() / 2, trashPixmap.height() / 2);
+    if (overrideCursorActive_) {
+        QGuiApplication::changeOverrideCursor(cursor);
+        return;
+    }
+
+    QGuiApplication::setOverrideCursor(cursor);
     overrideCursorActive_ = true;
 }
 

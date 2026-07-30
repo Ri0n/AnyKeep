@@ -63,6 +63,8 @@ class FolderNotesModelTest : public QObject {
 private slots:
     void initTestCase();
     void projectsHierarchyAndUnsortedNotes();
+    void placesArchivedFoldersAndRecycleBinAtTheEnd();
+    void recyclingNoteUpdatesProjectionWithoutReset();
     void folderPickerIgnoresCollapsedAndArchivedBranches();
     void overlayTombstoneWinsOverProviderFolder();
 };
@@ -126,11 +128,81 @@ void FolderNotesModelTest::projectsHierarchyAndUnsortedNotes()
     QCOMPARE(model.index(5, 0).data(FolderNotesModel::NoteIdRole).toString(), QStringLiteral("unsorted"));
     QCOMPARE(model.rowForFolder(rootResult.value.toString(QUuid::WithoutBraces)), 0);
 
+    QVERIFY(model.setUnsortedCollapsed(true));
+    QCOMPARE(model.rowCount(), 5);
+    QCOMPARE(model.index(4, 0).data(FolderNotesModel::RowKindRole).toInt(), int(FolderNotesModel::UnsortedRow));
+    QVERIFY(model.index(4, 0).data(FolderNotesModel::CollapsedRole).toBool());
+    QVERIFY(model.setUnsortedCollapsed(false));
+    QCOMPARE(model.rowCount(), 6);
+
     QVERIFY(!manager.setFolderCollapsed(rootResult.value, true));
     QTRY_COMPARE(model.rowCount(), 3);
     QCOMPARE(model.index(0, 0).data(FolderNotesModel::TitleRole).toString(), QStringLiteral("Projects"));
     QCOMPARE(model.index(1, 0).data(FolderNotesModel::RowKindRole).toInt(), int(FolderNotesModel::UnsortedRow));
     QCOMPARE(model.index(2, 0).data(FolderNotesModel::NoteIdRole).toString(), QStringLiteral("unsorted"));
+}
+
+void FolderNotesModelTest::placesArchivedFoldersAndRecycleBinAtTheEnd()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager manager(makeCatalogStore(directory));
+    QVERIFY(manager.initialize());
+
+    FolderRecord inbox;
+    inbox.name = QStringLiteral("Inbox");
+    QVERIFY(manager.addFolder(inbox));
+    FolderRecord archive;
+    archive.name     = QStringLiteral("Archive");
+    archive.archived = true;
+    QVERIFY(manager.addFolder(archive));
+    QVERIFY(!manager.recycleNote(QStringLiteral("ptf"), QStringLiteral("discarded"), {}));
+
+    FolderNotesModel model(&manager);
+    QCOMPARE(model.rowCount(), 4);
+    QCOMPARE(model.index(0, 0).data(FolderNotesModel::TitleRole).toString(), QStringLiteral("Inbox"));
+    QCOMPARE(model.index(1, 0).data(FolderNotesModel::RowKindRole).toInt(), int(FolderNotesModel::UnsortedRow));
+    QCOMPARE(model.index(2, 0).data(FolderNotesModel::TitleRole).toString(), QStringLiteral("Archive"));
+    QCOMPARE(model.index(3, 0).data(FolderNotesModel::TitleRole).toString(), QStringLiteral("Recycle Bin"));
+    QVERIFY(model.index(3, 0).data(FolderNotesModel::SystemFolderRole).toBool());
+}
+
+void FolderNotesModelTest::recyclingNoteUpdatesProjectionWithoutReset()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager manager(makeCatalogStore(directory));
+    QVERIFY(manager.initialize());
+
+    FolderRecord inbox;
+    inbox.name = QStringLiteral("Inbox");
+    const auto inboxResult = manager.addFolder(inbox);
+    QVERIFY(inboxResult);
+
+    auto storage = std::make_unique<FolderModelStorage>(QStringLiteral("folder-model-recycle"));
+    auto *raw    = storage.get();
+    raw->notes   = { raw->makeNote(QStringLiteral("discarded"), QStringLiteral("Discarded"), inboxResult.value) };
+    auto *notes  = NoteManager::instance();
+    notes->registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([notes, raw]() {
+        if (notes->storage(raw->systemName()) == raw)
+            notes->unregisterStorage(raw);
+    });
+    QTRY_COMPARE(notes->notesIndex()->noteCount(raw->systemName()), 1);
+
+    FolderNotesModel model(&manager);
+    QCOMPARE(model.rowCount(), 3);
+    QSignalSpy resetSpy(&model, &QAbstractItemModel::modelReset);
+    QSignalSpy insertSpy(&model, &QAbstractItemModel::rowsInserted);
+    QSignalSpy moveSpy(&model, &QAbstractItemModel::rowsMoved);
+
+    QVERIFY(!manager.recycleNote(raw->systemName(), QStringLiteral("discarded"), inboxResult.value));
+    QCOMPARE(resetSpy.count(), 0);
+    QVERIFY(insertSpy.count() >= 1);
+    QVERIFY(moveSpy.count() >= 1);
+    QCOMPARE(model.rowCount(), 4);
+    QCOMPARE(model.index(2, 0).data(FolderNotesModel::TitleRole).toString(), QStringLiteral("Recycle Bin"));
+    QCOMPARE(model.index(3, 0).data(FolderNotesModel::NoteIdRole).toString(), QStringLiteral("discarded"));
 }
 
 void FolderNotesModelTest::folderPickerIgnoresCollapsedAndArchivedBranches()

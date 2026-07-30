@@ -11,6 +11,8 @@ Item {
     property var boundaryProvider: null
     property var targetChangedHandler: null
     property var commitHandler: null
+    property var outsideDropProvider: null
+    property var outsideDropHandler: null
     property var resetHandler: null
     property string previewObjectName: ""
     property string previewObjectNamePrefix: "reorderPreview-"
@@ -183,7 +185,11 @@ Item {
         let result = false
         committingDrop = true
         try {
-            if (typeof commitHandler === "function")
+            const outside = typeof outsideDropProvider === "function"
+                    && Boolean(outsideDropProvider(controller))
+            if (outside && typeof outsideDropHandler === "function")
+                result = Boolean(outsideDropHandler(sourcePayload, controller))
+            else if (typeof commitHandler === "function")
                 result = Boolean(commitHandler(sourcePayload, targetBoundary, controller))
         } finally {
             try {

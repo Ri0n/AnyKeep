@@ -16,6 +16,9 @@ Read this file before opening `NoteBlockEditor.qml`.
 - `reorder/LinearReorderLayout.qml`: shared source exclusion, logical boundary
   coordinates, remaining-row indexes, flow-layout correction, and fixed-row
   translation. Use its order-snapshot APIs for recycled delegates.
+- `reorder/FlatListReorderController.qml`: reusable `ListView` adapter for
+  fixed-height flat rows. It owns the common preview, compressed boundaries,
+  animated displacement lifecycle, commit callback, and model-reset handling.
 - `EditorReorderController.qml`: editor adapter for the generic controller. It
   supplies cross-list boundaries, indentation, focus restoration, and the
   `moveListRange()` commit.

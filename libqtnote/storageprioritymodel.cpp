@@ -202,6 +202,11 @@ bool StoragePriorityModel::moveStorageById(const QString &sourceStorageId, const
     return moveStorage(rowForStorage(sourceStorageId), rowForStorage(destinationStorageId));
 }
 
+bool StoragePriorityModel::moveStorageToRow(const QString &sourceStorageId, int destinationRow)
+{
+    return moveStorage(rowForStorage(sourceStorageId), destinationRow);
+}
+
 void StoragePriorityModel::resetFromManager()
 {
     items_.clear();

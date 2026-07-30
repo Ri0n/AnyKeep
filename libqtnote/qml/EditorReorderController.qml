@@ -47,6 +47,10 @@ Item {
         offsetProvider: function() { return 0 }
     }
 
+    Reorder.HierarchyDropPolicy {
+        id: hierarchyDropPolicy
+    }
+
     Reorder.GenericReorderController {
         id: reorderCore
 
@@ -189,11 +193,11 @@ Item {
                 ? targetBlock.markerCenterXForIndent(0)
                 : targetBlock.mapToItem(editorView.contentItem, 0, 0).x
                   + editorView.listMarkerWidth / 2
-        const requestedIndent = Math.round((pointerX - markerCenter)
-                                           / editorView.listIndent)
         const maximumIndent = targetItem === 0
                 ? 0 : targetBlock.remainingIndentAt(targetItem - 1) + 1
-        targetIndent = Math.max(0, Math.min(maximumIndent, requestedIndent))
+        targetIndent = hierarchyDropPolicy.depthFromMarker(
+                    pointerX, markerCenter, editorView.listIndent,
+                    maximumIndent, false)
     }
 
     function finishListDrag() {

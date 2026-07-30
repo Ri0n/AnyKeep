@@ -5,6 +5,8 @@
 #include "desktopnoteactions.h"
 #include "draftmanager.h"
 #include "editorcursorcontroller.h"
+#include "foldercatalogmanager.h"
+#include "folderoperationscontroller.h"
 #include "localmediaimageprovider.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
@@ -155,11 +157,6 @@ bool NoteDialog::pinAvailable() const
     return main_->stickyNotesManager()->isAvailable() && !editor_->noteId().isEmpty();
 }
 
-bool NoteDialog::askBeforeDelete() const
-{
-    return QSettings().value(QStringLiteral("ui.ask-on-delete"), true).toBool();
-}
-
 void NoteDialog::requestClose() { requestDeferredClose(); }
 
 void NoteDialog::requestDeferredClose()
@@ -177,18 +174,36 @@ void NoteDialog::requestDeferredClose()
         Qt::QueuedConnection);
 }
 
-bool NoteDialog::deleteNote()
+bool NoteDialog::trashNote()
 {
     flushEditorChanges();
     if (!editor_->noteId().isEmpty()) {
-        const auto error = DraftManager::instance()->queueRemoval(editor_->storageId(), editor_->noteId());
+        auto *folderCatalog = FolderCatalogManager::instance();
+        if (!folderCatalog->isAvailable()) {
+            emit operationFailed(tr("The encrypted folder catalog is unavailable"));
+            return false;
+        }
+        if (!DraftManager::instance()->isLastEditingSession(editor_->draftId())) {
+            emit operationFailed(tr("The note is open in another editor and cannot be moved to the recycle bin yet"));
+            return false;
+        }
+        const QUuid previousFolderId = folderCatalog->catalog().folderForNote(editor_->storageId(), editor_->noteId());
+        if (!editor_->discardAndClose()) {
+            emit operationFailed(editor_->errorString());
+            return false;
+        }
+        const auto error = folderCatalog->recycleNote(editor_->storageId(), editor_->noteId(), previousFolderId);
         if (error) {
-            emit operationFailed(tr("Failed to queue note removal: %1").arg(error.message));
+            emit operationFailed(error.message);
+            return false;
+        }
+        auto *folderOperations = FolderOperationsController::instance();
+        if (!folderOperations->assignNoteFolder(editor_->storageId(), editor_->noteId(), FolderCatalog::recycleBinId(), true)) {
+            emit operationFailed(folderOperations->errorString());
             return false;
         }
     }
     trashRequested_ = true;
-    editor_->discardAndClose();
     requestDeferredClose();
     return true;
 }

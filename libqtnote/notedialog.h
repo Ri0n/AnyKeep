@@ -23,7 +23,6 @@ class NoteDialog final : public QQuickView {
     Q_OBJECT
     Q_PROPERTY(bool alwaysOnTop READ alwaysOnTop NOTIFY alwaysOnTopChanged)
     Q_PROPERTY(bool pinAvailable READ pinAvailable CONSTANT)
-    Q_PROPERTY(bool askBeforeDelete READ askBeforeDelete CONSTANT)
 
 public:
     explicit NoteDialog(const Note &note, Main *main, const QUuid &draftId = {});
@@ -38,10 +37,9 @@ public:
 
     bool alwaysOnTop() const;
     bool pinAvailable() const;
-    bool askBeforeDelete() const;
 
     Q_INVOKABLE void requestClose();
-    Q_INVOKABLE bool deleteNote();
+    Q_INVOKABLE bool trashNote();
     Q_INVOKABLE bool pinNote();
     Q_INVOKABLE void setAlwaysOnTop(bool enabled);
     Q_INVOKABLE void reportError(const QString &message);

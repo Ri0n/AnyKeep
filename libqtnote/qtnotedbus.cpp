@@ -13,7 +13,10 @@
 #include <QSettings>
 #include <QtGlobal>
 
+#include <algorithm>
+
 #include "draftmanager.h"
+#include "foldercatalogmanager.h"
 #include "notemanager.h"
 #include "qtnote.h"
 #include "shortcutsmanager.h"
@@ -54,6 +57,31 @@ namespace {
         accelerator += tokens.constLast();
         return accelerator;
     }
+
+    bool matchesMenuQuery(const Note &note, const QString &query)
+    {
+        if (query.isEmpty() || note.title().contains(query, Qt::CaseInsensitive))
+            return true;
+
+        QString tagQuery = query;
+        if (tagQuery.startsWith(QLatin1Char('*')))
+            tagQuery.remove(0, 1);
+        if (tagQuery.isEmpty())
+            return false;
+        for (const auto &tag : note.tags()) {
+            if (tag.contains(tagQuery, Qt::CaseInsensitive))
+                return true;
+        }
+        return false;
+    }
+
+    const FolderRecord *menuFolder(const Note &note, const FolderCatalog &catalog)
+    {
+        const auto *assignment = catalog.assignment(note.storageId(), note.id());
+        if (assignment)
+            return assignment->tombstone ? nullptr : catalog.folder(assignment->folderId);
+        return catalog.folder(note.folderId());
+    }
 }
 
 QtNoteDBus::QtNoteDBus(Main *qtnote, QObject *parent) : QObject(parent), m_qtnote(qtnote)
@@ -67,6 +95,11 @@ QtNoteDBus::QtNoteDBus(Main *qtnote, QObject *parent) : QObject(parent), m_qtnot
     // cache has accepted the returned note, even if a plugin omits or delays its
     // noteModified signal.
     connect(DraftManager::instance(), &DraftManager::draftPublished, this, &QtNoteDBus::notesChanged);
+    // Folder flags determine which entries are exposed by menu consumers.
+    // They live in the catalog rather than NoteManager, so notify D-Bus
+    // clients explicitly when a folder is favorited, archived, moved, etc.
+    connect(FolderCatalogManager::instance(), &FolderCatalogManager::catalogChanged, this,
+            &QtNoteDBus::notesChanged);
     connect(qtnote, &Main::settingsUpdated, this, &QtNoteDBus::notesChanged);
     connect(qtnote, &Main::settingsUpdated, this, &QtNoteDBus::globalShortcutsChanged);
     connect(qtnote->stickyNotesManager(), &StickyNotesManager::notesChanged, this, &QtNoteDBus::stickyNotesChanged);
@@ -100,11 +133,36 @@ QString QtNoteDBus::notesJson(int offset, int limit, const QString &query) const
     offset = qMax(0, offset);
     limit  = limit > 0 ? qMin(limit, MaxNotesPageSize) : DefaultNotesPageSize;
 
-    const auto notes = NoteManager::instance()->noteList(offset, limit + 1, query);
+    struct MenuNote {
+        Note note;
+        bool favorite { false };
+    };
+
+    const QString          filter = query.trimmed();
+    const auto             *catalogManager = FolderCatalogManager::instance();
+    const FolderCatalog    *catalog = catalogManager->isAvailable() ? &catalogManager->catalog() : nullptr;
+    QList<MenuNote>         notes;
+    const auto               allNotes = NoteManager::instance()->noteList(-1);
+    notes.reserve(allNotes.size());
+    for (const auto &note : allNotes) {
+        if (!matchesMenuQuery(note, filter))
+            continue;
+        const auto *folder = catalog ? menuFolder(note, *catalog) : nullptr;
+        // The menu is a quick route to active notes. Archived folders are
+        // deliberately hidden; Recycle Bin entries are only reachable from
+        // the manager, where restore and permanent-delete actions exist.
+        if (folder && (folder->archived || FolderCatalog::isRecycleBinId(folder->id)))
+            continue;
+        notes.append({ note, folder && folder->favorite });
+    }
+    std::stable_partition(notes.begin(), notes.end(), [](const MenuNote &entry) { return entry.favorite; });
+
+    const qsizetype first = qMin<qsizetype>(offset, notes.size());
+    const qsizetype last  = qMin<qsizetype>(first + limit, notes.size());
 
     QJsonArray result;
-    for (int i = 0, count = qMin(limit, notes.size()); i < count; ++i) {
-        const auto &note = notes.at(i);
+    for (qsizetype i = first; i < last; ++i) {
+        const auto &note = notes.at(i).note;
         result.append(QJsonObject {
             { "id", note.id() },
             { "storageId", note.storageId() },
@@ -115,7 +173,7 @@ QString QtNoteDBus::notesJson(int offset, int limit, const QString &query) const
     }
     return QString::fromUtf8(QJsonDocument(QJsonObject {
                                                { "notes", result },
-                                               { "hasMore", notes.size() > limit },
+                                               { "hasMore", last < notes.size() },
                                            })
                                  .toJson(QJsonDocument::Compact));
 }

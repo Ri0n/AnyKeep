@@ -22,6 +22,13 @@ namespace {
         return QString::number(storageId.size()) + QChar(0x1f) + storageId + noteId;
     }
 
+    int siblingPlacement(const FolderRecord &record)
+    {
+        if (FolderCatalog::isRecycleBinId(record.id))
+            return 2;
+        return record.archived ? 1 : 0;
+    }
+
     bool sameFolder(const FolderRecord &left, const FolderRecord &right)
     {
         return left.id == right.id && left.parentId == right.parentId && left.name == right.name
@@ -33,6 +40,7 @@ namespace {
     bool sameAssignment(const NoteFolderAssignment &left, const NoteFolderAssignment &right)
     {
         return left.storageId == right.storageId && left.noteId == right.noteId && left.folderId == right.folderId
+            && left.previousFolderId == right.previousFolderId && left.recycledAt == right.recycledAt
             && left.revision == right.revision && left.modifiedAt == right.modifiedAt
             && left.tombstone == right.tombstone;
     }
@@ -142,6 +150,10 @@ QList<FolderRecord> FolderCatalog::children(const QUuid &parentId) const
             result.append(record);
     }
     std::sort(result.begin(), result.end(), [](const FolderRecord &left, const FolderRecord &right) {
+        const int leftPlacement  = siblingPlacement(left);
+        const int rightPlacement = siblingPlacement(right);
+        if (leftPlacement != rightPlacement)
+            return leftPlacement < rightPlacement;
         if (left.favorite != right.favorite)
             return left.favorite;
         if (left.sortOrder != right.sortOrder)
@@ -191,6 +203,23 @@ const ProviderPathHint *FolderCatalog::pathHint(const QString &storageId, const 
 {
     const auto index = indexOfPathHint(storageId, path);
     return index < 0 ? nullptr : &snapshot_.pathHints.at(index);
+}
+
+QUuid FolderCatalog::recycleBinId()
+{
+    // A fixed application-owned UUID prevents a translated display name from
+    // becoming part of the data contract and cannot collide with a normal
+    // folder created through addFolder().
+    static const QUuid id(QStringLiteral("7cc71968-8b71-4bbf-a0ec-61f0d0e6cd1b"));
+    return id;
+}
+
+bool FolderCatalog::isRecycleBinId(const QUuid &id) { return id == recycleBinId(); }
+
+bool FolderCatalog::isRecycled(const QString &storageId, const QString &noteId) const
+{
+    const auto *record = assignment(storageId, noteId);
+    return record && !record->tombstone && isRecycleBinId(record->folderId);
 }
 
 FolderCatalogResult<QUuid> FolderCatalog::addFolder(FolderRecord record)
@@ -374,6 +403,8 @@ FolderCatalogError FolderCatalog::assignNote(const QString &storageId, const QSt
     } else {
         auto &record      = candidate.assignments[index];
         record.folderId   = folderId;
+        record.previousFolderId = {};
+        record.recycledAt = {};
         record.tombstone  = false;
         record.revision   = std::max<quint64>(record.revision + 1, 1);
         record.modifiedAt = currentTime();
@@ -399,11 +430,94 @@ FolderCatalogError FolderCatalog::clearNoteAssignment(const QString &storageId, 
     } else {
         auto &record      = candidate.assignments[index];
         record.folderId   = {};
+        record.previousFolderId = {};
+        record.recycledAt = {};
         record.tombstone  = true;
         record.revision   = std::max<quint64>(record.revision + 1, 1);
         record.modifiedAt = currentTime();
     }
     return replaceSnapshot(std::move(candidate));
+}
+
+FolderCatalogError FolderCatalog::recycleNote(const QString &storageId, const QString &noteId,
+                                              const QUuid &previousFolderId)
+{
+    if (storageId.isEmpty() || noteId.isEmpty())
+        return error(FolderCatalogError::InvalidArgument, QStringLiteral("Storage id and note id are required"));
+
+    auto candidate = snapshot_;
+    const auto trashId = recycleBinId();
+    auto trashIndex = -1;
+    for (int index = 0; index < candidate.folders.size(); ++index) {
+        if (candidate.folders.at(index).id == trashId) {
+            trashIndex = index;
+            break;
+        }
+    }
+    if (trashIndex < 0) {
+        FolderRecord trash;
+        trash.id = trashId;
+        trash.name = QStringLiteral("Recycle Bin");
+        trash.sortOrder = std::numeric_limits<qint64>::max() / 4;
+        trash.archived = true;
+        trash.revision = 1;
+        trash.modifiedAt = currentTime();
+        candidate.folders.append(std::move(trash));
+    }
+
+    const auto index = indexOfAssignment(storageId, noteId);
+    const auto now = currentTime();
+    if (index < 0) {
+        NoteFolderAssignment record;
+        record.storageId = storageId;
+        record.noteId = noteId;
+        record.folderId = trashId;
+        record.previousFolderId = previousFolderId;
+        record.recycledAt = now;
+        record.revision = 1;
+        record.modifiedAt = now;
+        candidate.assignments.append(std::move(record));
+    } else {
+        auto &record = candidate.assignments[index];
+        if (!record.tombstone && isRecycleBinId(record.folderId))
+            return {};
+        record.folderId = trashId;
+        record.previousFolderId = previousFolderId;
+        record.recycledAt = now;
+        record.tombstone = false;
+        record.revision = std::max<quint64>(record.revision + 1, 1);
+        record.modifiedAt = now;
+    }
+    return replaceSnapshot(std::move(candidate));
+}
+
+FolderCatalogResult<QUuid> FolderCatalog::restoreRecycledNote(const QString &storageId, const QString &noteId)
+{
+    const auto index = indexOfAssignment(storageId, noteId);
+    if (index < 0 || snapshot_.assignments.at(index).tombstone
+        || !isRecycleBinId(snapshot_.assignments.at(index).folderId)) {
+        return { {}, error(FolderCatalogError::NotFound, QStringLiteral("Recycled note was not found")) };
+    }
+
+    auto candidate = snapshot_;
+    auto &record = candidate.assignments[index];
+    const QUuid previous = record.previousFolderId;
+    const bool restoreToFolder = !previous.isNull() && folder(previous);
+    if (restoreToFolder) {
+        record.folderId = previous;
+        record.tombstone = false;
+    } else {
+        record.folderId = {};
+        record.tombstone = true;
+    }
+    record.previousFolderId = {};
+    record.recycledAt = {};
+    record.revision = std::max<quint64>(record.revision + 1, 1);
+    record.modifiedAt = currentTime();
+    if (const auto validation = validate(candidate))
+        return { {}, validation };
+    snapshot_ = std::move(candidate);
+    return { restoreToFolder ? previous : QUuid {}, {} };
 }
 
 FolderCatalogError FolderCatalog::reconcileProviderFolderPaths(const QString                             &storageId,
@@ -605,13 +719,18 @@ FolderCatalogError FolderCatalog::validate(const FolderCatalogSnapshot &snapshot
             return error(FolderCatalogError::AlreadyExists, QStringLiteral("Duplicate note assignment"));
         assignments.insert(key);
         if (record.tombstone) {
-            if (!record.folderId.isNull())
+            if (!record.folderId.isNull() || !record.previousFolderId.isNull() || record.recycledAt.isValid())
                 return error(FolderCatalogError::InvalidArgument, QStringLiteral("Deleted assignment has a folder"));
             continue;
         }
         const auto folder = folders.constFind(record.folderId);
         if (record.folderId.isNull() || folder == folders.cend() || folder.value()->tombstone)
             return error(FolderCatalogError::NotFound, QStringLiteral("Assignment folder was not found"));
+        if (!isRecycleBinId(record.folderId)
+            && (!record.previousFolderId.isNull() || record.recycledAt.isValid())) {
+            return error(FolderCatalogError::InvalidArgument,
+                         QStringLiteral("Only recycled assignments may have restore metadata"));
+        }
     }
 
     QSet<QString> pathHints;

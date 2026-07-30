@@ -28,7 +28,7 @@ Page {
 
             Switch {
                 Layout.fillWidth: true
-                text: qsTr("Ask before deleting a note")
+                text: qsTr("Confirm permanent deletion")
                 checked: mobileApp.askBeforeDelete
                 onToggled: mobileApp.askBeforeDelete = checked
             }

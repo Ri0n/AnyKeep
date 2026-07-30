@@ -38,6 +38,7 @@ namespace {
     bool sameAssignment(const NoteFolderAssignment &left, const NoteFolderAssignment &right)
     {
         return left.storageId == right.storageId && left.noteId == right.noteId && left.folderId == right.folderId
+            && left.previousFolderId == right.previousFolderId && left.recycledAt == right.recycledAt
             && left.revision == right.revision && left.modifiedAt == right.modifiedAt
             && left.tombstone == right.tombstone;
     }
@@ -161,6 +162,29 @@ FolderCatalogError FolderCatalogManager::clearNoteAssignment(const QString &stor
 {
     return mutate(
         [storageId, noteId](FolderCatalog &catalog) { return catalog.clearNoteAssignment(storageId, noteId); });
+}
+
+FolderCatalogError FolderCatalogManager::recycleNote(const QString &storageId, const QString &noteId,
+                                                      const QUuid &previousFolderId)
+{
+    return mutate([storageId, noteId, previousFolderId](FolderCatalog &catalog) {
+        return catalog.recycleNote(storageId, noteId, previousFolderId);
+    });
+}
+
+FolderCatalogResult<QUuid> FolderCatalogManager::restoreRecycledNote(const QString &storageId, const QString &noteId)
+{
+    if (!available_)
+        return { {}, unavailableError(lastError_) };
+    FolderCatalog candidate;
+    if (const auto validation = candidate.replaceSnapshot(catalog_.snapshot()))
+        return { {}, validation };
+    const auto result = candidate.restoreRecycledNote(storageId, noteId);
+    if (!result)
+        return result;
+    if (const auto persistError = replaceWith(std::move(candidate)))
+        return { {}, persistError };
+    return result;
 }
 
 FolderCatalogError

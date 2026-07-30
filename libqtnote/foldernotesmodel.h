@@ -23,6 +23,7 @@ the Free Software Foundation, either version 3 of the License, or
 namespace QtNote {
 
 class FolderCatalogManager;
+class NotesSearchModel;
 /**
  * Flat visible projection of the global folder tree and note summaries.
  *
@@ -57,6 +58,17 @@ public:
         ArchivedRole,
         ChildFolderCountRole,
         NoteCountRole,
+        ItemTypeRole,
+        GroupKindRole,
+        GroupIdRole,
+        PreviewRole,
+        StorageNameRole,
+        AccessibleRole,
+        LoadingRole,
+        ErrorStringRole,
+        HasMoreRole,
+        IconSourceRole,
+        SystemFolderRole,
     };
     Q_ENUM(Role)
 
@@ -74,6 +86,14 @@ public:
     /** A full folder tree for pickers; it intentionally ignores collapsed branches. */
     Q_INVOKABLE QVariantList folderPickerItems(bool includeArchived = false) const;
 
+    /**
+     * The Unsorted group is virtual, so its expanded state belongs to this
+     * projection rather than to FolderCatalog.  Keeping it here also avoids
+     * inventing a persistent pseudo-folder in the shared catalog.
+     */
+    bool setUnsortedCollapsed(bool collapsed);
+    void setSearchModel(NotesSearchModel *model);
+
 signals:
     void catalogAvailableChanged();
     void countChanged();
@@ -86,22 +106,34 @@ private:
         QString storageId;
         QString noteId;
         QString title;
+        QString preview;
+        QString storageName;
         int     depth { 0 };
+        bool    accessible { true };
         bool    collapsed { false };
         bool    favorite { false };
         bool    archived { false };
+        bool    systemFolder { false };
         int     childFolderCount { 0 };
         int     noteCount { 0 };
     };
 
     FolderCatalogManager *catalogManager_ { nullptr };
+    NotesSearchModel     *searchModel_ { nullptr };
     QList<Row>            rows_;
     bool                  catalogAvailable_ { false };
+    bool                  unsortedCollapsed_ { false };
 
-    void  rebuild();
+    void       rebuild();
+    QList<Row> buildRows() const;
+    void       replaceRows(QList<Row> nextRows);
+    static QString rowKey(const Row &row);
+    static bool    sameRow(const Row &left, const Row &right);
+    bool  matchesSearch(const Note &note) const;
     QUuid effectiveFolderId(const Note &note) const;
-    void  appendFolder(const QUuid &folderId, int depth, const QHash<QUuid, QList<Note>> &notesByFolder);
-    void  appendNotes(const QList<Note> &notes, const QUuid &folderId, int depth);
+    void  appendFolder(QList<Row> *rows, const QUuid &folderId, int depth,
+                       const QHash<QUuid, QList<Note>> &notesByFolder) const;
+    void  appendNotes(QList<Row> *rows, const QList<Note> &notes, const QUuid &folderId, int depth) const;
     void  appendFolderPickerItems(const QUuid &folderId, int depth, bool includeArchived, QVariantList *items) const;
 };
 

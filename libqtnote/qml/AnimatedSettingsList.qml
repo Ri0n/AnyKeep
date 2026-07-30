@@ -38,135 +38,28 @@ Item {
         color: root.backgroundColor
     }
 
-    function itemAt(row) {
-        return listView.itemAtIndex(row)
-    }
-
-    function rowItems() {
-        const result = []
-        for (let row = 0; row < listView.count; ++row) {
-            const item = itemAt(row)
-            if (item)
-                result.push(item)
-        }
-        return result
-    }
-
-    function boundaries() {
-        if (!activePayload)
-            return []
-        const remaining = reorderLayout.remainingItems(rowItems())
-        if (remaining.length === 0) {
-            return [{
-                position: reorderController.startDraggedTopY,
-                owner: null,
-                finalRow: 0,
-                finalIndex: 0,
-                afterOwner: false
-            }]
-        }
-        return reorderLayout.boundaries(rowItems(), function(item, after, index) {
-            return {
-                finalRow: index
-            }
-        })
-    }
-
-    function rowTranslation(row) {
-        return reorderLayout.translationByOrder(
-                    itemAt(row), reorderController.targetBoundary,
-                    reorderController.draggedExtent)
-    }
-
-    function beginDrag(delegate) {
-        if (!delegate || !reorderModel)
-            return false
-        const started = reorderController.beginDrag({
-            sources: [{
-                item: delegate,
-                key: delegate.itemId,
-                order: delegate.index,
-                previewItem: delegate,
-                geometryItem: delegate,
-                naturalExtent: rowHeight,
-                previewWidth: delegate.width,
-                previewHeight: rowHeight
-            }],
-            payload: {
-                sourceRow: delegate.index,
-                itemId: delegate.itemId
-            },
-            pointerItem: delegate,
-            pointerLocalX: delegate.width / 2,
-            pointerLocalY: rowHeight / 2,
-            targetByDraggedTop: true
-        })
-        delegate.internalDragActive = started
-        return started
-    }
-
-    function moveDrag(delegate, dx, dy) {
-        if (activePayload && delegate && activePayload.itemId === delegate.itemId)
-            reorderController.moveDrag(dx, dy)
-    }
-
-    function finishDrag(delegate) {
-        if (!delegate || !delegate.internalDragActive)
-            return
-        delegate.internalDragActive = false
-        reorderController.finishDrag()
-    }
-
-    function cancelDrag() {
-        reorderController.cancelDrag()
-    }
-
-    Reorder.LinearReorderLayout {
-        id: reorderLayout
-
-        geometryItem: root
-        sourceEntries: reorderController.sourceEntries
-        keyProvider: function(item) { return String(item.itemId) }
-        orderProvider: function(item) { return Number(item.index) }
-        extentProvider: function() { return root.rowHeight }
-    }
-
-    Reorder.GenericReorderController {
+    Reorder.FlatListReorderController {
         id: reorderController
 
         anchors.fill: parent
         geometryItem: root
-        scrollItem: listView
+        listView: listView
+        model: root.reorderModel
         compensateForScroll: false
         previewObjectName: "settingsDragPreview"
         previewObjectNamePrefix: "settingsDragPreviewItem-"
-        previewHideSources: false
-        previewLive: false
-        boundaryProvider: function() { return root.boundaries() }
-        commitHandler: function(payload, boundary) {
-            if (!payload || !boundary || !root.reorderModel)
-                return false
-            const destination = Number(boundary.finalRow)
-            if (destination === Number(payload.sourceRow))
-                return false
+        keyProvider: function(item) { return String(item.itemId) }
+        extentProvider: function() { return root.rowHeight }
+        payloadProvider: function(item) {
+            return {
+                sourceRow: Number(item.index),
+                itemId: String(item.itemId)
+            }
+        }
+        commitHandler: function(payload, destination) {
             return root.pluginMode
                     ? root.reorderModel.movePlugin(Number(payload.sourceRow), destination)
                     : root.reorderModel.reorderStorage(Number(payload.sourceRow), destination)
-        }
-    }
-
-    Connections {
-        target: root.reorderModel
-        enabled: root.dragging
-        ignoreUnknownSignals: true
-
-        function onModelAboutToBeReset() {
-            if (!reorderController.committingDrop)
-                root.cancelDrag()
-        }
-        function onRowsAboutToBeRemoved() {
-            if (!reorderController.committingDrop)
-                root.cancelDrag()
         }
     }
 
@@ -205,14 +98,9 @@ Item {
                                               : Boolean(model.accessible)
             readonly property bool configurable: Boolean(model.configurable)
             readonly property real reorderOffset: displacement.displacement
-            readonly property bool sourceActive: root.activePayload
-                                                     && root.activePayload.itemId === itemId
-            readonly property bool targetBefore: reorderController.targetBoundary
-                                                 && reorderController.targetBoundary.owner === rowDelegate
-                                                 && !reorderController.targetBoundary.afterOwner
-            readonly property bool targetAfter: reorderController.targetBoundary
-                                                && reorderController.targetBoundary.owner === rowDelegate
-                                                && reorderController.targetBoundary.afterOwner
+            readonly property bool sourceActive: reorderController.sourceActive(rowDelegate)
+            readonly property bool targetBefore: reorderController.targetBefore(rowDelegate)
+            readonly property bool targetAfter: reorderController.targetAfter(rowDelegate)
 
             objectName: "settingsRow-" + itemId
             width: listView.width
@@ -237,7 +125,7 @@ Item {
                 targetAfter: rowDelegate.targetAfter
                 naturalExtent: root.rowHeight
                 draggedExtent: root.rowHeight
-                displacement: root.rowTranslation(rowDelegate.index)
+                displacement: reorderController.rowTranslation(rowDelegate)
             }
 
             background: Rectangle {
@@ -285,11 +173,11 @@ Item {
 
                     Reorder.ReorderDragHandle {
                         anchors.fill: parent
-                        onDragStarted: root.beginDrag(rowDelegate)
+                        onDragStarted: reorderController.beginDrag(rowDelegate)
                         onDragMoved: function(dx, dy) {
-                            root.moveDrag(rowDelegate, dx, dy)
+                            reorderController.moveDrag(rowDelegate, dx, dy)
                         }
-                        onDragFinished: root.finishDrag(rowDelegate)
+                        onDragFinished: reorderController.finishDrag(rowDelegate)
                     }
                 }
 

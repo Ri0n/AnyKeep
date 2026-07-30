@@ -56,7 +56,11 @@ public:
     QString               draftIdString() const { return draftId_.toString(QUuid::WithoutBraces); }
     QString               storageId() const { return note_.storageId(); }
     QString               noteId() const { return note_.id(); }
-    QString               folderIdString() const { return folderId().toString(QUuid::WithoutBraces); }
+    QString               folderIdString() const
+    {
+        const auto id = folderId();
+        return id.isNull() ? QString() : id.toString(QUuid::WithoutBraces);
+    }
     bool                  supportsMedia() const;
     bool                  canInsertImages() const;
     QString               text() const { return text_; }

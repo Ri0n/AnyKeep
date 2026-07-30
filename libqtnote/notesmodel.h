@@ -13,6 +13,7 @@ namespace QtNote {
 
 class NMMItem;
 class Note;
+class FolderCatalogManager;
 
 class QTNOTE_EXPORT NotesModel final : public QAbstractItemModel {
     Q_OBJECT
@@ -42,6 +43,7 @@ public:
     Q_ENUM(ItemType)
 
     explicit NotesModel(QObject *parent = nullptr);
+    NotesModel(FolderCatalogManager *folderCatalogManager, QObject *parent);
     ~NotesModel() override;
 
     QModelIndex            index(int row, int column, const QModelIndex &parent = {}) const override;
@@ -97,6 +99,7 @@ private:
     QList<NMMItem *> storages_;
     int              pageSize_ { 30 };
     bool             searchActive_ { false };
+    FolderCatalogManager *folderCatalogManager_ { nullptr };
 };
 
 } // namespace QtNote

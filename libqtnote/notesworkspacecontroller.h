@@ -83,6 +83,12 @@ public:
     Q_INVOKABLE bool    closeCurrentNote();
     Q_INVOKABLE bool    reloadCurrentNote();
     Q_INVOKABLE bool    deleteNote(const QString &storageId, const QString &noteId);
+    Q_INVOKABLE bool    trashNote(const QString &storageId, const QString &noteId);
+    Q_INVOKABLE bool    restoreRecycledNote(const QString &storageId, const QString &noteId);
+    Q_INVOKABLE bool    emptyRecycleBin();
+    Q_INVOKABLE bool    isRecycledNote(const QString &storageId, const QString &noteId) const;
+    Q_INVOKABLE bool    askBeforePermanentDelete() const;
+    Q_INVOKABLE void    setAskBeforePermanentDelete(bool enabled);
     Q_INVOKABLE bool    moveNote(const QString &sourceStorageId, const QString &noteId,
                                  const QString &destinationStorageId);
     Q_INVOKABLE bool    moveCurrentNote(const QString &destinationStorageId);
@@ -90,7 +96,15 @@ public:
                                  const QString &destinationStorageId);
     Q_INVOKABLE bool    moveNotes(const QVariantList &notes, const QString &destinationStorageId,
                                   const QString &anchorNoteId = {}, bool insertAfter = false);
+    /**
+     * Reorder the time-based Recent projection without turning a drop into a
+     * cross-storage move.  A native storage owns timestamp ordering, so both
+     * the dragged notes and their boundary must belong to it.
+     */
+    Q_INVOKABLE bool    reorderRecentNotes(const QVariantList &notes, const QString &anchorStorageId,
+                                           const QString &anchorNoteId, bool insertAfter = false);
     Q_INVOKABLE bool    moveStorage(const QString &sourceStorageId, const QString &destinationStorageId);
+    Q_INVOKABLE bool    moveStorageToRow(const QString &sourceStorageId, int destinationRow);
     Q_INVOKABLE void    openStorageSettings(const QString &storageId);
     Q_INVOKABLE void    refresh();
     Q_INVOKABLE bool    openStandalone(const QString &storageId, const QString &noteId);
@@ -101,6 +115,7 @@ public:
     Q_INVOKABLE bool    moveFolderBefore(const QString &folderId, const QString &parentFolderId,
                                          const QString &beforeFolderId = {});
     Q_INVOKABLE bool    setFolderCollapsed(const QString &folderId, bool collapsed);
+    Q_INVOKABLE bool    setUnsortedCollapsed(bool collapsed);
     Q_INVOKABLE bool    setFolderFlags(const QString &folderId, bool favorite, bool archived);
     Q_INVOKABLE bool    collapseAllFolders();
     Q_INVOKABLE QString folderIdForNote(const QString &storageId, const QString &noteId) const;

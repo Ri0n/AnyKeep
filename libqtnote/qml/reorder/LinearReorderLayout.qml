@@ -48,8 +48,11 @@ QtObject {
         for (const entry of sourceEntries || []) {
             if (!entry)
                 continue
-            if (entry.item === item
-                    || (entry.key !== undefined && entry.key === itemKey))
+            // Reusable views can repurpose the same delegate object for a
+            // different model row while a drag is active. Once a stable key
+            // was snapshotted, identity must follow that key, not the QObject.
+            if (entry.key !== undefined
+                    ? entry.key === itemKey : entry.item === item)
                 return true
         }
         return false
@@ -83,6 +86,14 @@ QtObject {
                 ++count
         }
         return count
+    }
+
+    // Dense model rows use an absolute order, while a reusable view exposes
+    // only the delegates currently around its viewport.  Drop boundaries
+    // must stay in that absolute order as well; a viewport-local index would
+    // make rows above a scrolled source animate toward an unrelated gap.
+    function compactOrder(item) {
+        return orderOf(item) - sourceCountBefore(item)
     }
 
     // Returns a boundary in the coordinate system used by GenericReorderController.
@@ -158,7 +169,8 @@ QtObject {
         const result = []
         for (let index = 0; index < remaining.length; ++index) {
             const item = remaining[index]
-            let boundary = layout.boundaryAt(item, false, index, null, 0, true)
+            let boundary = layout.boundaryAt(item, false, compactOrder(item),
+                                             null, 0, true)
             if (typeof payloadProvider === "function")
                 boundary = Object.assign(boundary,
                                          payloadProvider(item, false, index) || {})
@@ -166,12 +178,45 @@ QtObject {
         }
 
         const last = remaining[remaining.length - 1]
-        let boundary = layout.boundaryAt(last, true, remaining.length,
+        let boundary = layout.boundaryAt(last, true, compactOrder(last) + 1,
                                          null, 0, true)
         if (typeof payloadProvider === "function")
             boundary = Object.assign(boundary,
                                      payloadProvider(last, true, remaining.length) || {})
         result.push(boundary)
+        return result
+    }
+
+    // Produces a leading boundary followed by a boundary after every
+    // remaining item. This is the natural representation for hierarchical
+    // drops: once the animation opens a gap, the item immediately above that
+    // gap determines its group or prospective parent.
+    function trailingBoundaries(items, payloadProvider, includeLeading) {
+        const remaining = remainingItems(items)
+        if (remaining.length === 0)
+            return []
+
+        const result = []
+        if (includeLeading !== false) {
+            const first = remaining[0]
+            let leading = layout.boundaryAt(first, false, compactOrder(first),
+                                            null, 0, true)
+            if (typeof payloadProvider === "function")
+                leading = Object.assign(leading,
+                                        payloadProvider(null, false, 0) || {})
+            result.push(leading)
+        }
+        for (let index = 0; index < remaining.length; ++index) {
+            const item = remaining[index]
+            let boundary = layout.boundaryAt(item, true,
+                                             compactOrder(item) + 1,
+                                             null, 0, true)
+            if (typeof payloadProvider === "function")
+                boundary = Object.assign(
+                            boundary,
+                            payloadProvider(item, true, index + 1) || {})
+            result.push(boundary)
+        }
         return result
     }
 

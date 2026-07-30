@@ -32,6 +32,7 @@ Item {
     readonly property var activePayload: reorderController.sourcePayload
     readonly property bool dragging: reorderController.dragging
     readonly property real draggedExtent: reorderController.draggedExtent
+    readonly property int previewCount: reorderController.previewCount
     readonly property string visibleError: localError.length > 0
                                        ? localError : (ruleModel ? String(ruleModel.errorString || "") : "")
 
@@ -190,74 +191,6 @@ Item {
         dirty = true
     }
 
-    function rowItems() {
-        const result = []
-        for (let row = 0; row < listView.count; ++row) {
-            const item = listView.itemAtIndex(row)
-            if (item)
-                result.push(item)
-        }
-        return result
-    }
-
-    function boundaries() {
-        if (!activePayload)
-            return []
-        const rows = rowItems()
-        if (reorderLayout.remainingItems(rows).length === 0) {
-            return [{
-                position: reorderController.startDraggedTopY,
-                owner: null,
-                finalRow: 0,
-                finalIndex: 0,
-                afterOwner: false
-            }]
-        }
-        return reorderLayout.boundaries(rows, function(item, after, index) {
-            return { finalRow: index }
-        })
-    }
-
-    function rowTranslation(delegate) {
-        return reorderLayout.translationByOrder(delegate, reorderController.targetBoundary, draggedExtent)
-    }
-
-    function beginDrag(delegate) {
-        if (!delegate || !ruleModel || dragging)
-            return false
-        const started = reorderController.beginDrag({
-            sources: [{
-                item: delegate,
-                key: delegate.itemId,
-                order: delegate.index,
-                previewItem: delegate,
-                geometryItem: delegate,
-                naturalExtent: delegate.height,
-                previewWidth: delegate.width,
-                previewHeight: delegate.height
-            }],
-            payload: { sourceRow: delegate.index, ruleId: delegate.itemId },
-            pointerItem: delegate,
-            pointerLocalX: delegate.width / 2,
-            pointerLocalY: delegate.height / 2,
-            targetByDraggedTop: true
-        })
-        delegate.internalDragActive = started
-        return started
-    }
-
-    function moveDrag(delegate, dx, dy) {
-        if (activePayload && delegate && String(activePayload.ruleId) === delegate.itemId)
-            reorderController.moveDrag(dx, dy)
-    }
-
-    function finishDrag(delegate) {
-        if (!delegate || !delegate.internalDragActive)
-            return
-        delegate.internalDragActive = false
-        reorderController.finishDrag()
-    }
-
     Component.onCompleted: Qt.callLater(selectFirstRule)
 
     Connections {
@@ -281,50 +214,26 @@ Item {
         }
     }
 
-    Reorder.LinearReorderLayout {
-        id: reorderLayout
-
-        geometryItem: root
-        sourceEntries: reorderController.sourceEntries
-        keyProvider: function(item) { return String(item.itemId) }
-        orderProvider: function(item) { return Number(item.index) }
-        extentProvider: function(item) { return Number(item.height) }
-    }
-
-    Reorder.GenericReorderController {
+    Reorder.FlatListReorderController {
         id: reorderController
 
         anchors.fill: parent
         geometryItem: root
-        scrollItem: listView
+        listView: listView
+        model: root.ruleModel
         compensateForScroll: false
         previewObjectName: "ruleDragPreview"
         previewObjectNamePrefix: "ruleDragPreviewItem-"
-        previewHideSources: false
-        previewLive: false
-        boundaryProvider: function() { return root.boundaries() }
-        commitHandler: function(payload, boundary) {
-            if (!payload || !boundary || !root.ruleModel)
-                return false
-            const destination = Number(boundary.finalRow)
-            if (destination === Number(payload.sourceRow))
-                return false
+        keyProvider: function(item) { return String(item.itemId) }
+        extentProvider: function(item) { return Number(item.height) }
+        payloadProvider: function(item) {
+            return {
+                sourceRow: Number(item.index),
+                ruleId: String(item.itemId)
+            }
+        }
+        commitHandler: function(payload, destination) {
             return root.ruleModel.moveRule(Number(payload.sourceRow), destination)
-        }
-    }
-
-    Connections {
-        target: root.ruleModel
-        enabled: root.dragging
-        ignoreUnknownSignals: true
-
-        function onModelAboutToBeReset() {
-            if (!reorderController.committingDrop)
-                reorderController.cancelDrag()
-        }
-        function onRowsAboutToBeRemoved() {
-            if (!reorderController.committingDrop)
-                reorderController.cancelDrag()
         }
     }
 
@@ -401,15 +310,10 @@ Item {
                         required property var model
                         property bool internalDragActive: false
                         readonly property string itemId: String(model.ruleId || "")
-                        readonly property bool sourceActive: root.activePayload
-                                                          && String(root.activePayload.ruleId) === itemId
-                        readonly property bool targetBefore: reorderController.targetBoundary
-                                                          && reorderController.targetBoundary.owner === rowDelegate
-                                                          && !reorderController.targetBoundary.afterOwner
-                        readonly property bool targetAfter: reorderController.targetBoundary
-                                                         && reorderController.targetBoundary.owner === rowDelegate
-                                                         && reorderController.targetBoundary.afterOwner
-                        readonly property real reorderOffset: root.rowTranslation(rowDelegate)
+                        readonly property bool sourceActive: reorderController.sourceActive(rowDelegate)
+                        readonly property bool targetBefore: reorderController.targetBefore(rowDelegate)
+                        readonly property bool targetAfter: reorderController.targetAfter(rowDelegate)
+                        readonly property real reorderOffset: displacement.displacement
 
                         objectName: "ruleRow-" + itemId
                         width: listView.width
@@ -429,7 +333,7 @@ Item {
                             targetAfter: rowDelegate.targetAfter
                             naturalExtent: rowDelegate.height
                             draggedExtent: root.draggedExtent
-                            displacement: rowDelegate.reorderOffset
+                            displacement: reorderController.rowTranslation(rowDelegate)
                         }
 
                         background: Rectangle {
@@ -473,9 +377,11 @@ Item {
                                 }
                                 Reorder.ReorderDragHandle {
                                     anchors.fill: parent
-                                    onDragStarted: root.beginDrag(rowDelegate)
-                                    onDragMoved: function(dx, dy) { root.moveDrag(rowDelegate, dx, dy) }
-                                    onDragFinished: root.finishDrag(rowDelegate)
+                                    onDragStarted: reorderController.beginDrag(rowDelegate)
+                                    onDragMoved: function(dx, dy) {
+                                        reorderController.moveDrag(rowDelegate, dx, dy)
+                                    }
+                                    onDragFinished: reorderController.finishDrag(rowDelegate)
                                 }
                             }
 

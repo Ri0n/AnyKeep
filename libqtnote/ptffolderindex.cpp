@@ -68,6 +68,8 @@ namespace {
         QJsonObject object;
         object.insert(QStringLiteral("noteId"), record.noteId);
         object.insert(QStringLiteral("folderId"), encodedUuid(record.folderId));
+        object.insert(QStringLiteral("previousFolderId"), encodedUuid(record.previousFolderId));
+        object.insert(QStringLiteral("recycledAt"), encodedTime(record.recycledAt));
         object.insert(QStringLiteral("revision"), QString::number(record.revision));
         object.insert(QStringLiteral("modifiedAt"), encodedTime(record.modifiedAt));
         object.insert(QStringLiteral("tombstone"), record.tombstone);
@@ -198,6 +200,14 @@ namespace {
             || !decodeTime(object.value(QStringLiteral("modifiedAt")), &record.modifiedAt)
             || !decodeBool(object, QStringLiteral("tombstone"), &record.tombstone)) {
             return { {}, error(FolderCatalogError::Corrupt, QStringLiteral("Invalid PTF folder assignment fields")) };
+        }
+        if (object.contains(QStringLiteral("previousFolderId"))
+            && !decodeUuid(object.value(QStringLiteral("previousFolderId")), &record.previousFolderId, true)) {
+            return { {}, error(FolderCatalogError::Corrupt, QStringLiteral("Invalid PTF recycle folder id")) };
+        }
+        if (object.contains(QStringLiteral("recycledAt"))
+            && !decodeTime(object.value(QStringLiteral("recycledAt")), &record.recycledAt)) {
+            return { {}, error(FolderCatalogError::Corrupt, QStringLiteral("Invalid PTF recycle timestamp")) };
         }
         record.noteId = object.value(QStringLiteral("noteId")).toString();
         return { record, {} };

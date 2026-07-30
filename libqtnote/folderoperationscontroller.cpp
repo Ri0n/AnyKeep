@@ -16,10 +16,21 @@ the Free Software Foundation, either version 3 of the License, or
 #include "notestorage.h"
 #include "storagejob.h"
 
+#include <QLoggingCategory>
+#include <QCoreApplication>
 #include <QPointer>
 #include <QTimer>
 
 namespace QtNote {
+
+Q_LOGGING_CATEGORY(logFolderOperations, "qtnote.persistence.folderoperations")
+
+namespace {
+QString diagnosticNoteId(const QString &noteId)
+{
+    return noteId.size() > 16 ? noteId.left(16) + QStringLiteral("…") : noteId;
+}
+}
 
 FolderOperationsController::FolderOperationsController(FolderCatalogManager *catalogManager, NoteManager *noteManager,
                                                        QObject *parent) :
@@ -28,9 +39,19 @@ FolderOperationsController::FolderOperationsController(FolderCatalogManager *cat
 {
 }
 
-bool FolderOperationsController::assignNoteFolder(const QString &storageId, const QString &noteId,
-                                                  const QUuid &folderId)
+FolderOperationsController *FolderOperationsController::instance()
 {
+    static FolderOperationsController *controller
+        = new FolderOperationsController(FolderCatalogManager::instance(), NoteManager::instance(), QCoreApplication::instance());
+    return controller;
+}
+
+bool FolderOperationsController::assignNoteFolder(const QString &storageId, const QString &noteId,
+                                                  const QUuid &folderId, bool overlayAlreadyStored)
+{
+    qCInfo(logFolderOperations) << "Folder assignment requested: storage=" << storageId
+                               << "note=" << diagnosticNoteId(noteId)
+                               << "folder=" << folderId.toString(QUuid::WithoutBraces);
     if (storageId.isEmpty() || noteId.isEmpty()) {
         setError(tr("A storage and note are required to assign a folder"));
         return false;
@@ -54,10 +75,15 @@ bool FolderOperationsController::assignNoteFolder(const QString &storageId, cons
         return false;
     }
 
-    if (!storeOverlayAssignment(storageId, noteId, folderId))
+    if (!overlayAlreadyStored && !storeOverlayAssignment(storageId, noteId, folderId))
         return false;
+    qCInfo(logFolderOperations) << "Folder overlay stored: storage=" << storageId
+                               << "note=" << diagnosticNoteId(noteId)
+                               << "nativeFolders=" << storage->supportsNativeFolders();
     note.setFolderId(folderId);
     if (!storage->supportsNativeFolders()) {
+        qCInfo(logFolderOperations) << "Folder assignment completed as local overlay: storage=" << storageId
+                                   << "note=" << diagnosticNoteId(noteId);
         emit assignmentFinished(storageId, noteId, folderId, true);
         return true;
     }
@@ -122,6 +148,8 @@ bool FolderOperationsController::prepareNativeFolderTrees()
 
 void FolderOperationsController::setError(const QString &error)
 {
+    if (!error.isEmpty())
+        qCWarning(logFolderOperations) << "Folder operation failed:" << error;
     if (errorString_ == error)
         return;
     errorString_ = error;
@@ -172,6 +200,9 @@ bool FolderOperationsController::updateOverlay(const QString &storageId, const Q
                                           : catalogManager_->assignNote(storageId, noteId, folderId);
     if (!result) {
         setError({});
+        qCInfo(logFolderOperations) << "Folder catalog assignment updated: storage=" << storageId
+                                   << "note=" << diagnosticNoteId(noteId)
+                                   << "folder=" << folderId.toString(QUuid::WithoutBraces);
         return true;
     }
     setError(result.message);
@@ -187,6 +218,9 @@ void FolderOperationsController::startNativeAssignment(NoteStorage *storage, con
         return;
     }
     beginOperation();
+    qCInfo(logFolderOperations) << "Starting native folder assignment: storage=" << note.storageId()
+                               << "note=" << diagnosticNoteId(note.id())
+                               << "prepareCatalog=" << storage->supportsNativeFolderCatalog();
     if (storage->supportsNativeFolderCatalog()) {
         startNativeTreePreparation(storage, true, note, folderId);
         return;
@@ -313,6 +347,10 @@ void FolderOperationsController::finishAssignment(const QString &storageId, cons
         setError(error.isEmpty() ? tr("The folder move is pending") : error);
     else
         setError({});
+    qCInfo(logFolderOperations) << "Native folder assignment finished: storage=" << storageId
+                               << "note=" << diagnosticNoteId(noteId)
+                               << "folder=" << folderId.toString(QUuid::WithoutBraces)
+                               << "succeeded=" << nativeStored << "error=" << error;
     emit assignmentFinished(storageId, noteId, folderId, nativeStored);
     endOperation();
 }

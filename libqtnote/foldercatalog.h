@@ -30,6 +30,11 @@ struct QTNOTE_EXPORT NoteFolderAssignment {
     QString   storageId;
     QString   noteId;
     QUuid     folderId;
+    // Meaningful only while folderId is recycleBinId().  The original folder
+    // is kept with the assignment so Restore is independent of a provider's
+    // native note payload.
+    QUuid     previousFolderId;
+    QDateTime recycledAt;
     quint64   revision { 0 };
     QDateTime modifiedAt;
     bool      tombstone { false };
@@ -117,6 +122,10 @@ public:
     QUuid                       folderForNote(const QString &storageId, const QString &noteId) const;
     const ProviderPathHint     *pathHint(const QString &storageId, const QStringList &path) const;
 
+    static QUuid recycleBinId();
+    static bool  isRecycleBinId(const QUuid &id);
+    bool         isRecycled(const QString &storageId, const QString &noteId) const;
+
     FolderCatalogResult<QUuid> addFolder(FolderRecord record);
     FolderCatalogError         updateFolder(FolderRecord record);
     FolderCatalogError         renameFolder(const QUuid &id, const QString &name);
@@ -129,6 +138,8 @@ public:
 
     FolderCatalogError assignNote(const QString &storageId, const QString &noteId, const QUuid &folderId);
     FolderCatalogError clearNoteAssignment(const QString &storageId, const QString &noteId);
+    FolderCatalogError recycleNote(const QString &storageId, const QString &noteId, const QUuid &previousFolderId);
+    FolderCatalogResult<QUuid> restoreRecycledNote(const QString &storageId, const QString &noteId);
 
     /**
      * Reconcile category paths observed from one provider in a single

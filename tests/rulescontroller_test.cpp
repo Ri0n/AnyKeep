@@ -59,7 +59,7 @@ void RulesControllerTest::editsAndReordersPersistentRules()
     const auto firstId = controller.createRule();
     QVERIFY2(!firstId.isEmpty(), qPrintable(controller.errorString()));
     QCOMPARE(controller.rowCount(), 1);
-    QVERIFY(!controller.data(controller.index(0, 0), RulesController::EnabledRole).toBool());
+    QVERIFY(controller.data(controller.index(0, 0), RulesController::EnabledRole).toBool());
 
     const QVariantList conditions {
         QVariantMap {

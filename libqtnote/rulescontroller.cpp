@@ -174,7 +174,7 @@ QString RulesController::createRule()
         return {};
     }
     NoteRule rule;
-    rule.enabled      = false;
+    rule.enabled      = true;
     rule.name         = tr("New rule");
     rule.conditions   = { { NoteRuleConditionKind::TitleMatches, QStringLiteral("*"), false } };
     rule.actions      = { { NoteRuleActionKind::AssignFolder, {}, {} } };

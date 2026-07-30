@@ -13,7 +13,7 @@ namespace QtNote {
 namespace {
 
     constexpr quint32 PayloadMagic           = 0x514e4643; // QNFC
-    constexpr quint16 PayloadVersion         = 2;
+    constexpr quint16 PayloadVersion         = 3;
     constexpr quint32 AeadContextSchema      = 1;
     constexpr quint32 MaximumFolderCount     = 100000;
     constexpr quint32 MaximumAssignmentCount = 1000000;
@@ -40,7 +40,7 @@ namespace {
         }
         for (const auto &record : snapshot.assignments) {
             out << record.storageId << record.noteId << record.folderId << record.revision << record.modifiedAt
-                << record.tombstone;
+                << record.tombstone << record.previousFolderId << record.recycledAt;
         }
         for (const auto &record : snapshot.pathHints) {
             out << record.storageId << record.path << record.folderId << record.revision << record.modifiedAt;
@@ -61,7 +61,7 @@ namespace {
         in >> magic >> version >> folderCount >> assignmentCount;
         if (version >= 2)
             in >> pathHintCount;
-        if (magic != PayloadMagic || (version != 1 && version != PayloadVersion) || folderCount > MaximumFolderCount
+        if (magic != PayloadMagic || (version != 1 && version != 2 && version != PayloadVersion) || folderCount > MaximumFolderCount
             || assignmentCount > MaximumAssignmentCount || pathHintCount > MaximumPathHintCount) {
             return { {}, error(FolderCatalogError::Corrupt, QStringLiteral("Unsupported folder catalog payload")) };
         }
@@ -79,6 +79,8 @@ namespace {
             NoteFolderAssignment record;
             in >> record.storageId >> record.noteId >> record.folderId >> record.revision >> record.modifiedAt
                 >> record.tombstone;
+            if (version >= 3)
+                in >> record.previousFolderId >> record.recycledAt;
             snapshot.assignments.append(std::move(record));
         }
         snapshot.pathHints.reserve(int(pathHintCount));

@@ -5,6 +5,7 @@
 #include "noteeditor.h"
 #include "notemanager.h"
 #include "notesindex.h"
+#include "notesmodel.h"
 #include "notesworkspacecontroller.h"
 #include "secureenvelope.h"
 
@@ -64,6 +65,8 @@ private slots:
     void initTestCase();
     void createsUnnamedFoldersForInlineRename();
     void exposesFoldersAndMovesCleanEditorMetadata();
+    void recycleBinHidesNotesUntilRestored();
+    void recentReorderRejectsCrossStorageMove();
 };
 
 void NotesWorkspaceFoldersTest::initTestCase()
@@ -135,9 +138,69 @@ void NotesWorkspaceFoldersTest::exposesFoldersAndMovesCleanEditorMetadata()
     QVERIFY(!workspace.editor()->isDirty());
     QCOMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("note")), QUuid(child));
 
+    // Drag boundaries can transiently serialize an empty folder as a null
+    // UUID. It must retain the same "Unsorted" meaning for the active editor.
+    QVERIFY(workspace.assignNoteFolder(raw->systemName(), QStringLiteral("note"),
+                                       QStringLiteral("00000000-0000-0000-0000-000000000000")));
+    QCOMPARE(workspace.currentFolderId(), QString());
+    QCOMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("note")), QUuid {});
+
     QVERIFY(workspace.collapseAllFolders());
     QVERIFY(catalog.catalog().folder(QUuid(projects))->collapsed);
     QVERIFY(catalog.catalog().folder(QUuid(child))->collapsed);
+
+    QVERIFY(workspace.setUnsortedCollapsed(true));
+    const auto unsortedRow = workspace.folderNotesModel()->rowCount() - 1;
+    QCOMPARE(workspace.folderNotesModel()->index(unsortedRow, 0).data(FolderNotesModel::RowKindRole).toInt(),
+             int(FolderNotesModel::UnsortedRow));
+    QVERIFY(workspace.folderNotesModel()->index(unsortedRow, 0).data(FolderNotesModel::CollapsedRole).toBool());
+
+}
+
+void NotesWorkspaceFoldersTest::recycleBinHidesNotesUntilRestored()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    QVERIFY(catalog.initialize());
+
+    auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-recycle"));
+    storage->notes = { storage->makeNote(QStringLiteral("note"), QStringLiteral("Recyclable note")) };
+    auto *raw = storage.get();
+    auto *manager = NoteManager::instance();
+    manager->registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([manager, raw] {
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+    QTRY_VERIFY(manager->notesIndex()->hasSnapshot(raw->systemName()));
+
+    NotesWorkspaceController workspace(&catalog, nullptr);
+    QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 1);
+    QVERIFY(workspace.trashNote(raw->systemName(), QStringLiteral("note")));
+    QVERIFY(catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("note")));
+    QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 0);
+    QVERIFY(workspace.restoreRecycledNote(raw->systemName(), QStringLiteral("note")));
+    QVERIFY(!catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("note")));
+    QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 1);
+}
+
+void NotesWorkspaceFoldersTest::recentReorderRejectsCrossStorageMove()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    QVERIFY(catalog.initialize());
+    NotesWorkspaceController workspace(&catalog, nullptr);
+
+    const QVariantList notes {
+        QVariantMap { { QStringLiteral("storageId"), QStringLiteral("local") },
+                      { QStringLiteral("noteId"), QStringLiteral("one") } },
+        QVariantMap { { QStringLiteral("storageId"), QStringLiteral("remote") },
+                      { QStringLiteral("noteId"), QStringLiteral("two") } },
+    };
+    QVERIFY(!workspace.reorderRecentNotes(notes, QStringLiteral("local"), QStringLiteral("anchor"), false));
+    QCOMPARE(workspace.errorString(), QStringLiteral("Recent notes can only be reordered within the same storage"));
 }
 
 QTEST_MAIN(NotesWorkspaceFoldersTest)

@@ -321,6 +321,19 @@ public:
         return items;
     }
 
+    Q_INVOKABLE bool assignNoteFolder(const QString &storageId, const QString &noteId, const QString &folderId)
+    {
+        for (auto &row : rows_) {
+            if (row.rowKind != 1 || row.storageId != storageId || row.noteId != noteId)
+                continue;
+            beginResetModel();
+            row.folderId = folderId;
+            endResetModel();
+            return true;
+        }
+        return false;
+    }
+
 private:
     QList<Row> rows_;
 };
@@ -397,6 +410,7 @@ QQuickItem *quickItemByName(QQuickItem *root, const QString &name)
             return match;
     return nullptr;
 }
+
 }
 
 class DesktopNoteEditorHostTest : public QObject {
@@ -580,6 +594,94 @@ private slots:
         QVERIFY(manager.isReady());
     }
 
+    void notesManagerFoldersTabInstantiatesInOwnerContext()
+    {
+        FolderPageTestModel foldersModel;
+        QQuickWidget        quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(420, 430);
+        installThemedIconImageProvider(quick.engine());
+        quick.rootContext()->setContextProperty(QStringLiteral("testFoldersModel"), &foldersModel);
+
+        QQmlComponent component(quick.engine());
+        component.setData(R"QML(
+            import QtQuick
+            import QtQuick.Controls
+
+            Item {
+                id: harness
+
+                QtObject {
+                    id: workspace
+                    property var groupedNotesModel: null
+                    property var recentNotesModel: null
+                    property var folderNotesModel: testFoldersModel
+                    property bool folderCatalogAvailable: true
+                    property var currentEditor: null
+                    property string currentStorageId: ""
+                    property string currentNoteId: ""
+                    property string currentTitle: ""
+                    property string errorString: ""
+                    property string searchText: ""
+                    property bool searchInBody: false
+                    property bool loading: false
+                    property bool busy: false
+                    property int noteCount: 3
+                    property var storages: []
+
+                    function saveCurrentNote() { return true }
+                    function closeCurrentNote() { return true }
+                    function reloadCurrentNote() { return true }
+                    function openNote(storageId, noteId) { return true }
+                    function createNote(storageId) { return true }
+                    function createNoteInFolder(folderId, storageId) { return true }
+                    function createFolder(name, parentFolderId) { return "" }
+                    function renameFolder(folderId, name) { return true }
+                    function moveFolderBefore(folderId, parentFolderId, beforeFolderId) { return true }
+                    function setFolderCollapsed(folderId, collapsed) { return true }
+                    function setFolderFlags(folderId, favorite, archived) { return true }
+                    function collapseAllFolders() { return true }
+                    function folderIdForNote(storageId, noteId) { return "" }
+                    function assignNoteFolder(storageId, noteId, folderId) { return true }
+                    function openStandalone(storageId, noteId) { return true }
+                    function deleteNote(storageId, noteId) { return true }
+                    function trashNote(storageId, noteId) { return true }
+                    function restoreRecycledNote(storageId, noteId) { return true }
+                    function isRecycledNote(storageId, noteId) { return false }
+                    function copyNote(sourceStorageId, noteId, destinationStorageId) { return true }
+                    function moveNote(sourceStorageId, noteId, destinationStorageId) { return true }
+                    function moveNotes(notes, destinationStorageId, anchorNoteId, insertAfter) { return true }
+                    function moveStorage(sourceStorageId, destinationStorageId) { return true }
+                    function moveStorageToRow(sourceStorageId, destinationRow) { return true }
+                    function openStorageSettings(storageId) {}
+                }
+
+                NotesManagerPage {
+                    id: page
+                    objectName: "managerFoldersPage"
+                    anchors.fill: parent
+                    workspace: workspace
+                    embeddedEditor: false
+                    showCreateButton: false
+                    showViewModeSelector: false
+                    viewMode: foldersMode
+                }
+            }
+        )QML",
+                          QUrl(QStringLiteral("qrc:/qml/ManagerFoldersHarness.qml")));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        quick.setContent(QUrl(QStringLiteral("qrc:/qml/ManagerFoldersHarness.qml")), &component, root.release());
+        quick.show();
+
+        auto *page = quick.rootObject()->findChild<QQuickItem *>(QStringLiteral("managerFoldersPage"));
+        QVERIFY(page);
+        QQuickItem *foldersList = nullptr;
+        QTRY_VERIFY((foldersList = quickItemByName(page, QStringLiteral("foldersList"))));
+        QVERIFY(foldersList->isVisible());
+    }
+
     void notesManagerContextMenusAndInternalDragsWork()
     {
         QQuickWidget quick;
@@ -639,6 +741,7 @@ private slots:
                 property bool noteInsertAfter: workspace.noteInsertAfter
                 property int movedStorages: workspace.movedStorages
                 property string storageDestination: workspace.storageDestination
+                property int storageDestinationRow: workspace.storageDestinationRow
                 property string lastDraggedNoteId: ""
 
                 QtObject {
@@ -664,6 +767,7 @@ private slots:
                     property bool noteInsertAfter: false
                     property int movedStorages: 0
                     property string storageDestination: ""
+                    property int storageDestinationRow: -1
                     function saveCurrentNote() { return true }
                     function closeCurrentNote() { return true }
                     function reloadCurrentNote() { return true }
@@ -673,6 +777,9 @@ private slots:
                     function assignNoteFolder(storageId, noteId, folderId) { return true }
                     function openStandalone(storageId, noteId) { return true }
                     function deleteNote(storageId, noteId) { return true }
+                    function trashNote(storageId, noteId) { return true }
+                    function restoreRecycledNote(storageId, noteId) { return true }
+                    function isRecycledNote(storageId, noteId) { return false }
                     function copyNote(sourceStorageId, noteId, destinationStorageId) { return true }
                     function moveNote(sourceStorageId, noteId, destinationStorageId) { return true }
                     function openStorageSettings(storageId) {}
@@ -686,6 +793,11 @@ private slots:
                     function moveStorage(sourceStorageId, destinationStorageId) {
                         ++movedStorages
                         storageDestination = destinationStorageId
+                        return true
+                    }
+                    function moveStorageToRow(sourceStorageId, destinationRow) {
+                        ++movedStorages
+                        storageDestinationRow = destinationRow
                         return true
                     }
                 }
@@ -892,8 +1004,8 @@ private slots:
         QTRY_VERIFY(!noteA->property("hoverEnabled").toBool());
         QTRY_VERIFY(!noteA2->property("hoverEnabled").toBool());
         QTest::qWait(220);
-        QTRY_VERIFY(noteA2->property("dropSpace").toReal() > 0);
-        QCOMPARE(noteA2->property("dropAfterSpace").toReal(), 0.0);
+        QTRY_VERIFY(storageA->property("dropAfterSpace").toReal() > 0);
+        QCOMPARE(noteA2->property("dropSpace").toReal(), 0.0);
         const QPointF     noteA2OriginDuringEarlyDrag   = contentOrigin(noteA2);
         const QPointF     storageBOriginDuringEarlyDrag = contentOrigin(storageB);
         const QVariantMap rowExtents                    = page->property("groupedRowExtents").toMap();
@@ -948,8 +1060,10 @@ private slots:
             const QString secondId = notesModel.index(2, 0).data(Qt::UserRole + 2).toString();
             QQuickItem   *first    = nullptr;
             QQuickItem   *second   = nullptr;
-            QTRY_VERIFY((first = delegateForNote(firstId)));
-            QTRY_VERIFY((second = delegateForNote(secondId)));
+            QTRY_VERIFY((first = delegateForNote(firstId))
+                        && first->property("row").toInt() == 1);
+            QTRY_VERIFY((second = delegateForNote(secondId))
+                        && second->property("row").toInt() == 2);
             QVERIFY2(drag(first, second, 1), "A repeated note drag did not keep its animated displacement");
             QTRY_COMPARE(root->property("movedNotes").toInt(), 1);
             QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-a"));
@@ -975,7 +1089,7 @@ private slots:
         QTRY_VERIFY((storageB = delegate(page, 3)));
         QVERIFY(drag(storageA, storageB, 3));
         QTRY_COMPARE(root->property("movedStorages").toInt(), 1);
-        QCOMPARE(root->property("storageDestination").toString(), QStringLiteral("storage-b"));
+        QCOMPARE(root->property("storageDestinationRow").toInt(), 1);
 
         // Keep target notes visible while their storage header is above the
         // viewport. Drop boundaries must still be attributed to storage A.
@@ -1003,6 +1117,7 @@ private slots:
         QTRY_VERIFY(frozenPreview);
         QVERIFY(!frozenPreview->property("live").toBool());
         QVERIFY(!frozenPreview->property("hideSource").toBool());
+        QVERIFY(!frozenPreview->property("recursive").toBool());
 
         tree->setProperty("contentY", qMax(0.0, tree->property("contentHeight").toReal() - tree->height()));
         QTRY_VERIFY(delegateForNote(QStringLiteral("note-a")) == nullptr);
@@ -1037,6 +1152,15 @@ private slots:
         QTRY_VERIFY(compactFirst);
         QTRY_VERIFY(compactSecond);
         QVERIFY(qAbs(compactSecond->y() - compactFirst->y() - compactFirst->height()) < 0.5);
+        const qreal previewTop = compactFirst->mapToItem(rootItem, QPointF()).y();
+        const qreal expectedPreviewTop
+            = nonConsecutiveFirst->mapToItem(rootItem, QPointF()).y()
+              + page->property("dragTranslationY").toReal();
+        QVERIFY2(qAbs(previewTop - expectedPreviewTop) < 1,
+                 qPrintable(QStringLiteral("Scrolled preview top %1, expected %2 (contentY %3)")
+                                .arg(previewTop)
+                                .arg(expectedPreviewTop)
+                                .arg(tree->property("contentY").toReal())));
         QVERIFY(QMetaObject::invokeMethod(page, "cancelGroupedDrag"));
         QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, nonConsecutiveFirstPoint.toPoint());
         QTRY_COMPARE(preview->property("previewCount").toInt(), 0);
@@ -1047,6 +1171,7 @@ private slots:
         QTRY_VERIFY((scrolledTarget = delegateForNote(QStringLiteral("scroll-note-12"))));
         QVERIFY2(drag(scrolledSource, scrolledTarget, 1),
                  "Notes whose storage header is scrolled out must remain valid animated drop targets");
+        QCOMPARE(root->property("lastDraggedNoteId").toString(), QStringLiteral("note-b"));
         QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-a"));
 
         QQuickItem *visibleStorageB = nullptr;
@@ -1054,18 +1179,407 @@ private slots:
         const QPointF sourcePoint
             = scrolledTarget->mapToItem(rootItem, QPointF(scrolledTarget->width() / 2, scrolledTarget->height() / 2));
         const QPointF headerPoint = visibleStorageB->mapToItem(
-            rootItem, QPointF(visibleStorageB->width() / 2, visibleStorageB->height() / 2));
+            rootItem, QPointF(visibleStorageB->width() / 2,
+                              visibleStorageB->height() + scrolledTarget->height() / 2));
         QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, sourcePoint.toPoint());
         for (int step = 1; step <= 8; ++step)
             QTest::mouseMove(&quick, (sourcePoint + (headerPoint - sourcePoint) * (qreal(step) / 8)).toPoint(), 15);
-        QTRY_VERIFY(visibleStorageB->property("storageDropHovered").toBool());
-        QVERIFY(!visibleStorageB->property("dropBefore").toBool());
-        QVERIFY(!visibleStorageB->property("dropAfter").toBool());
+        QObject *storageBTrailingTarget = nullptr;
+        QTRY_VERIFY((storageBTrailingTarget = page->property("dropTargetDelegate").value<QObject *>())
+                    && storageBTrailingTarget->property("storageId").toString() == QStringLiteral("storage-b")
+                    && storageBTrailingTarget->property("dropAfter").toBool());
         QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, headerPoint.toPoint());
         QTRY_VERIFY(!page->property("dragSelectionSuppressed").toBool());
         QCOMPARE(root->property("noteDestination").toString(), QStringLiteral("storage-b"));
-        QCOMPARE(root->property("noteAnchor").toString(), QString());
-        QVERIFY(!root->property("noteInsertAfter").toBool());
+    }
+
+    void recentNoteSwipeClosesEveryDeleteAction()
+    {
+        QQuickWidget quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(360, 220);
+        installThemedIconImageProvider(quick.engine());
+
+        QStandardItemModel notesModel;
+        notesModel.setItemRoleNames({
+            { Qt::UserRole + 1, "storageId" },
+            { Qt::UserRole + 2, "noteId" },
+            { Qt::UserRole + 3, "itemType" },
+            { Qt::UserRole + 4, "title" },
+        });
+        const auto appendNote = [&notesModel](const QString &id) {
+            auto *item = new QStandardItem;
+            item->setData(QStringLiteral("storage"), Qt::UserRole + 1);
+            item->setData(id, Qt::UserRole + 2);
+            item->setData(1, Qt::UserRole + 3);
+            item->setData(id, Qt::UserRole + 4);
+            notesModel.appendRow(item);
+        };
+        appendNote(QStringLiteral("first"));
+        appendNote(QStringLiteral("second"));
+        quick.rootContext()->setContextProperty(QStringLiteral("swipeNotesModel"), &notesModel);
+
+        QQmlComponent component(quick.engine());
+        component.setData(R"QML(
+            import QtQuick
+            import QtQuick.Controls
+            import "notelist" as NoteList
+
+            Item {
+                NoteList.NoteCollectionView {
+                    anchors.fill: parent
+                    model: swipeNotesModel
+                    nativeModelHierarchy: false
+                    touchActions: true
+                    swipeDeleteEnabled: true
+                    allowNoteDrag: false
+                    allowGroupDrag: false
+                    rowObjectNameProvider: function(item) {
+                        return "swipeRow-" + item.noteId
+                    }
+                }
+            }
+        )QML",
+                          QUrl(QStringLiteral("qrc:/qml/SwipeHarness.qml")));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QObject *root = component.create();
+        QVERIFY2(root, qPrintable(component.errorString()));
+        quick.setContent(QUrl(QStringLiteral("qrc:/qml/SwipeHarness.qml")), &component, root);
+        quick.show();
+
+        auto *rootItem = qobject_cast<QQuickItem *>(root);
+        QQuickItem *second = nullptr;
+        QQuickItem *action = nullptr;
+        QTRY_VERIFY((second = quickItemByName(rootItem, QStringLiteral("swipeRow-second"))));
+
+        QVERIFY(QMetaObject::invokeMethod(second, "openDeleteSwipe"));
+        QTRY_VERIFY((action = quickItemByName(
+                         rootItem, QStringLiteral("noteSwipeDelete-storage-second"))));
+        QTRY_VERIFY(action->opacity() > 0.99);
+        QVERIFY(QMetaObject::invokeMethod(second, "closeDeleteSwipe"));
+        QTRY_VERIFY(action->opacity() < 0.01);
+    }
+
+    void notesManagerOutsideDropRecyclesOrPermanentlyDeletes()
+    {
+        QQuickWidget quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(420, 300);
+        installThemedIconImageProvider(quick.engine());
+
+        QQmlComponent component(quick.engine());
+        component.setData(R"QML(
+            import QtQuick
+            import QtQuick.Controls
+
+            Item {
+                id: harness
+                objectName: "permanentDropHarness"
+                property bool askPermanent: false
+
+                ListModel {
+                    id: notes
+                    ListElement { storageId: "storage"; noteId: "ordinary"; itemType: 1; title: "Ordinary" }
+                    ListElement { storageId: "storage"; noteId: "recycled"; itemType: 1; title: "Recycled" }
+                }
+
+                QtObject {
+                    id: workspace
+                    objectName: "permanentDropWorkspace"
+                    property var groupedNotesModel: notes
+                    property var recentNotesModel: notes
+                    property var folderNotesModel: null
+                    property bool folderCatalogAvailable: true
+                    property var currentEditor: null
+                    property string currentStorageId: ""
+                    property string currentNoteId: ""
+                    property string currentTitle: ""
+                    property string errorString: ""
+                    property string searchText: ""
+                    property bool searchInBody: false
+                    property bool loading: false
+                    property bool busy: false
+                    property int noteCount: 2
+                    property var storages: []
+                    property int trashCount: 0
+                    property int deleteCount: 0
+
+                    function saveCurrentNote() { return true }
+                    function closeCurrentNote() { return true }
+                    function reloadCurrentNote() { return true }
+                    function openNote(storageId, noteId) { return true }
+                    function createNote(storageId) { return true }
+                    function createNoteInFolder(folderId, storageId) { return true }
+                    function folderIdForNote(storageId, noteId) { return "" }
+                    function assignNoteFolder(storageId, noteId, folderId) { return true }
+                    function openStandalone(storageId, noteId) { return true }
+                    function deleteNote(storageId, noteId) { ++deleteCount; return true }
+                    function trashNote(storageId, noteId) { ++trashCount; return true }
+                    function restoreRecycledNote(storageId, noteId) { return true }
+                    function isRecycledNote(storageId, noteId) { return noteId === "recycled" }
+                    function askBeforePermanentDelete() { return harness.askPermanent }
+                    function copyNote(sourceStorageId, noteId, destinationStorageId) { return true }
+                    function moveNote(sourceStorageId, noteId, destinationStorageId) { return true }
+                    function moveNotes(notes, destinationStorageId, anchorNoteId, insertAfter) { return true }
+                    function moveStorage(sourceStorageId, destinationStorageId) { return true }
+                    function moveStorageToRow(sourceStorageId, destinationRow) { return true }
+                    function openStorageSettings(storageId) {}
+                }
+
+                NotesManagerPage {
+                    id: page
+                    objectName: "permanentDropPage"
+                    anchors.fill: parent
+                    workspace: workspace
+                    embeddedEditor: false
+                    showCreateButton: false
+                    showViewModeSelector: false
+                    viewMode: recentMode
+                }
+
+                function dropNotes(notes) { return page.handleNotesDroppedOutside(notes) }
+            }
+        )QML",
+                          QUrl(QStringLiteral("qrc:/qml/PermanentDropHarness.qml")));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QObject *root = component.create();
+        QVERIFY2(root, qPrintable(component.errorString()));
+        quick.setContent(QUrl(QStringLiteral("qrc:/qml/PermanentDropHarness.qml")), &component, root);
+        quick.show();
+
+        auto *workspace = root->findChild<QObject *>(QStringLiteral("permanentDropWorkspace"));
+        auto *page = root->findChild<QQuickItem *>(QStringLiteral("permanentDropPage"));
+        QVERIFY(workspace);
+        QVERIFY(page);
+
+        const QVariantList mixedNotes {
+            QVariantMap { { QStringLiteral("storageId"), QStringLiteral("storage") },
+                          { QStringLiteral("noteId"), QStringLiteral("ordinary") },
+                          { QStringLiteral("title"), QStringLiteral("Ordinary") } },
+            QVariantMap { { QStringLiteral("storageId"), QStringLiteral("storage") },
+                          { QStringLiteral("noteId"), QStringLiteral("recycled") },
+                          { QStringLiteral("title"), QStringLiteral("Recycled") } },
+        };
+        QVariant dropped;
+        QVERIFY(QMetaObject::invokeMethod(root, "dropNotes", Q_RETURN_ARG(QVariant, dropped),
+                                           Q_ARG(QVariant, mixedNotes)));
+        QVERIFY(dropped.toBool());
+        QCOMPARE(workspace->property("trashCount").toInt(), 1);
+        QCOMPARE(workspace->property("deleteCount").toInt(), 1);
+
+        root->setProperty("askPermanent", true);
+        const QVariantList recycledOnly { mixedNotes.constLast() };
+        QVERIFY(QMetaObject::invokeMethod(root, "dropNotes", Q_RETURN_ARG(QVariant, dropped),
+                                           Q_ARG(QVariant, recycledOnly)));
+        QVERIFY(dropped.toBool());
+        QCOMPARE(workspace->property("deleteCount").toInt(), 1);
+        QObject *dialog = root->findChild<QObject *>(QStringLiteral("permanentDeleteDialog"));
+        QTRY_VERIFY(dialog && dialog->property("visible").toBool());
+        QTRY_VERIFY(dialog->property("height").toReal() >= 140.0);
+
+        QVariant committed;
+        QVERIFY(QMetaObject::invokeMethod(page, "commitPermanentDeletion", Q_RETURN_ARG(QVariant, committed)));
+        QVERIFY(committed.toBool());
+        QCOMPARE(workspace->property("deleteCount").toInt(), 2);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+    }
+
+    void flatNoteCollectionUsesSharedTreeDragAnimation()
+    {
+        QQuickWidget quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(360, 220);
+        installThemedIconImageProvider(quick.engine());
+
+        QStandardItemModel notesModel;
+        notesModel.setItemRoleNames({
+            { Qt::UserRole + 1, "storageId" },
+            { Qt::UserRole + 2, "noteId" },
+            { Qt::UserRole + 3, "itemType" },
+            { Qt::UserRole + 4, "title" },
+        });
+        QStringList noteIds { QStringLiteral("first"), QStringLiteral("second"),
+                              QStringLiteral("third") };
+        for (int index = 3; index < 30; ++index)
+            noteIds.push_back(QStringLiteral("note-%1").arg(index, 2, 10, QLatin1Char('0')));
+        for (const auto &id : noteIds) {
+            auto *item = new QStandardItem;
+            item->setData(QStringLiteral("storage"), Qt::UserRole + 1);
+            item->setData(id, Qt::UserRole + 2);
+            item->setData(1, Qt::UserRole + 3);
+            item->setData(id, Qt::UserRole + 4);
+            notesModel.appendRow(item);
+        }
+        quick.rootContext()->setContextProperty(QStringLiteral("flatTreeNotesModel"), &notesModel);
+
+        QQmlComponent component(quick.engine());
+        component.setData(R"QML(
+            import QtQuick
+            import QtQuick.Controls
+            import "notelist" as NoteList
+
+            Item {
+                id: harness
+                property int commitCount: 0
+                property string draggedNoteId: ""
+
+                NoteList.NoteCollectionView {
+                    id: notes
+                    objectName: "flatTreeCollection"
+                    anchors.fill: parent
+                    model: flatTreeNotesModel
+                    nativeModelHierarchy: false
+                    flatNoteRows: true
+                    viewObjectName: "flatTreeView"
+                    previewObjectName: "flatTreePreview"
+                    previewObjectNamePrefix: "flatTreePreviewItem-"
+                    rowObjectNameProvider: function(item) {
+                        return "flatTreeRow-" + item.noteId
+                    }
+                    boundaryProvider: function(view, payload, items) {
+                        return view.boundaries(items, function(item, after) {
+                            return {
+                                anchorNoteId: item ? item.noteId : "",
+                                insertAfter: after
+                            }
+                        })
+                    }
+                    directTargetProvider: function() { return null }
+                    commitHandler: function(payload) {
+                        ++harness.commitCount
+                        harness.draggedNoteId = payload.notes[0].noteId
+                        return true
+                    }
+                }
+            }
+        )QML",
+                          QUrl(QStringLiteral("qrc:/qml/FlatTreeDragHarness.qml")));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QObject *root = component.create();
+        QVERIFY2(root, qPrintable(component.errorString()));
+        quick.setContent(QUrl(QStringLiteral("qrc:/qml/FlatTreeDragHarness.qml")), &component, root);
+        quick.show();
+
+        auto *rootItem   = qobject_cast<QQuickItem *>(root);
+        auto *collection = quickItemByName(rootItem, QStringLiteral("flatTreeCollection"));
+        auto *tree       = quickItemByName(rootItem, QStringLiteral("flatTreeView"));
+        auto *preview    = quickItemByName(rootItem, QStringLiteral("flatTreePreview"));
+        QQuickItem *first  = nullptr;
+        QQuickItem *second = nullptr;
+        QQuickItem *third  = nullptr;
+        QVERIFY(collection);
+        QVERIFY(tree);
+        QVERIFY(preview);
+        QTRY_COMPARE(tree->property("rows").toInt(), 30);
+        QTRY_VERIFY((first = quickItemByName(rootItem, QStringLiteral("flatTreeRow-first"))));
+        QTRY_VERIFY((second = quickItemByName(rootItem, QStringLiteral("flatTreeRow-second"))));
+        QTRY_VERIFY((third = quickItemByName(rootItem, QStringLiteral("flatTreeRow-third"))));
+        QVERIFY(first->property("compactFlatNoteRow").toBool());
+        QCOMPARE(first->property("leadingInset").toReal(), 8.0);
+
+        const QPointF from
+            = first->mapToItem(rootItem, QPointF(first->width() / 2, first->height() / 2));
+        QPointF to = third->mapToItem(rootItem, QPointF(third->width() / 2, third->height() - 2));
+        QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, from.toPoint());
+        for (int step = 1; step <= 8; ++step)
+            QTest::mouseMove(&quick, (from + (to - from) * (qreal(step) / 8)).toPoint(), 15);
+
+        QTRY_VERIFY(collection->property("dragging").toBool());
+        QTRY_COMPARE(preview->property("previewCount").toInt(), 1);
+        QTRY_VERIFY(second->property("reorderOffset").toReal() < -1);
+        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, to.toPoint());
+        QTRY_VERIFY(!collection->property("dragging").toBool());
+        QTRY_COMPARE(root->property("commitCount").toInt(), 1);
+        QCOMPARE(root->property("draggedNoteId").toString(), QStringLiteral("first"));
+
+        tree->setProperty("contentY", 600);
+        QQuickItem *beforeScrolledSource = nullptr;
+        QQuickItem *scrolledSource       = nullptr;
+        QQuickItem *scrolledTarget       = nullptr;
+        QTRY_VERIFY((beforeScrolledSource
+                     = quickItemByName(rootItem, QStringLiteral("flatTreeRow-note-19"))));
+        QTRY_VERIFY((scrolledSource
+                     = quickItemByName(rootItem, QStringLiteral("flatTreeRow-note-20"))));
+        QTRY_VERIFY((scrolledTarget
+                     = quickItemByName(rootItem, QStringLiteral("flatTreeRow-note-22"))));
+        const QPointF scrolledFrom = scrolledSource->mapToItem(
+            rootItem, QPointF(scrolledSource->width() / 2, scrolledSource->height() / 2));
+        const QPointF scrolledTo = scrolledTarget->mapToItem(
+            rootItem, QPointF(scrolledTarget->width() / 2, scrolledTarget->height() - 2));
+        QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, scrolledFrom.toPoint());
+        for (int step = 1; step <= 8; ++step)
+            QTest::mouseMove(
+                &quick,
+                (scrolledFrom + (scrolledTo - scrolledFrom) * (qreal(step) / 8)).toPoint(), 15);
+        QTRY_VERIFY(collection->property("dragging").toBool());
+        QTest::qWait(220);
+        QVERIFY2(qAbs(beforeScrolledSource->property("reorderOffset").toReal()) < 1,
+                 "A row above the scrolled drag source must not animate");
+        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, scrolledTo.toPoint());
+        QTRY_VERIFY(!collection->property("dragging").toBool());
+        QTRY_COMPARE(root->property("commitCount").toInt(), 2);
+        QCOMPARE(root->property("draggedNoteId").toString(), QStringLiteral("note-20"));
+    }
+
+    void genericReorderUsesOutsideDropHandler()
+    {
+        QQuickWidget quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(180, 120);
+
+        QQmlComponent component(quick.engine());
+        component.setData(R"QML(
+            import QtQuick
+            import "reorder" as Reorder
+
+            Item {
+                id: root
+                property int normalDropCount: 0
+                property int outsideDropCount: 0
+
+                Rectangle {
+                    id: source
+                    width: 80
+                    height: 24
+                }
+
+                Reorder.GenericReorderController {
+                    id: controller
+                    anchors.fill: parent
+                    geometryItem: root
+                    boundaryProvider: function() { return [] }
+                    commitHandler: function() {
+                        ++root.normalDropCount
+                        return true
+                    }
+                    outsideDropProvider: function() { return true }
+                    outsideDropHandler: function(payload) {
+                        if (payload.kind !== "notes")
+                            return false
+                        ++root.outsideDropCount
+                        return true
+                    }
+                }
+
+                function dropOutside() {
+                    controller.beginDrag({
+                        sources: [source],
+                        pointerItem: source,
+                        payload: { kind: "notes" }
+                    })
+                    return controller.finishDrag()
+                }
+            }
+        )QML",
+                          QUrl(QStringLiteral("qrc:/qml/OutsideDropHarness.qml")));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QObject *root = component.create();
+        QVERIFY2(root, qPrintable(component.errorString()));
+        quick.setContent(QUrl(QStringLiteral("qrc:/qml/OutsideDropHarness.qml")), &component, root);
+
+        QVERIFY(QMetaObject::invokeMethod(root, "dropOutside"));
+        QCOMPARE(root->property("outsideDropCount").toInt(), 1);
+        QCOMPARE(root->property("normalDropCount").toInt(), 0);
     }
 
     void foldersPageUsesInlineRenameAndSharedDragLifecycle()
@@ -1121,10 +1635,11 @@ private slots:
                     function setFolderCollapsed(folderId, collapsed) { return true }
                     function setFolderFlags(folderId, favorite, archived) { return true }
                     function collapseAllFolders() { return true }
+                    function isRecycledNote(storageId, noteId) { return noteId === "note-c" }
                     function assignNoteFolder(storageId, noteId, folderId) {
                         ++assignmentCount
                         assignedFolderId = folderId
-                        return true
+                        return testFoldersModel.assignNoteFolder(storageId, noteId, folderId)
                     }
                 }
 
@@ -1133,6 +1648,8 @@ private slots:
                     objectName: "foldersPage"
                     anchors.fill: parent
                     workspace: workspace
+                    currentStorageId: "storage"
+                    currentNoteId: "note-a"
                     checkpointHandler: function() { return true }
                 }
             }
@@ -1150,14 +1667,26 @@ private slots:
         auto *inbox     = quickItemByName(page, QStringLiteral("foldersRow-folder-inbox"));
         auto *archive   = quickItemByName(page, QStringLiteral("foldersRow-folder-archive"));
         auto *noteA     = quickItemByName(page, QStringLiteral("foldersRow-note-storage-note-a"));
+        auto *noteC     = quickItemByName(page, QStringLiteral("foldersRow-note-storage-note-c"));
         auto *noteB     = quickItemByName(page, QStringLiteral("foldersRow-note-storage-note-b"));
         auto *workspace = root->findChild<QObject *>(QStringLiteral("foldersWorkspace"));
         QVERIFY(page);
         QVERIFY(inbox);
         QVERIFY(archive);
         QVERIFY(noteA);
+        QVERIFY(noteC);
         QVERIFY(noteB);
         QVERIFY(workspace);
+
+        const QPointF notePoint = noteA->mapToItem(rootItem, QPointF(noteA->width() / 2, noteA->height() / 2));
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, notePoint.toPoint());
+        QTRY_COMPARE(page->property("selectedFolderId").toString(), QString());
+        QVERIFY(!inbox->property("selectedGroup").toBool());
+
+        const QPointF recycledNotePoint = noteC->mapToItem(rootItem, QPointF(noteC->width() / 2, noteC->height() / 2));
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, recycledNotePoint.toPoint());
+        QTRY_COMPARE(page->property("selectedFolderId").toString(), QString());
+        QVERIFY(!inbox->property("selectedGroup").toBool());
 
         page->setProperty("editingFolderId", QStringLiteral("inbox"));
         QQuickItem *rename = nullptr;
@@ -1170,6 +1699,18 @@ private slots:
 
         const QPointF noteAPoint = noteA->mapToItem(rootItem, QPointF(noteA->width() / 2, noteA->height() / 2));
         const QPointF noteBPoint = noteB->mapToItem(rootItem, QPointF(noteB->width() / 2, noteB->height() / 2));
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::ControlModifier, noteBPoint.toPoint());
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
+
+        const QPointF archiveSelectPoint
+            = archive->mapToItem(rootItem, QPointF(archive->width() / 2, archive->height() / 2));
+        QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, archiveSelectPoint.toPoint());
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 0);
+        QTRY_COMPARE(page->property("selectedFolderId").toString(), QStringLiteral("archive"));
+        QVERIFY(archive->property("selectedGroup").toBool());
+        QVERIFY(!noteA->property("highlighted").toBool());
+
         QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
         QTest::mouseClick(&quick, Qt::LeftButton, Qt::ControlModifier, noteBPoint.toPoint());
         QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
@@ -1187,26 +1728,136 @@ private slots:
         QTRY_VERIFY(firstPreview);
         QTRY_VERIFY(secondPreview);
         QVERIFY(qAbs(secondPreview->y() - firstPreview->y() - firstPreview->height()) < 0.5);
+        // The stable drop contract opens the gap after the row that will own
+        // the notes. It must remain there after the animation settles.
+        QTest::qWait(220);
+        QTest::mouseMove(&quick, (archivePoint + QPointF(1, 0)).toPoint(), 15);
+        QTRY_VERIFY(archive->property("dropAfter").toBool());
         QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, archivePoint.toPoint());
         QTRY_VERIFY(!page->property("dragging").toBool());
         QTRY_COMPARE(workspace->property("assignmentCount").toInt(), 2);
         QCOMPARE(workspace->property("assignedFolderId").toString(), QStringLiteral("archive"));
 
+        QTRY_VERIFY((inbox = quickItemByName(page, QStringLiteral("foldersRow-folder-inbox"))));
+        QTRY_VERIFY((archive = quickItemByName(page, QStringLiteral("foldersRow-folder-archive"))));
         const QPointF archiveDragStart
-            = archive->mapToItem(rootItem, QPointF(archive->width() - 12, archive->height() / 2));
-        const QPointF inboxPoint = inbox->mapToItem(rootItem, QPointF(inbox->width() / 2, inbox->height() / 2));
+            = archive->mapToItem(rootItem, QPointF(80, archive->height() / 2));
+        const QPointF inboxBottom = inbox->mapToItem(rootItem, QPointF(80, inbox->height()));
+        // One indent step to the right while targeting the gap below Inbox
+        // makes Archive its child. Keeping x unchanged would keep both at the
+        // root level.
+        const QPointF inboxChildPoint
+            = inboxBottom + QPointF(18, archive->height() / 2);
         QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, archiveDragStart.toPoint());
         for (int step = 1; step <= 8; ++step)
-            QTest::mouseMove(&quick, (archiveDragStart + (inboxPoint - archiveDragStart) * (qreal(step) / 8)).toPoint(),
-                             15);
+            QTest::mouseMove(
+                &quick,
+                (archiveDragStart + (inboxChildPoint - archiveDragStart) * (qreal(step) / 8)).toPoint(), 15);
         QTRY_VERIFY(page->property("dragging").toBool());
         QTRY_COMPARE(page->property("previewCount").toInt(), 1);
-        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, inboxPoint.toPoint());
+        QTRY_VERIFY(inbox->property("dropAfter").toBool());
+        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, inboxChildPoint.toPoint());
         QTRY_VERIFY(!page->property("dragging").toBool());
         QTRY_COMPARE(workspace->property("folderMoveCount").toInt(), 1);
         QCOMPARE(workspace->property("movedFolderId").toString(), QStringLiteral("archive"));
         QCOMPARE(workspace->property("movedParentFolderId").toString(), QStringLiteral("inbox"));
         QCOMPARE(workspace->property("movedBeforeFolderId").toString(), QString());
+
+        QTest::qWait(220);
+        QTRY_VERIFY((inbox = quickItemByName(page, QStringLiteral("foldersRow-folder-inbox"))));
+        QTRY_VERIFY((archive = quickItemByName(page, QStringLiteral("foldersRow-folder-archive"))));
+        const QPointF siblingStart
+            = archive->mapToItem(rootItem, QPointF(80, archive->height() / 2));
+        const QPointF siblingTarget
+            = inbox->mapToItem(rootItem, QPointF(80, inbox->height() + archive->height() / 2));
+        QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, siblingStart.toPoint());
+        for (int step = 1; step <= 8; ++step)
+            QTest::mouseMove(
+                &quick,
+                (siblingStart + (siblingTarget - siblingStart) * (qreal(step) / 8)).toPoint(), 15);
+        QTRY_VERIFY(page->property("dragging").toBool());
+        QTRY_VERIFY(inbox->property("dropAfter").toBool());
+        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, siblingTarget.toPoint());
+        QTRY_COMPARE(workspace->property("folderMoveCount").toInt(), 2);
+        QCOMPARE(workspace->property("movedParentFolderId").toString(), QString());
+        QCOMPARE(workspace->property("movedBeforeFolderId").toString(), QString());
+    }
+
+    void foldersPageOffersEmptyRecycleBinAction()
+    {
+        QQuickWidget quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(360, 240);
+        installThemedIconImageProvider(quick.engine());
+
+        QQmlComponent component(quick.engine());
+        component.setData(R"QML(
+            import QtQuick
+            import QtQuick.Controls
+
+            Item {
+                id: harness
+
+                ListModel {
+                    id: folders
+                    ListElement {
+                        rowKind: 0
+                        folderId: "recycle"
+                        title: "Recycle Bin"
+                        collapsed: false
+                        systemFolder: true
+                        noteCount: 1
+                    }
+                }
+
+                QtObject {
+                    id: workspace
+                    objectName: "recycleWorkspace"
+                    property var folderNotesModel: folders
+                    property bool folderCatalogAvailable: true
+                    property int noteCount: 1
+                    property var currentEditor: null
+                    property int emptyCount: 0
+                    function emptyRecycleBin() { ++emptyCount; return true }
+                }
+
+                FoldersPage {
+                    objectName: "foldersPage"
+                    anchors.fill: parent
+                    workspace: workspace
+                }
+            }
+        )QML",
+                          QUrl(QStringLiteral("qrc:/qml/RecycleMenuHarness.qml")));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QObject *root = component.create();
+        QVERIFY2(root, qPrintable(component.errorString()));
+        quick.setContent(QUrl(QStringLiteral("qrc:/qml/RecycleMenuHarness.qml")), &component, root);
+        quick.show();
+
+        auto *rootItem = qobject_cast<QQuickItem *>(root);
+        auto *page     = quickItemByName(rootItem, QStringLiteral("foldersPage"));
+        QQuickItem *recycleBin = nullptr;
+        QTRY_VERIFY((recycleBin = quickItemByName(page, QStringLiteral("foldersRow-folder-recycle"))));
+        const QPointF point = recycleBin->mapToItem(rootItem,
+                                                     QPointF(recycleBin->width() / 2, recycleBin->height() / 2));
+        QTest::mouseClick(&quick, Qt::RightButton, Qt::NoModifier, point.toPoint());
+
+        QObject *menu = nullptr;
+        QTRY_VERIFY((menu = root->findChild<QObject *>(QStringLiteral("recycleBinContextMenu"))));
+        QTRY_VERIFY(menu->property("visible").toBool());
+        auto *folderMenu = root->findChild<QObject *>(QStringLiteral("folderContextMenu"));
+        QVERIFY(folderMenu);
+        QVERIFY(!folderMenu->property("visible").toBool());
+        QObject *empty = nullptr;
+        QTRY_VERIFY((empty = root->findChild<QObject *>(QStringLiteral("emptyRecycleBinAction"))));
+        QVERIFY(empty->property("visible").toBool());
+        QVERIFY(empty->property("enabled").toBool());
+        QCOMPARE(empty->property("text").toString(), QStringLiteral("Empty Recycle Bin"));
+        QVERIFY(QMetaObject::invokeMethod(page, "emptyRecycleBin"));
+        auto *workspace = root->findChild<QObject *>(QStringLiteral("recycleWorkspace"));
+        QVERIFY(workspace);
+        QCOMPARE(workspace->property("emptyCount").toInt(), 1);
     }
 
     void folderPickerMenuBuildsTheCompleteFolderTree()

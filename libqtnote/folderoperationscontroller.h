@@ -40,6 +40,9 @@ class QTNOTE_EXPORT FolderOperationsController final : public QObject {
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorStringChanged)
 
 public:
+    /** Shared controller for operations started outside a workspace window. */
+    static FolderOperationsController *instance();
+
     explicit FolderOperationsController(FolderCatalogManager *catalogManager = nullptr,
                                         NoteManager *noteManager = nullptr, QObject *parent = nullptr);
 
@@ -50,7 +53,8 @@ public:
      * Persist the overlay and, where possible, request a native metadata-only
      * move. An empty folder ID represents Unsorted.
      */
-    bool assignNoteFolder(const QString &storageId, const QString &noteId, const QUuid &folderId);
+    bool assignNoteFolder(const QString &storageId, const QString &noteId, const QUuid &folderId,
+                          bool overlayAlreadyStored = false);
     /** Persist only the global encrypted overlay; used for a folder change kept in a draft. */
     bool storeOverlayAssignment(const QString &storageId, const QString &noteId, const QUuid &folderId);
     /** Ensure a native provider knows the current tree without changing note assignments. */

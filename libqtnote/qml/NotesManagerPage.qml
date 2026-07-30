@@ -3,8 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQml.Models
-import "reorder" as Reorder
+import "notelist" as NoteList
 
 Item {
     id: root
@@ -21,6 +20,8 @@ Item {
     property bool showCreateButton: true
     property bool showViewModeSelector: true
     property bool touchActions: false
+    // An embedding may disable confirmation (the mobile app binds this to
+    // its settings); the desktop reads the stored setting at deletion time.
     property bool confirmDelete: true
     property bool compact: width < 760
     property int viewMode: embeddedEditor ? groupedByStorageMode : recentMode
@@ -28,95 +29,39 @@ Item {
     property string selectedStorageId: ""
     property string selectedNoteId: ""
     property string selectedTitle: ""
-    property var selectedNotes: ({})
-    property string selectionAnchorKey: ""
     property bool editorFocusOwned: false
     property bool mobileSearchExpanded: false
-    property var storageHeaderDropBoundary: null
-    readonly property var activeDragDelegate: groupedReorderController.sourcePayload
-    readonly property var dropBoundary: storageHeaderDropBoundary
-                                        ? storageHeaderDropBoundary
-                                        : groupedReorderController.targetBoundary
+    property var pendingPermanentDeletionNotes: []
+    property var pendingRecycleNotes: []
+    property bool dontAskAgainForPermanentDeletion: false
+    readonly property var selectedNotes: noteSelection.selectedNotes
+    readonly property var activeDragDelegate: groupedNotes.activePayload
+    readonly property var dropBoundary: groupedNotes.dropBoundary
     readonly property var dropTargetDelegate: dropBoundary
-                                              && dropBoundary.ownerOrder !== undefined
-                                              ? groupedItemAtRow(
-                                                    Number(dropBoundary.ownerOrder))
-                                              : null
-    readonly property bool dropOnStorageHeader: Boolean(dropBoundary
-                                                        && dropBoundary.storageHeaderTarget)
+                                              && dropBoundary.ownerKey !== undefined
+                                              ? groupedNotes.itemForKey(dropBoundary.ownerKey)
+                                              : groupedNotes.directDropTarget
+    readonly property bool dropOnStorageHeader: Boolean(groupedNotes.directDropTarget
+                                                        && groupedNotes.directDropTarget.groupRow)
     readonly property bool dropTargetAfter: dropBoundary
-                                                   ? Boolean(dropBoundary.afterOwner) : false
-    readonly property real dragTranslationX: groupedReorderController.translationX
-    readonly property real dragTranslationY: groupedReorderController.translationY
-    readonly property real draggedExtent: groupedReorderController.draggedExtent
-    readonly property bool committingDrop: groupedReorderController.committingDrop
-    readonly property bool dragSelectionSuppressed: groupedReorderController.dragging
+                                            ? Boolean(dropBoundary.afterOwner) : false
+    readonly property real dragTranslationX: groupedNotes.dragTranslationX
+    readonly property real dragTranslationY: groupedNotes.dragTranslationY
+    readonly property real draggedExtent: groupedNotes.draggedExtent
+    readonly property bool committingDrop: groupedNotes.committingDrop
+    readonly property bool dragSelectionSuppressed: groupedNotes.dragging
     readonly property int draggedItemType: activeDragDelegate
-                                            ? Number(activeDragDelegate.itemType) : -1
+                                            ? (activeDragDelegate.kind === "group" ? 0 : 1) : -1
     readonly property string activeDraggedNoteId: activeDragDelegate
                                                    && draggedItemType === 1
-                                                   && activeDragDelegate.dragNotes.length > 0
-                                                   ? activeDragDelegate.dragNotes[0].noteId : ""
+                                                   && activeDragDelegate.notes.length > 0
+                                                   ? activeDragDelegate.notes[0].noteId : ""
     readonly property bool searchExpanded: !touchActions || mobileSearchExpanded
                                            || workspace.searchText.length > 0 || workspace.searchInBody
     readonly property bool searchOptionsVisible: searchField.activeFocus || searchInTextCheckBox.pressed
 
-    Reorder.LinearReorderLayout {
-        id: reorderLayout
-
-        geometryItem: root
-        sourceEntries: groupedReorderController.sourceEntries
-        keyProvider: function(item) {
-            return Number(item.itemType) + ":" + String(item.storageId)
-                    + ":" + String(item.noteId)
-        }
-        orderProvider: function(item) { return Number(item.row) }
-        extentProvider: function(item) {
-            return item && item.baseHeight !== undefined
-                    ? Number(item.baseHeight) : Number(item ? item.height : 0)
-        }
-    }
-
-    Reorder.GenericReorderController {
-        id: groupedReorderController
-
-        anchors.fill: parent
-        geometryItem: root
-        scrollItem: notesTree
-        compensateForScroll: false
-        previewObjectName: "managerDragPreview"
-        previewObjectNamePrefix: "managerDragPreviewItem-"
-        // TreeView recycles delegates while the wheel scrolls during a drag.
-        // Keep the preview texture frozen and hide rows by their snapshotted
-        // identity instead of hiding the reusable delegate object.
-        previewHideSources: false
-        previewLive: false
-        previewCompact: true
-        boundaryProvider: function() {
-            return root.groupedDropBoundaries()
-        }
-        commitHandler: function(delegate, boundary) {
-            return root.commitGroupedDrop(delegate, root.dropBoundary)
-        }
-        targetChangedHandler: function(boundary, pointerX, pointerY) {
-            root.storageHeaderDropBoundary
-                    = root.storageHeaderBoundaryAt(pointerX, pointerY)
-        }
-        resetHandler: function() {
-            root.storageHeaderDropBoundary = null
-        }
-    }
-
-    Connections {
-        target: root.workspace.groupedNotesModel
-        enabled: groupedReorderController.dragging
-
-        // A storage can finish an earlier asynchronous operation while another
-        // gesture is already in progress. TreeView then replaces its delegates,
-        // invalidating both the captured sources and their row-number geometry.
-        function onModelAboutToBeReset() { root.cancelGroupedDrag() }
-        function onRowsAboutToBeRemoved() { root.cancelGroupedDrag() }
-        function onLayoutAboutToBeChanged() { root.cancelGroupedDrag() }
+    NoteList.NoteSelectionController {
+        id: noteSelection
     }
 
     component CompactContextMenuItem: MenuItem {
@@ -184,13 +129,89 @@ Item {
         selectedStorageId = storageId
         selectedNoteId = noteId
         selectedTitle = title
-        if (confirmDelete) {
+        if (workspace.isRecycledNote(storageId, noteId))
+            return requestPermanentDeletion([{ storageId: storageId, noteId: noteId, title: title }])
+        if (workspace.currentEditor && !checkpointEditor())
+            return false
+        return workspace.trashNote(storageId, noteId)
+    }
+
+    function shouldConfirmPermanentDeletion() {
+        if (!confirmDelete)
+            return false
+        return !workspace || typeof workspace.askBeforePermanentDelete !== "function"
+                || workspace.askBeforePermanentDelete()
+    }
+
+    function requestPermanentDeletion(notes) {
+        if (!notes || notes.length === 0)
+            return false
+        pendingPermanentDeletionNotes = notes.slice()
+        pendingRecycleNotes = []
+        if (shouldConfirmPermanentDeletion()) {
+            dontAskAgainForPermanentDeletion = false
             deleteDialog.open()
             return true
         }
-        if (!workspace.currentEditor || checkpointEditor())
-            return workspace.deleteNote(storageId, noteId)
-        return false
+        return commitPermanentDeletion()
+    }
+
+    function commitPermanentDeletion() {
+        if ((!pendingPermanentDeletionNotes || pendingPermanentDeletionNotes.length === 0)
+                && (!pendingRecycleNotes || pendingRecycleNotes.length === 0))
+            return false
+        if (workspace.currentEditor && !checkpointEditor())
+            return false
+
+        let changed = false
+        for (const note of pendingRecycleNotes) {
+            if (workspace.trashNote(note.storageId, note.noteId))
+                changed = true
+        }
+        for (const note of pendingPermanentDeletionNotes) {
+            if (workspace.deleteNote(note.storageId, note.noteId))
+                changed = true
+        }
+        pendingPermanentDeletionNotes = []
+        pendingRecycleNotes = []
+        return changed
+    }
+
+    function handleNotesDroppedOutside(notes) {
+        if (!notes || notes.length === 0)
+            return false
+        if (workspace.currentEditor && !checkpointEditor())
+            return false
+
+        const recycled = []
+        const recycle = []
+        for (const note of notes) {
+            if (workspace.isRecycledNote(note.storageId, note.noteId))
+                recycled.push(note)
+            else
+                recycle.push(note)
+        }
+        if (recycled.length > 0) {
+            pendingPermanentDeletionNotes = recycled
+            pendingRecycleNotes = recycle
+            if (shouldConfirmPermanentDeletion()) {
+                dontAskAgainForPermanentDeletion = false
+                deleteDialog.open()
+                return true
+            }
+            return commitPermanentDeletion()
+        }
+        let changed = false
+        for (const note of recycle) {
+            if (workspace.trashNote(note.storageId, note.noteId))
+                changed = true
+        }
+        return changed
+    }
+
+    function handleOutsideDrop(payload) {
+        return payload && payload.kind === "notes"
+                ? handleNotesDroppedOutside(payload.notes) : false
     }
 
     function showNoteMenu(storageId, noteId, title, position) {
@@ -227,338 +248,127 @@ Item {
             storageContextMenu.popup()
     }
 
-    function noteSelectionKey(storageId, noteId) {
-        return storageId + "\n" + noteId
-    }
-
-    function noteIsSelected(storageId, noteId) {
-        return selectedNotes[noteSelectionKey(storageId, noteId)] !== undefined
-    }
-
-    function toggleNoteSelection(storageId, noteId, title, selected) {
-        const copy = Object.assign({}, selectedNotes)
-        const key = noteSelectionKey(storageId, noteId)
-        if (selected)
-            copy[key] = { storageId: storageId, noteId: noteId, title: title }
-        else
-            delete copy[key]
-        selectedNotes = copy
-    }
-
-    function dragNotesFor(storageId, noteId, title) {
-        if (!noteIsSelected(storageId, noteId))
-            return [{ storageId: storageId, noteId: noteId, title: title }]
-        const result = []
-        for (let visualRow = 0; visualRow < notesTree.rows; ++visualRow) {
-            const candidate = groupedItemAtRow(visualRow)
-            if (candidate && candidate.itemType === 1
-                    && noteIsSelected(candidate.storageId, candidate.noteId)) {
-                result.push({
-                    storageId: candidate.storageId,
-                    noteId: candidate.noteId,
-                    title: candidate.title
-                })
-            }
-        }
-        return result
-    }
-
     function groupedItemAtRow(row) {
-        return notesTree.itemAtCell(Qt.point(0, row))
-    }
-
-    function sourceContains(storageId, noteId) {
-        if (!activeDragDelegate || draggedItemType !== 1)
-            return false
-        for (const note of activeDragDelegate.dragNotes)
-            if (note.storageId === storageId && note.noteId === noteId)
-                return true
-        return false
-    }
-
-    function visibleGroupedDelegates() {
-        const result = []
-        for (let visualRow = 0; visualRow < notesTree.rows; ++visualRow) {
-            const delegate = groupedItemAtRow(visualRow)
-            if (delegate)
-                result.push(delegate)
-        }
-        return result
-    }
-
-    function groupedRowTranslation(delegate) {
-        return reorderLayout.translationByOrder(delegate, dropBoundary,
-                                                draggedExtent)
-    }
-
-    function makeDropBoundary(owner, afterOwner, payload) {
-        return reorderLayout.boundaryByOrder(owner, afterOwner, payload, 0, true)
-    }
-
-    function noteDropBoundaries(delegates) {
-        const groups = []
-        for (const delegate of delegates) {
-            let group = null
-            for (const candidate of groups) {
-                if (candidate.storageId === delegate.storageId) {
-                    group = candidate
-                    break
-                }
-            }
-            if (!group) {
-                group = {
-                    storageId: delegate.storageId,
-                    header: null,
-                    notes: []
-                }
-                groups.push(group)
-            }
-            if (delegate.itemType === 0)
-                group.header = delegate
-            else
-                group.notes.push(delegate)
-        }
-
-        const boundaries = []
-        for (const candidateGroup of groups) {
-            const remaining = candidateGroup.notes.filter(function(note) {
-                return !sourceContains(note.storageId, note.noteId)
-            })
-            if (remaining.length === 0) {
-                if (!candidateGroup.header)
-                    continue
-                boundaries.push(makeDropBoundary(
-                    candidateGroup.header, true, {
-                    storageId: candidateGroup.header.storageId,
-                    anchorNoteId: "",
-                    insertAfter: false
-                }))
-                continue
-            }
-            for (const note of remaining) {
-                boundaries.push(makeDropBoundary(note, false, {
-                    storageId: note.storageId,
-                    anchorNoteId: note.noteId,
-                    insertAfter: false
-                }))
-            }
-            const last = remaining[remaining.length - 1]
-            boundaries.push(makeDropBoundary(last, true, {
-                storageId: last.storageId,
-                anchorNoteId: last.noteId,
-                insertAfter: true
-            }))
-        }
-        return boundaries
-    }
-
-    function storageHeaderBoundaryAt(pointerX, pointerY) {
-        if (draggedItemType !== 1)
-            return null
-        const delegates = visibleGroupedDelegates()
-        for (const delegate of delegates) {
-            if (delegate.itemType !== 0)
-                continue
-            const local = delegate.mapFromItem(root, pointerX, pointerY)
-            if (local.x < 0 || local.y < 0
-                    || local.x >= delegate.width || local.y >= delegate.baseHeight)
-                continue
-            return makeDropBoundary(delegate, true, {
-                storageId: delegate.storageId,
-                anchorNoteId: "",
-                insertAfter: false,
-                storageHeaderTarget: true
-            })
-        }
-        return null
-    }
-
-    function storageDropBoundaries(delegates) {
-        const remainingStorages = delegates.filter(function(delegate) {
-            return delegate.itemType === 0
-                    && (!activeDragDelegate
-                        || delegate.storageId !== activeDragDelegate.storageId)
-        })
-        const boundaries = []
-        for (const storage of remainingStorages) {
-            boundaries.push(makeDropBoundary(storage, false, {
-                storageId: storage.storageId
-            }))
-        }
-        if (remainingStorages.length > 0) {
-            const lastStorage = remainingStorages[remainingStorages.length - 1]
-            let lastOwner = lastStorage
-            for (const delegate of delegates) {
-                if (delegate.storageId === lastStorage.storageId)
-                    lastOwner = delegate
-            }
-            boundaries.push(makeDropBoundary(lastOwner, true, {
-                storageId: lastStorage.storageId
-            }))
-        }
-        return boundaries
-    }
-
-    function groupedDropBoundaries() {
-        const delegates = visibleGroupedDelegates()
-        return draggedItemType === 0
-                ? storageDropBoundaries(delegates) : noteDropBoundaries(delegates)
-    }
-
-    function selectDesktopNote(delegate, modifiers) {
-        if (dragSelectionSuppressed)
-            return
-        const key = noteSelectionKey(delegate.storageId, delegate.noteId)
-        const control = Boolean(modifiers & Qt.ControlModifier)
-        const shift = Boolean(modifiers & Qt.ShiftModifier)
-
-        if (shift && selectionAnchorKey.length > 0) {
-            let anchorRow = -1
-            let targetRow = -1
-            for (let visualRow = 0; visualRow < notesTree.rows; ++visualRow) {
-                const candidate = groupedItemAtRow(visualRow)
-                if (!candidate || candidate.itemType !== 1)
-                    continue
-                const candidateKey = noteSelectionKey(candidate.storageId, candidate.noteId)
-                if (candidateKey === selectionAnchorKey)
-                    anchorRow = visualRow
-                if (candidateKey === key)
-                    targetRow = visualRow
-            }
-            if (anchorRow >= 0 && targetRow >= 0) {
-                const copy = control ? Object.assign({}, selectedNotes) : ({})
-                const first = Math.min(anchorRow, targetRow)
-                const last = Math.max(anchorRow, targetRow)
-                for (let row = first; row <= last; ++row) {
-                    const candidate = groupedItemAtRow(row)
-                    if (!candidate || candidate.itemType !== 1)
-                        continue
-                    copy[noteSelectionKey(candidate.storageId, candidate.noteId)] = {
-                        storageId: candidate.storageId,
-                        noteId: candidate.noteId,
-                        title: candidate.title
-                    }
-                }
-                selectedNotes = copy
-                return
-            }
-        }
-
-        if (control) {
-            toggleNoteSelection(delegate.storageId, delegate.noteId, delegate.title,
-                                !noteIsSelected(delegate.storageId, delegate.noteId))
-            selectionAnchorKey = key
-            return
-        }
-
-        const single = ({})
-        single[key] = {
-            storageId: delegate.storageId,
-            noteId: delegate.noteId,
-            title: delegate.title
-        }
-        selectedNotes = single
-        selectionAnchorKey = key
-        selectNote(delegate.storageId, delegate.noteId, delegate.title)
-    }
-
-    function beginGroupedDrag(delegate) {
-        const sourceItems = [delegate]
-        const draggedNotes = delegate.itemType === 1
-                ? dragNotesFor(delegate.storageId, delegate.noteId, delegate.title) : []
-        if (delegate.itemType === 0) {
-            for (let visualRow = 0; visualRow < notesTree.rows; ++visualRow) {
-                const candidate = groupedItemAtRow(visualRow)
-                if (candidate && candidate !== delegate
-                        && candidate.storageId === delegate.storageId)
-                    sourceItems.push(candidate)
-            }
-        } else if (noteIsSelected(delegate.storageId, delegate.noteId)) {
-            for (let visualRow = 0; visualRow < notesTree.rows; ++visualRow) {
-                const candidate = groupedItemAtRow(visualRow)
-                if (candidate && candidate !== delegate && candidate.itemType === 1
-                        && noteIsSelected(candidate.storageId, candidate.noteId))
-                    sourceItems.push(candidate)
-            }
-        }
-        sourceItems.sort(function(left, right) {
-            return Number(left.row) - Number(right.row)
-        })
-        const sources = []
-        const sourceRows = []
-        for (const sourceItem of sourceItems) {
-            sourceRows.push(sourceItem.row)
-            sources.push({
-                item: sourceItem,
-                key: Number(sourceItem.itemType) + ":"
-                     + String(sourceItem.storageId) + ":"
-                     + String(sourceItem.noteId),
-                order: sourceItem.row,
-                previewItem: sourceItem,
-                geometryItem: sourceItem,
-                naturalExtent: sourceItem.baseHeight,
-                previewWidth: sourceItem.width,
-                previewHeight: sourceItem.baseHeight
-            })
-        }
-        const started = groupedReorderController.beginDrag({
-            sources: sources,
-            payload: {
-                sourceDelegate: delegate,
-                itemType: delegate.itemType,
-                storageId: delegate.storageId,
-                dragNotes: draggedNotes,
-                sourceRows: sourceRows
-            },
-            pointerItem: delegate,
-            pointerLocalX: delegate.width / 2,
-            pointerLocalY: delegate.baseHeight / 2,
-            targetByDraggedTop: true
-        })
-        delegate.internalDragActive = started
-        if (started) {
-            selectedNotes = ({})
-            selectionAnchorKey = ""
-            delegate.suppressClickUntil = Date.now() + 500
-            notesTree.selectionModel.clearSelection()
-        }
-    }
-
-    function updateGroupedDrag(delegate, dx, dy) {
-        if (!activeDragDelegate || activeDragDelegate.sourceDelegate !== delegate)
-            return
-        groupedReorderController.moveDrag(dx, dy)
-    }
-
-    function commitGroupedDrop(delegate, boundary) {
-        if (!delegate || !boundary)
-            return false
-        if (delegate.itemType === 0) {
-            return delegate.storageId !== boundary.storageId
-                    && workspace.moveStorage(delegate.storageId, boundary.storageId)
-        }
-        if (workspace.currentEditor && !checkpointEditor())
-            return false
-        const moved = workspace.moveNotes(delegate.dragNotes,
-                                          boundary.storageId,
-                                          boundary.anchorNoteId,
-                                          boundary.insertAfter)
-        if (moved)
-            selectedNotes = ({})
-        return moved
-    }
-
-    function finishGroupedDrag(delegate) {
-        if (!delegate || !delegate.internalDragActive)
-            return
-        delegate.internalDragActive = false
-        groupedReorderController.finishDrag()
+        return groupedNotes.itemAtRow(row)
     }
 
     function cancelGroupedDrag() {
-        if (activeDragDelegate && activeDragDelegate.sourceDelegate)
-            activeDragDelegate.sourceDelegate.internalDragActive = false
-        groupedReorderController.cancelDrag()
+        groupedNotes.cancelDrag()
+    }
+
+    function sharedGroupedNoteBoundaries(view, payload, delegates) {
+        const remaining = view.remainingItems(delegates)
+        return view.trailingBoundaries(delegates, function(item) {
+            const owner = item || (remaining.length > 0 ? remaining[0] : null)
+            return {
+                storageId: owner ? owner.storageId : "",
+                anchorNoteId: owner && owner.noteRow ? owner.noteId : "",
+                insertAfter: Boolean(item && item.noteRow)
+            }
+        }, true)
+    }
+
+    function sharedGroupedStorageBoundaries(view, payload, delegates) {
+        const remainingItems = view.remainingItems(delegates)
+        const groups = []
+        for (const item of remainingItems) {
+            let group = groups.length > 0 ? groups[groups.length - 1] : null
+            if (!group || group.storageId !== item.storageId) {
+                group = {
+                    storageId: item.storageId,
+                    first: item,
+                    last: item
+                }
+                groups.push(group)
+            } else {
+                group.last = item
+            }
+        }
+        const boundaries = []
+        if (groups.length > 0) {
+            const leading = view.boundaryByOrder(groups[0].first, false, {
+                storageDestinationRow: 0,
+                rootGroupDrop: true
+            })
+            if (leading)
+                boundaries.push(leading)
+        }
+        for (let index = 0; index < groups.length; ++index) {
+            const after = view.boundaryByOrder(groups[index].last, true, {
+                storageDestinationRow: index + 1,
+                rootGroupDrop: true
+            })
+            if (after)
+                boundaries.push(after)
+        }
+        return boundaries
+    }
+
+    function sharedGroupedBoundaries(view, payload, delegates) {
+        return payload && payload.kind === "group"
+                ? sharedGroupedStorageBoundaries(view, payload, delegates)
+                : sharedGroupedNoteBoundaries(view, payload, delegates)
+    }
+
+    function sharedGroupedDirectTarget(view, payload, pointerX, pointerY) {
+        return null
+    }
+
+    function commitSharedGroupedDrop(payload, boundary, directTarget) {
+        if (!payload)
+            return false
+        if (payload.kind === "group") {
+            return boundary
+                    && workspace.moveStorageToRow(
+                        payload.groupId,
+                        Number(boundary.storageDestinationRow))
+        }
+        if (payload.kind !== "notes" || !payload.notes || payload.notes.length === 0)
+            return false
+        if (workspace.currentEditor && !checkpointEditor())
+            return false
+        const storageId = directTarget
+                ? String(directTarget.storageId)
+                : String(boundary ? boundary.storageId || "" : "")
+        const anchorNoteId = directTarget
+                ? "" : String(boundary ? boundary.anchorNoteId || "" : "")
+        const insertAfter = directTarget
+                ? false : Boolean(boundary && boundary.insertAfter)
+        return workspace.moveNotes(payload.notes, storageId, anchorNoteId, insertAfter)
+    }
+
+    function recentNoteBoundaries(view, payload, delegates) {
+        return view.boundaries(delegates, function(item, after) {
+            return {
+                storageId: item ? String(item.storageId) : "",
+                anchorNoteId: item ? String(item.noteId) : "",
+                insertAfter: Boolean(after)
+            }
+        })
+    }
+
+    function canReorderRecentNote(item) {
+        if (!item || !item.noteRow)
+            return false
+        const storageId = String(item.storageId)
+        for (const storage of workspace.storages || []) {
+            if (String(storage.storageId) === storageId)
+                return Boolean(storage.supportsNoteReordering)
+        }
+        return false
+    }
+
+    function commitRecentDrop(payload, boundary) {
+        if (!payload || payload.kind !== "notes" || !payload.notes || payload.notes.length === 0
+                || !boundary || !boundary.storageId || !boundary.anchorNoteId) {
+            return false
+        }
+        if (workspace.currentEditor && !checkpointEditor())
+            return false
+        return workspace.reorderRecentNotes(payload.notes,
+                                            String(boundary.storageId),
+                                            String(boundary.anchorNoteId),
+                                            Boolean(boundary.insertAfter))
     }
 
     function openSearch() {
@@ -619,7 +429,7 @@ Item {
                     }
 
                     RowLayout {
-                        visible: root.touchActions && root.viewMode !== root.foldersMode
+                        visible: root.touchActions
                         Layout.fillWidth: !root.showViewModeSelector
                         Layout.alignment: Qt.AlignRight
                         spacing: 4
@@ -643,7 +453,7 @@ Item {
 
                 Pane {
                     id: searchPane
-                    visible: root.viewMode !== root.foldersMode
+                    visible: true
                     Layout.fillWidth: true
                     Layout.preferredHeight: visible && root.searchExpanded
                                             ? searchLayout.implicitHeight + topPadding + bottomPadding : 0
@@ -710,499 +520,127 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
-                    ListView {
+                    NoteList.NoteCollectionView {
                         id: recentNotes
+
                         anchors.fill: parent
                         visible: root.viewMode === root.recentMode
-                        clip: true
-                        spacing: 1
+                        enabled: visible
                         model: root.workspace.recentNotesModel
-                        bottomMargin: root.touchActions ? 88 : 0
-
-                        delegate: SwipeDelegate {
-                            id: recentDelegate
-
-                            required property string storageId
-                            required property string noteId
-                            required property string title
-                            required property string preview
-                            required property string storageName
-                            required property string iconSource
-                            property double suppressClickUntil: 0
-
-                            width: recentNotes.width
-                            implicitHeight: root.touchActions ? 44 : 34
-                            hoverEnabled: true
-                            highlighted: root.selectedStorageId === storageId && root.selectedNoteId === noteId
-                            leftPadding: 8
-                            rightPadding: 8
-                            topPadding: 3
-                            bottomPadding: 3
-
-                            background: Rectangle {
-                                radius: 4
-                                color: recentDelegate.highlighted
-                                       ? recentDelegate.palette.highlight
-                                       : (recentDelegate.hovered ? Qt.rgba(recentDelegate.palette.button.r, recentDelegate.palette.button.g, recentDelegate.palette.button.b, 0.45) : "transparent")
-                            }
-
-                            ToolTip.visible: hovered
-                            ToolTip.text: recentDelegate.storageName
-
-                            contentItem: RowLayout {
-                                id: contentRow
-                                spacing: 8
-
-                                Item {
-                                    Layout.preferredWidth: 22
-                                    Layout.preferredHeight: 22
-                                    Layout.alignment: Qt.AlignVCenter
-
-                                    Image {
-                                        id: recentIcon
-                                        anchors.fill: parent
-                                        source: recentDelegate.iconSource
-                                        sourceSize.width: 22
-                                        sourceSize.height: 22
-                                        fillMode: Image.PreserveAspectFit
-                                    }
-
-                                    Label {
-                                        anchors.centerIn: parent
-                                        visible: recentIcon.status !== Image.Ready
-                                        text: "◆"
-                                        font.pixelSize: 15
-                                        color: recentDelegate.highlighted
-                                               ? recentDelegate.palette.highlightedText
-                                               : recentDelegate.palette.text
-                                    }
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    Layout.alignment: Qt.AlignVCenter
-                                    text: recentDelegate.title
-                                    color: recentDelegate.highlighted
-                                           ? recentDelegate.palette.highlightedText
-                                           : recentDelegate.palette.text
-                                    elide: Text.ElideRight
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                            }
-
-                            swipe.left: Button {
-                                visible: root.touchActions
-                                width: visible ? Math.max(92, implicitWidth) : 0
-                                height: recentDelegate.height
-                                text: qsTr("Delete")
-                                onClicked: {
-                                    recentDelegate.swipe.close()
-                                    root.requestDelete(recentDelegate.storageId,
-                                                       recentDelegate.noteId,
-                                                       recentDelegate.title)
-                                }
-                            }
-
-                            onClicked: {
-                                if (Date.now() < suppressClickUntil) {
-                                    suppressClickUntil = 0
-                                    return
-                                }
-                                root.selectNote(storageId, noteId, title)
-                            }
-
-                            TapHandler {
-                                acceptedButtons: Qt.LeftButton
-                                acceptedDevices: PointerDevice.Mouse
-                                enabled: root.embeddedEditor
-                                onDoubleTapped: root.openStandalone(recentDelegate.storageId,
-                                                                     recentDelegate.noteId)
-                            }
-
-                            MouseArea {
-                                id: recentContextArea
-
-                                anchors.fill: parent
-                                acceptedButtons: Qt.RightButton
-                                onClicked: function(mouse) {
-                                    root.showNoteMenu(recentDelegate.storageId,
-                                                      recentDelegate.noteId,
-                                                      recentDelegate.title,
-                                                      recentContextArea.mapToItem(
-                                                          root, Qt.point(mouse.x, mouse.y)))
-                                }
-                            }
-
-                            TapHandler {
-                                enabled: root.touchActions
-                                acceptedButtons: Qt.LeftButton
-                                acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Stylus
-                                gesturePolicy: TapHandler.DragThreshold
-                                onLongPressed: {
-                                    recentDelegate.suppressClickUntil = Date.now() + 1000
-                                    root.showNoteMenu(recentDelegate.storageId,
-                                                      recentDelegate.noteId,
-                                                      recentDelegate.title)
-                                }
-                            }
+                        selectionController: noteSelection
+                        nativeModelHierarchy: false
+                        flatNoteRows: true
+                        touchActions: root.touchActions
+                        embeddedEditor: root.embeddedEditor
+                        currentStorageId: root.selectedStorageId
+                        currentNoteId: root.selectedNoteId
+                        viewObjectName: "recentNotes"
+                        rowObjectNamePrefix: "recentDelegate-"
+                        allowNoteDrag: true
+                        allowGroupDrag: false
+                        dragEnabledProvider: root.canReorderRecentNote
+                        boundaryProvider: root.recentNoteBoundaries
+                        directTargetProvider: function() { return null }
+                        commitHandler: root.commitRecentDrop
+                        outsideDropHandler: root.handleOutsideDrop
+                        swipeDeleteEnabled: true
+                        noteActivateHandler: function(item) {
+                            root.selectNote(item.storageId, item.noteId, item.title)
+                        }
+                        noteStandaloneHandler: function(item) {
+                            root.openStandalone(item.storageId, item.noteId)
+                        }
+                        noteContextHandler: function(item, position) {
+                            root.showNoteMenu(item.storageId, item.noteId, item.title,
+                                              recentNotes.mapToItem(root, position))
+                        }
+                        noteDeleteHandler: function(item) {
+                            root.requestDelete(item.storageId, item.noteId, item.title)
                         }
                     }
 
-                    TreeView {
-                        id: notesTree
-                        objectName: "notesTree"
+                    NoteList.NoteCollectionView {
+                        id: groupedNotes
+
                         anchors.fill: parent
                         visible: root.viewMode === root.groupedByStorageMode
-                        clip: true
+                        enabled: visible
                         model: root.workspace.groupedNotesModel
-                        // Delegate selection, dragging, and context menus are
-                        // handled explicitly below. Letting TableView also
-                        // navigate on pointer presses makes Qt 6.4 deliver the
-                        // first menu click to the row underneath the popup.
-                        pointerNavigationEnabled: false
-                        // Row geometry stays fixed during reorder; neighboring
-                        // delegates move by transform, so TableView can reuse
-                        // items only for ordinary viewport scrolling.
-                        reuseItems: true
-                        bottomMargin: root.touchActions ? 88 : 0
-                        columnWidthProvider: function(column) { return Math.floor(notesTree.width) }
-                        rowHeightProvider: function(row) { return root.touchActions ? 44 : 34 }
-                        onWidthChanged: Qt.callLater(function() { notesTree.forceLayout() })
-                        Component.onCompleted: Qt.callLater(function() { expandRecursively(-1, 1) })
-                        selectionModel: ItemSelectionModel { model: notesTree.model }
-
-                        delegate: ItemDelegate {
-                            id: groupedDelegate
-
-                            required property int row
-                            required property int column
-                            required property int depth
-                            required property bool expanded
-                            required property bool hasChildren
-                            required property bool isTreeNode
-                            required property string storageId
-                            required property string noteId
-                            required property int itemType
-                            required property string title
-                            required property string preview
-                            required property bool loading
-                            required property string errorString
-                            required property bool hasMore
-                            required property int noteCount
-                            required property string iconSource
-                            property double suppressClickUntil: 0
-                            property bool internalDragActive: false
-                            readonly property real baseHeight: root.touchActions ? 44 : 34
-                            readonly property bool dragHovered: root.dropTargetDelegate === groupedDelegate
-                            readonly property bool storageDropHovered: itemType === 0
-                                                                       && dragHovered
-                                                                       && root.dropOnStorageHeader
-                            readonly property bool noteSelected: !root.dragSelectionSuppressed
-                                                                 && itemType === 1
-                                                                 && root.noteIsSelected(storageId, noteId)
-                            readonly property bool selectionCheckBoxVisible: itemType === 1
-                                                                             && root.touchActions
-                            readonly property bool partOfActiveDrag: root.activeDragDelegate
-                                    && ((root.draggedItemType === 0
-                                         && root.activeDragDelegate.storageId
-                                            === groupedDelegate.storageId)
-                                        || (root.draggedItemType === 1
-                                            && groupedDelegate.itemType === 1
-                                            && root.sourceContains(groupedDelegate.storageId,
-                                                                   groupedDelegate.noteId)))
-                            readonly property bool dropBefore: dragHovered
-                                                               && !root.dropOnStorageHeader
-                                                               && !root.dropTargetAfter
-                            readonly property bool dropAfter: dragHovered
-                                                              && !root.dropOnStorageHeader
-                                                              && root.dropTargetAfter
-                            readonly property alias collapseSpace: groupedDisplacement.collapseSpace
-                            readonly property alias dropSpace: groupedDisplacement.beforeSpace
-                            readonly property alias dropAfterSpace: groupedDisplacement.afterSpace
-                            readonly property alias reorderOffset: groupedDisplacement.displacement
-
-                            objectName: "groupedDelegate-" + storageId + "-" + noteId
-                            width: notesTree.width
-                            implicitHeight: baseHeight
-                            opacity: partOfActiveDrag ? 0 : 1
-                            hoverEnabled: !root.dragSelectionSuppressed
-                            highlighted: !root.dragSelectionSuppressed
-                                         && (itemType === 0
-                                             ? root.selectedStorageId === storageId
-                                               && root.selectedNoteId.length === 0
-                                             : root.selectedStorageId === storageId
-                                               && root.selectedNoteId === noteId)
-                            leftPadding: 0
-                            rightPadding: 0
-                            topPadding: 0
-                            bottomPadding: 0
-                            transform: Translate { y: groupedDelegate.reorderOffset }
-                            ToolTip.visible: !root.dragSelectionSuppressed && hovered
-                                             && (errorString.length > 0 || preview.length > 0)
-                            ToolTip.text: errorString.length > 0 ? errorString : preview
-
-                            Reorder.ReorderDisplacement {
-                                id: groupedDisplacement
-
-                                animationEnabled: root.activeDragDelegate !== null
-                                                  && !root.committingDrop
-                                sourceActive: groupedDelegate.partOfActiveDrag
-                                targetBefore: groupedDelegate.dropBefore
-                                targetAfter: groupedDelegate.dropAfter
-                                naturalExtent: groupedDelegate.baseHeight
-                                draggedExtent: root.draggedExtent
-                                displacement: root.groupedRowTranslation(groupedDelegate)
-                            }
-
-                            Component.onDestruction: {
-                                if (internalDragActive)
-                                    root.cancelGroupedDrag()
-                            }
-
-                            background: Rectangle {
-                                radius: 4
-                                color: groupedDelegate.storageDropHovered
-                                       ? Qt.rgba(0.30, 0.76, 0.38, 0.34)
-                                       : groupedDelegate.highlighted
-                                       ? groupedDelegate.palette.highlight
-                                       : groupedDelegate.noteSelected
-                                       ? Qt.rgba(groupedDelegate.palette.highlight.r,
-                                                 groupedDelegate.palette.highlight.g,
-                                                 groupedDelegate.palette.highlight.b, 0.38)
-                                       : (groupedDelegate.hovered ? Qt.rgba(groupedDelegate.palette.button.r, groupedDelegate.palette.button.g, groupedDelegate.palette.button.b, 0.45) : "transparent")
-                                border.width: groupedDelegate.storageDropHovered ? 2 : 0
-                                border.color: Qt.rgba(0.22, 0.68, 0.30, 0.95)
-
-                                Rectangle {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    y: 0
-                                    height: 3
-                                    visible: groupedDelegate.dropBefore
-                                    color: groupedDelegate.palette.highlight
-                                }
-
-                                Rectangle {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    y: parent.height - height
-                                    height: 3
-                                    visible: groupedDelegate.dropAfter
-                                    color: groupedDelegate.palette.highlight
-                                }
-                            }
-
-                            contentItem: RowLayout {
-                                spacing: 8
-
-                                Item { Layout.preferredWidth: 8 + groupedDelegate.depth * 18 }
-
-                                Label {
-                                    Layout.preferredWidth: 12
-                                    Layout.alignment: Qt.AlignVCenter
-                                    visible: groupedDelegate.isTreeNode && groupedDelegate.hasChildren
-                                    text: groupedDelegate.expanded ? "▾" : "▸"
-                                    color: groupedDelegate.highlighted
-                                           ? groupedDelegate.palette.highlightedText
-                                           : groupedDelegate.palette.text
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-
-                                Item {
-                                    visible: !(groupedDelegate.isTreeNode && groupedDelegate.hasChildren)
-                                    Layout.preferredWidth: visible ? 12 : 0
-                                }
-
-                                Item {
-                                    Layout.preferredWidth: 20
-                                    Layout.preferredHeight: 20
-                                    Layout.alignment: Qt.AlignVCenter
-
-                                    Image {
-                                        id: groupedIcon
-                                        anchors.fill: parent
-                                        source: groupedDelegate.iconSource
-                                        sourceSize.width: 20
-                                        sourceSize.height: 20
-                                        fillMode: Image.PreserveAspectFit
-                                    }
-
-                                    Label {
-                                        anchors.centerIn: parent
-                                        visible: groupedIcon.status !== Image.Ready
-                                        text: groupedDelegate.itemType === 0 ? "▣" : "◆"
-                                        font.pixelSize: 14
-                                        color: groupedDelegate.highlighted
-                                               ? groupedDelegate.palette.highlightedText
-                                               : groupedDelegate.palette.text
-                                    }
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    Layout.alignment: Qt.AlignVCenter
-                                    text: groupedDelegate.itemType === 0
-                                          ? (groupedDelegate.loading
-                                             ? qsTr("%1 — loading…").arg(groupedDelegate.title)
-                                             : qsTr("%1 (%2)").arg(groupedDelegate.title).arg(groupedDelegate.noteCount))
-                                          : groupedDelegate.title
-                                    font.bold: groupedDelegate.itemType === 0
-                                    color: groupedDelegate.highlighted
-                                           ? groupedDelegate.palette.highlightedText
-                                           : groupedDelegate.palette.text
-                                    elide: Text.ElideRight
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-
-                                CheckBox {
-                                    objectName: "groupedSelectionCheckBox-"
-                                                + groupedDelegate.storageId + "-"
-                                                + groupedDelegate.noteId
-                                    visible: groupedDelegate.selectionCheckBoxVisible
-                                    checked: root.noteIsSelected(groupedDelegate.storageId,
-                                                                 groupedDelegate.noteId)
-                                    Accessible.name: qsTr("Select %1").arg(groupedDelegate.title)
-                                    onClicked: root.toggleNoteSelection(groupedDelegate.storageId,
-                                                                        groupedDelegate.noteId,
-                                                                        groupedDelegate.title,
-                                                                        checked)
-                                }
-                            }
-
-                            DragHandler {
-                                id: noteDrag
-                                target: null
-                                enabled: !root.touchActions
-                                onActiveTranslationChanged: {
-                                    root.updateGroupedDrag(groupedDelegate,
-                                                           activeTranslation.x,
-                                                           activeTranslation.y)
-                                }
-                                onActiveChanged: {
-                                    if (active)
-                                        root.beginGroupedDrag(groupedDelegate)
-                                    else if (groupedDelegate.internalDragActive)
-                                        root.finishGroupedDrag(groupedDelegate)
-                                }
-                            }
-
-                            TapHandler {
-                                acceptedButtons: Qt.LeftButton
-                                acceptedDevices: PointerDevice.Mouse
-                                enabled: groupedDelegate.itemType === 1 && root.embeddedEditor
-                                         && !root.dragSelectionSuppressed
-                                onDoubleTapped: root.openStandalone(groupedDelegate.storageId,
-                                                                     groupedDelegate.noteId)
-                            }
-
-                            TapHandler {
-                                id: desktopSelectionHandler
-
-                                acceptedButtons: Qt.LeftButton
-                                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                                enabled: groupedDelegate.itemType === 1 && !root.touchActions
-                                         && !root.dragSelectionSuppressed
-                                gesturePolicy: TapHandler.DragThreshold
-                                onTapped: function(eventPoint, button) {
-                                    groupedDelegate.suppressClickUntil = Date.now() + 100
-                                    root.selectDesktopNote(groupedDelegate,
-                                                           desktopSelectionHandler.point.modifiers)
-                                }
-                            }
-
-                            onClicked: {
-                                if (root.dragSelectionSuppressed)
-                                    return
-                                if (Date.now() < suppressClickUntil) {
-                                    suppressClickUntil = 0
-                                    return
-                                }
-                                // TableView.index() was added in Qt 6.4.3.
-                                if (typeof notesTree.index === "function") {
-                                    notesTree.selectionModel.setCurrentIndex(
-                                                notesTree.index(row, column),
-                                                ItemSelectionModel.ClearAndSelect)
-                                }
-                                if (itemType === 0) {
-                                    root.selectedStorageId = storageId
-                                    root.selectedNoteId = ""
-                                    root.selectedTitle = title
-                                    notesTree.toggleExpanded(row)
-                                } else if (root.touchActions) {
-                                    root.selectNote(storageId, noteId, title)
-                                }
-                            }
-
-                            MouseArea {
-                                id: groupedContextArea
-
-                                anchors.fill: parent
-                                acceptedButtons: Qt.RightButton
-                                preventStealing: true
-                                onClicked: function(mouse) {
-                                    if (mouse.button !== Qt.RightButton)
-                                        return
-                                    const position = groupedContextArea.mapToItem(
-                                                               root, Qt.point(mouse.x, mouse.y))
-                                    if (groupedDelegate.itemType === 1) {
-                                        root.showNoteMenu(groupedDelegate.storageId,
-                                                          groupedDelegate.noteId,
-                                                          groupedDelegate.title,
-                                                          position)
-                                    } else {
-                                        root.showStorageMenu(groupedDelegate.storageId,
-                                                             groupedDelegate.title,
-                                                             position)
-                                    }
-                                }
-                            }
-
-                            TapHandler {
-                                enabled: root.touchActions
-                                acceptedButtons: Qt.LeftButton
-                                acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Stylus
-                                gesturePolicy: TapHandler.DragThreshold
-                                onLongPressed: {
-                                    groupedDelegate.suppressClickUntil = Date.now() + 1000
-                                    if (groupedDelegate.itemType === 1) {
-                                        root.showNoteMenu(groupedDelegate.storageId,
-                                                          groupedDelegate.noteId,
-                                                          groupedDelegate.title)
-                                    } else {
-                                        root.showStorageMenu(groupedDelegate.storageId,
-                                                             groupedDelegate.title)
-                                    }
-                                }
-                            }
+                        selectionController: noteSelection
+                        nativeModelHierarchy: true
+                        touchActions: root.touchActions
+                        embeddedEditor: root.embeddedEditor
+                        defaultGroupKind: "storage"
+                        currentStorageId: root.selectedStorageId
+                        currentNoteId: root.selectedNoteId
+                        selectedGroupId: root.selectedNoteId.length === 0
+                                         ? root.selectedStorageId : ""
+                        viewObjectName: "notesTree"
+                        previewObjectName: "managerDragPreview"
+                        previewObjectNamePrefix: "managerDragPreviewItem-"
+                        rowObjectNameProvider: function(item) {
+                            return "groupedDelegate-" + item.storageId + "-" + item.noteId
                         }
+                        groupActivateHandler: function(item) {
+                            root.selectedStorageId = item.storageId
+                            root.selectedNoteId = ""
+                            root.selectedTitle = item.title
+                            groupedNotes.toggleGroup(item)
+                        }
+                        noteActivateHandler: function(item) {
+                            root.selectNote(item.storageId, item.noteId, item.title)
+                        }
+                        noteStandaloneHandler: function(item) {
+                            root.openStandalone(item.storageId, item.noteId)
+                        }
+                        noteContextHandler: function(item, position) {
+                            root.showNoteMenu(item.storageId, item.noteId, item.title,
+                                              groupedNotes.mapToItem(root, position))
+                        }
+                        groupContextHandler: function(item, position) {
+                            root.showStorageMenu(item.storageId, item.title,
+                                                 groupedNotes.mapToItem(root, position))
+                        }
+                        groupSourceProvider: function(item, items) {
+                            return items.filter(function(candidate) {
+                                return candidate.storageId === item.storageId
+                            })
+                        }
+                        boundaryProvider: root.sharedGroupedBoundaries
+                        directTargetProvider: root.sharedGroupedDirectTarget
+                        commitHandler: root.commitSharedGroupedDrop
+                        outsideDropHandler: root.handleOutsideDrop
                     }
 
-                    Loader {
-                        id: foldersPageLoader
+                    // A Component declared here is bound to NotesManagerPage
+                    // because this file opts in to ComponentBehavior: Bound.
+                    // Passing that component through Loader.sourceComponent
+                    // makes Qt instantiate it outside its lexical creation
+                    // context, which fails when the Folders tab is first
+                    // selected. Keep the page in the same context and only
+                    // toggle its visibility instead.
+                    FoldersPage {
+                        id: foldersPage
 
                         anchors.fill: parent
-                        active: root.viewMode === root.foldersMode
-                        sourceComponent: Component {
-                            FoldersPage {
-                                anchors.fill: parent
-                                workspace: root.workspace
-                                touchActions: root.touchActions
-                                embeddedEditor: root.embeddedEditor
-                                currentStorageId: root.selectedStorageId
-                                currentNoteId: root.selectedNoteId
-                                checkpointHandler: function() { return root.checkpointEditor() }
-                                onNoteActivated: function(storageId, noteId, title) {
-                                    root.selectNote(storageId, noteId, title)
-                                }
-                                onNoteStandaloneRequested: function(storageId, noteId) {
-                                    root.openStandalone(storageId, noteId)
-                                }
-                                onNoteMenuRequested: function(storageId, noteId, title, position) {
-                                    root.showNoteMenu(storageId, noteId, title, position)
-                                }
-                            }
+                        visible: root.viewMode === root.foldersMode
+                        enabled: visible
+                        workspace: root.workspace
+                        selectionController: noteSelection
+                        touchActions: root.touchActions
+                        embeddedEditor: root.embeddedEditor
+                        currentStorageId: root.selectedStorageId
+                        currentNoteId: root.selectedNoteId
+                        checkpointHandler: function() { return root.checkpointEditor() }
+                        outsideNotesDropHandler: root.handleNotesDroppedOutside
+                        onNoteActivated: function(storageId, noteId, title) {
+                            root.selectNote(storageId, noteId, title)
+                        }
+                        onNoteStandaloneRequested: function(storageId, noteId) {
+                            root.openStandalone(storageId, noteId)
+                        }
+                        onNoteMenuRequested: function(storageId, noteId, title, position) {
+                            root.showNoteMenu(storageId, noteId, title, position)
                         }
                     }
 
@@ -1330,7 +768,13 @@ Item {
         }
         CompactContextSeparator { }
         CompactContextMenuItem {
-            text: qsTr("Delete")
+            visible: root.workspace.isRecycledNote(root.selectedStorageId, root.selectedNoteId)
+            text: qsTr("Restore from Recycle Bin")
+            onTriggered: root.workspace.restoreRecycledNote(root.selectedStorageId, root.selectedNoteId)
+        }
+        CompactContextMenuItem {
+            text: root.workspace.isRecycledNote(root.selectedStorageId, root.selectedNoteId)
+                  ? qsTr("Delete permanently") : qsTr("Move to Recycle Bin")
             onTriggered: root.requestDelete(root.selectedStorageId, root.selectedNoteId, root.selectedTitle)
         }
     }
@@ -1358,23 +802,50 @@ Item {
 
     Dialog {
         id: deleteDialog
+        objectName: "permanentDeleteDialog"
         parent: root
         x: (root.width - width) / 2
         y: (root.height - height) / 2
         modal: true
         width: Math.min(420, root.width - 32)
-        title: qsTr("Delete note")
+        height: Math.min(190, root.height - 32)
+        title: qsTr("Delete note permanently")
         standardButtons: Dialog.Yes | Dialog.No
 
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: qsTr("Delete “%1”?").arg(root.selectedTitle)
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Label {
+                id: permanentDeleteMessage
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: root.pendingPermanentDeletionNotes.length === 1
+                      ? qsTr("Permanently delete “%1”? This cannot be undone.")
+                            .arg(String(root.pendingPermanentDeletionNotes[0].title || root.selectedTitle))
+                      : qsTr("Permanently delete %1 notes? This cannot be undone.")
+                            .arg(root.pendingPermanentDeletionNotes.length)
+            }
+
+            CheckBox {
+                id: dontAskAgain
+                text: qsTr("Don't ask again")
+                checked: root.dontAskAgainForPermanentDeletion
+                onToggled: root.dontAskAgainForPermanentDeletion = checked
+            }
         }
 
         onAccepted: {
-            if (!root.workspace.currentEditor || root.checkpointEditor())
-                root.workspace.deleteNote(root.selectedStorageId, root.selectedNoteId)
+            if (root.dontAskAgainForPermanentDeletion
+                    && root.workspace
+                    && typeof root.workspace.setAskBeforePermanentDelete === "function") {
+                root.workspace.setAskBeforePermanentDelete(false)
+            }
+            root.commitPermanentDeletion()
+        }
+        onRejected: {
+            root.pendingPermanentDeletionNotes = []
+            root.pendingRecycleNotes = []
+            root.dontAskAgainForPermanentDeletion = false
         }
     }
 
@@ -1480,7 +951,7 @@ Item {
     Connections {
         target: root.workspace.groupedNotesModel
         function onRowsInserted() {
-            Qt.callLater(function() { notesTree.expandRecursively(-1, 1) })
+            Qt.callLater(function() { groupedNotes.expandGroups(1) })
         }
     }
 

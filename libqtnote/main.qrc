@@ -15,6 +15,8 @@
     <qresource prefix="/svg">
         <file alias="qtnote">images/qtnote.svg</file>
         <file alias="qtnote-symbolic">images/qtnote-symbolic.svg</file>
+        <file alias="folder-symbolic">images/folder-symbolic.svg</file>
+        <file alias="go-next-symbolic">images/go-next-symbolic.svg</file>
         <file alias="download">images/download.svg</file>
         <file alias="microphone">images/microphone.svg</file>
         <file alias="pin">images/pin.svg</file>
@@ -24,11 +26,18 @@
         <file alias="EditorReorderController.qml">qml/EditorReorderController.qml</file>
         <file alias="ListBlockEditor.qml">qml/ListBlockEditor.qml</file>
         <file alias="reorder/GenericReorderController.qml">qml/reorder/GenericReorderController.qml</file>
+        <file alias="reorder/FlatListReorderController.qml">qml/reorder/FlatListReorderController.qml</file>
         <file alias="reorder/DragPreviewLayer.qml">qml/reorder/DragPreviewLayer.qml</file>
         <file alias="reorder/LinearReorderLayout.qml">qml/reorder/LinearReorderLayout.qml</file>
         <file alias="reorder/ReorderDisplacement.qml">qml/reorder/ReorderDisplacement.qml</file>
         <file alias="reorder/ReorderGeometry.qml">qml/reorder/ReorderGeometry.qml</file>
         <file alias="reorder/ReorderDragHandle.qml">qml/reorder/ReorderDragHandle.qml</file>
+        <file alias="reorder/HierarchyRange.qml">qml/reorder/HierarchyRange.qml</file>
+        <file alias="reorder/HierarchyDropPolicy.qml">qml/reorder/HierarchyDropPolicy.qml</file>
+        <file alias="notelist/NoteSelectionController.qml">qml/notelist/NoteSelectionController.qml</file>
+        <file alias="notelist/NoteListRow.qml">qml/notelist/NoteListRow.qml</file>
+        <file alias="notelist/TreeNoteListRow.qml">qml/notelist/TreeNoteListRow.qml</file>
+        <file alias="notelist/NoteCollectionView.qml">qml/notelist/NoteCollectionView.qml</file>
         <file alias="ListBlockBehavior.js">qml/ListBlockBehavior.js</file>
         <file alias="TableBlockBehavior.js">qml/TableBlockBehavior.js</file>
         <file alias="EditorContextMenu.qml">qml/EditorContextMenu.qml</file>

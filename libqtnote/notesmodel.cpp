@@ -1,5 +1,6 @@
 #include "notesmodel.h"
 
+#include "foldercatalogmanager.h"
 #include "notemanager.h"
 #include "notesindex.h"
 #include "storageiconimageprovider.h"
@@ -65,8 +66,11 @@ public:
     bool                 indexedCountInitialized { false };
 };
 
-NotesModel::NotesModel(QObject *parent) : QAbstractItemModel(parent)
+NotesModel::NotesModel(QObject *parent) : NotesModel(nullptr, parent) { }
+
+NotesModel::NotesModel(FolderCatalogManager *folderCatalogManager, QObject *parent) : QAbstractItemModel(parent)
 {
+    folderCatalogManager_ = folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance();
     const auto manager = NoteManager::instance();
     for (const auto &storage : manager->prioritizedStorages(true))
         storageAdded(storage);
@@ -78,6 +82,14 @@ NotesModel::NotesModel(QObject *parent) : QAbstractItemModel(parent)
     connect(manager, &NoteManager::storageOrderChanged, this, &NotesModel::storageOrderChanged);
     connect(manager->notesIndex(), &NotesIndex::storageNotesChanged, this, &NotesModel::storageIndexChanged);
     connect(manager->notesIndex(), &NotesIndex::storageStateChanged, this, &NotesModel::storageIndexStateChanged);
+    connect(folderCatalogManager_, &FolderCatalogManager::catalogChanged, this, [this] {
+        for (auto *item : std::as_const(storages_)) {
+            const int desired = searchActive_ ? indexedNotes(item->id).size()
+                                              : qMax(item->children.size(), pageSize_);
+            replaceVisibleNotes(item, desired);
+        }
+        emit statsChanged();
+    });
 }
 
 NotesModel::~NotesModel() { qDeleteAll(storages_); }
@@ -157,9 +169,9 @@ QVariant NotesModel::data(const QModelIndex &modelIndex, int role) const
     case ErrorStringRole:
         return storage ? NoteManager::instance()->notesIndex()->errorString(item->id) : QString();
     case HasMoreRole:
-        return storage && item->children.size() < NoteManager::instance()->notesIndex()->noteCount(item->id);
+        return storage && item->children.size() < indexedNotes(item->id).size();
     case NoteCountRole:
-        return storage ? NoteManager::instance()->notesIndex()->noteCount(item->id) : 0;
+        return storage ? indexedNotes(item->id).size() : 0;
     case IconSourceRole:
         return storageIconSource(storage ? item->id : item->parent->id, !storage);
     default:
@@ -202,8 +214,7 @@ bool NotesModel::canFetchMore(const QModelIndex &parentIndex) const
     if (!parentIndex.isValid())
         return false;
     auto *item = static_cast<NMMItem *>(parentIndex.internalPointer());
-    return item && item->type == ItemStorage
-        && item->children.size() < NoteManager::instance()->notesIndex()->noteCount(item->id);
+    return item && item->type == ItemStorage && item->children.size() < indexedNotes(item->id).size();
 }
 
 void NotesModel::fetchMore(const QModelIndex &parentIndex)
@@ -282,9 +293,8 @@ bool NotesModel::dropMimeData(const QMimeData *data, Qt::DropAction action, int,
 int NotesModel::noteCount() const
 {
     int         count = 0;
-    const auto *index = NoteManager::instance()->notesIndex();
     for (const auto *storage : storages_)
-        count += index->noteCount(storage->id);
+        count += indexedNotes(storage->id).size();
     return count;
 }
 
@@ -352,7 +362,7 @@ void NotesModel::storageAdded(const NoteStorage::Ptr &storage)
     }
     beginInsertRows({}, row, row);
     auto *item                    = new NMMItem(storage);
-    item->indexedCount            = NoteManager::instance()->notesIndex()->noteCount(item->id);
+    item->indexedCount            = indexedNotes(item->id).size();
     item->indexedCountInitialized = NoteManager::instance()->notesIndex()->hasSnapshot(item->id);
     storages_.insert(row, item);
     endInsertRows();
@@ -489,7 +499,14 @@ NMMItem *NotesModel::storageItem(const QString &storageId) const
 
 QList<Note> NotesModel::indexedNotes(const QString &storageId) const
 {
-    return NoteManager::instance()->notesIndex()->notes(storageId);
+    auto notes = NoteManager::instance()->notesIndex()->notes(storageId);
+    if (!folderCatalogManager_ || !folderCatalogManager_->isAvailable())
+        return notes;
+    notes.erase(std::remove_if(notes.begin(), notes.end(), [this, &storageId](const Note &note) {
+                    return !note.isNull() && folderCatalogManager_->catalog().isRecycled(storageId, note.id());
+                }),
+                notes.end());
+    return notes;
 }
 
 } // namespace QtNote
