@@ -12,7 +12,6 @@
 #include <QtEndian>
 #include <QtPlugin>
 
-#include "qtnote_config.h"
 #include "settingscontroller.h"
 
 namespace QtNote {
@@ -258,24 +257,6 @@ private:
 OpenAIWhisperPlugin::OpenAIWhisperPlugin(QObject *parent) : QObject(parent) { }
 
 OpenAIWhisperPlugin::~OpenAIWhisperPlugin() = default;
-
-int OpenAIWhisperPlugin::metadataVersion() const { return MetadataVersion; }
-
-PluginMetadata OpenAIWhisperPlugin::metadata()
-{
-    PluginMetadata md;
-    md.id          = QLatin1String("openaiwhisper");
-    md.name        = tr("OpenAI Whisper");
-    md.description = tr("OpenAI Whisper speech recognition backend");
-    md.icon        = QIcon(QStringLiteral(":/icons/openai-logo"));
-    md.author      = QLatin1String("Rion");
-    md.version     = 0x000100;
-    md.minVersion  = 0x030200;
-    md.maxVersion  = QTNOTE_VERSION;
-    md.extra.insert(QStringLiteral("configurable"), true);
-    md.extra.insert(QLatin1String("defaultLoadPolicy"), QLatin1String("disabled"));
-    return md;
-}
 
 void OpenAIWhisperPlugin::setHost(PluginHostInterface *host) { Q_UNUSED(host); }
 

@@ -16,7 +16,7 @@ if (NOT Qt${QT_VERSION_MAJOR}Network_FOUND)
 endif()
 
 
-add_qtnote_plugin(spellchecker "Check for spelling errors" ${HUNSPEL_ENABLED} unix macosx windows android SOURCES
+add_qtnote_plugin(spellchecker "Check for spelling errors" ${HUNSPEL_ENABLED} unix macosx windows android METADATA plugin-metadata.json ICON logo.png SOURCES
     engineinterface.cpp
     engineinterface.h
     hunspellengine.cpp

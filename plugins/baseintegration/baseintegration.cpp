@@ -10,7 +10,6 @@
 #include "baseintegration.h"
 #include "baseintegrationtray.h"
 #include "pluginhostinterface.h"
-#include "qtnote_config.h"
 #include "qxtglobalshortcut.h"
 #include "stickynotewindow.h"
 
@@ -20,8 +19,6 @@
 #endif
 
 namespace QtNote {
-
-static const QLatin1String pluginId("base_de");
 static const QLatin1String stickyGeometryGroup("baseintegration/stickyPresentations");
 
 #ifdef QTNOTE_ENABLE_X11
@@ -92,24 +89,6 @@ BaseIntegration::~BaseIntegration()
 {
     for (auto window : std::as_const(stickyWindows))
         delete window;
-}
-
-int BaseIntegration::metadataVersion() const { return MetadataVersion; }
-
-PluginMetadata BaseIntegration::metadata()
-{
-    PluginMetadata md;
-    md.id          = pluginId;
-    md.icon        = QIcon(":/icons/logo");
-    md.name        = "Base Integration";
-    md.description = tr("Provides fallback desktop environment integration");
-    md.author      = "Sergei Ilinykh <rion4ik@gmail.com>";
-    md.version     = 0x010100;       // plugin's version 0xXXYYZZPP
-    md.minVersion  = 0x030002;       // minimum compatible version of QtNote
-    md.maxVersion  = QTNOTE_VERSION; // maximum compatible version of QtNote
-    md.homepage    = QUrl("http://ri0n.github.io/QtNote");
-    // md.extra.insert("de", QStringList() << "KDE-4");
-    return md;
 }
 
 void BaseIntegration::setHost(PluginHostInterface *host) { this->host = host; }

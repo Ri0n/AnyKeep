@@ -32,7 +32,7 @@ class PluginHostInterface;
 
 class TomboyPlugin : public QObject, public PluginInterface, public RegularPluginInterface {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.tomboy")
+#include "tomboy_plugin_metadata.inc"
     Q_INTERFACES(QtNote::PluginInterface QtNote::RegularPluginInterface)
 
     PluginHostInterface *host;
@@ -40,12 +40,9 @@ class TomboyPlugin : public QObject, public PluginInterface, public RegularPlugi
 public:
     explicit TomboyPlugin(QObject *parent = 0);
     ~TomboyPlugin();
-
-    int            metadataVersion() const override;
-    void           setHost(PluginHostInterface *host) override;
-    PluginMetadata metadata() override;
-    bool           initialize() override;
-    void           shutdown() override;
+    void setHost(PluginHostInterface *host) override;
+    bool initialize() override;
+    void shutdown() override;
 };
 
 } // namespace QtNote

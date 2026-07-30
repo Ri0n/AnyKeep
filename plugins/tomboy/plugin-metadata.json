@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "id": "tomboy_storge",
+  "nameId": "plugin.tomboy_storge.name",
+  "descriptionId": "plugin.tomboy_storge.description",
+  "author": "Sergei Ilinykh <rion4ik@gmail.com>",
+  "version": "0.1.0",
+  "minVersion": "2.3.0",
+  "maxVersion": "current",
+  "homepage": "http://ri0n.github.io/QtNote",
+  "features": [
+    "regular"
+  ],
+  "extra": {}
+}

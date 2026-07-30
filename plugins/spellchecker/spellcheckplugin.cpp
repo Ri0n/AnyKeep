@@ -30,7 +30,6 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "dictionarydownloader.h"
 #include "highlighterext.h"
 #include "hunspellengine.h"
-#include "qtnote_config.h"
 #include "settingscontroller.h"
 #include "spellcheckplugin.h"
 #include "spellcheckprovider.h"
@@ -314,24 +313,6 @@ private:
 SpellCheckPlugin::SpellCheckPlugin(QObject *parent) : QObject(parent), host(nullptr), sei(nullptr) { }
 
 SpellCheckPlugin::~SpellCheckPlugin() { shutdown(); }
-
-int SpellCheckPlugin::metadataVersion() const { return MetadataVersion; }
-
-PluginMetadata SpellCheckPlugin::metadata()
-{
-    PluginMetadata md;
-    md.id          = pluginId;
-    md.icon        = QIcon(":/icons/spellcheck-logo");
-    md.name        = "Spell check";
-    md.description = tr("Realtime spell check.");
-    md.author      = "Sergei Ilinykh <rion4ik@gmail.com>";
-    md.version     = 0x020000; // plugin's version 0xXXYYZZPP
-    md.minVersion  = 0x020300; // minimum compatible version of QtNote
-    md.maxVersion  = QTNOTE_VERSION;
-    md.extra.insert(QStringLiteral("configurable"), true); // maximum compatible version of QtNote
-    md.homepage = QUrl("http://ri0n.github.io/QtNote");
-    return md;
-}
 
 void SpellCheckPlugin::setHost(PluginHostInterface *host) { this->host = host; }
 

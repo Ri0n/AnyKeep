@@ -15,14 +15,11 @@ class PluginHostInterface;
 
 class MacOSXPlugin : public QObject, public PluginInterface, public TrayInterface, public NotificationInterface {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.MacOSX")
+#include "macosx_plugin_metadata.inc"
     Q_INTERFACES(QtNote::PluginInterface QtNote::TrayInterface QtNote::NotificationInterface)
 public:
     explicit MacOSXPlugin(QObject *parent = 0);
-
-    int                    metadataVersion() const;
-    virtual PluginMetadata metadata();
-    void                   setHost(PluginHostInterface *host);
+    void setHost(PluginHostInterface *host);
 
     TrayImpl *initTray(Main *qtnote);
     void      notifyError(const QString &msg);

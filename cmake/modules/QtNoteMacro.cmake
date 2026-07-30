@@ -39,7 +39,9 @@ if (NOT QTNOTE_VERSION_MAJOR)
                 set(QTNOTE_VERSION_TWEAK 0)
                 set(QTNOTE_VERSION ${GIT_REPO_VERSION})
             else()
-                set(QTNOTE_VERSION ${GIT_REPO_FULL_VERSION})
+                # Use the sanitized SemVer core. In particular, strip an optional
+                # leading "v" from an exact Git tag before passing it to project().
+                set(QTNOTE_VERSION ${GIT_REPO_VERSION})
             endif()
         endif()
     else()
@@ -77,9 +79,10 @@ function(qtnote_platform_has_plugin out_var platforms)
 endfunction()
 
 macro(add_qtnote_plugin name description buildable)
+    set(oneValueArgs METADATA ICON)
     set(multiValueArgs
         SOURCES)
-    cmake_parse_arguments(arg "" "" "${multiValueArgs}" ${ARGN})
+    cmake_parse_arguments(arg "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     cmake_minimum_required(VERSION 3.14.0)
     project(qtnote_plugin_${name} VERSION ${QTNOTE_VERSION} LANGUAGES CXX)
@@ -117,10 +120,48 @@ macro(add_qtnote_plugin name description buildable)
     else()
         set(LIB_TYPE "SHARED")
     endif()
+    if(NOT arg_METADATA OR NOT arg_ICON)
+        message(FATAL_ERROR "Plugin ${name} must provide METADATA and ICON")
+    endif()
+
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    file(GLOB _plugin_metadata_translations CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/translations/plugin_metadata_*.ts")
+    set(_plugin_metadata_output "${CMAKE_CURRENT_BINARY_DIR}/${name}.metadata.json")
+    set(_plugin_metadata_include "${CMAKE_CURRENT_BINARY_DIR}/${name}_plugin_metadata.inc")
+    execute_process(
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/cmake/generate_plugin_metadata.py"
+            --source "${CMAKE_CURRENT_SOURCE_DIR}/${arg_METADATA}"
+            --translations-dir "${CMAKE_SOURCE_DIR}/translations"
+            --icon "${CMAKE_CURRENT_SOURCE_DIR}/${arg_ICON}"
+            --output "${_plugin_metadata_output}"
+            --qtnote-version "${QTNOTE_VERSION}"
+        RESULT_VARIABLE _plugin_metadata_result
+        OUTPUT_VARIABLE _plugin_metadata_stdout
+        ERROR_VARIABLE _plugin_metadata_stderr
+    )
+    if(NOT _plugin_metadata_result EQUAL 0)
+        message(FATAL_ERROR
+            "Failed to generate metadata for ${name}:\n${_plugin_metadata_stdout}${_plugin_metadata_stderr}")
+    endif()
+    file(WRITE "${_plugin_metadata_include}"
+        "Q_PLUGIN_METADATA(IID QTNOTE_PLUGIN_INTERFACE_IID FILE \"${name}.metadata.json\")\n")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/cmake/generate_plugin_metadata.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/${arg_METADATA}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/${arg_ICON}"
+        ${_plugin_metadata_translations}
+    )
+
     add_library(${name} ${LIB_TYPE}
         ${QTNOTE_COMMON_PLUGIN_SRC}
         ${arg_SOURCES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/${arg_METADATA}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/${arg_ICON}"
+        "${_plugin_metadata_output}"
+        "${_plugin_metadata_include}"
         )
+    target_include_directories(${name} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 endmacro()
 
 function(add_qtnote_bundled_plugin name)

@@ -4,3 +4,8 @@ filters:
   source_language: en
   source_file: translations/qtnote_en.ts
   translation_files_expression: 'translations/qtnote_<lang>.ts'
+- filter_type: file
+  file_format: QT
+  source_language: en
+  source_file: translations/plugin_metadata_en.ts
+  translation_files_expression: 'translations/plugin_metadata_<lang>.ts'

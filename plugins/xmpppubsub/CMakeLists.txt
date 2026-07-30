@@ -88,6 +88,8 @@ add_qtnote_plugin(
     "Stores notes in a private persistent XMPP PEP node"
     ${_xmpppubsub_buildable}
     unix macosx windows android
+    METADATA plugin-metadata.json
+    ICON xmpp.svg
     SOURCES ${xmpppubsub_sources}
 )
 

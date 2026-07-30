@@ -29,6 +29,7 @@ QtNote requires:
 
 * a C++20 compiler;
 * CMake 3.25 or newer;
+* Python 3 for build-time generation of dynamic plugin metadata;
 * Qt 6.4 or newer with the Core, Gui, Widgets, PrintSupport, Network, and XML
   modules;
 * QCA 2 built for Qt 6;

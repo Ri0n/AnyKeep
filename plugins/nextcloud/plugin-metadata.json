@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "id": "nextcloud_storage",
+  "nameId": "plugin.nextcloud_storage.name",
+  "descriptionId": "plugin.nextcloud_storage.description",
+  "author": "Sergei Ilinykh",
+  "version": "0.1.0",
+  "minVersion": "2.3.0",
+  "maxVersion": "current",
+  "homepage": "https://github.com/nextcloud/notes",
+  "features": [
+    "regular"
+  ],
+  "extra": {}
+}

@@ -169,7 +169,7 @@ elseif(${kdeintegration_auto_disabled_cache_key} OR (DEFINED CACHE{QTNOTE_PLUGIN
     unset(${kdeintegration_auto_disabled_cache_key} CACHE)
 endif()
 
-add_qtnote_plugin(kdeintegration "Integration with KDE Plasma" ${kdeintegration_buildable} unix SOURCES
+add_qtnote_plugin(kdeintegration "Integration with KDE Plasma" ${kdeintegration_buildable} unix METADATA plugin-metadata.json ICON logo.png SOURCES
     kdeintegration.cpp
     kdeintegration.h
     kdeintegration.qrc

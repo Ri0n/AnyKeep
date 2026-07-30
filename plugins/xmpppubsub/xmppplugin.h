@@ -18,19 +18,16 @@ class XmppPlugin final : public QObject,
                          public BundledPluginInterface {
     Q_OBJECT
 #ifndef QTNOTE_BUNDLED_PLUGIN_BUILD
-    Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.xmpppubsub")
+#include "xmpppubsub_plugin_metadata.inc"
 #endif
     Q_INTERFACES(QtNote::PluginInterface QtNote::RegularPluginInterface QtNote::BundledPluginInterface)
 
 public:
     explicit XmppPlugin(QObject *parent = nullptr);
     ~XmppPlugin() override;
-
-    int            metadataVersion() const override;
-    void           setHost(PluginHostInterface *host) override;
-    PluginMetadata metadata() override;
-    bool           initialize() override;
-    void           shutdown() override;
+    void setHost(PluginHostInterface *host) override;
+    bool initialize() override;
+    void shutdown() override;
 
 private:
     PluginHostInterface *host_ { nullptr };

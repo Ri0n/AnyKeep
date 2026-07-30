@@ -20,7 +20,7 @@ class GeminiPlugin : public QObject,
                      public BundledPluginInterface {
     Q_OBJECT
 #ifndef QTNOTE_BUNDLED_PLUGIN_BUILD
-    Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.gemini")
+#include "gemini_plugin_metadata.inc"
 #endif
     Q_INTERFACES(
         QtNote::PluginInterface QtNote::RegularPluginInterface QtNote::PluginOptionsTooltipInterface
@@ -28,10 +28,7 @@ class GeminiPlugin : public QObject,
 public:
     explicit GeminiPlugin(QObject *parent = nullptr);
     ~GeminiPlugin() override;
-
-    int            metadataVersion() const override;
-    PluginMetadata metadata() override;
-    void           setHost(PluginHostInterface *host) override;
+    void setHost(PluginHostInterface *host) override;
 
     bool initialize() override;
     void shutdown() override;

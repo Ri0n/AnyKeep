@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 2,
+  "id": "openaiwhisper",
+  "nameId": "plugin.openaiwhisper.name",
+  "descriptionId": "plugin.openaiwhisper.description",
+  "author": "Rion",
+  "version": "0.0.1",
+  "minVersion": "3.2.0",
+  "maxVersion": "current",
+  "homepage": "",
+  "features": [
+    "regular"
+  ],
+  "extra": {
+    "configurable": true,
+    "defaultLoadPolicy": "disabled"
+  }
+}

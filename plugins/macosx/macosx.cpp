@@ -27,34 +27,12 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include "macosx.h"
 #include "macosxtray.h"
-#include "qtnote_config.h"
 
 namespace QtNote {
-
-static const QLatin1String pluginId("macosx_de");
-
 //------------------------------------------------------------
 // MacOSXPlugin
 //------------------------------------------------------------
 MacOSXPlugin::MacOSXPlugin(QObject *parent) : QObject(parent), _tray(0) { }
-
-int MacOSXPlugin::metadataVersion() const { return MetadataVerion; }
-
-PluginMetadata MacOSXPlugin::metadata()
-{
-    PluginMetadata md;
-    md.id          = pluginId;
-    md.icon        = QIcon(":/icons/macosx-logo");
-    md.name        = "MacOSX Integration";
-    md.description = tr("Integrtion with macosx-only features");
-    md.author      = "Sergey Ilinykh <rion4ik@gmail.com>";
-    md.version     = 0x010000;       // plugin's version 0xXXYYZZPP
-    md.minVersion  = 0x030100;       // minimum compatible version of QtNote
-    md.maxVersion  = QTNOTE_VERSION; // maximum compatible version of QtNote
-    md.homepage    = QUrl("http://ri0n.github.io/QtNote");
-    md.extra.insert("de", QStringList() << "macosx");
-    return md;
-}
 
 void MacOSXPlugin::setHost(PluginHostInterface *host) { this->host = host; }
 

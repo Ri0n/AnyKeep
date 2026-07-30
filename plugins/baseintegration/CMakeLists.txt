@@ -19,7 +19,7 @@ if(UNIX AND NOT APPLE AND NOT QTNOTE_ENABLE_X11)
     set(_baseintegration_buildable OFF)
 endif()
 
-add_qtnote_plugin(baseintegration "Base (fallback) desktop integration plugin" ${_baseintegration_buildable} unix macosx windows SOURCES
+add_qtnote_plugin(baseintegration "Base (fallback) desktop integration plugin" ${_baseintegration_buildable} unix macosx windows METADATA plugin-metadata.json ICON qtnote16.png SOURCES
     ${QXT_SRC}
     baseintegration.h
     baseintegration.cpp

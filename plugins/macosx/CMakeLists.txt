@@ -1,6 +1,6 @@
 include(QtNoteMacro)
 
-add_qtnote_plugin(macosx "Mac OS X integration" ON macosx SOURCES
+add_qtnote_plugin(macosx "Mac OS X integration" ON macosx METADATA plugin-metadata.json ICON logo.png SOURCES
     macosx.cpp
     macosx.h
     macosx.qrc

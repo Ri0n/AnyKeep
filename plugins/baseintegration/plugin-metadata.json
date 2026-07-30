@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 2,
+  "id": "base_de",
+  "nameId": "plugin.base_de.name",
+  "descriptionId": "plugin.base_de.description",
+  "author": "Sergei Ilinykh <rion4ik@gmail.com>",
+  "version": "0.1.1",
+  "minVersion": "3.0.2",
+  "maxVersion": "current",
+  "homepage": "http://ri0n.github.io/QtNote",
+  "features": [
+    "desktopIntegration",
+    "tray",
+    "globalShortcuts",
+    "notifications",
+    "stickyNotes"
+  ],
+  "extra": {}
+}

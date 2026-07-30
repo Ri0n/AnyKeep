@@ -2,7 +2,7 @@ include(QtNoteMacro)
 
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Network REQUIRED)
 
-add_qtnote_plugin(gemini "Gemini API speech recognition backend" ON unix macosx windows android SOURCES
+add_qtnote_plugin(gemini "Gemini API speech recognition backend" ON unix macosx windows android METADATA plugin-metadata.json ICON google-gemini.svg SOURCES
     geminiplugin.cpp
     geminiplugin.h
     gemini.qrc

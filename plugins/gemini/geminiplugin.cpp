@@ -12,7 +12,6 @@
 #include <QtEndian>
 #include <QtPlugin>
 
-#include "qtnote_config.h"
 #include "settingscontroller.h"
 
 namespace QtNote {
@@ -285,23 +284,6 @@ private:
 GeminiPlugin::GeminiPlugin(QObject *parent) : QObject(parent) { network = new QNetworkAccessManager(this); }
 
 GeminiPlugin::~GeminiPlugin() = default;
-
-int GeminiPlugin::metadataVersion() const { return MetadataVersion; }
-
-PluginMetadata GeminiPlugin::metadata()
-{
-    PluginMetadata md;
-    md.id          = QLatin1String("gemini");
-    md.name        = tr("Gemini");
-    md.description = tr("Gemini API speech recognition backend");
-    md.icon        = QIcon(QStringLiteral(":/icons/gemini-logo"));
-    md.author      = QLatin1String("Rion");
-    md.version     = 0x000100;
-    md.minVersion  = 0x030200;
-    md.maxVersion  = QTNOTE_VERSION;
-    md.extra.insert(QStringLiteral("configurable"), true);
-    return md;
-}
 
 void GeminiPlugin::setHost(PluginHostInterface *host) { Q_UNUSED(host); }
 

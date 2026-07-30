@@ -30,6 +30,8 @@ add_qtnote_plugin(
     "Allows to load and save notes using Nextcloud Notes"
     ON
     unix macosx windows android
+    METADATA plugin-metadata.json
+    ICON nextcloud-notes.svg
     SOURCES ${nextcloud_sources}
 )
 

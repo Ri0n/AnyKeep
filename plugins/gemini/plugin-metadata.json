@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "id": "gemini",
+  "nameId": "plugin.gemini.name",
+  "descriptionId": "plugin.gemini.description",
+  "author": "Rion",
+  "version": "0.0.1",
+  "minVersion": "3.2.0",
+  "maxVersion": "current",
+  "homepage": "",
+  "features": [
+    "regular"
+  ],
+  "extra": {
+    "configurable": true
+  }
+}

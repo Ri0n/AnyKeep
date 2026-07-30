@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "id": "spellchecker",
+  "nameId": "plugin.spellchecker.name",
+  "descriptionId": "plugin.spellchecker.description",
+  "author": "Sergei Ilinykh <rion4ik@gmail.com>",
+  "version": "0.2.0",
+  "minVersion": "2.3.0",
+  "maxVersion": "current",
+  "homepage": "http://ri0n.github.io/QtNote",
+  "features": [
+    "regular"
+  ],
+  "extra": {
+    "configurable": true
+  }
+}

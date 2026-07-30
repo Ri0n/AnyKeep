@@ -33,16 +33,13 @@ class KDEIntegration : public QObject,
                        public SpellCheckProviderInterface,
                        public SettingsProviderInterface {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.KdeTrayIcon")
+#include "kdeintegration_plugin_metadata.inc"
     Q_INTERFACES(
         QtNote::PluginInterface QtNote::TrayInterface QtNote::DEIntegrationInterface QtNote::GlobalShortcutsInterface
             QtNote::NotificationInterface QtNote::ActionNotificationInterface QtNote::StickyNotesIntegrationInterface
                 QtNote::SpellCheckProviderInterface QtNote::SettingsProviderInterface)
 public:
     explicit KDEIntegration(QObject *parent = 0);
-
-    int                                 metadataVersion() const override;
-    virtual PluginMetadata              metadata() override;
     void                                setHost(PluginHostInterface *host) override;
     std::shared_ptr<SpellCheckProvider> spellCheckProvider() override;
     QUrl                                settingsComponent() const override;

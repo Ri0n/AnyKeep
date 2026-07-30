@@ -11,11 +11,8 @@
 
 #include "cinnamon.h"
 #include "freedesktopnotifier.h"
-#include "qtnote_config.h"
 
 namespace QtNote {
-
-static const QLatin1String pluginId("cinnamon_de");
 static const QLatin1String appletId("qtnote@ri0n.github.io");
 static const QLatin1String deskletId("qtnote-sticky@ri0n.github.io");
 static const QLatin1String stickyPresentationsGroup("cinnamonintegration/stickyPresentations");
@@ -73,25 +70,6 @@ static QString serializeGSettingsStringList(const QStringList &values)
 }
 
 CinnamonPlugin::CinnamonPlugin(QObject *parent) : QObject(parent) { }
-
-int CinnamonPlugin::metadataVersion() const { return MetadataVersion; }
-
-PluginMetadata CinnamonPlugin::metadata()
-{
-    PluginMetadata md;
-    md.id          = pluginId;
-    md.icon        = QIcon(":/icons/cinnamon-logo");
-    md.name        = "Cinnamon Integration";
-    md.description = tr("Integration with Cinnamon desktop features");
-    md.author      = "Sergei Ilinykh <rion4ik@gmail.com>";
-    md.version     = 0x01000000;
-    md.minVersion  = 0x020300;
-    md.maxVersion  = QTNOTE_VERSION;
-    md.homepage    = QUrl("http://ri0n.github.io/QtNote");
-    md.extra.insert("de", QStringList() << "cinnamon" << "x-cinnamon");
-    md.extra.insert("externalTray", true);
-    return md;
-}
 
 void CinnamonPlugin::setHost(PluginHostInterface *host)
 {

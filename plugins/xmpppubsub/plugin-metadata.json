@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "id": "xmpp_pubsub_storage",
+  "nameId": "plugin.xmpp_pubsub_storage.name",
+  "descriptionId": "plugin.xmpp_pubsub_storage.description",
+  "author": "Sergei Ilinykh",
+  "version": "0.1.0",
+  "minVersion": "2.3.0",
+  "maxVersion": "current",
+  "homepage": "https://xmpp.org/extensions/xep-0223.html",
+  "features": [
+    "regular"
+  ],
+  "extra": {}
+}

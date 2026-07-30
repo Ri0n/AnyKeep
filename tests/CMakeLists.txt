@@ -223,3 +223,8 @@ if(TARGET QXmpp::QXmpp)
         add_test(NAME xmppomemostorage_test COMMAND xmppomemostorage_test)
     endif()
 endif()
+
+add_executable(pluginmetadata_test pluginmetadata_test.cpp)
+target_link_libraries(pluginmetadata_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
+add_test(NAME pluginmetadata_test COMMAND pluginmetadata_test)
+set_tests_properties(pluginmetadata_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

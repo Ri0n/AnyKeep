@@ -4,7 +4,7 @@ include(GNUInstallDirs)
 set(qtnote_cinnamon_applet_uuid qtnote@ri0n.github.io)
 set(qtnote_cinnamon_desklet_uuid qtnote-sticky@ri0n.github.io)
 
-add_qtnote_plugin(cinnamon "Cinnamon integration" ON unix SOURCES
+add_qtnote_plugin(cinnamon "Cinnamon integration" ON unix METADATA plugin-metadata.json ICON cinnamon-logo.svg SOURCES
     cinnamon.cpp
     cinnamon.h
     cinnamon.qrc

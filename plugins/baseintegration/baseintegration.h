@@ -31,17 +31,14 @@ class BaseIntegration : public QObject,
                         public StickyNotesIntegrationInterface,
                         public StickyNotesHostInterface {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.BaseIntegration")
+#include "baseintegration_plugin_metadata.inc"
     Q_INTERFACES(
         QtNote::PluginInterface QtNote::DEIntegrationInterface QtNote::TrayInterface QtNote::GlobalShortcutsInterface
             QtNote::NotificationInterface QtNote::StickyNotesIntegrationInterface QtNote::StickyNotesHostInterface)
 public:
     explicit BaseIntegration(QObject *parent = 0);
     ~BaseIntegration() override;
-
-    int            metadataVersion() const override;
-    PluginMetadata metadata() override;
-    void           setHost(PluginHostInterface *host) override;
+    void setHost(PluginHostInterface *host) override;
 
     void      activateWindow(QWindow *window) override;
     TrayImpl *initTray(Main *qtnote) override;

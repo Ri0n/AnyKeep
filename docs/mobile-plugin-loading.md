@@ -40,7 +40,7 @@ static libraries. This prevents bundled classes from exporting desktop dynamic
 plugin entry symbols. A bundled library owns its `.qrc` files; when a resource
 object lives in a static archive, the plugin explicitly initializes that
 resource with `Q_INIT_RESOURCE()` so the linker retains and registers it.
-Desktop plugin libraries retain normal metadata.
+Desktop plugin libraries retain the generated JSON metadata used by `PluginManager`.
 
 ## Current Android allow-list
 

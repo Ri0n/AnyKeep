@@ -13,7 +13,7 @@ if(QTNOTE_ENABLE_X11)
     list(APPEND _gnome_sources x11util.cpp x11util.h)
 endif()
 
-add_qtnote_plugin(gnome "Gnome integration" ON unix SOURCES ${_gnome_sources})
+add_qtnote_plugin(gnome "Gnome integration" ON unix METADATA plugin-metadata.json ICON logo.png SOURCES ${_gnome_sources})
 
 target_link_libraries(gnome ${EXTRA_LINK_TARGET} Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets)
 if(QTNOTE_ENABLE_X11 AND UNIXLIKE AND ${QT_VERSION_MAJOR} LESS 6)

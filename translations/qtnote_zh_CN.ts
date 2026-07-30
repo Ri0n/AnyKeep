@@ -214,11 +214,6 @@ and to other contributors whose names have been lost or not yet added.
 <context>
     <name>QtNote::BaseIntegration</name>
     <message>
-        <location filename="../plugins/baseintegration/baseintegration.cpp" line="31"/>
-        <source>Provides fallback desktop environment integration</source>
-        <translation>提供后备桌面环境集成</translation>
-    </message>
-    <message>
         <location filename="../plugins/baseintegration/baseintegration.cpp" line="86"/>
         <source>Error</source>
         <translation>错误</translation>
@@ -268,11 +263,6 @@ and to other contributors whose names have been lost or not yet added.
 <context>
     <name>QtNote::GnomePlugin</name>
     <message>
-        <location filename="../plugins/gnome/gnome.cpp" line="50"/>
-        <source>Integrtion with gnome-only features</source>
-        <translation>与 GNOME 独有功能集成</translation>
-    </message>
-    <message>
         <location filename="../plugins/gnome/gnome.cpp" line="72"/>
         <source>Error</source>
         <translation>错误</translation>
@@ -319,11 +309,6 @@ and to other contributors whose names have been lost or not yet added.
 <context>
     <name>QtNote::KDEIntegration</name>
     <message>
-        <location filename="../plugins/kdeintegration/kdeintegration.cpp" line="35"/>
-        <source>Provide native look and feel for KDE users</source>
-        <translation>为 KDE 用户提供原生外观</translation>
-    </message>
-    <message>
         <location filename="../plugins/kdeintegration/kdeintegration.cpp" line="51"/>
         <source>Error</source>
         <translation>错误</translation>
@@ -354,11 +339,6 @@ and to other contributors whose names have been lost or not yet added.
 </context>
 <context>
     <name>QtNote::MacOSXPlugin</name>
-    <message>
-        <location filename="../plugins/macosx/macosx.cpp" line="49"/>
-        <source>Integrtion with macosx-only features</source>
-        <translation>与 macOS 独有功能集成</translation>
-    </message>
     <message>
         <location filename="../plugins/macosx/macosx.cpp" line="70"/>
         <source>Error</source>
@@ -659,11 +639,6 @@ Notes will be automatically saved to special storage, so you should not worry ab
 <context>
     <name>QtNote::SpellCheckPlugin</name>
     <message>
-        <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="152"/>
-        <source>Realtime spell check.</source>
-        <translation>实时拼写检查。</translation>
-    </message>
-    <message>
         <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="195"/>
         <source>&lt;b&gt;Loaded dictionaries:&lt;/b&gt; </source>
         <translation>&lt;b&gt;已加载的词典：&lt;/b&gt; </translation>
@@ -689,11 +664,6 @@ Notes will be automatically saved to special storage, so you should not worry ab
 </context>
 <context>
     <name>QtNote::TomboyPlugin</name>
-    <message>
-        <location filename="../plugins/tomboy/tomboyplugin.cpp" line="58"/>
-        <source>Allows read and write tomboy notes</source>
-        <translation>允许读写 Tomboy 笔记</translation>
-    </message>
 </context>
 <context>
     <name>QtNote::TomboyStorage</name>

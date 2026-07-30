@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 2,
+  "id": "gnome_de",
+  "nameId": "plugin.gnome_de.name",
+  "descriptionId": "plugin.gnome_de.description",
+  "author": "Sergei Ilinykh <rion4ik@gmail.com>",
+  "version": "1.0.0",
+  "minVersion": "2.3.0",
+  "maxVersion": "current",
+  "homepage": "http://ri0n.github.io/QtNote",
+  "features": [
+    "desktopIntegration",
+    "notifications",
+    "stickyNotes"
+  ],
+  "desktopEnvironments": [
+    "gnome"
+  ],
+  "extra": {
+    "externalTray": true
+  }
+}

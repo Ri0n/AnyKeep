@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "id": "kde_de",
+  "nameId": "plugin.kde_de.name",
+  "descriptionId": "plugin.kde_de.description",
+  "author": "Sergei Ilinykh <rion4ik@gmail.com>",
+  "version": "1.0.0",
+  "minVersion": "2.3.0",
+  "maxVersion": "current",
+  "homepage": "http://ri0n.github.io/QtNote",
+  "features": [
+    "desktopIntegration",
+    "tray",
+    "globalShortcuts",
+    "notifications",
+    "stickyNotes"
+  ],
+  "desktopEnvironments": [
+    "kde"
+  ],
+  "extra": {
+    "configurable": true,
+    "externalTray": true
+  }
+}

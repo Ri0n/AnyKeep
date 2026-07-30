@@ -24,14 +24,11 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include "notemanager.h"
 #include "pluginhostinterface.h"
-#include "qtnote_config.h"
 #include "tomboyplugin.h"
 #include "tomboystorage.h"
 
 namespace QtNote {
-
-static const QLatin1String pluginId("tomboy_storge");
-static NoteStorage::Ptr    storage;
+static NoteStorage::Ptr storage;
 
 //------------------------------------------------------------
 // TomboyPlugin
@@ -40,24 +37,7 @@ TomboyPlugin::TomboyPlugin(QObject *parent) : QObject(parent), host(nullptr) { }
 
 TomboyPlugin::~TomboyPlugin() { shutdown(); }
 
-int TomboyPlugin::metadataVersion() const { return MetadataVersion; }
-
 void TomboyPlugin::setHost(PluginHostInterface *host) { this->host = host; }
-
-PluginMetadata TomboyPlugin::metadata()
-{
-    PluginMetadata md;
-    md.id          = pluginId;
-    md.icon        = QIcon(":/icons/tomboy");
-    md.name        = "Tomboy Storage";
-    md.description = tr("Allows read and write tomboy notes");
-    md.author      = "Sergei Ilinykh <rion4ik@gmail.com>";
-    md.version     = 0x010000;       // plugin's version 0xXXYYZZPP
-    md.minVersion  = 0x020300;       // minimum compatible version of QtNote
-    md.maxVersion  = QTNOTE_VERSION; // maximum compatible version of QtNote
-    md.homepage    = QUrl("http://ri0n.github.io/QtNote");
-    return md;
-}
 
 bool TomboyPlugin::initialize()
 {

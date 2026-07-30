@@ -35,14 +35,11 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include "freedesktopnotifier.h"
 #include "gnome.h"
-#include "qtnote_config.h"
 #ifdef QTNOTE_ENABLE_X11
 #include "x11util.h"
 #endif
 
 namespace QtNote {
-
-static const QLatin1String pluginId("gnome_de");
 static const QLatin1String shellExtensionId("qtnote@ri0n.github.io");
 static const QLatin1String shellExtensionSchema("org.gnome.shell.extensions.qtnote");
 static const QLatin1String stickyNotesKey("sticky-notes");
@@ -80,25 +77,6 @@ static QString runGSettings(const QStringList &arguments, bool *ok = nullptr)
 // GnomePlugin
 //------------------------------------------------------------
 GnomePlugin::GnomePlugin(QObject *parent) : QObject(parent) { }
-
-int GnomePlugin::metadataVersion() const { return MetadataVersion; }
-
-PluginMetadata GnomePlugin::metadata()
-{
-    PluginMetadata md;
-    md.id          = pluginId;
-    md.icon        = QIcon(":/icons/gnome-logo");
-    md.name        = "Gnome Integration";
-    md.description = tr("Integrtion with gnome-only features");
-    md.author      = "Sergei Ilinykh <rion4ik@gmail.com>";
-    md.version     = 0x01000000;     // plugin's version 0xXXYYZZPP
-    md.minVersion  = 0x020300;       // minimum compatible version of QtNote
-    md.maxVersion  = QTNOTE_VERSION; // maximum compatible version of QtNote
-    md.homepage    = QUrl("http://ri0n.github.io/QtNote");
-    md.extra.insert("de", QStringList() << "gnome");
-    md.extra.insert("externalTray", true);
-    return md;
-}
 
 void GnomePlugin::setHost(PluginHostInterface *host)
 {

@@ -20,7 +20,7 @@ class OpenAIWhisperPlugin : public QObject,
                             public BundledPluginInterface {
     Q_OBJECT
 #ifndef QTNOTE_BUNDLED_PLUGIN_BUILD
-    Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.openaiwhisper")
+#include "openaiwhisper_plugin_metadata.inc"
 #endif
     Q_INTERFACES(
         QtNote::PluginInterface QtNote::RegularPluginInterface QtNote::PluginOptionsTooltipInterface
@@ -28,10 +28,7 @@ class OpenAIWhisperPlugin : public QObject,
 public:
     explicit OpenAIWhisperPlugin(QObject *parent = nullptr);
     ~OpenAIWhisperPlugin() override;
-
-    int            metadataVersion() const override;
-    PluginMetadata metadata() override;
-    void           setHost(PluginHostInterface *host) override;
+    void setHost(PluginHostInterface *host) override;
 
     bool initialize() override;
     void shutdown() override;

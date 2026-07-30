@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 2,
+  "id": "macosx_de",
+  "nameId": "plugin.macosx_de.name",
+  "descriptionId": "plugin.macosx_de.description",
+  "author": "Sergey Ilinykh <rion4ik@gmail.com>",
+  "version": "0.1.0",
+  "minVersion": "3.1.0",
+  "maxVersion": "current",
+  "homepage": "http://ri0n.github.io/QtNote",
+  "features": [
+    "tray",
+    "notifications"
+  ],
+  "desktopEnvironments": [
+    "macosx"
+  ],
+  "extra": {}
+}

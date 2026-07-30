@@ -1,14 +1,13 @@
 #ifndef PLUGINMANAGER_H
 #define PLUGINMANAGER_H
 
-#include <QDateTime>
-#include <QLibrary>
 #include <QList>
 #include <QObject>
 #include <QSharedPointer>
 
 #include "../plugins/qtnoteplugininterface.h"
 #include "pluginlistsource.h"
+#include "pluginmetadata.h"
 #include "settingsproviderinterface.h"
 #include "speechrecognitionprovider.h"
 
@@ -27,9 +26,9 @@ public:
         DEIntegration   = 0x2,
         TrayIcon        = 0x4,
         GlobalShortcuts = 0x8,
-        Notifications   = 010,
-        StickyNotes     = 0x10,
-        LastFeature     = 0x20
+        Notifications   = 0x10,
+        StickyNotes     = 0x20,
+        LastFeature     = 0x40
     };
     Q_DECLARE_FLAGS(PluginFeatures, PluginFeature)
 
@@ -43,7 +42,6 @@ public:
         bool                          loadPolicyExplicit;
         LoadStatus                    loadStatus;
         QString                       fileName;
-        QDateTime                     modifyTime;
         PluginManager::PluginFeatures features;
         PluginMetadata                metadata;
     };
@@ -89,13 +87,11 @@ private:
 
     static bool hasLiveInstance(const PluginData::Ptr &plugin);
 
-    LoadStatus loadPlugin(const QString &fileName, PluginData::Ptr &cache,
-                          QLibrary::LoadHints loadHints = QLibrary::LoadHints());
+    LoadStatus loadPlugin(const QString &fileName, PluginData::Ptr &cache);
     void       updateMetadata();
     bool       ensureLoaded(PluginData::Ptr pd);
     bool       initRegularPlugin(const PluginData::Ptr &pd);
     void       deinitRegularPlugin(const PluginData::Ptr &pd);
-    QString    iconsCacheDir() const;
 };
 
 }

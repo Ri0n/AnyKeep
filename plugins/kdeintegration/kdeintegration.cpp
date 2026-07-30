@@ -26,15 +26,12 @@
 #include "kdeintegration.h"
 #include "kdeintegrationtray.h"
 #include "pluginhostinterface.h"
-#include "qtnote_config.h"
 #include "settingscontroller.h"
 #include "sonnetspellcheckprovider.h"
 
 namespace QtNote {
 
 Q_LOGGING_CATEGORY(logKdeIntegration, "qtnote.kdeintegration")
-
-static const QLatin1String pluginId("kde_de");
 static const QLatin1String stickyPlasmoidId("com.github.ri0n.qtnote.sticky");
 static const QLatin1String stickyPresentationsGroup("kdeintegration/stickyPresentations");
 static const QLatin1String useSonnetSetting("kdeintegration/useSonnet");
@@ -82,26 +79,6 @@ bool KDEIntegration::ensureWaylandGeometryScript()
     else
         qCInfo(logKdeIntegration) << "QtNote KWin geometry script started:" << scriptObjectPath;
     return _waylandGeometryScriptAvailable;
-}
-
-int KDEIntegration::metadataVersion() const { return MetadataVersion; }
-
-PluginMetadata KDEIntegration::metadata()
-{
-    PluginMetadata md;
-    md.id          = pluginId;
-    md.icon        = QIcon(":/icons/kde-logo");
-    md.name        = "KDE Integration";
-    md.description = tr("Provide native look and feel for KDE users");
-    md.author      = "Sergei Ilinykh <rion4ik@gmail.com>";
-    md.version     = 0x01000000; // plugin's version 0xXXYYZZPP
-    md.minVersion  = 0x020300;   // minimum compatible version of QtNote
-    md.maxVersion  = QTNOTE_VERSION;
-    md.extra.insert(QStringLiteral("configurable"), true); // maximum compatible version of QtNote
-    md.homepage = QUrl("http://ri0n.github.io/QtNote");
-    md.extra.insert("de", QStringList() << "kde");
-    md.extra.insert("externalTray", true);
-    return md;
 }
 
 void KDEIntegration::setHost(PluginHostInterface *) { }

@@ -22,6 +22,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QApplication>
 #include <QDebug>
 #include <QDir>
+#include <QLibrary>
 #include <QPluginLoader>
 #include <QSet>
 #include <QSettings>
@@ -126,6 +127,35 @@ static QString pluginFeaturesName(PluginManager::PluginFeatures features)
     if (features & PluginManager::StickyNotes)
         ret.append(QStringLiteral("sticky-notes"));
     return ret.isEmpty() ? QStringLiteral("none") : ret.join(QLatin1Char(','));
+}
+
+static bool pluginFeaturesFromNames(const QStringList &names, PluginManager::PluginFeatures *features,
+                                    QString *unknownFeature)
+{
+    Q_ASSERT(features);
+    *features = {};
+    for (const auto &name : names) {
+        if (name.compare(QLatin1String("regular"), Qt::CaseInsensitive) == 0)
+            *features |= PluginManager::RegularPlugin;
+        else if (name.compare(QLatin1String("desktopIntegration"), Qt::CaseInsensitive) == 0)
+            *features |= PluginManager::DEIntegration;
+        else if (name.compare(QLatin1String("tray"), Qt::CaseInsensitive) == 0)
+            *features |= PluginManager::TrayIcon;
+        else if (name.compare(QLatin1String("globalShortcuts"), Qt::CaseInsensitive) == 0)
+            *features |= PluginManager::GlobalShortcuts;
+        else if (name.compare(QLatin1String("notifications"), Qt::CaseInsensitive) == 0)
+            *features |= PluginManager::Notifications;
+        else if (name.compare(QLatin1String("stickyNotes"), Qt::CaseInsensitive) == 0)
+            *features |= PluginManager::StickyNotes;
+        else {
+            if (unknownFeature)
+                *unknownFeature = name;
+            return false;
+        }
+    }
+    if (unknownFeature)
+        unknownFeature->clear();
+    return true;
 }
 
 class PluginsIterator {
@@ -236,9 +266,6 @@ private:
 
 PluginManager::PluginManager(Main *parent) : PluginListSource(parent), qtnote(parent), pluginHost(new PluginHost(this))
 {
-    QSettings s;
-
-    QDir(iconsCacheDir()).mkpath(QLatin1String("."));
     updateMetadata();
 
     connect(pluginHost, &PluginHost::spellCheckProviderConflict, this,
@@ -253,12 +280,11 @@ PluginManager::PluginManager(Main *parent) : PluginListSource(parent), qtnote(pa
 
 PluginManager::~PluginManager()
 {
-    foreach (const QString &pluginId, plugins.keys()) {
-        if (isLoaded(pluginId)) {
-            auto p = plugins[pluginId];
-            delete p->instance;
-            p->instance = 0;
-        }
+    for (const auto &plugin : std::as_const(plugins)) {
+        if (!plugin || !plugin->instance)
+            continue;
+        delete plugin->instance;
+        plugin->instance = nullptr;
     }
 }
 
@@ -333,9 +359,9 @@ void PluginManager::loadPlugins()
     qInfo().noquote() << "Plugin priority order:" << prioritizedList.join(QLatin1Char(','));
 
     foreach (const QString &plugin, prioritizedList) {
-        PluginData::Ptr pd     = plugins[plugin];
-        QStringList     deList = pd->metadata.extra["de"].toStringList();
-        bool            native = false;
+        PluginData::Ptr   pd     = plugins[plugin];
+        const QStringList deList = pd->metadata.desktopEnvironments;
+        bool              native = false;
         for (const auto &session : std::as_const(sessionCandidates)) {
             if (deList.contains(session)) {
                 native = true;
@@ -353,11 +379,16 @@ void PluginManager::loadPlugins()
             qInfo() << "Plugin skipped by load policy:" << plugin;
             continue;
         }
-        if (!native && !deList.isEmpty()) {
-            qInfo().noquote() << "Plugin skipped by desktop mismatch:" << plugin
+        if (pd->loadPolicy == LP_Auto && !native && !deList.isEmpty()) {
+            qInfo().noquote() << "Plugin skipped by desktop mismatch in automatic mode:" << plugin
                               << "required=" << deList.join(QLatin1Char(','))
                               << "candidates=" << sessionCandidates.join(QLatin1Char(','));
             continue;
+        }
+        if (pd->loadPolicy == LP_Enabled && !native && !deList.isEmpty()) {
+            qInfo().noquote() << "Plugin desktop mismatch overridden by enabled policy:" << plugin
+                              << "required=" << deList.join(QLatin1Char(','))
+                              << "candidates=" << sessionCandidates.join(QLatin1Char(','));
         }
 
         if (native && pd->metadata.extra.value(QLatin1String("externalTray")).toBool())
@@ -499,8 +530,6 @@ bool PluginManager::ensureLoaded(PluginData::Ptr pd)
     return true;
 }
 
-QString PluginManager::iconsCacheDir() const { return Utils::qtnoteDataDir() + "/plugin-icons/"; }
-
 bool PluginManager::initRegularPlugin(const PluginData::Ptr &pd)
 {
     if (!pd || !(pd->features & RegularPlugin)) {
@@ -600,15 +629,7 @@ PluginListSource::Entry PluginManager::pluginEntry(const QString &pluginId) cons
     entry.loaded       = isLoaded(pluginId);
     entry.configurable = canConfigure(pluginId);
 
-    quint32     version = pd->metadata.version;
-    QStringList versionParts;
-    while (version) {
-        versionParts.append(QString::number((version & 0xff000000) >> 24));
-        version <<= 8;
-    }
-    if (versionParts.size() < 2)
-        versionParts.append(QStringLiteral("0"));
-    entry.versionText = versionParts.join(QLatin1Char('.'));
+    entry.versionText = pd->metadata.version;
 
     entry.tooltip = pd->metadata.description;
     if (!entry.fileName.isEmpty())
@@ -700,83 +721,96 @@ SpeechRecognitionProviderInterface *PluginManager::speechRecognitionProvider() c
 
 void PluginManager::updateMetadata()
 {
-    QSettings                       s;
-    decltype(plugins)               tmpPlugins;
-    QHash<QString, PluginData::Ptr> file2data;
-
-    s.beginGroup("plugins");
-    foreach (const QString &pluginId, s.childGroups()) {
-        s.beginGroup(pluginId);
-        bool    validMeta = s.value("metaversion").toInt() == MetadataVersion;
-        QString fileName  = s.value("filename").toString();
-        if (!validMeta || !QFile::exists(fileName)) {
-            s.remove("");
-            s.endGroup();
-            continue;
-        }
-        PluginData::Ptr pd(new PluginData);
-        pd->fileName = fileName;
-#ifndef QTNOTE_DEVEL
-        tmpPlugins[pluginId] = pd;
-#endif
-        file2data[pd->fileName] = pd;
-        pd->loadPolicyExplicit  = s.value("loadPolicyExplicit", false).toBool();
-        pd->loadPolicy          = (LoadPolicy)s.value("loadPolicy", LP_Auto).toInt();
-        pd->loadStatus          = LS_Undefined;
-        pd->modifyTime
-            = QDateTime::fromSecsSinceEpoch(s.value("lastModify").toUInt()); // if 0 then we have staled cache. it's ok
-        pd->features             = (PluginFeatures)s.value("features").toUInt();
-        pd->metadata.id          = pluginId;
-        pd->metadata.name        = s.value("name").toString();
-        pd->metadata.description = s.value("description").toString();
-        pd->metadata.author      = s.value("author").toString();
-        pd->metadata.version     = s.value("version").toUInt();
-        pd->metadata.minVersion  = s.value("minVersion").toUInt();
-        pd->metadata.maxVersion  = s.value("maxVersion").toUInt();
-        pd->metadata.extra       = s.value("extra").toHash();
-        pd->metadata.icon        = QIcon(iconsCacheDir() + pluginId + QLatin1String(".png"));
-        // pd->metadata.extra = s.value("extra").();
-        s.endGroup();
-    }
-    s.endGroup();
+    decltype(plugins) tmpPlugins;
+    const auto        locale = pluginMetadataLocale();
+    QSettings         settings;
 
     PluginsIterator it;
     while (!it.isFinished()) {
-        QString         fileName = it.fileName();
-        PluginData::Ptr pd       = file2data.value(fileName);
-        if (pd.isNull()
-            || (!(pd->loadStatus && pd->loadStatus < LS_Errors)
-                && pd->modifyTime < QFileInfo(pd->fileName).lastModified())) { // have to update metadata cache
-
-            // Some plugin constructors (or libraries they pull in) register process-wide Qt hooks.
-            // Unloading such a plugin immediately after probing its metadata can leave dangling hooks,
-            // especially with Qt 5. Keep probed libraries mapped for the lifetime of the process; disabled
-            // plugins still remain uninitialized and therefore do not perform their runtime work.
-            loadPlugin(fileName, pd, QLibrary::ExportExternalSymbolsHint | QLibrary::PreventUnloadHint);
-            if (!pd.isNull() && !tmpPlugins.contains(pd->metadata.id)) // first search path wins
-                tmpPlugins.insert(pd->metadata.id, pd);
-        } else {
-            // cache is not null and filetimestamp is the same
-            if (!tmpPlugins.contains(pd->metadata.id)) // first search path wins
-                tmpPlugins.insert(pd->metadata.id, pd);
+        const auto fileName = it.fileName();
+#ifdef QTNOTE_DEVEL
+        qDebug("Reading plugin metadata: %s", qPrintable(fileName));
+#endif
+        QPluginLoader loader(fileName);
+        const auto    loaderMetadata = loader.metaData();
+        if (loaderMetadata.value(QStringLiteral("IID")).toString() != QLatin1String(QTNOTE_PLUGIN_INTERFACE_IID)) {
+            it.next();
+            continue;
+        }
+        PluginMetadata metadata;
+        QString        metadataError;
+        if (!pluginMetadataFromJson(loaderMetadata, locale, &metadata, &metadataError)) {
+            qDebug("Invalid QtNote plugin metadata in %s: %s", qPrintable(fileName), qPrintable(metadataError));
+            it.next();
+            continue;
+        }
+        QString compatibilityError;
+        if (!semanticVersionInRange(QString::fromLatin1(QTNOTE_VERSION_STR), metadata.minVersion, metadata.maxVersion,
+                                    &compatibilityError)) {
+            const auto reason = compatibilityError.isEmpty() ? QStringLiteral("version is outside the supported range")
+                                                             : compatibilityError;
+            qDebug().noquote() << "Incompatible QtNote plugin" << fileName << "application version"
+                               << QTNOTE_VERSION_STR << "supported range" << metadata.minVersion << ".."
+                               << metadata.maxVersion << reason;
+            it.next();
+            continue;
+        }
+        if (tmpPlugins.contains(metadata.id)) { // first search path wins
+            it.next();
+            continue;
         }
 
+        PluginData::Ptr pd(new PluginData);
+        pd->fileName = fileName;
+        pd->metadata = std::move(metadata);
+
+        QString unknownFeature;
+        if (!pluginFeaturesFromNames(pd->metadata.features, &pd->features, &unknownFeature)) {
+            qDebug("Unknown feature %s in QtNote plugin metadata %s. ignore it", qPrintable(unknownFeature),
+                   qPrintable(fileName));
+            it.next();
+            continue;
+        }
+        pd->loadStatus = LS_Unloaded;
+
+        settings.beginGroup(QStringLiteral("plugins"));
+        settings.beginGroup(pd->metadata.id);
+        pd->loadPolicyExplicit = settings.value(QStringLiteral("loadPolicyExplicit"), false).toBool();
+        pd->loadPolicy         = pd->loadPolicyExplicit
+                    ? LoadPolicy(settings.value(QStringLiteral("loadPolicy"), LP_Auto).toInt())
+                    : defaultLoadPolicy(pd->metadata);
+        settings.setValue(QStringLiteral("loadPolicy"), int(pd->loadPolicy));
+        settings.setValue(QStringLiteral("loadPolicyExplicit"), pd->loadPolicyExplicit);
+        settings.setValue(QStringLiteral("filename"), pd->fileName);
+        for (const auto &obsoleteKey :
+             { QStringLiteral("metaversion"), QStringLiteral("lastModify"), QStringLiteral("features"),
+               QStringLiteral("name"), QStringLiteral("description"), QStringLiteral("author"),
+               QStringLiteral("version"), QStringLiteral("minVersion"), QStringLiteral("maxVersion"),
+               QStringLiteral("extra") }) {
+            settings.remove(obsoleteKey);
+        }
+        settings.endGroup();
+        settings.endGroup();
+
+        tmpPlugins.insert(pd->metadata.id, pd);
         it.next();
     }
-    plugins = tmpPlugins;
+    plugins = std::move(tmpPlugins);
 }
 
-PluginManager::LoadStatus PluginManager::loadPlugin(const QString &fileName, PluginData::Ptr &cache,
-                                                    QLibrary::LoadHints loadHints)
+PluginManager::LoadStatus PluginManager::loadPlugin(const QString &fileName, PluginData::Ptr &cache)
 {
-    if (cache)
-        cache->instance = nullptr;
+    if (!cache)
+        return LS_ErrMetadata;
+    cache->instance = nullptr;
+    if (cache->loadPolicy == LP_Disabled) {
+        cache->loadStatus = LS_Unloaded;
+        return LS_Unloaded;
+    }
 
     const auto fail = [&cache](LoadStatus status) {
-        if (cache) {
-            cache->instance   = nullptr;
-            cache->loadStatus = status;
-        }
+        cache->instance   = nullptr;
+        cache->loadStatus = status;
         return status;
     };
 
@@ -784,99 +818,44 @@ PluginManager::LoadStatus PluginManager::loadPlugin(const QString &fileName, Plu
     qDebug("Loading plugin: %s", qPrintable(fileName));
 #endif
     QPluginLoader loader(fileName);
-    loader.setLoadHints(loadHints);
-    QSettings s;
-    s.beginGroup("plugins");
-    QObject *plugin = loader.instance();
-    if (plugin) {
-        PluginInterface *qnp = qobject_cast<PluginInterface *>(plugin);
-        if (!qnp) {
-            loader.unload();
-            qDebug("not QtNote plugin %s. ignore it", qPrintable(fileName));
-            return fail(LS_ErrAbi);
-        }
-
-        PluginMetadata md           = qnp->metadata();
-        bool           metaVerMatch = (qnp->metadataVersion() == MetadataVersion);
-        if (!metaVerMatch || md.id.isEmpty() || md.name.isEmpty()) {
-            loader.unload();
-            if (metaVerMatch) {
-                qDebug("QtNote plugin %s did not set metadata id or name. ignore it", qPrintable(fileName));
-            } else {
-                qDebug("Metadata version of QtNote plugin %s is incompatible", qPrintable(fileName));
-            }
-            return fail(LS_ErrMetadata);
-        }
-
-        LoadStatus loadStatus = LS_Loaded;
-        if ((QTNOTE_VERSION < md.minVersion) || (QTNOTE_VERSION > md.maxVersion)) {
-            loader.unload();
-            qDebug("Incompatible version of qtnote plugin %s. ignore it", qPrintable(fileName));
-            return fail(LS_ErrVersion);
-        }
-
-        if (!cache) {
-            cache = PluginData::Ptr(new PluginData);
-        }
-        cache->instance   = loadStatus == LS_Loaded ? plugin : 0;
-        cache->fileName   = fileName;
-        cache->modifyTime = QFileInfo(fileName).lastModified();
-        cache->metadata   = md;
-        if (!cache->loadPolicyExplicit) {
-            cache->loadPolicy = defaultLoadPolicy(md);
-        }
-        cache->features &= 0;
-        if (qobject_cast<TrayInterface *>(plugin)) {
-            cache->features |= TrayIcon;
-        }
-        if (qobject_cast<DEIntegrationInterface *>(plugin)) {
-            cache->features |= DEIntegration;
-        }
-        if (qobject_cast<GlobalShortcutsInterface *>(plugin)) {
-            cache->features |= GlobalShortcuts;
-        }
-        if (qobject_cast<NotificationInterface *>(plugin)) {
-            cache->features |= Notifications;
-        }
-        if (qobject_cast<StickyNotesIntegrationInterface *>(plugin)) {
-            cache->features |= StickyNotes;
-        }
-        if (qobject_cast<RegularPluginInterface *>(plugin)) {
-            cache->features |= RegularPlugin;
-        }
-        s.beginGroup(cache->metadata.id);
-        s.setValue("metaversion", qnp->metadataVersion());
-        s.setValue("id", md.id);
-        s.setValue("loadPolicy", cache->loadPolicy);
-        s.setValue("loadPolicyExplicit", cache->loadPolicyExplicit);
-        s.setValue("filename", cache->fileName);
-        s.setValue("lastModify", cache->modifyTime.toSecsSinceEpoch());
-        s.setValue("features", (uint)cache->features);
-        s.setValue("name", md.name);
-        s.setValue("description", md.description);
-        s.setValue("author", md.author);
-        s.setValue("version", md.version);
-        s.setValue("minVersion", md.minVersion);
-        s.setValue("maxVersion", md.maxVersion);
-        s.setValue("extra", md.extra);
-        if (!cache->metadata.icon.isNull()) {
-            cache->metadata.icon.pixmap(16, 16).save(iconsCacheDir() + md.id + QLatin1String(".png"));
-        }
-        if (cache->loadPolicy == LP_Disabled || loadHints & QLibrary::ExportExternalSymbolsHint) {
-            loader.unload();
-            cache->instance = nullptr;
-            loadStatus      = LS_Unloaded;
-        }
-        cache->loadStatus = loadStatus;
-
-        if (loadStatus == LS_Loaded) {
-            qnp->setHost(pluginHost);
-        }
-
-        return loadStatus;
+    QObject      *plugin = loader.instance();
+    if (!plugin) {
+        qDebug("failed to load %s : %s", qPrintable(fileName), qPrintable(loader.errorString()));
+        return fail(LS_ErrNotPlugin);
     }
-    qDebug("failed to load %s : %s", qPrintable(fileName), qPrintable(loader.errorString()));
-    return fail(LS_ErrNotPlugin);
+
+    auto *qnp = qobject_cast<PluginInterface *>(plugin);
+    if (!qnp) {
+        loader.unload();
+        qDebug("not a compatible QtNote plugin %s. ignore it", qPrintable(fileName));
+        return fail(LS_ErrAbi);
+    }
+
+    const auto featureMismatch = [plugin, &cache](PluginFeature feature, const char *name, bool implemented) {
+        const bool declared = cache->features.testFlag(feature);
+        if (declared == implemented)
+            return false;
+        if (declared)
+            qWarning() << "Plugin" << cache->metadata.id << "declares" << name << "but does not implement it";
+        else
+            qWarning() << "Plugin" << cache->metadata.id << "implements" << name << "but does not declare it";
+        return true;
+    };
+    if (featureMismatch(RegularPlugin, "regular", qobject_cast<RegularPluginInterface *>(plugin))
+        || featureMismatch(DEIntegration, "desktopIntegration", qobject_cast<DEIntegrationInterface *>(plugin))
+        || featureMismatch(TrayIcon, "tray", qobject_cast<TrayInterface *>(plugin))
+        || featureMismatch(GlobalShortcuts, "globalShortcuts", qobject_cast<GlobalShortcutsInterface *>(plugin))
+        || featureMismatch(Notifications, "notifications", qobject_cast<NotificationInterface *>(plugin))
+        || featureMismatch(StickyNotes, "stickyNotes", qobject_cast<StickyNotesIntegrationInterface *>(plugin))) {
+        loader.unload();
+        return fail(LS_ErrAbi);
+    }
+
+    cache->instance   = plugin;
+    cache->fileName   = fileName;
+    cache->loadStatus = LS_Loaded;
+    qnp->setHost(pluginHost);
+    return LS_Loaded;
 }
 
 } // namespace QtNote

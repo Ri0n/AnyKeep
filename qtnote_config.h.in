@@ -30,9 +30,7 @@
 #define QTNOTE_VERSION_MAJOR @qtnote_VERSION_MAJOR@
 #define QTNOTE_VERSION_MINOR @qtnote_VERSION_MINOR@
 #define QTNOTE_VERSION_PATCH @qtnote_VERSION_PATCH@
-#define QTNOTE_VERSION (QTNOTE_VERSION_MAJOR << 16 | QTNOTE_VERSION_MINOR << 8 | QTNOTE_VERSION_PATCH)
-#define QTNOTE_VERSION_STR                                                                                             \
-    stringify(QTNOTE_VERSION_MAJOR) "." stringify(QTNOTE_VERSION_MINOR) "." stringify(QTNOTE_VERSION_PATCH)
+#define QTNOTE_VERSION_STR "@QTNOTE_VERSION@"
 #define QTNOTE_VERSION_W                                                                                             \
     stringify(QTNOTE_VERSION_MAJOR) "," stringify(QTNOTE_VERSION_MINOR) "," stringify(QTNOTE_VERSION_PATCH)
 

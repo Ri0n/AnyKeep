@@ -21,15 +21,12 @@ class GnomePlugin : public QObject,
                     public NotificationInterface,
                     public StickyNotesIntegrationInterface {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.Gnome")
+#include "gnome_plugin_metadata.inc"
     Q_INTERFACES(QtNote::PluginInterface QtNote::DEIntegrationInterface QtNote::NotificationInterface
                                                                         QtNote::StickyNotesIntegrationInterface)
 public:
     explicit GnomePlugin(QObject *parent = 0);
-
-    int                    metadataVersion() const override;
-    virtual PluginMetadata metadata() override;
-    void                   setHost(PluginHostInterface *host) override;
+    void setHost(PluginHostInterface *host) override;
 
     void notifyError(const QString &msg) override;
 

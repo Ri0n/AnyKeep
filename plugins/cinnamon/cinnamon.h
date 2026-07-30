@@ -21,15 +21,12 @@ class CinnamonPlugin : public QObject,
                        public NotificationInterface,
                        public StickyNotesIntegrationInterface {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.Cinnamon")
+#include "cinnamon_plugin_metadata.inc"
     Q_INTERFACES(QtNote::PluginInterface QtNote::DEIntegrationInterface QtNote::NotificationInterface
                                                                         QtNote::StickyNotesIntegrationInterface)
 public:
     explicit CinnamonPlugin(QObject *parent = nullptr);
-
-    int            metadataVersion() const override;
-    PluginMetadata metadata() override;
-    void           setHost(PluginHostInterface *host) override;
+    void setHost(PluginHostInterface *host) override;
 
     void                        notifyError(const QString &message) override;
     void                        activateWindow(QWindow *window) override;

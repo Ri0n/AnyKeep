@@ -233,11 +233,6 @@ Vietnamese:
 <context>
     <name>QtNote::BaseIntegration</name>
     <message>
-        <location filename="../plugins/baseintegration/baseintegration.cpp" line="31"/>
-        <source>Provides fallback desktop environment integration</source>
-        <translation>Fornisce integrazione dell&apos;ambiente desktop di ripiego</translation>
-    </message>
-    <message>
         <location filename="../plugins/baseintegration/baseintegration.cpp" line="86"/>
         <source>Error</source>
         <translation>Errore</translation>
@@ -287,11 +282,6 @@ Vietnamese:
 <context>
     <name>QtNote::GnomePlugin</name>
     <message>
-        <location filename="../plugins/gnome/gnome.cpp" line="50"/>
-        <source>Integrtion with gnome-only features</source>
-        <translation>Integrazione con funzioni gnome-only</translation>
-    </message>
-    <message>
         <location filename="../plugins/gnome/gnome.cpp" line="72"/>
         <source>Error</source>
         <translation>Errore</translation>
@@ -338,11 +328,6 @@ Vietnamese:
 <context>
     <name>QtNote::KDEIntegration</name>
     <message>
-        <location filename="../plugins/kdeintegration/kdeintegration.cpp" line="35"/>
-        <source>Provide native look and feel for KDE users</source>
-        <translation>Fornisce aspetto e sensazione nativi per gli utenti KDE</translation>
-    </message>
-    <message>
         <location filename="../plugins/kdeintegration/kdeintegration.cpp" line="51"/>
         <source>Error</source>
         <translation>Errore</translation>
@@ -377,11 +362,6 @@ Vietnamese:
 </context>
 <context>
     <name>QtNote::MacOSXPlugin</name>
-    <message>
-        <location filename="../plugins/macosx/macosx.cpp" line="49"/>
-        <source>Integrtion with macosx-only features</source>
-        <translation type="unfinished"></translation>
-    </message>
     <message>
         <location filename="../plugins/macosx/macosx.cpp" line="70"/>
         <source>Error</source>
@@ -744,11 +724,6 @@ Le note verranno automaticamente salvate in uno speciale archivio, quindi non do
 <context>
     <name>QtNote::SpellCheckPlugin</name>
     <message>
-        <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="152"/>
-        <source>Realtime spell check.</source>
-        <translation>Controllo ortografico in tempo reale.</translation>
-    </message>
-    <message>
         <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="195"/>
         <source>&lt;b&gt;Loaded dictionaries:&lt;/b&gt; </source>
         <translation>&lt;b&gt;Dizionari Caricati:&lt;/b&gt; </translation>
@@ -774,11 +749,6 @@ Le note verranno automaticamente salvate in uno speciale archivio, quindi non do
 </context>
 <context>
     <name>QtNote::TomboyPlugin</name>
-    <message>
-        <location filename="../plugins/tomboy/tomboyplugin.cpp" line="58"/>
-        <source>Allows read and write tomboy notes</source>
-        <translation>Permetti lettura e scrittura delle note Tomboy</translation>
-    </message>
 </context>
 <context>
     <name>QtNote::TomboyStorage</name>

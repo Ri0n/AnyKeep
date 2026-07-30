@@ -230,11 +230,6 @@ Il&apos;inykh Sergey &amp;lt;rion4ik@gmail.com&amp;gt;
 <context>
     <name>QtNote::BaseIntegration</name>
     <message>
-        <location filename="../plugins/baseintegration/baseintegration.cpp" line="31"/>
-        <source>Provides fallback desktop environment integration</source>
-        <translation>提供降級桌面環境整合</translation>
-    </message>
-    <message>
         <location filename="../plugins/baseintegration/baseintegration.cpp" line="86"/>
         <source>Error</source>
         <translation>錯誤</translation>
@@ -284,11 +279,6 @@ Il&apos;inykh Sergey &amp;lt;rion4ik@gmail.com&amp;gt;
 <context>
     <name>QtNote::GnomePlugin</name>
     <message>
-        <location filename="../plugins/gnome/gnome.cpp" line="50"/>
-        <source>Integrtion with gnome-only features</source>
-        <translation>和gnome專有功能整合</translation>
-    </message>
-    <message>
         <location filename="../plugins/gnome/gnome.cpp" line="72"/>
         <source>Error</source>
         <translation>錯誤</translation>
@@ -335,11 +325,6 @@ Il&apos;inykh Sergey &amp;lt;rion4ik@gmail.com&amp;gt;
 <context>
     <name>QtNote::KDEIntegration</name>
     <message>
-        <location filename="../plugins/kdeintegration/kdeintegration.cpp" line="35"/>
-        <source>Provide native look and feel for KDE users</source>
-        <translation>提供KDE用戶原生視覺體驗環境</translation>
-    </message>
-    <message>
         <location filename="../plugins/kdeintegration/kdeintegration.cpp" line="51"/>
         <source>Error</source>
         <translation>錯誤</translation>
@@ -374,11 +359,6 @@ Il&apos;inykh Sergey &amp;lt;rion4ik@gmail.com&amp;gt;
 </context>
 <context>
     <name>QtNote::MacOSXPlugin</name>
-    <message>
-        <location filename="../plugins/macosx/macosx.cpp" line="49"/>
-        <source>Integrtion with macosx-only features</source>
-        <translation type="unfinished"></translation>
-    </message>
     <message>
         <location filename="../plugins/macosx/macosx.cpp" line="70"/>
         <source>Error</source>
@@ -740,11 +720,6 @@ Notes will be automatically saved to special storage, so you should not worry ab
 <context>
     <name>QtNote::SpellCheckPlugin</name>
     <message>
-        <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="152"/>
-        <source>Realtime spell check.</source>
-        <translation>即時拼字檢查</translation>
-    </message>
-    <message>
         <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="195"/>
         <source>&lt;b&gt;Loaded dictionaries:&lt;/b&gt; </source>
         <translation>載入的字典</translation>
@@ -770,11 +745,6 @@ Notes will be automatically saved to special storage, so you should not worry ab
 </context>
 <context>
     <name>QtNote::TomboyPlugin</name>
-    <message>
-        <location filename="../plugins/tomboy/tomboyplugin.cpp" line="58"/>
-        <source>Allows read and write tomboy notes</source>
-        <translation>允許讀寫tomboy筆記</translation>
-    </message>
 </context>
 <context>
     <name>QtNote::TomboyStorage</name>

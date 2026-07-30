@@ -233,11 +233,6 @@ Phan Anh
 <context>
     <name>QtNote::BaseIntegration</name>
     <message>
-        <location filename="../plugins/baseintegration/baseintegration.cpp" line="31"/>
-        <source>Provides fallback desktop environment integration</source>
-        <translation>Cho phép tích hợp môi trường bàn làm việc dự phòng</translation>
-    </message>
-    <message>
         <location filename="../plugins/baseintegration/baseintegration.cpp" line="86"/>
         <source>Error</source>
         <translation>Lỗi</translation>
@@ -287,11 +282,6 @@ Phan Anh
 <context>
     <name>QtNote::GnomePlugin</name>
     <message>
-        <location filename="../plugins/gnome/gnome.cpp" line="50"/>
-        <source>Integrtion with gnome-only features</source>
-        <translation>Tích hợp với các tính năng độc nhất của Gnome</translation>
-    </message>
-    <message>
         <location filename="../plugins/gnome/gnome.cpp" line="72"/>
         <source>Error</source>
         <translation>Lỗi</translation>
@@ -338,11 +328,6 @@ Phan Anh
 <context>
     <name>QtNote::KDEIntegration</name>
     <message>
-        <location filename="../plugins/kdeintegration/kdeintegration.cpp" line="35"/>
-        <source>Provide native look and feel for KDE users</source>
-        <translation>Đem đến giao diện thân thuộc cho người dùng KDE</translation>
-    </message>
-    <message>
         <location filename="../plugins/kdeintegration/kdeintegration.cpp" line="51"/>
         <source>Error</source>
         <translation>Lỗi</translation>
@@ -377,11 +362,6 @@ Phan Anh
 </context>
 <context>
     <name>QtNote::MacOSXPlugin</name>
-    <message>
-        <location filename="../plugins/macosx/macosx.cpp" line="49"/>
-        <source>Integrtion with macosx-only features</source>
-        <translation type="unfinished"></translation>
-    </message>
     <message>
         <location filename="../plugins/macosx/macosx.cpp" line="70"/>
         <source>Error</source>
@@ -743,11 +723,6 @@ Các ghi chú sẽ được lưu tự động trên ổ lưu trữ đặc biệt
 <context>
     <name>QtNote::SpellCheckPlugin</name>
     <message>
-        <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="152"/>
-        <source>Realtime spell check.</source>
-        <translation>Kiểm tra chính tả thời gian thực.</translation>
-    </message>
-    <message>
         <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="195"/>
         <source>&lt;b&gt;Loaded dictionaries:&lt;/b&gt; </source>
         <translation>&lt;b&gt;Thư mục đã nạp:&lt;/b&gt; </translation>
@@ -773,11 +748,6 @@ Các ghi chú sẽ được lưu tự động trên ổ lưu trữ đặc biệt
 </context>
 <context>
     <name>QtNote::TomboyPlugin</name>
-    <message>
-        <location filename="../plugins/tomboy/tomboyplugin.cpp" line="58"/>
-        <source>Allows read and write tomboy notes</source>
-        <translation>Cho phép đọc và viết ghi chú Tomboy</translation>
-    </message>
 </context>
 <context>
     <name>QtNote::TomboyStorage</name>

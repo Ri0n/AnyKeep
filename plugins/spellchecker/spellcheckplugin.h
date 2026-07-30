@@ -42,7 +42,7 @@ class SpellCheckPlugin : public QObject,
                          public PluginOptionsTooltipInterface,
                          public SettingsProviderInterface {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID "com.rion-soft.QtNote.spellchecker")
+#include "spellchecker_plugin_metadata.inc"
     Q_INTERFACES(QtNote::PluginInterface QtNote::RegularPluginInterface QtNote::PluginOptionsTooltipInterface
                                                                         QtNote::SettingsProviderInterface)
 public:
@@ -66,9 +66,7 @@ public:
     ~SpellCheckPlugin();
 
     // PluginInterface
-    int            metadataVersion() const override;
-    PluginMetadata metadata() override;
-    void           setHost(PluginHostInterface *host) override;
+    void setHost(PluginHostInterface *host) override;
 
     // RegularPluginInterface
     bool initialize() override;
