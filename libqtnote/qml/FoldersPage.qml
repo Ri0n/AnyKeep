@@ -220,18 +220,33 @@ Item {
             return
         if (parentId.length > 0)
             workspace.setFolderCollapsed(parentId, false)
-        selectedFolderId = parentId
+        selectedFolderId = created
+        unsortedSelected = false
         beginFolderRename(created)
+    }
+
+    function focusFolderRename(folderId, attemptsRemaining) {
+        if (editingFolderId !== String(folderId))
+            return
+        const row = workspace.folderNotesModel.rowForFolder(editingFolderId)
+        if (row < 0)
+            return
+        folderList.revealRow(row)
+        Qt.callLater(function() {
+            if (editingFolderId !== String(folderId))
+                return
+            const item = folderList.itemAtRow(row)
+            if (item) {
+                item.focusRenameField()
+            } else if (attemptsRemaining > 0) {
+                root.focusFolderRename(folderId, attemptsRemaining - 1)
+            }
+        })
     }
 
     function beginFolderRename(folderId) {
         editingFolderId = String(folderId)
-        Qt.callLater(function() {
-            const row = workspace.folderNotesModel.rowForFolder(editingFolderId)
-            const item = row >= 0 ? folderList.itemAtRow(row) : null
-            if (item)
-                item.focusRenameField()
-        })
+        focusFolderRename(editingFolderId, 2)
     }
 
     function cancelFolderRename(folderId) {

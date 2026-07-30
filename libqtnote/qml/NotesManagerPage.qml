@@ -759,19 +759,14 @@ Item {
             text: qsTr("Move…")
             onTriggered: moveDialog.open()
         }
-        Instantiator {
-            id: noteFolderPickerInstantiator
-            model: root.workspace.folderCatalogAvailable ? 1 : 0
-
-            delegate: FolderPickerMenu {
-                objectName: "noteFolderPicker"
-                workspace: root.workspace
-                currentFolderId: root.selectedNoteFolderId()
-                onFolderSelected: function(folderId) { root.assignSelectedNoteFolder(folderId) }
-            }
-
-            onObjectAdded: function(index, object) { noteContextMenu.insertMenu(4 + index, object) }
-            onObjectRemoved: function(index, object) { noteContextMenu.removeMenu(object) }
+        FolderPickerMenu {
+            id: noteFolderPicker
+            objectName: "noteFolderPicker"
+            // Menu.visible opens the popup. Availability belongs to enabled,
+            // which FolderPickerMenu already derives from the workspace.
+            workspace: root.workspace
+            currentFolderId: root.selectedNoteFolderId()
+            onFolderSelected: function(folderId) { root.assignSelectedNoteFolder(folderId) }
         }
         CompactContextSeparator { }
         CompactContextMenuItem {

@@ -19,6 +19,7 @@ the Free Software Foundation, either version 3 of the License, or
 #include <QCoreApplication>
 #include <QLoggingCategory>
 #include <QPointer>
+#include <QSharedPointer>
 #include <QTimer>
 
 namespace QtNote {
@@ -231,7 +232,11 @@ void FolderOperationsController::startNativeAssignment(NoteStorage *storage, con
                          tr("The note storage did not create a folder operation"));
         return;
     }
-    const auto finish = [this, job, storageId = note.storageId(), noteId = note.id(), folderId]() {
+    const auto handled = QSharedPointer<bool>::create(false);
+    const auto finish  = [this, job, handled, storageId = note.storageId(), noteId = note.id(), folderId]() {
+        if (*handled)
+            return;
+        *handled             = true;
         const bool succeeded = job->state() == StorageJob::Succeeded;
         const auto error     = succeeded ? QString() : job->error().message;
         job->deleteLater();
@@ -285,7 +290,11 @@ void FolderOperationsController::startNativeTreePreparation(NoteStorage *storage
         }
         return;
     }
-    const auto finish = [this, job, storageGuard, storageId, assignmentFollows, note, folderId]() {
+    const auto handled = QSharedPointer<bool>::create(false);
+    const auto finish  = [this, job, handled, storageGuard, storageId, assignmentFollows, note, folderId]() {
+        if (*handled)
+            return;
+        *handled = true;
         if (!storageGuard) {
             job->deleteLater();
             const auto error = tr("The note storage is no longer available");
@@ -321,10 +330,14 @@ void FolderOperationsController::startNativeTreePreparation(NoteStorage *storage
         auto *change = storageGuard->changeNoteFolderAsync(note, this);
         if (!change) {
             finishAssignment(storageId, note.id(), folderId, false,
-                             tr("The note storage did not create a folder operation"));
+                              tr("The note storage did not create a folder operation"));
             return;
         }
-        const auto finishChange = [this, change, storageId, noteId = note.id(), folderId]() {
+        const auto changeHandled = QSharedPointer<bool>::create(false);
+        const auto finishChange  = [this, change, changeHandled, storageId, noteId = note.id(), folderId]() {
+            if (*changeHandled)
+                return;
+            *changeHandled     = true;
             const bool changed = change->state() == StorageJob::Succeeded;
             const auto message = changed ? QString() : change->error().message;
             change->deleteLater();

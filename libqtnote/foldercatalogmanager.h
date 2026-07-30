@@ -103,6 +103,7 @@ private:
     FolderCatalog                           catalog_;
     NoteManager                            *noteManager_ { nullptr };
     QSet<QString>                           readyStorageIds_;
+    QSet<NoteStorage *>                     observedStorages_;
     QString                                 lastError_;
     bool                                    available_ { false };
     bool                                    needsRecovery_ { false };
@@ -111,6 +112,7 @@ private:
     FolderCatalogError        replaceWith(FolderCatalog candidate);
     bool                      loadCurrentStore(QString *errorText = nullptr);
     void                      becomeUnavailable(const FolderCatalogError &error, bool clearProjection);
+    void                      observeStorage(NoteStorage *storage);
     void                      importNativeCatalog(NoteStorage *storage);
     void                      importReadyNativeCatalogs();
     void                      notifyCatalogChanged();

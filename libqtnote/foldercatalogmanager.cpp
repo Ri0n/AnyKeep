@@ -248,31 +248,65 @@ void FolderCatalogManager::observeNoteManager(NoteManager *manager)
         return;
     if (noteManager_)
         disconnect(noteManager_, nullptr, this, nullptr);
+    for (auto *storage : std::as_const(observedStorages_)) {
+        if (storage)
+            disconnect(storage, nullptr, this, nullptr);
+    }
 
     noteManager_ = manager;
     readyStorageIds_.clear();
+    observedStorages_.clear();
     if (!noteManager_)
         return;
 
+    connect(noteManager_, &NoteManager::storageAdded, this,
+            [this](const NoteStorage::Ptr &storage) { observeStorage(storage.data()); });
     connect(noteManager_, &NoteManager::storageReady, this, [this](const NoteStorage::Ptr &storage) {
         if (!storage)
             return;
+        observeStorage(storage.data());
         readyStorageIds_.insert(storage->systemName());
         importNativeCatalog(storage.data());
     });
     connect(noteManager_, &NoteManager::storageRemoved, this, [this](const NoteStorage::Ptr &storage) {
-        if (storage)
-            readyStorageIds_.remove(storage->systemName());
+        if (!storage)
+            return;
+        readyStorageIds_.remove(storage->systemName());
+        observedStorages_.remove(storage.data());
     });
 
     // Main attaches before core storages are registered.  The loop also makes
     // explicit attachment safe for callers that do it after a storage is up.
     for (const auto &storage : noteManager_->storages()) {
-        if (!storage || !storage->isAccessible())
+        if (!storage)
             continue;
-        readyStorageIds_.insert(storage->systemName());
+        observeStorage(storage.data());
+        if (storage->isAccessible())
+            readyStorageIds_.insert(storage->systemName());
     }
     importReadyNativeCatalogs();
+}
+
+void FolderCatalogManager::observeStorage(NoteStorage *storage)
+{
+    if (!storage || observedStorages_.contains(storage))
+        return;
+
+    observedStorages_.insert(storage);
+    const QString storageId = storage->systemName();
+    connect(storage, &NoteStorage::noteRemoved, this, [this, storageId](const Note &note) {
+        if (!available_ || note.id().isEmpty())
+            return;
+        const auto *assignment = catalog_.assignment(storageId, note.id());
+        if (!assignment || assignment->tombstone)
+            return;
+        if (const auto clearError = clearNoteAssignment(storageId, note.id())) {
+            qCWarning(logFolderCatalog) << "Failed to clear folder assignment for removed note:" << storageId
+                                        << note.id().left(16) << clearError.message;
+            emit catalogError(clearError.message);
+        }
+    });
+    connect(storage, &QObject::destroyed, this, [this, storage]() { observedStorages_.remove(storage); });
 }
 
 FolderCatalogError FolderCatalogManager::mutate(const CatalogMutation &mutation)

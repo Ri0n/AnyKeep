@@ -1,14 +1,46 @@
 #include "filefoldercatalogstore.h"
 #include "foldercatalogmanager.h"
+#include "notedata.h"
+#include "notemanager.h"
 #include "secureenvelope.h"
 
 #include <QFile>
 #include <QFileInfo>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
 
 using namespace QtNote;
+
+class FolderRemovalStorage final : public NoteStorage {
+    Q_OBJECT
+public:
+    explicit FolderRemovalStorage(QString id, QObject *parent = nullptr) : NoteStorage(parent), id_(std::move(id)) { }
+
+    bool                init() override { return true; }
+    const QString       systemName() const override { return id_; }
+    const QString       name() const override { return id_; }
+    QIcon               storageIcon() const override { return {}; }
+    QIcon               noteIcon() const override { return {}; }
+    bool                isAccessible() const override { return true; }
+    QList<Note::Format> availableFormats() const override { return { Note::Markdown }; }
+    QList<Note>         noteList(int = 0) override { return {}; }
+    Note                note(const QString &) override { return {}; }
+    Note                createNote() override { return {}; }
+    bool                saveNote(const Note &) override { return false; }
+    void                removeNote(const QString &) override { }
+
+    void announceRemoval(const QString &noteId)
+    {
+        Note removed(new NoteData(this));
+        removed.setId(noteId);
+        emit noteRemoved(removed);
+    }
+
+private:
+    QString id_;
+};
 
 class FolderCatalogManagerTest : public QObject {
     Q_OBJECT
@@ -20,6 +52,7 @@ private slots:
     void collapsesAllFoldersInOneCatalogUpdate();
     void rejectsForeignProviderAssignments();
     void rejectsForeignProviderPathHints();
+    void clearsAssignmentsWhenNotesAreRemoved();
     void requiresExplicitRecoveryForCorruptCatalog();
 };
 
@@ -156,6 +189,36 @@ void FolderCatalogManagerTest::rejectsForeignProviderPathHints()
     QVERIFY(result);
     QCOMPARE(result.code, FolderCatalogError::InvalidArgument);
     QVERIFY(manager.catalog().folders().isEmpty());
+}
+
+void FolderCatalogManagerTest::clearsAssignmentsWhenNotesAreRemoved()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(std::make_unique<FileFolderCatalogStore>(
+        directory.filePath(QStringLiteral("folders.bin")), SecureEnvelope::generateMasterKey()));
+    QVERIFY(catalog.initialize());
+
+    const auto inbox = catalog.addFolder(folder(QStringLiteral("Inbox")));
+    QVERIFY(inbox);
+
+    auto storage = std::make_unique<FolderRemovalStorage>(
+        QStringLiteral("folder-removal-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+    auto *raw     = storage.get();
+    auto *manager = NoteManager::instance();
+    catalog.observeNoteManager(manager);
+    manager->registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([manager, raw]() {
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+
+    QVERIFY(!catalog.assignNote(raw->systemName(), QStringLiteral("assigned"), inbox.value));
+    raw->announceRemoval(QStringLiteral("assigned"));
+    QTRY_VERIFY(catalog.catalog().assignment(raw->systemName(), QStringLiteral("assigned"))->tombstone);
+
+    raw->announceRemoval(QStringLiteral("unassigned"));
+    QVERIFY(!catalog.catalog().assignment(raw->systemName(), QStringLiteral("unassigned")));
 }
 
 void FolderCatalogManagerTest::requiresExplicitRecoveryForCorruptCatalog()

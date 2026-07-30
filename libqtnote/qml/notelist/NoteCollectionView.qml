@@ -238,6 +238,14 @@ Item {
         return treeView.itemAtCell(Qt.point(0, row))
     }
 
+    function revealRow(row) {
+        const targetRow = Number(row)
+        if (targetRow < 0 || targetRow >= rowCount())
+            return false
+        treeView.positionViewAtCell(Qt.point(0, targetRow), Qt.AlignVCenter)
+        return true
+    }
+
     function expandGroups(depth) {
         if (nativeModelHierarchy && treeView.model)
             treeView.expandRecursively(-1, depth === undefined ? 1 : Number(depth))
