@@ -230,6 +230,7 @@ private slots:
     void preservesExplicitFolderChoiceDuringPublication();
     void loadingANoteDoesNotRunRules();
     void importsFolderOnlyFromOptInStorage();
+    void applicationOwnerMayDestroyDraftManagerFirst();
 };
 
 void NoteRuleApplicationControllerTest::initTestCase()
@@ -485,6 +486,13 @@ void NoteRuleApplicationControllerTest::importsFolderOnlyFromOptInStorage()
     QTRY_COMPARE(folders.catalog().folderForNote(sourceRaw->systemName(), note.id()), imported.value);
     QCOMPARE(sourceRaw->saveCalls_, 0);
     QCOMPARE(destinationRaw->notes_.size(), 0);
+}
+
+void NoteRuleApplicationControllerTest::applicationOwnerMayDestroyDraftManagerFirst()
+{
+    QObject owner;
+    auto   *drafts = new DraftManager(std::make_unique<MemoryDraftStore>(), &owner);
+    new NoteRuleApplicationController(nullptr, nullptr, nullptr, drafts, &owner);
 }
 
 QTEST_GUILESS_MAIN(NoteRuleApplicationControllerTest)

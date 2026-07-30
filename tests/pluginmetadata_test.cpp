@@ -13,6 +13,8 @@ class PluginMetadataTest : public QObject {
 
 private slots:
     void localizedValuesAndIcon();
+    void keepsIconEncodedDuringParsing();
+    void rejectsMalformedIconBase64();
     void languageFallback();
     void rejectsUnsupportedSchema();
     void rejectsInvalidSemanticVersion();
@@ -72,7 +74,40 @@ void PluginMetadataTest::localizedValuesAndIcon()
     QCOMPARE(metadata.features, QStringList { QStringLiteral("regular") });
     QCOMPARE(metadata.desktopEnvironments, QStringList({ QStringLiteral("cinnamon"), QStringLiteral("x-cinnamon") }));
     QVERIFY(metadata.extra.value(QStringLiteral("configurable")).toBool());
-    QVERIFY(!metadata.icon.isNull());
+    QCOMPARE(metadata.iconMimeType, QStringLiteral("image/png"));
+    QVERIFY(metadata.iconSource.startsWith(QStringLiteral("data:image/png;base64,")));
+}
+
+void PluginMetadataTest::keepsIconEncodedDuringParsing()
+{
+    auto root = metadataObject();
+    auto data = root.value(QStringLiteral("MetaData")).toObject();
+    data.insert(QStringLiteral("icon"),
+                QJsonObject { { QStringLiteral("mimeType"), QStringLiteral("image/svg+xml") },
+                              { QStringLiteral("base64"),
+                                QString::fromLatin1(QByteArray("not decoded as an image").toBase64()) } });
+    root.insert(QStringLiteral("MetaData"), data);
+
+    PluginMetadata metadata;
+    QString        error;
+    QVERIFY2(pluginMetadataFromJson(root, QLocale::c(), &metadata, &error), qPrintable(error));
+    QCOMPARE(metadata.iconMimeType, QStringLiteral("image/svg+xml"));
+    QVERIFY(metadata.iconSource.startsWith(QStringLiteral("data:image/svg+xml;base64,")));
+}
+
+void PluginMetadataTest::rejectsMalformedIconBase64()
+{
+    auto root = metadataObject();
+    auto data = root.value(QStringLiteral("MetaData")).toObject();
+    data.insert(QStringLiteral("icon"),
+                QJsonObject { { QStringLiteral("mimeType"), QStringLiteral("image/png") },
+                              { QStringLiteral("base64"), QStringLiteral("%%%") } });
+    root.insert(QStringLiteral("MetaData"), data);
+
+    PluginMetadata metadata;
+    QString        error;
+    QVERIFY(!pluginMetadataFromJson(root, QLocale::c(), &metadata, &error));
+    QVERIFY(error.contains(QStringLiteral("Base64")));
 }
 
 void PluginMetadataTest::languageFallback()

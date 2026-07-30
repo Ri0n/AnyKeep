@@ -3,7 +3,6 @@
 
 #include "qtnote_export.h"
 
-#include <QIcon>
 #include <QJsonObject>
 #include <QLocale>
 #include <QString>
@@ -17,7 +16,8 @@ namespace QtNote {
 inline constexpr int PluginMetadataSchemaVersion = 2;
 
 struct PluginMetadata {
-    QIcon        icon;
+    QString      iconMimeType;
+    QString      iconSource;
     QString      id;
     QString      name;
     QString      description;

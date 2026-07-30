@@ -29,6 +29,9 @@ NoteRuleApplicationController::NoteRuleApplicationController(NoteRuleManager    
     draftManager_(draftManager ? draftManager : DraftManager::instance())
 {
     folderOperations_ = new FolderOperationsController(folderCatalogManager_, noteManager_, this);
+    if (draftManager_) {
+        connect(draftManager_, &QObject::destroyed, this, [this]() { draftManager_ = nullptr; });
+    }
 }
 
 NoteRuleApplicationController::~NoteRuleApplicationController()

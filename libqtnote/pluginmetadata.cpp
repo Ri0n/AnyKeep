@@ -4,7 +4,6 @@
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QPair>
-#include <QPixmap>
 #include <QSettings>
 #include <QStringView>
 #include <QVector>
@@ -323,12 +322,17 @@ bool pluginMetadataFromJson(const QJsonObject &loaderMetadata, const QLocale &lo
     }
 
     const auto iconObject = object.value(QStringLiteral("icon")).toObject();
-    const auto iconData   = QByteArray::fromBase64(iconObject.value(QStringLiteral("base64")).toString().toLatin1());
-    if (!iconData.isEmpty()) {
-        QPixmap pixmap;
-        if (!pixmap.loadFromData(iconData))
-            return fail(error, QStringLiteral("failed to decode plugin icon"));
-        parsed.icon = QIcon(pixmap);
+    const auto iconBase64 = iconObject.value(QStringLiteral("base64")).toString().trimmed();
+    if (!iconBase64.isEmpty()) {
+        const auto decodedIcon = QByteArray::fromBase64Encoding(
+            iconBase64.toLatin1(), QByteArray::Base64Encoding | QByteArray::AbortOnBase64DecodingErrors);
+        if (!decodedIcon || decodedIcon.decoded.isEmpty())
+            return fail(error, QStringLiteral("failed to decode plugin icon Base64 data"));
+
+        parsed.iconMimeType = iconObject.value(QStringLiteral("mimeType")).toString().trimmed().toLower();
+        if (parsed.iconMimeType.isEmpty())
+            parsed.iconMimeType = QStringLiteral("application/octet-stream");
+        parsed.iconSource = QStringLiteral("data:%1;base64,%2").arg(parsed.iconMimeType, iconBase64);
     }
 
     if (parsed.id.isEmpty())

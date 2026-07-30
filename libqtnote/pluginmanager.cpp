@@ -22,6 +22,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QApplication>
 #include <QDebug>
 #include <QDir>
+#include <QJsonObject>
 #include <QLibrary>
 #include <QPluginLoader>
 #include <QSet>
@@ -156,6 +157,19 @@ static bool pluginFeaturesFromNames(const QStringList &names, PluginManager::Plu
     if (unknownFeature)
         unknownFeature->clear();
     return true;
+}
+
+QJsonObject readPluginMetadata(const QString &fileName)
+{
+#ifdef QTNOTE_DEVEL
+    qDebug("Reading plugin metadata: %s", qPrintable(fileName));
+#endif
+    QPluginLoader loader(fileName);
+    const auto    metadata = loader.metaData();
+#ifdef QTNOTE_DEVEL
+    qDebug("Plugin metadata block extracted: %s", qPrintable(fileName));
+#endif
+    return metadata;
 }
 
 class PluginsIterator {
@@ -623,7 +637,7 @@ PluginListSource::Entry PluginManager::pluginEntry(const QString &pluginId) cons
     entry.name         = pd->metadata.name;
     entry.description  = pd->metadata.description;
     entry.fileName     = pd->fileName;
-    entry.icon         = pd->metadata.icon;
+    entry.iconSource   = pd->metadata.iconSource;
     entry.loadPolicy   = pd->loadPolicy;
     entry.loadStatus   = pd->loadStatus;
     entry.loaded       = isLoaded(pluginId);
@@ -727,12 +741,11 @@ void PluginManager::updateMetadata()
 
     PluginsIterator it;
     while (!it.isFinished()) {
-        const auto fileName = it.fileName();
+        const auto fileName       = it.fileName();
+        const auto loaderMetadata = readPluginMetadata(fileName);
 #ifdef QTNOTE_DEVEL
-        qDebug("Reading plugin metadata: %s", qPrintable(fileName));
+        qDebug("Plugin metadata reader released: %s", qPrintable(fileName));
 #endif
-        QPluginLoader loader(fileName);
-        const auto    loaderMetadata = loader.metaData();
         if (loaderMetadata.value(QStringLiteral("IID")).toString() != QLatin1String(QTNOTE_PLUGIN_INTERFACE_IID)) {
             it.next();
             continue;
@@ -744,6 +757,9 @@ void PluginManager::updateMetadata()
             it.next();
             continue;
         }
+#ifdef QTNOTE_DEVEL
+        qDebug("Plugin metadata parsed: %s (%s)", qPrintable(metadata.id), qPrintable(fileName));
+#endif
         QString compatibilityError;
         if (!semanticVersionInRange(QString::fromLatin1(QTNOTE_VERSION_STR), metadata.minVersion, metadata.maxVersion,
                                     &compatibilityError)) {
