@@ -23,6 +23,9 @@ Item {
                                      ? Number(reorderController.targetBoundary.finalRow) : sourceRow
     readonly property bool dragging: reorderController.dragging
     readonly property int previewCount: reorderController.previewCount
+    readonly property int verticalScrollBarInset:
+        listView.contentHeight > listView.height
+        ? Math.ceil(Math.max(verticalScrollBar.width, verticalScrollBar.implicitWidth)) : 0
 
     implicitWidth: 360
     implicitHeight: pluginMode ? 280 : 150
@@ -72,7 +75,7 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         cacheBuffer: Math.max(1000, count * root.rowHeight)
         currentIndex: -1
-        ScrollBar.vertical: ScrollBar { }
+        ScrollBar.vertical: ScrollBar { id: verticalScrollBar }
 
         delegate: ItemDelegate {
             id: rowDelegate
@@ -103,7 +106,7 @@ Item {
             readonly property bool targetAfter: reorderController.targetAfter(rowDelegate)
 
             objectName: "settingsRow-" + itemId
-            width: listView.width
+            width: Math.max(0, listView.width - root.verticalScrollBarInset)
             height: root.rowHeight
             leftPadding: 0
             rightPadding: 0

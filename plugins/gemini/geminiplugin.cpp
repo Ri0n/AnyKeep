@@ -1,6 +1,7 @@
 #include "geminiplugin.h"
 
 #include <QDebug>
+#include <QIcon>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -293,6 +294,7 @@ PluginMetadata GeminiPlugin::metadata()
     md.id          = QLatin1String("gemini");
     md.name        = tr("Gemini");
     md.description = tr("Gemini API speech recognition backend");
+    md.icon        = QIcon(QStringLiteral(":/icons/gemini-logo"));
     md.author      = QLatin1String("Rion");
     md.version     = 0x000100;
     md.minVersion  = 0x030200;

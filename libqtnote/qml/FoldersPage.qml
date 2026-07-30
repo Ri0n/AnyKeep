@@ -195,8 +195,20 @@ Item {
         return changed
     }
 
-    function trashDroppedNotes(payload) {
-        if (!payload || payload.kind !== "notes" || !payload.notes || payload.notes.length === 0)
+    function trashDroppedItems(payload) {
+        if (!payload)
+            return false
+        if (payload.kind === "group") {
+            const deleted = workspace.trashFolder(String(payload.groupId || ""))
+            if (deleted) {
+                selectionController.clear()
+                selectedFolderId = ""
+                unsortedSelected = false
+                editingFolderId = ""
+            }
+            return deleted
+        }
+        if (payload.kind !== "notes" || !payload.notes || payload.notes.length === 0)
             return false
         if (typeof outsideNotesDropHandler === "function")
             return Boolean(outsideNotesDropHandler(payload.notes))
@@ -270,6 +282,17 @@ Item {
         return workspace.emptyRecycleBin()
     }
 
+    function trashContextFolder() {
+        const folderId = contextFolderId
+        if (!workspace.trashFolder(folderId))
+            return false
+        selectionController.clear()
+        selectedFolderId = ""
+        editingFolderId = ""
+        unsortedSelected = false
+        return true
+    }
+
     function mapMenuPosition(position) {
         return position === undefined ? undefined : folderList.mapToItem(root, position)
     }
@@ -308,11 +331,19 @@ Item {
                 ToolButton {
                     display: AbstractButton.IconOnly
                     enabled: root.workspace.folderCatalogAvailable
-                    contentItem: Image {
-                        source: "qrc:/icons/new"
-                        sourceSize.width: 22
-                        sourceSize.height: 22
-                        fillMode: Image.PreserveAspectFit
+                    contentItem: Item {
+                        implicitWidth: 22
+                        implicitHeight: 22
+
+                        Image {
+                            anchors.centerIn: parent
+                            width: 22
+                            height: 22
+                            source: "qrc:/icons/new"
+                            sourceSize.width: 22
+                            sourceSize.height: 22
+                            fillMode: Image.PreserveAspectFit
+                        }
                     }
                     Accessible.name: qsTr("New note in selected folder")
                     ToolTip.visible: hovered
@@ -323,22 +354,12 @@ Item {
                 ToolButton {
                     display: AbstractButton.IconOnly
                     enabled: root.workspace.folderCatalogAvailable
-                    contentItem: Item {
-                        ThemedIcon {
-                            anchors.centerIn: parent
-                            themeName: "folder-new-symbolic"
-                            fallbackName: "folder-symbolic"
-                            recolorFallback: true
-                            fallbackTintMode: "auto"
-                            pixelSize: 21
-                        }
-                        Label {
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            text: "+"
-                            font.bold: true
-                            font.pixelSize: 13
-                        }
+                    contentItem: ThemedIcon {
+                        themeName: "folder-new-symbolic"
+                        fallbackName: "folder-symbolic"
+                        recolorFallback: true
+                        fallbackTintMode: "auto"
+                        pixelSize: 21
                     }
                     Accessible.name: qsTr("New folder")
                     ToolTip.visible: hovered
@@ -361,6 +382,25 @@ Item {
                     ToolTip.visible: hovered
                     ToolTip.text: Accessible.name
                     onClicked: root.workspace.collapseAllFolders()
+                }
+
+                ToolButton {
+                    display: AbstractButton.IconOnly
+                    enabled: Boolean(root.workspace["canUndoFolderTrash"] || false)
+                    contentItem: ThemedIcon {
+                        themeName: "edit-undo-symbolic"
+                        fallbackName: "edit-undo-symbolic.svg"
+                        recolorFallback: true
+                        fallbackTintMode: "auto"
+                        pixelSize: 18
+                    }
+                    Accessible.name: String(root.workspace["lastTrashedFolderName"] || "").length > 0
+                                     ? qsTr("Undo deleting folder “%1”")
+                                           .arg(String(root.workspace["lastTrashedFolderName"]))
+                                     : qsTr("Undo deleting folder")
+                    ToolTip.visible: hovered
+                    ToolTip.text: Accessible.name
+                    onClicked: root.workspace.undoFolderTrash()
                 }
 
                 Item { Layout.fillWidth: true }
@@ -466,7 +506,7 @@ Item {
                 directTargetProvider: function() { return null }
                 targetUpdateHandler: root.updateDropTarget
                 commitHandler: root.commitDrop
-                outsideDropHandler: root.trashDroppedNotes
+                outsideDropHandler: root.trashDroppedItems
                 groupRenameHandler: function(item, name) {
                     if (!root.workspace.renameFolder(item.folderId, name))
                         return false
@@ -539,6 +579,11 @@ Item {
             onTriggered: root.workspace.setFolderFlags(root.contextFolderId,
                                                         root.contextFolderFavorite,
                                                         !root.contextFolderArchived)
+        }
+        MenuSeparator { }
+        MenuItem {
+            text: qsTr("Move to Recycle Bin")
+            onTriggered: root.trashContextFolder()
         }
     }
 

@@ -301,7 +301,10 @@ Item {
                     model: root.ruleModel
                     boundsBehavior: Flickable.StopAtBounds
                     cacheBuffer: Math.max(1000, count * 58)
-                    ScrollBar.vertical: ScrollBar { }
+                    readonly property int verticalScrollBarInset:
+                        contentHeight > height
+                        ? Math.ceil(Math.max(verticalScrollBar.width, verticalScrollBar.implicitWidth)) : 0
+                    ScrollBar.vertical: ScrollBar { id: verticalScrollBar }
 
                     delegate: ItemDelegate {
                         id: rowDelegate
@@ -316,7 +319,7 @@ Item {
                         readonly property real reorderOffset: displacement.displacement
 
                         objectName: "ruleRow-" + itemId
-                        width: listView.width
+                        width: Math.max(0, listView.width - listView.verticalScrollBarInset)
                         height: 58
                         padding: 0
                         opacity: sourceActive ? 0 : 1

@@ -8,7 +8,10 @@ Flickable {
     id: root
 
     required property var controller
-    contentWidth: width
+    readonly property int verticalScrollBarInset:
+        contentHeight > height
+        ? Math.ceil(Math.max(verticalScrollBar.width, verticalScrollBar.implicitWidth)) : 0
+    contentWidth: Math.max(0, width - verticalScrollBarInset)
     contentHeight: fieldsColumn.implicitHeight + 24
     clip: true
 
@@ -16,11 +19,11 @@ Flickable {
         return value === undefined || value === null ? "" : String(value)
     }
 
-    ScrollBar.vertical: ScrollBar { }
+    ScrollBar.vertical: ScrollBar { id: verticalScrollBar }
 
     ColumnLayout {
         id: fieldsColumn
-        width: root.width
+        width: root.contentWidth
         spacing: 12
 
         Repeater {

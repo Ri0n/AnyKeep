@@ -3,6 +3,7 @@
 #include <QBuffer>
 #include <QDebug>
 #include <QHttpMultiPart>
+#include <QIcon>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
@@ -266,6 +267,7 @@ PluginMetadata OpenAIWhisperPlugin::metadata()
     md.id          = QLatin1String("openaiwhisper");
     md.name        = tr("OpenAI Whisper");
     md.description = tr("OpenAI Whisper speech recognition backend");
+    md.icon        = QIcon(QStringLiteral(":/icons/openai-logo"));
     md.author      = QLatin1String("Rion");
     md.version     = 0x000100;
     md.minVersion  = 0x030200;

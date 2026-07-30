@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="gemini-logo">google-gemini.svg</file>
+    </qresource>
+</RCC>

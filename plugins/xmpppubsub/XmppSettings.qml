@@ -8,15 +8,18 @@ Flickable {
     id: root
 
     required property var controller
-    contentWidth: width
+    readonly property int verticalScrollBarInset:
+        contentHeight > height
+        ? Math.ceil(Math.max(verticalScrollBar.width, verticalScrollBar.implicitWidth)) : 0
+    contentWidth: Math.max(0, width - verticalScrollBarInset)
     contentHeight: contentColumn.implicitHeight + 20
     clip: true
 
-    ScrollBar.vertical: ScrollBar { }
+    ScrollBar.vertical: ScrollBar { id: verticalScrollBar }
 
     ColumnLayout {
         id: contentColumn
-        width: root.width
+        width: root.contentWidth
         spacing: 12
 
         Loader {

@@ -150,6 +150,27 @@ FolderCatalogError FolderCatalogManager::setFolderFlags(const QUuid &id, bool fa
         [id, favorite, archived](FolderCatalog &catalog) { return catalog.setFolderFlags(id, favorite, archived); });
 }
 
+FolderCatalogResult<DeletedFolderBranch> FolderCatalogManager::trashFolderBranch(const QUuid &id)
+{
+    if (!available_)
+        return { {}, unavailableError(lastError_) };
+
+    FolderCatalog candidate;
+    if (const auto validation = candidate.replaceSnapshot(catalog_.snapshot()))
+        return { {}, validation };
+    const auto result = candidate.trashFolderBranch(id);
+    if (!result)
+        return result;
+    if (const auto persistError = replaceWith(std::move(candidate)))
+        return { {}, persistError };
+    return result;
+}
+
+FolderCatalogError FolderCatalogManager::restoreFolderBranch(const DeletedFolderBranch &branch)
+{
+    return mutate([branch](FolderCatalog &catalog) { return catalog.restoreFolderBranch(branch); });
+}
+
 FolderCatalogError FolderCatalogManager::assignNote(const QString &storageId, const QString &noteId,
                                                     const QUuid &folderId)
 {

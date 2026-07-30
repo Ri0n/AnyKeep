@@ -5,6 +5,7 @@ find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Network REQUIRED)
 add_qtnote_plugin(gemini "Gemini API speech recognition backend" ON unix macosx windows android SOURCES
     geminiplugin.cpp
     geminiplugin.h
+    gemini.qrc
 )
 
 target_link_libraries(gemini

@@ -152,6 +152,18 @@ bool    NotesWorkspaceController::folderCatalogAvailable() const
     return folderCatalogManager_ && folderCatalogManager_->isAvailable();
 }
 
+QString NotesWorkspaceController::lastTrashedFolderName() const
+{
+    if (deletedFolderBranches_.isEmpty())
+        return {};
+    const auto &branch = deletedFolderBranches_.constLast();
+    for (const auto &folder : branch.folders) {
+        if (folder.id == branch.rootId)
+            return folder.name;
+    }
+    return {};
+}
+
 QVariantList NotesWorkspaceController::storages() const
 {
     QVariantList result;
@@ -827,6 +839,126 @@ bool NotesWorkspaceController::setFolderFlags(const QString &folderIdText, bool 
         return false;
     }
     return applyFolderMutation(folderCatalogManager_->setFolderFlags(folderId, favorite, archived));
+}
+
+bool NotesWorkspaceController::trashFolder(const QString &folderIdText)
+{
+    if (!ensureFolderCatalogAvailable())
+        return false;
+
+    QUuid folderId;
+    if (!parseFolderId(folderIdText, &folderId) || folderId.isNull() || FolderCatalog::isRecycleBinId(folderId)) {
+        setError(tr("A deletable folder is required"));
+        return false;
+    }
+
+    const auto &catalog = folderCatalogManager_->catalog();
+    if (!catalog.folder(folderId)) {
+        setError(tr("The folder no longer exists"));
+        return false;
+    }
+
+    const auto isInsideBranch = [&catalog, &folderId](QUuid candidate) {
+        QSet<QUuid> visited;
+        while (!candidate.isNull()) {
+            if (candidate == folderId)
+                return true;
+            if (visited.contains(candidate))
+                return false;
+            visited.insert(candidate);
+            const auto *record = catalog.folder(candidate);
+            if (!record)
+                return false;
+            candidate = record->parentId;
+        }
+        return false;
+    };
+
+    if (currentEditor_ && isInsideBranch(currentEditor_->folderId())) {
+        if (!DraftManager::instance()->isLastEditingSession(currentEditor_->draftId())) {
+            setError(tr("A note in this folder is open in another editor and the folder cannot be moved to the "
+                        "Recycle Bin yet"));
+            return false;
+        }
+        if (!currentEditor_->discardAndClose()) {
+            setError(currentEditor_->errorString());
+            return false;
+        }
+        clearCurrentEditor();
+    }
+
+    // Native providers can expose a folder directly on Note before the global
+    // overlay has an assignment. Materialize those assignments first so every
+    // note in the deleted branch participates in the atomic catalog mutation.
+    for (const auto &storage : NoteManager::instance()->storages(true)) {
+        if (!storage)
+            continue;
+        for (const auto &note : NoteManager::instance()->notesIndex()->notes(storage->systemName())) {
+            const QUuid noteFolderId = effectiveFolderId(note);
+            if (!isInsideBranch(noteFolderId))
+                continue;
+            const auto *assignment = folderCatalogManager_->catalog().assignment(note.storageId(), note.id());
+            if (assignment && !assignment->tombstone && assignment->folderId == noteFolderId)
+                continue;
+            if (const auto assignmentError
+                = folderCatalogManager_->assignNote(note.storageId(), note.id(), noteFolderId)) {
+                setError(assignmentError.message);
+                return false;
+            }
+        }
+    }
+
+    setError({});
+    const auto deleted = folderCatalogManager_->trashFolderBranch(folderId);
+    if (!deleted) {
+        setError(deleted.error.message);
+        return false;
+    }
+
+    deletedFolderBranches_.append(deleted.value);
+    emit folderTrashUndoChanged();
+
+    for (const auto &assignment : deleted.value.assignments) {
+        folderOperations_->assignNoteFolder(assignment.storageId, assignment.noteId, FolderCatalog::recycleBinId(),
+                                            true);
+    }
+    // A native catalog may contain this global tree even when it has no note
+    // in the deleted branch, so propagate the folder tombstones explicitly.
+    folderOperations_->prepareNativeFolderTrees();
+    return true;
+}
+
+bool NotesWorkspaceController::undoFolderTrash()
+{
+    if (!ensureFolderCatalogAvailable() || deletedFolderBranches_.isEmpty())
+        return false;
+
+    const auto branch = deletedFolderBranches_.constLast();
+    if (const auto restoreError = folderCatalogManager_->restoreFolderBranch(branch)) {
+        setError(restoreError.message);
+        return false;
+    }
+
+    deletedFolderBranches_.removeLast();
+    emit folderTrashUndoChanged();
+    setError({});
+
+    const auto &catalog = folderCatalogManager_->catalog();
+    for (const auto &assignment : branch.assignments) {
+        if (catalog.folderForNote(assignment.storageId, assignment.noteId) != assignment.folderId)
+            continue;
+        folderOperations_->assignNoteFolder(assignment.storageId, assignment.noteId, assignment.folderId, true);
+    }
+    folderOperations_->prepareNativeFolderTrees();
+    return true;
+}
+
+void NotesWorkspaceController::clearFolderTrashUndo()
+{
+    if (deletedFolderBranches_.isEmpty())
+        return;
+    deletedFolderBranches_.clear();
+    emit folderTrashUndoChanged();
 }
 
 bool NotesWorkspaceController::collapseAllFolders()

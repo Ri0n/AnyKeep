@@ -5,6 +5,7 @@ find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Network REQUIRED)
 add_qtnote_plugin(openaiwhisper "OpenAI Whisper speech recognition backend" ON unix macosx windows android SOURCES
     openaiwhisperplugin.cpp
     openaiwhisperplugin.h
+    openaiwhisper.qrc
 )
 
 target_link_libraries(openaiwhisper

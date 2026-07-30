@@ -17,11 +17,13 @@ private slots:
     void maintainsValidatedTree();
     void movesFoldersRelativeToSiblings();
     void sortsFavoritesBeforeOtherSiblings();
+    void inheritsFavoriteStateOutsideArchivedBranches();
     void sortsArchivedAndRecycleBinAfterNormalFolders();
     void buildsFolderPaths();
     void reconcilesPathOnlyProviderAssignments();
     void retainsAssignmentTombstones();
     void recyclesAndRestoresNotesWithOriginalFolder();
+    void trashesAndRestoresFolderBranchesVolatilely();
     void mergesNewerRecords();
     void detectsEqualRevisionConflict();
     void encryptedRoundTripAndBackupRecovery();
@@ -123,6 +125,30 @@ void FolderCatalogTest::sortsFavoritesBeforeOtherSiblings()
     QCOMPARE(siblings.size(), 2);
     QCOMPARE(siblings.first().id, favorite.value);
     QCOMPARE(siblings.last().id, first.value);
+}
+
+void FolderCatalogTest::inheritsFavoriteStateOutsideArchivedBranches()
+{
+    FolderCatalog catalog;
+    const auto    favorite = catalog.addFolder(folder(QStringLiteral("Favorite")));
+    QVERIFY(favorite);
+    const auto child = catalog.addFolder(folder(QStringLiteral("Child"), favorite.value));
+    QVERIFY(child);
+    const auto grandchild = catalog.addFolder(folder(QStringLiteral("Grandchild"), child.value));
+    QVERIFY(grandchild);
+
+    QVERIFY(!catalog.setFolderFlags(favorite.value, true, false));
+    QVERIFY(catalog.isEffectivelyFavorite(favorite.value));
+    QVERIFY(catalog.isEffectivelyFavorite(child.value));
+    QVERIFY(catalog.isEffectivelyFavorite(grandchild.value));
+
+    // An explicit false on the child does not mask the favorite ancestor.
+    QVERIFY(!catalog.setFolderFlags(child.value, false, false));
+    QVERIFY(catalog.isEffectivelyFavorite(grandchild.value));
+
+    QVERIFY(!catalog.setFolderFlags(child.value, false, true));
+    QVERIFY(catalog.isInArchivedBranch(grandchild.value));
+    QVERIFY(!catalog.isEffectivelyFavorite(grandchild.value));
 }
 
 void FolderCatalogTest::sortsArchivedAndRecycleBinAfterNormalFolders()
@@ -253,6 +279,60 @@ void FolderCatalogTest::recyclesAndRestoresNotesWithOriginalFolder()
     QVERIFY(assignment);
     QVERIFY(assignment->previousFolderId.isNull());
     QVERIFY(!assignment->recycledAt.isValid());
+}
+
+void FolderCatalogTest::trashesAndRestoresFolderBranchesVolatilely()
+{
+    FolderCatalog catalog;
+    const auto    projects = catalog.addFolder(folder(QStringLiteral("Projects")));
+    QVERIFY(projects);
+    const auto current = catalog.addFolder(folder(QStringLiteral("Current"), projects.value));
+    QVERIFY(current);
+    const auto other = catalog.addFolder(folder(QStringLiteral("Other")));
+    QVERIFY(other);
+
+    QVERIFY(!catalog.assignNote(QStringLiteral("ptf"), QStringLiteral("root-note"), projects.value));
+    QVERIFY(!catalog.assignNote(QStringLiteral("ptf"), QStringLiteral("child-note"), current.value));
+
+    auto             snapshot = catalog.snapshot();
+    ProviderPathHint hint;
+    hint.storageId  = QStringLiteral("nextcloud");
+    hint.path       = { QStringLiteral("Projects"), QStringLiteral("Current") };
+    hint.folderId   = current.value;
+    hint.revision   = 1;
+    hint.modifiedAt = QDateTime::currentDateTimeUtc();
+    snapshot.pathHints.append(hint);
+    QVERIFY(!catalog.replaceSnapshot(snapshot));
+
+    const auto deleted = catalog.trashFolderBranch(projects.value);
+    QVERIFY2(deleted, qPrintable(deleted.error.message));
+    QCOMPARE(deleted.value.rootId, projects.value);
+    QCOMPARE(deleted.value.folders.size(), 2);
+    QCOMPARE(deleted.value.assignments.size(), 2);
+    QCOMPARE(deleted.value.pathHints.size(), 1);
+    QVERIFY(!catalog.folder(projects.value));
+    QVERIFY(!catalog.folder(current.value));
+    QVERIFY(catalog.folder(other.value));
+    QVERIFY(catalog.isRecycled(QStringLiteral("ptf"), QStringLiteral("root-note")));
+    QVERIFY(catalog.isRecycled(QStringLiteral("ptf"), QStringLiteral("child-note")));
+    QVERIFY(catalog.assignment(QStringLiteral("ptf"), QStringLiteral("root-note"))->previousFolderId.isNull());
+    QVERIFY(!catalog.pathHint(QStringLiteral("nextcloud"), hint.path));
+
+    for (const auto &record : catalog.snapshot().folders) {
+        if (record.id != projects.value && record.id != current.value)
+            continue;
+        QVERIFY(record.tombstone);
+        QVERIFY(record.name.isEmpty());
+        QVERIFY(record.parentId.isNull());
+    }
+
+    QVERIFY(!catalog.restoreFolderBranch(deleted.value));
+    QVERIFY(catalog.folder(projects.value));
+    QVERIFY(catalog.folder(current.value));
+    QCOMPARE(catalog.folder(current.value)->parentId, projects.value);
+    QCOMPARE(catalog.folderForNote(QStringLiteral("ptf"), QStringLiteral("root-note")), projects.value);
+    QCOMPARE(catalog.folderForNote(QStringLiteral("ptf"), QStringLiteral("child-note")), current.value);
+    QVERIFY(catalog.pathHint(QStringLiteral("nextcloud"), hint.path));
 }
 
 void FolderCatalogTest::mergesNewerRecords()

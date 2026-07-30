@@ -49,6 +49,7 @@ private slots:
     void initTestCase();
     void persistsMutationsAndProviderImports();
     void persistsReconciledProviderPaths();
+    void persistsFolderDeletionWithoutUndoPayload();
     void collapsesAllFoldersInOneCatalogUpdate();
     void rejectsForeignProviderAssignments();
     void rejectsForeignProviderPathHints();
@@ -122,6 +123,47 @@ void FolderCatalogManagerTest::persistsReconciledProviderPaths()
     QVERIFY(reloaded.initialize());
     QCOMPARE(reloaded.catalog().folderForNote(QStringLiteral("nextcloud"), assignment.noteId), folderId);
     QCOMPARE(reloaded.catalog().pathForFolder(folderId), assignment.path);
+}
+
+void FolderCatalogManagerTest::persistsFolderDeletionWithoutUndoPayload()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto path = directory.filePath(QStringLiteral("folders.bin"));
+    const auto key  = SecureEnvelope::generateMasterKey();
+
+    QUuid deletedFolderId;
+    {
+        FolderCatalogManager manager(std::make_unique<FileFolderCatalogStore>(path, key));
+        QVERIFY(manager.initialize());
+        const auto folderResult = manager.addFolder(folder(QStringLiteral("Temporary")));
+        QVERIFY(folderResult);
+        deletedFolderId = folderResult.value;
+        QVERIFY(!manager.assignNote(QStringLiteral("tomboy"), QStringLiteral("note"), deletedFolderId));
+
+        const auto deleted = manager.trashFolderBranch(deletedFolderId);
+        QVERIFY2(deleted, qPrintable(deleted.error.message));
+        QCOMPARE(deleted.value.folders.size(), 1);
+        QCOMPARE(deleted.value.folders.constFirst().name, QStringLiteral("Temporary"));
+    }
+
+    FolderCatalogManager reloaded(std::make_unique<FileFolderCatalogStore>(path, key));
+    QVERIFY(reloaded.initialize());
+    QVERIFY(!reloaded.catalog().folder(deletedFolderId));
+    const auto *assignment = reloaded.catalog().assignment(QStringLiteral("tomboy"), QStringLiteral("note"));
+    QVERIFY(assignment);
+    QVERIFY(FolderCatalog::isRecycleBinId(assignment->folderId));
+    QVERIFY(assignment->previousFolderId.isNull());
+    bool tombstoneFound = false;
+    for (const auto &record : reloaded.catalog().snapshot().folders) {
+        if (record.id != deletedFolderId)
+            continue;
+        tombstoneFound = true;
+        QVERIFY(record.tombstone);
+        QVERIFY(record.name.isEmpty());
+        QVERIFY(record.parentId.isNull());
+    }
+    QVERIFY(tombstoneFound);
 }
 
 void FolderCatalogManagerTest::collapsesAllFoldersInOneCatalogUpdate()

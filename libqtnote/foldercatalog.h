@@ -68,6 +68,21 @@ struct QTNOTE_EXPORT FolderCatalogSnapshot {
     QList<ProviderPathHint>     pathHints;
 };
 
+/**
+ * Volatile undo payload for deleting a folder branch.
+ *
+ * It is intentionally not serialized. Deleted folder tombstones retain only
+ * identity/revision data, while this snapshot keeps the names, hierarchy,
+ * flags, provider hints and original note assignments for a manager-session
+ * Undo operation.
+ */
+struct QTNOTE_EXPORT DeletedFolderBranch {
+    QUuid                       rootId;
+    QList<FolderRecord>         folders;
+    QList<NoteFolderAssignment> assignments;
+    QList<ProviderPathHint>     pathHints;
+};
+
 struct QTNOTE_EXPORT FolderCatalogError {
     enum Code {
         None,
@@ -125,6 +140,13 @@ public:
     static QUuid recycleBinId();
     static bool  isRecycleBinId(const QUuid &id);
     bool         isRecycled(const QString &storageId, const QString &noteId) const;
+    /** True when this folder or one of its ancestors is archived. */
+    bool isInArchivedBranch(const QUuid &id) const;
+    /**
+     * Effective favorite state inherited from the nearest favorite ancestor.
+     * Archived branches and the Recycle Bin never contribute favorites.
+     */
+    bool isEffectivelyFavorite(const QUuid &id) const;
 
     FolderCatalogResult<QUuid> addFolder(FolderRecord record);
     FolderCatalogError         updateFolder(FolderRecord record);
@@ -135,6 +157,8 @@ public:
     FolderCatalogError setFolderCollapsed(const QUuid &id, bool collapsed);
     FolderCatalogError setAllFoldersCollapsed(bool collapsed);
     FolderCatalogError setFolderFlags(const QUuid &id, bool favorite, bool archived);
+    FolderCatalogResult<DeletedFolderBranch> trashFolderBranch(const QUuid &id);
+    FolderCatalogError                       restoreFolderBranch(const DeletedFolderBranch &branch);
 
     FolderCatalogError assignNote(const QString &storageId, const QString &noteId, const QUuid &folderId);
     FolderCatalogError clearNoteAssignment(const QString &storageId, const QString &noteId);

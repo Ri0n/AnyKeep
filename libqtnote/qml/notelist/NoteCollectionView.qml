@@ -61,7 +61,11 @@ Item {
     property var diagnosticHandler: null
 
     readonly property real rowHeight: touchActions ? 44 : 34
-    readonly property real viewWidth: width
+    readonly property int verticalScrollBarInset:
+        treeView.contentHeight > treeView.height
+        ? Math.ceil(Math.max(verticalScrollBar.width, verticalScrollBar.implicitWidth)) : 0
+    readonly property real viewWidth: Math.max(0, width - verticalScrollBarInset)
+    onVerticalScrollBarInsetChanged: Qt.callLater(function() { treeView.forceLayout() })
     readonly property var activePayload: reorderController.sourcePayload
     readonly property var dropBoundary: reorderController.targetBoundary
     readonly property bool dragging: reorderController.dragging
@@ -194,8 +198,8 @@ Item {
         rowSpacing: 1
         boundsBehavior: Flickable.StopAtBounds
         bottomMargin: collection.touchActions ? 88 : 0
-        ScrollBar.vertical: ScrollBar { }
-        columnWidthProvider: function(column) { return Math.floor(treeView.width) }
+        ScrollBar.vertical: ScrollBar { id: verticalScrollBar }
+        columnWidthProvider: function(column) { return Math.floor(collection.viewWidth) }
         rowHeightProvider: function(row) { return collection.rowHeight }
         onWidthChanged: Qt.callLater(function() { treeView.forceLayout() })
         Component.onCompleted: Qt.callLater(function() {

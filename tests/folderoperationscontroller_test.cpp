@@ -11,6 +11,7 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <algorithm>
 #include <memory>
 
 using namespace QtNote;
@@ -108,6 +109,7 @@ private slots:
     void initTestCase();
     void storesOverlayForUnsupportedStorage();
     void preparesNativeTreeBeforeMetadataOnlyMove();
+    void propagatesFolderTombstonesOverStaleNativeAssignments();
     void retainsOverlayWhenNativeMoveFails();
 };
 
@@ -194,6 +196,53 @@ void FolderOperationsControllerTest::preparesNativeTreeBeforeMetadataOnlyMove()
     QCOMPARE(raw->lastReplacedCatalog.folders.first().id, folder);
     QCOMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("note")), folder);
     QVERIFY(finished.constFirst().at(3).toBool());
+}
+
+void FolderOperationsControllerTest::propagatesFolderTombstonesOverStaleNativeAssignments()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    QVERIFY(catalog.initialize());
+    const auto folder      = addFolder(catalog);
+    const auto savedFolder = *catalog.catalog().folder(folder);
+    const auto deleted     = catalog.trashFolderBranch(folder);
+    QVERIFY2(deleted, qPrintable(deleted.error.message));
+
+    auto storage   = std::make_unique<FolderOperationStorage>(QStringLiteral("folder-native-delete"), true, true);
+    storage->notes = { storage->makeNote(QStringLiteral("note"), QStringLiteral("Native deleted folder")) };
+    storage->notes.first().setFolderId(folder);
+    storage->catalog_.folders = { savedFolder };
+    NoteFolderAssignment staleAssignment;
+    staleAssignment.storageId     = storage->systemName();
+    staleAssignment.noteId        = QStringLiteral("note");
+    staleAssignment.folderId      = folder;
+    staleAssignment.revision      = 1;
+    staleAssignment.modifiedAt    = savedFolder.modifiedAt;
+    storage->catalog_.assignments = { staleAssignment };
+
+    auto *raw = registerStorage(std::move(storage));
+    QTRY_VERIFY(NoteManager::instance()->notesIndex()->hasSnapshot(raw->systemName()));
+    const auto cleanup = qScopeGuard([raw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+
+    FolderOperationsController controller(&catalog, NoteManager::instance());
+    QSignalSpy                 prepared(&controller, &FolderOperationsController::nativeTreePrepared);
+    QVERIFY(controller.prepareNativeFolderTree(raw->systemName()));
+    QTRY_COMPARE(prepared.count(), 1);
+    QCOMPARE(raw->replaceCalls, 1);
+
+    const auto tombstone
+        = std::find_if(raw->lastReplacedCatalog.folders.cbegin(), raw->lastReplacedCatalog.folders.cend(),
+                       [folder](const FolderRecord &record) { return record.id == folder; });
+    QVERIFY(tombstone != raw->lastReplacedCatalog.folders.cend());
+    QVERIFY(tombstone->tombstone);
+    QVERIFY(tombstone->name.isEmpty());
+    QVERIFY(raw->lastReplacedCatalog.assignments.isEmpty());
+    QVERIFY(prepared.constFirst().at(1).toBool());
 }
 
 void FolderOperationsControllerTest::retainsOverlayWhenNativeMoveFails()

@@ -68,8 +68,10 @@ public:
     FolderCatalogError         setFolderCollapsed(const QUuid &id, bool collapsed);
     FolderCatalogError         setAllFoldersCollapsed(bool collapsed);
     FolderCatalogError         setFolderFlags(const QUuid &id, bool favorite, bool archived);
-    FolderCatalogError         assignNote(const QString &storageId, const QString &noteId, const QUuid &folderId);
-    FolderCatalogError         clearNoteAssignment(const QString &storageId, const QString &noteId);
+    FolderCatalogResult<DeletedFolderBranch> trashFolderBranch(const QUuid &id);
+    FolderCatalogError                       restoreFolderBranch(const DeletedFolderBranch &branch);
+    FolderCatalogError assignNote(const QString &storageId, const QString &noteId, const QUuid &folderId);
+    FolderCatalogError clearNoteAssignment(const QString &storageId, const QString &noteId);
     FolderCatalogError recycleNote(const QString &storageId, const QString &noteId, const QUuid &previousFolderId);
     FolderCatalogResult<QUuid> restoreRecycledNote(const QString &storageId, const QString &noteId);
     FolderCatalogError         reconcileProviderFolderPaths(const QString                             &storageId,

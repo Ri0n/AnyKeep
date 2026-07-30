@@ -34,7 +34,11 @@ ApplicationWindow {
     }
 
     onClosing: function(close) {
-        if (!managerPage.closeWorkspace())
+        if (!managerPage.closeWorkspace()) {
             close.accepted = false
+            return
+        }
+        if (typeof notesWorkspace.clearFolderTrashUndo === "function")
+            notesWorkspace.clearFolderTrashUndo()
     }
 }

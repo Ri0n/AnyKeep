@@ -66,6 +66,7 @@ private slots:
     void createsUnnamedFoldersForInlineRename();
     void exposesFoldersAndMovesCleanEditorMetadata();
     void recycleBinHidesNotesUntilRestored();
+    void deletesFolderBranchesWithSessionUndo();
     void recentReorderRejectsCrossStorageMove();
 };
 
@@ -182,6 +183,51 @@ void NotesWorkspaceFoldersTest::recycleBinHidesNotesUntilRestored()
     QVERIFY(workspace.restoreRecycledNote(raw->systemName(), QStringLiteral("note")));
     QVERIFY(!catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("note")));
     QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 1);
+}
+
+void NotesWorkspaceFoldersTest::deletesFolderBranchesWithSessionUndo()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    QVERIFY(catalog.initialize());
+
+    auto storage   = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-folder-delete"));
+    storage->notes = {
+        storage->makeNote(QStringLiteral("one"), QStringLiteral("Parent note")),
+        storage->makeNote(QStringLiteral("two"), QStringLiteral("Child note")),
+    };
+    auto *raw     = storage.get();
+    auto *manager = NoteManager::instance();
+    manager->registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([manager, raw] {
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+    QTRY_VERIFY(manager->notesIndex()->hasSnapshot(raw->systemName()));
+
+    NotesWorkspaceController workspace(&catalog, nullptr);
+    const auto               parent = workspace.createFolder(QStringLiteral("Projects"));
+    const auto               child  = workspace.createFolder(QStringLiteral("QtNote"), parent);
+    QVERIFY(!parent.isEmpty());
+    QVERIFY(!child.isEmpty());
+    QVERIFY(workspace.assignNoteFolder(raw->systemName(), QStringLiteral("one"), parent));
+    QVERIFY(workspace.assignNoteFolder(raw->systemName(), QStringLiteral("two"), child));
+
+    QVERIFY(workspace.trashFolder(parent));
+    QVERIFY(workspace.canUndoFolderTrash());
+    QCOMPARE(workspace.lastTrashedFolderName(), QStringLiteral("Projects"));
+    QVERIFY(!catalog.catalog().folder(QUuid(parent)));
+    QVERIFY(!catalog.catalog().folder(QUuid(child)));
+    QVERIFY(catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("one")));
+    QVERIFY(catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("two")));
+
+    QVERIFY(workspace.undoFolderTrash());
+    QVERIFY(!workspace.canUndoFolderTrash());
+    QVERIFY(catalog.catalog().folder(QUuid(parent)));
+    QVERIFY(catalog.catalog().folder(QUuid(child)));
+    QCOMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("one")), QUuid(parent));
+    QCOMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("two")), QUuid(child));
 }
 
 void NotesWorkspaceFoldersTest::recentReorderRejectsCrossStorageMove()

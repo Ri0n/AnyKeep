@@ -1,6 +1,7 @@
 #ifndef NOTESWORKSPACECONTROLLER_H
 #define NOTESWORKSPACECONTROLLER_H
 
+#include "foldercatalog.h"
 #include "note.h"
 #include "qtnote_export.h"
 
@@ -47,6 +48,8 @@ class QTNOTE_EXPORT NotesWorkspaceController final : public QObject {
     Q_PROPERTY(bool searching READ searching NOTIFY searchingChanged)
     Q_PROPERTY(QVariantList storages READ storages NOTIFY storagesChanged)
     Q_PROPERTY(bool folderCatalogAvailable READ folderCatalogAvailable NOTIFY folderCatalogAvailabilityChanged)
+    Q_PROPERTY(bool canUndoFolderTrash READ canUndoFolderTrash NOTIFY folderTrashUndoChanged)
+    Q_PROPERTY(QString lastTrashedFolderName READ lastTrashedFolderName NOTIFY folderTrashUndoChanged)
 
 public:
     explicit NotesWorkspaceController(QObject *parent = nullptr);
@@ -75,6 +78,8 @@ public:
     bool                searching() const;
     QVariantList        storages() const;
     bool                folderCatalogAvailable() const;
+    bool                canUndoFolderTrash() const { return !deletedFolderBranches_.isEmpty(); }
+    QString             lastTrashedFolderName() const;
 
     Q_INVOKABLE bool openNote(const QString &storageId, const QString &noteId);
     bool             openNote(const Note &note, const QUuid &draftId = {});
@@ -117,6 +122,9 @@ public:
     Q_INVOKABLE bool    setFolderCollapsed(const QString &folderId, bool collapsed);
     Q_INVOKABLE bool    setUnsortedCollapsed(bool collapsed);
     Q_INVOKABLE bool    setFolderFlags(const QString &folderId, bool favorite, bool archived);
+    Q_INVOKABLE bool    trashFolder(const QString &folderId);
+    Q_INVOKABLE bool    undoFolderTrash();
+    Q_INVOKABLE void    clearFolderTrashUndo();
     Q_INVOKABLE bool    collapseAllFolders();
     Q_INVOKABLE QString folderIdForNote(const QString &storageId, const QString &noteId) const;
     Q_INVOKABLE bool    assignNoteFolder(const QString &storageId, const QString &noteId, const QString &folderId);
@@ -140,6 +148,7 @@ signals:
     void searchingChanged();
     void storagesChanged();
     void folderCatalogAvailabilityChanged();
+    void folderTrashUndoChanged();
     void openStandaloneRequested(const QString &storageId, const QString &noteId);
     void storageSettingsRequested(const QString &storageId);
 
@@ -199,6 +208,7 @@ private:
     QHash<QUuid, PendingMove>             pendingMoves_;
     QHash<QUuid, PendingReorder>          pendingReorders_;
     QHash<QUuid, PendingFolderAssignment> pendingFolderAssignments_;
+    QList<DeletedFolderBranch>            deletedFolderBranches_;
     bool                                  loading_ { false };
     int                                   pendingOperations_ { 0 };
     QString                               errorString_;

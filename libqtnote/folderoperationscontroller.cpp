@@ -19,8 +19,11 @@ the Free Software Foundation, either version 3 of the License, or
 #include <QCoreApplication>
 #include <QLoggingCategory>
 #include <QPointer>
+#include <QSet>
 #include <QSharedPointer>
 #include <QTimer>
+
+#include <algorithm>
 
 namespace QtNote {
 
@@ -183,8 +186,41 @@ FolderCatalogResult<FolderCatalogSnapshot> FolderOperationsController::nativeTre
                                                                        : storage->nativeFolderCatalogErrorString() } };
     }
 
+    auto       providerSnapshot = storage->nativeFolderCatalog();
+    const auto incomingWins     = [](const FolderRecord &incoming, const FolderRecord &current) {
+        if (incoming.revision != current.revision)
+            return incoming.revision > current.revision;
+        if (incoming.modifiedAt.isValid() != current.modifiedAt.isValid())
+            return incoming.modifiedAt.isValid();
+        return incoming.modifiedAt > current.modifiedAt;
+    };
+    QSet<QUuid> deletedFolderIds;
+    for (const auto &folder : catalogManager_->snapshot().folders) {
+        if (!folder.tombstone)
+            continue;
+        const auto providerFolder
+            = std::find_if(providerSnapshot.folders.cbegin(), providerSnapshot.folders.cend(),
+                           [&folder](const FolderRecord &candidate) { return candidate.id == folder.id; });
+        if (providerFolder == providerSnapshot.folders.cend() || incomingWins(folder, *providerFolder))
+            deletedFolderIds.insert(folder.id);
+    }
+    if (!deletedFolderIds.isEmpty()) {
+        providerSnapshot.assignments.erase(
+            std::remove_if(providerSnapshot.assignments.begin(), providerSnapshot.assignments.end(),
+                           [&deletedFolderIds](const NoteFolderAssignment &assignment) {
+                               return !assignment.tombstone && deletedFolderIds.contains(assignment.folderId);
+                           }),
+            providerSnapshot.assignments.end());
+        providerSnapshot.pathHints.erase(std::remove_if(providerSnapshot.pathHints.begin(),
+                                                        providerSnapshot.pathHints.end(),
+                                                        [&deletedFolderIds](const ProviderPathHint &hint) {
+                                                            return deletedFolderIds.contains(hint.folderId);
+                                                        }),
+                                         providerSnapshot.pathHints.end());
+    }
+
     FolderCatalog providerCatalog;
-    if (const auto validation = providerCatalog.replaceSnapshot(storage->nativeFolderCatalog()))
+    if (const auto validation = providerCatalog.replaceSnapshot(std::move(providerSnapshot)))
         return { {}, validation };
 
     FolderCatalogSnapshot globalFolders;

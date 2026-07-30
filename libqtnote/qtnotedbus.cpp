@@ -150,9 +150,9 @@ QString QtNoteDBus::notesJson(int offset, int limit, const QString &query) const
         // The menu is a quick route to active notes. Archived folders are
         // deliberately hidden; Recycle Bin entries are only reachable from
         // the manager, where restore and permanent-delete actions exist.
-        if (folder && (folder->archived || FolderCatalog::isRecycleBinId(folder->id)))
+        if (folder && catalog->isInArchivedBranch(folder->id))
             continue;
-        notes.append({ note, folder && folder->favorite });
+        notes.append({ note, folder && catalog->isEffectivelyFavorite(folder->id) });
     }
     std::stable_partition(notes.begin(), notes.end(), [](const MenuNote &entry) { return entry.favorite; });
 
