@@ -1,6 +1,9 @@
 #include <QtTest>
 
+#include "localdatakeystore.h"
+#include "localmediastore.h"
 #include "ptfstorage.h"
+#include "secureenvelope.h"
 
 #include <QDir>
 #include <QFile>
@@ -36,6 +39,49 @@ class PTFStorageTest : public QObject {
     }
 
 private slots:
+    void styledAndMarkdownImagesSurviveFreshStorageInstance()
+    {
+        QTemporaryDir notesDirectory;
+        QTemporaryDir mediaDirectory;
+        QVERIFY(notesDirectory.isValid());
+        QVERIFY(mediaDirectory.isValid());
+
+        const auto masterKey = SecureEnvelope::generateMasterKey();
+        QCOMPARE(masterKey.size(), LocalDataKeyStore::MasterKeySize);
+        LocalMediaStore  mediaWriter(mediaDirectory.path(), masterKey);
+        const QByteArray imageBytes("not-decoded-by-the-storage-test");
+        const auto       imported = mediaWriter.importData(imageBytes, QStringLiteral("diagram with spaces.png"),
+                                                           QStringLiteral("image/png"));
+        QVERIFY2(imported, qPrintable(imported.error));
+
+        QString body = QStringLiteral("![Default](%1)\n\n"
+                                      "<p align=\"right\"><img src=\"%1\" alt=\"Styled\" width=\"320\" /></p>")
+                           .arg(imported.value.uri());
+        {
+            PTFStorage writer(mediaWriter);
+            QVERIFY(writer.setStoragePath(notesDirectory.path()));
+            Note note = writer.createNote();
+            note.setTitle(QStringLiteral("Images"));
+            note.setText(body, Note::Markdown);
+            note.setMedia({ imported.value });
+            QVERIFY(writer.saveNote(note));
+        }
+
+        LocalMediaStore mediaReader(mediaDirectory.path(), masterKey);
+        PTFStorage      reader(mediaReader);
+        QVERIFY(reader.setStoragePath(notesDirectory.path()));
+        const auto notes = reader.noteList();
+        QCOMPARE(notes.size(), 1);
+        Note loaded = notes.constFirst();
+        QVERIFY(loaded.load());
+        QCOMPARE(loaded.text(), body);
+        QCOMPARE(loaded.media().size(), 1);
+        QCOMPARE(loaded.media().constFirst().id, imported.value.id);
+        const auto opened = mediaReader.data(loaded.media().constFirst().blobId);
+        QVERIFY2(opened, qPrintable(opened.error));
+        QCOMPARE(opened.value, imageBytes);
+    }
+
     void noteSurvivesFreshStorageInstance()
     {
         QTemporaryDir directory;

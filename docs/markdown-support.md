@@ -26,6 +26,8 @@ considered supported merely because `QTextDocument` happens to render it.
 | Task lists | Structured | `- [ ]` and `- [x]`, including nested mixed lists. |
 | Tables | Structured | Rectangular GFM tables with one header row. Inline formatting, links and `<br>` inside cells are supported. Alignment markers, captions, row/column spans and multiple header rows are not. |
 | Standalone images | Structured | Markdown image blocks and QtNote media references. Images mixed inline with paragraph text are not yet supported. |
+| Block quotes | Structured | Single-level block quotes are edited as dedicated blocks. Nested quotes and complex child blocks are not yet supported. |
+| Fenced code blocks | Structured | Backtick and tilde fences are accepted. Output uses a backtick fence longer than every backtick run in the literal code. The first info-string token is preserved as the language identifier; supported languages receive syntax highlighting. Code text bypasses inline Markdown, list, table and hard-break normalization. |
 | Emphasis | Inline | `*italic*`; editable with `Ctrl+I`. |
 | Strong emphasis | Inline | `**bold**`; editable with `Ctrl+B`. |
 | Strikethrough | Inline | `~~text~~`; editable with `Ctrl+Shift+S`. |
@@ -44,9 +46,8 @@ formatting from office applications to `<ins>` instead of allowing
 The following need explicit model and editor work before they can be called
 supported:
 
-* block quotes, including nested quotes;
-* fenced and indented code blocks, language identifiers and GitHub Mermaid
-  diagrams;
+* nested block quotes and complex quote children;
+* indented code blocks and GitHub Mermaid diagram rendering;
 * thematic breaks;
 * reference-style links and reference definitions;
 * multi-paragraph list items and other complex list children;
@@ -64,7 +65,7 @@ with round-trip tests.
 
 ## Recommended implementation order
 
-1. Add fenced code blocks, block quotes and thematic breaks as new block types.
+1. Add thematic breaks, indented code input and nested/complex block quotes.
 2. Add inline images to the inline document model rather than emulating them as
    standalone QML blocks.
 3. Preserve table alignment and ordered-list start metadata.

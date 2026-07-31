@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QtTest>
 
+#include "pluginiconimageprovider.h"
 #include "pluginmetadata.h"
 
 using namespace QtNote;
@@ -13,8 +14,9 @@ class PluginMetadataTest : public QObject {
 
 private slots:
     void localizedValuesAndIcon();
-    void keepsIconEncodedDuringParsing();
+    void keepsSvgBytesUnrenderedDuringParsing();
     void rejectsMalformedIconBase64();
+    void rendersAndCachesMetadataIcons();
     void languageFallback();
     void rejectsUnsupportedSchema();
     void rejectsInvalidSemanticVersion();
@@ -75,10 +77,11 @@ void PluginMetadataTest::localizedValuesAndIcon()
     QCOMPARE(metadata.desktopEnvironments, QStringList({ QStringLiteral("cinnamon"), QStringLiteral("x-cinnamon") }));
     QVERIFY(metadata.extra.value(QStringLiteral("configurable")).toBool());
     QCOMPARE(metadata.iconMimeType, QStringLiteral("image/png"));
-    QVERIFY(metadata.iconSource.startsWith(QStringLiteral("data:image/png;base64,")));
+    QVERIFY(!metadata.iconData.isEmpty());
+    QCOMPARE(QImage::fromData(metadata.iconData).size(), QSize(2, 2));
 }
 
-void PluginMetadataTest::keepsIconEncodedDuringParsing()
+void PluginMetadataTest::keepsSvgBytesUnrenderedDuringParsing()
 {
     auto root = metadataObject();
     auto data = root.value(QStringLiteral("MetaData")).toObject();
@@ -92,7 +95,7 @@ void PluginMetadataTest::keepsIconEncodedDuringParsing()
     QString        error;
     QVERIFY2(pluginMetadataFromJson(root, QLocale::c(), &metadata, &error), qPrintable(error));
     QCOMPARE(metadata.iconMimeType, QStringLiteral("image/svg+xml"));
-    QVERIFY(metadata.iconSource.startsWith(QStringLiteral("data:image/svg+xml;base64,")));
+    QCOMPARE(metadata.iconData, QByteArray("not decoded as an image"));
 }
 
 void PluginMetadataTest::rejectsMalformedIconBase64()
@@ -108,6 +111,27 @@ void PluginMetadataTest::rejectsMalformedIconBase64()
     QString        error;
     QVERIFY(!pluginMetadataFromJson(root, QLocale::c(), &metadata, &error));
     QVERIFY(error.contains(QStringLiteral("Base64")));
+}
+
+void PluginMetadataTest::rendersAndCachesMetadataIcons()
+{
+    const QByteArray svg = QByteArrayLiteral("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\">"
+                                             "<rect width=\"16\" height=\"16\" fill=\"#ff0000\"/></svg>");
+    registerPluginIcon(QStringLiteral("render-test"), { svg, QStringLiteral("image/svg+xml"), QString() });
+
+    QCOMPARE(pluginIconSource(QStringLiteral("render-test")), QStringLiteral("image://qtnote-plugin-icon/render-test"));
+    const QImage small = pluginIconImage(QStringLiteral("render-test"), QSize(16, 16));
+    const QImage large = pluginIconImage(QStringLiteral("render-test"), QSize(48, 32));
+    QCOMPARE(small.size(), QSize(16, 16));
+    QCOMPARE(large.size(), QSize(48, 32));
+    QVERIFY(!small.isNull());
+    QVERIFY(!large.isNull());
+
+    bindStorageIconToPlugin(QStringLiteral("storage"), QStringLiteral("render-test"));
+    QCOMPARE(pluginIdForStorageIcon(QStringLiteral("storage")), QStringLiteral("render-test"));
+    unbindStorageIcon(QStringLiteral("storage"));
+    QVERIFY(pluginIdForStorageIcon(QStringLiteral("storage")).isEmpty());
+    unregisterPluginIcon(QStringLiteral("render-test"));
 }
 
 void PluginMetadataTest::languageFallback()

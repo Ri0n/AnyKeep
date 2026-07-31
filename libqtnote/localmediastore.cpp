@@ -4,13 +4,18 @@
 #include "secureenvelope.h"
 #include "utils.h"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QMessageAuthenticationCode>
 #include <QMimeDatabase>
+#include <QMutexLocker>
 #include <QSaveFile>
+#include <QThread>
+
+#include <utility>
 
 namespace QtNote {
 namespace {
@@ -37,11 +42,60 @@ QString LocalMediaStore::blobPath(const QByteArray &blobId) const
         + QString::fromLatin1(hex.mid(2, 2)) + QLatin1Char('/') + QString::fromLatin1(hex) + QStringLiteral(".blob");
 }
 
+bool LocalMediaStore::initialize(QString *error) const
+{
+    {
+        const QMutexLocker locker(&masterKeyMutex_);
+        if (!masterKey_.isEmpty()) {
+            if (error)
+                error->clear();
+            return true;
+        }
+    }
+
+    auto *application = QCoreApplication::instance();
+    if (application && QThread::currentThread() != application->thread()) {
+        if (error) {
+            *error = QCoreApplication::translate(
+                "LocalMediaStore", "The local media store must be initialized on the application thread.");
+        }
+        return false;
+    }
+
+    QString keyError;
+    auto    key = LocalDataKeyStore::loadOrCreateMasterKey(&keyError);
+    if (key.isEmpty()) {
+        if (error)
+            *error = keyError;
+        return false;
+    }
+
+    {
+        const QMutexLocker locker(&masterKeyMutex_);
+        if (masterKey_.isEmpty())
+            masterKey_ = std::move(key);
+    }
+    if (error)
+        error->clear();
+    return true;
+}
+
 QByteArray LocalMediaStore::masterKey(QString *error) const
 {
-    if (!masterKey_.isEmpty())
-        return masterKey_;
-    return LocalDataKeyStore::loadOrCreateMasterKey(error);
+    {
+        const QMutexLocker locker(&masterKeyMutex_);
+        if (!masterKey_.isEmpty()) {
+            if (error)
+                error->clear();
+            return masterKey_;
+        }
+    }
+
+    if (!initialize(error))
+        return {};
+
+    const QMutexLocker locker(&masterKeyMutex_);
+    return masterKey_;
 }
 
 LocalMediaResult LocalMediaStore::importFile(const QString &fileName, const QUuid &attachmentId)

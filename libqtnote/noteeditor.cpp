@@ -430,6 +430,15 @@ void NoteEditor::restoreScalarField(int blockIndex, int role, int fieldIndex, co
     case NoteBlockModel::AltRole:
         model_->setImageAlt(blockIndex, value);
         break;
+    case NoteBlockModel::ImageWidthRole:
+        model_->setImageWidth(blockIndex, value.toInt());
+        break;
+    case NoteBlockModel::ImageAlignmentRole:
+        model_->setImageAlignment(blockIndex, value);
+        break;
+    case NoteBlockModel::LanguageRole:
+        model_->setCodeLanguage(blockIndex, value);
+        break;
     }
 }
 

@@ -31,6 +31,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QUrl>
 
 #include <algorithm>
+#include <utility>
 
 #ifdef Q_OS_WIN
 #include <QLibrary>
@@ -122,36 +123,78 @@ namespace {
         }
     }
 
-    QString importSidecarImages(QString body, const QString &noteId, const QDir &notesDir, QList<MediaReference> &media)
+    QString decodeHtmlAttribute(QString value)
+    {
+        value.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
+        value.replace(QStringLiteral("&#39;"), QStringLiteral("'"));
+        value.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
+        value.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
+        value.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
+        return value;
+    }
+
+    QString importSidecarImages(QString body, const QString &noteId, const QDir &notesDir, LocalMediaStore &mediaStore,
+                                QList<MediaReference> &media)
     {
         const QDir sidecar(notesDir.filePath(noteId));
         if (!sidecar.exists())
             return body;
-        const auto                      metadata = readMediaMetadata(sidecar);
-        static const QRegularExpression imagePattern(QStringLiteral(R"(!\[([^\]]*)\]\(([^\s\)]+)(?:\s+"[^"]*")?\))"));
-        auto                            matches = imagePattern.globalMatch(body);
+        const auto metadata = readMediaMetadata(sidecar);
+
+        struct SourceMatch {
+            qsizetype start;
+            qsizetype length;
+            QString   target;
+        };
+        QList<SourceMatch> sources;
+
+        static const QRegularExpression markdownImage(QStringLiteral(R"(!\[([^\]]*)\]\(([^\s\)]+)(?:\s+"[^"]*")?\))"));
+        auto                            markdownMatches = markdownImage.globalMatch(body);
+        while (markdownMatches.hasNext()) {
+            const auto match = markdownMatches.next();
+            sources.append({ match.capturedStart(2), match.capturedLength(2), match.captured(2) });
+        }
+
+        // Resized or non-centred images are serialized as a self-contained
+        // HTML paragraph. PTF still materializes the same sidecar files, so
+        // restore the src attribute through the local media store as well.
+        static const QRegularExpression htmlImage(QStringLiteral(R"(<img\b[^>]*?\s+src\s*=\s*(["'])(.*?)\1[^>]*>)"),
+                                                  QRegularExpression::CaseInsensitiveOption);
+        auto                            htmlMatches = htmlImage.globalMatch(body);
+        while (htmlMatches.hasNext()) {
+            const auto match = htmlMatches.next();
+            sources.append({ match.capturedStart(2), match.capturedLength(2), decodeHtmlAttribute(match.captured(2)) });
+        }
+
+        std::sort(sources.begin(), sources.end(),
+                  [](const SourceMatch &left, const SourceMatch &right) { return left.start < right.start; });
+
         struct Replacement {
             qsizetype start;
             qsizetype length;
             QString   value;
         };
         QList<Replacement> replacements;
-        while (matches.hasNext()) {
-            const auto match  = matches.next();
-            const auto target = QUrl::fromPercentEncoding(match.captured(2).toUtf8());
+        qsizetype          previousEnd = -1;
+        for (const auto &source : std::as_const(sources)) {
+            if (source.start < previousEnd)
+                continue;
+            previousEnd = source.start + source.length;
+
+            const auto rawTarget = source.target;
             QString    mediaName;
             QUuid      uriId;
-            if (target.startsWith(QStringLiteral("qtnote-media:/"))) {
-                const auto parts = QUrl(target).path().split(QLatin1Char('/'), Qt::SkipEmptyParts);
+            if (rawTarget.startsWith(QStringLiteral("qtnote-media:/"), Qt::CaseInsensitive)) {
+                const QUrl targetUrl(rawTarget);
+                const auto parts = targetUrl.path(QUrl::FullyDecoded).split(QLatin1Char('/'), Qt::SkipEmptyParts);
                 if (parts.size() != 2)
                     continue;
-                uriId                      = QUuid(parts.at(0));
-                mediaName                  = parts.at(1);
-                const auto alreadyImported = std::find_if(media.cbegin(), media.cend(),
-                                                          [&uriId](const auto &item) { return item.id == uriId; });
-                if (alreadyImported != media.cend())
+                uriId     = QUuid(parts.at(0));
+                mediaName = parts.at(1);
+                if (uriId.isNull())
                     continue;
             } else {
+                const auto      target = QUrl::fromPercentEncoding(rawTarget.toUtf8());
                 const QFileInfo relative(target);
                 if (relative.isAbsolute() || target.contains(QStringLiteral(".."))
                     || target.contains(QLatin1Char('\\')))
@@ -162,9 +205,18 @@ namespace {
                 if (mediaName.contains(QLatin1Char('/')))
                     continue;
             }
+
+            const auto alreadyImported = std::find_if(
+                media.cbegin(), media.cend(), [&uriId, &mediaName](const auto &item) {
+                    return (!uriId.isNull() && item.id == uriId) || (uriId.isNull() && item.portableName == mediaName);
+                });
+            if (alreadyImported != media.cend()) {
+                replacements.prepend({ source.start, source.length, alreadyImported->uri() });
+                continue;
+            }
+
             const auto item     = metadata.value(mediaName);
-            auto       imported = LocalMediaStore::instance()->importFile(sidecar.filePath(mediaName),
-                                                                    uriId.isNull() ? item.id : uriId);
+            auto       imported = mediaStore.importFile(sidecar.filePath(mediaName), uriId.isNull() ? item.id : uriId);
             if (!imported)
                 continue;
             if (!item.originalName.isEmpty())
@@ -172,15 +224,19 @@ namespace {
             if (!item.mediaType.isEmpty())
                 imported.value.mediaType = item.mediaType;
             media.append(imported.value);
-            replacements.prepend({ match.capturedStart(2), match.capturedLength(2), imported.value.uri() });
+            replacements.prepend({ source.start, source.length, imported.value.uri() });
         }
-        for (const auto &replacement : replacements)
+        for (const auto &replacement : std::as_const(replacements))
             body.replace(replacement.start, replacement.length, replacement.value);
         return body;
     }
+
 } // namespace
 
-PTFStorage::PTFStorage(QObject *parent) : FileStorage(parent), icon(QLatin1String(":/icons/trayicon"))
+PTFStorage::PTFStorage(QObject *parent) : PTFStorage(*LocalMediaStore::instance(), parent) { }
+
+PTFStorage::PTFStorage(LocalMediaStore &mediaStore, QObject *parent) :
+    FileStorage(parent), icon(QLatin1String(":/icons/trayicon")), mediaStore_(mediaStore)
 {
     fileExt.append(QLatin1String("txt"));
     fileExt.append(QLatin1String("md"));
@@ -329,7 +385,7 @@ bool PTFStorage::loadNote(Note &note)
                           << "suffix=" << QFileInfo(fileName).suffix() << "bytes=" << file.size();
     QList<MediaReference> media;
     if (QFileInfo(fileName).suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0)
-        contents = importSidecarImages(contents, QFileInfo(fileName).completeBaseName(), notesDir, media);
+        contents = importSidecarImages(contents, QFileInfo(fileName).completeBaseName(), notesDir, mediaStore_, media);
     auto [title, body] = Utils::splitTitle(contents);
     note.setTitle(title);
     note.setText(body,
@@ -378,7 +434,7 @@ bool PTFStorage::saveNote(const Note &note)
         QJsonArray    manifest;
         QSet<QString> usedNames;
         for (const auto &reference : note.media()) {
-            const auto loaded = LocalMediaStore::instance()->data(reference.blobId);
+            const auto loaded = mediaStore_.data(reference.blobId);
             if (!loaded) {
                 qWarning() << "Failed to materialize note attachment:" << loaded.error;
                 return false;

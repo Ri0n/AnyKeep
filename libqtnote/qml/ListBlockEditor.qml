@@ -477,56 +477,35 @@ Column {
                 }
             }
 
-            Reorder.ReorderDragHandle {
+            Reorder.BlockReorderHandle {
                 id: levelHandle
 
-                property bool hovered: false
                 readonly property var handleRange: editorView.touchMode ? listRoot.activeLevelRange
                                                                          : rowWrapper.ownLevelRange
                 readonly property int handleLevel: editorView.touchMode ? listRoot.activeLevel
                                                                         : rowWrapper.itemIndent
                 readonly property bool active: editorView.touchMode ? rowWrapper.ownsLevelHandle
                                                                     : rowWrapper.startsLevelRange
-                readonly property bool shown: active && !reorderController.dragging
-                                              && (editorView.touchMode || hovered)
 
                 objectName: "listLevelReorderHandle-" + listRoot.blockIndex + "-"
                             + handleLevel + "-" + rowWrapper.index
-                visible: active
-                opacity: shown ? 1 : 0
+                visible: active && (!reorderController.dragging || dragging)
+                forceVisible: editorView.touchMode
+                fullHeight: true
                 x: handleLevel * editorView.listIndent - levelHandleGutter
                 y: 0
                 width: Math.max(12, levelHandleGutter - 2)
                 height: listRoot.levelHandleHeight(handleRange)
                 z: 10
+                dragEnabled: !reorderController.dragging || dragging
 
-                Behavior on opacity {
-                    NumberAnimation {
-                        duration: 480
-                        easing.type: Easing.OutCubic
-                    }
-                }
-
-                Rectangle {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    width: 3
-                    radius: width / 2
-                    color: "#808080"
-                    opacity: 0.85
-                }
-
-                HoverHandler {
-                    onHoveredChanged: {
-                        levelHandle.hovered = hovered
-                        if (hovered) {
-                            listRoot.handleHoverLevel = levelHandle.handleLevel
-                            listRoot.handleHoverItem = levelHandle.handleRange.start
-                        } else if (listRoot.handleHoverLevel === levelHandle.handleLevel) {
-                            listRoot.handleHoverLevel = -1
-                            listRoot.handleHoverItem = -1
-                        }
+                onHoveredChanged: {
+                    if (hovered) {
+                        listRoot.handleHoverLevel = levelHandle.handleLevel
+                        listRoot.handleHoverItem = levelHandle.handleRange.start
+                    } else if (listRoot.handleHoverLevel === levelHandle.handleLevel) {
+                        listRoot.handleHoverLevel = -1
+                        listRoot.handleHoverItem = -1
                     }
                 }
 

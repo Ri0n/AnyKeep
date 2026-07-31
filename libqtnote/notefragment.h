@@ -32,6 +32,7 @@ enum class NoteFragmentBlockType {
     Table,
     Image,
     BlockQuote,
+    CodeBlock,
 };
 
 enum class NoteFragmentListKind {
@@ -57,6 +58,8 @@ struct QTNOTE_EXPORT NoteFragmentTable {
 struct QTNOTE_EXPORT NoteFragmentImage {
     QString sourceUri;
     QString alt;
+    int     width { 0 };
+    QString alignment { QStringLiteral("center") };
 };
 
 struct QTNOTE_EXPORT NoteFragmentBlock {
@@ -66,6 +69,7 @@ struct QTNOTE_EXPORT NoteFragmentBlock {
     QList<NoteFragmentListItem> listItems;
     NoteFragmentTable           table;
     NoteFragmentImage           image;
+    QString                     language;
 };
 
 // "data" is optional. It is only populated when a clipboard or drag payload
@@ -77,7 +81,7 @@ struct QTNOTE_EXPORT NoteFragmentMedia {
 };
 
 struct QTNOTE_EXPORT NoteFragment {
-    static constexpr quint32 CurrentVersion = 1;
+    static constexpr quint32 CurrentVersion = 3;
 
     quint32                  version { CurrentVersion };
     NoteFragmentKind         kind { NoteFragmentKind::BlockSequence };

@@ -86,6 +86,7 @@ set(qtnote_CORE_SRCS
     notessearchmodel.cpp
     notesworkspacecontroller.cpp
     pluginhost.cpp
+    pluginiconimageprovider.cpp
     pluginlistmodel.cpp
     recentnotesmodel.cpp
     rulescontroller.cpp
@@ -144,6 +145,7 @@ set(qtnote_CORE_HDRS
     notesworkspacecontroller.h
     pluginhost.h
     pluginhostinterface.h
+    pluginiconimageprovider.h
     pluginlistmodel.h
     pluginlistsource.h
     recentnotesmodel.h
@@ -197,10 +199,10 @@ target_include_directories(qtnote_core PUBLIC
 set_target_properties(qtnote_core PROPERTIES
   POSITION_INDEPENDENT_CODE ON
 )
-target_link_libraries(qtnote_core PUBLIC Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Quick Qt${QT_VERSION_MAJOR}::Qml)
-target_link_libraries(qtnote_core PRIVATE qca-qt${QT_VERSION_MAJOR})
+target_link_libraries(qtnote_core PUBLIC Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Quick Qt${QT_VERSION_MAJOR}::Qml Qt${QT_VERSION_MAJOR}::Svg)
+target_link_libraries(qtnote_core PRIVATE qca-qt${QT_VERSION_MAJOR} QSourceHighlite::QSourceHighlite)
 target_link_libraries(qtnote_core PRIVATE Qt${QT_VERSION_MAJOR}Keychain::Qt${QT_VERSION_MAJOR}Keychain)
-foreach(qtnote_core_dependency qtnote_bundled_qca qtnote_bundled_qtkeychain)
+foreach(qtnote_core_dependency qtnote_bundled_qca qtnote_bundled_qtkeychain qtnote_bundled_qsourcehighlite)
     if(TARGET ${qtnote_core_dependency})
         add_dependencies(qtnote_core ${qtnote_core_dependency})
     endif()

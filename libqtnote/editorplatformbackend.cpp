@@ -1,5 +1,7 @@
 #include "editorplatformbackend.h"
 
+#include <qsourcehighliter.h>
+
 #include "defaults.h"
 #include "localmediastore.h"
 #include "noteblockmodel.h"
@@ -16,6 +18,7 @@
 #include <QEvent>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QHash>
 #include <QImage>
 #include <QMimeData>
 #include <QMimeDatabase>
@@ -30,6 +33,7 @@
 #include <QTextLayout>
 #include <QTimer>
 #include <QUrl>
+#include <QVariantMap>
 
 #include <algorithm>
 #include <utility>
@@ -93,6 +97,71 @@ namespace {
             }
         }
         return result;
+    }
+
+    using CodeLanguage = QSourceHighlite::QSourceHighliter::Language;
+
+    const QList<QPair<QString, CodeLanguage>> &codeLanguageMap()
+    {
+        static const QList<QPair<QString, CodeLanguage>> languages {
+            { QStringLiteral("bash"), QSourceHighlite::QSourceHighliter::CodeBash },
+            { QStringLiteral("c"), QSourceHighlite::QSourceHighliter::CodeC },
+            { QStringLiteral("cpp"), QSourceHighlite::QSourceHighliter::CodeCpp },
+            { QStringLiteral("csharp"), QSourceHighlite::QSourceHighliter::CodeCSharp },
+            { QStringLiteral("cmake"), QSourceHighlite::QSourceHighliter::CodeCMake },
+            { QStringLiteral("css"), QSourceHighlite::QSourceHighliter::CodeCSS },
+            { QStringLiteral("go"), QSourceHighlite::QSourceHighliter::CodeGo },
+            { QStringLiteral("ini"), QSourceHighlite::QSourceHighliter::CodeINI },
+            { QStringLiteral("java"), QSourceHighlite::QSourceHighliter::CodeJava },
+            { QStringLiteral("javascript"), QSourceHighlite::QSourceHighliter::CodeJs },
+            { QStringLiteral("json"), QSourceHighlite::QSourceHighliter::CodeJSON },
+            { QStringLiteral("lua"), QSourceHighlite::QSourceHighliter::CodeLua },
+            { QStringLiteral("make"), QSourceHighlite::QSourceHighliter::CodeMake },
+            { QStringLiteral("asm"), QSourceHighlite::QSourceHighliter::CodeAsm },
+            { QStringLiteral("php"), QSourceHighlite::QSourceHighliter::CodePHP },
+            { QStringLiteral("python"), QSourceHighlite::QSourceHighliter::CodePython },
+            { QStringLiteral("qml"), QSourceHighlite::QSourceHighliter::CodeQML },
+            { QStringLiteral("rhai"), QSourceHighlite::QSourceHighliter::CodeRhai },
+            { QStringLiteral("rust"), QSourceHighlite::QSourceHighliter::CodeRust },
+            { QStringLiteral("sql"), QSourceHighlite::QSourceHighliter::CodeSQL },
+            { QStringLiteral("typescript"), QSourceHighlite::QSourceHighliter::CodeTypeScript },
+            { QStringLiteral("v"), QSourceHighlite::QSourceHighliter::CodeV },
+            { QStringLiteral("vex"), QSourceHighlite::QSourceHighliter::CodeVex },
+            { QStringLiteral("xml"), QSourceHighlite::QSourceHighliter::CodeXML },
+            { QStringLiteral("yaml"), QSourceHighlite::QSourceHighliter::CodeYAML },
+        };
+        return languages;
+    }
+
+    QString normalizedCodeLanguage(QString language)
+    {
+        language = language.trimmed().toLower();
+        static const QHash<QString, QString> aliases {
+            { QStringLiteral("sh"), QStringLiteral("bash") },
+            { QStringLiteral("shell"), QStringLiteral("bash") },
+            { QStringLiteral("c++"), QStringLiteral("cpp") },
+            { QStringLiteral("cc"), QStringLiteral("cpp") },
+            { QStringLiteral("cs"), QStringLiteral("csharp") },
+            { QStringLiteral("js"), QStringLiteral("javascript") },
+            { QStringLiteral("ts"), QStringLiteral("typescript") },
+            { QStringLiteral("py"), QStringLiteral("python") },
+            { QStringLiteral("yml"), QStringLiteral("yaml") },
+            { QStringLiteral("html"), QStringLiteral("xml") },
+        };
+        return aliases.value(language, language);
+    }
+
+    bool sourceLanguage(const QString &language, CodeLanguage *result)
+    {
+        const QString normalized = normalizedCodeLanguage(language);
+        for (const auto &entry : codeLanguageMap()) {
+            if (entry.first == normalized) {
+                if (result)
+                    *result = entry.second;
+                return true;
+            }
+        }
+        return false;
     }
 
     class FirstLineHighlighter final : public HighlighterExtension {
@@ -216,6 +285,86 @@ void EditorPlatformBackend::registerTextDocument(QQuickTextDocument *document, b
     highlighters_.append({ highlighter, titleDocument });
     highlighter->rehighlight();
     QTimer::singleShot(0, this, &EditorPlatformBackend::rehighlight);
+}
+
+void EditorPlatformBackend::registerCodeDocument(QQuickTextDocument *document, const QString &language)
+{
+    if (!document || !document->textDocument())
+        return;
+
+    const QString normalized = normalizedCodeLanguage(language);
+    CodeLanguage  codeLanguage;
+    document->textDocument()->setUndoRedoEnabled(false);
+    for (auto &registered : codeHighlighters_) {
+        if (registered.quickDocument != document)
+            continue;
+        if (!sourceLanguage(normalized, &codeLanguage)) {
+            if (registered.highlighter) {
+                registered.highlighter->setDocument(nullptr);
+                delete registered.highlighter.data();
+                registered.highlighter.clear();
+            }
+            registered.language.clear();
+            document->textDocument()->markContentsDirty(0, document->textDocument()->characterCount());
+            return;
+        }
+        if (!registered.highlighter)
+            registered.highlighter = new QSourceHighlite::QSourceHighliter(document->textDocument());
+        if (registered.language != normalized) {
+            registered.language = normalized;
+            static_cast<QSourceHighlite::QSourceHighliter *>(registered.highlighter.data())
+                ->setCurrentLanguage(codeLanguage);
+        }
+        registered.highlighter->rehighlight();
+        return;
+    }
+
+    RegisteredCodeHighlighter registered;
+    registered.quickDocument = document;
+    if (sourceLanguage(normalized, &codeLanguage)) {
+        registered.language    = normalized;
+        registered.highlighter = new QSourceHighlite::QSourceHighliter(document->textDocument());
+        static_cast<QSourceHighlite::QSourceHighliter *>(registered.highlighter.data())
+            ->setCurrentLanguage(codeLanguage);
+        registered.highlighter->rehighlight();
+    }
+    codeHighlighters_.append(registered);
+}
+
+QString EditorPlatformBackend::canonicalCodeLanguage(const QString &language) const
+{
+    return normalizedCodeLanguage(language);
+}
+
+QVariantList EditorPlatformBackend::codeLanguages() const
+{
+    QVariantList                         result { QVariantMap { { QStringLiteral("id"), QString() },
+                                                                { QStringLiteral("name"), tr("Plain text") } } };
+    static const QHash<QString, QString> displayNames {
+        { QStringLiteral("cpp"), QStringLiteral("C++") },
+        { QStringLiteral("csharp"), QStringLiteral("C#") },
+        { QStringLiteral("javascript"), QStringLiteral("JavaScript") },
+        { QStringLiteral("typescript"), QStringLiteral("TypeScript") },
+        { QStringLiteral("qml"), QStringLiteral("QML") },
+        { QStringLiteral("json"), QStringLiteral("JSON") },
+        { QStringLiteral("xml"), QStringLiteral("HTML / XML") },
+        { QStringLiteral("yaml"), QStringLiteral("YAML") },
+        { QStringLiteral("sql"), QStringLiteral("SQL") },
+        { QStringLiteral("php"), QStringLiteral("PHP") },
+        { QStringLiteral("css"), QStringLiteral("CSS") },
+        { QStringLiteral("ini"), QStringLiteral("INI") },
+        { QStringLiteral("cmake"), QStringLiteral("CMake") },
+        { QStringLiteral("asm"), QStringLiteral("Assembly") },
+    };
+    for (const auto &entry : codeLanguageMap()) {
+        QString name = displayNames.value(entry.first);
+        if (name.isEmpty()) {
+            name    = entry.first;
+            name[0] = name.at(0).toUpper();
+        }
+        result.append(QVariantMap { { QStringLiteral("id"), entry.first }, { QStringLiteral("name"), name } });
+    }
+    return result;
 }
 
 QVariantList EditorPlatformBackend::spellCheckRanges(QQuickTextDocument *document)
@@ -514,6 +663,11 @@ void EditorPlatformBackend::rehighlight()
     highlighters_.removeIf([](const auto &registered) { return registered.highlighter.isNull(); });
     for (const auto &registered : std::as_const(highlighters_))
         registered.highlighter->rehighlight();
+    codeHighlighters_.removeIf([](const auto &registered) { return registered.quickDocument.isNull(); });
+    for (const auto &registered : std::as_const(codeHighlighters_)) {
+        if (registered.highlighter)
+            registered.highlighter->rehighlight();
+    }
     emit highlightingChanged();
 }
 
@@ -548,10 +702,19 @@ bool EditorPlatformBackend::insertImportedImages(const QList<MediaReference> &re
 void EditorPlatformBackend::clearRegisteredDocuments()
 {
     for (const auto &registered : std::as_const(highlighters_)) {
-        if (registered.highlighter)
+        if (registered.highlighter) {
+            registered.highlighter->setDocument(nullptr);
             delete registered.highlighter.data();
+        }
     }
     highlighters_.clear();
+    for (const auto &registered : std::as_const(codeHighlighters_)) {
+        if (registered.highlighter) {
+            registered.highlighter->setDocument(nullptr);
+            delete registered.highlighter.data();
+        }
+    }
+    codeHighlighters_.clear();
 }
 
 void EditorPlatformBackend::installBuiltInExtensions()

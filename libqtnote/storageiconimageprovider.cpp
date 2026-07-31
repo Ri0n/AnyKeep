@@ -1,6 +1,7 @@
 #include "storageiconimageprovider.h"
 
 #include "notemanager.h"
+#include "pluginiconimageprovider.h"
 
 #include <QIcon>
 #include <QImage>
@@ -29,14 +30,17 @@ namespace {
             if (!storage)
                 return {};
 
-            const QIcon icon = kind == QLatin1String("note") ? storage->noteIcon() : storage->storageIcon();
-            if (icon.isNull())
-                return {};
-
             QSize target = requestedSize.isValid() ? requestedSize : QSize(24, 24);
             target.setWidth(qMax(1, target.width()));
             target.setHeight(qMax(1, target.height()));
-            QImage image = icon.pixmap(target).toImage();
+
+            const QIcon icon = kind == QLatin1String("note") ? storage->noteIcon() : storage->storageIcon();
+            QImage      image;
+            if (!icon.isNull()) {
+                image = icon.pixmap(target).toImage();
+            } else {
+                image = pluginIconImage(pluginIdForStorageIcon(storageId), target);
+            }
             if (size)
                 *size = image.size();
             return image;

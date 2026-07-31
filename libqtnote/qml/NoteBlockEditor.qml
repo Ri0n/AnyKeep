@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import "ListBlockBehavior.js" as ListBlockBehavior
 import "TableBlockBehavior.js" as TableBlockBehavior
+import "reorder" as Reorder
 
 ListView {
     id: root
@@ -10,6 +11,8 @@ ListView {
     property var editorBackend: typeof noteEditor !== "undefined" ? noteEditor : null
     property var platformBackend: typeof qmlNoteEditor !== "undefined" ? qmlNoteEditor : null
     property var activeEditor: null
+    property int selectedImageIndex: -1
+    property bool imageAltEditorFocused: false
     property var pendingFocusAddress: null
     property var pendingEditorState: null
     property int focusRequestGeneration: 0
@@ -427,6 +430,7 @@ ListView {
         const focusAddress = pendingFocusAddress || editorAddress(activeEditor)
         const state = {
             active: focusAddress,
+            selectedImageIndex: selectedImageIndex,
             wholeDocumentSelected: wholeDocumentSelected,
             selectionSpansEditors: selectionSpansEditors,
             selectionStart: null,
@@ -443,9 +447,10 @@ ListView {
     }
 
     function documentHistoryOwnsFocus() {
-        // The URL is still a temporary value while its TextField is focused;
-        // its native local undo stack owns Ctrl+Z/Ctrl+Shift+Z in that state.
-        return !urlField.activeFocus
+        // TextField editors keep their native local undo stacks while focused.
+        // Do not route Ctrl+Z/Ctrl+Shift+Z into document history until their
+        // URL or alt-text edit has been committed back to the model.
+        return !urlField.activeFocus && !imageAltEditorFocused
     }
 
     function addressMatchesEditor(address, editor, exact) {
@@ -556,6 +561,12 @@ ListView {
         const state = pendingEditorState
         if (!state)
             return false
+        const imageIndex = Number(state.selectedImageIndex === undefined ? -1 : state.selectedImageIndex)
+        if (imageIndex >= 0 && blockModel.blockTypeAt(imageIndex) === 4) {
+            pendingEditorState = null
+            focusImageBlock(imageIndex)
+            return true
+        }
         if (state.wholeDocumentSelected) {
             pendingEditorState = null
             selectAllDocument()
@@ -767,6 +778,7 @@ ListView {
         // ListView reposition the viewport before the mutation.
         flushPendingEditorChanges()
         clearDocumentSelection()
+        selectedImageIndex = -1
         activeEditor = null
     }
 
@@ -781,6 +793,7 @@ ListView {
         pendingFocusAddress = null
         pendingEditorState = null
         clearDocumentSelection()
+        selectedImageIndex = -1
         keyboardSelectionAnchorEditor = null
         selectionAnchorEditor = null
         contextEditor = null
@@ -1107,6 +1120,34 @@ ListView {
     function pasteClipboard() {
         if (!activeEditor)
             return false
+        // Code blocks are literal text containers. Never let image or rich
+        // structured clipboard import turn their contents into other block
+        // types or pass them through QTextDocument's Markdown importer.
+        if (activeEditor.codeDocument) {
+            return runEditTransaction("paste-code", function() {
+                activeEditor.paste()
+                return true
+            })
+        }
+        // The first line is the note title and deliberately does not support
+        // inline styling. Paste its plain-text clipboard representation so
+        // HTML/RTF formatting cannot become persistent Markdown markup.
+        if (selectionTouchesTitle(activeEditor) && root.editorBackend
+                && typeof root.editorBackend.pastePlainText === "function") {
+            const titlePasted = runEditTransaction("paste", function() {
+                const position = root.editorBackend.pastePlainText(activeEditor.textDocument,
+                                                                   activeEditor.selectionStart,
+                                                                   activeEditor.selectionEnd)
+                if (position < 0)
+                    return false
+                activeEditor.cursorPosition = position
+                activeEditor.commitText(false)
+                activeEditor.rememberPlainText()
+                return true
+            })
+            if (titlePasted)
+                return true
+        }
         if (platformBackend && typeof platformBackend.insertClipboardImage === "function"
                 && platformBackend.insertClipboardImage(insertionBlockIndex()))
             return true
@@ -1352,6 +1393,60 @@ ListView {
         return true
     }
 
+    function selectImageBlock(blockIndex) {
+        if (!blockModel || blockModel.blockTypeAt(blockIndex) !== 4)
+            return false
+        ++focusRequestGeneration
+        pendingFocusRetry.stop()
+        pendingFocusAddress = null
+        pendingEditorState = null
+        flushPendingEditorChanges()
+        clearDocumentSelection()
+        activeEditor = null
+        selectedImageIndex = blockIndex
+        positionViewAtIndex(blockIndex, ListView.Contain)
+        return true
+    }
+
+    function focusImageBlock(blockIndex) {
+        if (!selectImageBlock(blockIndex))
+            return false
+        Qt.callLater(function() {
+            const delegate = root.itemAtIndex(blockIndex)
+            if (delegate && delegate.item
+                    && typeof delegate.item.forceActiveFocus === "function") {
+                delegate.item.forceActiveFocus()
+            } else {
+                root.forceActiveFocus()
+            }
+        })
+        return true
+    }
+
+    function clearImageSelection() {
+        selectedImageIndex = -1
+    }
+
+    function focusAfterImageRemoval(blockIndex) {
+        if (blockIndex < count && blockModel.blockTypeAt(blockIndex) === 4)
+            return focusImageBlock(blockIndex)
+        if (blockIndex > 0 && blockModel.blockTypeAt(blockIndex - 1) === 4)
+            return focusImageBlock(blockIndex - 1)
+        for (let row = blockIndex; row < count; ++row) {
+            if (blockModel.blockTypeAt(row) !== 4) {
+                focusBlock(row)
+                return true
+            }
+        }
+        for (let row = Math.min(blockIndex - 1, count - 1); row >= 0; --row) {
+            if (blockModel.blockTypeAt(row) !== 4) {
+                focusBlock(row, true)
+                return true
+            }
+        }
+        return false
+    }
+
     function removeTableBlock(blockIndex, backwards) {
         return runEditTransaction("remove-table", function() {
             const oldCount = count
@@ -1424,15 +1519,19 @@ ListView {
         return true
     }
 
-    function removeImageBlock(blockIndex) {
+    function removeImageBlock(blockIndex, focusAfter) {
         if (blockModel.blockTypeAt(blockIndex) !== 4)
             return false
+        const restoreFocus = focusAfter === undefined ? true : Boolean(focusAfter)
         return runEditTransaction("remove-image", function() {
             const oldCount = count
+            prepareForStructuralMutation()
             blockModel.removeBlock(blockIndex)
             if (oldCount === 1) {
                 blockModel.appendTextBlock()
                 focusBlock(0)
+            } else if (restoreFocus) {
+                focusAfterImageRemoval(blockIndex)
             }
             return true
         })
@@ -1441,11 +1540,24 @@ ListView {
     function handleAdjacentImageDeletion(event, editor) {
         if (!editor || event.modifiers || editor.selectionStart !== editor.selectionEnd)
             return false
-        if (event.key === Qt.Key_Delete && editor.cursorPosition === editor.length)
-            return removeImageBlock(editor.blockIndex + 1)
-        if (event.key === Qt.Key_Backspace && editor.cursorPosition === 0)
-            return removeImageBlock(editor.blockIndex - 1)
-        return false
+        const backwards = event.key === Qt.Key_Backspace && editor.cursorPosition === 0
+        const forwards = event.key === Qt.Key_Delete && editor.cursorPosition === editor.length
+        if (!backwards && !forwards)
+            return false
+        const editorRow = editor.blockIndex
+        const imageRow = backwards ? editorRow - 1 : editorRow + 1
+        if (blockModel.blockTypeAt(imageRow) !== 4)
+            return false
+        const focusAddress = editorAddress(editor)
+        return runEditTransaction("remove-adjacent-image", function() {
+            prepareForStructuralMutation()
+            blockModel.removeBlock(imageRow)
+            focusAddress.blockIndex = backwards ? editorRow - 1 : editorRow
+            focusAddress.selectionStart = focusAddress.cursorPosition
+            focusAddress.selectionEnd = focusAddress.cursorPosition
+            focusEditorAddress(focusAddress)
+            return true
+        })
     }
 
     function handleAdjacentTextBlockMerge(event, editor) {
@@ -1495,10 +1607,12 @@ ListView {
             if (rectangle.y < last.y - 0.5)
                 return false
             // Do not create ordinary empty paragraphs by pressing Down at the
-            // end of a note. The sole exception is an image-only tail: it has
-            // no cursor, so a real text block is needed to get past it.
-            focusFollowingBlock(editor.blockIndex,
-                                !event.isAutoRepeat && hasOnlyImagesFollowing(editor.blockIndex))
+            // end of a note. Structured code blocks and image-only tails need
+            // a real text block so the cursor can leave them.
+            focusFollowingBlock(
+                editor.blockIndex,
+                !event.isAutoRepeat
+                    && (editor.codeDocument || hasOnlyImagesFollowing(editor.blockIndex)))
         }
         return true
     }
@@ -1527,6 +1641,15 @@ ListView {
         return runEditTransaction("insert-table", function() {
             const row = insertionBlockIndex()
             blockModel.insertTable(row)
+            focusBlock(row)
+            return true
+        })
+    }
+
+    function insertCodeBlock(language) {
+        return runEditTransaction("insert-code-block", function() {
+            const row = insertionBlockIndex()
+            blockModel.insertCodeBlock(row, language || "")
             focusBlock(row)
             return true
         })
@@ -1591,7 +1714,8 @@ ListView {
     }
 
     function convertActiveToHeading(level) {
-        if (!activeEditor || activeEditor.blockIndex < 0 || cursorTouchesTitle(activeEditor))
+        if (!activeEditor || activeEditor.blockIndex < 0 || activeEditor.codeDocument
+                || cursorTouchesTitle(activeEditor))
             return false
         if (level === 0 && activeEditor.editorField === "blockquote")
             return convertActiveToQuote(false)
@@ -1606,7 +1730,8 @@ ListView {
     }
 
     function convertActiveToQuote(quote) {
-        if (!activeEditor || activeEditor.blockIndex < 0 || cursorTouchesTitle(activeEditor))
+        if (!activeEditor || activeEditor.blockIndex < 0 || activeEditor.codeDocument
+                || cursorTouchesTitle(activeEditor))
             return false
         return runEditTransaction("convert-blockquote", function() {
             const row = blockModel.convertTextBlockToQuote(activeEditor.blockIndex,
@@ -1620,7 +1745,8 @@ ListView {
     }
 
     function applyActiveInlineStyle(style) {
-        if (!activeEditor || !editorBackend || selectionTouchesTitle(activeEditor))
+        if (!activeEditor || !editorBackend || activeEditor.editorField === "code"
+                || selectionTouchesTitle(activeEditor))
             return false
         return runEditTransaction("inline-" + style, function() {
             applyInlineStyle(activeEditor, style)
@@ -1629,13 +1755,15 @@ ListView {
     }
 
     function editActiveLink() {
-        if (!activeEditor || selectionTouchesTitle(activeEditor))
+        if (!activeEditor || activeEditor.codeDocument || selectionTouchesTitle(activeEditor))
             return false
         openLinkEditor(activeEditor)
         return true
     }
 
     function handleHeadingShortcut(event, editor) {
+        if (!editor || editor.codeDocument)
+            return false
         const modifiers = event.modifiers
         if (!(modifiers & Qt.ControlModifier) || modifiers & (Qt.ShiftModifier | Qt.AltModifier | Qt.MetaModifier)
                 || event.key < Qt.Key_0 || event.key > Qt.Key_6)
@@ -1672,6 +1800,8 @@ ListView {
     }
 
     function applyInlineStyle(editor, style) {
+        if (!editor || editor.codeDocument)
+            return
         const start = editor.selectionStart
         const end = editor.selectionEnd
         const formattedEnd = root.editorBackend.applyInlineFormat(editor.textDocument, start, end, style)
@@ -1682,7 +1812,8 @@ ListView {
     }
 
     function openLinkEditor(editor) {
-        if (!editor || selectionTouchesTitle(editor) || editor.textFormat !== TextEdit.MarkdownText)
+        if (!editor || editor.codeDocument || selectionTouchesTitle(editor)
+                || editor.textFormat !== TextEdit.MarkdownText)
             return
         const info = root.editorBackend.linkInfo(editor.textDocument,
                                             editor.selectionStart,
@@ -1701,8 +1832,10 @@ ListView {
         const position = editor.positionAt(localX, localY)
         editor.contextWord = ""
         editor.contextSuggestions = []
-        const renderedLink = root.editorBackend.linkInfo(editor.textDocument, position, position)
-        const plainLink = editor.plainLinkInfoAtPosition(position)
+        const renderedLink = editor.codeDocument ? ({ valid: false })
+                                                   : root.editorBackend.linkInfo(editor.textDocument,
+                                                                                 position, position)
+        const plainLink = editor.codeDocument ? null : editor.plainLinkInfoAtPosition(position)
         editor.contextLink = renderedLink.valid && renderedLink.href.length > 0
                 ? renderedLink.href : (plainLink ? plainLink.href : "")
         if (editor.isSpellingError(position)) {
@@ -1952,13 +2085,62 @@ ListView {
         required property var itemIndents
         required property var itemTypes
         required property int headingLevel
+        required property string codeLanguage
         required property var table
         required property string url
         required property string alt
+        required property int imageWidth
+        required property string imageAlignment
         required property url previewUrl
         property alias item: blockLoader.item
+        readonly property bool reorderSourceActive:
+            editorReorderController.blockSourceActive(blockDelegate)
+        readonly property bool reorderTargetBefore:
+            editorReorderController.blockTargetBefore(blockDelegate)
+        readonly property bool reorderTargetAfter:
+            editorReorderController.blockTargetAfter(blockDelegate)
+        readonly property real reorderOffset: blockDisplacement.displacement
         width: Math.max(0, root.width - root.scrollBarInset)
         height: blockLoader.height
+        opacity: reorderSourceActive ? 0 : 1
+        transform: Translate { y: blockDelegate.reorderOffset }
+
+        Reorder.ReorderDisplacement {
+            id: blockDisplacement
+
+            animationEnabled: editorReorderController.blockAnimationActive
+                              && !editorReorderController.committingDrop
+            sourceActive: blockDelegate.reorderSourceActive
+            targetBefore: blockDelegate.reorderTargetBefore
+            targetAfter: blockDelegate.reorderTargetAfter
+            naturalExtent: blockDelegate.height + root.spacing
+            draggedExtent: editorReorderController.structuralDraggedHeight
+            displacement: editorReorderController.blockTranslation(blockDelegate)
+        }
+
+        Reorder.BlockReorderHandle {
+            id: structuralBlockHandle
+
+            objectName: "blockReorderHandle-" + blockDelegate.index
+            visible: !root.touchMode
+                     && blockDelegate.blockType !== 1
+                     && blockDelegate.blockType !== 2
+                     && blockDelegate.blockType !== 4
+                     && blockDelegate.blockType !== 5
+            x: Math.max(0, blockLoader.x - width)
+            y: 0
+            width: root.listLevelHandleGutter
+            height: Math.max(root.editorFontMetricsHeight, blockDelegate.height)
+            z: 20
+            fullHeight: true
+            dragEnabled: !editorReorderController.dragging || dragging
+            onDragStarted: editorReorderController.startBlockDrag(
+                               blockDelegate, blockLoader.item || blockLoader)
+            onDragMoved: function(dx, dy) {
+                editorReorderController.moveBlockDrag(dx, dy)
+            }
+            onDragFinished: editorReorderController.finishBlockDrag()
+        }
 
         Loader {
             id: blockLoader
@@ -1970,16 +2152,27 @@ ListView {
             property var itemIndents: blockDelegate.itemIndents
             property var itemTypes: blockDelegate.itemTypes
             property int headingLevel: blockDelegate.headingLevel
+            property string codeLanguage: blockDelegate.codeLanguage
             property var table: blockDelegate.table
             property string url: blockDelegate.url
             property string alt: blockDelegate.alt
+            property int imageWidth: blockDelegate.imageWidth
+            property string imageAlignment: blockDelegate.imageAlignment
             property url previewUrl: blockDelegate.previewUrl
             x: root.editorInset
             width: Math.max(0, blockDelegate.width - 2 * root.editorInset)
             height: item ? item.implicitHeight : 0
             onLoaded: {
-                if (item && item.blockIndex !== undefined)
-                    item.blockIndex = index
+                // Keep the editor address tied to the delegate's current model row.
+                // A plain assignment here used to replace the component's own binding,
+                // leaving list editors with a stale blockIndex after another block was
+                // moved across them. Subsequent list-range drops then addressed the old
+                // source row and were rejected by the model.
+                if (item && item.blockIndex !== undefined) {
+                    item.blockIndex = Qt.binding(function() {
+                        return blockLoader.index
+                    })
+                }
                 if (blockType === 0 && index === 0 && blockText.trim().length === 0)
                     item.forceActiveFocus()
             }
@@ -1987,7 +2180,8 @@ ListView {
                            : blockType === 3 ? tableEditor
                            : blockType === 4 ? imageEditor
                            : blockType === 6 ? headingEditor
-                           : blockType === 7 ? blockQuoteEditor : textEditor
+                           : blockType === 7 ? blockQuoteEditor
+                           : blockType === 8 ? codeBlockEditor : textEditor
         }
     }
 
@@ -1995,6 +2189,8 @@ ListView {
         id: blockArea
         objectName: "noteBlockTextArea"
         property bool titleDocument: false
+        property bool codeDocument: false
+        property string syntaxLanguage: ""
         property var spellingRanges: []
         property string contextWord: ""
         property string contextLink: ""
@@ -2037,7 +2233,11 @@ ListView {
         topPadding: root.touchMode ? 4 : 0
         bottomPadding: root.touchMode ? 4 : 0
         function registerTextDocument() {
-            if (root.platformBackend)
+            if (!root.platformBackend)
+                return
+            if (codeDocument)
+                root.platformBackend.registerCodeDocument(textDocument, syntaxLanguage)
+            else
                 root.platformBackend.registerTextDocument(textDocument, titleDocument)
         }
 
@@ -2127,8 +2327,10 @@ ListView {
                 blockArea.registerTextDocument()
         })
         onTitleDocumentChanged: registerTextDocument()
+        onSyntaxLanguageChanged: registerTextDocument()
         onActiveFocusChanged: {
             if (activeFocus) {
+                root.clearImageSelection()
                 root.activeEditor = this
                 rememberPlainText()
                 root.scheduleCursorVisibility(this)
@@ -2150,7 +2352,7 @@ ListView {
             id: spellRefresh
             interval: 0
             onTriggered: {
-                blockArea.spellingRanges = root.platformBackend
+                blockArea.spellingRanges = root.platformBackend && !blockArea.codeDocument
                         ? root.platformBackend.spellCheckRanges(blockArea.textDocument) : []
                 spellingCanvas.requestPaint()
             }
@@ -2196,7 +2398,7 @@ ListView {
                 event.accepted = true
             } else if (event.matches(StandardKey.Redo) && root.editorBackend.redo()) {
                 event.accepted = true
-            } else if (blockArea.handleLinkSpaceExit(event)) {
+            } else if (!blockArea.codeDocument && blockArea.handleLinkSpaceExit(event)) {
                 event.accepted = true
             } else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace)
                     && root.deleteStructuredSelection()) {
@@ -2205,7 +2407,7 @@ ListView {
                 event.accepted = true
             } else if (root.handleAdjacentTextBlockMerge(event, blockArea)) {
                 event.accepted = true
-            } else if (root.handleInlineFormatting(event, blockArea)) {
+            } else if (!blockArea.codeDocument && root.handleInlineFormatting(event, blockArea)) {
                 event.accepted = true
             } else if (root.handleKeyboardSelection(event, blockArea)) {
                 event.accepted = true
@@ -2277,6 +2479,8 @@ ListView {
         function refreshSpelling() { spellRefresh.restart() }
 
         function plainLinkInfoAtPosition(position) {
+            if (codeDocument)
+                return null
             const source = text
             let match
             const markdownLink = /\[[^\]]*\]\(([^)\s]+)\)/g
@@ -2611,6 +2815,123 @@ ListView {
     }
 
     Component {
+        id: codeBlockEditor
+
+        Rectangle {
+            id: codeRoot
+            property var block: parent
+            property alias blockIndex: codeCell.blockIndex
+            width: block.width
+            implicitHeight: Math.max(codeCell.implicitHeight + 12, root.editorFontMetricsHeight * 3)
+            radius: 4
+            clip: true
+            color: Qt.rgba(codeCell.palette.base.r, codeCell.palette.base.g,
+                           codeCell.palette.base.b, 0.82)
+            border.width: 1
+            border.color: codeCell.palette.midlight
+
+            function forceActiveFocus() { codeCell.forceActiveFocus() }
+
+            BlockTextArea {
+                id: codeCell
+                property var block: codeRoot.block
+                anchors.fill: parent
+                anchors.margins: 6
+                blockIndex: block.index
+                editorField: "code"
+                codeDocument: true
+                syntaxLanguage: block.codeLanguage
+                sourceText: block.blockText
+                textFormat: TextEdit.PlainText
+                wrapMode: TextEdit.NoWrap
+                font.family: Qt.platform.os === "windows" ? "Consolas" : "monospace"
+                commitText: function() { root.blockModel.setBlockText(block.index, text) }
+                onTextChanged: commitChangedText(activeFocus)
+            }
+
+            Item {
+                id: codeOverlay
+                anchors.top: parent.top
+                anchors.right: parent.right
+                width: languageSelector.width + codeActions.width
+                height: languageSelector.height
+                z: 2
+
+                HoverActionStrip {
+                    id: codeActions
+                    anchors.right: languageSelector.left
+                    anchors.verticalCenter: languageSelector.verticalCenter
+                    triggerHovered: languageSelector.hovered
+                    fadeDuration: 480
+                    gapAfter: 6
+
+                    ToolButton {
+                        id: copyCodeButton
+                        width: languageSelector.height
+                        height: languageSelector.height
+                        padding: 3
+                        display: AbstractButton.IconOnly
+                        contentItem: ThemedIcon {
+                            themeName: "edit-copy"
+                            fallbackName: "copy22.png"
+                            pixelSize: Math.max(14, Math.round(copyCodeButton.height * 0.58))
+                        }
+                        Accessible.name: qsTr("Copy code")
+                        ToolTip.visible: hovered
+                        ToolTip.text: Accessible.name
+                        onClicked: {
+                            if (root.editorBackend)
+                                root.editorBackend.copyToClipboard(codeCell.text)
+                        }
+
+                        background: Rectangle {
+                            radius: codeRoot.radius
+                            color: copyCodeButton.pressed ? copyCodeButton.palette.mid
+                                                          : copyCodeButton.palette.alternateBase
+                            border.width: 1
+                            border.color: codeCell.palette.midlight
+                        }
+                    }
+                }
+
+                CompactPopupSelector {
+                    id: languageSelector
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    model: root.platformBackend ? root.platformBackend.codeLanguages : []
+                    textRole: "name"
+                    valueRole: "id"
+                    implicitHeight: Math.max(24, root.editorFontMetricsHeight + 8)
+                    minimumControlWidth: 48
+                    minimumPopupWidth: 180
+                    backgroundColor: palette.alternateBase
+                    hoverColor: palette.alternateBase
+                    borderColor: codeCell.palette.midlight
+
+                    function synchronizeLanguage() {
+                        const language = root.platformBackend
+                                ? root.platformBackend.canonicalCodeLanguage(codeRoot.block.codeLanguage)
+                                : codeRoot.block.codeLanguage
+                        currentIndex = Math.max(0, indexOfValue(language))
+                    }
+
+                    Component.onCompleted: synchronizeLanguage()
+                    onModelChanged: synchronizeLanguage()
+                    onActivated: function(index, value) {
+                        root.blockModel.setCodeLanguage(codeRoot.block.index, value || "")
+                    }
+
+                    Connections {
+                        target: codeRoot.block
+                        ignoreUnknownSignals: true
+                        function onCodeLanguageChanged() { languageSelector.synchronizeLanguage() }
+                    }
+                }
+            }
+        }
+    }
+
+    Component {
         id: headingEditor
         BlockTextArea {
             id: headingCell
@@ -2653,7 +2974,7 @@ ListView {
             Rectangle {
                 width: Math.max(3, Math.round(root.editorFontAverageCharacterWidth * 0.45))
                 radius: width / 2
-                color: quoteCell.palette.mid
+                color: quoteCell.palette.midlight
                 anchors.left: parent.left
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
@@ -2884,56 +3205,356 @@ ListView {
         }
     }
 
+    component ImageAlignmentGlyph: Item {
+        required property string alignment
+        required property color tint
+        implicitWidth: 18
+        implicitHeight: 16
+
+        Repeater {
+            model: [14, 10, 13]
+            delegate: Rectangle {
+                required property int index
+                required property int modelData
+                width: modelData
+                height: 1.5
+                radius: 0.75
+                color: parent.tint
+                y: 3 + index * 4
+                x: parent.alignment === "left" ? 1
+                   : parent.alignment === "right" ? parent.width - width - 1
+                   : (parent.width - width) / 2
+            }
+        }
+    }
+
+    component ImageResizeHandle: Rectangle {
+        required property var imageEditor
+        required property int direction
+        required property color fillColor
+        required property color strokeColor
+        width: root.touchMode ? 18 : 12
+        height: width
+        radius: 2
+        color: fillColor
+        border.width: 1
+        border.color: strokeColor
+        z: 5
+
+        property real pressX: 0
+        property bool resizing: false
+
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton
+            hoverEnabled: true
+            cursorShape: Qt.SizeHorCursor
+            preventStealing: true
+            propagateComposedEvents: false
+
+            onPressed: function(mouse) {
+                mouse.accepted = true
+                imageEditor.selectAndFocus()
+                const point = mapToItem(imageEditor, mouse.x, mouse.y)
+                parent.pressX = point.x
+                parent.resizing = true
+                imageEditor.beginResize(parent.direction)
+            }
+            onPositionChanged: function(mouse) {
+                if (!parent.resizing)
+                    return
+                const point = mapToItem(imageEditor, mouse.x, mouse.y)
+                imageEditor.updateResize(point.x - parent.pressX)
+                mouse.accepted = true
+            }
+            onReleased: function(mouse) {
+                mouse.accepted = true
+                if (!parent.resizing)
+                    return
+                parent.resizing = false
+                imageEditor.finishResize()
+            }
+            onCanceled: {
+                if (!parent.resizing)
+                    return
+                parent.resizing = false
+                imageEditor.finishResize()
+            }
+        }
+    }
+
     Component {
         id: imageEditor
-        ColumnLayout {
+
+        FocusScope {
             id: imageRoot
+            objectName: "imageBlockEditor-" + block.index
             property var block: parent
+            property bool selected: root.selectedImageIndex === block.index
+            property real transientWidth: -1
+            property real transientX: -1
+            property real resizeStartWidth: 0
+            property real resizeStartX: 0
+            property int resizeDirection: 1
+            readonly property string normalizedAlignment:
+                block.imageAlignment === "left" || block.imageAlignment === "right"
+                ? block.imageAlignment : "center"
+            readonly property real naturalWidth:
+                sourceImage.implicitWidth > 0 ? sourceImage.implicitWidth : Math.min(width, 480)
+            readonly property real requestedWidth:
+                transientWidth >= 0 ? transientWidth
+                                    : (block.imageWidth > 0 ? block.imageWidth : naturalWidth)
+            readonly property real displayWidth: Math.max(1, Math.min(width, requestedWidth))
+            readonly property real imageAspect:
+                sourceImage.implicitWidth > 0 && sourceImage.implicitHeight > 0
+                ? sourceImage.implicitHeight / sourceImage.implicitWidth : 0.75
+            readonly property real displayHeight: Math.max(40, displayWidth * imageAspect)
+            readonly property real imageY: selected ? altEditor.implicitHeight + 6 : 0
+            readonly property real actionGap: root.touchMode ? 12 : 8
+            readonly property real alignedX:
+                normalizedAlignment === "left" ? 0
+                : normalizedAlignment === "right" ? width - displayWidth
+                : (width - displayWidth) / 2
+            readonly property real displayX: transientX >= 0 ? transientX : alignedX
+
             width: block.width
+            implicitHeight: imageY + displayHeight
+                            + (selected ? actionGap + imageActions.height + 4 : 0)
+            activeFocusOnTab: true
+
+            function selectAndFocus() {
+                root.selectImageBlock(block.index)
+                imageRoot.forceActiveFocus()
+            }
+
+            function setAlignment(value) {
+                if (normalizedAlignment === value)
+                    return
+                root.runEditTransaction("align-image", function() {
+                    root.blockModel.setImageAlignment(block.index, value)
+                })
+            }
+
+            function resetPresentation() {
+                if (block.imageWidth === 0 && normalizedAlignment === "center")
+                    return
+                root.runEditTransaction("reset-image-presentation", function() {
+                    root.blockModel.setImageWidth(block.index, 0)
+                    root.blockModel.setImageAlignment(block.index, "center")
+                })
+            }
+
+            function beginResize(direction) {
+                resizeDirection = direction
+                resizeStartWidth = displayWidth
+                resizeStartX = sourceImage.x
+                transientWidth = displayWidth
+                transientX = sourceImage.x
+                root.beginEditTransaction("resize-image")
+            }
+
+            function updateResize(delta) {
+                if (transientWidth < 0)
+                    return
+                const maximum = resizeDirection > 0 ? width - resizeStartX
+                                                    : resizeStartX + resizeStartWidth
+                const minimum = Math.min(root.touchMode ? 72 : 48, maximum)
+                if (resizeDirection > 0) {
+                    transientWidth = Math.max(minimum, Math.min(maximum, resizeStartWidth + delta))
+                    transientX = resizeStartX
+                } else {
+                    transientWidth = Math.max(minimum, Math.min(maximum, resizeStartWidth - delta))
+                    transientX = resizeStartX + resizeStartWidth - transientWidth
+                }
+            }
+
+            function finishResize() {
+                if (transientWidth < 0)
+                    return
+                const width = Math.round(transientWidth)
+                root.blockModel.setImageWidth(block.index, width)
+                transientWidth = -1
+                transientX = -1
+                root.endEditTransaction()
+            }
+
+            Keys.onPressed: function(event) {
+                if (altEditor.activeFocus)
+                    return
+                if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) {
+                    root.removeImageBlock(block.index, true)
+                    event.accepted = true
+                } else if (event.key === Qt.Key_Escape) {
+                    root.clearImageSelection()
+                    root.forceActiveFocus()
+                    event.accepted = true
+                }
+            }
+
+            TextField {
+                id: altEditor
+                objectName: "imageAltEditor-" + imageRoot.block.index
+                visible: imageRoot.selected
+                opacity: visible ? 1 : 0
+                width: Math.min(imageRoot.width, Math.max(180, sourceImage.width))
+                x: Math.max(0, Math.min(imageRoot.width - width,
+                                        sourceImage.x + (sourceImage.width - width) / 2))
+                placeholderText: qsTr("Alt text")
+                text: imageRoot.block.alt
+                selectByMouse: true
+                onTextEdited: root.blockModel.setImageAlt(imageRoot.block.index, text)
+                onActiveFocusChanged: root.imageAltEditorFocused = activeFocus
+                Component.onDestruction: {
+                    if (root.imageAltEditorFocused)
+                        root.imageAltEditorFocused = false
+                }
+                Behavior on opacity { NumberAnimation { duration: 120 } }
+            }
+
             Image {
-                Layout.fillWidth: true
+                id: sourceImage
+                objectName: "imageBlockPreview-" + imageRoot.block.index
+                x: imageRoot.displayX
+                y: imageRoot.imageY
+                width: imageRoot.displayWidth
+                height: imageRoot.displayHeight
                 source: imageRoot.block.previewUrl
                 fillMode: Image.PreserveAspectFit
+                smooth: true
+                asynchronous: true
+                cache: true
                 ToolTip.visible: imageDescriptionHover.hovered && imageRoot.block.alt.length > 0
+                                     && !imageRoot.selected
                 ToolTip.text: imageRoot.block.alt
+
+                Behavior on x {
+                    enabled: imageRoot.transientWidth < 0
+                    NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                }
+
                 HoverHandler { id: imageDescriptionHover }
+                Reorder.ReorderDragHandle {
+                    anchors.fill: parent
+                    dragEnabled: !root.touchMode && imageRoot.transientWidth < 0
+                    hoverCursorShape: Qt.OpenHandCursor
+                    dragCursorShape: Qt.ClosedHandCursor
+                    onTapped: imageRoot.selectAndFocus()
+                    onDragStarted: {
+                        imageRoot.selectAndFocus()
+                        editorReorderController.startBlockDrag(
+                                    imageRoot.block.parent, imageRoot)
+                    }
+                    onDragMoved: function(dx, dy) {
+                        editorReorderController.moveBlockDrag(dx, dy)
+                    }
+                    onDragFinished: editorReorderController.finishBlockDrag()
+                }
                 TapHandler {
                     acceptedButtons: Qt.RightButton
                     gesturePolicy: TapHandler.DragThreshold
-                    onTapped: imageContextMenu.popup()
+                    onTapped: {
+                        imageRoot.selectAndFocus()
+                        imageContextMenu.popup()
+                    }
                 }
                 TapHandler {
                     enabled: root.touchMode
                     acceptedButtons: Qt.LeftButton
                     gesturePolicy: TapHandler.DragThreshold
-                    onLongPressed: imageContextMenu.popup()
-                }
-                DragHandler {
-                    id: imageDragHandler
-                    target: null
-                    enabled: !root.touchMode && root.platformBackend !== null
-                    acceptedButtons: Qt.LeftButton
-                    property bool dragStarted: false
-                    onActiveChanged: {
-                        if (active && !dragStarted) {
-                            dragStarted = true
-                            if (root.platformBackend.startImageDrag(imageRoot.block.index))
-                                root.removeImageBlock(imageRoot.block.index)
-                        } else if (!active) {
-                            dragStarted = false
-                        }
+                    onLongPressed: {
+                        imageRoot.selectAndFocus()
+                        imageContextMenu.popup()
                     }
                 }
-                // Layout.fillWidth gives Image a viewport-wide box, but its
-                // implicit height is still the source's native height. For a
-                // large image that left a tall empty area above/below the
-                // fitted pixels. Keep small images at native height and make
-                // a downscaled image's layout height equal to its painted
-                // aspect-ratio height.
-                Layout.preferredHeight: implicitWidth > 0
-                                        ? Math.min(implicitHeight, width * implicitHeight / implicitWidth)
-                                        : implicitHeight
             }
+
+            Rectangle {
+                x: sourceImage.x - 2
+                y: sourceImage.y - 2
+                width: sourceImage.width + 4
+                height: sourceImage.height + 4
+                visible: imageRoot.selected
+                color: "transparent"
+                border.width: 2
+                border.color: altEditor.palette.highlight
+                radius: 2
+                z: 3
+            }
+
+            ImageResizeHandle {
+                visible: imageRoot.selected
+                imageEditor: imageRoot
+                direction: -1
+                fillColor: altEditor.palette.base
+                strokeColor: altEditor.palette.highlight
+                x: Math.max(0, sourceImage.x - width / 2)
+                y: sourceImage.y + sourceImage.height - height / 2
+            }
+
+            ImageResizeHandle {
+                visible: imageRoot.selected
+                imageEditor: imageRoot
+                direction: 1
+                fillColor: altEditor.palette.base
+                strokeColor: altEditor.palette.highlight
+                x: Math.min(imageRoot.width - width,
+                            sourceImage.x + sourceImage.width - width / 2)
+                y: sourceImage.y + sourceImage.height - height / 2
+            }
+
+            Row {
+                id: imageActions
+                visible: imageRoot.selected
+                spacing: 3
+                height: root.touchMode ? 36 : 28
+                y: sourceImage.y + sourceImage.height + imageRoot.actionGap
+                x: Math.max(0, Math.min(imageRoot.width - width,
+                                        sourceImage.x + (sourceImage.width - width) / 2))
+
+                Repeater {
+                    model: ["left", "center", "right"]
+                    delegate: ToolButton {
+                        id: alignmentButton
+                        required property string modelData
+                        width: imageActions.height
+                        height: imageActions.height
+                        padding: 4
+                        checkable: true
+                        checked: imageRoot.normalizedAlignment === modelData
+                        display: AbstractButton.IconOnly
+                        ToolTip.visible: hovered
+                        ToolTip.text: modelData === "left" ? qsTr("Align left")
+                                      : modelData === "right" ? qsTr("Align right")
+                                      : qsTr("Align center")
+                        contentItem: ImageAlignmentGlyph {
+                            alignment: modelData
+                            tint: alignmentButton.palette.buttonText
+                        }
+                        onClicked: imageRoot.setAlignment(modelData)
+                    }
+                }
+
+                ToolButton {
+                    id: resetImageButton
+                    width: imageActions.height
+                    height: imageActions.height
+                    padding: 4
+                    display: AbstractButton.IconOnly
+                    enabled: imageRoot.block.imageWidth > 0 || imageRoot.normalizedAlignment !== "center"
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Reset image size and alignment")
+                    contentItem: Label {
+                        text: "↺"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        color: resetImageButton.palette.buttonText
+                        opacity: resetImageButton.enabled ? 1 : 0.45
+                        font.pixelSize: Math.max(15, resetImageButton.height * 0.62)
+                    }
+                    onClicked: imageRoot.resetPresentation()
+                }
+            }
+
             Menu {
                 id: imageContextMenu
                 MenuItem {
@@ -2942,11 +3563,31 @@ ListView {
                     enabled: visible && imageRoot.block.url.startsWith("qtnote-media:/")
                     onTriggered: root.platformBackend.saveImageAs(imageRoot.block.url)
                 }
+                MenuSeparator { }
+                MenuItem {
+                    text: qsTr("Align Left")
+                    onTriggered: imageRoot.setAlignment("left")
+                }
+                MenuItem {
+                    text: qsTr("Align Center")
+                    onTriggered: imageRoot.setAlignment("center")
+                }
+                MenuItem {
+                    text: qsTr("Align Right")
+                    onTriggered: imageRoot.setAlignment("right")
+                }
+                MenuItem {
+                    text: qsTr("Reset Size and Alignment")
+                    enabled: imageRoot.block.imageWidth > 0 || imageRoot.normalizedAlignment !== "center"
+                    onTriggered: imageRoot.resetPresentation()
+                }
+                MenuSeparator { }
                 MenuItem {
                     text: qsTr("Remove Image")
-                    onTriggered: root.removeImageBlock(imageRoot.block.index)
+                    onTriggered: root.removeImageBlock(imageRoot.block.index, true)
                 }
             }
         }
     }
+
 }

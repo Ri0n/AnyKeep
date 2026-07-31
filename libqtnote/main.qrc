@@ -15,6 +15,7 @@
     <qresource prefix="/svg">
         <file alias="qtnote">images/qtnote.svg</file>
         <file alias="qtnote-symbolic">images/qtnote-symbolic.svg</file>
+        <file alias="copy22.png">images/copy22.png</file>
         <file alias="folder-symbolic">images/folder-symbolic.svg</file>
         <file alias="go-next-symbolic">images/go-next-symbolic.svg</file>
         <file alias="download">images/download.svg</file>
@@ -23,6 +24,8 @@
     </qresource>
     <qresource prefix="/qml">
         <file alias="NoteBlockEditor.qml">qml/NoteBlockEditor.qml</file>
+        <file alias="CompactPopupSelector.qml">qml/CompactPopupSelector.qml</file>
+        <file alias="HoverActionStrip.qml">qml/HoverActionStrip.qml</file>
         <file alias="EditorReorderController.qml">qml/EditorReorderController.qml</file>
         <file alias="ListBlockEditor.qml">qml/ListBlockEditor.qml</file>
         <file alias="reorder/GenericReorderController.qml">qml/reorder/GenericReorderController.qml</file>
@@ -32,6 +35,7 @@
         <file alias="reorder/ReorderDisplacement.qml">qml/reorder/ReorderDisplacement.qml</file>
         <file alias="reorder/ReorderGeometry.qml">qml/reorder/ReorderGeometry.qml</file>
         <file alias="reorder/ReorderDragHandle.qml">qml/reorder/ReorderDragHandle.qml</file>
+        <file alias="reorder/BlockReorderHandle.qml">qml/reorder/BlockReorderHandle.qml</file>
         <file alias="reorder/HierarchyRange.qml">qml/reorder/HierarchyRange.qml</file>
         <file alias="reorder/HierarchyDropPolicy.qml">qml/reorder/HierarchyDropPolicy.qml</file>
         <file alias="notelist/NoteSelectionController.qml">qml/notelist/NoteSelectionController.qml</file>

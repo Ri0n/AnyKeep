@@ -15,6 +15,7 @@ private slots:
     void exportsMultipleFormatsAndRestoresPrivateFragment();
     void exportsPlainTextWithoutRichFormats();
     void preservesMarkdownHardBreaksInPlainText();
+    void roundTripsCodeBlockWithoutFormatting();
     void importsMarkdownBeforeHtmlAndPlainText();
     void importsTsvAsTable();
     void importsHtmlTableAsTable();
@@ -85,6 +86,31 @@ void NoteTransferControllerTest::preservesMarkdownHardBreaksInPlainText()
     QVERIFY(exported.mimeData->hasFormat(QString::fromLatin1(NoteTransferController::MarkdownMimeType)));
     QVERIFY(exported.mimeData->hasHtml());
     QCOMPARE(exported.mimeData->text(), QStringLiteral("first line  \nsecond line\n\nthird paragraph"));
+}
+
+void NoteTransferControllerTest::roundTripsCodeBlockWithoutFormatting()
+{
+    NoteFragment fragment;
+    fragment.sourceFormat = NoteFragmentSourceFormat::Markdown;
+    NoteFragmentBlock code;
+    code.type     = NoteFragmentBlockType::CodeBlock;
+    code.language = QStringLiteral("python");
+    code.markdown = QStringLiteral("value = '**not bold**'\n\n# not a heading\n");
+    fragment.blocks.append(code);
+
+    NoteTransferController controller;
+    const auto             exported = controller.createMimeData(fragment);
+    QVERIFY2(exported, qPrintable(exported.error));
+    QCOMPARE(QString::fromUtf8(exported.mimeData->data(QString::fromLatin1(NoteTransferController::MarkdownMimeType))),
+             QStringLiteral("```python\nvalue = '**not bold**'\n\n# not a heading\n\n```"));
+    QCOMPARE(exported.mimeData->text(), QStringLiteral("value = '**not bold**'\n\n# not a heading"));
+
+    const auto imported = controller.importMimeData(exported.mimeData.get());
+    QVERIFY2(imported, qPrintable(imported.error));
+    QCOMPARE(imported.fragment.blocks.size(), 1);
+    QCOMPARE(imported.fragment.blocks.constFirst().type, NoteFragmentBlockType::CodeBlock);
+    QCOMPARE(imported.fragment.blocks.constFirst().language, QStringLiteral("python"));
+    QCOMPARE(imported.fragment.blocks.constFirst().markdown, code.markdown);
 }
 
 void NoteTransferControllerTest::convertsPlainTextNotesToMarkdownWithoutChangingTheirText()

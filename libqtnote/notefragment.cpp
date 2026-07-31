@@ -95,6 +95,7 @@ namespace {
         map.insert(QStringLiteral("type"), static_cast<int>(block.type));
         map.insert(QStringLiteral("markdown"), block.markdown);
         map.insert(QStringLiteral("headingLevel"), block.headingLevel);
+        map.insert(QStringLiteral("language"), block.language);
 
         QCborArray listItems;
         for (const NoteFragmentListItem &item : block.listItems)
@@ -114,26 +115,30 @@ namespace {
         QCborMap image;
         image.insert(QStringLiteral("sourceUri"), block.image.sourceUri);
         image.insert(QStringLiteral("alt"), block.image.alt);
+        image.insert(QStringLiteral("width"), block.image.width);
+        image.insert(QStringLiteral("alignment"), block.image.alignment);
         map.insert(QStringLiteral("image"), image);
         return map;
     }
 
-    bool decodeBlock(const QCborValue &value, NoteFragmentBlock *block, QString *error)
+    bool decodeBlock(const QCborValue &value, quint32 version, NoteFragmentBlock *block, QString *error)
     {
         if (!value.isMap()) {
             *error = QStringLiteral("block is not a map");
             return false;
         }
-        const QCborMap map  = value.toMap();
-        const qint64   type = map.value(QStringLiteral("type")).toInteger(-1);
-        if (type < static_cast<qint64>(NoteFragmentBlockType::Text)
-            || type > static_cast<qint64>(NoteFragmentBlockType::BlockQuote)) {
+        const QCborMap map         = value.toMap();
+        const qint64   type        = map.value(QStringLiteral("type")).toInteger(-1);
+        const qint64   maximumType = version >= 2 ? static_cast<qint64>(NoteFragmentBlockType::CodeBlock)
+                                                  : static_cast<qint64>(NoteFragmentBlockType::BlockQuote);
+        if (type < static_cast<qint64>(NoteFragmentBlockType::Text) || type > maximumType) {
             *error = QStringLiteral("block has invalid type");
             return false;
         }
         block->type         = static_cast<NoteFragmentBlockType>(type);
         block->markdown     = map.value(QStringLiteral("markdown")).toString();
         block->headingLevel = static_cast<int>(map.value(QStringLiteral("headingLevel")).toInteger(0));
+        block->language     = map.value(QStringLiteral("language")).toString().trimmed().toLower();
         if (block->type == NoteFragmentBlockType::Heading && (block->headingLevel < 1 || block->headingLevel > 6)) {
             *error = QStringLiteral("heading has invalid level");
             return false;
@@ -199,6 +204,20 @@ namespace {
         const QCborMap image   = imageValue.toMap();
         block->image.sourceUri = image.value(QStringLiteral("sourceUri")).toString();
         block->image.alt       = image.value(QStringLiteral("alt")).toString();
+        block->image.width     = 0;
+        block->image.alignment = QStringLiteral("center");
+        if (version >= 3 && block->type == NoteFragmentBlockType::Image) {
+            const qint64  width     = image.value(QStringLiteral("width")).toInteger(-1);
+            const QString alignment = image.value(QStringLiteral("alignment")).toString().trimmed().toLower();
+            if (width < 0 || width > 16384
+                || (alignment != QLatin1String("left") && alignment != QLatin1String("center")
+                    && alignment != QLatin1String("right"))) {
+                *error = QStringLiteral("image block has invalid presentation");
+                return false;
+            }
+            block->image.width     = static_cast<int>(width);
+            block->image.alignment = alignment;
+        }
         if (block->type == NoteFragmentBlockType::Image && block->image.sourceUri.isEmpty()) {
             *error = QStringLiteral("image block has no source URI");
             return false;
@@ -252,7 +271,7 @@ NoteFragmentDecodeResult decodeNoteFragment(const QByteArray &data)
         return failed(QStringLiteral("unknown fragment schema"));
 
     const qint64 version = root.value(QStringLiteral("version")).toInteger(-1);
-    if (version != NoteFragment::CurrentVersion)
+    if (version < 1 || version > NoteFragment::CurrentVersion)
         return failed(QStringLiteral("unsupported fragment version"));
 
     const qint64 kind         = root.value(QStringLiteral("kind")).toInteger(-1);
@@ -278,7 +297,7 @@ NoteFragmentDecodeResult decodeNoteFragment(const QByteArray &data)
     result.fragment.sourceFormat = static_cast<NoteFragmentSourceFormat>(sourceFormat);
     for (const QCborValue &blockValue : blocks) {
         NoteFragmentBlock block;
-        if (!decodeBlock(blockValue, &block, &result.error))
+        if (!decodeBlock(blockValue, static_cast<quint32>(version), &block, &result.error))
             return result;
         result.fragment.blocks.append(block);
     }

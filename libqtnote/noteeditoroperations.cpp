@@ -240,6 +240,7 @@ namespace {
                 break;
             }
             case NoteBlockModel::Image:
+            case NoteBlockModel::CodeBlock:
                 break;
             }
         }
@@ -1020,6 +1021,34 @@ QVariantMap NoteEditor::deleteSelection(const QVariantList &encodedRanges)
         result.insert(QStringLiteral("focusPosition"), first.value(QStringLiteral("selectionStart"), 0));
     }
     return result;
+}
+
+int NoteEditor::pastePlainText(QQuickTextDocument *quickDocument, int start, int end)
+{
+    if (!quickDocument || !quickDocument->textDocument())
+        return -1;
+    const QClipboard *clipboard = QGuiApplication::clipboard();
+    const QMimeData  *mimeData  = clipboard ? clipboard->mimeData() : nullptr;
+    if (!mimeData || !mimeData->hasText())
+        return -1;
+
+    QString text = mimeData->text();
+    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+
+    QTextDocument *document = quickDocument->textDocument();
+    const int      limit    = documentEnd(document);
+    start                   = qBound(0, start, limit);
+    end                     = qBound(start, end, limit);
+
+    QTextCursor cursor(document);
+    cursor.setPosition(start);
+    cursor.setPosition(end, QTextCursor::KeepAnchor);
+    // Passing an empty format explicitly prevents HTML/RTF clipboard styles
+    // and the surrounding QTextDocument character format from leaking into
+    // the title line.
+    cursor.insertText(text, QTextCharFormat());
+    return cursor.position();
 }
 
 QVariantMap NoteEditor::pasteStructuredFromClipboard(QQuickTextDocument *quickDocument, int row, int start, int end)

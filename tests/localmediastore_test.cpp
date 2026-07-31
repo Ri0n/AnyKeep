@@ -8,6 +8,9 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <array>
+#include <thread>
+
 using namespace QtNote;
 
 class LocalMediaStoreTest : public QObject {
@@ -15,6 +18,7 @@ class LocalMediaStoreTest : public QObject {
 
 private slots:
     void encryptedRoundTripAndDeduplication();
+    void concurrentReadsUseTheCachedKey();
     void portableNames();
     void markdownDisplayTitle();
 };
@@ -49,6 +53,29 @@ void LocalMediaStoreTest::encryptedRoundTripAndDeduplication()
     const auto opened = store.data(first.value.blobId);
     QVERIFY2(opened, qPrintable(opened.error));
     QCOMPARE(opened.value, plain);
+}
+
+void LocalMediaStoreTest::concurrentReadsUseTheCachedKey()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore  store(directory.path(), SecureEnvelope::generateMasterKey());
+    const QByteArray plain("thread-safe local media");
+    const auto       imported = store.importData(plain, QStringLiteral("image.png"), QStringLiteral("image/png"));
+    QVERIFY2(imported, qPrintable(imported.error));
+
+    std::array<LocalMediaDataResult, 8> results;
+    std::array<std::thread, 8>          workers;
+    for (std::size_t index = 0; index < workers.size(); ++index) {
+        workers[index]
+            = std::thread([&store, &results, &imported, index] { results[index] = store.data(imported.value.blobId); });
+    }
+    for (auto &worker : workers)
+        worker.join();
+    for (const auto &result : results) {
+        QVERIFY2(result, qPrintable(result.error));
+        QCOMPARE(result.value, plain);
+    }
 }
 
 void LocalMediaStoreTest::portableNames()

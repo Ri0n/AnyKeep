@@ -218,6 +218,56 @@ private slots:
         QCOMPARE(editor.text(), QStringLiteral("Changed\nBody"));
     }
 
+    void codeLanguageChangesParticipateInUndo()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(plainNote(), drafts);
+
+        editor.setMarkdown(true);
+        editor.model()->insertCodeBlock(1, QStringLiteral("python"));
+        editor.resetHistory();
+
+        editor.model()->setCodeLanguage(1, QStringLiteral("cpp"));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::LanguageRole).toString(),
+                 QStringLiteral("cpp"));
+        QVERIFY(editor.canUndo());
+        QVERIFY(editor.undo());
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::LanguageRole).toString(),
+                 QStringLiteral("python"));
+        QVERIFY(editor.redo());
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::LanguageRole).toString(),
+                 QStringLiteral("cpp"));
+    }
+
+    void imagePresentationChangesParticipateInUndo()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(plainNote(), drafts);
+
+        editor.setMarkdown(true);
+        editor.model()->insertImage(1, QStringLiteral("media://image"), QStringLiteral("Image"));
+        editor.resetHistory();
+
+        editor.beginHistoryTransaction(QStringLiteral("image-presentation"), {});
+        editor.model()->setImageWidth(1, 280);
+        editor.model()->setImageAlignment(1, QStringLiteral("right"));
+        editor.endHistoryTransaction({});
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageWidthRole).toInt(), 280);
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageAlignmentRole).toString(),
+                 QStringLiteral("right"));
+
+        QVERIFY(editor.undo());
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageWidthRole).toInt(), 0);
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageAlignmentRole).toString(),
+                 QStringLiteral("center"));
+        QVERIFY(editor.redo());
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageWidthRole).toInt(), 280);
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageAlignmentRole).toString(),
+                 QStringLiteral("right"));
+    }
+
     void sharedEditorsPublishOnlyAfterLastClose()
     {
         auto         store = std::make_unique<MemoryDraftStore>();

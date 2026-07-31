@@ -26,7 +26,7 @@ namespace {
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Typing");
         else if (kind == QLatin1String("typing-deletion") || kind == QLatin1String("delete-selection"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Delete");
-        else if (kind == QLatin1String("paste"))
+        else if (kind == QLatin1String("paste") || kind == QLatin1String("paste-code"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Paste");
         else if (kind == QLatin1String("cut"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Cut");
@@ -34,8 +34,18 @@ namespace {
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert text");
         else if (kind == QLatin1String("insert-image"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert image");
+        else if (kind == QLatin1String("remove-image") || kind == QLatin1String("remove-adjacent-image"))
+            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Remove image");
+        else if (kind == QLatin1String("resize-image"))
+            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Resize image");
+        else if (kind == QLatin1String("align-image"))
+            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Align image");
+        else if (kind == QLatin1String("reset-image-presentation"))
+            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Reset image size and alignment");
         else if (kind == QLatin1String("insert-table"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert table");
+        else if (kind == QLatin1String("insert-code-block"))
+            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert code block");
         else if (kind == QLatin1String("remove-table"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Remove table");
         else if (kind == QLatin1String("insert-table-row"))
@@ -68,6 +78,9 @@ namespace {
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Correct spelling");
         else if (kind == QLatin1String("toggle-task"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Toggle task");
+        else if (kind == QLatin1String("move-block") || kind == QLatin1String("move-list-block")
+                 || kind == QLatin1String("move-list-item"))
+            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Move block");
         else if (kind == QLatin1String("append-following-text-block"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Add text block");
         else if (kind == QLatin1String("leave-table"))
@@ -320,6 +333,15 @@ void NoteDocumentHistory::setCurrentScalar(const ScalarAddress &address, const Q
         break;
     case NoteBlockModel::AltRole:
         block.alt = value;
+        break;
+    case NoteBlockModel::ImageWidthRole:
+        block.imageWidth = value.toInt();
+        break;
+    case NoteBlockModel::ImageAlignmentRole:
+        block.imageAlignment = value;
+        break;
+    case NoteBlockModel::LanguageRole:
+        block.language = value;
         break;
     }
 }

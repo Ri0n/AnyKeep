@@ -10,7 +10,88 @@
 
 namespace QtNote {
 namespace {
-    const QString TableLineBreakMarker = QStringLiteral("QTNOTE_TABLE_LINE_BREAK_7F3A");
+    const QString TableLineBreakMarker    = QStringLiteral("QTNOTE_TABLE_LINE_BREAK_7F3A");
+    constexpr int MaxSerializedImageWidth = 16384;
+
+    struct HtmlImageBlock {
+        QString source;
+        QString alt;
+        QString alignment { QStringLiteral("center") };
+        int     width { 0 };
+
+        explicit operator bool() const { return !source.isEmpty(); }
+    };
+
+    QString normalizedImageAlignment(QString alignment)
+    {
+        alignment = alignment.trimmed().toLower();
+        return alignment == QLatin1String("left") || alignment == QLatin1String("right")
+                || alignment == QLatin1String("center")
+            ? alignment
+            : QStringLiteral("center");
+    }
+
+    QString decodeHtmlAttribute(QString value)
+    {
+        // QString::toHtmlEscaped(), used by serializeHtmlImage(), emits this
+        // exact set. Decode ampersand last so an escaped entity literal such
+        // as &amp;quot; remains the text "&quot;" rather than becoming a quote.
+        value.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
+        value.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
+        value.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
+        value.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
+        return value;
+    }
+
+    QHash<QString, QString> htmlAttributes(const QString &source)
+    {
+        static const QRegularExpression attribute(QStringLiteral(R"(([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*(["'])(.*?)\2)"),
+                                                  QRegularExpression::DotMatchesEverythingOption);
+        QHash<QString, QString>         result;
+        auto                            iterator = attribute.globalMatch(source);
+        while (iterator.hasNext()) {
+            const auto match = iterator.next();
+            result.insert(match.captured(1).toLower(), decodeHtmlAttribute(match.captured(3)));
+        }
+        return result;
+    }
+
+    HtmlImageBlock parseHtmlImageBlock(const QString &line)
+    {
+        static const QRegularExpression outer(
+            QStringLiteral(R"(^\s*(?:<p\b([^>]*)>\s*)?<img\b([^>]*)/?>\s*(?:</p>)?\s*$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        const auto match = outer.match(line);
+        if (!match.hasMatch())
+            return {};
+
+        const auto     imageAttributes = htmlAttributes(match.captured(2));
+        HtmlImageBlock result;
+        result.source = imageAttributes.value(QStringLiteral("src")).trimmed();
+        result.alt    = imageAttributes.value(QStringLiteral("alt"));
+        if (result.source.isEmpty())
+            return {};
+
+        const auto paragraphAttributes = htmlAttributes(match.captured(1));
+        result.alignment               = normalizedImageAlignment(paragraphAttributes.value(QStringLiteral("align")));
+        QString widthText              = imageAttributes.value(QStringLiteral("width")).trimmed();
+        if (widthText.endsWith(QLatin1String("px"), Qt::CaseInsensitive))
+            widthText.chop(2);
+        bool      widthOk = false;
+        const int width   = widthText.toInt(&widthOk);
+        if (widthOk)
+            result.width = qBound(0, width, MaxSerializedImageWidth);
+        return result;
+    }
+
+    QString serializeHtmlImage(const QString &source, const QString &alt, int width, const QString &alignment)
+    {
+        QString image = QStringLiteral("<img src=\"%1\" alt=\"%2\"").arg(source.toHtmlEscaped(), alt.toHtmlEscaped());
+        if (width > 0)
+            image += QStringLiteral(" width=\"%1\"").arg(qBound(1, width, MaxSerializedImageWidth));
+        image += QStringLiteral(" />");
+        return QStringLiteral("<p align=\"%1\">%2</p>").arg(normalizedImageAlignment(alignment), image);
+    }
 
     QString decodeTableCellLineBreaks(QString text)
     {
@@ -158,6 +239,12 @@ QVariant NoteBlockModel::data(const QModelIndex &index, int role) const
         return block.itemTypes;
     case HeadingLevelRole:
         return block.headingLevel;
+    case LanguageRole:
+        return block.language;
+    case ImageWidthRole:
+        return block.imageWidth;
+    case ImageAlignmentRole:
+        return block.imageAlignment;
     default:
         return {};
     }
@@ -206,6 +293,38 @@ bool NoteBlockModel::setData(const QModelIndex &index, const QVariant &value, in
         after     = block.alt;
         scalar    = true;
         break;
+    case LanguageRole:
+        if (block.language == value.toString().trimmed().toLower())
+            return false;
+        before         = block.language;
+        block.language = value.toString().trimmed().toLower();
+        after          = block.language;
+        scalar         = true;
+        break;
+    case ImageWidthRole: {
+        if (block.type != Image)
+            return false;
+        const int width = qBound(0, value.toInt(), MaxSerializedImageWidth);
+        if (block.imageWidth == width)
+            return false;
+        before           = QString::number(block.imageWidth);
+        block.imageWidth = width;
+        after            = QString::number(block.imageWidth);
+        scalar           = true;
+        break;
+    }
+    case ImageAlignmentRole: {
+        if (block.type != Image)
+            return false;
+        const QString alignment = normalizedImageAlignment(value.toString());
+        if (block.imageAlignment == alignment)
+            return false;
+        before               = block.imageAlignment;
+        block.imageAlignment = alignment;
+        after                = block.imageAlignment;
+        scalar               = true;
+        break;
+    }
     default:
         return false;
     }
@@ -232,7 +351,10 @@ QHash<int, QByteArray> NoteBlockModel::roleNames() const
              { PreviewUrlRole, "previewUrl" },
              { IndentsRole, "itemIndents" },
              { ItemTypesRole, "itemTypes" },
-             { HeadingLevelRole, "headingLevel" } };
+             { HeadingLevelRole, "headingLevel" },
+             { LanguageRole, "codeLanguage" },
+             { ImageWidthRole, "imageWidth" },
+             { ImageAlignmentRole, "imageAlignment" } };
 }
 
 QString NoteBlockModel::contents() const
@@ -279,6 +401,9 @@ QVariantMap NoteBlockModel::findText(const QString &text, const QVariantMap &aft
             break;
         case BlockQuote:
             fields.append({ blockIndex, -1, -1, QStringLiteral("blockquote"), block.text });
+            break;
+        case CodeBlock:
+            fields.append({ blockIndex, -1, -1, QStringLiteral("code"), block.text });
             break;
         case BulletList:
         case CheckList:
@@ -418,7 +543,9 @@ void NoteBlockModel::load(const QString &contents, bool markdown)
 
 void NoteBlockModel::setBlockText(int row, const QString &text)
 {
-    setData(index(row), coalesceAdjacentMarkdownLinks(text), TextRole);
+    if (row < 0 || row >= blocks_.size())
+        return;
+    setData(index(row), blocks_.at(row).type == CodeBlock ? text : coalesceAdjacentMarkdownLinks(text), TextRole);
 }
 
 bool NoteBlockModel::mergeTextBlockWithNext(int row)
@@ -631,6 +758,62 @@ bool NoteBlockModel::moveListRange(int sourceRow, int sourceFirstItem, int sourc
         changed(targetRow, { ItemsRole, IndentsRole, ItemTypesRole, CheckedRole });
     }
     return true;
+}
+
+int NoteBlockModel::moveListRangeToBlock(int sourceRow, int sourceFirstItem, int sourceLastItem, int targetRow)
+{
+    if (sourceRow < 0 || sourceRow >= blocks_.size() || !isListType(blocks_[sourceRow].type) || targetRow < 0
+        || targetRow > blocks_.size()) {
+        return -1;
+    }
+
+    Block source = blocks_.at(sourceRow);
+    while (source.indents.size() < source.items.size())
+        source.indents.append(0);
+    while (source.itemTypes.size() < source.items.size())
+        source.itemTypes.append(source.type);
+    while (source.checked.size() < source.items.size())
+        source.checked.append(false);
+
+    if (sourceFirstItem < 0 || sourceLastItem < sourceFirstItem || sourceLastItem >= source.items.size())
+        return -1;
+
+    const int  movedCount       = sourceLastItem - sourceFirstItem + 1;
+    const bool removesWholeList = movedCount == source.items.size();
+    if (removesWholeList && (targetRow == sourceRow || targetRow == sourceRow + 1))
+        return -1;
+
+    Block detached;
+    detached.type = static_cast<BlockType>(source.itemTypes.value(sourceFirstItem, source.type).toInt());
+    if (!isListType(detached.type))
+        detached.type = source.type;
+    detached.items         = source.items.mid(sourceFirstItem, movedCount);
+    detached.itemTypes     = source.itemTypes.mid(sourceFirstItem, movedCount);
+    detached.checked       = source.checked.mid(sourceFirstItem, movedCount);
+    const int sourceIndent = source.indents.at(sourceFirstItem).toInt();
+    for (const QVariant &indent : source.indents.mid(sourceFirstItem, movedCount))
+        detached.indents.append(qMax(0, indent.toInt() - sourceIndent));
+
+    beginResetModel();
+    if (removesWholeList) {
+        blocks_.removeAt(sourceRow);
+        if (targetRow > sourceRow)
+            --targetRow;
+    } else {
+        for (int index = sourceLastItem; index >= sourceFirstItem; --index) {
+            source.items.removeAt(index);
+            source.indents.removeAt(index);
+            source.itemTypes.removeAt(index);
+            source.checked.removeAt(index);
+        }
+        blocks_[sourceRow] = source;
+    }
+
+    targetRow = qBound(0, targetRow, blocks_.size());
+    blocks_.insert(targetRow, detached);
+    endResetModel();
+    emit contentsChanged();
+    return targetRow;
 }
 
 bool NoteBlockModel::moveListSubtree(int sourceRow, int sourceItem, int targetRow, int targetItem, int targetIndent)
@@ -851,6 +1034,11 @@ void NoteBlockModel::removeTableColumn(int row, int column)
 
 void NoteBlockModel::setImageUrl(int row, const QString &url) { setData(index(row), url, UrlRole); }
 void NoteBlockModel::setImageAlt(int row, const QString &alt) { setData(index(row), alt, AltRole); }
+void NoteBlockModel::setImageWidth(int row, int width) { setData(index(row), width, ImageWidthRole); }
+void NoteBlockModel::setImageAlignment(int row, const QString &alignment)
+{
+    setData(index(row), alignment, ImageAlignmentRole);
+}
 
 void NoteBlockModel::appendTextBlock()
 {
@@ -941,6 +1129,25 @@ void NoteBlockModel::insertBlockQuote(int row)
     emit contentsChanged();
 }
 
+void NoteBlockModel::insertCodeBlock(int row, const QString &language)
+{
+    row = qBound(0, row, blocks_.size());
+    beginInsertRows({}, row, row);
+    Block block;
+    block.type     = CodeBlock;
+    block.language = language.trimmed().toLower();
+    blocks_.insert(row, block);
+    endInsertRows();
+    emit contentsChanged();
+}
+
+void NoteBlockModel::setCodeLanguage(int row, const QString &language)
+{
+    if (row < 0 || row >= blocks_.size() || blocks_.at(row).type != CodeBlock)
+        return;
+    setData(index(row), language, LanguageRole);
+}
+
 bool NoteBlockModel::convertListLevel(int row, int item, BlockType type)
 {
     if (row < 0 || row >= blocks_.size() || item < 0 || !isListType(type))
@@ -976,19 +1183,27 @@ int NoteBlockModel::convertTextBlockToHeading(int row, int position, int level)
         changed(row, { TypeRole, HeadingLevelRole });
         return row;
     }
-    if (blocks_[row].type != Text || level == 0)
+    if (blocks_[row].type == BlockQuote && level == 0) {
+        blocks_[row].type         = Text;
+        blocks_[row].headingLevel = 0;
+        changed(row, { TypeRole, HeadingLevelRole });
+        return row;
+    }
+    if ((blocks_[row].type != Text && blocks_[row].type != BlockQuote) || level == 0)
         return -1;
 
-    const QString text        = blocks_[row].text;
-    position                  = qBound(0, position, text.size());
-    const int separatorBefore = text.lastIndexOf(QStringLiteral("\n\n"), qMax(0, position - 1));
-    const int paragraphStart  = separatorBefore < 0 ? 0 : separatorBefore + 2;
-    const int separatorAfter  = text.indexOf(QStringLiteral("\n\n"), position);
-    const int paragraphEnd    = separatorAfter < 0 ? text.size() : separatorAfter;
+    const BlockType sourceType = blocks_[row].type;
+    const QString   text       = blocks_[row].text;
+    position                   = qBound(0, position, text.size());
+    const int separatorBefore  = text.lastIndexOf(QStringLiteral("\n\n"), qMax(0, position - 1));
+    const int paragraphStart   = separatorBefore < 0 ? 0 : separatorBefore + 2;
+    const int separatorAfter   = text.indexOf(QStringLiteral("\n\n"), position);
+    const int paragraphEnd     = separatorAfter < 0 ? text.size() : separatorAfter;
 
     QList<Block> replacement;
     if (paragraphStart > 0) {
         Block before;
+        before.type = sourceType;
         before.text = text.left(paragraphStart - 2);
         replacement.append(before);
     }
@@ -1000,6 +1215,7 @@ int NoteBlockModel::convertTextBlockToHeading(int row, int position, int level)
     replacement.append(heading);
     if (paragraphEnd < text.size()) {
         Block after;
+        after.type = sourceType;
         after.text = text.mid(paragraphEnd + 2);
         replacement.append(after);
     }
@@ -1020,8 +1236,15 @@ int NoteBlockModel::convertTextBlockToQuote(int row, int position, bool quote)
     if (blocks_[row].type == BlockQuote) {
         if (quote)
             return row;
-        blocks_[row].type = Text;
-        changed(row, { TypeRole });
+        blocks_[row].type         = Text;
+        blocks_[row].headingLevel = 0;
+        changed(row, { TypeRole, HeadingLevelRole });
+        return row;
+    }
+    if (blocks_[row].type == Heading && quote) {
+        blocks_[row].type         = BlockQuote;
+        blocks_[row].headingLevel = 0;
+        changed(row, { TypeRole, HeadingLevelRole });
         return row;
     }
     if (blocks_[row].type != Text || !quote)
@@ -1114,6 +1337,11 @@ NoteFragment NoteBlockModel::extractBlockFragment(int firstRow, int lastRow) con
             destination.type     = NoteFragmentBlockType::BlockQuote;
             destination.markdown = source.text;
             break;
+        case CodeBlock:
+            destination.type     = NoteFragmentBlockType::CodeBlock;
+            destination.markdown = source.text;
+            destination.language = source.language;
+            break;
         case BulletList:
         case CheckList:
         case NumberedList:
@@ -1138,6 +1366,8 @@ NoteFragment NoteBlockModel::extractBlockFragment(int firstRow, int lastRow) con
             destination.type            = NoteFragmentBlockType::Image;
             destination.image.sourceUri = source.url;
             destination.image.alt       = source.alt;
+            destination.image.width     = source.imageWidth;
+            destination.image.alignment = source.imageAlignment;
             break;
         }
         fragment.blocks.append(destination);
@@ -1170,7 +1400,7 @@ NoteFragment NoteBlockModel::extractSelectionFragment(const QList<NoteBlockSelec
         }
         NoteFragmentBlock block = exact.blocks.constFirst();
 
-        if (source.type == Text || source.type == Heading || source.type == BlockQuote) {
+        if (source.type == Text || source.type == Heading || source.type == BlockQuote || source.type == CodeBlock) {
             block.markdown = ranges.at(first).markdown;
             if (source.type == Heading && !ranges.at(first).wholeEditor) {
                 block.type         = NoteFragmentBlockType::Text;
@@ -1276,52 +1506,52 @@ int NoteBlockModel::removeSelectionRanges(const QList<NoteBlockSelectionRange> &
         }
         return result;
     };
-    const auto boundaryRemainder
-        = [&sliceList](const Block &source, const QList<NoteBlockSelectionRange> &group, bool prefix, Block *result) {
-              if (group.isEmpty())
-                  return false;
-              *result = source;
-              if (source.type == Text || source.type == Heading || source.type == BlockQuote) {
-                  result->text = prefix ? group.constFirst().before : group.constLast().after;
-                  return !result->text.isEmpty();
-              }
-              if (isListType(source.type)) {
-                  const int boundary = prefix ? group.constFirst().listItemIndex : group.constLast().listItemIndex;
-                  if (boundary < 0 || boundary >= source.items.size())
-                      return false;
-                  *result                    = prefix ? sliceList(source, 0, boundary - 1)
-                                                      : sliceList(source, boundary + 1, source.items.size() - 1);
-                  const QString boundaryText = prefix ? group.constFirst().before : group.constLast().after;
-                  if (!boundaryText.isEmpty()) {
-                      const int insertAt = prefix ? result->items.size() : 0;
-                      result->items.insert(insertAt, boundaryText);
-                      result->indents.insert(insertAt, source.indents.value(boundary));
-                      result->itemTypes.insert(insertAt, source.itemTypes.value(boundary));
-                      result->checked.insert(insertAt, source.checked.value(boundary));
-                  }
-                  return !result->items.isEmpty();
-              }
-              if (source.type == Table) {
-                  QSet<int> wholeCells;
-                  for (const auto &range : group)
-                      if (range.tableCellIndex >= 0 && range.wholeEditor)
-                          wholeCells.insert(range.tableCellIndex);
-                  if (wholeCells.size() == source.cells.size())
-                      return false;
-                  for (int index = 0; index < group.size(); ++index) {
-                      const auto &range = group.at(index);
-                      if (range.tableCellIndex < 0 || range.tableCellIndex >= result->cells.size())
-                          continue;
-                      result->cells[range.tableCellIndex] = prefix && index == 0 ? range.before
-                          : !prefix && index + 1 == group.size()                 ? range.after
-                                                                                 : QString();
-                  }
-                  return true;
-              }
-              // An image fully crossed by the selection is removed. A selection
-              // beginning or ending inside its editable metadata keeps the image.
-              return !std::all_of(group.cbegin(), group.cend(), [](const auto &range) { return range.wholeEditor; });
-          };
+    const auto boundaryRemainder = [&sliceList](const Block &source, const QList<NoteBlockSelectionRange> &group,
+                                                bool prefix, Block *result) {
+        if (group.isEmpty())
+            return false;
+        *result = source;
+        if (source.type == Text || source.type == Heading || source.type == BlockQuote || source.type == CodeBlock) {
+            result->text = prefix ? group.constFirst().before : group.constLast().after;
+            return !result->text.isEmpty();
+        }
+        if (isListType(source.type)) {
+            const int boundary = prefix ? group.constFirst().listItemIndex : group.constLast().listItemIndex;
+            if (boundary < 0 || boundary >= source.items.size())
+                return false;
+            *result                    = prefix ? sliceList(source, 0, boundary - 1)
+                                                : sliceList(source, boundary + 1, source.items.size() - 1);
+            const QString boundaryText = prefix ? group.constFirst().before : group.constLast().after;
+            if (!boundaryText.isEmpty()) {
+                const int insertAt = prefix ? result->items.size() : 0;
+                result->items.insert(insertAt, boundaryText);
+                result->indents.insert(insertAt, source.indents.value(boundary));
+                result->itemTypes.insert(insertAt, source.itemTypes.value(boundary));
+                result->checked.insert(insertAt, source.checked.value(boundary));
+            }
+            return !result->items.isEmpty();
+        }
+        if (source.type == Table) {
+            QSet<int> wholeCells;
+            for (const auto &range : group)
+                if (range.tableCellIndex >= 0 && range.wholeEditor)
+                    wholeCells.insert(range.tableCellIndex);
+            if (wholeCells.size() == source.cells.size())
+                return false;
+            for (int index = 0; index < group.size(); ++index) {
+                const auto &range = group.at(index);
+                if (range.tableCellIndex < 0 || range.tableCellIndex >= result->cells.size())
+                    continue;
+                result->cells[range.tableCellIndex] = prefix && index == 0 ? range.before
+                    : !prefix && index + 1 == group.size()                 ? range.after
+                                                                           : QString();
+            }
+            return true;
+        }
+        // An image fully crossed by the selection is removed. A selection
+        // beginning or ending inside its editable metadata keeps the image.
+        return !std::all_of(group.cbegin(), group.cend(), [](const auto &range) { return range.wholeEditor; });
+    };
 
     Block      firstRemainder;
     Block      lastRemainder;
@@ -1383,6 +1613,11 @@ bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Bloc
             destination.type = BlockQuote;
             destination.text = source.markdown;
             break;
+        case NoteFragmentBlockType::CodeBlock:
+            destination.type     = CodeBlock;
+            destination.text     = source.markdown;
+            destination.language = source.language.trimmed().toLower();
+            break;
         case NoteFragmentBlockType::List:
             if (source.listItems.isEmpty()) {
                 if (error)
@@ -1419,9 +1654,11 @@ bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Bloc
                     *error = QStringLiteral("image fragment has no source URI");
                 return false;
             }
-            destination.type = Image;
-            destination.url  = source.image.sourceUri;
-            destination.alt  = source.image.alt;
+            destination.type           = Image;
+            destination.url            = source.image.sourceUri;
+            destination.alt            = source.image.alt;
+            destination.imageWidth     = qBound(0, source.image.width, MaxSerializedImageWidth);
+            destination.imageAlignment = normalizedImageAlignment(source.image.alignment);
             break;
         }
         blocks->append(destination);
@@ -1611,6 +1848,98 @@ int NoteBlockModel::replaceListItemRangeWithFragment(int row, int item, const QS
 
 QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdown(const QString &source)
 {
+    QString normalized = source;
+    normalized.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    normalized.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    const QStringList lines = normalized.split(QLatin1Char('\n'), Qt::KeepEmptyParts);
+
+    struct Fence {
+        QChar   marker;
+        int     length { 0 };
+        QString language;
+    };
+    const auto openingFence = [](const QString &line, Fence *fence) {
+        int offset = 0;
+        while (offset < line.size() && offset < 4 && line.at(offset) == QLatin1Char(' '))
+            ++offset;
+        if (offset > 3 || offset >= line.size())
+            return false;
+        const QChar marker = line.at(offset);
+        if (marker != QLatin1Char('`') && marker != QLatin1Char('~'))
+            return false;
+        int end = offset;
+        while (end < line.size() && line.at(end) == marker)
+            ++end;
+        if (end - offset < 3)
+            return false;
+        QString info = line.mid(end).trimmed();
+        if (marker == QLatin1Char('`') && info.contains(QLatin1Char('`')))
+            return false;
+        if (fence) {
+            fence->marker   = marker;
+            fence->length   = end - offset;
+            fence->language = info.section(QRegularExpression(QStringLiteral("\\s+")), 0, 0).trimmed().toLower();
+        }
+        return true;
+    };
+    const auto closingFence = [](const QString &line, const Fence &fence) {
+        int offset = 0;
+        while (offset < line.size() && offset < 4 && line.at(offset) == QLatin1Char(' '))
+            ++offset;
+        if (offset > 3)
+            return false;
+        int end = offset;
+        while (end < line.size() && line.at(end) == fence.marker)
+            ++end;
+        return end - offset >= fence.length && line.mid(end).trimmed().isEmpty();
+    };
+
+    QList<Block> result;
+    const auto   appendMarkdown = [&result](const QStringList &sourceLines, int first, int last) {
+        if (last <= first)
+            return;
+        const QString part = sourceLines.mid(first, last - first).join(QLatin1Char('\n'));
+        if (part.trimmed().isEmpty())
+            return;
+        const auto parsed = parseMarkdownWithoutCode(part);
+        for (const auto &block : parsed)
+            result.append(block);
+    };
+
+    int segmentStart = 0;
+    for (int line = 0; line < lines.size();) {
+        Fence fence;
+        if (!openingFence(lines.at(line), &fence)) {
+            ++line;
+            continue;
+        }
+
+        int close = line + 1;
+        while (close < lines.size() && !closingFence(lines.at(close), fence))
+            ++close;
+        appendMarkdown(lines, segmentStart, line);
+
+        Block block;
+        block.type     = CodeBlock;
+        block.language = fence.language;
+        block.text     = lines.mid(line + 1, close - line - 1).join(QLatin1Char('\n'));
+        result.append(block);
+
+        if (close >= lines.size()) {
+            segmentStart = lines.size();
+            break;
+        }
+        line         = close + 1;
+        segmentStart = line;
+    }
+    appendMarkdown(lines, segmentStart, lines.size());
+    if (result.isEmpty())
+        result.append(Block {});
+    return result;
+}
+
+QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QString &source)
+{
     // QTextDocument is the Markdown reader. Parsing its canonical Markdown keeps
     // Qt's CommonMark interpretation as the single source of truth.
     QTextDocument                   document;
@@ -1665,20 +1994,32 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdown(const QString &source
         }
         return false;
     };
+    const auto tableColumnCounts = [](const QStringList &candidate) {
+        QList<int> result;
+        for (int index = 0; index + 1 < candidate.size(); ++index) {
+            if (candidate.at(index).contains('|') && isTableSeparator(candidate.at(index + 1)))
+                result.append(tableCells(candidate.at(index)).size());
+        }
+        return result;
+    };
     static const QRegularExpression inlineLink(
         QStringLiteral(R"((?<!!)\[(?:\\.|[^\]\\\n])*\]\((?:\\.|[^)\\\n])*\)|<https?://[^>\n]+>)"));
     static const QRegularExpression inlineUnderline(QStringLiteral(R"(<(?:ins|u)(?:\s[^>]*)?>[\s\S]*?</(?:ins|u)\s*>)"),
                                                     QRegularExpression::CaseInsensitiveOption);
     const bool                      preserveInlineSourceLines
         = inlineLink.match(protectedSource).hasMatch() || inlineUnderline.match(protectedSource).hasMatch();
+    const bool hasHtmlImage = std::any_of(sourceLines.cbegin(), sourceLines.cend(),
+                                          [](const QString &line) { return bool(parseHtmlImageBlock(line)); });
     // QTextDocument remains the Markdown reader for inline semantics, but its
     // writer wraps long paragraphs (very often around a link). Such a soft
     // wrap becomes a real newline in plain-text mode and can split a list.
     // Preserve source line boundaries for linked content and correctly
     // indented list continuations. Do the same when Qt flattens a GFM table
-    // following a task list.
-    const bool preserveSourceLines = preserveInlineSourceLines || hasListContinuation(sourceLines)
-        || (hasTable(sourceLines) && !hasTable(canonicalLines));
+    // following a task list or reinterprets an optional outer pipe as a
+    // phantom empty column.
+    const bool tableShapeChanged   = tableColumnCounts(sourceLines) != tableColumnCounts(canonicalLines);
+    const bool preserveSourceLines = preserveInlineSourceLines || hasHtmlImage || hasListContinuation(sourceLines)
+        || (hasTable(sourceLines) && (!hasTable(canonicalLines) || tableShapeChanged));
     const QStringList              &lines = preserveSourceLines ? sourceLines : canonicalLines;
     QList<Block>                    result;
     static const QRegularExpression image(QStringLiteral(R"(^\s*!\[([^\]]*)\]\((\S+?)(?:\s+"[^"]*")?\)\s*$)"));
@@ -1845,6 +2186,18 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdown(const QString &source
             result.append(block);
             continue;
         }
+        const HtmlImageBlock htmlImage = parseHtmlImageBlock(lines[i]);
+        if (htmlImage) {
+            Block block;
+            block.type           = Image;
+            block.url            = htmlImage.source;
+            block.alt            = htmlImage.alt;
+            block.imageWidth     = htmlImage.width;
+            block.imageAlignment = htmlImage.alignment;
+            result.append(block);
+            ++i;
+            continue;
+        }
         match = image.match(lines[i]);
         if (match.hasMatch()) {
             Block block;
@@ -1859,7 +2212,7 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdown(const QString &source
         while (i < lines.size() && !lines[i].trimmed().isEmpty() && !task.match(lines[i]).hasMatch()
                && !bullet.match(lines[i]).hasMatch() && !numbered.match(lines[i]).hasMatch()
                && !image.match(lines[i]).hasMatch() && !heading.match(lines[i]).hasMatch()
-               && !quote.match(lines[i]).hasMatch()
+               && !quote.match(lines[i]).hasMatch() && !parseHtmlImageBlock(lines[i])
                && !(i + 1 < lines.size() && lines[i].contains('|') && isTableSeparator(lines[i + 1])))
             paragraph.append(lines[i++]);
         const QString text = paragraph.join('\n');
@@ -1945,8 +2298,34 @@ QString NoteBlockModel::writeMarkdown(const QList<Block> &blocks)
             }
             value = value.trimmed();
             break;
+        case CodeBlock: {
+            int longestRun = 0;
+            int currentRun = 0;
+            for (const QChar ch : block.text) {
+                if (ch == QLatin1Char('`'))
+                    longestRun = qMax(longestRun, ++currentRun);
+                else
+                    currentRun = 0;
+            }
+            const QString fence(qMax(3, longestRun + 1), QLatin1Char('`'));
+            QString       language = block.language.trimmed().toLower();
+            language.remove(QRegularExpression(QStringLiteral("[^a-z0-9_+.#-]")));
+            // The final newline before the closing fence is structural. Always
+            // write it separately so an actual trailing newline in block.text
+            // is represented by an additional empty source line and survives
+            // parse -> serialize -> parse unchanged.
+            value = fence + language + QLatin1Char('\n') + block.text;
+            if (!block.text.isEmpty())
+                value += QLatin1Char('\n');
+            value += fence;
+            break;
+        }
         case Image:
-            value = QStringLiteral("![%1](%2)").arg(block.alt, block.url);
+            if (block.imageWidth > 0 || normalizedImageAlignment(block.imageAlignment) != QLatin1String("center")) {
+                value = serializeHtmlImage(block.url, block.alt, block.imageWidth, block.imageAlignment);
+            } else {
+                value = QStringLiteral("![%1](%2)").arg(block.alt, block.url);
+            }
             break;
         }
         output.append(value);

@@ -27,6 +27,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 namespace QtNote {
 
+class LocalMediaStore;
+
 class QTNOTE_EXPORT PTFStorage : public FileStorage {
     Q_OBJECT
     Q_DISABLE_COPY(PTFStorage)
@@ -35,6 +37,7 @@ class QTNOTE_EXPORT PTFStorage : public FileStorage {
 
 public:
     PTFStorage(QObject *parent = 0);
+    explicit PTFStorage(LocalMediaStore &mediaStore, QObject *parent = nullptr);
     bool          init() override;
     bool          isAccessible() const override;
     const QString systemName() const override;
@@ -81,6 +84,7 @@ private:
     FolderCatalogSnapshot folderCatalog_;
     bool                  folderCatalogAvailable_ { true };
     QString               folderCatalogError_;
+    LocalMediaStore      &mediaStore_;
 };
 
 } // namespace QtNote

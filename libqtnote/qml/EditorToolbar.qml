@@ -65,6 +65,12 @@ ToolBar {
         })
     }
 
+    function insertCodeBlock() {
+        return runMarkdownCommand("insert-code-block", function() {
+            return root.blockEditor.insertCodeBlock("")
+        })
+    }
+
     function insertTable() {
         const row = root.blockEditor ? root.blockEditor.insertionBlockIndex() : 0
         return runMarkdownCommand("insert-table", function() {
@@ -135,7 +141,7 @@ ToolBar {
     function activeBlockStyleLabel() {
         if (root.blockEditor && root.blockEditor.activeEditor
                 && root.blockEditor.activeEditor.editorField === "blockquote")
-            return qsTr("Quote")
+            return "\u201c"
         const level = activeHeadingLevel()
         return level > 0 ? qsTr("H%1").arg(level) : qsTr("P")
     }
@@ -515,6 +521,7 @@ ToolBar {
                     MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertList(root.numberedListType) }
                     MenuItem { text: qsTr("Task list"); onTriggered: root.insertList(root.taskListType) }
                     MenuItem { text: qsTr("Block quote"); onTriggered: root.insertBlockQuote() }
+                    MenuItem { text: qsTr("Code block"); onTriggered: root.insertCodeBlock() }
                     MenuItem { text: qsTr("Table"); onTriggered: root.insertTable() }
                     MenuItem {
                         text: qsTr("Image")
@@ -606,6 +613,7 @@ ToolBar {
                     MenuItem { text: qsTr("Numbered list"); onTriggered: root.insertList(root.numberedListType) }
                     MenuItem { text: qsTr("Task list"); onTriggered: root.insertList(root.taskListType) }
                     MenuItem { text: qsTr("Block quote"); onTriggered: root.insertBlockQuote() }
+                    MenuItem { text: qsTr("Code block"); onTriggered: root.insertCodeBlock() }
                     MenuItem { text: qsTr("Table"); onTriggered: root.insertTable() }
                     MenuItem {
                         text: qsTr("Image")

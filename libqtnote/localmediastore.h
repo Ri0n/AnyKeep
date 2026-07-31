@@ -4,6 +4,7 @@
 #include "mediareference.h"
 
 #include <QByteArray>
+#include <QMutex>
 #include <QString>
 
 namespace QtNote {
@@ -25,6 +26,11 @@ public:
     explicit LocalMediaStore(const QString &rootPath = {}, const QByteArray &masterKey = {});
     static LocalMediaStore *instance();
 
+    // Resolve the keychain-backed encryption key on the application thread.
+    // Image providers may call data() from a worker thread, so the first
+    // keychain access must never be deferred to requestImage().
+    bool initialize(QString *error = nullptr) const;
+
     LocalMediaResult     importFile(const QString &fileName, const QUuid &attachmentId = {});
     LocalMediaResult     importData(const QByteArray &data, const QString &originalName, const QString &mediaType,
                                     const QUuid &attachmentId = {});
@@ -35,8 +41,9 @@ private:
     QByteArray masterKey(QString *error) const;
     QString    blobPath(const QByteArray &blobId) const;
 
-    QString    rootPath_;
-    QByteArray masterKey_;
+    QString            rootPath_;
+    mutable QMutex     masterKeyMutex_;
+    mutable QByteArray masterKey_;
 };
 
 } // namespace QtNote

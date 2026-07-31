@@ -1,5 +1,6 @@
 #include "optionsplugins.h"
 
+#include "pluginiconimageprovider.h"
 #include "pluginlistmodel.h"
 #include "pluginmanager.h"
 #include "qtnote.h"
@@ -8,58 +9,14 @@
 #include "ui_optionsplugins.h"
 
 #include <QDebug>
-#include <QIcon>
-#include <QImage>
-#include <QPointer>
 #include <QQmlContext>
 #include <QQmlEngine>
-#include <QQuickImageProvider>
 #include <QQuickItem>
 #include <QQuickWidget>
-#include <QUrl>
 
 namespace QtNote {
 
 namespace {
-    constexpr auto PluginIconProviderId = "qtnote-plugin-icon";
-
-    class PluginIconImageProvider final : public QQuickImageProvider {
-    public:
-        explicit PluginIconImageProvider(PluginListModel *model) :
-            QQuickImageProvider(QQuickImageProvider::Image), model_(model)
-        {
-        }
-
-        QImage requestImage(const QString &id, QSize *size, const QSize &requestedSize) override
-        {
-            if (!model_)
-                return {};
-
-            const QString pluginId = QUrl::fromPercentEncoding(id.toUtf8());
-            QIcon         icon;
-            for (int row = 0; row < model_->rowCount(); ++row) {
-                const auto index = model_->index(row);
-                if (model_->data(index, PluginListModel::PluginIdRole).toString() != pluginId)
-                    continue;
-                icon = model_->data(index, PluginListModel::IconRole).value<QIcon>();
-                break;
-            }
-            if (icon.isNull())
-                return {};
-
-            QSize target = requestedSize.isValid() ? requestedSize : QSize(22, 22);
-            target.setWidth(qMax(1, target.width()));
-            target.setHeight(qMax(1, target.height()));
-            QImage image = icon.pixmap(target).toImage();
-            if (size)
-                *size = image.size();
-            return image;
-        }
-
-    private:
-        QPointer<PluginListModel> model_;
-    };
-
     class MouseDisabler : public QObject {
     public:
         using QObject::QObject;
@@ -89,14 +46,12 @@ OptionsPlugins::OptionsPlugins(Main *qtnote, QWidget *parent) :
     pluginsView->setObjectName(QStringLiteral("animatedPluginsView"));
     pluginsView->setResizeMode(QQuickWidget::SizeRootObjectToView);
     pluginsView->setClearColor(palette().color(QPalette::Base));
-    pluginsView->engine()->addImageProvider(QLatin1String(PluginIconProviderId),
-                                            new PluginIconImageProvider(pluginsModel));
+    installPluginIconImageProvider(pluginsView->engine());
     installThemedIconImageProvider(pluginsView->engine());
     pluginsView->rootContext()->setContextProperty(QStringLiteral("settingsReorderModel"), pluginsModel);
     pluginsView->rootContext()->setContextProperty(QStringLiteral("settingsPluginMode"), true);
-    pluginsView->rootContext()->setContextProperty(
-        QStringLiteral("settingsPluginIconProviderPrefix"),
-        QStringLiteral("image://%1/").arg(QLatin1String(PluginIconProviderId)));
+    pluginsView->rootContext()->setContextProperty(QStringLiteral("settingsPluginIconProviderPrefix"),
+                                                   QStringLiteral("image://qtnote-plugin-icon/"));
     pluginsView->setSource(QUrl(QStringLiteral("qrc:/qml/AnimatedSettingsList.qml")));
 
     delete ui->verticalLayout->replaceWidget(ui->tblPlugins, pluginsView);

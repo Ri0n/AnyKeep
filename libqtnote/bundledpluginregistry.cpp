@@ -1,6 +1,8 @@
 #include "bundledpluginregistry.h"
 
 #include "bundledplugininterface.h"
+#include "notemanager.h"
+#include "pluginiconimageprovider.h"
 #include "qtnoteplugininterface.h"
 #include "settingsproviderinterface.h"
 
@@ -28,7 +30,9 @@ bool BundledPluginRegistry::registerFactory(const Entry &descriptor, Factory fac
         return false;
 
     Item item;
-    item.entry   = descriptor;
+    item.entry            = descriptor;
+    item.entry.iconSource = pluginIconSource(descriptor.id);
+    registerPluginIcon(descriptor.id, { {}, {}, descriptor.iconSource });
     item.factory = std::move(factory);
     loadSettings(item);
     items_.insert(item.entry.id, item);
@@ -153,7 +157,8 @@ bool BundledPluginRegistry::initialize(Item &item)
     if (auto *pluginInterface = qobject_cast<PluginInterface *>(created))
         pluginInterface->setHost(host_);
 
-    auto *plugin = qobject_cast<BundledPluginInterface *>(created);
+    auto      *plugin         = qobject_cast<BundledPluginInterface *>(created);
+    const auto beforeStorages = NoteManager::instance()->storages(true).keys();
     if (!plugin || !plugin->initialize()) {
         delete created;
         item.instance.clear();
@@ -162,6 +167,11 @@ bool BundledPluginRegistry::initialize(Item &item)
         return false;
     }
 
+    const auto afterStorages = NoteManager::instance()->storages(true).keys();
+    for (const auto &storageId : afterStorages) {
+        if (!beforeStorages.contains(storageId))
+            bindStorageIconToPlugin(storageId, item.entry.id);
+    }
     item.instance           = created;
     item.entry.loaded       = true;
     item.entry.loadStatus   = LS_Initialized;
@@ -172,8 +182,14 @@ bool BundledPluginRegistry::initialize(Item &item)
 void BundledPluginRegistry::shutdown(Item &item)
 {
     if (item.instance) {
+        const auto beforeStorages = NoteManager::instance()->storages(true).keys();
         if (auto *plugin = qobject_cast<BundledPluginInterface *>(item.instance.data()))
             plugin->shutdown();
+        const auto afterStorages = NoteManager::instance()->storages(true).keys();
+        for (const auto &storageId : beforeStorages) {
+            if (!afterStorages.contains(storageId))
+                unbindStorageIcon(storageId);
+        }
         delete item.instance.data();
     }
     item.instance.clear();

@@ -20,7 +20,7 @@ Item {
     function openFind() { editorPane.openFind() }
 
     Shortcut {
-        sequence: StandardKey.Cancel
+        sequences: [StandardKey.Cancel]
         context: Qt.WindowShortcut
         enabled: true
         onActivated: standaloneHost.requestClose()

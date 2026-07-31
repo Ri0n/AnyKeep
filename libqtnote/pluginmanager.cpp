@@ -32,7 +32,9 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <utility>
 
 #include "actionnotificationinterface.h"
+#include "notemanager.h"
 #include "pluginhost.h"
+#include "pluginiconimageprovider.h"
 #include "pluginmanager.h"
 
 #include "editorplatformbackend.h"
@@ -560,7 +562,13 @@ bool PluginManager::initRegularPlugin(const PluginData::Ptr &pd)
     if (!plugin) {
         return false;
     }
+    const auto beforeStorages = NoteManager::instance()->storages(true).keys();
     if (plugin->initialize()) {
+        const auto afterStorages = NoteManager::instance()->storages(true).keys();
+        for (const auto &storageId : afterStorages) {
+            if (!beforeStorages.contains(storageId))
+                bindStorageIconToPlugin(storageId, pd->metadata.id);
+        }
         pd->loadStatus = LS_Initialized;
         return true;
     }
@@ -577,7 +585,13 @@ void PluginManager::deinitRegularPlugin(const PluginData::Ptr &pd)
     if (!plugin) {
         return;
     }
+    const auto beforeStorages = NoteManager::instance()->storages(true).keys();
     plugin->shutdown();
+    const auto afterStorages = NoteManager::instance()->storages(true).keys();
+    for (const auto &storageId : beforeStorages) {
+        if (!afterStorages.contains(storageId))
+            unbindStorageIcon(storageId);
+    }
     pd->loadStatus = LS_Loaded;
 }
 
@@ -637,7 +651,7 @@ PluginListSource::Entry PluginManager::pluginEntry(const QString &pluginId) cons
     entry.name         = pd->metadata.name;
     entry.description  = pd->metadata.description;
     entry.fileName     = pd->fileName;
-    entry.iconSource   = pd->metadata.iconSource;
+    entry.iconSource   = pluginIconSource(pluginId);
     entry.loadPolicy   = pd->loadPolicy;
     entry.loadStatus   = pd->loadStatus;
     entry.loaded       = isLoaded(pluginId);
@@ -735,6 +749,9 @@ SpeechRecognitionProviderInterface *PluginManager::speechRecognitionProvider() c
 
 void PluginManager::updateMetadata()
 {
+    for (auto it = plugins.cbegin(); it != plugins.cend(); ++it)
+        unregisterPluginIcon(it.key());
+
     decltype(plugins) tmpPlugins;
     const auto        locale = pluginMetadataLocale();
     QSettings         settings;
@@ -808,6 +825,7 @@ void PluginManager::updateMetadata()
         settings.endGroup();
         settings.endGroup();
 
+        registerPluginIcon(pd->metadata.id, { pd->metadata.iconData, pd->metadata.iconMimeType, {} });
         tmpPlugins.insert(pd->metadata.id, pd);
         it.next();
     }

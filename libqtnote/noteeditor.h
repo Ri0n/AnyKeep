@@ -105,6 +105,7 @@ public:
     Q_INVOKABLE bool        copyMarkdownToPrimarySelection(const QString &markdown);
     Q_INVOKABLE bool        copySelectionToPrimarySelection(const QVariantList &ranges);
     Q_INVOKABLE QVariantMap deleteSelection(const QVariantList &ranges);
+    Q_INVOKABLE int         pastePlainText(QQuickTextDocument *document, int start, int end);
     Q_INVOKABLE QVariantMap pasteStructuredFromClipboard(QQuickTextDocument *document, int row, int start, int end);
     Q_INVOKABLE QVariantMap pasteTableFromClipboard(int row, int cell);
     Q_INVOKABLE QVariantMap pasteListFromClipboard(QQuickTextDocument *document, int row, int item, int start, int end);

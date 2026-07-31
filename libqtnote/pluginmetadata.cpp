@@ -332,7 +332,7 @@ bool pluginMetadataFromJson(const QJsonObject &loaderMetadata, const QLocale &lo
         parsed.iconMimeType = iconObject.value(QStringLiteral("mimeType")).toString().trimmed().toLower();
         if (parsed.iconMimeType.isEmpty())
             parsed.iconMimeType = QStringLiteral("application/octet-stream");
-        parsed.iconSource = QStringLiteral("data:%1;base64,%2").arg(parsed.iconMimeType, iconBase64);
+        parsed.iconData = decodedIcon.decoded;
     }
 
     if (parsed.id.isEmpty())

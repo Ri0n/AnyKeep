@@ -9,6 +9,9 @@ class NoteFragmentTest : public QObject {
 
 private slots:
     void roundTripsStructuredFragment();
+    void roundTripsCodeBlock();
+    void readsVersionOneFragments();
+    void readsVersionTwoImagesWithDefaultPresentation();
     void rejectsInvalidInput();
 };
 
@@ -45,6 +48,8 @@ void NoteFragmentTest::roundTripsStructuredFragment()
     image.type            = NoteFragmentBlockType::Image;
     image.image.sourceUri = QStringLiteral("qtnote-media:/11111111-1111-1111-1111-111111111111/picture.png");
     image.image.alt       = QStringLiteral("Diagram");
+    image.image.width     = 360;
+    image.image.alignment = QStringLiteral("right");
     fragment.blocks.append(image);
 
     NoteFragmentMedia media;
@@ -73,10 +78,65 @@ void NoteFragmentTest::roundTripsStructuredFragment()
     QCOMPARE(decoded.fragment.blocks.at(1).listItems.at(1).kind, NoteFragmentListKind::Numbered);
     QCOMPARE(decoded.fragment.blocks.at(2).table.markdownCells, table.table.markdownCells);
     QCOMPARE(decoded.fragment.blocks.at(3).image.alt, image.image.alt);
+    QCOMPARE(decoded.fragment.blocks.at(3).image.width, image.image.width);
+    QCOMPARE(decoded.fragment.blocks.at(3).image.alignment, image.image.alignment);
     QCOMPARE(decoded.fragment.media.size(), 1);
     QCOMPARE(decoded.fragment.media.at(0).reference.id, media.reference.id);
     QCOMPARE(decoded.fragment.media.at(0).reference.remoteData, media.reference.remoteData);
     QCOMPARE(decoded.fragment.media.at(0).data, media.data);
+}
+
+void NoteFragmentTest::roundTripsCodeBlock()
+{
+    NoteFragment      fragment;
+    NoteFragmentBlock code;
+    code.type     = NoteFragmentBlockType::CodeBlock;
+    code.language = QStringLiteral("cpp");
+    code.markdown = QStringLiteral("if (value) {\n    return \"**literal**\";\n}\n");
+    fragment.blocks.append(code);
+
+    const auto decoded = decodeNoteFragment(encodeNoteFragment(fragment));
+    QVERIFY2(decoded, qPrintable(decoded.error));
+    QCOMPARE(decoded.fragment.version, quint32(3));
+    QCOMPARE(decoded.fragment.blocks.size(), 1);
+    QCOMPARE(decoded.fragment.blocks.constFirst().type, NoteFragmentBlockType::CodeBlock);
+    QCOMPARE(decoded.fragment.blocks.constFirst().language, code.language);
+    QCOMPARE(decoded.fragment.blocks.constFirst().markdown, code.markdown);
+}
+
+void NoteFragmentTest::readsVersionOneFragments()
+{
+    NoteFragment fragment;
+    fragment.version = 1;
+    NoteFragmentBlock text;
+    text.type     = NoteFragmentBlockType::Text;
+    text.markdown = QStringLiteral("legacy");
+    fragment.blocks.append(text);
+
+    const auto decoded = decodeNoteFragment(encodeNoteFragment(fragment));
+    QVERIFY2(decoded, qPrintable(decoded.error));
+    QCOMPARE(decoded.fragment.version, quint32(1));
+    QCOMPARE(decoded.fragment.blocks.constFirst().markdown, QStringLiteral("legacy"));
+    QVERIFY(decoded.fragment.blocks.constFirst().language.isEmpty());
+}
+
+void NoteFragmentTest::readsVersionTwoImagesWithDefaultPresentation()
+{
+    NoteFragment fragment;
+    fragment.version = 2;
+    NoteFragmentBlock image;
+    image.type            = NoteFragmentBlockType::Image;
+    image.image.sourceUri = QStringLiteral("media://legacy-image");
+    image.image.alt       = QStringLiteral("Legacy");
+    image.image.width     = 420;
+    image.image.alignment = QStringLiteral("right");
+    fragment.blocks.append(image);
+
+    const auto decoded = decodeNoteFragment(encodeNoteFragment(fragment));
+    QVERIFY2(decoded, qPrintable(decoded.error));
+    QCOMPARE(decoded.fragment.version, quint32(2));
+    QCOMPARE(decoded.fragment.blocks.constFirst().image.width, 0);
+    QCOMPARE(decoded.fragment.blocks.constFirst().image.alignment, QStringLiteral("center"));
 }
 
 void NoteFragmentTest::rejectsInvalidInput()
@@ -102,6 +162,14 @@ void NoteFragmentTest::rejectsInvalidInput()
     list.listItems = { { QStringLiteral("too deep"), 129, NoteFragmentListKind::Bullet, false } };
     invalidList.blocks.append(list);
     QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidList)));
+
+    NoteFragment      invalidImage;
+    NoteFragmentBlock image;
+    image.type            = NoteFragmentBlockType::Image;
+    image.image.sourceUri = QStringLiteral("media://image");
+    image.image.alignment = QStringLiteral("diagonal");
+    invalidImage.blocks.append(image);
+    QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidImage)));
 }
 
 QTEST_GUILESS_MAIN(NoteFragmentTest)

@@ -5,6 +5,7 @@
 #include "editorcursorcontroller.h"
 #include "localmediaimageprovider.h"
 #include "mobileapplication.h"
+#include "pluginiconimageprovider.h"
 #include "storageiconimageprovider.h"
 #include "themediconimageprovider.h"
 
@@ -17,6 +18,7 @@ int main(int argc, char *argv[])
     QtNote::MobileApplication mobileApplication;
     QQmlApplicationEngine     engine;
     QtNote::installLocalMediaImageProvider(&engine);
+    QtNote::installPluginIconImageProvider(&engine);
     QtNote::installStorageIconImageProvider(&engine);
     QtNote::installThemedIconImageProvider(&engine);
     QtNote::installEditorCursorController(engine.rootContext());

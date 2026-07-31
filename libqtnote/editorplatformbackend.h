@@ -9,6 +9,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QStringList>
+#include <QSyntaxHighlighter>
 #include <QVariantList>
 #include <memory>
 
@@ -29,6 +30,7 @@ class QTNOTE_EXPORT EditorPlatformBackend : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool spellCheckEnabled READ spellCheckEnabled WRITE setSpellCheckEnabled NOTIFY spellCheckEnabledChanged)
     Q_PROPERTY(bool canInsertImages READ canInsertImages NOTIFY canInsertImagesChanged)
+    Q_PROPERTY(QVariantList codeLanguages READ codeLanguages CONSTANT)
 
 public:
     explicit EditorPlatformBackend(QObject *parent = nullptr);
@@ -42,6 +44,9 @@ public:
     bool canInsertImages() const;
 
     Q_INVOKABLE void         registerTextDocument(QQuickTextDocument *document, bool titleDocument);
+    Q_INVOKABLE void         registerCodeDocument(QQuickTextDocument *document, const QString &language);
+    Q_INVOKABLE QString      canonicalCodeLanguage(const QString &language) const;
+    Q_INVOKABLE QVariantList codeLanguages() const;
     Q_INVOKABLE QVariantList spellCheckRanges(QQuickTextDocument *document);
     Q_INVOKABLE QStringList  spellingSuggestions(const QString &word) const;
     Q_INVOKABLE void         addToSpellingDictionary(const QString &word);
@@ -89,6 +94,11 @@ private:
         QPointer<NoteHighlighter> highlighter;
         bool                      titleDocument;
     };
+    struct RegisteredCodeHighlighter {
+        QPointer<QSyntaxHighlighter> highlighter;
+        QPointer<QQuickTextDocument> quickDocument;
+        QString                      language;
+    };
 
     bool insertImportedImages(const QList<MediaReference> &references, int row, const QString &historyKind);
     void clearRegisteredDocuments();
@@ -98,6 +108,7 @@ private:
 
     QList<HighlightExtension>             extensions_;
     QList<RegisteredHighlighter>          highlighters_;
+    QList<RegisteredCodeHighlighter>      codeHighlighters_;
     std::shared_ptr<HighlighterExtension> titleExtension_;
     QStringList                           customSpellingDictionary_;
     bool                                  spellCheckEnabled_ { true };

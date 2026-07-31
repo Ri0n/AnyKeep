@@ -37,6 +37,60 @@ private slots:
         QVERIFY(model.contents().contains(QStringLiteral("[link](https://example.org)")));
     }
 
+    void serializesAndParsesImagePresentation()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("![A & B](media://image?x=1&y=2)"), true);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::ImageWidthRole).toInt(), 0);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::ImageAlignmentRole).toString(), QStringLiteral("center"));
+
+        model.setImageWidth(0, 320);
+        model.setImageAlignment(0, QStringLiteral("right"));
+        const QString html = QStringLiteral(
+            "<p align=\"right\"><img src=\"media://image?x=1&amp;y=2\" alt=\"A &amp; B\" width=\"320\" /></p>");
+        QCOMPARE(model.contents(), html);
+
+        NoteBlockModel restored;
+        restored.load(html, true);
+        QCOMPARE(restored.rowCount(), 1);
+        QCOMPARE(restored.data(restored.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Image));
+        QCOMPARE(restored.data(restored.index(0), NoteBlockModel::UrlRole).toString(),
+                 QStringLiteral("media://image?x=1&y=2"));
+        QCOMPARE(restored.data(restored.index(0), NoteBlockModel::AltRole).toString(), QStringLiteral("A & B"));
+        QCOMPARE(restored.data(restored.index(0), NoteBlockModel::ImageWidthRole).toInt(), 320);
+        QCOMPARE(restored.data(restored.index(0), NoteBlockModel::ImageAlignmentRole).toString(),
+                 QStringLiteral("right"));
+        QCOMPARE(restored.contents(), html);
+
+        const NoteFragment fragment = restored.extractBlockFragment(0, 0);
+        QCOMPARE(fragment.blocks.constFirst().image.width, 320);
+        QCOMPARE(fragment.blocks.constFirst().image.alignment, QStringLiteral("right"));
+        NoteBlockModel transferred;
+        transferred.load(QStringLiteral("before"), true);
+        QString error;
+        QVERIFY2(transferred.insertBlockFragment(1, fragment, &error), qPrintable(error));
+        QCOMPARE(transferred.contents(), QStringLiteral("before\n\n") + html);
+
+        restored.setImageWidth(0, 0);
+        restored.setImageAlignment(0, QStringLiteral("center"));
+        QCOMPARE(restored.contents(), QStringLiteral("![A & B](media://image?x=1&y=2)"));
+
+        restored.setImageAlignment(0, QStringLiteral("left"));
+        QCOMPARE(restored.contents(),
+                 QStringLiteral("<p align=\"left\"><img src=\"media://image?x=1&amp;y=2\" "
+                                "alt=\"A &amp; B\" /></p>"));
+        restored.setImageAlignment(0, QStringLiteral("unsupported"));
+        QCOMPARE(restored.data(restored.index(0), NoteBlockModel::ImageAlignmentRole).toString(),
+                 QStringLiteral("center"));
+
+        const QString spacedHtml
+            = QStringLiteral("<p align=\"left\"><img src=\"media://spaced\" alt=\"A  &quot;B&quot;\" /></p>");
+        NoteBlockModel spaced;
+        spaced.load(spacedHtml, true);
+        QCOMPARE(spaced.data(spaced.index(0), NoteBlockModel::AltRole).toString(), QStringLiteral("A  \"B\""));
+        QCOMPARE(spaced.contents(), spacedHtml);
+    }
+
     void parsesSerializesAndTransfersBlockQuotes()
     {
         const QString  markdown = QStringLiteral("title\n\n"
@@ -62,6 +116,46 @@ private slots:
         QString error;
         QVERIFY2(destination.insertBlockFragment(1, fragment, &error), qPrintable(error));
         QCOMPARE(destination.contents(), QStringLiteral("before\n\n> quoted **text**\n>\n> second paragraph"));
+    }
+
+    void convertsBetweenBlockQuotesAndHeadings()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("> quoted text"), true);
+
+        QCOMPARE(model.convertTextBlockToHeading(0, 0, 2), 0);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Heading));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::HeadingLevelRole).toInt(), 2);
+        QCOMPARE(model.contents(), QStringLiteral("## quoted text"));
+
+        QCOMPARE(model.convertTextBlockToQuote(0, 0, true), 0);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::BlockQuote));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::HeadingLevelRole).toInt(), 0);
+        QCOMPARE(model.contents(), QStringLiteral("> quoted text"));
+
+        QCOMPARE(model.convertTextBlockToHeading(0, 0, 0), 0);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
+        QCOMPARE(model.contents(), QStringLiteral("quoted text"));
+    }
+
+    void leadingTablePipeDoesNotCreatePhantomColumn()
+    {
+        const QString  markdown = QStringLiteral("|  Header 1 | Header 2 |\n"
+                                                  "| --- | --- |\n"
+                                                  "| Content 1 | content 2 |");
+        NoteBlockModel model;
+        model.load(markdown, true);
+
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Table));
+        const QVariantMap table = model.data(model.index(0), NoteBlockModel::CellsRole).toMap();
+        QCOMPARE(table.value(QStringLiteral("columns")).toInt(), 2);
+        QCOMPARE(table.value(QStringLiteral("values")).toStringList(),
+                 QStringList({ "Header 1", "Header 2", "Content 1", "content 2" }));
+        QCOMPARE(model.contents(),
+                 QStringLiteral("| Header 1 | Header 2 |\n"
+                                "| --- | --- |\n"
+                                "| Content 1 | content 2 |"));
     }
 
     void preservesGithubUnderlineMarkup()
@@ -378,6 +472,10 @@ private slots:
         const auto image = model.index(0);
         QVERIFY(!model.setData(image, model.data(image, NoteBlockModel::UrlRole), NoteBlockModel::UrlRole));
         QVERIFY(!model.setData(image, model.data(image, NoteBlockModel::AltRole), NoteBlockModel::AltRole));
+        QVERIFY(
+            !model.setData(image, model.data(image, NoteBlockModel::ImageWidthRole), NoteBlockModel::ImageWidthRole));
+        QVERIFY(!model.setData(image, model.data(image, NoteBlockModel::ImageAlignmentRole),
+                               NoteBlockModel::ImageAlignmentRole));
         QCOMPARE(changed.size(), 0);
     }
 
@@ -395,8 +493,10 @@ private slots:
         model.setTableCell(2, 2, QStringLiteral("cell"));
         model.setImageUrl(3, QStringLiteral("media://other"));
         model.setImageAlt(3, QStringLiteral("description"));
+        model.setImageWidth(3, 240);
+        model.setImageAlignment(3, QStringLiteral("left"));
 
-        QCOMPARE(edits.size(), 5);
+        QCOMPARE(edits.size(), 7);
         QCOMPARE(edits.at(0).at(1).toInt(), int(NoteBlockModel::TextRole));
         QCOMPARE(edits.at(1).at(1).toInt(), int(NoteBlockModel::ItemsRole));
         QCOMPARE(edits.at(1).at(2).toInt(), 0);
@@ -404,6 +504,8 @@ private slots:
         QCOMPARE(edits.at(2).at(2).toInt(), 2);
         QCOMPARE(edits.at(3).at(1).toInt(), int(NoteBlockModel::UrlRole));
         QCOMPARE(edits.at(4).at(1).toInt(), int(NoteBlockModel::AltRole));
+        QCOMPARE(edits.at(5).at(1).toInt(), int(NoteBlockModel::ImageWidthRole));
+        QCOMPARE(edits.at(6).at(1).toInt(), int(NoteBlockModel::ImageAlignmentRole));
     }
 
     void coalescesAdjacentLinksCreatedAcrossFormatRuns()
@@ -735,6 +837,65 @@ private slots:
         QCOMPARE(model.data(model.index(0), NoteBlockModel::IndentsRole).toList(), QVariantList({ 0, 0, 1, 0 }));
     }
 
+    void detachesListSubtreesIntoStandaloneBlocks()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("before\n\n- parent\n    - child\n        1. grandchild\n- tail\n\nafter"), true);
+
+        const int detachedRow = model.moveListRangeToBlock(1, 1, 2, 3);
+        QCOMPARE(detachedRow, 3);
+        QCOMPARE(model.rowCount(), 4);
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ "parent", "tail" }));
+        QCOMPARE(model.data(model.index(3), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ "child", "grandchild" }));
+        QCOMPARE(model.data(model.index(3), NoteBlockModel::IndentsRole).toList(), QVariantList({ 0, 1 }));
+        QCOMPARE(model.data(model.index(3), NoteBlockModel::ItemTypesRole).toList(),
+                 QVariantList({ int(NoteBlockModel::BulletList), int(NoteBlockModel::NumberedList) }));
+        QCOMPARE(model.contents(), QStringLiteral("before\n\n- parent\n- tail\n\nafter\n\n- child\n    1. grandchild"));
+
+        QVERIFY(model.moveListRange(3, 0, 1, 1, 1, 1));
+        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ "parent", "child", "grandchild", "tail" }));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::IndentsRole).toList(), QVariantList({ 0, 1, 2, 0 }));
+    }
+
+    void reattachesStandaloneListsAcrossInterveningBlocks()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("- child\n\nbetween\n\n- parent\n- tail"), true);
+
+        QVERIFY(model.moveListRange(0, 0, 0, 2, 1, 1));
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("between"));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ "parent", "child", "tail" }));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::IndentsRole).toList(), QVariantList({ 0, 1, 0 }));
+        QCOMPARE(model.contents(), QStringLiteral("between\n\n- parent\n    - child\n- tail"));
+    }
+
+    void movesWholeListsThroughStandaloneBoundaries()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("before\n\n- parent\n    1. child\n- tail\n\nafter"), true);
+
+        const int movedRow = model.moveListRangeToBlock(1, 0, 2, 0);
+        QCOMPARE(movedRow, 0);
+        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ "parent", "child", "tail" }));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::IndentsRole).toList(), QVariantList({ 0, 1, 0 }));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::ItemTypesRole).toList(),
+                 QVariantList({ int(NoteBlockModel::BulletList), int(NoteBlockModel::NumberedList),
+                                int(NoteBlockModel::BulletList) }));
+        QCOMPARE(model.contents(), QStringLiteral("- parent\n    1. child\n- tail\n\nbefore\n\nafter"));
+
+        QCOMPARE(model.moveListRangeToBlock(0, 0, 2, 3), 2);
+        QCOMPARE(model.contents(), QStringLiteral("before\n\nafter\n\n- parent\n    1. child\n- tail"));
+        QCOMPARE(model.moveListRangeToBlock(2, 0, 2, 2), -1);
+    }
+
     void movesWholeBlocks()
     {
         NoteBlockModel model;
@@ -743,6 +904,22 @@ private slots:
         QCOMPARE(model.contents(), QStringLiteral("![image](media://image)\n\nfirst\n\n- item"));
         QVERIFY(model.moveBlock(0, 2));
         QCOMPARE(model.contents(), QStringLiteral("first\n\n- item\n\n![image](media://image)"));
+    }
+
+    void movesStyledImageBlocksWithoutChangingPresentation()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("first\n\n<p align=\"right\"><img src=\"media://image\" "
+                                  "alt=\"diagram\" width=\"320\" /></p>\n\nlast"),
+                   true);
+
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Image));
+        QVERIFY(model.moveBlock(1, 2));
+        QCOMPARE(model.data(model.index(2), NoteBlockModel::ImageWidthRole).toInt(), 320);
+        QCOMPARE(model.data(model.index(2), NoteBlockModel::ImageAlignmentRole).toString(), QStringLiteral("right"));
+        QCOMPARE(model.contents(),
+                 QStringLiteral("first\n\nlast\n\n<p align=\"right\"><img src=\"media://image\" "
+                                "alt=\"diagram\" width=\"320\" /></p>"));
     }
 
     void findsTextAcrossStructuredBlocks()
@@ -808,6 +985,72 @@ private slots:
         match = model.findText(QStringLiteral("target"), match, true);
         QCOMPARE(match.value(QStringLiteral("start")).toInt(), 14);
         QVERIFY(match.value(QStringLiteral("wrapped")).toBool());
+    }
+
+    void preservesFencedCodeBlocksLiterally()
+    {
+        const QString markdown = QStringLiteral("before\n\n"
+                                                "````cpp\n"
+                                                "- not a list\n"
+                                                "**not bold**\n"
+                                                "| not | a table |\n"
+                                                "``` nested fence\n"
+                                                "line with <br> and  two spaces  \n"
+                                                "\n"
+                                                "````\n\n"
+                                                "after");
+
+        NoteBlockModel model;
+        model.load(markdown, true);
+
+        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::CodeBlock));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::LanguageRole).toString(), QStringLiteral("cpp"));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(),
+                 QStringLiteral("- not a list\n"
+                                "**not bold**\n"
+                                "| not | a table |\n"
+                                "``` nested fence\n"
+                                "line with <br> and  two spaces  \n"));
+        QCOMPARE(model.contents(), markdown);
+
+        // Editing code never coalesces Markdown link syntax or otherwise
+        // canonicalizes the literal source.
+        const QString literal = QStringLiteral("[a](one)[b](one)\n\n- still code");
+        model.setBlockText(1, literal);
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), literal);
+    }
+
+    void preservesCodeBlockTrailingNewlines()
+    {
+        const QString  markdown = QStringLiteral("```python\nprint('x')\n\n```");
+        NoteBlockModel model;
+        model.load(markdown, true);
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("print('x')\n"));
+        QCOMPARE(model.contents(), markdown);
+
+        NoteBlockModel reparsed;
+        reparsed.load(model.contents(), true);
+        QCOMPARE(reparsed.data(reparsed.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("print('x')\n"));
+    }
+
+    void transfersCodeBlockLanguageAndLiteralText()
+    {
+        NoteBlockModel source;
+        source.load(QStringLiteral("```json\n{\n  \"value\": \"**literal**\"\n}\n```"), true);
+
+        const NoteFragment fragment = source.extractBlockFragment(0, 0);
+        QCOMPARE(fragment.blocks.size(), 1);
+        QCOMPARE(fragment.blocks.constFirst().type, NoteFragmentBlockType::CodeBlock);
+        QCOMPARE(fragment.blocks.constFirst().language, QStringLiteral("json"));
+        QCOMPARE(fragment.blocks.constFirst().markdown, QStringLiteral("{\n  \"value\": \"**literal**\"\n}"));
+
+        NoteBlockModel destination;
+        destination.load(QStringLiteral("before"), true);
+        QString error;
+        QVERIFY2(destination.insertBlockFragment(1, fragment, &error), qPrintable(error));
+        QCOMPARE(destination.contents(), QStringLiteral("before\n\n```json\n{\n  \"value\": \"**literal**\"\n}\n```"));
     }
 
     void previewUrlDoesNotChangeMarkdown()

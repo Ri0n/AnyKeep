@@ -28,7 +28,7 @@ class QTNOTE_EXPORT NoteBlockModel : public QAbstractListModel {
     Q_PROPERTY(QString contents READ contents WRITE setContents NOTIFY contentsChanged)
 
 public:
-    enum BlockType { Text, BulletList, CheckList, Table, Image, NumberedList, Heading, BlockQuote };
+    enum BlockType { Text, BulletList, CheckList, Table, Image, NumberedList, Heading, BlockQuote, CodeBlock };
     Q_ENUM(BlockType)
     enum Role {
         TypeRole = Qt::UserRole + 1,
@@ -41,7 +41,10 @@ public:
         PreviewUrlRole,
         IndentsRole,
         ItemTypesRole,
-        HeadingLevelRole
+        HeadingLevelRole,
+        LanguageRole,
+        ImageWidthRole,
+        ImageAlignmentRole
     };
 
     explicit NoteBlockModel(QObject *parent = nullptr);
@@ -67,6 +70,7 @@ public:
     Q_INVOKABLE void removeListItems(int row, int firstItem, int lastItem);
     Q_INVOKABLE bool moveListRange(int sourceRow, int sourceFirstItem, int sourceLastItem, int targetRow,
                                    int targetItem, int targetIndent);
+    Q_INVOKABLE int  moveListRangeToBlock(int sourceRow, int sourceFirstItem, int sourceLastItem, int targetRow);
     Q_INVOKABLE bool moveListSubtree(int sourceRow, int sourceItem, int targetRow, int targetItem, int targetIndent);
     Q_INVOKABLE void convertListToText(int row);
     Q_INVOKABLE void indentListItems(int row, int firstItem, int lastItem, int delta);
@@ -79,6 +83,8 @@ public:
     Q_INVOKABLE void removeTableColumn(int row, int column);
     Q_INVOKABLE void setImageUrl(int row, const QString &url);
     Q_INVOKABLE void setImageAlt(int row, const QString &alt);
+    Q_INVOKABLE void setImageWidth(int row, int width);
+    Q_INVOKABLE void setImageAlignment(int row, const QString &alignment);
     Q_INVOKABLE void appendTextBlock();
     Q_INVOKABLE void appendText(const QString &text);
     Q_INVOKABLE void appendImage(const QString &url, const QString &alt);
@@ -86,6 +92,8 @@ public:
     Q_INVOKABLE void insertTable(int row);
     Q_INVOKABLE void insertList(int row, BlockType type);
     Q_INVOKABLE void insertBlockQuote(int row);
+    Q_INVOKABLE void insertCodeBlock(int row, const QString &language = QString());
+    Q_INVOKABLE void setCodeLanguage(int row, const QString &language);
     Q_INVOKABLE int  blockTypeAt(int row) const;
     Q_INVOKABLE QVariantMap findText(const QString &text, const QVariantMap &after = {}, bool backwards = false,
                                      bool caseSensitive = false) const;
@@ -129,14 +137,18 @@ private:
         int          columns = 0;
         QString      url;
         QString      alt;
-        int          headingLevel = 0;
+        int          imageWidth     = 0;
+        QString      imageAlignment = QStringLiteral("center");
+        int          headingLevel   = 0;
+        QString      language;
 
         bool operator==(const Block &other) const
         {
             return type == other.type && text == other.text && items == other.items && indents == other.indents
                 && itemTypes == other.itemTypes && checked == other.checked && cells == other.cells
-                && columns == other.columns && url == other.url && alt == other.alt
-                && headingLevel == other.headingLevel;
+                && columns == other.columns && url == other.url && alt == other.alt && imageWidth == other.imageWidth
+                && imageAlignment == other.imageAlignment && headingLevel == other.headingLevel
+                && language == other.language;
         }
     };
 
@@ -150,6 +162,7 @@ private:
     State               state() const;
     bool                restoreState(const State &state);
     static QList<Block> parseMarkdown(const QString &source);
+    static QList<Block> parseMarkdownWithoutCode(const QString &source);
     static QString      writeMarkdown(const QList<Block> &blocks);
     static bool         blocksFromFragment(const NoteFragment &fragment, QList<Block> *blocks, QString *error);
     static QList<Block> cloneBlocks(const QList<Block> &blocks);
