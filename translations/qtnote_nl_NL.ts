@@ -318,7 +318,7 @@ and to other contributors whose names have been lost or not yet added.
     <message>
         <location filename="../libqtnote/desktopnoteactions.cpp" line="55"/>
         <source>HTML files (*.html)</source>
-        <translation>HTML-bestanden (*.html)</translation>
+        <translation>Html-bestanden (*.html)</translation>
     </message>
     <message>
         <location filename="../libqtnote/desktopnoteactions.cpp" line="59"/>
