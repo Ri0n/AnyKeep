@@ -1,6 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE TS>
-<TS version="2.1" language="nl_NL">
+<?xml version="1.0" ?><!DOCTYPE TS><TS version="2.1" language="nl_NL">
 <context>
     <name>AboutDlg</name>
     <message>
@@ -62,70 +60,36 @@ and to other contributors whose names have been lost or not yet added.
     </message>
 </context>
 <context>
-    <name>FileStorageSettingsWidget</name>
-    <message>
-        <source>Storage Location</source>
-        <translation type="vanished">Opslaglocatie</translation>
-    </message>
-    <message>
-        <source>Custom Path</source>
-        <translation type="vanished">Aangepast pad</translation>
-    </message>
-    <message>
-        <source>Browse</source>
-        <translation type="vanished">Bladeren</translation>
-    </message>
-    <message>
-        <source>Choose storage directory</source>
-        <translation type="vanished">Opslagmap kiezen</translation>
-    </message>
-</context>
-<context>
     <name>FullRepresentation</name>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/FullRepresentation.qml" line="133"/>
         <source>Search notes</source>
-        <translation type="unfinished"></translation>
+        <translation>Notities doorzoeken</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/FullRepresentation.qml" line="176"/>
         <source>Untitled Note</source>
-        <translation type="unfinished"></translation>
+        <translation>Naamloze notitie</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/FullRepresentation.qml" line="178"/>
         <source>Stored in %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Opgeslagen in %1</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/FullRepresentation.qml" line="207"/>
         <source>No notes match the search</source>
-        <translation type="unfinished"></translation>
+        <translation>Er zijn geen zoekresultaten</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/FullRepresentation.qml" line="208"/>
         <source>No notes yet</source>
-        <translation type="unfinished"></translation>
+        <translation>Je hebt nog geen notities</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/FullRepresentation.qml" line="209"/>
         <source>QtNote is not running</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
-    <name>NoteManagerDlg</name>
-    <message>
-        <source>&lt;h1&gt;Notes Manager&lt;/h1&gt;&lt;h6&gt;(Group, Drag&apos;n&apos;Drop and search your notes)&lt;/h6&gt;</source>
-        <translation type="vanished">&lt;h1&gt;Notitiebeheer&lt;/h1&gt;&lt;h6&gt;(groepeer, herorden en doorzoek je notities)</translation>
-    </message>
-    <message>
-        <source>Search in text</source>
-        <translation type="vanished">Tekst doorzoeken</translation>
-    </message>
-    <message>
-        <source>Close</source>
-        <translation type="vanished">Sluiten</translation>
+        <translation>QtNote is niet actief</translation>
     </message>
 </context>
 <context>
@@ -146,13 +110,9 @@ and to other contributors whose names have been lost or not yet added.
         <translation>Opslagprioriteit</translation>
     </message>
     <message>
-        <source>Delete notes with confirmation</source>
-        <translation type="vanished">Verwijderen van notities bevestigen</translation>
-    </message>
-    <message>
         <location filename="../libqtnote/optionsdlg.ui" line="59"/>
         <source>Confirm permanent deletion</source>
-        <translation type="unfinished"></translation>
+        <translation>Permanent verwijderen bevestigen</translation>
     </message>
     <message>
         <location filename="../libqtnote/optionsdlg.ui" line="66"/>
@@ -167,12 +127,12 @@ and to other contributors whose names have been lost or not yet added.
     <message>
         <location filename="../libqtnote/optionsdlg.ui" line="129"/>
         <source>Default font</source>
-        <translation type="unfinished"></translation>
+        <translation>Standaardlettertype</translation>
     </message>
     <message>
         <location filename="../libqtnote/optionsdlg.ui" line="139"/>
         <source>Size</source>
-        <translation type="unfinished"></translation>
+        <translation>Grootte</translation>
     </message>
     <message>
         <location filename="../libqtnote/optionsdlg.ui" line="205"/>
@@ -254,7 +214,7 @@ and to other contributors whose names have been lost or not yet added.
     <message>
         <location filename="../plugins/baseintegration/baseintegrationtray.cpp" line="41"/>
         <source>Untitled Note</source>
-        <translation type="unfinished"></translation>
+        <translation>Naamloze notitie</translation>
     </message>
 </context>
 <context>
@@ -296,22 +256,22 @@ and to other contributors whose names have been lost or not yet added.
     <message>
         <location filename="../plugins/baseintegration/baseintegrationtray.cpp" line="112"/>
         <source>Notes</source>
-        <translation type="unfinished">Notities</translation>
+        <translation>Notities</translation>
     </message>
     <message>
         <location filename="../plugins/baseintegration/baseintegrationtray.cpp" line="119"/>
         <source>Search notes</source>
-        <translation type="unfinished"></translation>
+        <translation>Notities doorzoeken</translation>
     </message>
     <message>
         <location filename="../plugins/baseintegration/baseintegrationtray.cpp" line="140"/>
         <source>No notes yet</source>
-        <translation type="unfinished"></translation>
+        <translation>Je hebt nog geen notities</translation>
     </message>
     <message>
         <location filename="../plugins/baseintegration/baseintegrationtray.cpp" line="140"/>
         <source>No notes match the search</source>
-        <translation type="unfinished"></translation>
+        <translation>Er zijn geen zoekresultaten</translation>
     </message>
 </context>
 <context>
@@ -319,33 +279,33 @@ and to other contributors whose names have been lost or not yet added.
     <message>
         <location filename="../libqtnote/desktopeditorplatformbackend.cpp" line="76"/>
         <source>The image data is not available locally.</source>
-        <translation type="unfinished"></translation>
+        <translation>De afbeeldingsgegevens zijn niet lokaal beschikbaar.</translation>
     </message>
     <message>
         <location filename="../libqtnote/desktopeditorplatformbackend.cpp" line="81"/>
         <source>Could not read the image: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Deze afbeelding kan niet worden ingelezen: %1</translation>
     </message>
     <message>
         <location filename="../libqtnote/desktopeditorplatformbackend.cpp" line="87"/>
         <source>Save Image As</source>
-        <translation type="unfinished"></translation>
+        <translation>Afbeelding opslaan als</translation>
     </message>
     <message>
         <location filename="../libqtnote/desktopeditorplatformbackend.cpp" line="88"/>
         <location filename="../libqtnote/desktopeditorplatformbackend.cpp" line="155"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg);;All files (*)</source>
-        <translation type="unfinished"></translation>
+        <translation>Afbeeldingen (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg);;Alle bestanden (*)</translation>
     </message>
     <message>
         <location filename="../libqtnote/desktopeditorplatformbackend.cpp" line="93"/>
         <source>Could not save the image: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Deze afbeelding kan niet worden opgeslagen: %1</translation>
     </message>
     <message>
         <location filename="../libqtnote/desktopeditorplatformbackend.cpp" line="154"/>
         <source>Insert image</source>
-        <translation type="unfinished"></translation>
+        <translation>Afbeelding invoegen</translation>
     </message>
 </context>
 <context>
@@ -353,39 +313,28 @@ and to other contributors whose names have been lost or not yet added.
     <message>
         <location filename="../libqtnote/desktopnoteactions.cpp" line="54"/>
         <source>Text files (*.txt)</source>
-        <translation type="unfinished">Tekstbestanden (*.txt)</translation>
+        <translation>Tekstbestanden (*.txt)</translation>
     </message>
     <message>
         <location filename="../libqtnote/desktopnoteactions.cpp" line="55"/>
         <source>HTML files (*.html)</source>
-        <translation type="unfinished">HTML-bestanden (*.html)</translation>
+        <translation>Html-bestanden (*.html)</translation>
     </message>
     <message>
         <location filename="../libqtnote/desktopnoteactions.cpp" line="59"/>
         <source>Export Note</source>
-        <translation type="unfinished"></translation>
+        <translation>Notitie exporteren</translation>
     </message>
     <message>
         <location filename="../libqtnote/desktopnoteactions.cpp" line="79"/>
         <location filename="../libqtnote/desktopnoteactions.cpp" line="87"/>
         <source>Could not export the note: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Deze notitie kan niet worden geëxporteerd: %1</translation>
     </message>
     <message>
         <location filename="../libqtnote/desktopnoteactions.cpp" line="90"/>
         <source>Note exported.</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
-    <name>QtNote::FileStorage</name>
-    <message>
-        <source>File system error for storage &quot;%1&quot;. Please check your settings.</source>
-        <translation type="vanished">Bestandssyteemfout aangaande opslag: &apos;%1&apos;. Controleer je instellingen.</translation>
-    </message>
-    <message>
-        <source>Storage path</source>
-        <translation type="vanished">Opslagpad</translation>
+        <translation>De notitie is geëxporteerd.</translation>
     </message>
 </context>
 <context>
@@ -400,48 +349,17 @@ and to other contributors whose names have been lost or not yet added.
         <location filename="../plugins/gnome/gnome.cpp" line="109"/>
         <location filename="../plugins/gnome/gnome.cpp" line="116"/>
         <source>Enable QtNote GNOME Extension</source>
-        <translation type="unfinished"></translation>
+        <translation>QtNote-uitbreiding voor GNOME inschakelen</translation>
     </message>
     <message>
         <location filename="../plugins/gnome/gnome.cpp" line="110"/>
         <source>QtNote can enable a native GNOME Shell indicator. It provides Wayland-friendly access to recent notes.</source>
-        <translation type="unfinished"></translation>
+        <translation>QtNote kan gebruikmaken van een GNOME Shell-indicator op de bovenbalk. Hierdoor wordt toegang verschaft tot recente notities.</translation>
     </message>
     <message>
         <location filename="../plugins/gnome/gnome.cpp" line="117"/>
         <source>Failed to enable the QtNote GNOME Shell extension. You may need to log out and log back in before enabling it.</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
-    <name>QtNote::GnomeTray</name>
-    <message>
-        <source>&amp;Quit</source>
-        <translation type="vanished">&amp;Afsluiten</translation>
-    </message>
-    <message>
-        <source>&amp;New</source>
-        <translation type="vanished">&amp;Nieuw</translation>
-    </message>
-    <message>
-        <source>&amp;About</source>
-        <translation type="vanished">&amp;Over</translation>
-    </message>
-    <message>
-        <source>&amp;Options</source>
-        <translation type="vanished">&amp;Instellingen</translation>
-    </message>
-    <message>
-        <source>&amp;Note Manager</source>
-        <translation type="vanished">&amp;Notitiebeheer</translation>
-    </message>
-    <message>
-        <source>More..</source>
-        <translation type="vanished">Meer...</translation>
-    </message>
-    <message>
-        <source>Notes</source>
-        <translation type="vanished">Notities</translation>
+        <translation>De GNOME-uitbreiding kan niet worden ingeschakeld. Meld af en weer aan, en probeer het opnieuw.</translation>
     </message>
 </context>
 <context>
@@ -449,12 +367,12 @@ and to other contributors whose names have been lost or not yet added.
     <message>
         <location filename="../plugins/kdeintegration/kdeintegration.cpp" line="106"/>
         <source>Use Sonnet for spell checking</source>
-        <translation type="unfinished"></translation>
+        <translation>Sonnet voor spellingcontrole gebruiken</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/kdeintegration.cpp" line="107"/>
         <source>The spell checker selection is applied after restarting QtNote.</source>
-        <translation type="unfinished"></translation>
+        <translation>Herstart QtNote om spellingcontrole in te schakelen.</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/kdeintegration.cpp" line="117"/>
@@ -536,7 +454,7 @@ and to other contributors whose names have been lost or not yet added.
     <message>
         <location filename="../libqtnote/qtnote.cpp" line="146"/>
         <source>Draft Recovery Needed</source>
-        <translation type="unfinished"></translation>
+        <translation>Conceptherstel benodigd</translation>
     </message>
     <message>
         <location filename="../libqtnote/qtnote.cpp" line="147"/>
@@ -545,17 +463,21 @@ and to other contributors whose names have been lost or not yet added.
 You can quit and investigate the problem, or start with a new empty draft store. Recreating it keeps the unreadable drafts in a backup folder, but they will not be available in QtNote.
 
 %1</source>
-        <translation type="unfinished"></translation>
+        <translation>QtNote kan geen concepten uit de beveiligde crashomgeving lezen. Bestaande concepten zijn echter niet verwijderd.
+
+Sluit QtNote af en onderzoek het probleem, of start zonder conceptopslag. Door deze opnieuw aan te maken, worden onleesbare concepten in een reservekopiemap geplaatst, maar zijn ze niet beschikbaar binnen QtNote.
+
+%1</translation>
     </message>
     <message>
         <location filename="../libqtnote/qtnote.cpp" line="154"/>
         <source>Recreate Draft Store</source>
-        <translation type="unfinished"></translation>
+        <translation>Conceptopslag opnieuw aanmaken</translation>
     </message>
     <message>
         <location filename="../libqtnote/qtnote.cpp" line="155"/>
         <source>Quit QtNote</source>
-        <translation type="unfinished"></translation>
+        <translation>QtNote afsluiten</translation>
     </message>
     <message>
         <location filename="../libqtnote/qtnote.cpp" line="228"/>
@@ -601,12 +523,12 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libqtnote/qtnote.cpp" line="376"/>
         <source>The note manager QML window could not be created</source>
-        <translation type="unfinished"></translation>
+        <translation>Het QML-venster van de notitiebeheerder kan niet worden getoond</translation>
     </message>
     <message>
         <location filename="../libqtnote/qtnote.cpp" line="418"/>
         <source>Failed to load note</source>
-        <translation type="unfinished"></translation>
+        <translation>De notitie kan niet worden gelagen</translation>
     </message>
 </context>
 <context>
@@ -614,12 +536,12 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libqtnote/notedialog.cpp" line="183"/>
         <source>The encrypted folder catalog is unavailable</source>
-        <translation type="unfinished"></translation>
+        <translation>De beveiligde mapcatalogus is niet beschikbaar</translation>
     </message>
     <message>
         <location filename="../libqtnote/notedialog.cpp" line="187"/>
         <source>The note is open in another editor and cannot be moved to the recycle bin yet</source>
-        <translation type="unfinished"></translation>
+        <translation>Deze notitie is al geopend in een andere bewerker en kan daarom niet naar de prullenbak worden verplaatst</translation>
     </message>
     <message>
         <location filename="../libqtnote/notedialog.cpp" line="344"/>
@@ -629,35 +551,16 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
 </context>
 <context>
     <name>QtNote::NoteManagerDlg</name>
-    <message>
-        <source>Note Manager (%1)</source>
-        <translation type="vanished">Notitiebeheer (%1)</translation>
-    </message>
     <message numerus="yes">
         <source>%n notes</source>
-        <translation type="vanished">
-            <numerusform>%n notitie</numerusform>
-            <numerusform>%n notities</numerusform>
+        <translation type="obsolete">
+            <numerusform>%n note</numerusform>
+            <numerusform>%n notes</numerusform>
         </translation>
     </message>
 </context>
 <context>
-    <name>QtNote::NoteManagerView</name>
-    <message>
-        <source>Delete</source>
-        <translation type="vanished">Verwijderen</translation>
-    </message>
-</context>
-<context>
     <name>QtNote::NoteWidget</name>
-    <message>
-        <source>Save</source>
-        <translation type="vanished">Opslaan</translation>
-    </message>
-    <message>
-        <source>Save note to file</source>
-        <translation type="vanished">Notitie opslaan naar bestand</translation>
-    </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="130"/>
         <source>Copy</source>
@@ -679,71 +582,55 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
         <translation>Notitie afdrukken</translation>
     </message>
     <message>
-        <source>Find</source>
-        <translation type="vanished">Zoeken</translation>
-    </message>
-    <message>
-        <source>Find text in note</source>
-        <translation type="vanished">Tekst zoeken in notities</translation>
-    </message>
-    <message>
-        <source>Replace</source>
-        <translation type="vanished">Vervangen</translation>
-    </message>
-    <message>
-        <source>Replace text in note</source>
-        <translation type="vanished">Tekst zoeken en vervangen in notities</translation>
-    </message>
-    <message>
         <location filename="../libqtnote/notewidget.cpp" line="103"/>
         <source>Export</source>
-        <translation type="unfinished"></translation>
+        <translation>Exporteren</translation>
     </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="103"/>
         <source>Export note to file</source>
-        <translation type="unfinished"></translation>
+        <translation>Exporteer de notitie naar een bestand</translation>
     </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="113"/>
         <source>Mic</source>
-        <translation type="unfinished"></translation>
+        <translation>Microfoon</translation>
     </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="113"/>
         <location filename="../libqtnote/notewidget.cpp" line="605"/>
         <source>Hold to dictate text</source>
-        <translation type="unfinished"></translation>
+        <translation>Houd ingedrukt om tekst de dicteren</translation>
     </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="141"/>
         <source>Pin</source>
-        <translation type="unfinished"></translation>
+        <translation>Vastmaken</translation>
     </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="142"/>
         <source>Choose how to pin this note</source>
-        <translation type="unfinished"></translation>
+        <translation>Geef aan waar deze notitie moet worden vastgemaakt</translation>
     </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="146"/>
         <source>Pin to desktop</source>
-        <translation type="unfinished"></translation>
+        <translation>Vastmaken op bureaublad</translation>
     </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="147"/>
         <source>Create a desktop note using the active sticky-notes plugin</source>
-        <translation type="unfinished"></translation>
+        <translation>Maak een bureaubladnotitie aan met behulp van de actieve plug-in</translation>
     </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="151"/>
         <source>Always on top</source>
-        <translation type="unfinished"></translation>
+        <translation>Altijd bovenaan</translation>
     </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="153"/>
         <source>Keep this window above normal windows</source>
-        <translation type="unfinished"></translation>
+        <translation>Toon dit venster boven alle andere</translation>
     </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="158"/>
@@ -758,21 +645,18 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="401"/>
         <source>Speech recognition provider did not start a recognition job</source>
-        <translation type="unfinished"></translation>
+        <translation>De spraakherkenningsdienst heeft de herkenning niet gestart</translation>
     </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="407"/>
         <location filename="../libqtnote/notewidget.cpp" line="600"/>
         <source>Recognizing speech...</source>
-        <translation type="unfinished"></translation>
+        <translation>Bezig met herkennen van spraak…</translation>
     </message>
     <message numerus="yes">
         <location filename="../libqtnote/notewidget.cpp" line="454"/>
         <source>%n second(s) left</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-        </translation>
+        <translation><numerusform>Nog %n seconde te gaan</numerusform><numerusform>Nog %n seconden te gaan</numerusform></translation>
     </message>
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="508"/>
@@ -792,19 +676,7 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libqtnote/notewidget.cpp" line="606"/>
         <source>Hold to dictate text (%1)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Deletion confirmation</source>
-        <translation type="vanished">Verwijderen bevestigen</translation>
-    </message>
-    <message>
-        <source>Are you sure you want to delete this note?</source>
-        <translation type="vanished">Weet je zeker dat je deze notitie wilt verwijderen?</translation>
-    </message>
-    <message>
-        <source>Don&apos;t ask again</source>
-        <translation type="vanished">Niet meer vragen</translation>
+        <translation>Houd ingedrukt om tekst de dicteren (%1)</translation>
     </message>
 </context>
 <context>
@@ -812,7 +684,7 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libqtnote/notesmanagerwindow.cpp" line="61"/>
         <source>Settings</source>
-        <translation type="unfinished">Instellingen</translation>
+        <translation>Instellingen</translation>
     </message>
 </context>
 <context>
@@ -820,7 +692,7 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libqtnote/optionsdlg.cpp" line="91"/>
         <source>Rules</source>
-        <translation type="unfinished"></translation>
+        <translation>Regels</translation>
     </message>
     <message>
         <location filename="../libqtnote/optionsdlg.cpp" line="174"/>
@@ -842,72 +714,26 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     </message>
 </context>
 <context>
-    <name>QtNote::PTFStorage</name>
-    <message>
-        <source>Plain Text Storage</source>
-        <translation type="vanished">Plattetekstopslag</translation>
-    </message>
-</context>
-<context>
     <name>QtNote::PluginManager</name>
     <message>
         <location filename="../libqtnote/pluginmanager.cpp" line="288"/>
         <source>Spell checker selected</source>
-        <translation type="unfinished"></translation>
+        <translation>Gekozen spellingcontrole</translation>
     </message>
     <message>
         <location filename="../libqtnote/pluginmanager.cpp" line="289"/>
         <source>QtNote is using %1. %2 is also enabled, but is not being used.</source>
-        <translation type="unfinished"></translation>
+        <translation>QtNote maakt gebruik van %1. %2 wordt eveneens ingeschakeld, maar niet gebruikt.</translation>
     </message>
     <message>
         <location filename="../libqtnote/pluginmanager.cpp" line="290"/>
         <source>Configure plugins</source>
-        <translation type="unfinished"></translation>
+        <translation>Plug-ins instellen</translation>
     </message>
     <message>
         <location filename="../libqtnote/pluginmanager.cpp" line="650"/>
         <source>&lt;b&gt;Filename:&lt;/b&gt; %1</source>
-        <translation type="unfinished">&lt;b&gt;Bestandsnaam:&lt;/b&gt; %1</translation>
-    </message>
-</context>
-<context>
-    <name>QtNote::PluginsModel</name>
-    <message>
-        <source>ABI mismatch</source>
-        <translation type="vanished">ABI komt niet overeen</translation>
-    </message>
-    <message>
-        <source>Incompatible metadata</source>
-        <translation type="vanished">Niet-compatibele metagegevens</translation>
-    </message>
-    <message>
-        <source>Incompatible version</source>
-        <translation type="vanished">Niet-compatibele versie</translation>
-    </message>
-    <message>
-        <source>Loaded</source>
-        <translation type="vanished">Geladen</translation>
-    </message>
-    <message>
-        <source>Initialized</source>
-        <translation type="vanished">Geïnitialiseerd</translation>
-    </message>
-    <message>
-        <source>Not a plugin</source>
-        <translation type="vanished">Geen plug-in</translation>
-    </message>
-    <message>
-        <source>Not loaded</source>
-        <translation type="vanished">Niet geladen</translation>
-    </message>
-    <message>
-        <source>&lt;b&gt;Filename:&lt;/b&gt; %1</source>
-        <translation type="vanished">&lt;b&gt;Bestandsnaam:&lt;/b&gt; %1</translation>
-    </message>
-    <message>
-        <source>&lt;b&gt;Status:&lt;/b&gt; %1</source>
-        <translation type="vanished">&lt;b&gt;Status:&lt;/b&gt; %1</translation>
+        <translation>&lt;b&gt;Bestandsnaam:&lt;/b&gt; %1</translation>
     </message>
 </context>
 <context>
@@ -924,23 +750,23 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libqtnote/speechaudiorecorder.cpp" line="66"/>
         <source>Audio recording support is not available in this build.</source>
-        <translation type="unfinished"></translation>
+        <translation>Geluidsopnameondersteuning is niet beschikbaar in deze versie.</translation>
     </message>
     <message>
         <location filename="../libqtnote/speechaudiorecorder.cpp" line="70"/>
         <source>No audio input device is available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Er is geen geluidsinvoerbron beschikbaar.</translation>
     </message>
     <message>
         <location filename="../libqtnote/speechaudiorecorder.cpp" line="76"/>
         <source>Failed to open audio buffer for recording.</source>
-        <translation type="unfinished"></translation>
+        <translation>De geluidsbuffer kan niet worden geopend.</translation>
     </message>
     <message>
         <location filename="../libqtnote/speechaudiorecorder.cpp" line="89"/>
         <location filename="../libqtnote/speechaudiorecorder.cpp" line="100"/>
         <source>Audio recording failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>De geluidsopname is mislukt.</translation>
     </message>
 </context>
 <context>
@@ -948,25 +774,22 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message numerus="yes">
         <location filename="../libqtnote/speechrecognitioncontroller.cpp" line="23"/>
         <source>%n second(s) left</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
-        </translation>
+        <translation><numerusform>Nog %n seconde te gaan</numerusform><numerusform>Nog %n seconden te gaan</numerusform></translation>
     </message>
     <message>
         <location filename="../libqtnote/speechrecognitioncontroller.cpp" line="73"/>
         <source>Listening…</source>
-        <translation type="unfinished"></translation>
+        <translation>Bezig met luisteren…</translation>
     </message>
     <message>
         <location filename="../libqtnote/speechrecognitioncontroller.cpp" line="95"/>
         <source>Speech recognition provider did not start a recognition job.</source>
-        <translation type="unfinished"></translation>
+        <translation>De spraakherkenningsdienst heeft de herkenning niet gestart.</translation>
     </message>
     <message>
         <location filename="../libqtnote/speechrecognitioncontroller.cpp" line="101"/>
         <source>Recognizing speech…</source>
-        <translation type="unfinished"></translation>
+        <translation>Bezig met herkennen van spraak…</translation>
     </message>
 </context>
 <context>
@@ -974,12 +797,12 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="323"/>
         <source>Plugin host is unavailable</source>
-        <translation type="unfinished"></translation>
+        <translation>De plug-inhost is niet beschikbaar</translation>
     </message>
     <message>
         <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="379"/>
         <source>Spell checker is disabled.</source>
-        <translation type="unfinished"></translation>
+        <translation>Spellincontrole is uitgeschakeld.</translation>
     </message>
     <message>
         <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="400"/>
@@ -998,23 +821,16 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     </message>
 </context>
 <context>
-    <name>QtNote::SpellContextMenu</name>
-    <message>
-        <source>Add to dictionary</source>
-        <translation type="vanished">Toevoegen aan woordenboek</translation>
-    </message>
-</context>
-<context>
     <name>QtNote::SpellcheckDictionaryModel</name>
     <message>
         <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="114"/>
         <source>Remove</source>
-        <translation type="unfinished"></translation>
+        <translation>Verwijderen</translation>
     </message>
     <message>
         <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="114"/>
         <source>Download</source>
-        <translation type="unfinished"></translation>
+        <translation>Downloaden</translation>
     </message>
 </context>
 <context>
@@ -1022,7 +838,7 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../plugins/spellchecker/spellcheckplugin.cpp" line="231"/>
         <source>The dictionary cannot be downloaded.</source>
-        <translation type="unfinished"></translation>
+        <translation>Het woordenboek kan niet worden gedownload.</translation>
     </message>
 </context>
 <context>
@@ -1030,17 +846,17 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libqtnote/stickynotewindow.cpp" line="37"/>
         <source>QtNote Sticky Note</source>
-        <translation type="unfinished"></translation>
+        <translation>QtNote: plaknotitie</translation>
     </message>
     <message>
         <location filename="../libqtnote/stickynotewindow.cpp" line="64"/>
         <source>Unpin</source>
-        <translation type="unfinished"></translation>
+        <translation>Losmaken</translation>
     </message>
     <message>
         <location filename="../libqtnote/stickynotewindow.cpp" line="88"/>
         <source>[No Title]</source>
-        <translation type="unfinished">[naamloos]</translation>
+        <translation>[naamloos]</translation>
     </message>
 </context>
 <context>
@@ -1048,17 +864,17 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libqtnote/stickynotesmanager.cpp" line="93"/>
         <source>Start QtNote automatically?</source>
-        <translation type="unfinished"></translation>
+        <translation>Moet QtNote automatisch worden gestart?</translation>
     </message>
     <message>
         <location filename="../libqtnote/stickynotesmanager.cpp" line="94"/>
         <source>QtNote must be running to restore sticky notes after sign-in. Start it automatically with the system?</source>
-        <translation type="unfinished"></translation>
+        <translation>QtNote dient actief te zijn om plaknotities na het aanmelden te kunnen bewaren. Wil je QtNote automatisch opstarten?</translation>
     </message>
     <message>
         <location filename="../libqtnote/stickynotesmanager.cpp" line="97"/>
         <source>Failed to enable automatic startup.</source>
-        <translation type="unfinished"></translation>
+        <translation>Automatisch opstarten kan niet worden ingeschakeld.</translation>
     </message>
 </context>
 <context>
@@ -1070,94 +886,56 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     </message>
 </context>
 <context>
-    <name>SettingsDlg</name>
-    <message>
-        <source>Preferred languages</source>
-        <translation type="vanished">Voorkeurstalen</translation>
-    </message>
-</context>
-<context>
-    <name>TypeAheadFindBar</name>
-    <message>
-        <source>Search</source>
-        <translation type="vanished">Zoeken</translation>
-    </message>
-    <message>
-        <source>Replace</source>
-        <translation type="vanished">Vervangen</translation>
-    </message>
-    <message>
-        <source>Find next</source>
-        <translation type="vanished">Volgende zoeken</translation>
-    </message>
-    <message>
-        <source>Find previous</source>
-        <translation type="vanished">Vorige zoeken</translation>
-    </message>
-    <message>
-        <source>Replace text</source>
-        <translation type="vanished">Tekst vervangen</translation>
-    </message>
-    <message>
-        <source>Replace all</source>
-        <translation type="vanished">Alles vervangen</translation>
-    </message>
-    <message>
-        <source>&amp;Case sensitive</source>
-        <translation type="vanished">&amp;Hoofdlettergevoelig</translation>
-    </message>
-</context>
-<context>
     <name>main</name>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/main.qml" line="32"/>
         <source>Notes</source>
-        <translation type="unfinished">Notities</translation>
+        <translation>Notities</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/main.qml" line="35"/>
         <source>1 recent note</source>
-        <translation type="unfinished"></translation>
+        <translation>1 recente notitie</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/main.qml" line="37"/>
         <source>%1+ recent notes</source>
-        <translation type="unfinished"></translation>
+        <translation>%1+ recente notities</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/main.qml" line="38"/>
         <source>%1 recent notes</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 recente notities</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/main.qml" line="39"/>
         <source>QtNote is not running</source>
-        <translation type="unfinished"></translation>
+        <translation>QtNote is niet actief</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/main.qml" line="77"/>
         <source>New Note</source>
-        <translation type="unfinished"></translation>
+        <translation>Nieuwe notitie</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/main.qml" line="87"/>
         <source>Configure QtNote...</source>
-        <translation type="unfinished"></translation>
+        <translation>QtNote instellen…</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/main.qml" line="93"/>
         <source>Note Manager</source>
-        <translation type="unfinished"></translation>
+        <translation>Notitebeheer</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/main.qml" line="98"/>
         <source>About QtNote</source>
-        <translation type="unfinished">Over QtNote</translation>
+        <translation>Over QtNote</translation>
     </message>
     <message>
         <location filename="../plugins/kdeintegration/plasmoid/package/contents/ui/main.qml" line="103"/>
         <source>Close QtNote</source>
-        <translation type="unfinished"></translation>
+        <translation>QtNote sluiten</translation>
     </message>
 </context>
 </TS>
