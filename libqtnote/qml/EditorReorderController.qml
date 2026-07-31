@@ -373,9 +373,36 @@ Item {
         targetIndent = 0
     }
 
-    function commitBlockDrop(boundary) {
-        if (sourceKind !== "block" || sourceBlockRow < 0 || !boundary
-                || boundary.kind !== "block")
+    function commitBlockDrop(boundary, core) {
+        if (sourceKind !== "block" || sourceBlockRow < 0)
+            return false
+
+        const viewportX = core.currentPointerX - editorView.contentX
+        const viewportY = core.currentPointerY - editorView.contentY
+        const droppedOutside = !editorView.touchMode
+                && (viewportX < 0 || viewportY < 0
+                    || viewportX > editorView.width || viewportY > editorView.height)
+        if (droppedOutside) {
+            editorView.runEditTransaction("delete-block", function() {
+                editorView.prepareForStructuralMutation()
+                const oldCount = editorView.count
+                blockModel.removeBlock(sourceBlockRow)
+                if (oldCount === 1) {
+                    blockModel.appendTextBlock()
+                    editorView.focusBlock(0)
+                    return
+                }
+                const targetRow = Math.min(sourceBlockRow, blockModel.rowCount() - 1)
+                const backwards = targetRow < sourceBlockRow
+                if (blockModel.blockTypeAt(targetRow) === 4)
+                    editorView.focusImageBlock(targetRow)
+                else
+                    editorView.focusBlock(targetRow, backwards)
+            })
+            return true
+        }
+
+        if (!boundary || boundary.kind !== "block")
             return false
         const destination = Number(boundary.finalIndex)
         if (destination < 0 || destination >= editorView.count)

@@ -234,6 +234,35 @@ private slots:
         QCOMPARE(fragment.blocks.at(3).markdown, QStringLiteral("suf"));
     }
 
+    void includesUnrangedBlocksCrossedBySelection()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("before text\n\n![diagram](media://diagram)\n\nafter text"), true);
+
+        // Images do not own a TextArea, so a mouse selection whose endpoints
+        // are in the surrounding paragraphs has no explicit range for row 1.
+        const QList<NoteBlockSelectionRange> ranges {
+            { 0, -1, -1, QStringLiteral("text"), false },
+            { 2, -1, -1, QStringLiteral("after"), false },
+        };
+
+        const NoteFragment fragment = model.extractSelectionFragment(ranges);
+        QCOMPARE(fragment.blocks.size(), 3);
+        QCOMPARE(fragment.blocks.at(0).type, NoteFragmentBlockType::Text);
+        QCOMPARE(fragment.blocks.at(0).markdown, QStringLiteral("text"));
+        QCOMPARE(fragment.blocks.at(1).type, NoteFragmentBlockType::Image);
+        QCOMPARE(fragment.blocks.at(1).image.sourceUri, QStringLiteral("media://diagram"));
+        QCOMPARE(fragment.blocks.at(1).image.alt, QStringLiteral("diagram"));
+        QCOMPARE(fragment.blocks.at(2).type, NoteFragmentBlockType::Text);
+        QCOMPARE(fragment.blocks.at(2).markdown, QStringLiteral("after"));
+
+        NoteBlockModel destination;
+        destination.load(QStringLiteral("destination"), true);
+        QString error;
+        QVERIFY2(destination.insertBlockFragment(1, fragment, &error), qPrintable(error));
+        QCOMPARE(destination.contents(), QStringLiteral("destination\n\ntext\n\n![diagram](media://diagram)\n\nafter"));
+    }
+
     void removesCrossBlockSelectionIncludingListAndTable()
     {
         NoteBlockModel model;
@@ -255,6 +284,20 @@ private slots:
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
         QCOMPARE(model.contents(), QStringLiteral("beforeXafter"));
+    }
+
+    void removesTrailingImageCrossedFromDocumentBoundary()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("beforeSELECT\n\n![diagram](media://diagram)"), true);
+        const QList<NoteBlockSelectionRange> ranges {
+            { 0, -1, -1, QStringLiteral("SELECT"), false, QStringLiteral("before"), QString() },
+            { 1, -1, -1, QString(), true, QString(), QString() },
+        };
+
+        QCOMPARE(model.removeSelectionRanges(ranges), 0);
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.contents(), QStringLiteral("before"));
     }
 
     void rejectsNonBlockFragmentInsertion()
@@ -760,6 +803,45 @@ private slots:
         QCOMPARE(table[QStringLiteral("columns")].toInt(), 2);
         QCOMPARE(table[QStringLiteral("values")].toStringList().size(), 4);
         QCOMPARE(model.data(model.index(2), NoteBlockModel::ItemsRole).toStringList(), QStringList { QString() });
+    }
+
+    void collapsesUneditedInsertedParagraphOnMarkdownRoundTrip()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("| A | B |\n| --- | --- |\n| one | two |\n\n- after"), true);
+
+        model.insertTextBlock(1);
+        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), QString());
+        QVERIFY(model.isExplicitEmptyTextBlock(1));
+        QVERIFY(!model.contents().contains(QStringLiteral("qtnote:empty-paragraph")));
+
+        NoteBlockModel restored;
+        restored.load(model.contents(), true);
+        QCOMPARE(restored.rowCount(), 2);
+        QCOMPARE(restored.data(restored.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Table));
+        QCOMPARE(restored.data(restored.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::BulletList));
+
+        NoteBlockModel legacy;
+        legacy.load(QStringLiteral("| A | B |\n| --- | --- |\n| one | two |\n\n"
+                                   "<!-- qtnote:empty-paragraph -->\n\n- after"),
+                    true);
+        QCOMPARE(legacy.rowCount(), 2);
+        QVERIFY(!legacy.contents().contains(QStringLiteral("qtnote:empty-paragraph")));
+
+        model.setBlockText(1, QStringLiteral("between"));
+        QVERIFY(!model.isExplicitEmptyTextBlock(1));
+        QCOMPARE(model.contents(), QStringLiteral("| A | B |\n| --- | --- |\n| one | two |\n\nbetween\n\n- after"));
+
+        model.setBlockText(1, QString());
+        QVERIFY(model.isExplicitEmptyTextBlock(1));
+        QVERIFY(!model.contents().contains(QStringLiteral("qtnote:empty-paragraph")));
+
+        NoteBlockModel ordinary;
+        ordinary.load(QStringLiteral("title\n\n- item"), true);
+        ordinary.setBlockText(0, QString());
+        QVERIFY(!ordinary.isExplicitEmptyTextBlock(0));
     }
 
     void insertingAndConvertingListsPreservesIndentation()

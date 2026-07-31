@@ -85,6 +85,7 @@ public:
     Q_INVOKABLE void setImageAlt(int row, const QString &alt);
     Q_INVOKABLE void setImageWidth(int row, int width);
     Q_INVOKABLE void setImageAlignment(int row, const QString &alignment);
+    Q_INVOKABLE void insertTextBlock(int row);
     Q_INVOKABLE void appendTextBlock();
     Q_INVOKABLE void appendText(const QString &text);
     Q_INVOKABLE void appendImage(const QString &url, const QString &alt);
@@ -95,6 +96,7 @@ public:
     Q_INVOKABLE void insertCodeBlock(int row, const QString &language = QString());
     Q_INVOKABLE void setCodeLanguage(int row, const QString &language);
     Q_INVOKABLE int  blockTypeAt(int row) const;
+    Q_INVOKABLE bool isExplicitEmptyTextBlock(int row) const;
     Q_INVOKABLE QVariantMap findText(const QString &text, const QVariantMap &after = {}, bool backwards = false,
                                      bool caseSensitive = false) const;
     Q_INVOKABLE bool        convertListLevel(int row, int item, BlockType type);
@@ -141,6 +143,7 @@ private:
         QString      imageAlignment = QStringLiteral("center");
         int          headingLevel   = 0;
         QString      language;
+        bool         explicitEmpty = false;
 
         bool operator==(const Block &other) const
         {
@@ -148,7 +151,7 @@ private:
                 && itemTypes == other.itemTypes && checked == other.checked && cells == other.cells
                 && columns == other.columns && url == other.url && alt == other.alt && imageWidth == other.imageWidth
                 && imageAlignment == other.imageAlignment && headingLevel == other.headingLevel
-                && language == other.language;
+                && language == other.language && explicitEmpty == other.explicitEmpty;
         }
     };
 

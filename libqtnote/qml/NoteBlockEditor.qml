@@ -30,6 +30,14 @@ ListView {
     property bool documentSelectionAvailable: false
     property var contextEditor: null
     property bool mouseSelectionActive: false
+    property int blankSelectionBoundary: -1
+    property real blankSelectionPressX: 0
+    property real blankSelectionPressY: 0
+    property bool blankSelectionMoved: false
+    property var blankSelectionAnchorEditor: null
+    property int blankSelectionAnchorPosition: 0
+    property int documentSelectionBlankBoundary: -1
+    property int documentSelectionBlankDirection: 0
     property var keyboardSelectionAnchorEditor: null
     property int keyboardSelectionAnchorPosition: 0
     property int editTransactionDepth: 0
@@ -61,6 +69,12 @@ ListView {
     readonly property int scrollBarInset: !touchMode && verticalScrollBar.visible
                                            ? Math.ceil(verticalScrollBar.width) : 0
     model: blockModel
+    // ListView estimates contentHeight from instantiated delegates. Editor
+    // blocks vary from one-line paragraphs to very tall code blocks, so the
+    // estimate otherwise changes while scrolling and makes the desktop
+    // scrollbar jump. Keep every realistic desktop note instantiated; retain
+    // a smaller cache on touch devices where memory pressure matters more.
+    cacheBuffer: touchMode ? Math.max(4096, height * 4) : 1000000
     spacing: blockSpacing
     clip: true
     topMargin: baseEditorInset
@@ -115,6 +129,10 @@ ListView {
     FontMetrics {
         id: editorFontMetrics
         font: root.editorFont
+    }
+
+    SystemPalette {
+        id: editorPalette
     }
 
     EditorReorderController {
@@ -718,6 +736,154 @@ ListView {
         return { editor: nearest.editor, position: nearest.editor.positionAt(nearest.x, nearest.y) }
     }
 
+    function selectionAnchorAtBoundary(boundary, direction) {
+        const ordered = orderedEditors()
+        if (direction < 0) {
+            for (let index = ordered.length - 1; index >= 0; --index) {
+                const editor = ordered[index]
+                if (editor.blockIndex < boundary)
+                    return { editor: editor, position: editor.length }
+            }
+        } else {
+            for (const editor of ordered) {
+                if (editor.blockIndex >= boundary)
+                    return { editor: editor, position: 0 }
+            }
+        }
+        return null
+    }
+
+    function beginBlankAreaSelection(boundary, x, y) {
+        blankSelectionBoundary = boundary
+        blankSelectionPressX = x
+        blankSelectionPressY = y
+        blankSelectionMoved = false
+        blankSelectionAnchorEditor = null
+        blankSelectionAnchorPosition = 0
+        if (editorBackend)
+            editorBackend.updateHistoryViewState(captureEditorState(), true)
+    }
+
+    function updateBlankAreaSelection(x, y) {
+        if (blankSelectionBoundary < 0)
+            return
+        if (!blankSelectionMoved) {
+            const dx = x - blankSelectionPressX
+            const dy = y - blankSelectionPressY
+            if (dx * dx + dy * dy < 16)
+                return
+            const direction = dy <= 0 ? -1 : 1
+            const anchor = selectionAnchorAtBoundary(blankSelectionBoundary, direction)
+            if (!anchor)
+                return
+            clearDocumentSelection()
+            documentSelectionBlankBoundary = blankSelectionBoundary
+            documentSelectionBlankDirection = direction
+            blankSelectionAnchorEditor = anchor.editor
+            blankSelectionAnchorPosition = anchor.position
+            selectionAnchorEditor = anchor.editor
+            selectionAnchorPosition = anchor.position
+            mouseSelectionActive = true
+            blankSelectionMoved = true
+        }
+        const hit = editorAtPoint(x, y)
+        if (hit)
+            applyDocumentSelection(blankSelectionAnchorEditor, blankSelectionAnchorPosition,
+                                   hit.editor, hit.position, true)
+    }
+
+    function finishBlankAreaSelection() {
+        const moved = blankSelectionMoved
+        blankSelectionBoundary = -1
+        blankSelectionAnchorEditor = null
+        selectionAnchorEditor = null
+        mouseSelectionActive = false
+        if (!moved) {
+            documentSelectionBlankBoundary = -1
+            documentSelectionBlankDirection = 0
+        }
+        if (moved)
+            copyDocumentSelectionToPrimary()
+        selectionStateRefresh.restart()
+        return moved
+    }
+
+    function cancelBlankAreaSelection() {
+        blankSelectionBoundary = -1
+        blankSelectionMoved = false
+        blankSelectionAnchorEditor = null
+        selectionAnchorEditor = null
+        mouseSelectionActive = false
+        documentSelectionBlankBoundary = -1
+        documentSelectionBlankDirection = 0
+        selectionStateRefresh.restart()
+    }
+
+    function insertParagraphAtBoundary(row) {
+        if (!blockModel)
+            return false
+        row = Math.max(0, Math.min(row, blockModel.rowCount()))
+        return runEditTransaction("insert-text-block", function() {
+            prepareForStructuralMutation()
+            blockModel.insertTextBlock(row)
+            focusBlock(row)
+            return true
+        })
+    }
+
+    function scheduleDiscardEmptyInsertedParagraph(editor) {
+        Qt.callLater(function() {
+            if (!editor || editor.activeFocus || !blockModel || count <= 1)
+                return
+            const row = Number(editor.blockIndex)
+            if (row <= 0 || editor.currentPlainText().length !== 0
+                    || !blockModel.isExplicitEmptyTextBlock(row))
+                return
+            runEditTransaction("discard-empty-text-block", function() {
+                if (!editor || editor.activeFocus)
+                    return false
+                const currentRow = Number(editor.blockIndex)
+                if (currentRow <= 0 || editor.currentPlainText().length !== 0
+                        || !blockModel.isExplicitEmptyTextBlock(currentRow))
+                    return false
+                if (activeEditor === editor)
+                    activeEditor = null
+                if (selectedImageIndex > currentRow)
+                    --selectedImageIndex
+                blockModel.removeBlock(currentRow)
+                return true
+            })
+        })
+    }
+
+    function handleEmptyTextBlockDeletion(event, editor) {
+        if (!editor || event.modifiers || count <= 1
+                || (event.key !== Qt.Key_Delete && event.key !== Qt.Key_Backspace)
+                || editor.selectionStart !== editor.selectionEnd
+                || editor.currentPlainText().length !== 0
+                || blockModel.blockTypeAt(editor.blockIndex) !== 0)
+            return false
+
+        const row = editor.blockIndex
+        if (row === 0 && !blockModel.isExplicitEmptyTextBlock(row))
+            return false
+        const backwards = event.key === Qt.Key_Backspace
+        return runEditTransaction("remove-empty-text-block", function() {
+            prepareForStructuralMutation()
+            blockModel.removeBlock(row)
+            const hasPreceding = row > 0
+            const hasFollowing = row < count
+            const focusPrevious = backwards ? hasPreceding : !hasFollowing
+            const target = focusPrevious ? Math.max(0, row - 1)
+                                         : Math.min(row, count - 1)
+            if (blockModel.blockTypeAt(target) === 4)
+                focusImageBlock(target)
+            else
+                focusBlock(target, focusPrevious)
+            return true
+        })
+    }
+
     function clearDocumentSelection() {
         wholeDocumentSelected = false
         selectionSpansEditors = false
@@ -726,6 +892,8 @@ ListView {
         documentSelectionEndEditor = null
         documentSelectionEndPosition = 0
         documentSelectionAvailable = false
+        documentSelectionBlankBoundary = -1
+        documentSelectionBlankDirection = 0
         for (const editor of editors) {
             if (!editor)
                 continue
@@ -874,7 +1042,12 @@ ListView {
         return true
     }
 
-    function applyDocumentSelection(anchorEditor, anchorPosition, focusEditor, focusPosition) {
+    function applyDocumentSelection(anchorEditor, anchorPosition, focusEditor, focusPosition,
+                                    preserveBlankBoundary) {
+        if (!preserveBlankBoundary) {
+            documentSelectionBlankBoundary = -1
+            documentSelectionBlankDirection = 0
+        }
         wholeDocumentSelected = false
         if (anchorEditor === focusEditor) {
             if (selectionSpansEditors) {
@@ -940,6 +1113,13 @@ ListView {
         for (const editor of editors) {
             if (editor && editor.selectionStart !== editor.selectionEnd)
                 return true
+        }
+        if (documentSelectionBlankBoundary >= 0) {
+            const ranges = structuredSelectionRanges(false)
+            for (const range of ranges) {
+                if (range.wholeEditor && blockModel.blockTypeAt(range.blockIndex) === 4)
+                    return true
+            }
         }
         return false
     }
@@ -1037,7 +1217,72 @@ ListView {
                                                                      rangeEnd, editor.length) : "")
             })
         }
+
+        // Text editors provide the visible selection endpoints, but images do
+        // not own a TextArea. When selection starts in the blank margin beside
+        // an image, add crossed image blocks explicitly so copy/cut/delete
+        // treats the gesture as a true document-boundary selection.
+        if (documentSelectionBlankBoundary >= 0 && documentSelectionBlankDirection !== 0
+                && ranges.length > 0 && blockModel) {
+            let firstRow = ranges[0].blockIndex
+            let lastRow = ranges[0].blockIndex
+            for (const range of ranges) {
+                firstRow = Math.min(firstRow, range.blockIndex)
+                lastRow = Math.max(lastRow, range.blockIndex)
+            }
+            function wholeImageRange(row) {
+                return {
+                    blockIndex: row,
+                    listItemIndex: -1,
+                    tableCellIndex: -1,
+                    tableRow: -1,
+                    markdown: "",
+                    wholeEditor: true,
+                    boundaryOnly: false,
+                    selectionStart: 0,
+                    before: "",
+                    after: ""
+                }
+            }
+            if (documentSelectionBlankDirection < 0) {
+                for (let row = lastRow + 1; row < documentSelectionBlankBoundary; ++row) {
+                    if (blockModel.blockTypeAt(row) === 4)
+                        ranges.push(wholeImageRange(row))
+                }
+            } else {
+                for (let row = firstRow - 1; row >= documentSelectionBlankBoundary; --row) {
+                    if (blockModel.blockTypeAt(row) === 4)
+                        ranges.unshift(wholeImageRange(row))
+                }
+            }
+        }
         return ranges
+    }
+
+    function fullySelectedTableBlock(ranges) {
+        if (!ranges || ranges.length === 0)
+            return -1
+        const block = Number(ranges[0].blockIndex)
+        const tableEditors = orderedEditors().filter(function(editor) {
+            return editor.blockIndex === block && editor.tableCellIndex >= 0
+        })
+        if (tableEditors.length === 0 || ranges.length !== tableEditors.length)
+            return -1
+        const seen = []
+        for (const range of ranges) {
+            if (Number(range.blockIndex) !== block || Number(range.tableCellIndex) < 0
+                    || String(range.before || "").length > 0
+                    || String(range.after || "").length > 0)
+                return -1
+            const cell = Number(range.tableCellIndex)
+            if (seen[cell])
+                return -1
+            seen[cell] = true
+        }
+        for (const editor of tableEditors)
+            if (!seen[Number(editor.tableCellIndex)])
+                return -1
+        return block
     }
 
     function copyDocumentSelection() {
@@ -1185,17 +1430,26 @@ ListView {
         return true
     }
 
-    function deleteStructuredSelection() {
+    function deleteStructuredSelection(backwards) {
         // Ordinary selection inside one editor is handled by TextArea. Avoid
         // taking a structural before-state for every Backspace/Delete key.
-        if (!wholeDocumentSelected && !selectionSpansEditors && selectedEditorCount() < 2)
-            return false
+        if (!wholeDocumentSelected && !selectionSpansEditors && selectedEditorCount() < 2) {
+            let includesBoundaryImage = false
+            if (documentSelectionBlankBoundary >= 0) {
+                const ranges = structuredSelectionRanges(false)
+                includesBoundaryImage = ranges.some(function(range) {
+                    return range.wholeEditor && blockModel.blockTypeAt(range.blockIndex) === 4
+                })
+            }
+            if (!includesBoundaryImage)
+                return false
+        }
         return runEditTransaction("delete-selection", function() {
-            return deleteStructuredSelectionImpl()
+            return deleteStructuredSelectionImpl(Boolean(backwards))
         })
     }
 
-    function deleteStructuredSelectionImpl() {
+    function deleteStructuredSelectionImpl(backwards) {
         if (wholeDocumentSelected) {
             wholeDocumentSelected = false
             selectionSpansEditors = false
@@ -1207,6 +1461,11 @@ ListView {
             return true
         }
         const ranges = structuredSelectionRanges(true)
+        const selectedTableBlock = fullySelectedTableBlock(ranges)
+        if (selectedTableBlock >= 0) {
+            prepareForStructuralMutation()
+            return removeTableBlock(selectedTableBlock, backwards)
+        }
         if (ranges.length > 1
                 && ranges[0].blockIndex !== ranges[ranges.length - 1].blockIndex) {
             prepareForStructuralMutation()
@@ -1371,17 +1630,11 @@ ListView {
     }
 
     function focusDocumentEnd() {
-        // Images deliberately have no TextArea. A click below a document
-        // ending in one therefore means "continue after the image", not
-        // "move to the end of the preceding text block".
-        if (count > 0 && blockModel.blockTypeAt(count - 1) === 4) {
-            const imageRow = count - 1
-            return runEditTransaction("append-text-after-image", function() {
-                blockModel.appendTextBlock()
-                focusBlock(imageRow + 1)
-                return true
-            })
-        }
+        // Clicking below a structural block means "continue after it". Only
+        // a final ordinary text block should absorb the click into its own
+        // last line.
+        if (count > 0 && blockModel.blockTypeAt(count - 1) !== 0)
+            return insertParagraphAtBoundary(count)
         const ordered = orderedEditors()
         if (ordered.length === 0)
             return false
@@ -2056,23 +2309,173 @@ ListView {
         }
     }
 
-    // Text editors only occupy their implicit content height. Observe taps in
-    // the unused viewport below the final block and treat that area as the
-    // continuation of the document.
-    TapHandler {
+    function trailingViewportTop() {
+        // mapToItem() is not itself a bindable property. Reading contentY and
+        // contentHeight makes the geometry below update while scrolling or
+        // while the final delegate changes height.
+        const scrollDependency = contentY + contentHeight
+        if (count <= 0)
+            return 0
+        const lastBlock = itemAtIndex(count - 1)
+        if (!lastBlock)
+            return height
+        const bottom = lastBlock.mapToItem(root, 0, lastBlock.height).y
+        return Math.max(0, Math.min(height, bottom))
+    }
+
+    // The ListView spacing is a real document boundary. A click inserts a
+    // session-only empty text block there; dragging from the same area starts
+    // selection at the boundary instead of being ignored.
+    Item {
+        id: interBlockHitLayer
+        parent: root.contentItem
+        width: Math.max(0, root.width - root.scrollBarInset)
+        height: root.contentHeight
+        z: 50000
+        enabled: !root.touchMode && !editorReorderController.dragging
+
+        Repeater {
+            model: Math.max(0, root.count - 1)
+
+            delegate: Item {
+                id: gapTarget
+                property bool revealIndicator: false
+                readonly property var precedingBlock: {
+                    const geometryDependency = root.contentY + root.contentHeight + root.editorRegistrations
+                    return root.itemAtIndex(index)
+                }
+                readonly property var followingBlock: {
+                    const geometryDependency = root.contentY + root.contentHeight + root.editorRegistrations
+                    return root.itemAtIndex(index + 1)
+                }
+                readonly property int boundaryRow: index + 1
+                x: 0
+                y: precedingBlock ? precedingBlock.y + precedingBlock.height : 0
+                width: interBlockHitLayer.width
+                height: root.spacing
+                visible: precedingBlock && followingBlock && height > 0
+
+                MouseArea {
+                    id: gapMouse
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton
+                    hoverEnabled: true
+                    preventStealing: true
+                    cursorShape: Qt.IBeamCursor
+                    onContainsMouseChanged: {
+                        if (containsMouse) {
+                            gapRevealTimer.restart()
+                        } else {
+                            gapRevealTimer.stop()
+                            gapTarget.revealIndicator = false
+                        }
+                    }
+                    onEnabledChanged: {
+                        if (!enabled) {
+                            gapRevealTimer.stop()
+                            gapTarget.revealIndicator = false
+                        }
+                    }
+                    onPressed: function(mouse) {
+                        const point = mapToItem(root, mouse.x, mouse.y)
+                        root.beginBlankAreaSelection(gapTarget.boundaryRow, point.x, point.y)
+                        mouse.accepted = true
+                    }
+                    onPositionChanged: function(mouse) {
+                        if (!(mouse.buttons & Qt.LeftButton))
+                            return
+                        const point = mapToItem(root, mouse.x, mouse.y)
+                        root.updateBlankAreaSelection(point.x, point.y)
+                    }
+                    onReleased: function(mouse) {
+                        if (mouse.button !== Qt.LeftButton)
+                            return
+                        if (!root.finishBlankAreaSelection())
+                            root.insertParagraphAtBoundary(gapTarget.boundaryRow)
+                    }
+                    onCanceled: root.cancelBlankAreaSelection()
+                }
+
+                Timer {
+                    id: gapRevealTimer
+                    interval: 500
+                    repeat: false
+                    onTriggered: {
+                        if (gapMouse.containsMouse)
+                            gapTarget.revealIndicator = true
+                    }
+                }
+
+                Item {
+                    anchors.fill: parent
+                    opacity: gapTarget.revealIndicator ? 1 : 0
+
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: 480
+                            easing.type: Easing.OutCubic
+                        }
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.leftMargin: root.editorInset
+                        anchors.rightMargin: root.editorInset
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: 1
+                        color: editorPalette.highlight
+                        opacity: 0.55
+                    }
+
+                    Label {
+                        anchors.left: parent.left
+                        anchors.leftMargin: Math.max(1, root.baseEditorInset / 3)
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "+"
+                        color: editorPalette.highlight
+                        opacity: 0.9
+                        font.bold: true
+                    }
+                }
+            }
+        }
+    }
+
+    // Text editors occupy only their implicit content height. Treat every
+    // unused pixel below the final block as the end-of-document boundary: a
+    // click focuses the end, while an upward drag selects from the end.
+    MouseArea {
+        id: trailingDocumentArea
+        parent: root
+        x: 0
+        y: root.trailingViewportTop()
+        width: Math.max(0, root.width - root.scrollBarInset)
+        height: Math.max(0, root.height - y)
+        z: 40000
+        enabled: !root.touchMode && !editorReorderController.dragging && root.count > 0
         acceptedButtons: Qt.LeftButton
-        gesturePolicy: TapHandler.DragThreshold
-        onTapped: function(eventPoint) {
-            const ordered = root.orderedEditors()
-            if (ordered.length === 0)
+        hoverEnabled: true
+        preventStealing: true
+        cursorShape: Qt.IBeamCursor
+        onPressed: function(mouse) {
+            const point = mapToItem(root, mouse.x, mouse.y)
+            root.beginBlankAreaSelection(root.count, point.x, point.y)
+            mouse.accepted = true
+        }
+        onPositionChanged: function(mouse) {
+            if (!(mouse.buttons & Qt.LeftButton))
                 return
-            const lastBlock = root.itemAtIndex(root.count - 1)
-            const last = ordered[ordered.length - 1]
-            const bottom = lastBlock ? lastBlock.mapToItem(root, 0, lastBlock.height).y
-                                     : last.mapToItem(root, 0, last.height).y
-            if (eventPoint.position.y > bottom)
+            const point = mapToItem(root, mouse.x, mouse.y)
+            root.updateBlankAreaSelection(point.x, point.y)
+        }
+        onReleased: function(mouse) {
+            if (mouse.button !== Qt.LeftButton)
+                return
+            if (!root.finishBlankAreaSelection())
                 root.focusDocumentEnd()
         }
+        onCanceled: root.cancelBlankAreaSelection()
     }
 
     delegate: FocusScope {
@@ -2222,6 +2625,7 @@ ListView {
         property bool sourceTextPending: false
         property string observedPlainText: ""
         property bool observedPlainTextInitialized: false
+        property bool discardEmptyBlockOnFocusLoss: false
         font: root.editorFont
         wrapMode: TextEdit.Wrap
         verticalAlignment: TextEdit.AlignTop
@@ -2334,8 +2738,11 @@ ListView {
                 root.activeEditor = this
                 rememberPlainText()
                 root.scheduleCursorVisibility(this)
-            } else if (sourceTextPending) {
-                synchronizeSourceText()
+            } else {
+                if (discardEmptyBlockOnFocusLoss)
+                    root.scheduleDiscardEmptyInsertedParagraph(this)
+                if (sourceTextPending)
+                    synchronizeSourceText()
             }
         }
         onCursorPositionChanged: root.scheduleCursorVisibility(blockArea)
@@ -2401,7 +2808,9 @@ ListView {
             } else if (!blockArea.codeDocument && blockArea.handleLinkSpaceExit(event)) {
                 event.accepted = true
             } else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace)
-                    && root.deleteStructuredSelection()) {
+                    && root.deleteStructuredSelection(event.key === Qt.Key_Backspace)) {
+                event.accepted = true
+            } else if (root.handleEmptyTextBlockDeletion(event, blockArea)) {
                 event.accepted = true
             } else if (root.handleAdjacentImageDeletion(event, blockArea)) {
                 event.accepted = true
@@ -2800,6 +3209,7 @@ ListView {
             titleDocument: block.index === 0
             blockIndex: block.index
             width: block.width
+            discardEmptyBlockOnFocusLoss: true
             sourceText: root.blockModel && root.blockModel.markdown
                         ? root.markdownForRendering(block.blockText) : block.blockText
             keyHandler: function(event) { return root.handleHeadingShortcut(event, textCell) }
@@ -3378,6 +3788,26 @@ ListView {
                 root.endEditTransaction()
             }
 
+            function beginMarginSelection(area, mouse) {
+                const point = area.mapToItem(root, mouse.x, mouse.y)
+                root.beginBlankAreaSelection(block.index + 1, point.x, point.y)
+                mouse.accepted = true
+            }
+
+            function updateMarginSelection(area, mouse) {
+                if (!(mouse.buttons & Qt.LeftButton))
+                    return
+                const point = area.mapToItem(root, mouse.x, mouse.y)
+                root.updateBlankAreaSelection(point.x, point.y)
+            }
+
+            function finishMarginSelection(mouse) {
+                if (mouse.button !== Qt.LeftButton)
+                    return
+                if (!root.finishBlankAreaSelection())
+                    selectAndFocus()
+            }
+
             Keys.onPressed: function(event) {
                 if (altEditor.activeFocus)
                     return
@@ -3466,6 +3896,46 @@ ListView {
                         imageContextMenu.popup()
                     }
                 }
+            }
+
+            // The image itself owns the reorder gesture, but the unused row
+            // width is still part of the document. Let an upward drag from
+            // either horizontal margin start selection at the boundary after
+            // the image (especially important when it is the final block).
+            MouseArea {
+                id: imageLeftMarginSelectionArea
+                x: 0
+                y: sourceImage.y
+                width: Math.max(0, sourceImage.x)
+                height: sourceImage.height
+                z: 1
+                enabled: !root.touchMode && !editorReorderController.dragging && width > 0
+                acceptedButtons: Qt.LeftButton
+                hoverEnabled: true
+                preventStealing: true
+                cursorShape: Qt.IBeamCursor
+                onPressed: function(mouse) { imageRoot.beginMarginSelection(imageLeftMarginSelectionArea, mouse) }
+                onPositionChanged: function(mouse) { imageRoot.updateMarginSelection(imageLeftMarginSelectionArea, mouse) }
+                onReleased: function(mouse) { imageRoot.finishMarginSelection(mouse) }
+                onCanceled: root.cancelBlankAreaSelection()
+            }
+
+            MouseArea {
+                id: imageRightMarginSelectionArea
+                x: sourceImage.x + sourceImage.width
+                y: sourceImage.y
+                width: Math.max(0, imageRoot.width - x)
+                height: sourceImage.height
+                z: 1
+                enabled: !root.touchMode && !editorReorderController.dragging && width > 0
+                acceptedButtons: Qt.LeftButton
+                hoverEnabled: true
+                preventStealing: true
+                cursorShape: Qt.IBeamCursor
+                onPressed: function(mouse) { imageRoot.beginMarginSelection(imageRightMarginSelectionArea, mouse) }
+                onPositionChanged: function(mouse) { imageRoot.updateMarginSelection(imageRightMarginSelectionArea, mouse) }
+                onReleased: function(mouse) { imageRoot.finishMarginSelection(mouse) }
+                onCanceled: root.cancelBlankAreaSelection()
             }
 
             Rectangle {

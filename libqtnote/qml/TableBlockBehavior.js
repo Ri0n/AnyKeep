@@ -5,19 +5,16 @@ function handleKey(host, controller, event, cell) {
     const column = cell.index % host.columns
     const modifiers = event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
     const emptyCell = cell.length === 0 && cell.cursorPosition === 0
-    if (!modifiers && host.tableEmpty()) {
-        if (event.key === Qt.Key_Backspace && cell.index === 0) {
-            return controller.runEditTransaction("remove-table", function() {
-                controller.removeTableBlock(host.block.index, true)
-                return true
-            })
-        }
-        if (event.key === Qt.Key_Delete && cell.index + 1 === host.cellCount()) {
-            return controller.runEditTransaction("remove-table", function() {
-                controller.removeTableBlock(host.block.index, false)
-                return true
-            })
-        }
+    if (!modifiers && host.tableEmpty()
+            && (event.key === Qt.Key_Backspace || event.key === Qt.Key_Delete)) {
+        // Once every cell is empty, the table has no user content left.  Do
+        // not force the cursor into a magic first/last cell before it can be
+        // removed; either deletion key removes the structural block from any
+        // cell and only controls the focus direction.
+        return controller.runEditTransaction("remove-table", function() {
+            controller.removeTableBlock(host.block.index, event.key === Qt.Key_Backspace)
+            return true
+        })
     }
     if (!modifiers && (event.key === Qt.Key_Backspace || event.key === Qt.Key_Delete)
             && emptyCell

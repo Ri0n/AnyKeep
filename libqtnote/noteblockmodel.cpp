@@ -10,8 +10,9 @@
 
 namespace QtNote {
 namespace {
-    const QString TableLineBreakMarker    = QStringLiteral("QTNOTE_TABLE_LINE_BREAK_7F3A");
-    constexpr int MaxSerializedImageWidth = 16384;
+    const QString TableLineBreakMarker       = QStringLiteral("QTNOTE_TABLE_LINE_BREAK_7F3A");
+    const QString LegacyEmptyParagraphMarker = QStringLiteral("<!-- qtnote:empty-paragraph -->");
+    constexpr int MaxSerializedImageWidth    = 16384;
 
     struct HtmlImageBlock {
         QString source;
@@ -264,8 +265,10 @@ bool NoteBlockModel::setData(const QModelIndex &index, const QVariant &value, in
             return false;
         before     = block.text;
         block.text = value.toString();
-        after      = block.text;
-        scalar     = true;
+        if (block.type == Text && blocks_.size() == 1)
+            block.explicitEmpty = false;
+        after  = block.text;
+        scalar = true;
         break;
     case ItemsRole:
         if (block.items == value.toStringList())
@@ -555,6 +558,8 @@ bool NoteBlockModel::mergeTextBlockWithNext(int row)
 
     beginRemoveRows({}, row + 1, row + 1);
     blocks_[row].text = coalesceAdjacentMarkdownLinks(blocks_[row].text + blocks_[row + 1].text);
+    blocks_[row].explicitEmpty
+        = blocks_[row].text.isEmpty() && (blocks_[row].explicitEmpty || blocks_[row + 1].explicitEmpty);
     blocks_.removeAt(row + 1);
     endRemoveRows();
     changed(row, { TextRole });
@@ -1040,6 +1045,17 @@ void NoteBlockModel::setImageAlignment(int row, const QString &alignment)
     setData(index(row), alignment, ImageAlignmentRole);
 }
 
+void NoteBlockModel::insertTextBlock(int row)
+{
+    row = qBound(0, row, blocks_.size());
+    beginInsertRows({}, row, row);
+    Block block;
+    block.explicitEmpty = true;
+    blocks_.insert(row, block);
+    endInsertRows();
+    emit contentsChanged();
+}
+
 void NoteBlockModel::appendTextBlock()
 {
     const int row = blocks_.size();
@@ -1086,6 +1102,12 @@ void NoteBlockModel::insertImage(int row, const QString &url, const QString &alt
 int NoteBlockModel::blockTypeAt(int row) const
 {
     return row >= 0 && row < blocks_.size() ? int(blocks_.at(row).type) : -1;
+}
+
+bool NoteBlockModel::isExplicitEmptyTextBlock(int row) const
+{
+    return row >= 0 && row < blocks_.size() && blocks_.at(row).type == Text && blocks_.at(row).text.isEmpty()
+        && blocks_.at(row).explicitEmpty;
 }
 
 void NoteBlockModel::insertTable(int row)
@@ -1382,6 +1404,7 @@ NoteFragment NoteBlockModel::extractSelectionFragment(const QList<NoteBlockSelec
     if (ranges.isEmpty())
         return fragment;
 
+    int previousRow = -1;
     for (int first = 0; first < ranges.size();) {
         const int row  = ranges.at(first).blockIndex;
         int       last = first + 1;
@@ -1391,6 +1414,17 @@ NoteFragment NoteBlockModel::extractSelectionFragment(const QList<NoteBlockSelec
             first = last;
             continue;
         }
+
+        // Text editors are the visible selection endpoints, but some blocks
+        // (currently images) have no TextArea and therefore produce no range.
+        // Every block strictly between two ranged rows is nevertheless fully
+        // crossed by the document selection and must be present on the
+        // clipboard, just as it is removed by removeSelectionRanges().
+        if (previousRow >= 0 && row > previousRow + 1) {
+            const NoteFragment crossed = extractBlockFragment(previousRow + 1, row - 1);
+            fragment.blocks.append(crossed.blocks);
+        }
+        previousRow = row;
 
         const Block       &source = blocks_.at(row);
         const NoteFragment exact  = extractBlockFragment(row, row);
@@ -1942,8 +1976,15 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
 {
     // QTextDocument is the Markdown reader. Parsing its canonical Markdown keeps
     // Qt's CommonMark interpretation as the single source of truth.
-    QTextDocument                   document;
-    QString                         protectedSource = source;
+    QTextDocument document;
+    QStringList   protectedLines = source.split(QLatin1Char('\n'), Qt::KeepEmptyParts);
+    for (auto line = protectedLines.begin(); line != protectedLines.end();) {
+        if (line->trimmed() == LegacyEmptyParagraphMarker)
+            line = protectedLines.erase(line);
+        else
+            ++line;
+    }
+    QString                         protectedSource = protectedLines.join(QLatin1Char('\n'));
     static const QRegularExpression lineBreak(QStringLiteral("<br\\s*/?>"), QRegularExpression::CaseInsensitiveOption);
     static const QRegularExpression trailingListBreaks(QStringLiteral("(?:<br\\s*/?>[ \\t]*)+(?=\\r?\\n|$)"),
                                                        QRegularExpression::CaseInsensitiveOption);
@@ -2216,7 +2257,7 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
                && !(i + 1 < lines.size() && lines[i].contains('|') && isTableSeparator(lines[i + 1])))
             paragraph.append(lines[i++]);
         const QString text = paragraph.join('\n');
-        if (!result.isEmpty() && result.constLast().type == Text) {
+        if (!result.isEmpty() && result.constLast().type == Text && !result.constLast().explicitEmpty) {
             if (!result.last().text.isEmpty() && !text.isEmpty())
                 result.last().text += QStringLiteral("\n\n");
             result.last().text += text;
@@ -2239,6 +2280,9 @@ QString NoteBlockModel::writeMarkdown(const QList<Block> &blocks)
         QString value;
         switch (block.type) {
         case Text:
+            // Deliberately empty editor rows are session-only insertion
+            // points. Markdown collapses them naturally on save/reload; do
+            // not leak a private marker into plain-text mode.
             value = block.text;
             break;
         case Heading:
