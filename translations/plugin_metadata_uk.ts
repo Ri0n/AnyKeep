@@ -1,12 +1,10 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE TS>
-<TS version="2.1" language="uk">
+<?xml version="1.0" ?><!DOCTYPE TS><TS version="2.1" language="uk">
     <context>
         <name>QtNotePluginMetadata</name>
         <message id="plugin.base_de.name">
             <source>Base Integration</source>
             <extracomment>base_de plugin name</extracomment>
-            <translation type="unfinished" />
+            <translation>Базова інтеграція</translation>
         </message>
         <message id="plugin.base_de.description">
             <source>Provides fallback desktop environment integration</source>
@@ -16,82 +14,82 @@
         <message id="plugin.cinnamon_de.name">
             <source>Cinnamon Integration</source>
             <extracomment>cinnamon_de plugin name</extracomment>
-            <translation type="unfinished" />
+            <translation>Інтеграція з Cinnamon</translation>
         </message>
         <message id="plugin.cinnamon_de.description">
             <source>Integration with Cinnamon desktop features</source>
             <extracomment>cinnamon_de plugin description</extracomment>
-            <translation type="unfinished" />
+            <translation>Інтеграція з функціями робочого столу Cinnamon</translation>
         </message>
         <message id="plugin.gemini.name">
             <source>Gemini</source>
             <extracomment>gemini plugin name</extracomment>
-            <translation type="unfinished" />
+            <translation>Gemini</translation>
         </message>
         <message id="plugin.gemini.description">
             <source>Gemini API speech recognition backend</source>
             <extracomment>gemini plugin description</extracomment>
-            <translation type="unfinished" />
+            <translation>Бекенд розпізнавання голосу Gemini API</translation>
         </message>
         <message id="plugin.gnome_de.name">
             <source>GNOME Integration</source>
             <extracomment>gnome_de plugin name</extracomment>
-            <translation type="unfinished" />
+            <translation>Інтеграція з GNOME</translation>
         </message>
         <message id="plugin.gnome_de.description">
             <source>Integration with GNOME-specific features</source>
             <extracomment>gnome_de plugin description</extracomment>
-            <translation>Інтеграція лише з функціями gnome</translation>
+            <translation>Інтеграція зі специфічними для GNOME функціями</translation>
         </message>
         <message id="plugin.kde_de.name">
             <source>KDE Integration</source>
             <extracomment>kde_de plugin name</extracomment>
-            <translation type="unfinished" />
+            <translation>Інтеграція з KDE</translation>
         </message>
         <message id="plugin.kde_de.description">
             <source>Provides native look and feel for KDE users</source>
             <extracomment>kde_de plugin description</extracomment>
-            <translation>Забезпечує нативний вигляд для користувачів KDE</translation>
+            <translation>Забезпечує нативний вигляд та зручність для користувачів KDE</translation>
         </message>
         <message id="plugin.macosx_de.name">
             <source>macOS Integration</source>
             <extracomment>macosx_de plugin name</extracomment>
-            <translation type="unfinished" />
+            <translation>Інтеграція з macOS</translation>
         </message>
         <message id="plugin.macosx_de.description">
             <source>Integration with macOS-specific features</source>
             <extracomment>macosx_de plugin description</extracomment>
-            <translation>Інтеграція лише з функціями macosx</translation>
+            <translation>Інтеграція зі специфічними функціями macOS</translation>
         </message>
         <message id="plugin.nextcloud_storage.name">
             <source>Nextcloud Notes</source>
             <extracomment>nextcloud_storage plugin name</extracomment>
-            <translation type="unfinished" />
+            <translation>Нотатки Nextcloud</translation>
         </message>
         <message id="plugin.nextcloud_storage.description">
             <source>Reads and writes notes using the Nextcloud Notes REST API</source>
             <extracomment>nextcloud_storage plugin description</extracomment>
-            <translation type="unfinished" />
+            <translation>Читає та записує нотатки за допомогою Nextcloud Notes REST API</translation>
         </message>
         <message id="plugin.openaiwhisper.name">
             <source>OpenAI Whisper</source>
             <extracomment>openaiwhisper plugin name</extracomment>
-            <translation type="unfinished" />
+            <translation>OpenAI Whisper</translation>
         </message>
         <message id="plugin.openaiwhisper.description">
             <source>OpenAI Whisper speech recognition backend</source>
             <extracomment>openaiwhisper plugin description</extracomment>
-            <translation type="unfinished" />
+            <translation>Бекенд розпізнавання голосу OpenAI Whisper</translation>
         </message>
         <message id="plugin.spellchecker.name">
             <source>Spell check</source>
             <extracomment>spellchecker plugin name</extracomment>
-            <translation type="unfinished" />
+            <translation>Перевірка орфографії</translation>
         </message>
         <message id="plugin.spellchecker.description">
             <source>Real-time spell checking</source>
             <extracomment>spellchecker plugin description</extracomment>
-            <translation>Перевірка орфографії в режимі реального часу.</translation>
+            <translation>Перевірка орфографії в режимі реального часу</translation>
         </message>
         <message id="plugin.tomboy_storge.name">
             <source>Tomboy Storage</source>
@@ -101,17 +99,17 @@
         <message id="plugin.tomboy_storge.description">
             <source>Reads and writes Tomboy notes</source>
             <extracomment>tomboy_storge plugin description</extracomment>
-            <translation>Дозволяє читати та писати нотатки Tomboy</translation>
+            <translation>Читає та пише нотатки Tomboy</translation>
         </message>
         <message id="plugin.xmpp_pubsub_storage.name">
             <source>XMPP Private Notes</source>
             <extracomment>xmpp_pubsub_storage plugin name</extracomment>
-            <translation type="unfinished" />
+            <translation>Приватні нотатки XMPP</translation>
         </message>
         <message id="plugin.xmpp_pubsub_storage.description">
-            <source>Stores notes as private persistent items in the account's XMPP PEP service</source>
+            <source>Stores notes as private persistent items in the account&apos;s XMPP PEP service</source>
             <extracomment>xmpp_pubsub_storage plugin description</extracomment>
-            <translation type="unfinished" />
+            <translation>Зберігає нотатки як приватні постійні елементи в сервісі XMPP PEP облікового запису</translation>
         </message>
     </context>
 </TS>
