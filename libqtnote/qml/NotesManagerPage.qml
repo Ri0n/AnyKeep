@@ -524,6 +524,7 @@ Item {
                         id: recentNotes
 
                         anchors.fill: parent
+                        anchors.rightMargin: -navigationPane.rightPadding
                         visible: root.viewMode === root.recentMode
                         enabled: visible
                         model: root.workspace.recentNotesModel
@@ -563,6 +564,7 @@ Item {
                         id: groupedNotes
 
                         anchors.fill: parent
+                        anchors.rightMargin: -navigationPane.rightPadding
                         visible: root.viewMode === root.groupedByStorageMode
                         enabled: visible
                         model: root.workspace.groupedNotesModel
@@ -623,12 +625,14 @@ Item {
                         id: foldersPage
 
                         anchors.fill: parent
+                        anchors.rightMargin: -navigationPane.rightPadding
                         visible: root.viewMode === root.foldersMode
                         enabled: visible
                         workspace: root.workspace
                         selectionController: noteSelection
                         touchActions: root.touchActions
                         embeddedEditor: root.embeddedEditor
+                        toolbarRightMargin: navigationPane.rightPadding
                         currentStorageId: root.selectedStorageId
                         currentNoteId: root.selectedNoteId
                         checkpointHandler: function() { return root.checkpointEditor() }

@@ -12,6 +12,7 @@ Item {
     required property var workspace
     property bool touchActions: false
     property bool embeddedEditor: true
+    property real toolbarRightMargin: 0
     property string currentStorageId: ""
     property string currentNoteId: ""
     property var checkpointHandler: null
@@ -319,6 +320,7 @@ Item {
 
         Pane {
             Layout.fillWidth: true
+            Layout.rightMargin: root.toolbarRightMargin
             Layout.preferredHeight: toolbarRow.implicitHeight + topPadding + bottomPadding
             padding: 3
 

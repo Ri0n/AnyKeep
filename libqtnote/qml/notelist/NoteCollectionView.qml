@@ -61,6 +61,7 @@ Item {
     property var diagnosticHandler: null
 
     readonly property real rowHeight: touchActions ? 44 : 34
+    property real rowContentRightPadding: 8
     readonly property int verticalScrollBarInset:
         treeView.contentHeight > treeView.height
         ? Math.ceil(Math.max(verticalScrollBar.width, verticalScrollBar.implicitWidth)) : 0

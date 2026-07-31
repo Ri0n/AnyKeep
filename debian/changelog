@@ -1,14 +1,13 @@
-qtnote (3.2.297) UNRELEASED; urgency=medium
+qtnote (3.2.300) UNRELEASED; urgency=medium
 
   * KDE plasmamoid
   * Gnome shell-extension
   * Most of code is rewritten to QML
   * Added remote storages, caches, drafts
   * Added folders
-  * New release
-  * New release
+  * Added image tuning
 
- -- Sergei Ilinykh <rion4ik@gmail.com>  Fri, 31 Jul 2026 13:31:29 +0300
+ -- Sergei Ilinykh <rion4ik@gmail.com>  Fri, 31 Jul 2026 23:43:37 +0300
 
 qtnote (3.2.99) UNRELEASED; urgency=medium
 

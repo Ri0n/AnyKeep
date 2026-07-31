@@ -83,7 +83,7 @@ SwipeDelegate {
     width: collection.viewWidth
     implicitHeight: baseHeight
     leftPadding: 0
-    rightPadding: 0
+    rightPadding: collection.rowContentRightPadding
     topPadding: 0
     bottomPadding: 0
     opacity: sourceActive ? 0 : 1
