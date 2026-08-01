@@ -14,13 +14,18 @@ Item {
     // can participate in the same draft-aware folder assignment lifecycle.
     property var folderWorkspace: null
     property bool compactToolbar: false
+    property bool toolbarVisible: true
+    property var audioTranscriptionController: null
     property bool showBackButton: false
     property bool showDeleteButton: true
     property bool showMobileActions: false
     property bool showDesktopActions: false
     property bool microphoneVisible: false
     property bool microphoneBusy: false
+    property bool microphoneRecording: false
     property bool microphoneHoldToRecord: false
+    property bool microphoneModeSwitchVisible: false
+    property int microphoneMode: 0
     property bool shortcutVisible: false
     property bool pinActionsVisible: false
     property bool pinVisible: false
@@ -41,6 +46,7 @@ Item {
     signal alwaysOnTopRequested(bool enabled)
     signal microphoneRequested()
     signal microphoneReleased()
+    signal microphoneModeRequested(int mode)
     signal addToHomeScreenRequested()
     signal checkpointFailed(string message)
 
@@ -137,7 +143,9 @@ Item {
         spacing: 0
 
         EditorToolbar {
+            visible: root.toolbarVisible
             Layout.fillWidth: true
+            Layout.preferredHeight: visible ? implicitHeight : 0
             editorBackend: root.editor
             blockEditor: editorView
             platformBackend: root.platformBackend
@@ -149,7 +157,10 @@ Item {
             showDesktopActions: root.showDesktopActions
             microphoneVisible: root.microphoneVisible
             microphoneBusy: root.microphoneBusy
+            microphoneRecording: root.microphoneRecording
             microphoneHoldToRecord: root.microphoneHoldToRecord
+            microphoneModeSwitchVisible: root.microphoneModeSwitchVisible
+            microphoneMode: root.microphoneMode
             shortcutVisible: root.shortcutVisible
             pinActionsVisible: root.pinActionsVisible
             pinVisible: root.pinVisible
@@ -164,6 +175,7 @@ Item {
             onAlwaysOnTopRequested: enabled => root.alwaysOnTopRequested(enabled)
             onMicrophoneRequested: root.microphoneRequested()
             onMicrophoneReleased: root.microphoneReleased()
+            onMicrophoneModeRequested: mode => root.microphoneModeRequested(mode)
             onAddToHomeScreenRequested: root.addToHomeScreenRequested()
         }
 
@@ -180,6 +192,7 @@ Item {
             blockModel: root.editor ? root.editor.blockModel : null
             editorBackend: root.editor
             platformBackend: root.platformBackend
+            audioTranscriptionController: root.audioTranscriptionController
             onCountChanged: {
                 if (root.autosaveEnabled)
                     saveTimer.restart()

@@ -49,6 +49,7 @@
         <file alias="ThemedIcon.qml">qml/ThemedIcon.qml</file>
         <file alias="FolderPickerMenu.qml">qml/FolderPickerMenu.qml</file>
         <file alias="EditorToolbar.qml">qml/EditorToolbar.qml</file>
+        <file alias="EditorActionController.qml">qml/EditorActionController.qml</file>
         <file alias="NoteEditorPane.qml">qml/NoteEditorPane.qml</file>
         <file alias="DialogHost.qml">qml/DialogHost.qml</file>
         <file alias="NoteFindBar.qml">qml/NoteFindBar.qml</file>

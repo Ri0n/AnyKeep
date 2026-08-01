@@ -343,6 +343,9 @@ void NoteDocumentHistory::setCurrentScalar(const ScalarAddress &address, const Q
     case NoteBlockModel::LanguageRole:
         block.language = value;
         break;
+    case NoteBlockModel::AudioTranscriptRole:
+        block.audioTranscript = value;
+        break;
     }
 }
 

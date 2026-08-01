@@ -194,7 +194,7 @@ operations include:
 - removing the sole table block and creating a replacement text block;
 - formatting a selection spanning several editors;
 - cross-block cut, delete, and paste;
-- image insertion plus media-manifest update;
+- image or audio insertion plus media-manifest update;
 - Markdown/plain-text conversion.
 
 Commands are pushed after their mutations have already executed. The command

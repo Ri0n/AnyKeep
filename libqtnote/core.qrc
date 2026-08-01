@@ -18,5 +18,10 @@
         <file alias="format-list-unordered-symbolic.svg">images/format-list-unordered-symbolic.svg</file>
         <file alias="user-trash-full-symbolic.svg">images/user-trash-full-symbolic.svg</file>
         <file alias="folder-symbolic.svg">images/folder-symbolic.svg</file>
+        <file alias="attachment-symbolic.svg">images/attachment-symbolic.svg</file>
+        <file alias="task-list-symbolic.svg">images/task-list-symbolic.svg</file>
+        <file alias="media-record-symbolic.svg">images/media-record-symbolic.svg</file>
+        <file alias="overflow-menu-symbolic.svg">images/overflow-menu-symbolic.svg</file>
+        <file alias="document-share-symbolic.svg">images/document-share-symbolic.svg</file>
     </qresource>
 </RCC>

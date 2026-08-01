@@ -82,6 +82,94 @@ private slots:
         QCOMPARE(opened.value, imageBytes);
     }
 
+    void audioAttachmentSurvivesFreshStorageInstance()
+    {
+        QTemporaryDir notesDirectory;
+        QTemporaryDir mediaDirectory;
+        QVERIFY(notesDirectory.isValid());
+        QVERIFY(mediaDirectory.isValid());
+
+        const auto       masterKey = SecureEnvelope::generateMasterKey();
+        LocalMediaStore  mediaWriter(mediaDirectory.path(), masterKey);
+        const QByteArray audioBytes("encoded-audio-payload");
+        const auto       imported
+            = mediaWriter.importData(audioBytes, QStringLiteral("recording.m4a"), QStringLiteral("audio/mp4"));
+        QVERIFY2(imported, qPrintable(imported.error));
+
+        const QString body = QStringLiteral("<audio controls src=\"%1\" title=\"Voice memo\" "
+                                            "data-qtnote-duration-ms=\"42000\"></audio>\n"
+                                            "<div data-qtnote-audio-transcript=\"1\">Recorded transcript</div>")
+                                 .arg(imported.value.uri());
+        {
+            PTFStorage writer(mediaWriter);
+            QVERIFY(writer.setStoragePath(notesDirectory.path()));
+            Note note = writer.createNote();
+            note.setTitle(QStringLiteral("Audio"));
+            note.setText(body, Note::Markdown);
+            note.setMedia({ imported.value });
+            QVERIFY(writer.saveNote(note));
+        }
+
+        LocalMediaStore mediaReader(mediaDirectory.path(), masterKey);
+        PTFStorage      reader(mediaReader);
+        QVERIFY(reader.setStoragePath(notesDirectory.path()));
+        const auto notes = reader.noteList();
+        QCOMPARE(notes.size(), 1);
+        Note loaded = notes.constFirst();
+        QVERIFY(loaded.load());
+        QCOMPARE(loaded.text(), body);
+        QCOMPARE(loaded.media().size(), 1);
+        QCOMPARE(loaded.media().constFirst().id, imported.value.id);
+        QCOMPARE(loaded.media().constFirst().mediaType, QStringLiteral("audio/mp4"));
+        const auto opened = mediaReader.data(loaded.media().constFirst().blobId);
+        QVERIFY2(opened, qPrintable(opened.error));
+        QCOMPARE(opened.value, audioBytes);
+    }
+
+    void genericAttachmentSurvivesFreshStorageInstance()
+    {
+        QTemporaryDir notesDirectory;
+        QTemporaryDir mediaDirectory;
+        QVERIFY(notesDirectory.isValid());
+        QVERIFY(mediaDirectory.isValid());
+
+        const auto       masterKey = SecureEnvelope::generateMasterKey();
+        LocalMediaStore  mediaWriter(mediaDirectory.path(), masterKey);
+        const QByteArray fileBytes("portable-document-payload");
+        const auto       imported
+            = mediaWriter.importData(fileBytes, QStringLiteral("specification.pdf"), QStringLiteral("application/pdf"));
+        QVERIFY2(imported, qPrintable(imported.error));
+
+        const QString body = QStringLiteral("<a href=\"%1\" data-qtnote-attachment=\"1\" "
+                                            "data-qtnote-media-type=\"application/pdf\" data-qtnote-size=\"%2\">"
+                                            "specification.pdf</a>")
+                                 .arg(imported.value.uri(), QString::number(fileBytes.size()));
+        {
+            PTFStorage writer(mediaWriter);
+            QVERIFY(writer.setStoragePath(notesDirectory.path()));
+            Note note = writer.createNote();
+            note.setTitle(QStringLiteral("Attachment"));
+            note.setText(body, Note::Markdown);
+            note.setMedia({ imported.value });
+            QVERIFY(writer.saveNote(note));
+        }
+
+        LocalMediaStore mediaReader(mediaDirectory.path(), masterKey);
+        PTFStorage      reader(mediaReader);
+        QVERIFY(reader.setStoragePath(notesDirectory.path()));
+        const auto notes = reader.noteList();
+        QCOMPARE(notes.size(), 1);
+        Note loaded = notes.constFirst();
+        QVERIFY(loaded.load());
+        QCOMPARE(loaded.text(), body);
+        QCOMPARE(loaded.media().size(), 1);
+        QCOMPARE(loaded.media().constFirst().id, imported.value.id);
+        QCOMPARE(loaded.media().constFirst().mediaType, QStringLiteral("application/pdf"));
+        const auto opened = mediaReader.data(loaded.media().constFirst().blobId);
+        QVERIFY2(opened, qPrintable(opened.error));
+        QCOMPARE(opened.value, fileBytes);
+    }
+
     void noteSurvivesFreshStorageInstance()
     {
         QTemporaryDir directory;

@@ -16,7 +16,10 @@ ToolBar {
     property bool showDesktopActions: false
     property bool microphoneVisible: false
     property bool microphoneBusy: false
+    property bool microphoneRecording: false
     property bool microphoneHoldToRecord: false
+    property bool microphoneModeSwitchVisible: false
+    property int microphoneMode: 0
     property bool shortcutVisible: false
     property bool pinActionsVisible: false
     property bool pinVisible: false
@@ -32,79 +35,28 @@ ToolBar {
     signal alwaysOnTopRequested(bool enabled)
     signal microphoneRequested()
     signal microphoneReleased()
+    signal microphoneModeRequested(int mode)
     signal addToHomeScreenRequested()
+
+
+    EditorActionController {
+        id: actions
+        editorBackend: root.editorBackend
+        blockEditor: root.blockEditor
+        platformBackend: root.platformBackend
+    }
 
     readonly property int bulletListType: 1
     readonly property int taskListType: 2
     readonly property int numberedListType: 5
 
-    function runMarkdownCommand(kind, command) {
-        if (!root.editorBackend || !root.blockEditor)
-            return false
-        root.blockEditor.flushPendingEditorChanges()
-        const beforeView = root.blockEditor.captureEditorState()
-        root.editorBackend.beginHistoryTransaction(kind, beforeView)
-        try {
-            if (!root.editorBackend.markdown)
-                root.editorBackend.markdown = true
-            return command()
-        } finally {
-            root.editorBackend.endHistoryTransaction(root.blockEditor.captureEditorState())
-        }
-    }
-
-    function insertList(type) {
-        const wasMarkdown = root.editorBackend && root.editorBackend.markdown
-        const row = root.blockEditor ? root.blockEditor.insertionBlockIndex() : 0
-        return runMarkdownCommand("insert-or-convert-list", function() {
-            if (wasMarkdown)
-                return root.blockEditor.insertListBlock(type)
-            root.blockEditor.blockModel.insertList(row, type)
-            root.blockEditor.focusBlock(row)
-            return true
-        })
-    }
-
-    function insertCodeBlock() {
-        return runMarkdownCommand("insert-code-block", function() {
-            return root.blockEditor.insertCodeBlock("")
-        })
-    }
-
-    function insertTable() {
-        const row = root.blockEditor ? root.blockEditor.insertionBlockIndex() : 0
-        return runMarkdownCommand("insert-table", function() {
-            root.blockEditor.blockModel.insertTable(row)
-            root.blockEditor.focusBlock(row)
-            return true
-        })
-    }
-
-    function insertBlockQuote() {
-        return runMarkdownCommand("insert-or-convert-blockquote", function() {
-            return root.blockEditor.insertBlockQuoteBlock()
-        })
-    }
-
-    function insertImage() {
-        if (!root.platformBackend || !root.editorBackend || !root.blockEditor)
-            return false
-        root.blockEditor.flushPendingEditorChanges()
-        if (!root.editorBackend.markdown)
-            root.editorBackend.markdown = true
-        Qt.callLater(function() {
-            root.platformBackend.insertImage(root.blockEditor.insertionBlockIndex())
-        })
-        return true
-    }
-
-    function copyDocument() {
-        if (!root.editorBackend || !root.blockEditor)
-            return false
-        root.blockEditor.flushPendingEditorChanges()
-        root.editorBackend.copyDocumentToClipboard()
-        return true
-    }
+    function runMarkdownCommand(kind, command) { return actions.runMarkdownCommand(kind, command) }
+    function insertList(type) { return actions.insertList(type) }
+    function insertCodeBlock() { return actions.insertCodeBlock() }
+    function insertTable() { return actions.insertTable() }
+    function insertBlockQuote() { return actions.insertBlockQuote() }
+    function insertImage() { return actions.insertImage() }
+    function copyDocument() { return actions.copyDocument() }
 
     function assignCurrentNoteFolder(folderId) {
         if (!root.folderWorkspace || !root.editorBackend || !root.blockEditor)
@@ -116,17 +68,8 @@ ToolBar {
         return root.folderWorkspace.assignCurrentNoteFolder(folderId)
     }
 
-    function setMarkdownMode(markdown) {
-        if (!root.editorBackend || !root.blockEditor || root.editorBackend.markdown === markdown)
-            return
-        root.blockEditor.flushPendingEditorChanges()
-        root.editorBackend.markdown = markdown
-    }
-
-    function toggleMarkdownMode() {
-        if (root.editorBackend)
-            root.setMarkdownMode(!root.editorBackend.markdown)
-    }
+    function setMarkdownMode(markdown) { actions.setMarkdownMode(markdown) }
+    function toggleMarkdownMode() { actions.toggleMarkdownMode() }
 
     function activeHeadingLevel() {
         if (!root.blockEditor || !root.blockEditor.activeEditor)
@@ -152,12 +95,13 @@ ToolBar {
     readonly property bool folderPickerAvailable: root.folderWorkspace !== null
                                                && root.folderWorkspace !== undefined
                                                && root.folderWorkspace.folderCatalogAvailable
+    readonly property int microphoneSelectorWidth: microphoneVisible && microphoneModeSwitchVisible ? 14 : 0
     readonly property int mandatoryButtonCount: 3
                                                 + (showBackButton ? 1 : 0)
                                                 + (microphoneVisible ? 1 : 0)
                                                 + (folderPickerAvailable ? 1 : 0)
                                                 + (showDeleteButton ? 1 : 0)
-    readonly property real optionalWidth: width - 16
+    readonly property real optionalWidth: width - 16 - microphoneSelectorWidth
                                           - mandatoryButtonCount * controlSize
                                           - Math.max(0, mandatoryButtonCount - 1) * 2
     readonly property int optionalSlotCount: Math.max(0, Math.floor(optionalWidth / (controlSize + 2)))
@@ -182,50 +126,113 @@ ToolBar {
             onClicked: root.backRequested()
         }
 
-        ToolButton {
-            id: microphoneButton
+        Item {
+            id: microphoneControl
             visible: root.microphoneVisible
-            Layout.preferredWidth: root.controlSize
+            Layout.preferredWidth: root.controlSize + root.microphoneSelectorWidth
             Layout.preferredHeight: root.controlSize
-            padding: 0
-            enabled: !root.microphoneBusy
-            display: AbstractButton.IconOnly
-            contentItem: Item {
-                implicitWidth: root.iconSize
-                implicitHeight: root.iconSize
 
-                ThemedIcon {
-                    anchors.centerIn: parent
-                    visible: !root.microphoneBusy
-                    themeName: "audio-input-microphone-symbolic"
-                    fallbackName: "microphone.svg"
-                    recolorFallback: true
-                    fallbackTintMode: root.fallbackIconTintMode
-                    pixelSize: root.iconSize
-                }
+            ToolButton {
+                id: microphoneButton
+                anchors.left: parent.left
+                anchors.top: parent.top
+                width: root.controlSize
+                height: root.controlSize
+                padding: 0
+                enabled: !root.microphoneBusy
+                display: AbstractButton.IconOnly
+                contentItem: Item {
+                    implicitWidth: root.iconSize
+                    implicitHeight: root.iconSize
 
-                BusyIndicator {
-                    anchors.centerIn: parent
-                    width: root.iconSize
-                    height: root.iconSize
-                    visible: root.microphoneBusy
-                    running: visible
+                    ThemedIcon {
+                        anchors.centerIn: parent
+                        visible: !root.microphoneBusy
+                        themeName: "audio-input-microphone-symbolic"
+                        fallbackName: "microphone.svg"
+                        recolorFallback: true
+                        fallbackTintMode: root.fallbackIconTintMode
+                        pixelSize: root.iconSize
+                    }
+
+                    Rectangle {
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        width: root.microphoneRecording ? 7 : 6
+                        height: width
+                        radius: root.microphoneRecording ? width / 2 : 1
+                        visible: !root.microphoneBusy && (root.microphoneMode === 1 || root.microphoneRecording)
+                        color: root.palette.highlight
+                        border.width: 1
+                        border.color: root.palette.base
+                    }
+
+                    BusyIndicator {
+                        anchors.centerIn: parent
+                        width: root.iconSize
+                        height: root.iconSize
+                        visible: root.microphoneBusy
+                        running: visible
+                    }
+                }
+                Accessible.name: root.microphoneMode === 1
+                                 ? (root.microphoneRecording ? qsTr("Stop audio recording")
+                                                              : (root.microphoneHoldToRecord
+                                                                 ? qsTr("Hold to record audio")
+                                                                 : qsTr("Record audio")))
+                                 : (root.microphoneHoldToRecord ? qsTr("Hold to dictate text")
+                                                                : qsTr("Voice input"))
+                ToolTip.visible: hovered
+                ToolTip.text: Accessible.name
+                onPressed: {
+                    if (root.microphoneHoldToRecord)
+                        root.microphoneRequested()
+                }
+                onReleased: {
+                    if (root.microphoneHoldToRecord)
+                        root.microphoneReleased()
+                }
+                onClicked: {
+                    if (!root.microphoneHoldToRecord)
+                        root.microphoneRequested()
                 }
             }
-            Accessible.name: root.microphoneHoldToRecord ? qsTr("Hold to dictate text") : qsTr("Voice input")
-            ToolTip.visible: hovered
-            ToolTip.text: Accessible.name
-            onPressed: {
-                if (root.microphoneHoldToRecord)
-                    root.microphoneRequested()
-            }
-            onReleased: {
-                if (root.microphoneHoldToRecord)
-                    root.microphoneReleased()
-            }
-            onClicked: {
-                if (!root.microphoneHoldToRecord)
-                    root.microphoneRequested()
+
+            ToolButton {
+                id: microphoneSelector
+                visible: root.microphoneModeSwitchVisible
+                anchors.left: microphoneButton.right
+                anchors.top: parent.top
+                width: root.microphoneSelectorWidth
+                height: root.controlSize
+                padding: 0
+                text: "▾"
+                font.pixelSize: 10
+                enabled: !root.microphoneBusy && !root.microphoneRecording
+                Accessible.name: qsTr("Microphone mode")
+                ToolTip.visible: hovered
+                ToolTip.text: Accessible.name
+                onClicked: microphoneMenu.open()
+
+                Menu {
+                    id: microphoneMenu
+                    y: microphoneSelector.height
+
+                    MenuItem {
+                        text: qsTr("Speech to text")
+                        checkable: true
+                        autoExclusive: true
+                        checked: root.microphoneMode === 0
+                        onTriggered: root.microphoneModeRequested(0)
+                    }
+                    MenuItem {
+                        text: qsTr("Audio recording")
+                        checkable: true
+                        autoExclusive: true
+                        checked: root.microphoneMode === 1
+                        onTriggered: root.microphoneModeRequested(1)
+                    }
+                }
             }
         }
 

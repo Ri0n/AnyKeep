@@ -20,6 +20,7 @@ struct SpeechRecognitionCapabilities {
     int         maxOneShotDurationMs   = 0;
     int         maxStreamingDurationMs = 0;
     QStringList languages;
+    QStringList encodedAudioMediaTypes;
     QString     preferredLanguage;
 };
 
@@ -37,6 +38,8 @@ struct SpeechRecognitionUsageStats {
 struct SpeechRecognitionAudio {
     QByteArray data;
     QString    format;
+    QString    mediaType;
+    QString    fileName;
     int        sampleRate    = 0;
     int        channels      = 0;
     int        bitsPerSample = 0;
@@ -80,6 +83,6 @@ public:
 } // namespace QtNote
 
 Q_DECLARE_INTERFACE(QtNote::SpeechRecognitionProviderInterface,
-                    "com.rion-soft.QtNote.SpeechRecognitionProviderInterface/1.0")
+                    "com.rion-soft.QtNote.SpeechRecognitionProviderInterface/2.0")
 
 #endif // SPEECHRECOGNITIONPROVIDER_H

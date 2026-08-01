@@ -7,7 +7,7 @@ other applications.
 ## Goals
 
 * Preserve the Markdown structure supported by the editor: text, headings,
-  lists, task lists, tables, images and links.
+  lists, task lists, tables, images, audio recordings and links.
 * Make an internal QtNote-to-QtNote transfer lossless, including media
   references and nested list structure.
 * Interoperate usefully with browsers, office applications and plain-text
@@ -98,9 +98,9 @@ references them.
 
 Media import has two policies:
 
-* small images may include bytes in the internal payload;
-* large images carry a reference first and copy bytes only if the destination
-  cannot resolve the source blob.
+* small single-image selections may include bytes in the internal payload;
+* large images and audio recordings carry references first and copy bytes only
+  when the destination cannot resolve the source blob.
 
 The exact threshold is a controller setting, not a QML constant.
 
@@ -125,7 +125,7 @@ cross-block range extraction, MIME export/import, media cloning and `Select all
 `QTextDocumentFragment`, so copying a few words does not unexpectedly create a
 list or table. A selection spanning editors is resolved by `NoteBlockModel`:
 list item kinds/indentation, a rectangular table range, headings and complete
-image blocks retain their structure. Copy puts private CBOR, Markdown, HTML and
+image/audio blocks retain their structure. Copy puts private CBOR, Markdown, HTML and
 plain text on the system clipboard. Referenced media travels with the private
 payload; a sole image up to 8 MiB also carries its bytes, allowing PNG export
 outside QtNote.

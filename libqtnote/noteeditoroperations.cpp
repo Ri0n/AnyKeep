@@ -7,6 +7,7 @@
 #include <QPalette>
 #include <QQuickTextDocument>
 #include <QRegularExpression>
+#include <QSet>
 #include <QStringList>
 #include <QTextBlock>
 #include <QTextCharFormat>
@@ -242,6 +243,8 @@ namespace {
             case NoteBlockModel::Image:
             case NoteBlockModel::CodeBlock:
             case NoteBlockModel::TagLine:
+            case NoteBlockModel::Audio:
+            case NoteBlockModel::Attachment:
                 break;
             }
         }
@@ -918,15 +921,21 @@ NoteFragment NoteEditor::documentFragment() const
 
 NoteFragment NoteEditor::withMedia(NoteFragment fragment) const
 {
+    QSet<QString> includedUris;
     for (const NoteFragmentBlock &block : std::as_const(fragment.blocks)) {
-        if (block.type != NoteFragmentBlockType::Image)
+        const QString sourceUri = block.type == NoteFragmentBlockType::Image ? block.image.sourceUri
+            : block.type == NoteFragmentBlockType::Audio                     ? block.audio.sourceUri
+            : block.type == NoteFragmentBlockType::Attachment                ? block.attachment.sourceUri
+                                                                             : QString();
+        if (sourceUri.isEmpty() || includedUris.contains(sourceUri))
             continue;
         for (const MediaReference &reference : media()) {
-            if (reference.isValid() && reference.uri() == block.image.sourceUri) {
+            if (reference.isValid() && reference.uri() == sourceUri) {
                 NoteFragmentMedia media;
-                media.sourceUri = block.image.sourceUri;
+                media.sourceUri = sourceUri;
                 media.reference = reference;
                 fragment.media.append(media);
+                includedUris.insert(sourceUri);
                 break;
             }
         }

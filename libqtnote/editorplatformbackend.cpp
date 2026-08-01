@@ -235,13 +235,18 @@ void EditorPlatformBackend::setEditor(NoteEditor *editor)
     // to register again until the format is toggled. Stale documents remove
     // their QSyntaxHighlighter automatically when they are destroyed.
     if (editor_) {
-        connect(editor_, &NoteEditor::formatChanged, this, &EditorPlatformBackend::canInsertImagesChanged);
+        connect(editor_, &NoteEditor::formatChanged, this, [this] {
+            emit canInsertImagesChanged();
+            emit canInsertAttachmentsChanged();
+        });
         connect(editor_, &QObject::destroyed, this, [this] {
             editor_.clear();
             emit canInsertImagesChanged();
+            emit canInsertAttachmentsChanged();
         });
     }
     emit canInsertImagesChanged();
+    emit canInsertAttachmentsChanged();
     // NotesManager switches its reusable QML documents after this C++ signal
     // handler returns. Rehighlight on the next event-loop turn, once the new
     // text and title-document bindings have settled.
@@ -249,6 +254,8 @@ void EditorPlatformBackend::setEditor(NoteEditor *editor)
 }
 
 bool EditorPlatformBackend::canInsertImages() const { return editor_ && editor_->canInsertImages(); }
+
+bool EditorPlatformBackend::canInsertAttachments() const { return editor_ && editor_->canInsertAttachments(); }
 
 void EditorPlatformBackend::registerTextDocument(QQuickTextDocument *document, bool titleDocument)
 {
@@ -522,6 +529,30 @@ bool EditorPlatformBackend::insertImage(int row)
     return true;
 }
 
+bool EditorPlatformBackend::insertAttachmentData(const QByteArray &data, const QString &name, const QString &mediaType,
+                                                 int row)
+{
+    if (!canInsertAttachments() || data.isEmpty())
+        return false;
+    const auto imported = LocalMediaStore::instance()->importData(data, name, mediaType);
+    if (!imported) {
+        emit operationFailed(imported.error);
+        return false;
+    }
+    if (!editor_->insertAttachment(imported.value, row))
+        return false;
+    emit mediaInserted({ imported.value });
+    return true;
+}
+
+bool EditorPlatformBackend::insertAttachment(int row)
+{
+    if (!canInsertAttachments())
+        return false;
+    emit attachmentInsertionRequested(row);
+    return true;
+}
+
 void EditorPlatformBackend::saveImageAs(const QString &) { }
 bool EditorPlatformBackend::startImageDrag(int) { return false; }
 
@@ -608,6 +639,8 @@ bool EditorPlatformBackend::insertImageFragment(const NoteFragment &sourceFragme
 
     const int insertionRow = row < 0 ? editor_->model()->rowCount() : qBound(0, row, editor_->model()->rowCount());
     editor_->beginHistoryTransaction(QStringLiteral("drop-image"));
+    if (!editor_->isMarkdown())
+        editor_->setMarkdown(true);
     QString    error;
     const bool inserted = editor_->model()->insertBlockFragment(insertionRow, fragment, &error);
     if (inserted && !insertedMedia.isEmpty()) {
@@ -688,6 +721,8 @@ bool EditorPlatformBackend::insertImportedImages(const QList<MediaReference> &re
     if (!editor_ || references.isEmpty() || !canInsertImages())
         return false;
     editor_->beginHistoryTransaction(historyKind);
+    if (!editor_->isMarkdown())
+        editor_->setMarkdown(true);
     auto media = editor_->media();
     media.append(references);
     editor_->setMedia(media);

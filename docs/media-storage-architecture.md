@@ -1,8 +1,9 @@
 # Media storage architecture
 
 Status: partially implemented. The shared encrypted local blob store, draft/cache
-manifests, `qtnote-media:` references, image insertion, and PTF sidecars are in
-place. Remote media transport and Tomboy/Gnote adapters remain future work.
+manifests, `qtnote-media:` references, image/audio insertion and playback, and
+PTF sidecars are in place. Remote media transport and Tomboy/Gnote adapters
+remain future work.
 
 QtNote notes are Markdown documents. Attachments and inline media are addressed
 from Markdown by a stable attachment UUID and a readable portable filename:
@@ -10,11 +11,14 @@ from Markdown by a stable attachment UUID and a readable portable filename:
 ```markdown
 [Project budget.xlsx](qtnote-media:/7f28c5de-5f48-4d44-918f-b24d5b672f30/project-budget.xlsx)
 ![Wiring diagram](qtnote-media:/d839a73b-9818-41aa-a939-59d50fce94fb/IMG_142315.png)
+<audio controls src="qtnote-media:/9b82323d-6aa4-43d1-b547-acde11bd37fe/Audio_20260801_211300.m4a" title="Audio recording" data-qtnote-duration-ms="42000"></audio>
 ```
 
 The UUID is authoritative. The final URI component is only a readable fallback
-for raw Markdown, recovery, and export. The link text or image alt text is the
-user-editable description. The attachment manifest retains the original filename.
+for raw Markdown, recovery, and export. Link text, image alt text, and the audio
+`title` attribute are user-visible descriptions. The attachment manifest retains
+the original filename. Audio duration is structural editor metadata; the player
+also accepts the duration reported by the decoder at runtime.
 
 ## Design goals
 
@@ -264,6 +268,24 @@ note/
 
 The adapter converts `qtnote-media:` URIs to relative paths on export and performs
 the inverse import into `LocalMediaStore` on load.
+
+## Audio recording and playback
+
+QtNote requests AAC-LC in an M4A/MP4 container, mono, 48 kHz, 64 kbit/s average
+bit rate. The recorder is exposed only when the active Qt Multimedia backend can
+resolve that codec/container pair; it does not silently fall back to a
+platform-specific container.
+
+Native encoders require a seekable output file. Recording therefore uses a
+short-lived owner-only temporary directory, imports the finished encoded bytes
+into `LocalMediaStore`, and removes the temporary plaintext file immediately
+after import. Normal playback decrypts the immutable blob into a seekable
+`QBuffer` and supplies it to `QMediaPlayer`; no persistent plaintext playback
+copy is created.
+
+Audio is a first-class structural block. Its `qtnote-media:` URI participates in
+manifest pruning, undo/redo, internal copy/paste, cross-note attachment cloning,
+and PTF sidecar import/export exactly like an image URI.
 
 ## Remote backend boundary
 

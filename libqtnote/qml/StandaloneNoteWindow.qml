@@ -31,11 +31,15 @@ Item {
         anchors.fill: parent
         editor: noteEditor
         platformBackend: desktopEditorPlatform
+        audioTranscriptionController: desktopSpeech
         showDeleteButton: true
         showDesktopActions: true
         microphoneVisible: desktopSpeech.available
         microphoneBusy: desktopSpeech.busy
+        microphoneRecording: desktopSpeech.recording
         microphoneHoldToRecord: true
+        microphoneModeSwitchVisible: desktopSpeech.modeSwitchVisible
+        microphoneMode: desktopSpeech.mode
         pinActionsVisible: true
         pinVisible: standaloneHost.pinAvailable
         alwaysOnTop: standaloneHost.alwaysOnTop
@@ -44,8 +48,9 @@ Item {
         onExportRequested: desktopNoteActions.exportNote()
         onPinRequested: standaloneHost.pinNote()
         onAlwaysOnTopRequested: enabled => standaloneHost.setAlwaysOnTop(enabled)
-        onMicrophoneRequested: desktopSpeech.start()
+        onMicrophoneRequested: desktopSpeech.start(editorPane.blockEditor.insertionBlockIndex())
         onMicrophoneReleased: desktopSpeech.finish()
+        onMicrophoneModeRequested: mode => desktopSpeech.setMode(mode)
         onCheckpointFailed: message => standaloneHost.reportError(message)
     }
 

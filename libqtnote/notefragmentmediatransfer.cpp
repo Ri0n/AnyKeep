@@ -4,6 +4,8 @@
 
 #include <QHash>
 
+#include <utility>
+
 namespace QtNote {
 
 NoteFragmentMediaTransfer::Result NoteFragmentMediaTransfer::cloneForDestination(const NoteFragment    &fragment,
@@ -26,13 +28,24 @@ NoteFragmentMediaTransfer::Result NoteFragmentMediaTransfer::cloneForDestination
         sourceMedia.insert(media.sourceUri, media);
     }
 
+    const auto blockSourceUri = [](const NoteFragmentBlock &block) {
+        if (block.type == NoteFragmentBlockType::Image)
+            return block.image.sourceUri;
+        if (block.type == NoteFragmentBlockType::Audio)
+            return block.audio.sourceUri;
+        if (block.type == NoteFragmentBlockType::Attachment)
+            return block.attachment.sourceUri;
+        return QString();
+    };
+
     QHash<QString, QString> rewrittenUris;
     for (const NoteFragmentBlock &block : fragment.blocks) {
-        if (block.type != NoteFragmentBlockType::Image || rewrittenUris.contains(block.image.sourceUri))
+        const QString sourceUri = blockSourceUri(block);
+        if (sourceUri.isEmpty() || rewrittenUris.contains(sourceUri))
             continue;
-        const auto source = sourceMedia.constFind(block.image.sourceUri);
+        const auto source = sourceMedia.constFind(sourceUri);
         if (source == sourceMedia.cend()) {
-            result.error = QStringLiteral("image fragment has no matching media reference");
+            result.error = QStringLiteral("media attachment has no matching transfer reference");
             return result;
         }
 
@@ -58,13 +71,17 @@ NoteFragmentMediaTransfer::Result NoteFragmentMediaTransfer::cloneForDestination
         }
         MediaReference reference = imported.value;
         reference.remoteData.clear();
-        rewrittenUris.insert(source->sourceUri, reference.uri());
+        rewrittenUris.insert(sourceUri, reference.uri());
         result.importedMedia.append(reference);
     }
 
     for (NoteFragmentBlock &block : result.fragment.blocks) {
         if (block.type == NoteFragmentBlockType::Image)
             block.image.sourceUri = rewrittenUris.value(block.image.sourceUri, block.image.sourceUri);
+        else if (block.type == NoteFragmentBlockType::Audio)
+            block.audio.sourceUri = rewrittenUris.value(block.audio.sourceUri, block.audio.sourceUri);
+        else if (block.type == NoteFragmentBlockType::Attachment)
+            block.attachment.sourceUri = rewrittenUris.value(block.attachment.sourceUri, block.attachment.sourceUri);
     }
     result.fragment.media.clear();
     for (const MediaReference &reference : std::as_const(result.importedMedia)) {

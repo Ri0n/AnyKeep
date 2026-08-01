@@ -6,6 +6,7 @@
 #include "notetransfercontroller.h"
 
 #include <QCursor>
+#include <QDesktopServices>
 #include <QDir>
 #include <QDrag>
 #include <QFileDialog>
@@ -19,6 +20,8 @@
 #include <QUrl>
 #include <QWidget>
 #include <QWindow>
+
+#include <algorithm>
 
 namespace QtNote {
 namespace {
@@ -157,6 +160,100 @@ bool DesktopEditorPlatformBackend::insertImage(int row)
         return false;
     QString error;
     return insertImageFiles({ fileName }, row, &error);
+}
+
+bool DesktopEditorPlatformBackend::insertAttachment(int row)
+{
+    if (!canInsertAttachments() || !editor())
+        return false;
+    const QString fileName = QFileDialog::getOpenFileName(dialogParent_, tr("Attach file"));
+    if (fileName.isEmpty())
+        return false;
+    const auto imported = LocalMediaStore::instance()->importFile(fileName);
+    if (!imported) {
+        emit operationFailed(imported.error);
+        return false;
+    }
+    if (!editor()->insertAttachment(imported.value, row))
+        return false;
+    emit mediaInserted({ imported.value });
+    return true;
+}
+
+void DesktopEditorPlatformBackend::openAttachment(const QString &url)
+{
+    if (!editor())
+        return;
+    const auto media     = editor()->media();
+    const auto reference = std::find_if(media.cbegin(), media.cend(), [&url](const MediaReference &item) {
+        return item.isValid() && item.uri() == url;
+    });
+    if (reference == media.cend()) {
+        emit operationFailed(tr("The attached file is not available locally."));
+        return;
+    }
+    const auto loaded = LocalMediaStore::instance()->data(reference->blobId);
+    if (!loaded) {
+        emit operationFailed(tr("Could not read the attached file: %1").arg(loaded.error));
+        return;
+    }
+    if (!attachmentOpenDirectory_)
+        attachmentOpenDirectory_
+            = std::make_unique<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/qtnote-attachment-open-XXXXXX"));
+    if (!attachmentOpenDirectory_->isValid()) {
+        emit operationFailed(tr("Could not create a temporary directory for the attached file."));
+        return;
+    }
+    QString name
+        = QFileInfo(reference->originalName.isEmpty() ? reference->portableName : reference->originalName).fileName();
+    if (name.isEmpty())
+        name = QStringLiteral("attachment");
+    const QString directory
+        = QDir(attachmentOpenDirectory_->path()).filePath(reference->id.toString(QUuid::WithoutBraces));
+    if (!QDir().mkpath(directory)) {
+        emit operationFailed(tr("Could not prepare the attached file for opening."));
+        return;
+    }
+    const QString path = QDir(directory).filePath(name);
+    QSaveFile     file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(loaded.value) != loaded.value.size() || !file.commit()) {
+        emit operationFailed(tr("Could not prepare the attached file: %1").arg(file.errorString()));
+        return;
+    }
+    QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
+        emit operationFailed(tr("No application could open the attached file."));
+}
+
+void DesktopEditorPlatformBackend::saveAttachmentAs(const QString &url)
+{
+    if (!editor())
+        return;
+    const auto media     = editor()->media();
+    const auto reference = std::find_if(media.cbegin(), media.cend(), [&url](const MediaReference &item) {
+        return item.isValid() && item.uri() == url;
+    });
+    if (reference == media.cend()) {
+        emit operationFailed(tr("The attached file is not available locally."));
+        return;
+    }
+    const auto loaded = LocalMediaStore::instance()->data(reference->blobId);
+    if (!loaded) {
+        emit operationFailed(tr("Could not read the attached file: %1").arg(loaded.error));
+        return;
+    }
+    QString name
+        = QFileInfo(reference->originalName.isEmpty() ? reference->portableName : reference->originalName).fileName();
+    if (name.isEmpty())
+        name = QStringLiteral("attachment");
+    const QString initialPath
+        = QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)).filePath(name);
+    const QString fileName = QFileDialog::getSaveFileName(dialogParent_, tr("Save Attached File As"), initialPath);
+    if (fileName.isEmpty())
+        return;
+    QSaveFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly) || file.write(loaded.value) != loaded.value.size() || !file.commit())
+        emit operationFailed(tr("Could not save the attached file: %1").arg(file.errorString()));
 }
 
 QString DesktopEditorPlatformBackend::materializeDragImage(const MediaReference &reference, const QByteArray &data)

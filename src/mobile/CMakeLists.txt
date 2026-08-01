@@ -2,10 +2,9 @@ cmake_minimum_required(VERSION 3.25.0)
 
 project(qtnote_mobile VERSION ${QTNOTE_VERSION} LANGUAGES CXX)
 
+find_package(Qt6 6.11 REQUIRED COMPONENTS Network Multimedia)
 if(ANDROID)
-    find_package(Qt6 6.11 REQUIRED COMPONENTS Network CorePrivate)
-else()
-    find_package(Qt6 6.4 REQUIRED COMPONENTS Network)
+    find_package(Qt6 6.11 REQUIRED COMPONENTS CorePrivate)
 endif()
 
 if(COMMAND qt_policy)
@@ -18,14 +17,16 @@ if(TARGET qtnote_bundled_xmpppubsub)
     set(qtnote_mobile_xmpp_available ON)
 endif()
 
-if(NOT TARGET qtnote_bundled_nextcloud)
-    message(FATAL_ERROR "The bundled Nextcloud plugin target was not created")
+if(NOT TARGET qtnote_bundled_nextcloud OR NOT TARGET qtnote_bundled_gemini
+   OR NOT TARGET qtnote_bundled_openaiwhisper)
+    message(FATAL_ERROR "Required bundled mobile plugin targets were not created")
 endif()
 
 set(qtnote_mobile_shared_qml
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/EditorContextMenu.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/EditorReorderController.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/EditorToolbar.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/EditorActionController.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/DialogHost.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/ListBlockBehavior.js"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/ListBlockEditor.qml"
@@ -69,6 +70,8 @@ qt_add_qml_module(qtnote_mobile
         AppSettingsPage.qml
         DraftsPage.qml
         Main.qml
+        MobileNoteActionBar.qml
+        MobileNoteTopBar.qml
         NoteEditorPage.qml
         NotesPage.qml
         PluginSettingsPage.qml
@@ -98,6 +101,8 @@ target_compile_definitions(qtnote_mobile PRIVATE QTNOTE_BUNDLED_PLUGIN_BUILD)
 target_include_directories(qtnote_mobile PRIVATE
     "${CMAKE_SOURCE_DIR}/plugins"
     "${CMAKE_SOURCE_DIR}/plugins/nextcloud"
+    "${CMAKE_SOURCE_DIR}/plugins/gemini"
+    "${CMAKE_SOURCE_DIR}/plugins/openaiwhisper"
     "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub"
     "${CMAKE_BINARY_DIR}"
 )
@@ -105,12 +110,15 @@ target_include_directories(qtnote_mobile PRIVATE
 target_link_libraries(qtnote_mobile PRIVATE
     qtnote_core
     qtnote_bundled_nextcloud
+    qtnote_bundled_gemini
+    qtnote_bundled_openaiwhisper
     Qt6::Core
     Qt6::Gui
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Network
+    Qt6::Multimedia
 )
 
 if(qtnote_mobile_xmpp_available)

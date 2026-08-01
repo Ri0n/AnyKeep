@@ -269,6 +269,81 @@ private slots:
         QCOMPARE(spaced.contents(), spacedHtml);
     }
 
+    void serializesParsesAndTransfersAudioBlocks()
+    {
+        const QString uri = QStringLiteral("qtnote-media:/11111111-1111-1111-1111-111111111111/recording.m4a");
+        const QString html
+            = QStringLiteral(
+                  "<audio controls src=\"%1\" title=\"Meeting &amp; notes\" "
+                  "data-qtnote-duration-ms=\"91234\"></audio>\n"
+                  "<div data-qtnote-audio-transcript=\"1\">First line&lt;br&gt;<br />Second &amp; final</div>")
+                  .arg(uri);
+        NoteBlockModel model;
+        model.load(html, true);
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Audio));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::UrlRole).toString(), uri);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::AltRole).toString(), QStringLiteral("Meeting & notes"));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::AudioDurationRole).toLongLong(), qint64(91234));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::AudioTranscriptRole).toString(),
+                 QStringLiteral("First line<br>\nSecond & final"));
+        QCOMPARE(model.contents(), html);
+
+        const NoteFragment fragment = model.extractBlockFragment(0, 0);
+        QCOMPARE(fragment.blocks.size(), 1);
+        QCOMPARE(fragment.blocks.constFirst().type, NoteFragmentBlockType::Audio);
+        QCOMPARE(fragment.blocks.constFirst().audio.sourceUri, uri);
+        QCOMPARE(fragment.blocks.constFirst().audio.title, QStringLiteral("Meeting & notes"));
+        QCOMPARE(fragment.blocks.constFirst().audio.durationMs, qint64(91234));
+        QCOMPARE(fragment.blocks.constFirst().audio.transcript, QStringLiteral("First line<br>\nSecond & final"));
+
+        NoteBlockModel transferred;
+        transferred.load(QStringLiteral("before"), true);
+        QString error;
+        QVERIFY2(transferred.insertBlockFragment(1, fragment, &error), qPrintable(error));
+        QCOMPARE(transferred.contents(), QStringLiteral("before\n\n") + html);
+
+        NoteBlockModel inserted;
+        inserted.load(QStringLiteral("title"), true);
+        inserted.insertAudio(1, uri, QStringLiteral("Voice memo"), 2500);
+        QCOMPARE(inserted.data(inserted.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Audio));
+        QVERIFY(inserted.contents().contains(QStringLiteral("title=\"Voice memo\"")));
+        QVERIFY(inserted.contents().contains(QStringLiteral("data-qtnote-duration-ms=\"2500\"")));
+    }
+
+    void serializesParsesAndTransfersAttachments()
+    {
+        const QString uri  = QStringLiteral("qtnote-media:/22222222-2222-2222-2222-222222222222/spec.pdf");
+        const QString html = QStringLiteral("<a href=\"%1\" data-qtnote-attachment=\"1\" "
+                                            "data-qtnote-media-type=\"application/pdf\" data-qtnote-size=\"123456\">"
+                                            "Spec &amp; notes.pdf</a>")
+                                 .arg(uri);
+        NoteBlockModel model;
+        model.load(html, true);
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Attachment));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::UrlRole).toString(), uri);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::AltRole).toString(), QStringLiteral("Spec & notes.pdf"));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::AttachmentMediaTypeRole).toString(),
+                 QStringLiteral("application/pdf"));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::AttachmentSizeRole).toLongLong(), qint64(123456));
+        QCOMPARE(model.contents(), html);
+
+        const NoteFragment fragment = model.extractBlockFragment(0, 0);
+        QCOMPARE(fragment.blocks.size(), 1);
+        QCOMPARE(fragment.blocks.constFirst().type, NoteFragmentBlockType::Attachment);
+        QCOMPARE(fragment.blocks.constFirst().attachment.sourceUri, uri);
+        QCOMPARE(fragment.blocks.constFirst().attachment.fileName, QStringLiteral("Spec & notes.pdf"));
+        QCOMPARE(fragment.blocks.constFirst().attachment.mediaType, QStringLiteral("application/pdf"));
+        QCOMPARE(fragment.blocks.constFirst().attachment.size, qint64(123456));
+
+        NoteBlockModel transferred;
+        transferred.load(QStringLiteral("before"), true);
+        QString error;
+        QVERIFY2(transferred.insertBlockFragment(1, fragment, &error), qPrintable(error));
+        QCOMPARE(transferred.contents(), QStringLiteral("before\n\n") + html);
+    }
+
     void parsesSerializesAndTransfersBlockQuotes()
     {
         const QString  markdown = QStringLiteral("title\n\n"

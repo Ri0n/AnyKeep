@@ -173,10 +173,12 @@ private slots:
             return;
         }
 
-        auto wav = wavFromPcm(audio);
-        if (wav.size() > 20 * 1024 * 1024) {
+        const bool       encodedInput = !audio.mediaType.isEmpty();
+        const QByteArray audioPayload = encodedInput ? audio.data : wavFromPcm(audio);
+        const QString    contentType  = encodedInput ? audio.mediaType : QStringLiteral("audio/wav");
+        if (audioPayload.size() > 20 * 1024 * 1024) {
             qWarning() << "Gemini speech job failed before request: inline audio is too large"
-                       << "wavBytes" << wav.size();
+                       << "audioBytes" << audioPayload.size();
             emit failed(tr("Audio is too large for inline Gemini request"));
             return;
         }
@@ -194,24 +196,24 @@ private slots:
 
         QJsonObject audioPart;
         audioPart.insert(QLatin1String("type"), QLatin1String("audio"));
-        auto audioBase64 = QString::fromLatin1(wav.toBase64());
+        auto audioBase64 = QString::fromLatin1(audioPayload.toBase64());
         audioPart.insert(QLatin1String("data"), audioBase64);
-        audioPart.insert(QLatin1String("mime_type"), QLatin1String("audio/wav"));
+        audioPart.insert(QLatin1String("mime_type"), contentType);
         input.append(audioPart);
 
         QJsonObject root;
         root.insert(QLatin1String("model"), settings.model.isEmpty() ? DefaultModel : settings.model);
         root.insert(QLatin1String("input"), input);
 
-        auto payload = QJsonDocument(root).toJson(QJsonDocument::Compact);
+        const QByteArray requestBody = QJsonDocument(root).toJson(QJsonDocument::Compact);
 
         const QUrl      url(QLatin1String("https://generativelanguage.googleapis.com/v1beta/interactions"));
         QNetworkRequest req(url);
         req.setHeader(QNetworkRequest::ContentTypeHeader, QLatin1String("application/json"));
         req.setRawHeader("x-goog-api-key", settings.apiKey.toUtf8());
 
-        reply = plugin->network->post(req, payload);
-        connect(reply, &QNetworkReply::finished, this, [this, payload]() {
+        reply = plugin->network->post(req, requestBody);
+        connect(reply, &QNetworkReply::finished, this, [this, requestBytes = requestBody.size()]() {
             if (!reply) {
                 return;
             }
@@ -240,7 +242,7 @@ private slots:
                 return;
             }
 
-            plugin->addUsage(audio.durationMs, payload.size());
+            plugin->addUsage(audio.durationMs, requestBytes);
             emit finished(text);
         });
     }
@@ -317,9 +319,10 @@ bool GeminiPlugin::isSpeechRecognitionReady() const
 SpeechRecognitionCapabilities GeminiPlugin::speechRecognitionCapabilities() const
 {
     SpeechRecognitionCapabilities caps;
-    caps.supportsOneShot      = true;
-    caps.supportsPunctuation  = true;
-    caps.maxOneShotDurationMs = 120000;
+    caps.supportsOneShot        = true;
+    caps.supportsPunctuation    = true;
+    caps.maxOneShotDurationMs   = 120000;
+    caps.encodedAudioMediaTypes = { QStringLiteral("audio/mp4") };
     return caps;
 }
 

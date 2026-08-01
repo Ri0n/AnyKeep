@@ -11,9 +11,10 @@
 
 namespace QtNote {
 namespace {
-    const QString TableLineBreakMarker       = QStringLiteral("QTNOTE_TABLE_LINE_BREAK_7F3A");
-    const QString LegacyEmptyParagraphMarker = QStringLiteral("<!-- qtnote:empty-paragraph -->");
-    constexpr int MaxSerializedImageWidth    = 16384;
+    const QString    TableLineBreakMarker       = QStringLiteral("QTNOTE_TABLE_LINE_BREAK_7F3A");
+    const QString    LegacyEmptyParagraphMarker = QStringLiteral("<!-- qtnote:empty-paragraph -->");
+    constexpr int    MaxSerializedImageWidth    = 16384;
+    constexpr qint64 MaxAudioDurationMs         = 7LL * 24 * 60 * 60 * 1000;
 
     struct HtmlImageBlock {
         QString source;
@@ -22,6 +23,23 @@ namespace {
         int     width { 0 };
 
         explicit operator bool() const { return !source.isEmpty(); }
+    };
+
+    struct HtmlAudioBlock {
+        QString source;
+        QString title;
+        qint64  durationMs { 0 };
+
+        explicit operator bool() const { return !source.isEmpty(); }
+    };
+
+    struct HtmlAttachmentBlock {
+        QString source;
+        QString fileName;
+        QString mediaType;
+        qint64  size { 0 };
+
+        explicit operator bool() const { return !source.isEmpty() && !fileName.isEmpty(); }
     };
 
     QString normalizedImageAlignment(QString alignment)
@@ -93,6 +111,87 @@ namespace {
             image += QStringLiteral(" width=\"%1\"").arg(qBound(1, width, MaxSerializedImageWidth));
         image += QStringLiteral(" />");
         return QStringLiteral("<p align=\"%1\">%2</p>").arg(normalizedImageAlignment(alignment), image);
+    }
+
+    HtmlAudioBlock parseHtmlAudioBlock(const QString &line)
+    {
+        static const QRegularExpression outer(QStringLiteral(R"(^\s*<audio\b([^>]*?)(?:>\s*</audio>|/>)\s*$)"),
+                                              QRegularExpression::CaseInsensitiveOption);
+        const auto                      match = outer.match(line);
+        if (!match.hasMatch())
+            return {};
+        const auto     attributes = htmlAttributes(match.captured(1));
+        HtmlAudioBlock result;
+        result.source           = attributes.value(QStringLiteral("src")).trimmed();
+        result.title            = attributes.value(QStringLiteral("title"));
+        bool         durationOk = false;
+        const qint64 duration   = attributes.value(QStringLiteral("data-qtnote-duration-ms")).toLongLong(&durationOk);
+        if (durationOk)
+            result.durationMs = qBound<qint64>(0, duration, MaxAudioDurationMs);
+        return result;
+    }
+
+    QString parseHtmlAudioTranscript(const QString &line)
+    {
+        static const QRegularExpression outer(QStringLiteral(R"(^\s*<div\b([^>]*)>(.*)</div>\s*$)"),
+                                              QRegularExpression::CaseInsensitiveOption
+                                                  | QRegularExpression::DotMatchesEverythingOption);
+        const auto                      match = outer.match(line);
+        if (!match.hasMatch())
+            return {};
+        const auto attributes = htmlAttributes(match.captured(1));
+        if (!attributes.contains(QStringLiteral("data-qtnote-audio-transcript")))
+            return {};
+        QString                         text = match.captured(2);
+        static const QRegularExpression breaks(QStringLiteral("<br\\s*/?>"), QRegularExpression::CaseInsensitiveOption);
+        text.replace(breaks, QStringLiteral("\n"));
+        return decodeHtmlAttribute(text);
+    }
+
+    QString serializeHtmlAudio(const QString &source, const QString &title, qint64 durationMs,
+                               const QString &transcript)
+    {
+        QString result
+            = QStringLiteral("<audio controls src=\"%1\" title=\"%2\" data-qtnote-duration-ms=\"%3\"></audio>")
+                  .arg(source.toHtmlEscaped(), title.toHtmlEscaped(),
+                       QString::number(qBound<qint64>(0, durationMs, MaxAudioDurationMs)));
+        if (!transcript.isEmpty()) {
+            QString escaped = transcript.toHtmlEscaped();
+            escaped.replace(QLatin1Char('\n'), QStringLiteral("<br />"));
+            result += QStringLiteral("\n<div data-qtnote-audio-transcript=\"1\">%1</div>").arg(escaped);
+        }
+        return result;
+    }
+
+    HtmlAttachmentBlock parseHtmlAttachmentBlock(const QString &line)
+    {
+        static const QRegularExpression outer(QStringLiteral(R"(^\s*<a\b([^>]*)>(.*?)</a>\s*$)"),
+                                              QRegularExpression::CaseInsensitiveOption
+                                                  | QRegularExpression::DotMatchesEverythingOption);
+        const auto                      match = outer.match(line);
+        if (!match.hasMatch())
+            return {};
+        const auto attributes = htmlAttributes(match.captured(1));
+        if (!attributes.contains(QStringLiteral("data-qtnote-attachment")))
+            return {};
+        HtmlAttachmentBlock result;
+        result.source       = attributes.value(QStringLiteral("href")).trimmed();
+        result.fileName     = decodeHtmlAttribute(match.captured(2)).trimmed();
+        result.mediaType    = attributes.value(QStringLiteral("data-qtnote-media-type")).trimmed();
+        bool         sizeOk = false;
+        const qint64 size   = attributes.value(QStringLiteral("data-qtnote-size")).toLongLong(&sizeOk);
+        if (sizeOk)
+            result.size = qMax<qint64>(0, size);
+        return result;
+    }
+
+    QString serializeHtmlAttachment(const QString &source, const QString &fileName, const QString &mediaType,
+                                    qint64 size)
+    {
+        return QStringLiteral("<a href=\"%1\" data-qtnote-attachment=\"1\" data-qtnote-media-type=\"%2\" "
+                              "data-qtnote-size=\"%3\">%4</a>")
+            .arg(source.toHtmlEscaped(), mediaType.toHtmlEscaped(), QString::number(qMax<qint64>(0, size)),
+                 fileName.toHtmlEscaped());
     }
 
     QString decodeTableCellLineBreaks(QString text)
@@ -249,6 +348,14 @@ QVariant NoteBlockModel::data(const QModelIndex &index, int role) const
         return block.imageAlignment;
     case TagsRole:
         return block.tags;
+    case AudioDurationRole:
+        return block.audioDurationMs;
+    case AudioTranscriptRole:
+        return block.audioTranscript;
+    case AttachmentMediaTypeRole:
+        return block.attachmentMediaType;
+    case AttachmentSizeRole:
+        return block.attachmentSize;
     default:
         return {};
     }
@@ -331,6 +438,14 @@ bool NoteBlockModel::setData(const QModelIndex &index, const QVariant &value, in
         scalar               = true;
         break;
     }
+    case AudioTranscriptRole:
+        if (block.type != Audio || block.audioTranscript == value.toString())
+            return false;
+        before                = block.audioTranscript;
+        block.audioTranscript = value.toString();
+        after                 = block.audioTranscript;
+        scalar                = true;
+        break;
     default:
         return false;
     }
@@ -375,7 +490,11 @@ QHash<int, QByteArray> NoteBlockModel::roleNames() const
              { LanguageRole, "codeLanguage" },
              { ImageWidthRole, "imageWidth" },
              { ImageAlignmentRole, "imageAlignment" },
-             { TagsRole, "tags" } };
+             { TagsRole, "tags" },
+             { AudioDurationRole, "audioDuration" },
+             { AudioTranscriptRole, "audioTranscript" },
+             { AttachmentMediaTypeRole, "attachmentMediaType" },
+             { AttachmentSizeRole, "attachmentSize" } };
 }
 
 QString NoteBlockModel::contents() const
@@ -437,8 +556,10 @@ QVariantMap NoteBlockModel::findText(const QString &text, const QVariantMap &aft
                 fields.append({ blockIndex, -1, cell, QStringLiteral("tableCell"), block.cells.at(cell) });
             break;
         case Image:
-            // Image alt text is not edited by a text delegate yet, so selecting
-            // a search match there would have no visible target.
+        case Audio:
+        case Attachment:
+            // Structural media labels are not QTextDocument editors, so a
+            // text-search result cannot expose a visible selection there yet.
             break;
         case TagLine:
             // Tag chips are edited by a dedicated structural delegate. Search
@@ -1281,6 +1402,54 @@ void NoteBlockModel::insertImage(int row, const QString &url, const QString &alt
     emit contentsChanged();
 }
 
+void NoteBlockModel::appendAudio(const QString &url, const QString &title, qint64 durationMs)
+{
+    insertAudio(blocks_.size(), url, title, durationMs);
+}
+
+void NoteBlockModel::insertAudio(int row, const QString &url, const QString &title, qint64 durationMs)
+{
+    row = qBound(0, row, blocks_.size());
+    beginInsertRows({}, row, row);
+    Block block;
+    block.type            = Audio;
+    block.url             = url;
+    block.alt             = title;
+    block.audioDurationMs = qBound<qint64>(0, durationMs, MaxAudioDurationMs);
+    blocks_.insert(row, block);
+    endInsertRows();
+    notifyNormalizedTagLines();
+    emit contentsChanged();
+}
+
+bool NoteBlockModel::setAudioTranscript(int row, const QString &transcript)
+{
+    return setData(index(row), transcript, AudioTranscriptRole);
+}
+
+void NoteBlockModel::appendAttachment(const QString &url, const QString &fileName, const QString &mediaType,
+                                      qint64 size)
+{
+    insertAttachment(blocks_.size(), url, fileName, mediaType, size);
+}
+
+void NoteBlockModel::insertAttachment(int row, const QString &url, const QString &fileName, const QString &mediaType,
+                                      qint64 size)
+{
+    row = qBound(0, row, blocks_.size());
+    beginInsertRows({}, row, row);
+    Block block;
+    block.type                = Attachment;
+    block.url                 = url;
+    block.alt                 = fileName;
+    block.attachmentMediaType = mediaType;
+    block.attachmentSize      = qMax<qint64>(0, size);
+    blocks_.insert(row, block);
+    endInsertRows();
+    notifyNormalizedTagLines();
+    emit contentsChanged();
+}
+
 int NoteBlockModel::blockTypeAt(int row) const
 {
     return row >= 0 && row < blocks_.size() ? int(blocks_.at(row).type) : -1;
@@ -1833,6 +2002,20 @@ NoteFragment NoteBlockModel::extractBlockFragment(int firstRow, int lastRow) con
             destination.image.width     = source.imageWidth;
             destination.image.alignment = source.imageAlignment;
             break;
+        case Audio:
+            destination.type             = NoteFragmentBlockType::Audio;
+            destination.audio.sourceUri  = source.url;
+            destination.audio.title      = source.alt;
+            destination.audio.durationMs = source.audioDurationMs;
+            destination.audio.transcript = source.audioTranscript;
+            break;
+        case Attachment:
+            destination.type                 = NoteFragmentBlockType::Attachment;
+            destination.attachment.sourceUri = source.url;
+            destination.attachment.fileName  = source.alt;
+            destination.attachment.mediaType = source.attachmentMediaType;
+            destination.attachment.size      = source.attachmentSize;
+            break;
         }
         fragment.blocks.append(destination);
     }
@@ -1858,7 +2041,7 @@ NoteFragment NoteBlockModel::extractSelectionFragment(const QList<NoteBlockSelec
         }
 
         // Text editors are the visible selection endpoints, but structural
-        // blocks such as images and tag lines have no TextArea of their own.
+        // media blocks and tag lines have no TextArea of their own.
         // Every block strictly between two ranged rows is nevertheless fully
         // crossed by the document selection and must be present on the
         // clipboard, just as it is removed by removeSelectionRanges().
@@ -1930,12 +2113,13 @@ NoteFragment NoteBlockModel::extractSelectionFragment(const QList<NoteBlockSelec
                 }
                 fragment.blocks.append(block);
             }
-        } else if (source.type == Image || source.type == TagLine) {
+        } else if (source.type == Image || source.type == Audio || source.type == Attachment
+                   || source.type == TagLine) {
             const bool wholeBlock = std::all_of(ranges.cbegin() + first, ranges.cbegin() + last,
                                                 [](const auto &range) { return range.wholeEditor; });
             if (wholeBlock) {
                 fragment.blocks.append(block);
-            } else if (source.type == Image) {
+            } else if (source.type == Image || source.type == Audio || source.type == Attachment) {
                 NoteFragmentBlock text;
                 text.type = NoteFragmentBlockType::Text;
                 QStringList parts;
@@ -2149,6 +2333,32 @@ bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Bloc
             destination.alt            = source.image.alt;
             destination.imageWidth     = qBound(0, source.image.width, MaxSerializedImageWidth);
             destination.imageAlignment = normalizedImageAlignment(source.image.alignment);
+            break;
+        case NoteFragmentBlockType::Audio:
+            if (source.audio.sourceUri.isEmpty() || source.audio.durationMs < 0
+                || source.audio.durationMs > MaxAudioDurationMs) {
+                if (error)
+                    *error = QStringLiteral("audio fragment is invalid");
+                return false;
+            }
+            destination.type            = Audio;
+            destination.url             = source.audio.sourceUri;
+            destination.alt             = source.audio.title;
+            destination.audioDurationMs = source.audio.durationMs;
+            destination.audioTranscript = source.audio.transcript;
+            break;
+        case NoteFragmentBlockType::Attachment:
+            if (source.attachment.sourceUri.isEmpty() || source.attachment.fileName.isEmpty()
+                || source.attachment.size < 0) {
+                if (error)
+                    *error = QStringLiteral("attachment fragment is invalid");
+                return false;
+            }
+            destination.type                = Attachment;
+            destination.url                 = source.attachment.sourceUri;
+            destination.alt                 = source.attachment.fileName;
+            destination.attachmentMediaType = source.attachment.mediaType;
+            destination.attachmentSize      = source.attachment.size;
             break;
         }
         blocks->append(destination);
@@ -2537,8 +2747,10 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
     static const QRegularExpression inlineCode(QStringLiteral(R"((?<!`)`+[^\n]*?`+)"));
     const bool                      preserveInlineSourceLines = inlineLink.match(protectedSource).hasMatch()
         || inlineUnderline.match(protectedSource).hasMatch() || inlineCode.match(protectedSource).hasMatch();
-    const bool hasHtmlImage = std::any_of(sourceLines.cbegin(), sourceLines.cend(),
-                                          [](const QString &line) { return bool(parseHtmlImageBlock(line)); });
+    const bool hasHtmlMedia = std::any_of(sourceLines.cbegin(), sourceLines.cend(), [](const QString &line) {
+        return bool(parseHtmlImageBlock(line)) || bool(parseHtmlAudioBlock(line))
+            || bool(parseHtmlAttachmentBlock(line));
+    });
     // QTextDocument remains the Markdown reader for inline semantics, but its
     // writer wraps long paragraphs (very often around a link). Such a soft
     // wrap becomes a real newline in plain-text mode and can split a list.
@@ -2547,7 +2759,7 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
     // following a task list or reinterprets an optional outer pipe as a
     // phantom empty column.
     const bool tableShapeChanged   = tableColumnCounts(sourceLines) != tableColumnCounts(canonicalLines);
-    const bool preserveSourceLines = preserveInlineSourceLines || hasHtmlImage || hasListContinuation(sourceLines)
+    const bool preserveSourceLines = preserveInlineSourceLines || hasHtmlMedia || hasListContinuation(sourceLines)
         || (hasTable(sourceLines) && (!hasTable(canonicalLines) || tableShapeChanged));
     const QStringList              &lines = preserveSourceLines ? sourceLines : canonicalLines;
     QList<Block>                    result;
@@ -2715,6 +2927,36 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
             result.append(block);
             continue;
         }
+        const HtmlAudioBlock htmlAudio = parseHtmlAudioBlock(lines[i]);
+        if (htmlAudio) {
+            Block block;
+            block.type            = Audio;
+            block.url             = htmlAudio.source;
+            block.alt             = htmlAudio.title;
+            block.audioDurationMs = htmlAudio.durationMs;
+            ++i;
+            if (i < lines.size()) {
+                const QString transcript = parseHtmlAudioTranscript(lines.at(i));
+                if (!transcript.isNull()) {
+                    block.audioTranscript = transcript;
+                    ++i;
+                }
+            }
+            result.append(block);
+            continue;
+        }
+        const HtmlAttachmentBlock htmlAttachment = parseHtmlAttachmentBlock(lines[i]);
+        if (htmlAttachment) {
+            Block block;
+            block.type                = Attachment;
+            block.url                 = htmlAttachment.source;
+            block.alt                 = htmlAttachment.fileName;
+            block.attachmentMediaType = htmlAttachment.mediaType;
+            block.attachmentSize      = htmlAttachment.size;
+            result.append(block);
+            ++i;
+            continue;
+        }
         const HtmlImageBlock htmlImage = parseHtmlImageBlock(lines[i]);
         if (htmlImage) {
             Block block;
@@ -2741,7 +2983,8 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
         while (i < lines.size() && !lines[i].trimmed().isEmpty() && !task.match(lines[i]).hasMatch()
                && !bullet.match(lines[i]).hasMatch() && !numbered.match(lines[i]).hasMatch()
                && !image.match(lines[i]).hasMatch() && !heading.match(lines[i]).hasMatch()
-               && !quote.match(lines[i]).hasMatch() && !parseHtmlImageBlock(lines[i])
+               && !quote.match(lines[i]).hasMatch() && !parseHtmlAudioBlock(lines[i])
+               && !parseHtmlAttachmentBlock(lines[i]) && !parseHtmlImageBlock(lines[i])
                && !(i + 1 < lines.size() && lines[i].contains('|') && isTableSeparator(lines[i + 1])))
             paragraph.append(lines[i++]);
         const QString text = paragraph.join('\n');
@@ -2861,6 +3104,12 @@ QString NoteBlockModel::writeMarkdown(const QList<Block> &blocks)
             } else {
                 value = QStringLiteral("![%1](%2)").arg(block.alt, block.url);
             }
+            break;
+        case Audio:
+            value = serializeHtmlAudio(block.url, block.alt, block.audioDurationMs, block.audioTranscript);
+            break;
+        case Attachment:
+            value = serializeHtmlAttachment(block.url, block.alt, block.attachmentMediaType, block.attachmentSize);
             break;
         }
         output.append(value);

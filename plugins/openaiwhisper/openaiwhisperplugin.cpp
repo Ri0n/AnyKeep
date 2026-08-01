@@ -2,6 +2,7 @@
 
 #include <QBuffer>
 #include <QDebug>
+#include <QFileInfo>
 #include <QHttpMultiPart>
 #include <QIcon>
 #include <QJsonDocument>
@@ -137,12 +138,21 @@ private slots:
             return;
         }
 
-        auto wav = wavFromPcm(audio);
-        qDebug() << "OpenAI Whisper speech job prepared WAV:"
-                 << "wavBytes" << wav.size() << "pcmBytes" << audio.data.size();
-        if (wav.size() > 25 * 1024 * 1024) {
+        const bool       encodedInput = !audio.mediaType.isEmpty();
+        const QByteArray payload      = encodedInput ? audio.data : wavFromPcm(audio);
+        const QString    contentType  = encodedInput ? audio.mediaType : QStringLiteral("audio/wav");
+        QString          fileName = QFileInfo(encodedInput ? audio.fileName : QStringLiteral("speech.wav")).fileName();
+        fileName.replace(QLatin1Char('"'), QLatin1Char('_'));
+        fileName.replace(QLatin1Char('\r'), QLatin1Char('_'));
+        fileName.replace(QLatin1Char('\n'), QLatin1Char('_'));
+        if (fileName.isEmpty())
+            fileName = QStringLiteral("speech.m4a");
+        qDebug() << "OpenAI Whisper speech job prepared audio:"
+                 << "payloadBytes" << payload.size() << "sourceBytes" << audio.data.size() << "contentType"
+                 << contentType;
+        if (payload.size() > 25 * 1024 * 1024) {
             qDebug() << "OpenAI Whisper speech job failed before request: audio is too large"
-                     << "wavBytes" << wav.size();
+                     << "payloadBytes" << payload.size();
             emit failed(tr("Audio is too large for OpenAI transcription request"));
             return;
         }
@@ -156,15 +166,15 @@ private slots:
             appendTextPart(multipart, "language", language);
         }
 
-        auto wavBuffer = new QBuffer(multipart);
-        wavBuffer->setData(wav);
-        wavBuffer->open(QIODevice::ReadOnly);
+        auto audioBuffer = new QBuffer(multipart);
+        audioBuffer->setData(payload);
+        audioBuffer->open(QIODevice::ReadOnly);
 
         QHttpPart filePart;
-        filePart.setHeader(QNetworkRequest::ContentTypeHeader, QLatin1String("audio/wav"));
+        filePart.setHeader(QNetworkRequest::ContentTypeHeader, contentType);
         filePart.setHeader(QNetworkRequest::ContentDispositionHeader,
-                           QLatin1String("form-data; name=\"file\"; filename=\"speech.wav\""));
-        filePart.setBodyDevice(wavBuffer);
+                           QStringLiteral("form-data; name=\"file\"; filename=\"%1\"").arg(fileName));
+        filePart.setBodyDevice(audioBuffer);
         multipart->append(filePart);
 
         const QUrl      url(QLatin1String("https://api.openai.com/v1/audio/transcriptions"));
@@ -172,11 +182,11 @@ private slots:
         req.setRawHeader("Authorization", QByteArray("Bearer ") + settings.apiKey.toUtf8());
 
         qDebug() << "OpenAI Whisper speech request posting:"
-                 << "url" << url << "wavBytes" << wav.size() << "promptChars"
+                 << "url" << url << "audioBytes" << payload.size() << "promptChars"
                  << (settings.prompt.isEmpty() ? defaultPrompt() : settings.prompt).size();
         reply = plugin->network->post(req, multipart);
         multipart->setParent(reply);
-        connect(reply, &QNetworkReply::finished, this, [this, wavSize = wav.size()]() {
+        connect(reply, &QNetworkReply::finished, this, [this, payloadSize = payload.size()]() {
             if (!reply) {
                 qDebug() << "OpenAI Whisper speech reply finished after reply was already cleared";
                 return;
@@ -211,9 +221,10 @@ private slots:
                 return;
             }
 
-            plugin->addUsage(audio.durationMs, wavSize);
+            plugin->addUsage(audio.durationMs, payloadSize);
             qDebug() << "OpenAI Whisper speech recognition finished:"
-                     << "textChars" << text.size() << "audioDurationMs" << audio.durationMs << "wavBytes" << wavSize;
+                     << "textChars" << text.size() << "audioDurationMs" << audio.durationMs << "audioBytes"
+                     << payloadSize;
             emit finished(text);
         });
     }
@@ -298,9 +309,10 @@ bool OpenAIWhisperPlugin::isSpeechRecognitionReady() const
 SpeechRecognitionCapabilities OpenAIWhisperPlugin::speechRecognitionCapabilities() const
 {
     SpeechRecognitionCapabilities caps;
-    caps.supportsOneShot      = true;
-    caps.supportsPunctuation  = true;
-    caps.maxOneShotDurationMs = 120000;
+    caps.supportsOneShot        = true;
+    caps.supportsPunctuation    = true;
+    caps.maxOneShotDurationMs   = 120000;
+    caps.encodedAudioMediaTypes = { QStringLiteral("audio/mp4") };
     return caps;
 }
 

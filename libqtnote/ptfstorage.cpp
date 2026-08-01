@@ -133,8 +133,8 @@ namespace {
         return value;
     }
 
-    QString importSidecarImages(QString body, const QString &noteId, const QDir &notesDir, LocalMediaStore &mediaStore,
-                                QList<MediaReference> &media)
+    QString importSidecarMedia(QString body, const QString &noteId, const QDir &notesDir, LocalMediaStore &mediaStore,
+                               QList<MediaReference> &media)
     {
         const QDir sidecar(notesDir.filePath(noteId));
         if (!sidecar.exists())
@@ -155,15 +155,18 @@ namespace {
             sources.append({ match.capturedStart(2), match.capturedLength(2), match.captured(2) });
         }
 
-        // Resized or non-centred images are serialized as a self-contained
-        // HTML paragraph. PTF still materializes the same sidecar files, so
-        // restore the src attribute through the local media store as well.
-        static const QRegularExpression htmlImage(QStringLiteral(R"(<img\b[^>]*?\s+src\s*=\s*(["'])(.*?)\1[^>]*>)"),
-                                                  QRegularExpression::CaseInsensitiveOption);
-        auto                            htmlMatches = htmlImage.globalMatch(body);
+        // Resized/non-centred images, audio, and generic attachments use HTML
+        // blocks. Restore src/href targets through the encrypted media store.
+        static const QRegularExpression htmlMedia(
+            QStringLiteral(
+                R"(<(?:img|audio)\b[^>]*?\s+src\s*=\s*(["'])(.*?)\1[^>]*>|<a\b[^>]*?\s+href\s*=\s*(["'])(.*?)\3[^>]*\bdata-qtnote-attachment\b[^>]*>)"),
+            QRegularExpression::CaseInsensitiveOption);
+        auto htmlMatches = htmlMedia.globalMatch(body);
         while (htmlMatches.hasNext()) {
-            const auto match = htmlMatches.next();
-            sources.append({ match.capturedStart(2), match.capturedLength(2), decodeHtmlAttribute(match.captured(2)) });
+            const auto match         = htmlMatches.next();
+            const int  targetCapture = match.captured(2).isNull() ? 4 : 2;
+            sources.append({ match.capturedStart(targetCapture), match.capturedLength(targetCapture),
+                             decodeHtmlAttribute(match.captured(targetCapture)) });
         }
 
         std::sort(sources.begin(), sources.end(),
@@ -385,7 +388,7 @@ bool PTFStorage::loadNote(Note &note)
                           << "suffix=" << QFileInfo(fileName).suffix() << "bytes=" << file.size();
     QList<MediaReference> media;
     if (QFileInfo(fileName).suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0)
-        contents = importSidecarImages(contents, QFileInfo(fileName).completeBaseName(), notesDir, mediaStore_, media);
+        contents = importSidecarMedia(contents, QFileInfo(fileName).completeBaseName(), notesDir, mediaStore_, media);
     auto [title, body] = Utils::splitTitle(contents);
     note.setTitle(title);
     note.setText(body,

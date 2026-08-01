@@ -30,6 +30,7 @@ class QTNOTE_EXPORT EditorPlatformBackend : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool spellCheckEnabled READ spellCheckEnabled WRITE setSpellCheckEnabled NOTIFY spellCheckEnabledChanged)
     Q_PROPERTY(bool canInsertImages READ canInsertImages NOTIFY canInsertImagesChanged)
+    Q_PROPERTY(bool canInsertAttachments READ canInsertAttachments NOTIFY canInsertAttachmentsChanged)
     Q_PROPERTY(QVariantList codeLanguages READ codeLanguages CONSTANT)
 
 public:
@@ -42,6 +43,7 @@ public:
 
     bool spellCheckEnabled() const { return spellCheckEnabled_; }
     bool canInsertImages() const;
+    bool canInsertAttachments() const;
 
     Q_INVOKABLE void         registerTextDocument(QQuickTextDocument *document, bool titleDocument);
     Q_INVOKABLE void         registerCodeDocument(QQuickTextDocument *document, const QString &language);
@@ -56,6 +58,9 @@ public:
     Q_INVOKABLE bool         insertImageData(const QByteArray &data, const QString &name, const QString &mediaType,
                                              int row = -1);
     Q_INVOKABLE virtual bool insertImage(int row = -1);
+    Q_INVOKABLE bool         insertAttachmentData(const QByteArray &data, const QString &name, const QString &mediaType,
+                                                  int row = -1);
+    Q_INVOKABLE virtual bool insertAttachment(int row = -1);
     Q_INVOKABLE virtual void saveImageAs(const QString &url);
     Q_INVOKABLE virtual bool startImageDrag(int row);
 
@@ -75,9 +80,11 @@ signals:
     void spellCheckEnabledChanged();
     void customSpellingDictionaryChanged();
     void canInsertImagesChanged();
+    void canInsertAttachmentsChanged();
     void highlightingChanged();
     void mediaInserted(const QList<MediaReference> &references);
     void imageInsertionRequested(int row);
+    void attachmentInsertionRequested(int row);
     void operationFailed(const QString &message);
 
 protected:

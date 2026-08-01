@@ -11,6 +11,8 @@ private slots:
     void roundTripsStructuredFragment();
     void roundTripsCodeBlock();
     void roundTripsTagLine();
+    void roundTripsAudioBlock();
+    void roundTripsAttachmentBlock();
     void readsVersionOneFragments();
     void readsVersionTwoImagesWithDefaultPresentation();
     void readsVersionThreeImagesWithPresentation();
@@ -122,6 +124,50 @@ void NoteFragmentTest::roundTripsTagLine()
     QCOMPARE(decoded.fragment.blocks.constFirst().tags, tags.tags);
 }
 
+void NoteFragmentTest::roundTripsAudioBlock()
+{
+    NoteFragment      fragment;
+    NoteFragmentBlock audio;
+    audio.type             = NoteFragmentBlockType::Audio;
+    audio.audio.sourceUri  = QStringLiteral("qtnote-media:/11111111-1111-1111-1111-111111111111/recording.m4a");
+    audio.audio.title      = QStringLiteral("Meeting note");
+    audio.audio.durationMs = 91234;
+    audio.audio.transcript = QStringLiteral("First line\nSecond line");
+    fragment.blocks.append(audio);
+
+    const auto decoded = decodeNoteFragment(encodeNoteFragment(fragment));
+    QVERIFY2(decoded, qPrintable(decoded.error));
+    QCOMPARE(decoded.fragment.version, NoteFragment::CurrentVersion);
+    QCOMPARE(decoded.fragment.blocks.size(), 1);
+    QCOMPARE(decoded.fragment.blocks.constFirst().type, NoteFragmentBlockType::Audio);
+    QCOMPARE(decoded.fragment.blocks.constFirst().audio.sourceUri, audio.audio.sourceUri);
+    QCOMPARE(decoded.fragment.blocks.constFirst().audio.title, audio.audio.title);
+    QCOMPARE(decoded.fragment.blocks.constFirst().audio.durationMs, audio.audio.durationMs);
+    QCOMPARE(decoded.fragment.blocks.constFirst().audio.transcript, audio.audio.transcript);
+}
+
+void NoteFragmentTest::roundTripsAttachmentBlock()
+{
+    NoteFragment      fragment;
+    NoteFragmentBlock attachment;
+    attachment.type                 = NoteFragmentBlockType::Attachment;
+    attachment.attachment.sourceUri = QStringLiteral("qtnote-media:/22222222-2222-2222-2222-222222222222/spec.pdf");
+    attachment.attachment.fileName  = QStringLiteral("Specification.pdf");
+    attachment.attachment.mediaType = QStringLiteral("application/pdf");
+    attachment.attachment.size      = 123456;
+    fragment.blocks.append(attachment);
+
+    const auto decoded = decodeNoteFragment(encodeNoteFragment(fragment));
+    QVERIFY2(decoded, qPrintable(decoded.error));
+    QCOMPARE(decoded.fragment.version, NoteFragment::CurrentVersion);
+    QCOMPARE(decoded.fragment.blocks.size(), 1);
+    QCOMPARE(decoded.fragment.blocks.constFirst().type, NoteFragmentBlockType::Attachment);
+    QCOMPARE(decoded.fragment.blocks.constFirst().attachment.sourceUri, attachment.attachment.sourceUri);
+    QCOMPARE(decoded.fragment.blocks.constFirst().attachment.fileName, attachment.attachment.fileName);
+    QCOMPARE(decoded.fragment.blocks.constFirst().attachment.mediaType, attachment.attachment.mediaType);
+    QCOMPARE(decoded.fragment.blocks.constFirst().attachment.size, attachment.attachment.size);
+}
+
 void NoteFragmentTest::readsVersionOneFragments()
 {
     NoteFragment fragment;
@@ -221,6 +267,22 @@ void NoteFragmentTest::rejectsInvalidInput()
     image.image.alignment = QStringLiteral("diagonal");
     invalidImage.blocks.append(image);
     QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidImage)));
+
+    NoteFragment      invalidAudio;
+    NoteFragmentBlock audio;
+    audio.type             = NoteFragmentBlockType::Audio;
+    audio.audio.sourceUri  = QStringLiteral("media://audio");
+    audio.audio.durationMs = -1;
+    invalidAudio.blocks.append(audio);
+    QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidAudio)));
+
+    NoteFragment      invalidAttachment;
+    NoteFragmentBlock attachment;
+    attachment.type                 = NoteFragmentBlockType::Attachment;
+    attachment.attachment.sourceUri = QStringLiteral("media://attachment");
+    attachment.attachment.size      = -1;
+    invalidAttachment.blocks.append(attachment);
+    QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidAttachment)));
 }
 
 QTEST_GUILESS_MAIN(NoteFragmentTest)

@@ -4,7 +4,9 @@ if(QTNOTE_BUILD_MOBILE)
     # Mobile has an explicit allow-list. These subdirectories create bundled
     # static libraries rather than desktop-discoverable shared plugins.
     set(plugins_list
+        gemini
         nextcloud
+        openaiwhisper
         xmpppubsub
     )
 else()

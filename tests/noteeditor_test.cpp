@@ -332,6 +332,32 @@ private slots:
                  QStringLiteral("cpp"));
     }
 
+    void audioTranscriptChangesParticipateInUndo()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(plainNote(), drafts);
+
+        editor.setMarkdown(true);
+        const QString source = QStringLiteral("qtnote-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
+        editor.model()->insertAudio(1, source, QStringLiteral("Voice memo"), 2500);
+        editor.model()->insertAudio(2, source, QStringLiteral("Duplicate voice memo"), 2500);
+        editor.resetHistory();
+
+        QVERIFY(editor.setAudioTranscript(2, QStringLiteral("Recognized text")));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AudioTranscriptRole).toString(),
+                 QString());
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AudioTranscriptRole).toString(),
+                 QStringLiteral("Recognized text"));
+        QVERIFY(editor.canUndo());
+        QVERIFY(editor.undo());
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AudioTranscriptRole).toString(),
+                 QString());
+        QVERIFY(editor.redo());
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AudioTranscriptRole).toString(),
+                 QStringLiteral("Recognized text"));
+    }
+
     void imagePresentationChangesParticipateInUndo()
     {
         auto         store = std::make_unique<MemoryDraftStore>();

@@ -28,7 +28,20 @@ class QTNOTE_EXPORT NoteBlockModel : public QAbstractListModel {
     Q_PROPERTY(QString contents READ contents WRITE setContents NOTIFY contentsChanged)
 
 public:
-    enum BlockType { Text, BulletList, CheckList, Table, Image, NumberedList, Heading, BlockQuote, CodeBlock, TagLine };
+    enum BlockType {
+        Text,
+        BulletList,
+        CheckList,
+        Table,
+        Image,
+        NumberedList,
+        Heading,
+        BlockQuote,
+        CodeBlock,
+        TagLine,
+        Audio,
+        Attachment
+    };
     Q_ENUM(BlockType)
     enum Role {
         TypeRole = Qt::UserRole + 1,
@@ -45,7 +58,11 @@ public:
         LanguageRole,
         ImageWidthRole,
         ImageAlignmentRole,
-        TagsRole
+        TagsRole,
+        AudioDurationRole,
+        AudioTranscriptRole,
+        AttachmentMediaTypeRole,
+        AttachmentSizeRole
     };
 
     explicit NoteBlockModel(QObject *parent = nullptr);
@@ -93,6 +110,13 @@ public:
     Q_INVOKABLE void appendText(const QString &text);
     Q_INVOKABLE void appendImage(const QString &url, const QString &alt);
     Q_INVOKABLE void insertImage(int row, const QString &url, const QString &alt);
+    Q_INVOKABLE void appendAudio(const QString &url, const QString &title, qint64 durationMs);
+    Q_INVOKABLE void insertAudio(int row, const QString &url, const QString &title, qint64 durationMs);
+    Q_INVOKABLE bool setAudioTranscript(int row, const QString &transcript);
+    Q_INVOKABLE void appendAttachment(const QString &url, const QString &fileName, const QString &mediaType,
+                                      qint64 size);
+    Q_INVOKABLE void insertAttachment(int row, const QString &url, const QString &fileName, const QString &mediaType,
+                                      qint64 size);
     Q_INVOKABLE void insertTable(int row);
     Q_INVOKABLE void insertList(int row, BlockType type);
     Q_INVOKABLE void insertBlockQuote(int row);
@@ -156,7 +180,11 @@ private:
         int          headingLevel   = 0;
         QString      language;
         QStringList  tags;
-        bool         explicitEmpty = false;
+        qint64       audioDurationMs = 0;
+        QString      audioTranscript;
+        QString      attachmentMediaType;
+        qint64       attachmentSize = 0;
+        bool         explicitEmpty  = false;
 
         bool operator==(const Block &other) const
         {
@@ -164,7 +192,9 @@ private:
                 && itemTypes == other.itemTypes && checked == other.checked && cells == other.cells
                 && columns == other.columns && url == other.url && alt == other.alt && imageWidth == other.imageWidth
                 && imageAlignment == other.imageAlignment && headingLevel == other.headingLevel
-                && language == other.language && tags == other.tags && explicitEmpty == other.explicitEmpty;
+                && language == other.language && tags == other.tags && audioTranscript == other.audioTranscript
+                && attachmentMediaType == other.attachmentMediaType && attachmentSize == other.attachmentSize
+                && audioDurationMs == other.audioDurationMs && explicitEmpty == other.explicitEmpty;
         }
     };
 

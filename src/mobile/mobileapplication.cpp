@@ -12,11 +12,13 @@
 #include "notesworkspacecontroller.h"
 #include "pluginhost.h"
 #include "settingscontroller.h"
+#include "speechrecognitioncontroller.h"
+#include "speechrecognitionprovider.h"
 
 #include <QGuiApplication>
 #include <QLocale>
 #include <QLoggingCategory>
-#ifdef Q_OS_ANDROID
+#if (defined(Q_OS_ANDROID) || defined(Q_OS_IOS)) && QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
 #include <QPermissions>
 #endif
 #include <QRegularExpression>
@@ -54,6 +56,7 @@ MobileApplication::MobileApplication(QObject *parent) :
     qCInfo(logMobilePersistence) << "Mobile persistence diagnostics started: pid="
                                  << QCoreApplication::applicationPid();
     workspace_             = new NotesWorkspaceController(this);
+    speechController_      = new SpeechRecognitionController(this);
     editorPlatformBackend_ = new MobileEditorPlatformBackend(platformServices_, this);
     pluginHost_            = new PluginHost(this);
     bundledPlugins_.setHost(pluginHost_);
@@ -67,12 +70,14 @@ MobileApplication::MobileApplication(QObject *parent) :
     editorPlatformBackend_->setEditor(workspace_->editor());
     connect(workspace_, &NotesWorkspaceController::currentEditorChanged, this, [this] {
         editorPlatformBackend_->setEditor(workspace_->editor());
+        speechController_->setEditor(workspace_->editor());
         const auto *editor = workspace_->editor();
         qCInfo(logMobilePersistence) << "Current mobile editor changed: present=" << bool(editor)
                                      << "storage=" << (editor ? editor->storageId() : QString())
                                      << "noteIdPresent=" << (editor ? !editor->noteId().isEmpty() : false)
                                      << "draft=" << (editor ? editor->draftIdString() : QString());
         emit currentNoteEditorChanged();
+        emit voiceInputStateChanged();
     });
     connect(qGuiApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
         const auto *editor = workspace_->editor();
@@ -88,11 +93,18 @@ MobileApplication::MobileApplication(QObject *parent) :
     connect(platformServices_, &AndroidPlatformServices::operationFailed, this, &MobileApplication::operationFailed);
     connect(platformServices_, &AndroidPlatformServices::exportCompleted, this,
             [this]() { emit operationCompleted(tr("Note exported.")); });
+    connect(speechController_, &SpeechRecognitionController::stateChanged, this,
+            &MobileApplication::voiceInputStateChanged);
+    connect(speechController_, &SpeechRecognitionController::operationFailed, this,
+            &MobileApplication::operationFailed);
 
     QSettings settings;
     askBeforeDelete_      = settings.value(QStringLiteral("ui.ask-on-delete"), true).toBool();
     notesPerPage_         = settings.value(QStringLiteral("mobile.notes-per-page"), 30).toInt();
     androidSpeechEnabled_ = settings.value(QStringLiteral("mobile.android-speech-enabled"), false).toBool();
+    microphoneMode_       = VoiceInputMode(
+        qBound(int(AndroidSpeech), settings.value(QStringLiteral("mobile.microphone-mode"), int(AndroidSpeech)).toInt(),
+                     int(AudioRecording)));
     workspace_->sourceModel()->setPageSize(notesPerPage_);
     editorFontSize_ = settings.value(QStringLiteral("mobile.editor-font-size"), 16.0).toReal();
 
@@ -115,7 +127,12 @@ MobileApplication::MobileApplication(QObject *parent) :
     registerCoreStorages();
 
     registerMobileBundledPlugins(bundledPlugins_);
+    connect(&bundledPlugins_, &BundledPluginRegistry::pluginsReset, this, &MobileApplication::refreshSpeechProvider);
+    connect(&bundledPlugins_, &BundledPluginRegistry::pluginChanged, this,
+            [this](const QString &) { refreshSpeechProvider(); });
     bundledPlugins_.initializeEnabledPlugins();
+    speechController_->setEditor(workspace_->editor());
+    refreshSpeechProvider();
 }
 
 QAbstractItemModel *MobileApplication::notesModel() { return workspace_->recentNotesModel(); }
@@ -123,6 +140,7 @@ QAbstractItemModel *MobileApplication::pluginsModel() { return &plugins_; }
 QAbstractItemModel *MobileApplication::storagesModel() { return &storages_; }
 QObject            *MobileApplication::currentNoteEditor() const { return workspace_->currentEditor(); }
 QObject            *MobileApplication::editorPlatformBackend() const { return editorPlatformBackend_; }
+QObject            *MobileApplication::speechController() const { return speechController_; }
 QObject            *MobileApplication::workspace() { return workspace_; }
 QObject            *MobileApplication::dialogs() const { return dialogs_; }
 
@@ -131,6 +149,36 @@ int   MobileApplication::notesPerPage() const { return notesPerPage_; }
 qreal MobileApplication::editorFontSize() const { return editorFontSize_; }
 bool  MobileApplication::androidSpeechEnabled() const { return androidSpeechEnabled_; }
 bool  MobileApplication::androidSpeechAvailable() const { return platformServices_->speechRecognitionAvailable(); }
+bool  MobileApplication::audioRecordingAvailable() const
+{
+    const auto *editor = workspace_ ? workspace_->editor() : nullptr;
+    return editor && speechController_ && speechController_->audioRecordingAvailable();
+}
+MobileApplication::VoiceInputMode MobileApplication::effectiveVoiceInputMode() const
+{
+    const bool speech = androidSpeechEnabled_ && androidSpeechAvailable();
+    const bool audio  = audioRecordingAvailable();
+    if (microphoneMode_ == AudioRecording && audio)
+        return AudioRecording;
+    if (microphoneMode_ == AndroidSpeech && speech)
+        return AndroidSpeech;
+    return audio ? AudioRecording : AndroidSpeech;
+}
+bool MobileApplication::microphoneAvailable() const
+{
+    return effectiveVoiceInputMode() == AudioRecording ? audioRecordingAvailable()
+                                                       : androidSpeechEnabled_ && androidSpeechAvailable();
+}
+bool MobileApplication::microphoneBusy() const
+{
+    return speechController_ && speechController_->busy() && speechController_->transcribingAudioRow() < 0;
+}
+bool MobileApplication::microphoneRecording() const { return speechController_ && speechController_->recording(); }
+bool MobileApplication::microphoneModeSwitchVisible() const
+{
+    return androidSpeechEnabled_ && androidSpeechAvailable() && audioRecordingAvailable();
+}
+MobileApplication::VoiceInputMode MobileApplication::microphoneMode() const { return effectiveVoiceInputMode(); }
 bool MobileApplication::homeScreenShortcutAvailable() const { return platformServices_->homeScreenShortcutAvailable(); }
 
 QVariantList MobileApplication::recoverableDrafts() const
@@ -320,9 +368,9 @@ bool MobileApplication::exportCurrentNote()
     if (!editor)
         return false;
     const bool markdown = editor->isMarkdown();
-    if (!platformServices_->exportText(currentNoteFileName(markdown ? QStringLiteral(".md") : QStringLiteral(".txt")),
+    if (!platformServices_->exportData(currentNoteFileName(markdown ? QStringLiteral(".md") : QStringLiteral(".txt")),
                                        QStringLiteral("text/plain"), editor->text().toUtf8())) {
-        emit operationFailed(tr("Could not open the Android document exporter."));
+        emit operationFailed(tr("Could not open the system document exporter."));
         return false;
     }
     return true;
@@ -335,6 +383,7 @@ void MobileApplication::applyAndroidSpeechEnabled(bool enabled)
     androidSpeechEnabled_ = enabled;
     QSettings().setValue(QStringLiteral("mobile.android-speech-enabled"), enabled);
     emit androidSpeechEnabledChanged();
+    emit voiceInputStateChanged();
 }
 
 void MobileApplication::setAndroidSpeechEnabled(bool value)
@@ -360,11 +409,72 @@ void MobileApplication::setAndroidSpeechEnabled(bool value)
         emit operationFailed(tr("Microphone permission is required for voice input."));
         return;
     case Qt::PermissionStatus::Undetermined:
-        qApp->requestPermission(permission, this, [this]() { setAndroidSpeechEnabled(true); });
+        qApp->requestPermission(permission, this, [this](const QPermission &result) {
+            if (result.status() == Qt::PermissionStatus::Granted) {
+                applyAndroidSpeechEnabled(true);
+            } else {
+                applyAndroidSpeechEnabled(false);
+                emit operationFailed(tr("Microphone permission is required for voice input."));
+            }
+        });
         return;
     }
 #else
     applyAndroidSpeechEnabled(false);
+#endif
+}
+
+void MobileApplication::setMicrophoneMode(VoiceInputMode mode)
+{
+    if (mode != AndroidSpeech && mode != AudioRecording)
+        return;
+    if (microphoneMode_ == mode)
+        return;
+    if (speechController_)
+        speechController_->cancel();
+    microphoneMode_ = mode;
+    QSettings().setValue(QStringLiteral("mobile.microphone-mode"), int(mode));
+    emit voiceInputStateChanged();
+}
+
+bool MobileApplication::requestVoiceInput(int insertionRow)
+{
+    if (microphoneBusy())
+        return false;
+    if (effectiveVoiceInputMode() == AndroidSpeech)
+        return requestSpeechRecognition();
+    if (!speechController_)
+        return false;
+    speechController_->setMode(SpeechRecognitionController::AudioRecording);
+    if (speechController_->recording()) {
+        speechController_->finish();
+        return true;
+    }
+
+    NoteEditor *expectedEditor = workspace_->editor();
+#if defined(Q_OS_ANDROID) || (defined(Q_OS_IOS) && QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
+    QMicrophonePermission permission;
+    switch (qApp->checkPermission(permission)) {
+    case Qt::PermissionStatus::Granted:
+        return expectedEditor && speechController_->start(insertionRow);
+    case Qt::PermissionStatus::Denied:
+        emit operationFailed(tr("Microphone permission is required for audio recording."));
+        return false;
+    case Qt::PermissionStatus::Undetermined:
+        qApp->requestPermission(
+            permission, this,
+            [this, expected = QPointer<NoteEditor>(expectedEditor), insertionRow](const QPermission &result) {
+                if (!expected || expected != workspace_->editor())
+                    return;
+                if (result.status() == Qt::PermissionStatus::Granted)
+                    speechController_->start(insertionRow);
+                else
+                    emit operationFailed(tr("Microphone permission is required for audio recording."));
+            });
+        return true;
+    }
+#else
+    return expectedEditor && speechController_->start(insertionRow);
 #endif
 }
 
@@ -390,6 +500,20 @@ bool MobileApplication::requestSpeechRecognition()
         return false;
     }
     return true;
+}
+
+void MobileApplication::refreshSpeechProvider()
+{
+    SpeechRecognitionProviderInterface *selected = nullptr;
+    for (const QString &pluginId : bundledPlugins_.pluginIds()) {
+        QObject *instance = bundledPlugins_.instance(pluginId);
+        auto    *provider = instance ? qobject_cast<SpeechRecognitionProviderInterface *>(instance) : nullptr;
+        if (provider && provider->isSpeechRecognitionReady()) {
+            selected = provider;
+            break;
+        }
+    }
+    speechController_->setProvider(selected);
 }
 
 bool MobileApplication::addCurrentNoteToHomeScreen()

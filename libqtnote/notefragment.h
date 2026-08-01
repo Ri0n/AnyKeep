@@ -34,6 +34,8 @@ enum class NoteFragmentBlockType {
     BlockQuote,
     CodeBlock,
     TagLine,
+    Audio,
+    Attachment,
 };
 
 enum class NoteFragmentListKind {
@@ -63,6 +65,20 @@ struct QTNOTE_EXPORT NoteFragmentImage {
     QString alignment { QStringLiteral("center") };
 };
 
+struct QTNOTE_EXPORT NoteFragmentAudio {
+    QString sourceUri;
+    QString title;
+    qint64  durationMs { 0 };
+    QString transcript;
+};
+
+struct QTNOTE_EXPORT NoteFragmentAttachment {
+    QString sourceUri;
+    QString fileName;
+    QString mediaType;
+    qint64  size { 0 };
+};
+
 struct QTNOTE_EXPORT NoteFragmentBlock {
     NoteFragmentBlockType       type { NoteFragmentBlockType::Text };
     QString                     markdown;
@@ -70,6 +86,8 @@ struct QTNOTE_EXPORT NoteFragmentBlock {
     QList<NoteFragmentListItem> listItems;
     NoteFragmentTable           table;
     NoteFragmentImage           image;
+    NoteFragmentAudio           audio;
+    NoteFragmentAttachment      attachment;
     QString                     language;
     QStringList                 tags;
 };
@@ -83,7 +101,7 @@ struct QTNOTE_EXPORT NoteFragmentMedia {
 };
 
 struct QTNOTE_EXPORT NoteFragment {
-    static constexpr quint32 CurrentVersion = 4;
+    static constexpr quint32 CurrentVersion = 6;
 
     quint32                  version { CurrentVersion };
     NoteFragmentKind         kind { NoteFragmentKind::BlockSequence };

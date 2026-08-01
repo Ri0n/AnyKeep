@@ -47,6 +47,8 @@ if(NOT TARGET Qt${QT_VERSION_MAJOR}Keychain::Qt${QT_VERSION_MAJOR}Keychain)
 endif()
 
 set(qtnote_CORE_SRCS
+    audioattachmentrecorder.cpp
+    audioplaybackcontroller.cpp
     bundledpluginregistry.cpp
     conflictresolver.cpp
     corestorageregistry.cpp
@@ -107,6 +109,8 @@ set(qtnote_CORE_SRCS
     windowgeometryutils.cpp
 )
 set(qtnote_CORE_HDRS
+    audioattachmentrecorder.h
+    audioplaybackcontroller.h
     bundledplugininterface.h
     bundledpluginregistry.h
     conflictresolver.h
@@ -206,6 +210,10 @@ set_target_properties(qtnote_core PROPERTIES
 target_link_libraries(qtnote_core PUBLIC Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Quick Qt${QT_VERSION_MAJOR}::Qml Qt${QT_VERSION_MAJOR}::Svg)
 target_link_libraries(qtnote_core PRIVATE qca-qt${QT_VERSION_MAJOR} QSourceHighlite::QSourceHighlite)
 target_link_libraries(qtnote_core PRIVATE Qt${QT_VERSION_MAJOR}Keychain::Qt${QT_VERSION_MAJOR}Keychain)
+if(TARGET Qt${QT_VERSION_MAJOR}::Multimedia)
+    target_link_libraries(qtnote_core PUBLIC Qt${QT_VERSION_MAJOR}::Multimedia)
+    target_compile_definitions(qtnote_core PUBLIC QTNOTE_MULTIMEDIA_AVAILABLE)
+endif()
 foreach(qtnote_core_dependency qtnote_bundled_qca qtnote_bundled_qtkeychain qtnote_bundled_qsourcehighlite)
     if(TARGET ${qtnote_core_dependency})
         add_dependencies(qtnote_core ${qtnote_core_dependency})

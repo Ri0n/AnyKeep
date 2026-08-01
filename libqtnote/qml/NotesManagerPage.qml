@@ -881,19 +881,24 @@ Item {
                 visible: root.workspace.currentEditor !== null
                 editor: root.workspace.currentEditor
                 platformBackend: root.platformBackend
+                audioTranscriptionController: root.speechController
                 folderWorkspace: root.workspace
                 showDeleteButton: true
                 showDesktopActions: root.desktopActions !== null
                 microphoneVisible: root.speechController && root.speechController.available
                 microphoneBusy: root.speechController && root.speechController.busy
+                microphoneRecording: root.speechController && root.speechController.recording
                 microphoneHoldToRecord: true
+                microphoneModeSwitchVisible: root.speechController && root.speechController.modeSwitchVisible
+                microphoneMode: root.speechController ? root.speechController.mode : 0
                 saveHandler: function() { return root.workspace.saveCurrentNote() }
                 onDeleteRequested: root.requestDelete(editor.storageId, editor.noteId,
                                                       root.workspace.currentTitle)
                 onPrintRequested: root.desktopActions.printNote()
                 onExportRequested: root.desktopActions.exportNote()
-                onMicrophoneRequested: root.speechController.start()
+                onMicrophoneRequested: root.speechController.start(managerEditorPane.blockEditor.insertionBlockIndex())
                 onMicrophoneReleased: root.speechController.finish()
+                onMicrophoneModeRequested: mode => root.speechController.setMode(mode)
                 Connections {
                     target: root.speechController
                     function onRecognizedText(text) { managerEditorPane.insertTextAtCursor(text) }

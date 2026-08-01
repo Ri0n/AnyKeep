@@ -8,13 +8,17 @@
 
 #include <QAbstractItemModel>
 #include <QObject>
+#include <QPointer>
 #include <QUrl>
 #include <QVariantList>
 
 namespace QtNote {
 
 class AndroidPlatformServices;
+class SpeechRecognitionController;
+class SpeechRecognitionProviderInterface;
 class DialogService;
+class NoteEditor;
 class NoteStorage;
 class PluginHost;
 class NotesWorkspaceController;
@@ -29,16 +33,29 @@ class MobileApplication final : public QObject {
     Q_PROPERTY(QAbstractItemModel *storagesModel READ storagesModel CONSTANT)
     Q_PROPERTY(QObject *currentNoteEditor READ currentNoteEditor NOTIFY currentNoteEditorChanged)
     Q_PROPERTY(QObject *editorPlatformBackend READ editorPlatformBackend CONSTANT)
+    Q_PROPERTY(QObject *speechController READ speechController CONSTANT)
     Q_PROPERTY(bool askBeforeDelete READ askBeforeDelete WRITE setAskBeforeDelete NOTIFY askBeforeDeleteChanged)
     Q_PROPERTY(int notesPerPage READ notesPerPage WRITE setNotesPerPage NOTIFY notesPerPageChanged)
     Q_PROPERTY(qreal editorFontSize READ editorFontSize WRITE setEditorFontSize NOTIFY editorFontSizeChanged)
     Q_PROPERTY(bool androidSpeechEnabled READ androidSpeechEnabled WRITE setAndroidSpeechEnabled NOTIFY
                    androidSpeechEnabledChanged)
     Q_PROPERTY(bool androidSpeechAvailable READ androidSpeechAvailable CONSTANT)
+    Q_PROPERTY(bool audioRecordingAvailable READ audioRecordingAvailable NOTIFY voiceInputStateChanged)
+    Q_PROPERTY(bool microphoneAvailable READ microphoneAvailable NOTIFY voiceInputStateChanged)
+    Q_PROPERTY(bool microphoneBusy READ microphoneBusy NOTIFY voiceInputStateChanged)
+    Q_PROPERTY(bool microphoneRecording READ microphoneRecording NOTIFY voiceInputStateChanged)
+    Q_PROPERTY(bool microphoneModeSwitchVisible READ microphoneModeSwitchVisible NOTIFY voiceInputStateChanged)
+    Q_PROPERTY(VoiceInputMode microphoneMode READ microphoneMode WRITE setMicrophoneMode NOTIFY voiceInputStateChanged)
     Q_PROPERTY(bool homeScreenShortcutAvailable READ homeScreenShortcutAvailable CONSTANT)
     Q_PROPERTY(QVariantList recoverableDrafts READ recoverableDrafts NOTIFY recoverableDraftsChanged)
 
 public:
+    enum VoiceInputMode {
+        AndroidSpeech = 0,
+        AudioRecording,
+    };
+    Q_ENUM(VoiceInputMode)
+
     explicit MobileApplication(QObject *parent = nullptr);
 
     QAbstractItemModel *notesModel();
@@ -46,16 +63,23 @@ public:
     QAbstractItemModel *storagesModel();
     QObject            *currentNoteEditor() const;
     QObject            *editorPlatformBackend() const;
+    QObject            *speechController() const;
     QObject            *workspace();
     QObject            *dialogs() const;
 
-    bool         askBeforeDelete() const;
-    int          notesPerPage() const;
-    qreal        editorFontSize() const;
-    bool         androidSpeechEnabled() const;
-    bool         androidSpeechAvailable() const;
-    bool         homeScreenShortcutAvailable() const;
-    QVariantList recoverableDrafts() const;
+    bool           askBeforeDelete() const;
+    int            notesPerPage() const;
+    qreal          editorFontSize() const;
+    bool           androidSpeechEnabled() const;
+    bool           androidSpeechAvailable() const;
+    bool           audioRecordingAvailable() const;
+    bool           microphoneAvailable() const;
+    bool           microphoneBusy() const;
+    bool           microphoneRecording() const;
+    bool           microphoneModeSwitchVisible() const;
+    VoiceInputMode microphoneMode() const;
+    bool           homeScreenShortcutAvailable() const;
+    QVariantList   recoverableDrafts() const;
 
     Q_INVOKABLE bool     createNote();
     Q_INVOKABLE bool     saveCurrentNote();
@@ -63,6 +87,7 @@ public:
     Q_INVOKABLE bool     shareCurrentNote();
     Q_INVOKABLE bool     exportCurrentNote();
     Q_INVOKABLE bool     requestSpeechRecognition();
+    Q_INVOKABLE bool     requestVoiceInput(int insertionRow = -1);
     Q_INVOKABLE bool     addCurrentNoteToHomeScreen();
     Q_INVOKABLE bool     processPendingLaunchIntent();
     Q_INVOKABLE bool     openDraft(const QString &draftId);
@@ -79,6 +104,7 @@ public slots:
     void setNotesPerPage(int value);
     void setEditorFontSize(qreal value);
     void setAndroidSpeechEnabled(bool value);
+    void setMicrophoneMode(VoiceInputMode mode);
 
 signals:
     void askBeforeDeleteChanged();
@@ -86,19 +112,23 @@ signals:
     void notesPerPageChanged();
     void editorFontSizeChanged();
     void androidSpeechEnabledChanged();
+    void voiceInputStateChanged();
     void recoverableDraftsChanged();
     void speechRecognized(const QString &text);
     void operationFailed(const QString &message);
     void operationCompleted(const QString &message);
 
 private:
-    bool    openEditor(const Note &note, const QUuid &draftId = {});
-    void    recoverDraft(NoteStorage *storage);
-    QString currentNoteTitle() const;
-    QString currentNoteFileName(const QString &suffix) const;
-    void    applyAndroidSpeechEnabled(bool enabled);
+    bool           openEditor(const Note &note, const QUuid &draftId = {});
+    void           recoverDraft(NoteStorage *storage);
+    QString        currentNoteTitle() const;
+    QString        currentNoteFileName(const QString &suffix) const;
+    void           applyAndroidSpeechEnabled(bool enabled);
+    VoiceInputMode effectiveVoiceInputMode() const;
+    void           refreshSpeechProvider();
 
     AndroidPlatformServices     *platformServices_ { nullptr };
+    SpeechRecognitionController *speechController_ { nullptr };
     DialogService               *dialogs_ { nullptr };
     PluginHost                  *pluginHost_ { nullptr };
     BundledPluginRegistry        bundledPlugins_;
@@ -110,6 +140,7 @@ private:
     QString                      handledLaunchUrl_;
     bool                         askBeforeDelete_ { true };
     bool                         androidSpeechEnabled_ { false };
+    VoiceInputMode               microphoneMode_ { AndroidSpeech };
     int                          notesPerPage_ { 30 };
     qreal                        editorFontSize_ { 16.0 };
 };

@@ -1,5 +1,6 @@
 #include "noteeditor.h"
 
+#include "audioplaybackcontroller.h"
 #include "draftmanager.h"
 #include "noteblockmodel.h"
 #include "notedocumenthistory.h"
@@ -10,6 +11,8 @@
 #include <QLoggingCategory>
 #include <QMetaObject>
 #include <QTimer>
+
+#include <algorithm>
 
 namespace QtNote {
 
@@ -22,7 +25,7 @@ NoteEditor::NoteEditor(const Note &note, const QUuid &draftId, QObject *parent) 
 
 NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draftId, QObject *parent) :
     QObject(parent), note_(note), drafts_(&drafts), model_(new NoteBlockModel(this)),
-    history_(std::make_unique<NoteDocumentHistory>())
+    audioPlayback_(new AudioPlaybackController(this, this)), history_(std::make_unique<NoteDocumentHistory>())
 {
     draftId_ = drafts_->acquireEditingSession(note_, draftId);
     qCInfo(logEditorPersistence) << "Editor session created: draft=" << draftId_.toString(QUuid::WithoutBraces)
@@ -319,6 +322,8 @@ void NoteEditor::markFolderPersisted(const QUuid &folderId)
 
 QObject *NoteEditor::blockModel() const { return model_; }
 
+QObject *NoteEditor::audioPlayback() const { return audioPlayback_; }
+
 void NoteEditor::resetContent(const QString &text, Note::Format format)
 {
     const bool textChanged   = text_ != text;
@@ -346,7 +351,56 @@ QString NoteEditor::redoText() const { return history_->redoText(); }
 
 bool NoteEditor::supportsMedia() const { return note_.storage() && note_.storage()->supportsMedia(); }
 
-bool NoteEditor::canInsertImages() const { return supportsMedia() && isMarkdown(); }
+bool NoteEditor::canInsertImages() const { return supportsMedia(); }
+
+bool NoteEditor::canInsertAudio() const { return supportsMedia(); }
+
+bool NoteEditor::canInsertAttachments() const { return supportsMedia(); }
+
+bool NoteEditor::insertAudio(const MediaReference &reference, qint64 durationMs, int row)
+{
+    if (!reference.isValid() || !reference.mediaType.startsWith(QLatin1String("audio/")) || !supportsMedia())
+        return false;
+    beginHistoryTransaction(QStringLiteral("insert-audio"));
+    if (!isMarkdown())
+        setMarkdown(true);
+    row                  = row < 0 ? model_->rowCount() : qBound(0, row, model_->rowCount());
+    auto       manifest  = media_;
+    const auto duplicate = std::find_if(manifest.cbegin(), manifest.cend(),
+                                        [&reference](const MediaReference &item) { return item.id == reference.id; });
+    if (duplicate == manifest.cend())
+        manifest.append(reference);
+    setMedia(manifest);
+    model_->insertAudio(row, reference.uri(), reference.originalName, qMax<qint64>(0, durationMs));
+    endHistoryTransaction();
+    emit mediaInserted({ reference });
+    return true;
+}
+
+bool NoteEditor::insertAttachment(const MediaReference &reference, int row)
+{
+    if (!reference.isValid() || !supportsMedia())
+        return false;
+    beginHistoryTransaction(QStringLiteral("insert-attachment"));
+    if (!isMarkdown())
+        setMarkdown(true);
+    row                  = row < 0 ? model_->rowCount() : qBound(0, row, model_->rowCount());
+    auto       manifest  = media_;
+    const auto duplicate = std::find_if(manifest.cbegin(), manifest.cend(),
+                                        [&reference](const MediaReference &item) { return item.id == reference.id; });
+    if (duplicate == manifest.cend())
+        manifest.append(reference);
+    setMedia(manifest);
+    model_->insertAttachment(row, reference.uri(), reference.originalName, reference.mediaType, reference.size);
+    endHistoryTransaction();
+    emit mediaInserted({ reference });
+    return true;
+}
+
+bool NoteEditor::setAudioTranscript(int row, const QString &transcript)
+{
+    return model_->setAudioTranscript(row, transcript);
+}
 
 bool NoteEditor::historyInTransaction() const { return history_->inTransaction(); }
 
@@ -440,6 +494,9 @@ void NoteEditor::restoreScalarField(int blockIndex, int role, int fieldIndex, co
         break;
     case NoteBlockModel::LanguageRole:
         model_->setCodeLanguage(blockIndex, value);
+        break;
+    case NoteBlockModel::AudioTranscriptRole:
+        model_->setAudioTranscript(blockIndex, value);
         break;
     }
 }
