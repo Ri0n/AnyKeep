@@ -130,11 +130,13 @@ void NoteEditor::adoptEditingDraft(const DraftRecord &draft)
 
 void NoteEditor::setText(const QString &text)
 {
-    if (text_ == text)
+    if (text_ == text && model_->contents() == text)
         return;
-    text_ = text;
-    emit textChanged();
-    setDirty(true);
+    // Programmatic text replacement (for example, "note from selection")
+    // must update the structural model as well as the scalar property.  Keep
+    // the original baseline so the replacement is still checkpointed as a
+    // user-visible edit rather than treated as freshly loaded clean content.
+    loadDocument(text, format_, LoadPolicy::ReplaceContent);
 }
 
 void NoteEditor::setMarkdown(bool markdown)

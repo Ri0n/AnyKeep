@@ -1,5 +1,7 @@
 #include "notefragment.h"
 
+#include "notetagline.h"
+
 #include <QCborArray>
 #include <QCborMap>
 #include <QCborParserError>
@@ -13,6 +15,7 @@ namespace {
     constexpr int  MaxListItems  = 100000;
     constexpr int  MaxTableCells = 100000;
     constexpr int  MaxMedia      = 1000;
+    constexpr int  MaxTags       = 1000;
     constexpr int  MaxIndent     = 128;
 
     QCborMap encodeMediaReference(const MediaReference &reference)
@@ -96,6 +99,10 @@ namespace {
         map.insert(QStringLiteral("markdown"), block.markdown);
         map.insert(QStringLiteral("headingLevel"), block.headingLevel);
         map.insert(QStringLiteral("language"), block.language);
+        QCborArray tags;
+        for (const QString &tag : block.tags)
+            tags.append(tag);
+        map.insert(QStringLiteral("tags"), tags);
 
         QCborArray listItems;
         for (const NoteFragmentListItem &item : block.listItems)
@@ -129,7 +136,8 @@ namespace {
         }
         const QCborMap map         = value.toMap();
         const qint64   type        = map.value(QStringLiteral("type")).toInteger(-1);
-        const qint64   maximumType = version >= 2 ? static_cast<qint64>(NoteFragmentBlockType::CodeBlock)
+        const qint64   maximumType = version >= 4 ? static_cast<qint64>(NoteFragmentBlockType::TagLine)
+              : version >= 2                      ? static_cast<qint64>(NoteFragmentBlockType::CodeBlock)
                                                   : static_cast<qint64>(NoteFragmentBlockType::BlockQuote);
         if (type < static_cast<qint64>(NoteFragmentBlockType::Text) || type > maximumType) {
             *error = QStringLiteral("block has invalid type");
@@ -139,6 +147,34 @@ namespace {
         block->markdown     = map.value(QStringLiteral("markdown")).toString();
         block->headingLevel = static_cast<int>(map.value(QStringLiteral("headingLevel")).toInteger(0));
         block->language     = map.value(QStringLiteral("language")).toString().trimmed().toLower();
+        if (version >= 4) {
+            const QCborValue tagsValue = map.value(QStringLiteral("tags"));
+            if (!tagsValue.isArray()) {
+                *error = QStringLiteral("block tags are not an array");
+                return false;
+            }
+            const QCborArray tags = tagsValue.toArray();
+            if (tags.size() > MaxTags) {
+                *error = QStringLiteral("fragment contains too many tags");
+                return false;
+            }
+            for (const QCborValue &tagValue : tags) {
+                if (!tagValue.isString()) {
+                    *error = QStringLiteral("block tag is not a string");
+                    return false;
+                }
+                const QString tag = tagValue.toString();
+                if (!NoteTagLine::isValidTagName(tag) || block->tags.contains(tag)) {
+                    *error = QStringLiteral("block has an invalid or duplicate tag");
+                    return false;
+                }
+                block->tags.append(tag);
+            }
+        }
+        if (block->type == NoteFragmentBlockType::TagLine && block->tags.isEmpty()) {
+            *error = QStringLiteral("tag line block has no tags");
+            return false;
+        }
         if (block->type == NoteFragmentBlockType::Heading && (block->headingLevel < 1 || block->headingLevel > 6)) {
             *error = QStringLiteral("heading has invalid level");
             return false;

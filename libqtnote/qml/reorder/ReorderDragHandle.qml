@@ -7,6 +7,7 @@ Item {
     property int dragCursorShape: Qt.ClosedHandCursor
     property bool overrideCursorApplied: false
     readonly property bool dragging: dragHandler.active
+    readonly property bool hovered: cursorArea.containsMouse
     signal dragStarted()
     signal dragMoved(real dx, real dy)
     signal dragFinished()

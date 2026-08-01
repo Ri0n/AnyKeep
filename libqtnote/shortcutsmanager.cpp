@@ -54,7 +54,11 @@ QKeySequence ShortcutsManager::key(const QString &option) const
         }
         return defaults.value(option);
     }
-    return QKeySequence(s.value(opt).toString());
+    const QString stored   = s.value(opt).toString();
+    auto          sequence = QKeySequence::fromString(stored, QKeySequence::PortableText);
+    if (sequence.isEmpty() && !stored.isEmpty())
+        sequence = QKeySequence::fromString(stored, QKeySequence::NativeText);
+    return sequence;
 }
 
 #if 0
@@ -74,11 +78,46 @@ bool ShortcutsManager::updateShortcut(ShortcutAction &sa)
 
 bool ShortcutsManager::setKey(const QString &option, const QKeySequence &seq)
 {
-    QSettings s;
-    s.setValue("shortcuts." + option, seq.toString());
-    if (globals.contains(option) && gs) {
-        return gs->updateGlobalShortcut(option, key(option));
+    QSettings          settings;
+    const QString      settingsKey      = QStringLiteral("shortcuts.") + option;
+    const QVariant     previous         = settings.value(settingsKey);
+    const QKeySequence previousSequence = key(option);
+    settings.setValue(settingsKey, seq.toString(QKeySequence::PortableText));
+    settings.sync();
+
+    bool backendUpdated = true;
+    if (gs && globalActions.contains(option)) {
+        if (globals.contains(option)) {
+            backendUpdated = gs->updateGlobalShortcut(option, seq);
+        } else if (!seq.isEmpty()) {
+            // A backend may already know the action even if its initial
+            // registration failed (for example because the old key was in
+            // conflict). Prefer an explicit update, then fall back to first
+            // registration for backends that have not seen the action yet.
+            backendUpdated = gs->updateGlobalShortcut(option, seq);
+            if (!backendUpdated)
+                backendUpdated = gs->registerGlobalShortcut(option, seq, globalActions.value(option));
+            if (backendUpdated)
+                globals.append(option);
+        }
     }
+    if (!backendUpdated) {
+        if (previous.isValid())
+            settings.setValue(settingsKey, previous);
+        else
+            settings.remove(settingsKey);
+        settings.sync();
+        if (gs && globalActions.contains(option)) {
+            if (globals.contains(option)) {
+                gs->updateGlobalShortcut(option, previousSequence);
+            } else if (!previousSequence.isEmpty()
+                       && gs->registerGlobalShortcut(option, previousSequence, globalActions.value(option))) {
+                globals.append(option);
+            }
+        }
+        return false;
+    }
+    emit shortcutChanged(option);
     return true;
 }
 
@@ -93,6 +132,8 @@ QList<ShortcutsManager::ShortcutInfo> ShortcutsManager::all() const
 }
 
 QString ShortcutsManager::friendlyName(const QString &option) const { return shortcuts.value(option).name; }
+
+QString ShortcutsManager::lastError() const { return gs ? gs->lastGlobalShortcutError() : QString(); }
 
 QStringList ShortcutsManager::globalShortcutIds() const { return globalActions.keys(); }
 

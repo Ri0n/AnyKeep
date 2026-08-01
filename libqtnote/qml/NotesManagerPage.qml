@@ -29,10 +29,14 @@ Item {
     property string selectedStorageId: ""
     property string selectedNoteId: ""
     property string selectedTitle: ""
+    property string pendingBodyFindStorageId: ""
+    property string pendingBodyFindNoteId: ""
+    property string pendingBodyFindQuery: ""
     property bool editorFocusOwned: false
     property bool mobileSearchExpanded: false
     property var pendingPermanentDeletionNotes: []
     property var pendingRecycleNotes: []
+    property var contextMenuNotes: []
     property bool dontAskAgainForPermanentDeletion: false
     readonly property var selectedNotes: noteSelection.selectedNotes
     readonly property var activeDragDelegate: groupedNotes.activePayload
@@ -104,13 +108,43 @@ Item {
         return editor.insertionRowAtPoint(point.x, point.y)
     }
 
+    function clearPendingBodyFind() {
+        pendingBodyFindStorageId = ""
+        pendingBodyFindNoteId = ""
+        pendingBodyFindQuery = ""
+    }
+
+    function openPendingBodyFindIfReady() {
+        if (!embeddedEditor || pendingBodyFindQuery.length === 0 || !workspace.currentEditor
+                || workspace.currentStorageId !== pendingBodyFindStorageId
+                || workspace.currentNoteId !== pendingBodyFindNoteId)
+            return false
+        const query = pendingBodyFindQuery
+        clearPendingBodyFind()
+        Qt.callLater(function() { managerEditorPane.openFind(query, true) })
+        return true
+    }
+
     function selectNote(storageId, noteId, title) {
         if (workspace.currentEditor && !checkpointEditor())
             return false
         selectedStorageId = storageId
         selectedNoteId = noteId
         selectedTitle = title
-        return workspace.openNote(storageId, noteId)
+        if (embeddedEditor && workspace.noteMatchesBodySearch(storageId, noteId)) {
+            pendingBodyFindStorageId = storageId
+            pendingBodyFindNoteId = noteId
+            pendingBodyFindQuery = workspace.searchText.trim()
+        } else {
+            clearPendingBodyFind()
+        }
+        const opened = workspace.openNote(storageId, noteId)
+        if (!opened) {
+            clearPendingBodyFind()
+            return false
+        }
+        openPendingBodyFindIfReady()
+        return true
     }
 
     function createNote() {
@@ -174,6 +208,8 @@ Item {
         }
         pendingPermanentDeletionNotes = []
         pendingRecycleNotes = []
+        if (changed)
+            noteSelection.clear()
         return changed
     }
 
@@ -214,10 +250,170 @@ Item {
                 ? handleNotesDroppedOutside(payload.notes) : false
     }
 
+    function selectedNoteDescriptors() {
+        const result = []
+        const selection = root.selectedNotes || ({})
+        for (const selectedKey of Object.keys(selection))
+            result.push(Object.assign({}, selection[selectedKey]))
+        result.sort(function(left, right) {
+            const leftOrder = Number(left.order === undefined ? -1 : left.order)
+            const rightOrder = Number(right.order === undefined ? -1 : right.order)
+            if (leftOrder !== rightOrder)
+                return leftOrder - rightOrder
+            const leftKey = String(left.storageId || "") + "\n" + String(left.noteId || "")
+            const rightKey = String(right.storageId || "") + "\n" + String(right.noteId || "")
+            return leftKey < rightKey ? -1 : (leftKey > rightKey ? 1 : 0)
+        })
+        return result
+    }
+
+    function contextNoteCount() {
+        return contextMenuNotes ? contextMenuNotes.length : 0
+    }
+
+    function contextNotesAllRecycled() {
+        if (contextNoteCount() === 0)
+            return false
+        for (const note of contextMenuNotes) {
+            if (!workspace.isRecycledNote(note.storageId, note.noteId))
+                return false
+        }
+        return true
+    }
+
+    function contextNotesAnyRecycled() {
+        for (const note of contextMenuNotes || []) {
+            if (workspace.isRecycledNote(note.storageId, note.noteId))
+                return true
+        }
+        return false
+    }
+
+    function contextNotesCommonFolderId() {
+        if (contextNoteCount() === 0)
+            return ""
+        let folderId = workspace.folderIdForNote(contextMenuNotes[0].storageId,
+                                                  contextMenuNotes[0].noteId)
+        for (let index = 1; index < contextMenuNotes.length; ++index) {
+            const note = contextMenuNotes[index]
+            if (workspace.folderIdForNote(note.storageId, note.noteId) !== folderId)
+                return ""
+        }
+        return folderId
+    }
+
+    function contextNotesHaveMixedFolders() {
+        if (contextNoteCount() < 2)
+            return false
+        const firstFolder = workspace.folderIdForNote(contextMenuNotes[0].storageId,
+                                                       contextMenuNotes[0].noteId)
+        for (let index = 1; index < contextMenuNotes.length; ++index) {
+            const note = contextMenuNotes[index]
+            if (workspace.folderIdForNote(note.storageId, note.noteId) !== firstFolder)
+                return true
+        }
+        return false
+    }
+
+    function requestContextNotesDeletion() {
+        const notes = (contextMenuNotes || []).slice()
+        if (notes.length === 0)
+            return false
+        const changed = handleNotesDroppedOutside(notes)
+        // Keep the selection when a permanent-delete confirmation is still
+        // open. Cancelling that dialog must not silently discard the user's
+        // multi-selection. commitPermanentDeletion() clears it on success.
+        if (changed && pendingPermanentDeletionNotes.length === 0
+                && pendingRecycleNotes.length === 0) {
+            noteSelection.clear()
+        }
+        return changed
+    }
+
+    function restoreContextNotes() {
+        const notes = (contextMenuNotes || []).slice()
+        if (notes.length === 0)
+            return false
+        if (workspace.currentEditor && !checkpointEditor())
+            return false
+        let changed = false
+        for (const note of notes) {
+            if (workspace.isRecycledNote(note.storageId, note.noteId)
+                    && workspace.restoreRecycledNote(note.storageId, note.noteId)) {
+                changed = true
+            }
+        }
+        if (changed)
+            noteSelection.clear()
+        return changed
+    }
+
+    function assignContextNotesFolder(folderId) {
+        const notes = (contextMenuNotes || []).slice()
+        if (notes.length === 0)
+            return false
+        if (workspace.currentEditor && !checkpointEditor())
+            return false
+        let changed = false
+        for (const note of notes) {
+            if (workspace.assignNoteFolder(note.storageId, note.noteId, folderId))
+                changed = true
+        }
+        if (changed)
+            noteSelection.clear()
+        return changed
+    }
+
+    function moveContextNotesToStorage(destinationStorageId) {
+        if (!destinationStorageId)
+            return false
+        const notes = []
+        for (const note of contextMenuNotes || []) {
+            if (note.storageId !== destinationStorageId)
+                notes.push(Object.assign({}, note))
+        }
+        if (notes.length === 0)
+            return false
+        if (workspace.currentEditor && !checkpointEditor())
+            return false
+        const changed = workspace.moveNotes(notes, destinationStorageId)
+        if (changed)
+            noteSelection.clear()
+        return changed
+    }
+
+    function copyContextNotesToStorage(destinationStorageId) {
+        if (!destinationStorageId)
+            return false
+        const notes = (contextMenuNotes || []).slice()
+        if (notes.length === 0)
+            return false
+        if (workspace.currentEditor && !checkpointEditor())
+            return false
+        let changed = false
+        for (const note of notes) {
+            if (note.storageId !== destinationStorageId
+                    && workspace.copyNote(note.storageId, note.noteId, destinationStorageId)) {
+                changed = true
+            }
+        }
+        return changed
+    }
+
     function showNoteMenu(storageId, noteId, title, position) {
         selectedStorageId = storageId
         selectedNoteId = noteId
         selectedTitle = title
+
+        const selected = noteSelection.isSelected(storageId, noteId)
+        const descriptors = selected ? selectedNoteDescriptors() : []
+        contextMenuNotes = descriptors.length > 0 ? descriptors : [{
+            storageId: String(storageId || ""),
+            noteId: String(noteId || ""),
+            title: String(title || ""),
+            order: -1
+        }]
+
         if (position !== undefined)
             noteContextMenu.popup(root, position)
         else
@@ -225,17 +421,11 @@ Item {
     }
 
     function selectedNoteFolderId() {
-        if (!selectedStorageId || !selectedNoteId)
-            return ""
-        return workspace.folderIdForNote(selectedStorageId, selectedNoteId)
+        return contextNotesCommonFolderId()
     }
 
     function assignSelectedNoteFolder(folderId) {
-        if (!selectedStorageId || !selectedNoteId)
-            return false
-        if (workspace.currentEditor && !checkpointEditor())
-            return false
-        return workspace.assignNoteFolder(selectedStorageId, selectedNoteId, folderId)
+        return assignContextNotesFolder(folderId)
     }
 
     function showStorageMenu(storageId, title, position) {
@@ -747,20 +937,29 @@ Item {
         width: root.touchActions ? Math.min(280, root.width - 32) : implicitWidth
 
         CompactContextMenuItem {
+            objectName: "noteContextOpen"
             text: qsTr("Open")
+            enabled: root.contextNoteCount() === 1
             onTriggered: root.selectNote(root.selectedStorageId, root.selectedNoteId, root.selectedTitle)
         }
         CompactContextMenuItem {
+            objectName: "noteContextOpenStandalone"
             visible: root.embeddedEditor
             text: qsTr("Open in separate window")
+            enabled: root.contextNoteCount() === 1
             onTriggered: root.openStandalone(root.selectedStorageId, root.selectedNoteId)
         }
         CompactContextMenuItem {
-            text: qsTr("Send to storage…")
+            objectName: "noteContextSend"
+            text: root.contextNoteCount() > 1 ? qsTr("Send notes to storage…")
+                                              : qsTr("Send to storage…")
+            enabled: root.contextNoteCount() > 0
             onTriggered: sendDialog.open()
         }
         CompactContextMenuItem {
-            text: qsTr("Move…")
+            objectName: "noteContextMove"
+            text: root.contextNoteCount() > 1 ? qsTr("Move notes…") : qsTr("Move…")
+            enabled: root.contextNoteCount() > 0
             onTriggered: moveDialog.open()
         }
         FolderPickerMenu {
@@ -770,18 +969,27 @@ Item {
             // which FolderPickerMenu already derives from the workspace.
             workspace: root.workspace
             currentFolderId: root.selectedNoteFolderId()
+            selectionMixed: root.contextNotesHaveMixedFolders()
             onFolderSelected: function(folderId) { root.assignSelectedNoteFolder(folderId) }
         }
         CompactContextSeparator { }
         CompactContextMenuItem {
-            visible: root.workspace.isRecycledNote(root.selectedStorageId, root.selectedNoteId)
-            text: qsTr("Restore from Recycle Bin")
-            onTriggered: root.workspace.restoreRecycledNote(root.selectedStorageId, root.selectedNoteId)
+            objectName: "noteContextRestore"
+            visible: root.contextNotesAllRecycled()
+            text: root.contextNoteCount() > 1 ? qsTr("Restore notes from Recycle Bin")
+                                              : qsTr("Restore from Recycle Bin")
+            onTriggered: root.restoreContextNotes()
         }
         CompactContextMenuItem {
-            text: root.workspace.isRecycledNote(root.selectedStorageId, root.selectedNoteId)
-                  ? qsTr("Delete permanently") : qsTr("Move to Recycle Bin")
-            onTriggered: root.requestDelete(root.selectedStorageId, root.selectedNoteId, root.selectedTitle)
+            objectName: "noteContextDelete"
+            text: root.contextNotesAllRecycled()
+                  ? (root.contextNoteCount() > 1 ? qsTr("Delete notes permanently")
+                                                 : qsTr("Delete permanently"))
+                  : (root.contextNotesAnyRecycled() ? qsTr("Delete selected notes")
+                                                    : (root.contextNoteCount() > 1
+                                                       ? qsTr("Move notes to Recycle Bin")
+                                                       : qsTr("Move to Recycle Bin")))
+            onTriggered: root.requestContextNotesDeletion()
         }
     }
 
@@ -815,7 +1023,8 @@ Item {
         modal: true
         width: Math.min(420, root.width - 32)
         height: Math.min(190, root.height - 32)
-        title: qsTr("Delete note permanently")
+        title: root.pendingPermanentDeletionNotes.length > 1
+               ? qsTr("Delete notes permanently") : qsTr("Delete note permanently")
         standardButtons: Dialog.Yes | Dialog.No
 
         contentItem: ColumnLayout {
@@ -825,11 +1034,13 @@ Item {
                 id: permanentDeleteMessage
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
-                text: root.pendingPermanentDeletionNotes.length === 1
-                      ? qsTr("Permanently delete “%1”? This cannot be undone.")
-                            .arg(String(root.pendingPermanentDeletionNotes[0].title || root.selectedTitle))
-                      : qsTr("Permanently delete %1 notes? This cannot be undone.")
-                            .arg(root.pendingPermanentDeletionNotes.length)
+                text: root.pendingRecycleNotes.length > 0
+                      ? qsTr("Permanently delete the selected recycled notes? The other selected notes will be moved to the Recycle Bin.")
+                      : (root.pendingPermanentDeletionNotes.length === 1
+                         ? qsTr("Permanently delete “%1”? This cannot be undone.")
+                               .arg(String(root.pendingPermanentDeletionNotes[0].title || root.selectedTitle))
+                         : qsTr("Permanently delete %1 notes? This cannot be undone.")
+                               .arg(root.pendingPermanentDeletionNotes.length))
             }
 
             CheckBox {
@@ -857,12 +1068,13 @@ Item {
 
     Dialog {
         id: moveDialog
+        objectName: "moveNotesDialog"
         parent: root
         x: (root.width - width) / 2
         y: (root.height - height) / 2
         modal: true
         width: Math.min(420, root.width - 32)
-        title: qsTr("Move note")
+        title: root.contextNoteCount() > 1 ? qsTr("Move notes") : qsTr("Move note")
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         ColumnLayout {
@@ -870,10 +1082,13 @@ Item {
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
-                text: qsTr("Move “%1” to:").arg(root.selectedTitle)
+                text: root.contextNoteCount() > 1
+                      ? qsTr("Move %1 selected notes to:").arg(root.contextNoteCount())
+                      : qsTr("Move “%1” to:").arg(root.selectedTitle)
             }
             ComboBox {
                 id: destinationStorage
+                objectName: "moveNotesDestination"
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
                 model: root.workspace.storages
@@ -882,25 +1097,19 @@ Item {
             }
         }
 
-        onAccepted: {
-            if (destinationStorage.currentValue
-                    && destinationStorage.currentValue !== root.selectedStorageId
-                    && (!root.workspace.currentEditor || root.checkpointEditor())) {
-                root.workspace.moveNote(root.selectedStorageId,
-                                        root.selectedNoteId,
-                                        destinationStorage.currentValue)
-            }
-        }
+        onAccepted: root.moveContextNotesToStorage(destinationStorage.currentValue)
     }
 
     Dialog {
         id: sendDialog
+        objectName: "sendNotesDialog"
         parent: root
         x: (root.width - width) / 2
         y: (root.height - height) / 2
         modal: true
         width: Math.min(420, root.width - 32)
-        title: qsTr("Send note to storage")
+        title: root.contextNoteCount() > 1 ? qsTr("Send notes to storage")
+                                           : qsTr("Send note to storage")
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         ColumnLayout {
@@ -908,10 +1117,13 @@ Item {
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
-                text: qsTr("Copy “%1” to:").arg(root.selectedTitle)
+                text: root.contextNoteCount() > 1
+                      ? qsTr("Copy %1 selected notes to:").arg(root.contextNoteCount())
+                      : qsTr("Copy “%1” to:").arg(root.selectedTitle)
             }
             ComboBox {
                 id: sendDestinationStorage
+                objectName: "sendNotesDestination"
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
                 model: root.workspace.storages
@@ -920,15 +1132,7 @@ Item {
             }
         }
 
-        onAccepted: {
-            if (sendDestinationStorage.currentValue
-                    && sendDestinationStorage.currentValue !== root.selectedStorageId
-                    && (!root.workspace.currentEditor || root.checkpointEditor())) {
-                root.workspace.copyNote(root.selectedStorageId,
-                                        root.selectedNoteId,
-                                        sendDestinationStorage.currentValue)
-            }
-        }
+        onAccepted: root.copyContextNotesToStorage(sendDestinationStorage.currentValue)
     }
 
     Connections {
@@ -941,15 +1145,31 @@ Item {
             }
             if (root.workspace.currentEditor && root.embeddedEditor) {
                 Qt.callLater(function() {
-                    managerEditorPane.blockEditor.focusInitialEditor()
+                    if (!root.openPendingBodyFindIfReady())
+                        managerEditorPane.blockEditor.focusInitialEditor()
                 })
             }
+        }
+        function onSearchTextChanged() {
+            if (root.pendingBodyFindQuery.length > 0
+                    && root.workspace.searchText.trim() !== root.pendingBodyFindQuery)
+                root.clearPendingBodyFind()
+        }
+        function onSearchInBodyChanged() {
+            if (!root.workspace.searchInBody)
+                root.clearPendingBodyFind()
         }
         function onLoadingChanged() {
             if (!root.workspace.loading && root.workspace.currentEditor) {
                 root.selectedStorageId = root.workspace.currentStorageId
                 root.selectedNoteId = root.workspace.currentNoteId
                 root.selectedTitle = root.workspace.currentTitle
+            }
+            if (!root.workspace.loading && root.pendingBodyFindQuery.length > 0) {
+                Qt.callLater(function() {
+                    if (!root.openPendingBodyFindIfReady() && !root.workspace.loading)
+                        root.clearPendingBodyFind()
+                })
             }
         }
     }

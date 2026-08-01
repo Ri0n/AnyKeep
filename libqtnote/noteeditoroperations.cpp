@@ -241,6 +241,7 @@ namespace {
             }
             case NoteBlockModel::Image:
             case NoteBlockModel::CodeBlock:
+            case NoteBlockModel::TagLine:
                 break;
             }
         }
@@ -615,6 +616,7 @@ void NoteEditor::loadDocument(const QString &contents, Note::Format format, Load
     const bool        markdown                 = format != Note::PlainText;
     const bool        modeChanged              = model_->markdown() != markdown;
     const bool        formatConversion         = policy == LoadPolicy::RecordFormatConversion && modeChanged;
+    const bool        replaceContent           = policy == LoadPolicy::ReplaceContent;
     const QVariantMap beforeView               = captureEditorViewState();
     const bool        nestedHistoryTransaction = historyInTransaction();
 
@@ -624,9 +626,15 @@ void NoteEditor::loadDocument(const QString &contents, Note::Format format, Load
     if (markdown)
         restoreProtectedMarkdown(model_);
 
-    if (formatConversion)
+    if (formatConversion) {
         endHistoryTransaction(beforeView);
-    else {
+    } else if (replaceContent) {
+        // contentsChanged() has already synchronized text_/format_ and marked
+        // the document dirty.  Drop the synthetic load operation from undo
+        // history, but deliberately keep the previous persistence baseline.
+        resetHistory();
+        setDirty(true);
+    } else {
         resetContent(model_->contents(), markdown ? Note::Markdown : Note::PlainText);
         resetHistory();
     }
@@ -727,6 +735,48 @@ int NoteEditor::setLink(QQuickTextDocument *quickDocument, int start, int end, c
     return end;
 }
 
+namespace {
+    bool inlineFormatState(const QTextCharFormat &format, const QString &style)
+    {
+        if (style == QLatin1String("bold"))
+            return format.fontWeight() >= QFont::Bold;
+        if (style == QLatin1String("italic"))
+            return format.fontItalic();
+        if (style == QLatin1String("strike"))
+            return format.fontStrikeOut();
+        if (style == QLatin1String("underline"))
+            return format.fontUnderline();
+        if (style == QLatin1String("code"))
+            return format.fontFixedPitch();
+        if (style == QLatin1String("link"))
+            return format.isAnchor();
+        return false;
+    }
+
+    bool configureInlineFormat(QTextCharFormat &format, QTextDocument *document, const QString &style, bool enabled)
+    {
+        if (style == QLatin1String("bold"))
+            format.setFontWeight(enabled ? QFont::Bold : QFont::Normal);
+        else if (style == QLatin1String("italic"))
+            format.setFontItalic(enabled);
+        else if (style == QLatin1String("strike"))
+            format.setFontStrikeOut(enabled);
+        else if (style == QLatin1String("underline"))
+            format.setFontUnderline(enabled);
+        else if (style == QLatin1String("code")) {
+            format.setFontFixedPitch(enabled);
+            format.setFontFamilies(enabled ? QStringList { QStringLiteral("monospace") }
+                                           : document->defaultFont().families());
+        } else if (style == QLatin1String("link")) {
+            format.setAnchor(enabled);
+            format.setAnchorHref(enabled ? QStringLiteral("url") : QString());
+        } else {
+            return false;
+        }
+        return true;
+    }
+} // namespace
+
 int NoteEditor::applyInlineFormat(QQuickTextDocument *quickDocument, int start, int end, const QString &style)
 {
     if (!quickDocument || !quickDocument->textDocument())
@@ -734,46 +784,51 @@ int NoteEditor::applyInlineFormat(QQuickTextDocument *quickDocument, int start, 
     auto *document = quickDocument->textDocument();
     start          = qBound(0, start, document->characterCount() - 1);
     end            = qBound(start, end, document->characterCount() - 1);
+    if (start == end)
+        return start;
+
     QTextCursor cursor(document);
     cursor.setPosition(start);
     cursor.setPosition(end, QTextCursor::KeepAnchor);
 
-    QString placeholder;
-    if (!cursor.hasSelection()) {
-        placeholder = style == QLatin1String("code") ? tr("code")
-            : style == QLatin1String("link")         ? tr("link")
-                                                     : tr("text");
-        cursor.insertText(placeholder);
-        cursor.setPosition(start);
-        cursor.setPosition(start + placeholder.size(), QTextCursor::KeepAnchor);
-        end = start + placeholder.size();
-    }
-
-    const auto      current = cursor.charFormat();
     QTextCharFormat format;
-    if (style == QLatin1String("bold"))
-        format.setFontWeight(current.fontWeight() >= QFont::Bold ? QFont::Normal : QFont::Bold);
-    else if (style == QLatin1String("italic"))
-        format.setFontItalic(!current.fontItalic());
-    else if (style == QLatin1String("strike"))
-        format.setFontStrikeOut(!current.fontStrikeOut());
-    else if (style == QLatin1String("underline"))
-        format.setFontUnderline(!current.fontUnderline());
-    else if (style == QLatin1String("code")) {
-        format.setFontFixedPitch(!current.fontFixedPitch());
-        if (!current.fontFixedPitch()) {
-            format.setFontFamilies({ QStringLiteral("monospace") });
-        } else {
-            format.setFontFamilies(document->defaultFont().families());
-        }
-    } else if (style == QLatin1String("link")) {
-        format.setAnchor(!current.isAnchor());
-        format.setAnchorHref(current.isAnchor() ? QString() : QStringLiteral("url"));
-    } else {
+    const bool      enabled = !inlineFormatState(cursor.charFormat(), style);
+    if (!configureInlineFormat(format, document, style, enabled))
         return -1;
-    }
     cursor.mergeCharFormat(format);
     return end;
+}
+
+bool NoteEditor::inlineFormatEnabled(QQuickTextDocument *quickDocument, int position, const QString &style) const
+{
+    if (!quickDocument || !quickDocument->textDocument())
+        return false;
+    auto *document = quickDocument->textDocument();
+    position       = qBound(0, position, document->characterCount() - 1);
+    QTextCursor cursor(document);
+    cursor.setPosition(position);
+    return inlineFormatState(cursor.charFormat(), style);
+}
+
+bool NoteEditor::setInlineFormat(QQuickTextDocument *quickDocument, int start, int end, const QString &style,
+                                 bool enabled)
+{
+    if (!quickDocument || !quickDocument->textDocument())
+        return false;
+    auto *document = quickDocument->textDocument();
+    start          = qBound(0, start, document->characterCount() - 1);
+    end            = qBound(start, end, document->characterCount() - 1);
+    if (start >= end)
+        return false;
+
+    QTextCursor cursor(document);
+    cursor.setPosition(start);
+    cursor.setPosition(end, QTextCursor::KeepAnchor);
+    QTextCharFormat format;
+    if (!configureInlineFormat(format, document, style, enabled))
+        return false;
+    cursor.mergeCharFormat(format);
+    return true;
 }
 
 void NoteEditor::applyInlineHtmlFormatting(QQuickTextDocument *quickDocument) const

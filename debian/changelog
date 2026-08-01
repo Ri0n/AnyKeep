@@ -1,4 +1,4 @@
-qtnote (3.2.300) UNRELEASED; urgency=medium
+qtnote (3.2.302) UNRELEASED; urgency=medium
 
   * KDE plasmamoid
   * Gnome shell-extension
@@ -6,8 +6,10 @@ qtnote (3.2.300) UNRELEASED; urgency=medium
   * Added remote storages, caches, drafts
   * Added folders
   * Added image tuning
+  * New release
+  * New release
 
- -- Sergei Ilinykh <rion4ik@gmail.com>  Fri, 31 Jul 2026 23:43:37 +0300
+ -- Sergei Ilinykh <rion4ik@gmail.com>  Sat, 01 Aug 2026 20:23:31 +0300
 
 qtnote (3.2.99) UNRELEASED; urgency=medium
 

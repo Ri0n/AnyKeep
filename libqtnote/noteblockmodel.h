@@ -28,7 +28,7 @@ class QTNOTE_EXPORT NoteBlockModel : public QAbstractListModel {
     Q_PROPERTY(QString contents READ contents WRITE setContents NOTIFY contentsChanged)
 
 public:
-    enum BlockType { Text, BulletList, CheckList, Table, Image, NumberedList, Heading, BlockQuote, CodeBlock };
+    enum BlockType { Text, BulletList, CheckList, Table, Image, NumberedList, Heading, BlockQuote, CodeBlock, TagLine };
     Q_ENUM(BlockType)
     enum Role {
         TypeRole = Qt::UserRole + 1,
@@ -44,7 +44,8 @@ public:
         HeadingLevelRole,
         LanguageRole,
         ImageWidthRole,
-        ImageAlignmentRole
+        ImageAlignmentRole,
+        TagsRole
     };
 
     explicit NoteBlockModel(QObject *parent = nullptr);
@@ -73,6 +74,7 @@ public:
     Q_INVOKABLE int  moveListRangeToBlock(int sourceRow, int sourceFirstItem, int sourceLastItem, int targetRow);
     Q_INVOKABLE bool moveListSubtree(int sourceRow, int sourceItem, int targetRow, int targetItem, int targetIndent);
     Q_INVOKABLE void convertListToText(int row);
+    Q_INVOKABLE int  unlistListItem(int row, int item);
     Q_INVOKABLE void indentListItems(int row, int firstItem, int lastItem, int delta);
     Q_INVOKABLE void setChecked(int row, int item, bool checked);
     Q_INVOKABLE void setTableCell(int row, int cell, const QString &text);
@@ -81,6 +83,7 @@ public:
     Q_INVOKABLE void removeTableRows(int row, int firstRow, int lastRow);
     Q_INVOKABLE void insertTableColumn(int row, int column);
     Q_INVOKABLE void removeTableColumn(int row, int column);
+    Q_INVOKABLE bool moveTableColumn(int row, int from, int to);
     Q_INVOKABLE void setImageUrl(int row, const QString &url);
     Q_INVOKABLE void setImageAlt(int row, const QString &alt);
     Q_INVOKABLE void setImageWidth(int row, int width);
@@ -95,13 +98,22 @@ public:
     Q_INVOKABLE void insertBlockQuote(int row);
     Q_INVOKABLE void insertCodeBlock(int row, const QString &language = QString());
     Q_INVOKABLE void setCodeLanguage(int row, const QString &language);
-    Q_INVOKABLE int  blockTypeAt(int row) const;
-    Q_INVOKABLE bool isExplicitEmptyTextBlock(int row) const;
+    Q_INVOKABLE QVariantMap promoteTagLineFromText(int row, const QString &plainText, const QString &markdownText,
+                                                   int cursorPosition, bool force);
+    Q_INVOKABLE QVariantMap setTagLineTag(int row, int tagIndex, const QString &value, int cursorPosition = -1);
+    Q_INVOKABLE QVariantMap appendTagLineTag(int row, const QString &value, int cursorPosition = -1);
+    Q_INVOKABLE QVariantMap removeTagLineTag(int row, int tagIndex);
+    Q_INVOKABLE bool        moveTagLineTag(int row, int from, int to);
+    Q_INVOKABLE QVariantMap convertTagLineToText(int row, const QString &text = QString(), int cursorPosition = -1);
+    Q_INVOKABLE int         blockTypeAt(int row) const;
+    Q_INVOKABLE int         listItemCountAt(int row) const;
+    Q_INVOKABLE bool        isExplicitEmptyTextBlock(int row) const;
     Q_INVOKABLE QVariantMap findText(const QString &text, const QVariantMap &after = {}, bool backwards = false,
                                      bool caseSensitive = false) const;
     Q_INVOKABLE bool        convertListLevel(int row, int item, BlockType type);
     Q_INVOKABLE int         convertTextBlockToHeading(int row, int position, int level);
     Q_INVOKABLE int         convertTextBlockToQuote(int row, int position, bool quote);
+    Q_INVOKABLE bool        splitStructuredBlockToText(int row, const QString &before, const QString &after);
     Q_INVOKABLE bool        moveBlock(int row, int targetRow);
     Q_INVOKABLE void        removeBlock(int row);
     void                    setPreviewUrls(const QHash<QString, QString> &urls);
@@ -143,6 +155,7 @@ private:
         QString      imageAlignment = QStringLiteral("center");
         int          headingLevel   = 0;
         QString      language;
+        QStringList  tags;
         bool         explicitEmpty = false;
 
         bool operator==(const Block &other) const
@@ -151,7 +164,7 @@ private:
                 && itemTypes == other.itemTypes && checked == other.checked && cells == other.cells
                 && columns == other.columns && url == other.url && alt == other.alt && imageWidth == other.imageWidth
                 && imageAlignment == other.imageAlignment && headingLevel == other.headingLevel
-                && language == other.language && explicitEmpty == other.explicitEmpty;
+                && language == other.language && tags == other.tags && explicitEmpty == other.explicitEmpty;
         }
     };
 
@@ -165,11 +178,14 @@ private:
     State               state() const;
     bool                restoreState(const State &state);
     static QList<Block> parseMarkdown(const QString &source);
+    static QList<Block> parseMarkdownCore(const QString &source);
     static QList<Block> parseMarkdownWithoutCode(const QString &source);
     static QString      writeMarkdown(const QList<Block> &blocks);
     static bool         blocksFromFragment(const NoteFragment &fragment, QList<Block> *blocks, QString *error);
     static QList<Block> cloneBlocks(const QList<Block> &blocks);
-    void                changed(int row, const QList<int> &roles);
+    static bool normalizeTagLinePositions(QList<Block> *blocks, bool markdown, bool promoteTextCandidate = false);
+    void        notifyNormalizedTagLines(bool promoteTextCandidate = false);
+    void        changed(int row, const QList<int> &roles);
 
     QList<Block>            blocks_;
     QHash<QString, QString> previewUrls_;

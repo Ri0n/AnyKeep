@@ -135,7 +135,10 @@ PlasmaExtras.Representation {
                     notesView.currentIndex = 0;
                     root.notesModel.query = text;
                 }
-                onAccepted: if (notesView.currentIndex >= 0) {
+                // PlasmaExtras.SearchField also emits accepted when its
+                // built-in clear action is triggered. Only a non-empty search
+                // represents an explicit request to open the current result.
+                onAccepted: if (text.trim().length > 0 && notesView.currentIndex >= 0) {
                     root.notesModel.openNote(notesView.currentIndex, root.Window.window);
                 }
             }

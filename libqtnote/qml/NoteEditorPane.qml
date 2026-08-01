@@ -112,8 +112,17 @@ Item {
         return editorView.pasteClipboard()
     }
 
-    function openFind() {
+    function openFind(query, findImmediately) {
+        const requestedQuery = query === undefined || query === null ? "" : String(query)
+        if (requestedQuery.length > 0)
+            findBar.query = requestedQuery
         findBar.open()
+        if (findImmediately && requestedQuery.length > 0) {
+            Qt.callLater(function() {
+                editorView.resetFind()
+                editorView.findNext(requestedQuery, false)
+            })
+        }
     }
 
     function insertionRowAtPoint(x, y) {

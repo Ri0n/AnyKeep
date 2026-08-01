@@ -8,10 +8,12 @@ Flickable {
     id: root
 
     required property var controller
+    readonly property bool scrollBarAtWindowEdge: true
     readonly property int verticalScrollBarInset:
         contentHeight > height
         ? Math.ceil(Math.max(verticalScrollBar.width, verticalScrollBar.implicitWidth)) : 0
-    contentWidth: Math.max(0, width - verticalScrollBarInset)
+    readonly property int contentRightPadding: verticalScrollBarInset > 0 ? 8 : 12
+    contentWidth: Math.max(0, width - verticalScrollBarInset - contentRightPadding)
     contentHeight: contentColumn.implicitHeight + 20
     clip: true
 
@@ -26,7 +28,10 @@ Flickable {
             id: genericSettingsLoader
             Layout.fillWidth: true
             Layout.preferredHeight: item ? item.contentHeight : 0
-            Component.onCompleted: setSource("qrc:/qml/SettingsForm.qml", { "controller": root.controller })
+            Component.onCompleted: setSource("qrc:/qml/SettingsForm.qml", {
+                "controller": root.controller,
+                "nonScrollableRightPadding": 0
+            })
         }
 
         GroupBox {

@@ -14,10 +14,23 @@ Item {
         recolorFallback
         ? (fallbackTintMode.length > 0 ? fallbackTintMode : "auto")
         : "original"
+    // QML Image caches image-provider results by URL. Include the live
+    // application palette in the URL so symbolic theme icons and auto-tinted
+    // fallbacks are requested again after a desktop theme switch. The provider
+    // intentionally ignores this final cache-key path segment.
+    SystemPalette {
+        id: systemPalette
+    }
+    readonly property string paletteCacheKey:
+        String(systemPalette.window) + "-"
+        + String(systemPalette.windowText) + "-"
+        + String(systemPalette.button) + "-"
+        + String(systemPalette.buttonText)
     readonly property url iconSource:
         "image://qtnoteicons/" + encodeURIComponent(themeName)
         + "/" + encodeURIComponent(fallbackName)
         + "/" + encodeURIComponent(fallbackMode)
+        + "/" + encodeURIComponent(paletteCacheKey)
 
     implicitWidth: pixelSize
     implicitHeight: pixelSize

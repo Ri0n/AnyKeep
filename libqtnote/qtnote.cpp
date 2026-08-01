@@ -311,6 +311,11 @@ void Main::parseAppArguments(const QStringList &args)
         } else if (args.at(i) == QLatin1String("-m") || args.at(i) == QLatin1String("--note-manager")) {
             showNoteManager();
             argsHandled = true;
+        } else if (args.at(i) == QLatin1String("--safe-mode") || args.at(i) == QLatin1String("--safemode")) {
+            // Safe mode is consumed before Main is constructed so plugin
+            // loading can be restricted.  Treat it as a handled argument here
+            // as well to avoid showing first-start UI.
+            argsHandled = true;
         }
         i++;
     }

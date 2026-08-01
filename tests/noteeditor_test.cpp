@@ -5,6 +5,7 @@
 #include "noteblockmodel.h"
 #include "notedata.h"
 #include "noteeditor.h"
+#include "noterule.h"
 
 using namespace QtNote;
 
@@ -90,6 +91,97 @@ private slots:
         QVERIFY(!editor.isDirty());
         QVERIFY(editor.close());
         QVERIFY(data->drafts.isEmpty());
+    }
+
+    void markdownTagLineIsCheckpointedAsTags()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QString(), Note::Markdown);
+
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(note, drafts);
+
+        editor.setText(QStringLiteral("Title\n\n*tb *interview\n\nhello"));
+        QVERIFY(editor.save());
+        const auto record = data->drafts.value(editor.draftId());
+        QCOMPARE(record.body, QStringLiteral("*tb *interview\n\nhello"));
+        QCOMPARE(record.tags, QStringList({ QStringLiteral("tb"), QStringLiteral("interview") }));
+
+        NoteRule rule;
+        rule.id         = QUuid::createUuid();
+        rule.name       = QStringLiteral("Tomboy");
+        rule.revision   = 1;
+        rule.modifiedAt = QDateTime::currentDateTimeUtc();
+        rule.conditions = { { NoteRuleConditionKind::HasTag, QStringLiteral("*tb"), false } };
+        NoteRuleAction action;
+        action.kind      = NoteRuleActionKind::SelectStorage;
+        action.storageId = QStringLiteral("tomboy");
+        rule.actions     = { action };
+
+        NoteRuleEvaluationInput input;
+        input.storageId       = QStringLiteral("ptf");
+        input.noteId          = record.id.toString(QUuid::WithoutBraces);
+        input.title           = record.title;
+        input.tags            = record.tags;
+        input.text            = record.body;
+        input.textAvailable   = true;
+        const auto evaluation = NoteRuleEvaluator::evaluate({ rule }, input);
+        QVERIFY2(evaluation, qPrintable(evaluation.error.message));
+        QCOMPARE(evaluation.matchedRuleIds, QList<QUuid> { rule.id });
+        QCOMPARE(evaluation.storageId, QStringLiteral("tomboy"));
+    }
+
+    void plainTextSecondLineIsCheckpointedAsTags()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(plainNote(QStringLiteral("Title"), QString()), drafts);
+
+        editor.setText(QStringLiteral("Title\n*tb *interview\nhello"));
+        QVERIFY(editor.save());
+        const auto record = data->drafts.value(editor.draftId());
+        QCOMPARE(record.body, QStringLiteral("*tb *interview\nhello"));
+        QCOMPARE(record.tags, QStringList({ QStringLiteral("tb"), QStringLiteral("interview") }));
+    }
+
+    void programmaticReplacementSynchronizesStructuralModel()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QString());
+        note.setText(QString(), Note::Markdown);
+
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(note, drafts);
+
+        editor.setText(QStringLiteral("Selected title\n\nSelected body"));
+        QCOMPARE(editor.model()->contents(), QStringLiteral("Selected title\n\nSelected body"));
+        QVERIFY(editor.isDirty());
+        QVERIFY(editor.save());
+        const auto record = data->drafts.value(editor.draftId());
+        QCOMPARE(record.title, QStringLiteral("Selected title"));
+        QCOMPARE(record.body, QStringLiteral("Selected body"));
+        QCOMPARE(record.format, Note::Markdown);
+    }
+
+    void discardAndCloseRemovesPersistedUnpublishedDraft()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(plainNote(), drafts);
+
+        QVERIFY(editor.noteId().isEmpty());
+        editor.setText(QStringLiteral("Temporary\nSelection"));
+        QVERIFY(editor.save());
+        QVERIFY(data->drafts.contains(editor.draftId()));
+        QVERIFY(editor.discardAndClose());
+        QVERIFY(!data->drafts.contains(editor.draftId()));
     }
 
     void checkpointThenCloseTransitionsDraft()

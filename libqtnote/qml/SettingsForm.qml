@@ -8,10 +8,14 @@ Flickable {
     id: root
 
     required property var controller
+    readonly property bool scrollBarAtWindowEdge: true
+    property int nonScrollableRightPadding: 12
     readonly property int verticalScrollBarInset:
         contentHeight > height
         ? Math.ceil(Math.max(verticalScrollBar.width, verticalScrollBar.implicitWidth)) : 0
-    contentWidth: Math.max(0, width - verticalScrollBarInset)
+    readonly property int contentRightPadding:
+        verticalScrollBarInset > 0 ? 8 : nonScrollableRightPadding
+    contentWidth: Math.max(0, width - verticalScrollBarInset - contentRightPadding)
     contentHeight: fieldsColumn.implicitHeight + 24
     clip: true
 

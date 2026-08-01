@@ -91,6 +91,13 @@ QSocketNotifier *installUnixSignalHandlers(QObject *parent)
 
 int main(int argc, char *argv[])
 {
+    bool safeMode = false;
+    for (int i = 1; i < argc; ++i) {
+        const QLatin1String argument(argv[i]);
+        if (argument == "--safe-mode" || argument == "--safemode")
+            safeMode = true;
+    }
+
     // Prefix every Qt log message, including messages from plugins and Qt
     // itself, with monotonic seconds elapsed since this process started.
     qSetMessagePattern(QStringLiteral("[%{time process}] %{message}"));
@@ -100,13 +107,19 @@ int main(int argc, char *argv[])
         if (v == "-h" || v == "--help") {
             std::cout << "QtNote - note taking application\n\n"
                       << " -n [type]          Create a new note from 'type'. 'selection' is the only supported type.\n"
-                      << " -m, --note-manager Open the Notes Manager.\n\n";
+                      << " -m, --note-manager Open the Notes Manager.\n"
+                      << " --safe-mode, --safemode\n"
+                      << "                    Load only the base desktop integration plugin.\n\n";
             return 0;
         }
     }
 
     QtSingleApplication a(argc, argv); //, true, SingleApplication::Mode::User, 1000, "xxx");
     if (a.isRunning()) {
+        if (safeMode) {
+            std::cerr << "QtNote is already running. Stop it before starting with --safe-mode.\n";
+            return 1;
+        }
         QStringList args = a.arguments();
         if (args.size() > 1) {
             args.pop_front();
@@ -120,6 +133,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setDesktopFileName("qtnote");
 
     QApplication::setQuitOnLastWindowClosed(false);
+    a.setProperty("qtnoteSafeMode", safeMode);
 
 #ifdef Q_OS_UNIX
     installUnixSignalHandlers(&a);

@@ -4,6 +4,8 @@ add_qtnote_plugin(tomboy "Allows to load notes from Tomboy" ON unix macosx windo
     tomboyplugin.cpp
     tomboyplugin.h
     tomboy.qrc
+    tomboynoteformat.cpp
+    tomboynoteformat.h
     tomboystorage.cpp
     tomboystorage.h
 )

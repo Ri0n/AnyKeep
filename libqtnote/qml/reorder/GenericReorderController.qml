@@ -6,6 +6,7 @@ Item {
     id: controller
 
     property Item geometryItem: parent
+    property int orientation: Qt.Vertical
     property var scrollItem: null
     property bool compensateForScroll: true
     property var boundaryProvider: null
@@ -19,6 +20,7 @@ Item {
     property bool previewHideSources: true
     property bool previewLive: true
     property bool previewCompact: false
+    property bool previewLockCrossAxis: false
 
     readonly property bool dragging: active
     property bool active: false
@@ -30,14 +32,17 @@ Item {
     property real startPointerY: 0
     property real startScrollX: 0
     property real startScrollY: 0
-    property real startDraggedTopY: 0
-    property bool targetByDraggedTop: false
+    property real startDraggedLeading: 0
+    property bool targetByDraggedLeading: false
+    readonly property real startDraggedTopY: startDraggedLeading
+    readonly property bool targetByDraggedTop: targetByDraggedLeading
     property real translationX: 0
     property real translationY: 0
     property real draggedExtent: 0
     property real currentPointerX: 0
     property real currentPointerY: 0
-    property real targetProbeY: 0
+    property real targetProbe: 0
+    readonly property real targetProbeY: targetProbe
     readonly property int previewCount: dragPreview.previewCount
 
     visible: dragging
@@ -76,7 +81,7 @@ Item {
         const entries = []
         const previewItems = []
         let extent = 0
-        let draggedTop = Number.POSITIVE_INFINITY
+        let draggedLeading = Number.POSITIVE_INFINITY
         for (const requested of requestedSources) {
             const descriptor = requested && requested.item !== undefined
                     ? requested : { item: requested }
@@ -91,8 +96,9 @@ Item {
                     ? Number(descriptor.geometryY) : 0
             const naturalExtent = descriptor.naturalExtent !== undefined
                     ? Number(descriptor.naturalExtent)
-                    : Number(item.naturalHeight !== undefined
-                             ? item.naturalHeight : item.height)
+                    : controller.orientation === Qt.Horizontal
+                      ? Number(item.naturalWidth !== undefined ? item.naturalWidth : item.width)
+                      : Number(item.naturalHeight !== undefined ? item.naturalHeight : item.height)
             const origin = geometrySource.mapToItem(geometryItem, geometryX, geometryY)
             entries.push({
                 item: item,
@@ -112,7 +118,8 @@ Item {
                         ? Number(descriptor.previewHeight) : previewItem.height
             })
             extent += naturalExtent
-            draggedTop = Math.min(draggedTop, origin.y)
+            draggedLeading = Math.min(draggedLeading,
+                                      controller.orientation === Qt.Horizontal ? origin.x : origin.y)
         }
         if (entries.length === 0)
             return false
@@ -133,15 +140,24 @@ Item {
             pointer = pointerItem.mapToItem(geometryItem, localX, localY)
         }
 
-        dragPreview.capture(previewItems)
+        // A logical source can be represented by several visual fragments.
+        // Table-column reorder uses one header cell for compressed horizontal
+        // geometry, but previews and hides every cell in that column.
+        const configuredPreviewItems = configuration.previewItems
+        dragPreview.capture(configuredPreviewItems === undefined
+                            ? previewItems : configuredPreviewItems)
         sourceEntries = entries
         sourcePayload = configuration.payload
         draggedExtent = extent
         startPointerX = pointer.x
         startPointerY = pointer.y
-        startDraggedTopY = Number.isFinite(draggedTop) ? draggedTop : pointer.y
-        targetByDraggedTop = configuration.targetByDraggedTop !== undefined
-                ? Boolean(configuration.targetByDraggedTop) : true
+        startDraggedLeading = Number.isFinite(draggedLeading)
+                ? draggedLeading
+                : (controller.orientation === Qt.Horizontal ? pointer.x : pointer.y)
+        targetByDraggedLeading = configuration.targetByDraggedLeading !== undefined
+                ? Boolean(configuration.targetByDraggedLeading)
+                : configuration.targetByDraggedTop !== undefined
+                  ? Boolean(configuration.targetByDraggedTop) : true
         startScrollX = scrollX()
         startScrollY = scrollY()
         translationX = 0
@@ -166,14 +182,17 @@ Item {
         const scrollDeltaY = compensateForScroll ? scrollY() - startScrollY : 0
         currentPointerX = startPointerX + translationX + scrollDeltaX
         currentPointerY = startPointerY + translationY + scrollDeltaY
-        // Boundaries describe the layout after removing every source row. Comparing
-        // the preview top with them advances the target only after half of the next
-        // row is covered, for both a single row and a multi-row block.
-        targetProbeY = (targetByDraggedTop ? startDraggedTopY : startPointerY)
-                       + translationY + scrollDeltaY
+        // Boundaries describe the layout after removing every source item. Compare
+        // along the configured main axis so the same controller can drive rows,
+        // tags and table columns.
+        const startPointer = controller.orientation === Qt.Horizontal ? startPointerX : startPointerY
+        const translation = controller.orientation === Qt.Horizontal ? translationX : translationY
+        const scrollDelta = controller.orientation === Qt.Horizontal ? scrollDeltaX : scrollDeltaY
+        targetProbe = (targetByDraggedLeading ? startDraggedLeading : startPointer)
+                      + translation + scrollDelta
         const boundaries = typeof boundaryProvider === "function"
                 ? boundaryProvider(controller) : []
-        targetBoundary = reorderGeometry.nearestBoundary(targetProbeY, boundaries)
+        targetBoundary = reorderGeometry.nearestBoundary(targetProbe, boundaries)
         if (typeof targetChangedHandler === "function")
             targetChangedHandler(targetBoundary, currentPointerX,
                                  currentPointerY, controller)
@@ -221,14 +240,14 @@ Item {
         startPointerY = 0
         startScrollX = 0
         startScrollY = 0
-        startDraggedTopY = 0
-        targetByDraggedTop = false
+        startDraggedLeading = 0
+        targetByDraggedLeading = false
         translationX = 0
         translationY = 0
         draggedExtent = 0
         currentPointerX = 0
         currentPointerY = 0
-        targetProbeY = 0
+        targetProbe = 0
         dragPreview.clear()
         if (typeof resetHandler === "function")
             resetHandler(controller)
@@ -256,7 +275,11 @@ Item {
         hideSources: controller.previewHideSources
         liveSources: controller.previewLive
         compactEntries: controller.previewCompact
-        translationX: controller.translationX
-        translationY: controller.translationY
+        translationX: controller.previewLockCrossAxis
+                      && controller.orientation === Qt.Vertical
+                      ? 0 : controller.translationX
+        translationY: controller.previewLockCrossAxis
+                      && controller.orientation === Qt.Horizontal
+                      ? 0 : controller.translationY
     }
 }

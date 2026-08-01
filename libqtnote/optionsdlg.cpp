@@ -19,10 +19,12 @@ Contacts:
 E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 */
 
+#include <QColor>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QFontDialog>
+#include <QLabel>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWidget>
@@ -122,10 +124,32 @@ OptionsDlg::OptionsDlg(Main *qtnote) : QDialog(0), ui(new Ui::OptionsDlg), qtnot
     });
 
     foreach (const ShortcutsManager::ShortcutInfo &si, qtnote->shortcutsManager()->all()) {
-        ShortcutEdit *se = new ShortcutEdit(qtnote, si.option);
+        auto *field       = new QWidget(ui->gbShortcuts);
+        auto *fieldLayout = new QVBoxLayout(field);
+        fieldLayout->setContentsMargins(0, 0, 0, 0);
+        fieldLayout->setSpacing(3);
+
+        auto *se = new ShortcutEdit(qtnote, si.option, field);
         se->setObjectName("shortcut-" + si.option);
         se->setSequence(si.key);
-        ((QFormLayout *)ui->gbShortcuts->layout())->addRow(si.name, se);
+        fieldLayout->addWidget(se);
+
+        auto *error = new QLabel(field);
+        error->setObjectName("shortcut-error-" + si.option);
+        error->setWordWrap(true);
+        error->setVisible(false);
+        QPalette errorPalette = error->palette();
+        errorPalette.setColor(QPalette::WindowText, QColor(190, 45, 35));
+        error->setPalette(errorPalette);
+        fieldLayout->addWidget(error);
+        connect(se, &QLineEdit::textChanged, error, [se, error]() {
+            error->clear();
+            error->hide();
+            se->setToolTip(QString());
+            se->setStyleSheet(QString());
+        });
+
+        ((QFormLayout *)ui->gbShortcuts->layout())->addRow(si.name, field);
     }
 
     ui->plugins->layout()->addWidget(new OptionsPlugins(qtnote, this));
@@ -170,8 +194,26 @@ void OptionsDlg::accept()
         }
         QString option = w->objectName().mid(sizeof("shortcut-") - 1);
         if (!qtnote->shortcutsManager()->setKey(option, w->sequence())) {
-            qtnote->notifyError(
-                tr("Failed to update shortcut for \"%1\"").arg(qtnote->shortcutsManager()->friendlyName(option)));
+            QString message
+                = tr("Failed to update shortcut for \"%1\"").arg(qtnote->shortcutsManager()->friendlyName(option));
+            const QString detail = qtnote->shortcutsManager()->lastError();
+            if (!detail.isEmpty())
+                message = detail;
+
+            auto *error = w->parentWidget()
+                ? w->parentWidget()->findChild<QLabel *>(QStringLiteral("shortcut-error-") + option)
+                : nullptr;
+            if (error) {
+                error->setText(message);
+                error->show();
+            }
+            w->setToolTip(message);
+            w->setStyleSheet(QStringLiteral("QLineEdit { border: 1px solid rgb(190, 45, 35); }"));
+            ui->tabGeneral->setCurrentWidget(ui->shortcuts);
+            w->setFocus(Qt::OtherFocusReason);
+            w->selectAll();
+            qtnote->shortcutsManager()->setShortcutEnable(option, true);
+            return;
         }
         qtnote->shortcutsManager()->setShortcutEnable(option, true);
     }

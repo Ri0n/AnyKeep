@@ -147,7 +147,14 @@ int     NotesWorkspaceController::noteCount() const { return notesModel_->noteCo
 QString NotesWorkspaceController::searchText() const { return searchModel_->searchText(); }
 bool    NotesWorkspaceController::searchInBody() const { return searchModel_->searchInBody(); }
 bool    NotesWorkspaceController::searching() const { return searchModel_->searching(); }
-bool    NotesWorkspaceController::folderCatalogAvailable() const
+
+bool NotesWorkspaceController::noteMatchesBodySearch(const QString &storageId, const QString &noteId) const
+{
+    return searchModel_ && searchModel_->searchInBody() && !searchModel_->searchText().trimmed().isEmpty()
+        && searchModel_->hasBodyMatch(storageId, noteId);
+}
+
+bool NotesWorkspaceController::folderCatalogAvailable() const
 {
     return folderCatalogManager_ && folderCatalogManager_->isAvailable();
 }
@@ -324,10 +331,23 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
 
 bool NotesWorkspaceController::trashNote(const QString &storageId, const QString &noteId)
 {
-    if (storageId.isEmpty() || noteId.isEmpty() || !ensureFolderCatalogAvailable())
+    if (storageId.isEmpty())
         return false;
     setError({});
 
+    if (noteId.isEmpty()) {
+        if (!currentEditor_ || currentEditor_->storageId() != storageId || !currentEditor_->noteId().isEmpty())
+            return false;
+        if (!currentEditor_->discardAndClose()) {
+            setError(currentEditor_->errorString());
+            return false;
+        }
+        clearCurrentEditor();
+        return true;
+    }
+
+    if (!ensureFolderCatalogAvailable())
+        return false;
     const QUuid previousFolderId(folderIdForNote(storageId, noteId));
     if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId) {
         if (!DraftManager::instance()->isLastEditingSession(currentEditor_->draftId())) {

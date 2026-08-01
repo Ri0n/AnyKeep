@@ -6,6 +6,7 @@ QtObject {
     id: layout
 
     property Item geometryItem: null
+    property int orientation: Qt.Vertical
     property var sourceEntries: []
     property var keyProvider: function(item) { return item }
     property var orderProvider: function(item) {
@@ -20,13 +21,21 @@ QtObject {
     property var extentProvider: function(item) {
         if (!item)
             return 0
+        if (layout.orientation === Qt.Horizontal) {
+            if (item.naturalWidth !== undefined)
+                return Number(item.naturalWidth)
+            return Number(item.width)
+        }
         if (item.naturalHeight !== undefined)
             return Number(item.naturalHeight)
         return Number(item.height)
     }
     property var offsetProvider: function(item) {
-        return item && item.reorderOffset !== undefined
-                ? Number(item.reorderOffset) : 0
+        if (!item)
+            return 0
+        if (layout.orientation === Qt.Horizontal && item.reorderOffsetX !== undefined)
+            return Number(item.reorderOffsetX)
+        return item.reorderOffset !== undefined ? Number(item.reorderOffset) : 0
     }
 
     function orderOf(item) {
@@ -102,13 +111,16 @@ QtObject {
     function logicalPosition(item, afterItem, positionCorrection, subtractSources) {
         if (!item || !geometryItem)
             return 0
-        const localY = afterItem ? extentOf(item) : 0
-        const mapped = item.mapToItem(geometryItem, 0, localY)
+        const local = afterItem ? extentOf(item) : 0
+        const mapped = layout.orientation === Qt.Horizontal
+                ? item.mapToItem(geometryItem, local, 0)
+                : item.mapToItem(geometryItem, 0, local)
         const correction = positionCorrection === undefined
                 ? 0 : Number(positionCorrection)
         const removedSourceExtent = subtractSources === false
                 ? 0 : sourceExtentBefore(item)
-        return mapped.y - Number(offsetProvider(item))
+        const position = layout.orientation === Qt.Horizontal ? mapped.x : mapped.y
+        return position - Number(offsetProvider(item))
                 - removedSourceExtent - correction
     }
 

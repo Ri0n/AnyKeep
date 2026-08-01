@@ -21,6 +21,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include "notedata.h"
 #include "notestorage.h"
+#include "notetagline.h"
 
 namespace QtNote {
 
@@ -39,31 +40,13 @@ QStringList NoteData::tags() const
     return ret;
 }
 
-QStringList NoteData::tagsFromLine(const QString &line)
-{
-    const auto tokens = line.trimmed().split(QLatin1Char(' '), Qt::SkipEmptyParts);
-    if (tokens.isEmpty()) {
-        return {};
-    }
-
-    QStringList tags;
-    tags.reserve(tokens.size());
-    for (const auto &token : tokens) {
-        if (!token.startsWith(QLatin1Char('*')) || token.size() == 1) {
-            return {};
-        }
-        const auto tag = token.mid(1);
-        if (!tags.contains(tag)) {
-            tags.append(tag);
-        }
-    }
-    return tags;
-}
+QStringList NoteData::tagsFromLine(const QString &line) { return NoteTagLine::parseLine(line); }
 
 QStringList NoteData::tagsFromText(const QString &text)
 {
-    const auto idx = text.indexOf(QLatin1Char('\n'));
-    return tagsFromLine(idx == -1 ? text : text.left(idx));
+    const QString normalized = NoteTagLine::normalizeLineBreaks(text);
+    const auto    idx        = normalized.indexOf(QLatin1Char('\n'));
+    return tagsFromLine(idx == -1 ? normalized : normalized.left(idx));
 }
 
 void NoteData::setTags(const QStringList &tags) { tags_ = tags; }

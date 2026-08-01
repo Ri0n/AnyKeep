@@ -6,6 +6,7 @@
 #include <QPointer>
 #include <QWidget>
 
+class QEvent;
 class QMimeData;
 class QPointF;
 class QQuickWidget;
@@ -40,10 +41,12 @@ signals:
     void focusLost();
 
 protected:
+    bool event(QEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
     void showEvent(QShowEvent *event) override;
 
 private:
+    void updateClearColor();
     void updateFocusWindow();
     int  insertionRowAt(const QPointF &position) const;
     bool canAcceptImageDrop(const QMimeData *mimeData) const;

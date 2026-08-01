@@ -91,6 +91,7 @@ set(qtnote_CORE_SRCS
     recentnotesmodel.cpp
     rulescontroller.cpp
     notestorage.cpp
+    notetagline.cpp
     notetransfercontroller.cpp
     ptfstorage.cpp
     ptffolderindex.cpp
@@ -103,6 +104,7 @@ set(qtnote_CORE_SRCS
     storagejob.cpp
     storageprioritymodel.cpp
     utils.cpp
+    windowgeometryutils.cpp
 )
 set(qtnote_CORE_HDRS
     bundledplugininterface.h
@@ -151,6 +153,7 @@ set(qtnote_CORE_HDRS
     recentnotesmodel.h
     rulescontroller.h
     notestorage.h
+    notetagline.h
     notetransfercontroller.h
     ptfstorage.h
     ptffolderindex.h
@@ -166,6 +169,7 @@ set(qtnote_CORE_HDRS
     storagejob.h
     storageprioritymodel.h
     utils.h
+    windowgeometryutils.h
 )
 set(qtnote_CORE_UIS)
 

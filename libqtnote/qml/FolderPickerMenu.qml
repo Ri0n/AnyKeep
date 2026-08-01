@@ -8,6 +8,7 @@ Menu {
 
     required property var workspace
     property string currentFolderId: ""
+    property bool selectionMixed: false
     signal folderSelected(string folderId)
 
     title: qsTr("Move to folder")
@@ -49,7 +50,7 @@ Menu {
         objectName: "folderPickerItem-unsorted"
         text: qsTr("Unsorted")
         checkable: true
-        checked: root.currentFolderId.length === 0
+        checked: !root.selectionMixed && root.currentFolderId.length === 0
         onTriggered: root.selectFolder("")
     }
 
@@ -69,7 +70,7 @@ Menu {
             objectName: "folderPickerItem-" + folderId
             text: (favorite ? "★ " : "") + root.indentation(depth) + title
             checkable: true
-            checked: root.currentFolderId === folderId
+            checked: !root.selectionMixed && root.currentFolderId === folderId
             onTriggered: root.selectFolder(folderId)
         }
 

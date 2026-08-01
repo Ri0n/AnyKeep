@@ -19,6 +19,7 @@
 #include "storageiconimageprovider.h"
 #include "themediconimageprovider.h"
 #include "utils.h"
+#include "windowgeometryutils.h"
 
 #include <QCloseEvent>
 #include <QDebug>
@@ -58,7 +59,7 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
     setResizeMode(QQuickView::SizeRootObjectToView);
     setMinimumSize(QSize(320, 240));
     resize(560, 520);
-    setColor(QGuiApplication::palette().color(QPalette::Base));
+    updateBackgroundColor();
 
     installLocalMediaImageProvider(engine());
     installStorageIconImageProvider(engine());
@@ -102,14 +103,15 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
         setIcon(storage->noteIcon());
     updateWindowTitle();
 
-    const auto  restore = main_->restoreWindowGeometry(this, windowGeometryKey_);
-    const QRect stored  = QSettings().value(windowGeometryKey_).toRect();
+    const auto  restore    = main_->restoreWindowGeometry(this, windowGeometryKey_);
+    const QRect stored     = QSettings().value(windowGeometryKey_).toRect();
+    const QRect safeStored = WindowGeometryUtils::constrainToCurrentScreens(stored, minimumSize());
     if (restore == WindowGeometryRestoreResult::Pending) {
-        if (stored.isValid())
-            resize(stored.size());
+        if (safeStored.isValid())
+            resize(safeStored.size());
     } else if (restore == WindowGeometryRestoreResult::Unsupported) {
-        if (stored.isValid() && screen() && screen()->geometry().intersects(stored)) {
-            setGeometry(stored);
+        if (safeStored.isValid()) {
+            setGeometry(safeStored);
         } else if (screen()) {
             const QRect available = screen()->availableGeometry();
             const int   x         = QRandomGenerator::global()->bounded(available.left() + available.width() / 4,
@@ -118,6 +120,15 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
                                                                         available.top() + available.height() / 2);
             setPosition(x, y);
         }
+    }
+
+    // KDE/X11 restores through KWindowConfig rather than QSettings, and a
+    // window manager may apply that geometry only after the native window is
+    // shown. Validate twice: once on the next event-loop turn and once after
+    // the window manager has had time to process the request.
+    if (restore == WindowGeometryRestoreResult::Restored) {
+        QTimer::singleShot(0, this, &NoteDialog::ensureWindowGeometryVisible);
+        QTimer::singleShot(250, this, &NoteDialog::ensureWindowGeometryVisible);
     }
 }
 
@@ -142,7 +153,14 @@ void NoteDialog::setText(const QString &text)
         QMetaObject::invokeMethod(rootObject(), "focusInitialEditor", Qt::QueuedConnection);
 }
 
-void NoteDialog::registerWindowGeometry() { main_->restoreWindowGeometry(this, windowGeometryKey_); }
+void NoteDialog::registerWindowGeometry()
+{
+    const auto restore = main_->restoreWindowGeometry(this, windowGeometryKey_);
+    if (restore == WindowGeometryRestoreResult::Restored) {
+        QTimer::singleShot(0, this, &NoteDialog::ensureWindowGeometryVisible);
+        QTimer::singleShot(250, this, &NoteDialog::ensureWindowGeometryVisible);
+    }
+}
 
 bool NoteDialog::alwaysOnTop() const { return flags().testFlag(Qt::WindowStaysOnTopHint); }
 
@@ -177,7 +195,16 @@ void NoteDialog::requestDeferredClose()
 bool NoteDialog::trashNote()
 {
     flushEditorChanges();
-    if (!editor_->noteId().isEmpty()) {
+    if (editor_->noteId().isEmpty()) {
+        // A never-published note has no remote object to recycle.  Autosave
+        // may already have created an Editing draft, so explicitly discard it
+        // before closing; otherwise startup recovery resurrects the deleted
+        // window even though the recycle bin has no corresponding note.
+        if (!editor_->discardAndClose()) {
+            emit operationFailed(editor_->errorString());
+            return false;
+        }
+    } else {
         auto *folderCatalog = FolderCatalogManager::instance();
         if (!folderCatalog->isAvailable()) {
             emit operationFailed(tr("The encrypted folder catalog is unavailable"));
@@ -291,7 +318,12 @@ void NoteDialog::closeEvent(QCloseEvent *event)
 
 bool NoteDialog::event(QEvent *event)
 {
-    if (event->type() == QEvent::WindowDeactivate) {
+    if (event->type() == QEvent::ApplicationPaletteChange) {
+        // The QML control palette and the QQuickView clear color are updated
+        // through separate paths. Re-read the application palette after Qt
+        // has finished delivering the theme-change event.
+        QTimer::singleShot(0, this, &NoteDialog::updateBackgroundColor);
+    } else if (event->type() == QEvent::WindowDeactivate) {
         flushEditorChanges();
         editor_->save();
     } else if (event->type() == QEvent::WindowActivate) {
@@ -338,10 +370,20 @@ QString NoteDialog::geometryKey() const
     return QStringLiteral("geometry.draft.%1").arg(editor_->draftIdString());
 }
 
+void NoteDialog::updateBackgroundColor() { setColor(QGuiApplication::palette().color(QPalette::Base)); }
+
 void NoteDialog::updateWindowTitle()
 {
     const QString firstLine = editor_->text().section(QLatin1Char('\n'), 0, 0).trimmed();
     setTitle(Utils::cuttedDots(firstLine.isEmpty() ? tr("[No Title]") : firstLine, 256));
+}
+
+void NoteDialog::ensureWindowGeometryVisible()
+{
+    const QRect current = geometry();
+    const QRect safe    = WindowGeometryUtils::constrainToCurrentScreens(current, minimumSize());
+    if (safe.isValid() && safe != current)
+        setGeometry(safe);
 }
 
 void NoteDialog::saveGeometryState(bool remove)

@@ -84,6 +84,7 @@ private:
     Main                           *qtnote;
     PluginHost                     *pluginHost = nullptr;
     QHash<QString, PluginData::Ptr> plugins;
+    bool                            safeMode_ = false;
 
     static bool hasLiveInstance(const PluginData::Ptr &plugin);
 

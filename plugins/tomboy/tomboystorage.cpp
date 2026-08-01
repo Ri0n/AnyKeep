@@ -28,13 +28,67 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QSettings>
 #include <QStandardPaths>
 #include <QUuid>
+#include <QXmlStreamReader>
 
 #include "notedata.h"
+#include "tomboynoteformat.h"
 #include "tomboystorage.h"
 
 namespace QtNote {
 
 namespace {
+
+    bool parseTomboyXml(QIODevice *device, QDomDocument &dom)
+    {
+        QXmlStreamReader   reader(device);
+        QList<QDomElement> elementStack;
+
+        while (!reader.atEnd()) {
+            reader.readNext();
+
+            if (reader.isStartElement()) {
+                auto element = dom.createElement(reader.qualifiedName().toString());
+                for (const auto &attribute : reader.attributes())
+                    element.setAttribute(attribute.qualifiedName().toString(), attribute.value().toString());
+
+                if (elementStack.isEmpty())
+                    dom.appendChild(element);
+                else
+                    elementStack.last().appendChild(element);
+                elementStack.append(element);
+                continue;
+            }
+
+            if (reader.isEndElement()) {
+                if (elementStack.isEmpty())
+                    return false;
+                elementStack.removeLast();
+                continue;
+            }
+
+            if (reader.isCharacters()) {
+                if (!elementStack.isEmpty())
+                    elementStack.last().appendChild(dom.createTextNode(reader.text().toString()));
+                continue;
+            }
+
+            if (reader.isComment()) {
+                const auto comment = dom.createComment(reader.text().toString());
+                if (elementStack.isEmpty())
+                    dom.appendChild(comment);
+                else
+                    elementStack.last().appendChild(comment);
+                continue;
+            }
+
+            if (reader.isProcessingInstruction()) {
+                dom.appendChild(dom.createProcessingInstruction(reader.processingInstructionTarget().toString(),
+                                                                reader.processingInstructionData().toString()));
+            }
+        }
+
+        return !reader.hasError() && elementStack.isEmpty() && !dom.documentElement().isNull();
+    }
 
     QString nodeText(const QDomNode &node)
     {
@@ -78,14 +132,17 @@ namespace {
             return false;
 
         QDomDocument dom(QStringLiteral("TomboyData"));
-        if (!dom.setContent(&file))
+        if (!parseTomboyXml(&file, dom))
             return false;
 
         const auto root = dom.documentElement();
         const auto tags = xmlTags(root.namedItem(QStringLiteral("tags")));
         note.setId(QFileInfo(fileName).completeBaseName());
-        note.setTitle(nodeText(root.namedItem(QStringLiteral("title"))));
-        note.setText(nodeText(root.namedItem(QStringLiteral("text"))), Note::Markdown);
+        const auto title = nodeText(root.namedItem(QStringLiteral("title")));
+        const auto content
+            = root.namedItem(QStringLiteral("text")).namedItem(QStringLiteral("note-content")).toElement();
+        note.setTitle(title);
+        note.setText(TomboyNoteFormat::markdownFromContent(content, title), Note::Markdown);
         note.setTags(searchableTags(tags));
         note.setLastChangeUTC(
             QDateTime::fromString(nodeText(root.namedItem(QStringLiteral("last-change-date"))), Qt::ISODate));
@@ -94,15 +151,23 @@ namespace {
         note.setBackendValue(QStringLiteral("createDate"), nodeText(root.namedItem(QStringLiteral("create-date"))));
         note.setBackendValue(QStringLiteral("cursorPosition"),
                              nodeText(root.namedItem(QStringLiteral("cursor-position"))).toInt());
+        note.setBackendValue(QStringLiteral("selectionBoundPosition"),
+                             nodeText(root.namedItem(QStringLiteral("selection-bound-position"))).toInt());
         note.setBackendValue(QStringLiteral("width"), nodeText(root.namedItem(QStringLiteral("width"))).toInt());
         note.setBackendValue(QStringLiteral("height"), nodeText(root.namedItem(QStringLiteral("height"))).toInt());
+        note.setBackendValue(QStringLiteral("x"), nodeText(root.namedItem(QStringLiteral("x"))).toInt());
+        note.setBackendValue(QStringLiteral("y"), nodeText(root.namedItem(QStringLiteral("y"))).toInt());
+        note.setBackendValue(QStringLiteral("openOnStartup"),
+                             nodeText(root.namedItem(QStringLiteral("open-on-startup"))));
         return true;
     }
 
     bool writeNoteFile(const QString &fileName, const Note &note)
     {
         QDomDocument dom;
-        auto         root = dom.createElement(QStringLiteral("note"));
+        dom.appendChild(dom.createProcessingInstruction(QStringLiteral("xml"),
+                                                        QStringLiteral("version=\"1.0\" encoding=\"utf-8\"")));
+        auto root = dom.createElement(QStringLiteral("note"));
         dom.appendChild(root);
         root.setAttribute(QStringLiteral("version"), QStringLiteral("0.3"));
         root.setAttribute(QStringLiteral("xmlns:link"), QStringLiteral("http://beatniksoftware.com/tomboy/link"));
@@ -117,7 +182,7 @@ namespace {
         text.setAttribute(QStringLiteral("xml:space"), QStringLiteral("preserve"));
         auto content = dom.createElement(QStringLiteral("note-content"));
         content.setAttribute(QStringLiteral("version"), QStringLiteral("0.1"));
-        content.appendChild(dom.createTextNode(note.text()));
+        TomboyNoteFormat::appendMarkdownContent(dom, content, note.title(), note.text());
         text.appendChild(content);
         root.appendChild(text);
 
@@ -150,8 +215,31 @@ namespace {
         const auto createDate = note.backendValue(QStringLiteral("createDate")).toString();
         appendValue(QStringLiteral("create-date"), createDate.isEmpty() ? modifiedText : createDate);
 
+        const auto positiveBackendInt = [&note](const QString &key, int fallback) {
+            const int value = note.backendValue(key).toInt();
+            return value > 0 ? value : fallback;
+        };
+        const int cursorPosition = positiveBackendInt(QStringLiteral("cursorPosition"), 1);
+        appendValue(QStringLiteral("cursor-position"), QString::number(cursorPosition));
+        appendValue(QStringLiteral("selection-bound-position"),
+                    QString::number(positiveBackendInt(QStringLiteral("selectionBoundPosition"), cursorPosition)));
+        appendValue(QStringLiteral("width"), QString::number(positiveBackendInt(QStringLiteral("width"), 337)));
+        appendValue(QStringLiteral("height"), QString::number(positiveBackendInt(QStringLiteral("height"), 200)));
+        appendValue(QStringLiteral("x"),
+                    QString::number(note.backendValue(QStringLiteral("x")).isValid()
+                                        ? note.backendValue(QStringLiteral("x")).toInt()
+                                        : 100));
+        appendValue(QStringLiteral("y"),
+                    QString::number(note.backendValue(QStringLiteral("y")).isValid()
+                                        ? note.backendValue(QStringLiteral("y")).toInt()
+                                        : 100));
+        const QString openOnStartup = note.backendValue(QStringLiteral("openOnStartup")).toString();
+        appendValue(QStringLiteral("open-on-startup"),
+                    openOnStartup.compare(QLatin1String("True"), Qt::CaseInsensitive) == 0 ? QStringLiteral("True")
+                                                                                           : QStringLiteral("False"));
+
         QFile file(fileName);
-        return file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(dom.toString(-1).toUtf8()) >= 0;
+        return file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(dom.toByteArray(2)) >= 0;
     }
 
 } // namespace
@@ -261,7 +349,7 @@ bool TomboyStorage::saveNote(const Note &note)
 QList<Note::Format> TomboyStorage::availableFormats() const
 {
     static auto formats = QList<Note::Format>() << Note::Markdown;
-    // tomboy can't handle Markdown. so we need to convert on the fly somewhere
+    // Tomboy XML conversion supports the compatible Markdown subset on load/save.
     return formats;
 }
 
@@ -271,6 +359,9 @@ QString TomboyStorage::findStorageDir() const
 
     QString dataLocation = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
 #ifdef Q_OS_UNIX
+    // Tomboy-ng uses this XDG data directory by default. Prefer it over the
+    // legacy Tomboy locations when more than one installation is present.
+    tomboyDirs << (dataLocation + QLatin1String("/tomboy-ng"));
     tomboyDirs << (dataLocation + QLatin1String("/tomboy"));
     tomboyDirs << (QDir::home().path() + "/.tomboy");
 #elif defined(Q_OS_MAC)

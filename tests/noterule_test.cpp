@@ -42,6 +42,7 @@ private slots:
     void appliesActionsInOrderAndStops();
     void defersTextRuleBeforeLaterSummaryRule();
     void supportsAnyAndNegatedConditions();
+    void acceptsOptionalTagMarkerInCondition();
     void rejectsAmbiguousRuleActions();
     void fingerprintsSemanticInputDeterministically();
 };
@@ -126,6 +127,22 @@ void NoteRuleTest::supportsAnyAndNegatedConditions()
     const auto unmatched = NoteRuleEvaluator::evaluate({ rule }, input);
     QVERIFY2(unmatched, qPrintable(unmatched.error.message));
     QVERIFY(!unmatched.folderId.has_value());
+}
+
+void NoteRuleTest::acceptsOptionalTagMarkerInCondition()
+{
+    auto rule       = makeRule(10);
+    rule.conditions = { { NoteRuleConditionKind::HasTag, QStringLiteral("*tb"), false } };
+    rule.actions    = { storageAction(QStringLiteral("tomboy")) };
+
+    NoteRuleEvaluationInput input;
+    input.storageId = QStringLiteral("ptf");
+    input.tags      = { QStringLiteral("tb") };
+
+    const auto result = NoteRuleEvaluator::evaluate({ rule }, input);
+    QVERIFY2(result, qPrintable(result.error.message));
+    QCOMPARE(result.matchedRuleIds, QList<QUuid> { rule.id });
+    QCOMPARE(result.storageId, QStringLiteral("tomboy"));
 }
 
 void NoteRuleTest::rejectsAmbiguousRuleActions()

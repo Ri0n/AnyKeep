@@ -21,6 +21,7 @@
 #include "qtnote.h"
 #include "shortcutsmanager.h"
 #include "stickynotesmanager.h"
+#include "windowgeometryutils.h"
 
 namespace QtNote {
 
@@ -208,9 +209,12 @@ QString QtNoteDBus::claimWindowGeometry()
     if (key.isEmpty())
         return {};
 
-    const QRect rect      = QSettings().value(key).toRect();
+    const QRect stored    = QSettings().value(key).toRect();
+    const QRect rect      = WindowGeometryUtils::constrainToCurrentScreens(stored, QSize(320, 240));
     const bool  valid     = rect.isValid();
     const bool  keepAbove = QSettings().value(key + QStringLiteral(".always-on-top"), false).toBool();
+    if (valid && rect != stored)
+        QSettings().setValue(key, rect);
     // qInfo() << "Window geometry claimed:" << key << "stored:" << valid << rect;
     return QString::fromUtf8(QJsonDocument(QJsonObject {
                                                { QStringLiteral("key"), key },

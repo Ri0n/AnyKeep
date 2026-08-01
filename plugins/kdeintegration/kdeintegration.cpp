@@ -1,5 +1,6 @@
 #include <KConfigGroup>
 #include <KGlobalAccel>
+#include <KGlobalShortcutInfo>
 #include <KNotification>
 #include <KSharedConfig>
 #include <KWindowConfig>
@@ -362,16 +363,62 @@ bool KDEIntegration::removeWindowGeometry(const QString &key)
     return true;
 }
 
+namespace {
+    QString shortcutConflictDescription(const QKeySequence &key, const QAction *ownAction)
+    {
+        if (key.isEmpty())
+            return {};
+        const auto  conflicts = KGlobalAccel::globalShortcutsByKey(key);
+        QStringList owners;
+        for (const auto &info : conflicts) {
+            if (ownAction && info.componentUniqueName() == QCoreApplication::applicationName()
+                && info.uniqueName() == ownAction->objectName()) {
+                continue;
+            }
+            const QString component = info.componentFriendlyName();
+            const QString action    = info.friendlyName();
+            owners.append(action.isEmpty() ? component : QStringLiteral("%1 — %2").arg(component, action));
+        }
+        owners.removeDuplicates();
+        return owners.join(QStringLiteral(", "));
+    }
+
+    bool updateKdeGlobalShortcut(QAction *action, const QKeySequence &key)
+    {
+        const QList<QKeySequence> shortcuts = key.isEmpty() ? QList<QKeySequence>() : QList<QKeySequence> { key };
+        auto                     *accel     = KGlobalAccel::self();
+        // QtNote's shortcut editor is an explicit user request.  Autoloading would
+        // restore the previously saved KDE value and ignore the newly supplied
+        // sequence. Keep the application default intact and replace only the
+        // active user shortcut without autoloading the old value.
+        const bool activeSet = accel->setShortcut(action, shortcuts, KGlobalAccel::NoAutoloading);
+        return activeSet && accel->shortcut(action) == shortcuts;
+    }
+}
+
 bool KDEIntegration::registerGlobalShortcut(const QString &id, const QKeySequence &key, QAction *action)
 {
+    _lastGlobalShortcutError.clear();
     QAction *act = _shortcuts.value(id);
     if (!act) {
         act = new QAction(action->text(), this);
         act->setObjectName(id);
         _shortcuts.insert(id, act);
     }
+    const QString conflict = shortcutConflictDescription(key, act);
+    if (!conflict.isEmpty()) {
+        _lastGlobalShortcutError
+            = tr("The shortcut %1 is already used by %2.").arg(key.toString(QKeySequence::NativeText), conflict);
+        return false;
+    }
+    // Do not call isGlobalShortcutAvailable() here.  KGlobalAccel reports an
+    // action's already registered shortcut as unavailable as well, so an
+    // update can conflict with QtNote itself.  globalShortcutsByKey() above
+    // gives us the actual owners and filters this action; setShortcut() is the
+    // authoritative check for reserved combinations that have no owner.
     const bool registered = KGlobalAccel::setGlobalShortcut(act, key);
     if (!registered) {
+        _lastGlobalShortcutError = tr("KDE rejected the shortcut %1.").arg(key.toString(QKeySequence::NativeText));
         qCWarning(logKdeIntegration).noquote()
             << "registerGlobalShortcut failed"
             << "id=" << id << "text=" << action->text() << "key=" << key.toString(QKeySequence::NativeText)
@@ -383,19 +430,34 @@ bool KDEIntegration::registerGlobalShortcut(const QString &id, const QKeySequenc
 
 bool KDEIntegration::updateGlobalShortcut(const QString &id, const QKeySequence &key)
 {
+    _lastGlobalShortcutError.clear();
     auto act = _shortcuts.value(id);
     if (!act) {
         qCWarning(logKdeIntegration) << "updateGlobalShortcut: no action for id" << id
                                      << "key=" << key.toString(QKeySequence::NativeText);
         return false;
     }
-    const bool registered = KGlobalAccel::setGlobalShortcut(act, key);
+    const QString conflict = shortcutConflictDescription(key, act);
+    if (!conflict.isEmpty()) {
+        _lastGlobalShortcutError
+            = tr("The shortcut %1 is already used by %2.").arg(key.toString(QKeySequence::NativeText), conflict);
+        return false;
+    }
+    // Do not call isGlobalShortcutAvailable() here.  KGlobalAccel reports an
+    // action's already registered shortcut as unavailable as well, so an
+    // update can conflict with QtNote itself.  globalShortcutsByKey() above
+    // gives us the actual owners and filters this action; setShortcut() is the
+    // authoritative check for reserved combinations that have no owner.
+    const bool registered = updateKdeGlobalShortcut(act, key);
     if (!registered) {
+        _lastGlobalShortcutError = tr("KDE rejected the shortcut %1.").arg(key.toString(QKeySequence::NativeText));
         qCWarning(logKdeIntegration).noquote() << "updateGlobalShortcut failed"
                                                << "id=" << id << "key=" << key.toString(QKeySequence::NativeText);
     }
     return registered;
 }
+
+QString KDEIntegration::lastGlobalShortcutError() const { return _lastGlobalShortcutError; }
 
 void KDEIntegration::setGlobalShortcutEnabled(const QString &id, bool enabled)
 {

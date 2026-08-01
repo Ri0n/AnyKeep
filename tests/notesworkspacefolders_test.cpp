@@ -6,6 +6,7 @@
 #include "notemanager.h"
 #include "notesindex.h"
 #include "notesmodel.h"
+#include "notessearchmodel.h"
 #include "notesworkspacecontroller.h"
 #include "secureenvelope.h"
 
@@ -68,6 +69,7 @@ private slots:
     void recycleBinHidesNotesUntilRestored();
     void deletesFolderBranchesWithSessionUndo();
     void recentReorderRejectsCrossStorageMove();
+    void exposesBodySearchMatchesForEditorFind();
 };
 
 void NotesWorkspaceFoldersTest::initTestCase()
@@ -228,6 +230,25 @@ void NotesWorkspaceFoldersTest::deletesFolderBranchesWithSessionUndo()
     QVERIFY(catalog.catalog().folder(QUuid(child)));
     QCOMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("one")), QUuid(parent));
     QCOMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("two")), QUuid(child));
+}
+
+void NotesWorkspaceFoldersTest::exposesBodySearchMatchesForEditorFind()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    QVERIFY(catalog.initialize());
+    NotesWorkspaceController workspace(&catalog, nullptr);
+
+    workspace.setSearchText(QStringLiteral("needle"));
+    workspace.setSearchInBody(true);
+    QVERIFY(!workspace.noteMatchesBodySearch(QStringLiteral("storage"), QStringLiteral("note")));
+    QVERIFY(QMetaObject::invokeMethod(workspace.searchModel(), "noteFound", Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("storage")),
+                                      Q_ARG(QString, QStringLiteral("note"))));
+    QVERIFY(workspace.noteMatchesBodySearch(QStringLiteral("storage"), QStringLiteral("note")));
+    workspace.setSearchInBody(false);
+    QVERIFY(!workspace.noteMatchesBodySearch(QStringLiteral("storage"), QStringLiteral("note")));
 }
 
 void NotesWorkspaceFoldersTest::recentReorderRejectsCrossStorageMove()

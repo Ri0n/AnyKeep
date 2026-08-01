@@ -60,9 +60,10 @@ public:
     bool  dismissStickyNote(const QUuid &stickyId) override;
     QUuid stickyNoteIdForPresentation(const QString &presentationId) const override;
 
-    bool registerGlobalShortcut(const QString &id, const QKeySequence &key, QAction *action) override;
-    bool updateGlobalShortcut(const QString &id, const QKeySequence &key) override;
-    void setGlobalShortcutEnabled(const QString &id, bool enabled = true) override;
+    bool    registerGlobalShortcut(const QString &id, const QKeySequence &key, QAction *action) override;
+    bool    updateGlobalShortcut(const QString &id, const QKeySequence &key) override;
+    void    setGlobalShortcutEnabled(const QString &id, bool enabled = true) override;
+    QString lastGlobalShortcutError() const override;
 
 signals:
 
@@ -75,6 +76,7 @@ private:
     QHash<QString, QAction *> _shortcuts;
     QQueue<QString>           _pendingWindowGeometryKeys;
     bool                      _waylandGeometryScriptAvailable = false;
+    QString                   _lastGlobalShortcutError;
 };
 
 } // namespace QtNote

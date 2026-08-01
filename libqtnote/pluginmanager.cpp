@@ -280,9 +280,18 @@ private:
     }
 };
 
-PluginManager::PluginManager(Main *parent) : PluginListSource(parent), qtnote(parent), pluginHost(new PluginHost(this))
+PluginManager::PluginManager(Main *parent) :
+    PluginListSource(parent), qtnote(parent), pluginHost(new PluginHost(this)),
+    safeMode_(qApp && qApp->property("qtnoteSafeMode").toBool())
 {
     updateMetadata();
+    if (safeMode_) {
+        if (const auto basePlugin = plugins.value(QStringLiteral("base_de"))) {
+            basePlugin->loadPolicy = LP_Enabled;
+        } else {
+            qWarning() << "Safe mode requested, but the base desktop integration plugin was not found";
+        }
+    }
 
     connect(pluginHost, &PluginHost::spellCheckProviderConflict, this,
             [this](const QString &activeName, const QString &ignoredName) {
@@ -336,7 +345,13 @@ void PluginManager::loadPlugins()
     auto pluginKeys     = QSet<QString>(plugins.keyBegin(), plugins.keyEnd());
     auto prioritizedSet = pluginKeys - QSet<QString>(prioritizedList.constBegin(), prioritizedList.constEnd());
     prioritizedList += QStringList(prioritizedSet.constBegin(), prioritizedSet.constEnd());
-    s.setValue("plugins-priority", prioritizedList);
+    if (!safeMode_) {
+        s.setValue("plugins-priority", prioritizedList);
+    } else {
+        prioritizedList
+            = plugins.contains(QStringLiteral("base_de")) ? QStringList { QStringLiteral("base_de") } : QStringList {};
+        qInfo() << "Safe mode enabled: only the base desktop integration plugin will be loaded";
+    }
 
     /*
      * now we have fully prioritized list.
@@ -391,17 +406,17 @@ void PluginManager::loadPlugins()
                           << "de=" << (deList.isEmpty() ? QStringLiteral("-") : deList.join(QLatin1Char(',')))
                           << "native=" << native;
 
-        if (pd->loadPolicy == LP_Disabled) {
+        if (!safeMode_ && pd->loadPolicy == LP_Disabled) {
             qInfo() << "Plugin skipped by load policy:" << plugin;
             continue;
         }
-        if (pd->loadPolicy == LP_Auto && !native && !deList.isEmpty()) {
+        if (!safeMode_ && pd->loadPolicy == LP_Auto && !native && !deList.isEmpty()) {
             qInfo().noquote() << "Plugin skipped by desktop mismatch in automatic mode:" << plugin
                               << "required=" << deList.join(QLatin1Char(','))
                               << "candidates=" << sessionCandidates.join(QLatin1Char(','));
             continue;
         }
-        if (pd->loadPolicy == LP_Enabled && !native && !deList.isEmpty()) {
+        if (!safeMode_ && pd->loadPolicy == LP_Enabled && !native && !deList.isEmpty()) {
             qInfo().noquote() << "Plugin desktop mismatch overridden by enabled policy:" << plugin
                               << "required=" << deList.join(QLatin1Char(','))
                               << "candidates=" << sessionCandidates.join(QLatin1Char(','));
@@ -537,6 +552,8 @@ void PluginManager::loadPlugins()
 
 bool PluginManager::ensureLoaded(PluginData::Ptr pd)
 {
+    if (!pd || (safeMode_ && pd->metadata.id != QLatin1String("base_de")))
+        return false;
     if (pd->loadStatus == LS_Undefined || pd->loadStatus == LS_Unloaded) {
         return loadPlugin(pd->fileName, pd) == LS_Loaded;
     }
@@ -597,6 +614,8 @@ void PluginManager::deinitRegularPlugin(const PluginData::Ptr &pd)
 
 void PluginManager::setLoadPolicy(const QString &pluginId, PluginManager::LoadPolicy lp)
 {
+    if (safeMode_)
+        return;
     auto pd = plugins.value(pluginId);
     if (!pd)
         return;
@@ -690,7 +709,7 @@ SettingsController *PluginManager::createSettingsController(const QString &plugi
 
 bool PluginManager::setPluginLoadPolicy(const QString &pluginId, LoadPolicy policy)
 {
-    if (!plugins.contains(pluginId))
+    if (safeMode_ || !plugins.contains(pluginId))
         return false;
     setLoadPolicy(pluginId, policy);
     return true;
@@ -698,6 +717,8 @@ bool PluginManager::setPluginLoadPolicy(const QString &pluginId, LoadPolicy poli
 
 bool PluginManager::setPluginOrder(const QStringList &pluginIds)
 {
+    if (safeMode_)
+        return false;
     if (pluginIds.size() != plugins.size()
         || QSet<QString>(pluginIds.cbegin(), pluginIds.cend()).size() != plugins.size())
         return false;

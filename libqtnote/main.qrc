@@ -28,6 +28,7 @@
         <file alias="HoverActionStrip.qml">qml/HoverActionStrip.qml</file>
         <file alias="EditorReorderController.qml">qml/EditorReorderController.qml</file>
         <file alias="ListBlockEditor.qml">qml/ListBlockEditor.qml</file>
+        <file alias="TagLineEditor.qml">qml/TagLineEditor.qml</file>
         <file alias="reorder/GenericReorderController.qml">qml/reorder/GenericReorderController.qml</file>
         <file alias="reorder/FlatListReorderController.qml">qml/reorder/FlatListReorderController.qml</file>
         <file alias="reorder/DragPreviewLayer.qml">qml/reorder/DragPreviewLayer.qml</file>

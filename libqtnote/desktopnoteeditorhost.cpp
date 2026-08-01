@@ -10,9 +10,12 @@
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
+#include <QEvent>
+#include <QGuiApplication>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QMimeData>
+#include <QPalette>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -50,6 +53,8 @@ DesktopNoteEditorHost::DesktopNoteEditorHost(NoteEditor *editor, QWidget *parent
     layout->setContentsMargins(0, 0, 0, 0);
 
     platformBackend_ = new DesktopEditorPlatformBackend(editor_, this);
+    if (qGuiApp)
+        qGuiApp->installEventFilter(this);
     platformBackend_->setDialogParent(this);
 
     quick_ = new QQuickWidget(this);
@@ -58,7 +63,7 @@ DesktopNoteEditorHost::DesktopNoteEditorHost(NoteEditor *editor, QWidget *parent
     quick_->setAcceptDrops(true);
     setFocusProxy(quick_);
     quick_->setResizeMode(QQuickWidget::SizeRootObjectToView);
-    quick_->setClearColor(palette().color(QPalette::Base));
+    updateClearColor();
     installLocalMediaImageProvider(quick_->engine());
     installThemedIconImageProvider(quick_->engine());
     installEditorCursorController(quick_->rootContext());
@@ -78,6 +83,24 @@ DesktopNoteEditorHost::~DesktopNoteEditorHost()
 {
     if (quick_)
         quick_->setSource(QUrl());
+}
+
+bool DesktopNoteEditorHost::event(QEvent *event)
+{
+    const bool paletteChanged
+        = event && (event->type() == QEvent::ApplicationPaletteChange || event->type() == QEvent::PaletteChange);
+    const bool handled = QWidget::event(event);
+    if (paletteChanged)
+        updateClearColor();
+    return handled;
+}
+
+void DesktopNoteEditorHost::updateClearColor()
+{
+    if (!quick_)
+        return;
+    const QPalette applicationPalette = qGuiApp ? QGuiApplication::palette() : palette();
+    quick_->setClearColor(applicationPalette.color(QPalette::Base));
 }
 
 NoteEditor     *DesktopNoteEditorHost::editor() const { return editor_.data(); }
@@ -163,6 +186,13 @@ bool DesktopNoteEditorHost::handleImageDrop(const QMimeData *mimeData, int row)
 
 bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
 {
+    if (watched == qGuiApp && event->type() == QEvent::ApplicationPaletteChange) {
+        // The platform theme updates the application palette independently of
+        // this child widget's inherited palette notification. Refresh after
+        // the application event has completed so both paths use the new Base.
+        QTimer::singleShot(0, this, &DesktopNoteEditorHost::updateClearColor);
+    }
+
     if (watched == focusWindow_) {
         if (event->type() == QEvent::WindowDeactivate) {
             flushPendingEditorChanges();

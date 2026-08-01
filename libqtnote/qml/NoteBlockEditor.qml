@@ -11,6 +11,7 @@ ListView {
     property var editorBackend: typeof noteEditor !== "undefined" ? noteEditor : null
     property var platformBackend: typeof qmlNoteEditor !== "undefined" ? qmlNoteEditor : null
     property var activeEditor: null
+    property int activeTagLineIndex: -1
     property int selectedImageIndex: -1
     property bool imageAltEditorFocused: false
     property var pendingFocusAddress: null
@@ -448,6 +449,7 @@ ListView {
         const focusAddress = pendingFocusAddress || editorAddress(activeEditor)
         const state = {
             active: focusAddress,
+            activeTagLineIndex: activeTagLineIndex,
             selectedImageIndex: selectedImageIndex,
             wholeDocumentSelected: wholeDocumentSelected,
             selectionSpansEditors: selectionSpansEditors,
@@ -579,6 +581,12 @@ ListView {
         const state = pendingEditorState
         if (!state)
             return false
+        const tagLineIndex = Number(state.activeTagLineIndex === undefined ? -1 : state.activeTagLineIndex)
+        if (tagLineIndex >= 0 && blockModel.blockTypeAt(tagLineIndex) === 9) {
+            pendingEditorState = null
+            focusTagLineBlock(tagLineIndex, true, true)
+            return true
+        }
         const imageIndex = Number(state.selectedImageIndex === undefined ? -1 : state.selectedImageIndex)
         if (imageIndex >= 0 && blockModel.blockTypeAt(imageIndex) === 4) {
             pendingEditorState = null
@@ -857,19 +865,33 @@ ListView {
     }
 
     function handleEmptyTextBlockDeletion(event, editor) {
-        if (!editor || event.modifiers || count <= 1
+        if (!editor || event.modifiers
                 || (event.key !== Qt.Key_Delete && event.key !== Qt.Key_Backspace)
                 || editor.selectionStart !== editor.selectionEnd
-                || editor.currentPlainText().length !== 0
-                || blockModel.blockTypeAt(editor.blockIndex) !== 0)
+                || editor.currentPlainText().length !== 0)
             return false
 
         const row = editor.blockIndex
-        if (row === 0 && !blockModel.isExplicitEmptyTextBlock(row))
+        const type = blockModel.blockTypeAt(row)
+        const emptyTextBlock = type === 0
+        const emptyBlockQuote = type === 7
+        if (!emptyTextBlock && !emptyBlockQuote)
             return false
+        if (emptyTextBlock && (count <= 1
+                || (row === 0 && !blockModel.isExplicitEmptyTextBlock(row))))
+            return false
+
         const backwards = event.key === Qt.Key_Backspace
-        return runEditTransaction("remove-empty-text-block", function() {
+        return runEditTransaction(emptyBlockQuote ? "remove-empty-blockquote"
+                                                       : "remove-empty-text-block", function() {
             prepareForStructuralMutation()
+            if (count <= 1) {
+                // A structurally empty quote still has to leave one editable
+                // paragraph behind when it is the only block.
+                blockModel.convertTextBlockToQuote(row, 0, false)
+                focusBlock(row)
+                return true
+            }
             blockModel.removeBlock(row)
             const hasPreceding = row > 0
             const hasFollowing = row < count
@@ -914,9 +936,10 @@ ListView {
         }
     }
 
-    function beginEditTransaction(kind) {
+    function beginEditTransaction(kind, flushEditors) {
         if (editTransactionDepth === 0) {
-            flushPendingEditorChanges()
+            if (flushEditors !== false)
+                flushPendingEditorChanges()
             root.editorBackend.beginHistoryTransaction(kind, captureEditorState())
         }
         ++editTransactionDepth
@@ -930,8 +953,8 @@ ListView {
             root.editorBackend.endHistoryTransaction(captureEditorState())
     }
 
-    function runEditTransaction(kind, callback) {
-        beginEditTransaction(kind)
+    function runEditTransaction(kind, callback, flushEditors) {
+        beginEditTransaction(kind, flushEditors)
         try {
             return callback()
         } finally {
@@ -947,6 +970,7 @@ ListView {
         flushPendingEditorChanges()
         clearDocumentSelection()
         selectedImageIndex = -1
+        activeTagLineIndex = -1
         activeEditor = null
     }
 
@@ -962,6 +986,7 @@ ListView {
         pendingEditorState = null
         clearDocumentSelection()
         selectedImageIndex = -1
+        activeTagLineIndex = -1
         keyboardSelectionAnchorEditor = null
         selectionAnchorEditor = null
         contextEditor = null
@@ -1117,7 +1142,8 @@ ListView {
         if (documentSelectionBlankBoundary >= 0) {
             const ranges = structuredSelectionRanges(false)
             for (const range of ranges) {
-                if (range.wholeEditor && blockModel.blockTypeAt(range.blockIndex) === 4)
+                const type = blockModel.blockTypeAt(range.blockIndex)
+                if (range.wholeEditor && (type === 4 || type === 9))
                     return true
             }
         }
@@ -1218,10 +1244,9 @@ ListView {
             })
         }
 
-        // Text editors provide the visible selection endpoints, but images do
-        // not own a TextArea. When selection starts in the blank margin beside
-        // an image, add crossed image blocks explicitly so copy/cut/delete
-        // treats the gesture as a true document-boundary selection.
+        // Text editors provide the visible selection endpoints, but images and
+        // tag lines do not own a TextArea. Add crossed structural blocks
+        // explicitly when a selection starts at a blank document boundary.
         if (documentSelectionBlankBoundary >= 0 && documentSelectionBlankDirection !== 0
                 && ranges.length > 0 && blockModel) {
             let firstRow = ranges[0].blockIndex
@@ -1230,7 +1255,7 @@ ListView {
                 firstRow = Math.min(firstRow, range.blockIndex)
                 lastRow = Math.max(lastRow, range.blockIndex)
             }
-            function wholeImageRange(row) {
+            function wholeStructuralRange(row) {
                 return {
                     blockIndex: row,
                     listItemIndex: -1,
@@ -1246,13 +1271,15 @@ ListView {
             }
             if (documentSelectionBlankDirection < 0) {
                 for (let row = lastRow + 1; row < documentSelectionBlankBoundary; ++row) {
-                    if (blockModel.blockTypeAt(row) === 4)
-                        ranges.push(wholeImageRange(row))
+                    const type = blockModel.blockTypeAt(row)
+                    if (type === 4 || type === 9)
+                        ranges.push(wholeStructuralRange(row))
                 }
             } else {
                 for (let row = firstRow - 1; row >= documentSelectionBlankBoundary; --row) {
-                    if (blockModel.blockTypeAt(row) === 4)
-                        ranges.unshift(wholeImageRange(row))
+                    const type = blockModel.blockTypeAt(row)
+                    if (type === 4 || type === 9)
+                        ranges.unshift(wholeStructuralRange(row))
                 }
             }
         }
@@ -1388,6 +1415,8 @@ ListView {
                 activeEditor.cursorPosition = position
                 activeEditor.commitText(false)
                 activeEditor.rememberPlainText()
+                if (typeof activeEditor.tryPromoteTagLine === "function")
+                    activeEditor.tryPromoteTagLine(true)
                 return true
             })
             if (titlePasted)
@@ -1397,8 +1426,12 @@ ListView {
                 && platformBackend.insertClipboardImage(insertionBlockIndex()))
             return true
         return runEditTransaction("paste", function() {
-            if (!pasteStructuredSelection(activeEditor))
-                activeEditor.paste()
+            const editor = activeEditor
+            if (!pasteStructuredSelection(editor)) {
+                editor.paste()
+                if (typeof editor.tryPromoteTagLine === "function")
+                    editor.tryPromoteTagLine(true)
+            }
             return true
         })
     }
@@ -1434,14 +1467,15 @@ ListView {
         // Ordinary selection inside one editor is handled by TextArea. Avoid
         // taking a structural before-state for every Backspace/Delete key.
         if (!wholeDocumentSelected && !selectionSpansEditors && selectedEditorCount() < 2) {
-            let includesBoundaryImage = false
+            let includesBoundaryStructuralBlock = false
             if (documentSelectionBlankBoundary >= 0) {
                 const ranges = structuredSelectionRanges(false)
-                includesBoundaryImage = ranges.some(function(range) {
-                    return range.wholeEditor && blockModel.blockTypeAt(range.blockIndex) === 4
+                includesBoundaryStructuralBlock = ranges.some(function(range) {
+                    const type = blockModel.blockTypeAt(range.blockIndex)
+                    return range.wholeEditor && (type === 4 || type === 9)
                 })
             }
-            if (!includesBoundaryImage)
+            if (!includesBoundaryStructuralBlock)
                 return false
         }
         return runEditTransaction("delete-selection", function() {
@@ -1600,10 +1634,55 @@ ListView {
         return true
     }
 
+    function focusTagLineBlock(blockIndex, atEnd, focusDraft) {
+        if (!blockModel || blockModel.blockTypeAt(blockIndex) !== 9)
+            return false
+        const generation = ++focusRequestGeneration
+        pendingFocusRetry.stop()
+        pendingFocusAddress = null
+        pendingEditorState = null
+        clearDocumentSelection()
+        clearImageSelection()
+        activeEditor = null
+        activeTagLineIndex = blockIndex
+        positionViewAtIndex(blockIndex, ListView.Contain)
+
+        function applyFocus(attempt) {
+            if (generation !== root.focusRequestGeneration
+                    || !root.blockModel || root.blockModel.blockTypeAt(blockIndex) !== 9)
+                return
+            const delegate = root.itemAtIndex(blockIndex)
+            const editor = delegate && delegate.item ? delegate.item : null
+            if (!editor) {
+                if (attempt < 3) {
+                    root.positionViewAtIndex(blockIndex, ListView.Contain)
+                    Qt.callLater(function() { applyFocus(attempt + 1) })
+                } else {
+                    root.forceActiveFocus()
+                }
+                return
+            }
+            if (focusDraft && typeof editor.focusDraft === "function")
+                editor.focusDraft()
+            else if (typeof editor.editTag === "function")
+                editor.editTag(atEnd ? Math.max(0, editor.tags.length - 1) : 0, Boolean(atEnd))
+            else
+                editor.forceActiveFocus()
+        }
+        Qt.callLater(function() { applyFocus(0) })
+        return true
+    }
+
     function focusBlock(blockIndex, atEnd, position) {
+        if (blockModel && blockModel.blockTypeAt(blockIndex) === 9)
+            return focusTagLineBlock(blockIndex, Boolean(atEnd), false)
+        activeTagLineIndex = -1
+        const type = blockModel ? blockModel.blockTypeAt(blockIndex) : -1
+        const listItemIndex = Boolean(atEnd) && (type === 1 || type === 2 || type === 5)
+                ? Math.max(0, blockModel.listItemCountAt(blockIndex) - 1) : -1
         return focusEditorAddress({
             blockIndex: blockIndex,
-            listItemIndex: -1,
+            listItemIndex: listItemIndex,
             tableCellIndex: -1,
             cursorPosition: position === undefined ? -1 : position,
             selectionStart: position === undefined ? -1 : position,
@@ -1649,6 +1728,7 @@ ListView {
     function selectImageBlock(blockIndex) {
         if (!blockModel || blockModel.blockTypeAt(blockIndex) !== 4)
             return false
+        activeTagLineIndex = -1
         ++focusRequestGeneration
         pendingFocusRetry.stop()
         pendingFocusAddress = null
@@ -1717,6 +1797,8 @@ ListView {
     }
 
     function focusFollowingBlock(blockIndex, appendIfMissing) {
+        if (blockIndex + 1 < count && blockModel.blockTypeAt(blockIndex + 1) === 9)
+            return focusTagLineBlock(blockIndex + 1, false, false)
         // Images have no cursor of their own. Find the next actual editor,
         // rather than pretending the immediately following block is one.
         const ordered = orderedEditors()
@@ -1750,6 +1832,10 @@ ListView {
     function focusPrecedingBlock(blockIndex) {
         if (blockIndex <= 0)
             return
+        if (blockModel.blockTypeAt(blockIndex - 1) === 9) {
+            focusTagLineBlock(blockIndex - 1, true, false)
+            return
+        }
         const ordered = orderedEditors()
         const activeIndex = ordered.indexOf(activeEditor)
         if (activeIndex > 0) {
@@ -1846,6 +1932,28 @@ ListView {
         })
     }
 
+    function handleStructuredEnter(event, editor) {
+        const modifiers = event.modifiers
+                & (Qt.ShiftModifier | Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
+        if (!editor || editor.codeDocument
+                || (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter)
+                || modifiers)
+            return false
+        if (blockModel.blockTypeAt(editor.blockIndex) !== 6)
+            return false
+
+        const row = editor.blockIndex
+        const before = editor.markdownRange(0, editor.selectionStart)
+        const after = editor.markdownRange(editor.selectionEnd, editor.length)
+        return runEditTransaction("exit-heading", function() {
+            prepareForStructuralMutation()
+            if (!blockModel.splitStructuredBlockToText(row, before, after))
+                return false
+            focusBlock(row + 1, false, 0)
+            return true
+        })
+    }
+
     function handleBlockBoundaryNavigation(event, editor) {
         const modifiers = event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
         if (modifiers || (event.key !== Qt.Key_Up && event.key !== Qt.Key_Down))
@@ -1862,10 +1970,12 @@ ListView {
             // Do not create ordinary empty paragraphs by pressing Down at the
             // end of a note. Structured code blocks and image-only tails need
             // a real text block so the cursor can leave them.
+            const blockType = blockModel.blockTypeAt(editor.blockIndex)
             focusFollowingBlock(
                 editor.blockIndex,
                 !event.isAutoRepeat
-                    && (editor.codeDocument || hasOnlyImagesFollowing(editor.blockIndex)))
+                    && (editor.codeDocument || blockType === 6 || blockType === 7
+                        || hasOnlyImagesFollowing(editor.blockIndex)))
         }
         return true
     }
@@ -1873,6 +1983,8 @@ ListView {
     function insertionBlockIndex() {
         if (pendingFocusAddress && Number(pendingFocusAddress.blockIndex) >= 0)
             return Number(pendingFocusAddress.blockIndex) + 1
+        if (activeTagLineIndex >= 0)
+            return activeTagLineIndex + 1
         return activeEditor && activeEditor.blockIndex >= 0 ? activeEditor.blockIndex + 1 : count
     }
 
@@ -2057,6 +2169,10 @@ ListView {
             return
         const start = editor.selectionStart
         const end = editor.selectionEnd
+        if (start === end) {
+            editor.togglePendingInlineStyle(style)
+            return
+        }
         const formattedEnd = root.editorBackend.applyInlineFormat(editor.textDocument, start, end, style)
         if (formattedEnd < 0)
             return
@@ -2495,6 +2611,7 @@ ListView {
         required property int imageWidth
         required property string imageAlignment
         required property url previewUrl
+        required property var tags
         property alias item: blockLoader.item
         readonly property bool reorderSourceActive:
             editorReorderController.blockSourceActive(blockDelegate)
@@ -2530,6 +2647,7 @@ ListView {
                      && blockDelegate.blockType !== 2
                      && blockDelegate.blockType !== 4
                      && blockDelegate.blockType !== 5
+                     && blockDelegate.blockType !== 9
             x: Math.max(0, blockLoader.x - width)
             y: 0
             width: root.listLevelHandleGutter
@@ -2562,6 +2680,7 @@ ListView {
             property int imageWidth: blockDelegate.imageWidth
             property string imageAlignment: blockDelegate.imageAlignment
             property url previewUrl: blockDelegate.previewUrl
+            property var tags: blockDelegate.tags
             x: root.editorInset
             width: Math.max(0, blockDelegate.width - 2 * root.editorInset)
             height: item ? item.implicitHeight : 0
@@ -2584,7 +2703,8 @@ ListView {
                            : blockType === 4 ? imageEditor
                            : blockType === 6 ? headingEditor
                            : blockType === 7 ? blockQuoteEditor
-                           : blockType === 8 ? codeBlockEditor : textEditor
+                           : blockType === 8 ? codeBlockEditor
+                           : blockType === 9 ? tagLineEditor : textEditor
         }
     }
 
@@ -2626,6 +2746,16 @@ ListView {
         property string observedPlainText: ""
         property bool observedPlainTextInitialized: false
         property bool discardEmptyBlockOnFocusLoss: false
+        // -1 follows the format at the cursor, 0 forces the next input off,
+        // and 1 forces it on.  Keeping this state in the editor avoids
+        // inserting placeholder text when a format button is pressed without
+        // a selection.
+        property int pendingBold: -1
+        property int pendingItalic: -1
+        property int pendingStrike: -1
+        property int pendingUnderline: -1
+        property int pendingCode: -1
+        property int pendingFormatGeneration: 0
         font: root.editorFont
         wrapMode: TextEdit.Wrap
         verticalAlignment: TextEdit.AlignTop
@@ -2647,6 +2777,93 @@ ListView {
 
         function currentPlainText() {
             return getText(0, length)
+        }
+
+        function pendingInlineValue(style) {
+            if (style === "bold")
+                return pendingBold
+            if (style === "italic")
+                return pendingItalic
+            if (style === "strike")
+                return pendingStrike
+            if (style === "underline")
+                return pendingUnderline
+            if (style === "code")
+                return pendingCode
+            return -1
+        }
+
+        function setPendingInlineValue(style, value) {
+            if (style === "bold")
+                pendingBold = value
+            else if (style === "italic")
+                pendingItalic = value
+            else if (style === "strike")
+                pendingStrike = value
+            else if (style === "underline")
+                pendingUnderline = value
+            else if (style === "code")
+                pendingCode = value
+        }
+
+        function hasPendingInlineStyle() {
+            return pendingBold >= 0 || pendingItalic >= 0 || pendingStrike >= 0
+                    || pendingUnderline >= 0 || pendingCode >= 0
+        }
+
+        function clearPendingInlineStyles() {
+            pendingBold = -1
+            pendingItalic = -1
+            pendingStrike = -1
+            pendingUnderline = -1
+            pendingCode = -1
+            ++pendingFormatGeneration
+        }
+
+        function togglePendingInlineStyle(style) {
+            if (!root.editorBackend
+                    || ["bold", "italic", "strike", "underline", "code"].indexOf(style) < 0)
+                return false
+            const pending = pendingInlineValue(style)
+            const enabled = pending >= 0
+                    ? pending === 1
+                    : root.editorBackend.inlineFormatEnabled(textDocument, cursorPosition, style)
+            setPendingInlineValue(style, enabled ? 0 : 1)
+            forceActiveFocus()
+            return true
+        }
+
+        function applyPendingInlineStyle(start, end) {
+            if (!root.editorBackend || start < 0 || end <= start)
+                return false
+            let changed = false
+            for (const style of ["bold", "italic", "strike", "underline", "code"]) {
+                const value = pendingInlineValue(style)
+                if (value >= 0)
+                    changed = root.editorBackend.setInlineFormat(textDocument, start, end,
+                                                                  style, value === 1) || changed
+            }
+            if (changed) {
+                select(end, end)
+                commitText(false)
+                rememberPlainText()
+            }
+            return changed
+        }
+
+        function armPendingInlineFormatting(event) {
+            if (!hasPendingInlineStyle() || selectionStart !== selectionEnd
+                    || event.text.length === 0
+                    || /[\r\n\u2028\u2029]/.test(event.text))
+                return
+            const start = cursorPosition
+            const generation = pendingFormatGeneration
+            Qt.callLater(function() {
+                if (!blockArea || generation !== blockArea.pendingFormatGeneration
+                        || !blockArea.activeFocus)
+                    return
+                blockArea.applyPendingInlineStyle(start, blockArea.cursorPosition)
+            })
         }
 
         function markdownRange(start, end) {
@@ -2735,10 +2952,12 @@ ListView {
         onActiveFocusChanged: {
             if (activeFocus) {
                 root.clearImageSelection()
+                root.activeTagLineIndex = -1
                 root.activeEditor = this
                 rememberPlainText()
                 root.scheduleCursorVisibility(this)
             } else {
+                clearPendingInlineStyles()
                 if (discardEmptyBlockOnFocusLoss)
                     root.scheduleDiscardEmptyInsertedParagraph(this)
                 if (sourceTextPending)
@@ -2793,6 +3012,7 @@ ListView {
         // QTextDocument table instead of a NoteBlockModel table.
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: function(event) {
+            armPendingInlineFormatting(event)
             if (event.key === Qt.Key_Control || event.key === Qt.Key_Meta) {
                 primaryModifierDown = true
                 editorMouseArea.refreshPlainLinkHover(event.modifiers)
@@ -2815,6 +3035,8 @@ ListView {
             } else if (root.handleAdjacentImageDeletion(event, blockArea)) {
                 event.accepted = true
             } else if (root.handleAdjacentTextBlockMerge(event, blockArea)) {
+                event.accepted = true
+            } else if (root.handleStructuredEnter(event, blockArea)) {
                 event.accepted = true
             } else if (!blockArea.codeDocument && root.handleInlineFormatting(event, blockArea)) {
                 event.accepted = true
@@ -3212,15 +3434,139 @@ ListView {
             discardEmptyBlockOnFocusLoss: true
             sourceText: root.blockModel && root.blockModel.markdown
                         ? root.markdownForRendering(block.blockText) : block.blockText
-            keyHandler: function(event) { return root.handleHeadingShortcut(event, textCell) }
+            keyHandler: function(event) {
+                // Keys.BeforeItem runs before TextArea inserts the space.  Arm
+                // a zero-delay retry while the unspaced token is still intact;
+                // the timer then sees the final "*tag " document after the
+                // built-in key handler has completed.
+                if (event.key === Qt.Key_Space
+                        && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+                        && selectionStart === selectionEnd && tagLineCandidate(true))
+                    scheduleTagLinePromotion(false)
+                return root.handleHeadingShortcut(event, textCell)
+            }
+            property bool deferredTagLineForce: false
+
+            function normalizedTagLinePlainText() {
+                // QML TextEdit may expose QTextDocument paragraph/line
+                // separators instead of an ASCII newline.  Normalize them
+                // one-for-one so C++ line parsing and cursor offsets agree.
+                return currentPlainText().replace(/\r\n/g, "\n")
+                                         .replace(/[\r\u2028\u2029]/g, "\n")
+            }
+
+            function tagLineCandidate(force) {
+                if (!activeFocus || syncingSourceText || !root.blockModel || !root.blockModel.markdown
+                        || root.blockModel.blockTypeAt(0) !== 0
+                        || (block.index !== 0 && block.index !== 1))
+                    return null
+                const plainText = normalizedTagLinePlainText()
+                let bodyText = plainText
+                if (block.index === 0) {
+                    // The visual second paragraph is the first body line.  A
+                    // Markdown writer serializes the same boundary as a blank
+                    // source line.  Some Qt versions also expose that separator
+                    // in the plain projection, so tolerate empty lines here.
+                    const titleEnd = plainText.indexOf("\n")
+                    if (titleEnd < 0)
+                        return null
+                    bodyText = plainText.substring(titleEnd + 1)
+                }
+                const bodyLines = bodyText.split("\n")
+                let candidate = ""
+                for (const line of bodyLines) {
+                    if (line.trim().length > 0) {
+                        candidate = line
+                        break
+                    }
+                }
+                if (candidate.length === 0 || candidate.trim().charAt(0) !== "*"
+                        || (!force && !/\s$/.test(candidate)))
+                    return null
+                return { plainText: plainText, candidate: candidate }
+            }
+
+            function scheduleTagLinePromotion(force) {
+                deferredTagLineForce = deferredTagLineForce || Boolean(force)
+                tagLinePromotionTimer.restart()
+            }
+
+            function tryPromoteTagLine(force) {
+                const probe = tagLineCandidate(force)
+                if (!probe)
+                    return false
+                const markdownText = root.editorBackend.markdownText(textDocument)
+                const position = cursorPosition
+                let result = null
+                root.runEditTransaction("promote-tag-line", function() {
+                    result = root.blockModel.promoteTagLineFromText(
+                                block.index, probe.plainText, markdownText, position, Boolean(force))
+                    return Boolean(result && result.handled)
+                }, false)
+                if (!result || !result.handled)
+                    return false
+
+                root.activeEditor = null
+                if (result.focusTagLine) {
+                    root.activeTagLineIndex = Number(result.tagRow)
+                    Qt.callLater(function() {
+                        root.focusTagLineBlock(Number(result.tagRow), true, true)
+                    })
+                } else {
+                    root.activeTagLineIndex = -1
+                    Qt.callLater(function() {
+                        root.focusBlock(Number(result.focusRow), false,
+                                        Number(result.cursorPosition))
+                    })
+                }
+                return true
+            }
+
+            Timer {
+                id: tagLinePromotionTimer
+                interval: 0
+                repeat: false
+                onTriggered: {
+                    const force = textCell.deferredTagLineForce
+                    textCell.deferredTagLineForce = false
+                    if (!textCell.tryPromoteTagLine(force))
+                        textCell.commitChangedText(textCell.activeFocus)
+                }
+            }
             commitText: function() {
                 const value = root.blockModel && root.blockModel.markdown
                     ? root.editorBackend.markdownText(textDocument) : text
                 root.blockModel.setBlockText(block.index, value)
             }
             textFormat: root.blockModel && root.blockModel.markdown ? TextEdit.MarkdownText : TextEdit.PlainText
-            onTextChanged: commitChangedText(activeFocus)
+            onTextChanged: {
+                // QTextDocument may still be normalizing the just-inserted
+                // character while TextArea emits textChanged.  Replacing the
+                // delegate/model synchronously from that signal can therefore
+                // observe the pre-space document and miss "*tag ".  Defer only
+                // plausible tag-line candidates to the next event-loop turn;
+                // ordinary text keeps its existing immediate commit path.
+                if (tagLineCandidate(false))
+                    scheduleTagLinePromotion(false)
+                else
+                    commitChangedText(activeFocus)
+            }
             onLinkActivated: link => Qt.openUrlExternally(link)
+        }
+    }
+
+    Component {
+        id: tagLineEditor
+
+        TagLineEditor {
+            property var block: parent
+            editorView: root
+            blockModel: root.blockModel
+            blockIndex: block.index
+            tags: block.tags
+            editorFont: root.editorFont
+            touchMode: root.touchMode
+            width: block.width
         }
     }
 
@@ -3454,16 +3800,25 @@ ListView {
 
     Component {
         id: tableEditor
-        GridLayout {
+
+        Item {
             id: tableRoot
+
             property var block: parent
             property var tableData: block.table
+            property int columns: Number(tableData.columns || 0)
+            readonly property bool tableFocused: {
+                const editor = root.activeEditor
+                return Boolean(editor && editor.tableCell
+                               && Number(editor.blockIndex) === Number(block.index))
+            }
             width: block.width
-            columns: tableData.columns
-            columnSpacing: 0
-            rowSpacing: 0
+            implicitHeight: tableGrid.implicitHeight
+            height: implicitHeight
+
             onTableDataChanged: syncCells()
             Component.onCompleted: syncCells()
+
             function syncCells() {
                 const values = tableData.values || []
                 while (cellModel.count > values.length)
@@ -3476,7 +3831,7 @@ ListView {
                         cellModel.setProperty(index, "cellText", value)
                 }
             }
-            ListModel { id: cellModel }
+
             function focusCell(cellIndex, position) {
                 root.focusEditorAddress({
                     blockIndex: block.index,
@@ -3486,6 +3841,7 @@ ListView {
                     cursorPosition: position === undefined ? 0 : position
                 })
             }
+
             function focusCellVertically(cellIndex, x, atBottom) {
                 Qt.callLater(function() {
                     const cell = cellRepeater.itemAt(cellIndex)
@@ -3498,6 +3854,7 @@ ListView {
                     root.activeEditor = cell
                 })
             }
+
             function insertRow(tableRow, focusColumn) {
                 return root.runEditTransaction("insert-table-row", function() {
                     root.blockModel.insertTableRow(block.index, tableRow)
@@ -3505,8 +3862,9 @@ ListView {
                     return true
                 })
             }
+
             function cellCount() { return cellModel.count }
-            function rowCount() { return cellModel.count / columns }
+            function rowCount() { return columns > 0 ? cellModel.count / columns : 0 }
             function cellLength(index) {
                 const cell = cellRepeater.itemAt(index)
                 return cell ? cell.length : 0
@@ -3526,90 +3884,332 @@ ListView {
             function handleCellKey(event, cell) {
                 return TableBlockBehavior.handleKey(tableRoot, root, event, cell)
             }
-            Repeater {
-                id: cellRepeater
-                model: cellModel
-                BlockTextArea {
-                    id: tableCell
-                    blockIndex: tableRoot.block.index
-                    required property int index
-                    required property string cellText
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    font.bold: index < tableRoot.columns
-                    sourceText: root.markdownTableCellForRendering(cellText)
-                    textFormat: TextEdit.MarkdownText
-                    tableCell: true
-                    tableCellIndex: index
-                    editorField: "tableCell"
-                    tableRow: Math.floor(index / tableRoot.columns)
-                    canRemoveTableRow: cellModel.count / tableRoot.columns > 1
-                    canRemoveTableColumn: tableRoot.columns > 1
-                    keyHandler: function(event) { return tableRoot.handleCellKey(event, tableCell) }
-                    insertRowAbove: function() {
-                        tableRoot.insertRow(Math.floor(index / tableRoot.columns), index % tableRoot.columns)
+
+            function headerItems() {
+                const result = []
+                for (let column = 0; column < columns; ++column) {
+                    const item = cellRepeater.itemAt(column)
+                    if (item)
+                        result.push(item)
+                }
+                return result
+            }
+
+            function columnPreviewItems(column) {
+                const result = []
+                for (let index = column; index < cellRepeater.count; index += columns) {
+                    const item = cellRepeater.itemAt(index)
+                    if (item)
+                        result.push({ sourceItem: item })
+                }
+                return result
+            }
+
+            function adjustedColumn(column, from, to) {
+                if (column === from)
+                    return to
+                if (from < to && column > from && column <= to)
+                    return column - 1
+                if (from > to && column >= to && column < from)
+                    return column + 1
+                return column
+            }
+
+            function adjustedFocusAddress(address, from, to) {
+                if (!address || Number(address.blockIndex) !== Number(block.index)
+                        || Number(address.tableCellIndex) < 0) {
+                    return {
+                        blockIndex: block.index,
+                        listItemIndex: -1,
+                        tableCellIndex: to,
+                        field: "tableCell",
+                        cursorPosition: 0,
+                        selectionStart: 0,
+                        selectionEnd: 0
                     }
-                    insertRowBelow: function() {
-                        tableRoot.insertRow(Math.floor(index / tableRoot.columns) + 1, index % tableRoot.columns)
+                }
+                const result = Object.assign({}, address)
+                const oldCell = Number(result.tableCellIndex)
+                const tableRow = Math.floor(oldCell / columns)
+                const oldColumn = oldCell % columns
+                result.tableCellIndex = tableRow * columns
+                        + adjustedColumn(oldColumn, from, to)
+                return result
+            }
+
+            function startColumnDrag(cell, handle) {
+                if (!cell || !handle || columns <= 1)
+                    return false
+                const column = Number(cell.columnIndex)
+                const focusAddress = root.activeEditor
+                        && Number(root.activeEditor.blockIndex) === Number(block.index)
+                        ? Object.assign({}, root.editorAddress(root.activeEditor)) : null
+                return tableColumnReorder.beginDrag({
+                    sources: [{
+                        item: cell,
+                        key: column,
+                        order: column,
+                        naturalExtent: Number(cell.width)
+                    }],
+                    previewItems: columnPreviewItems(column),
+                    pointerItem: handle,
+                    payload: {
+                        from: column,
+                        focusAddress: focusAddress
+                    },
+                    targetByDraggedLeading: true
+                })
+            }
+
+            ListModel { id: cellModel }
+
+            Reorder.LinearReorderLayout {
+                id: tableColumnLayout
+
+                geometryItem: tableRoot
+                orientation: Qt.Horizontal
+                sourceEntries: tableColumnReorder.sourceEntries
+                keyProvider: function(item) { return Number(item.columnIndex) }
+                orderProvider: function(item) { return Number(item.columnIndex) }
+                extentProvider: function(item) { return Number(item.width) }
+                offsetProvider: function(item) { return Number(item.columnReorderOffsetX) }
+            }
+
+            Reorder.GenericReorderController {
+                id: tableColumnReorder
+
+                anchors.fill: parent
+                geometryItem: tableRoot
+                orientation: Qt.Horizontal
+                compensateForScroll: false
+                previewLockCrossAxis: true
+                previewObjectName: "tableColumnReorderPreview-" + tableRoot.block.index
+                previewObjectNamePrefix: "tableColumnReorderPreviewItem-"
+                boundaryProvider: function() {
+                    return tableColumnLayout.boundaries(tableRoot.headerItems())
+                }
+                commitHandler: function(payload, boundary) {
+                    if (!payload || !boundary)
+                        return false
+                    const from = Number(payload.from)
+                    const to = Math.max(0, Math.min(Number(boundary.finalIndex),
+                                                    tableRoot.columns - 1))
+                    if (from === to)
+                        return false
+                    const focusAddress = tableRoot.adjustedFocusAddress(
+                                payload.focusAddress, from, to)
+                    let moved = false
+                    root.runEditTransaction("move-table-column", function() {
+                        root.prepareForStructuralMutation()
+                        moved = root.blockModel.moveTableColumn(tableRoot.block.index,
+                                                                from, to)
+                        if (moved)
+                            root.focusEditorAddress(focusAddress)
+                        return moved
+                    })
+                    return moved
+                }
+            }
+
+            GridLayout {
+                id: tableGrid
+
+                width: parent.width
+                height: implicitHeight
+                columns: tableRoot.columns
+                columnSpacing: 0
+                rowSpacing: 0
+
+                Repeater {
+                    id: cellRepeater
+                    model: cellModel
+
+                    BlockTextArea {
+                        id: tableCell
+
+                        blockIndex: tableRoot.block.index
+                        required property int index
+                        required property string cellText
+                        readonly property int columnIndex: tableRoot.columns > 0
+                                                           ? index % tableRoot.columns : -1
+                        readonly property bool headerCell: index < tableRoot.columns
+                        property real columnReorderOffsetX: tableColumnLayout.translationByOrder(
+                                                                tableCell,
+                                                                tableColumnReorder.targetBoundary,
+                                                                tableColumnReorder.draggedExtent)
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        font.bold: headerCell
+                        sourceText: root.markdownTableCellForRendering(cellText)
+                        textFormat: TextEdit.MarkdownText
+                        tableCell: true
+                        tableCellIndex: index
+                        editorField: "tableCell"
+                        tableRow: Math.floor(index / tableRoot.columns)
+                        canRemoveTableRow: cellModel.count / tableRoot.columns > 1
+                        canRemoveTableColumn: tableRoot.columns > 1
+                        transform: Translate { x: tableCell.columnReorderOffsetX }
+
+                        Behavior on columnReorderOffsetX {
+                            enabled: tableColumnReorder.dragging
+                                     && !tableColumnReorder.committingDrop
+                            NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                        }
+
+                        keyHandler: function(event) {
+                            return tableRoot.handleCellKey(event, tableCell)
+                        }
+                        insertRowAbove: function() {
+                            tableRoot.insertRow(Math.floor(index / tableRoot.columns),
+                                                index % tableRoot.columns)
+                        }
+                        insertRowBelow: function() {
+                            tableRoot.insertRow(Math.floor(index / tableRoot.columns) + 1,
+                                                index % tableRoot.columns)
+                        }
+                        removeRow: function() {
+                            root.runEditTransaction("remove-table-row", function() {
+                                const tableRow = Math.floor(index / tableRoot.columns)
+                                const targetRow = Math.min(tableRow,
+                                                           cellModel.count / tableRoot.columns - 2)
+                                const target = targetRow * tableRoot.columns
+                                        + index % tableRoot.columns
+                                root.blockModel.removeTableRow(tableRoot.block.index, tableRow)
+                                tableRoot.focusCell(target, 0)
+                            })
+                        }
+                        insertColumnLeft: function() {
+                            root.runEditTransaction("insert-table-column", function() {
+                                const oldColumns = tableRoot.columns
+                                const tableRow = Math.floor(index / oldColumns)
+                                const column = index % oldColumns
+                                root.blockModel.insertTableColumn(tableRoot.block.index, column)
+                                tableRoot.focusCell(tableRow * (oldColumns + 1) + column, 0)
+                            })
+                        }
+                        insertColumnRight: function() {
+                            root.runEditTransaction("insert-table-column", function() {
+                                const oldColumns = tableRoot.columns
+                                const tableRow = Math.floor(index / oldColumns)
+                                const column = index % oldColumns
+                                root.blockModel.insertTableColumn(tableRoot.block.index, column + 1)
+                                tableRoot.focusCell(tableRow * (oldColumns + 1) + column + 1, 0)
+                            })
+                        }
+                        removeColumn: function() {
+                            root.runEditTransaction("remove-table-column", function() {
+                                const oldColumns = tableRoot.columns
+                                const tableRow = Math.floor(index / oldColumns)
+                                const column = index % oldColumns
+                                root.blockModel.removeTableColumn(tableRoot.block.index, column)
+                                tableRoot.focusCell(tableRow * (oldColumns - 1)
+                                                    + Math.min(column, oldColumns - 2), 0)
+                            })
+                        }
+                        leftPadding: root.touchMode ? 8 : 6
+                        rightPadding: (root.touchMode ? 8 : 6)
+                                      + (headerCell ? columnHandle.width : 0)
+                        topPadding: root.touchMode ? 8 : 3
+                        bottomPadding: root.touchMode ? 8 : 3
+                        background: Rectangle {
+                            color: Math.floor(tableCell.index / tableRoot.columns) % 2
+                                   ? tableCell.palette.alternateBase : tableCell.palette.base
+                            border.width: 1
+                            border.color: tableCell.palette.midlight
+                        }
+                        commitText: function() {
+                            root.blockModel.setTableCell(
+                                tableRoot.block.index, index,
+                                root.editorBackend.markdownTableCellText(textDocument))
+                            // setTableCell echoes the canonical value through
+                            // sourceText. The current QTextDocument already owns
+                            // that edit; applying the echo on focus loss would
+                            // parse its line separators for a second time.
+                            sourceTextPending = false
+                        }
+                        onTextChanged: commitChangedText(activeFocus)
+                        onLinkActivated: link => Qt.openUrlExternally(link)
+
+                        Item {
+                            id: columnHandle
+
+                            readonly property bool activeVisual: columnDragHandle.hovered
+                                                                 || columnDragHandle.dragging
+                            visible: tableCell.headerCell
+                            enabled: visible && tableRoot.tableFocused
+                            opacity: enabled ? 1 : 0
+                            anchors.top: parent.top
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            width: root.touchMode ? 22 : 17
+                            z: 50
+
+                            Behavior on opacity {
+                                NumberAnimation { duration: 480; easing.type: Easing.OutCubic }
+                            }
+
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: 1
+                                radius: 2
+                                color: columnHandle.activeVisual
+                                       ? Qt.rgba(tableCell.palette.highlight.r,
+                                                 tableCell.palette.highlight.g,
+                                                 tableCell.palette.highlight.b, 0.20)
+                                       : Qt.rgba(tableCell.palette.highlight.r,
+                                                 tableCell.palette.highlight.g,
+                                                 tableCell.palette.highlight.b, 0.10)
+                                border.width: 1
+                                border.color: Qt.rgba(tableCell.palette.highlight.r,
+                                                      tableCell.palette.highlight.g,
+                                                      tableCell.palette.highlight.b,
+                                                      columnHandle.activeVisual ? 0.55 : 0.30)
+
+                                Behavior on color {
+                                    ColorAnimation { duration: 120; easing.type: Easing.OutCubic }
+                                }
+                            }
+
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: 2
+
+                                Repeater {
+                                    model: 2
+                                    Rectangle {
+                                        width: 1
+                                        height: Math.max(9, columnHandle.height * 0.38)
+                                        color: tableCell.palette.text
+                                        opacity: columnHandle.activeVisual ? 0.72 : 0.42
+
+                                        Behavior on opacity {
+                                            NumberAnimation {
+                                                duration: 120
+                                                easing.type: Easing.OutCubic
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Reorder.ReorderDragHandle {
+                                id: columnDragHandle
+
+                                anchors.fill: parent
+                                dragEnabled: tableRoot.columns > 1
+                                             && (!tableColumnReorder.dragging || dragging)
+                                onTapped: {
+                                    tableCell.forceActiveFocus()
+                                    root.activeEditor = tableCell
+                                }
+                                onDragStarted: tableRoot.startColumnDrag(tableCell, columnHandle)
+                                onDragMoved: function(dx, dy) {
+                                    tableColumnReorder.moveDrag(dx, dy)
+                                }
+                                onDragFinished: tableColumnReorder.finishDrag()
+                            }
+                        }
                     }
-                    removeRow: function() {
-                        root.runEditTransaction("remove-table-row", function() {
-                            const tableRow = Math.floor(index / tableRoot.columns)
-                            const targetRow = Math.min(tableRow, cellModel.count / tableRoot.columns - 2)
-                            const target = targetRow * tableRoot.columns + index % tableRoot.columns
-                            root.blockModel.removeTableRow(tableRoot.block.index, tableRow)
-                            tableRoot.focusCell(target, 0)
-                        })
-                    }
-                    insertColumnLeft: function() {
-                        root.runEditTransaction("insert-table-column", function() {
-                            const oldColumns = tableRoot.columns
-                            const tableRow = Math.floor(index / oldColumns)
-                            const column = index % oldColumns
-                            root.blockModel.insertTableColumn(tableRoot.block.index, column)
-                            tableRoot.focusCell(tableRow * (oldColumns + 1) + column, 0)
-                        })
-                    }
-                    insertColumnRight: function() {
-                        root.runEditTransaction("insert-table-column", function() {
-                            const oldColumns = tableRoot.columns
-                            const tableRow = Math.floor(index / oldColumns)
-                            const column = index % oldColumns
-                            root.blockModel.insertTableColumn(tableRoot.block.index, column + 1)
-                            tableRoot.focusCell(tableRow * (oldColumns + 1) + column + 1, 0)
-                        })
-                    }
-                    removeColumn: function() {
-                        root.runEditTransaction("remove-table-column", function() {
-                            const oldColumns = tableRoot.columns
-                            const tableRow = Math.floor(index / oldColumns)
-                            const column = index % oldColumns
-                            root.blockModel.removeTableColumn(tableRoot.block.index, column)
-                            tableRoot.focusCell(tableRow * (oldColumns - 1)
-                                                + Math.min(column, oldColumns - 2), 0)
-                        })
-                    }
-                    leftPadding: root.touchMode ? 8 : 6
-                    rightPadding: root.touchMode ? 8 : 6
-                    topPadding: root.touchMode ? 8 : 3
-                    bottomPadding: root.touchMode ? 8 : 3
-                    background: Rectangle {
-                        color: Math.floor(tableCell.index / tableRoot.columns) % 2
-                               ? tableCell.palette.alternateBase : tableCell.palette.base
-                        border.width: 1
-                        border.color: tableCell.palette.midlight
-                    }
-                    commitText: function() {
-                        root.blockModel.setTableCell(
-                            tableRoot.block.index, index, root.editorBackend.markdownTableCellText(textDocument))
-                        // setTableCell echoes the canonical value through
-                        // sourceText. The current QTextDocument already owns
-                        // that edit; applying the echo on focus loss would
-                        // parse its line separators for a second time.
-                        sourceTextPending = false
-                    }
-                    onTextChanged: commitChangedText(activeFocus)
-                    onLinkActivated: link => Qt.openUrlExternally(link)
                 }
             }
         }

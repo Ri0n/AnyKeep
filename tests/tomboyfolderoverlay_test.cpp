@@ -9,7 +9,9 @@
 #include "secureenvelope.h"
 #include "tomboystorage.h"
 
+#include <QDomDocument>
 #include <QFile>
+#include <QList>
 #include <QScopeGuard>
 #include <QSettings>
 #include <QSignalSpy>
@@ -39,6 +41,53 @@ QString tomboyNoteXml()
         "</note>\n");
 }
 
+QString formattedTomboyNoteXml()
+{
+    return QStringLiteral("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                          "<note version=\"0.3\" xmlns=\"http://beatniksoftware.com/tomboy\">"
+                          "<title>New Note 2026-08-01</title>"
+                          "<text xml:space=\"preserve\"><note-content version=\"0.1\">"
+                          "New Note 2026-08-01\nnew note test\n\n"
+                          "<list><list-item dir=\"ltr\">hello</list-item></list>\n"
+                          "<list><list-item dir=\"ltr\">world</list-item></list>"
+                          "</note-content></text>"
+                          "<last-change-date>2026-08-01T08:52:39.885Z</last-change-date>"
+                          "<last-metadata-change-date>2026-08-01T08:52:39.885Z</last-metadata-change-date>"
+                          "<create-date>2026-08-01T08:52:39.885Z</create-date>"
+                          "</note>");
+}
+
+QString headingTomboyNoteXml()
+{
+    return QStringLiteral("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                          "<note version=\"0.3\" xmlns=\"http://beatniksoftware.com/tomboy\" "
+                          "xmlns:size=\"http://beatniksoftware.com/tomboy/size\">"
+                          "<title>xxxx</title>"
+                          "<text xml:space=\"preserve\"><note-content version=\"0.1\">"
+                          "<underline>xxxx</underline>\n"
+                          "<size:huge>test</size:huge>\n"
+                          "<size:large>fgdg</size:large>\n"
+                          "ordinary first line\nordinary second line\n\n"
+                          "inline <size:huge>large text</size:huge> remains inline"
+                          "</note-content></text>"
+                          "<last-change-date>2026-08-01T10:00:00.000Z</last-change-date>"
+                          "<last-metadata-change-date>2026-08-01T10:00:00.000Z</last-metadata-change-date>"
+                          "<create-date>2026-08-01T10:00:00.000Z</create-date>"
+                          "</note>");
+}
+
+QString domNodeText(const QDomNode &node)
+{
+    QString text;
+    for (auto child = node.firstChild(); !child.isNull(); child = child.nextSibling()) {
+        if (child.isText())
+            text += child.nodeValue();
+        else if (child.isElement())
+            text += domNodeText(child);
+    }
+    return text;
+}
+
 QByteArray readFile(const QString &path)
 {
     QFile file(path);
@@ -54,6 +103,8 @@ class TomboyFolderOverlayTest : public QObject {
 
 private slots:
     void initTestCase();
+    void titleAndBulletListsRoundTrip();
+    void richTextHeadingsAndLineBreaksRoundTrip();
     void folderAssignmentNeverWritesTomboyFolderData();
     void folderRulesCreateOnlyALocalOverlay();
 };
@@ -62,6 +113,139 @@ void TomboyFolderOverlayTest::initTestCase()
 {
     QVERIFY2(FileFolderCatalogStore::cryptoAvailable(), "AES-256-GCM unavailable");
     QVERIFY2(FileNoteRuleStore::cryptoAvailable(), "AES-256-GCM unavailable");
+}
+
+void TomboyFolderOverlayTest::titleAndBulletListsRoundTrip()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    const auto notePath = directory.filePath(QStringLiteral("formatted.note"));
+    QFile      noteFile(notePath);
+    QVERIFY(noteFile.open(QIODevice::WriteOnly));
+    QCOMPARE(noteFile.write(formattedTomboyNoteXml().toUtf8()), formattedTomboyNoteXml().toUtf8().size());
+    noteFile.close();
+
+    QSettings      settings;
+    const auto     settingsKey     = QStringLiteral("storage.tomboy.path");
+    const QVariant previousPath    = settings.value(settingsKey);
+    const bool     hadPreviousPath = settings.contains(settingsKey);
+    const auto     restoreSettings = qScopeGuard([settingsKey, previousPath, hadPreviousPath]() {
+        QSettings restore;
+        if (hadPreviousPath)
+            restore.setValue(settingsKey, previousPath);
+        else
+            restore.remove(settingsKey);
+    });
+    settings.setValue(settingsKey, directory.path());
+
+    TomboyStorage storage(nullptr);
+    QVERIFY(storage.init());
+
+    auto note = storage.note(QStringLiteral("formatted"));
+    QVERIFY(!note.isNull());
+    QCOMPARE(note.title(), QStringLiteral("New Note 2026-08-01"));
+    QCOMPARE(note.text(), QStringLiteral("new note test\n\n- hello\n- world"));
+
+    note.setText(QStringLiteral("new note test\n\n- hello\n    - nested\n- world"), Note::Markdown);
+    QVERIFY(storage.saveNote(note));
+
+    const QByteArray savedBytes = readFile(notePath);
+    QVERIFY(savedBytes.startsWith(QByteArrayLiteral("<?xml version=\"1.0\" encoding=\"utf-8\"?>")));
+
+    QFile savedFile(notePath);
+    QVERIFY(savedFile.open(QIODevice::ReadOnly));
+    QDomDocument savedDom;
+    QVERIFY(savedDom.setContent(&savedFile));
+    const auto root    = savedDom.documentElement();
+    const auto content = root.namedItem(QStringLiteral("text")).namedItem(QStringLiteral("note-content")).toElement();
+    QVERIFY(!content.isNull());
+    const auto underlinedTitle = content.firstChildElement(QStringLiteral("underline"));
+    QVERIFY(!underlinedTitle.isNull());
+    QCOMPARE(domNodeText(underlinedTitle), QStringLiteral("New Note 2026-08-01"));
+    QVERIFY(domNodeText(content).startsWith(QStringLiteral("New Note 2026-08-01\n\nnew note test\n")));
+    QCOMPARE(domNodeText(root.namedItem(QStringLiteral("cursor-position"))), QStringLiteral("1"));
+    QCOMPARE(domNodeText(root.namedItem(QStringLiteral("selection-bound-position"))), QStringLiteral("1"));
+    QCOMPARE(domNodeText(root.namedItem(QStringLiteral("width"))), QStringLiteral("337"));
+    QCOMPARE(domNodeText(root.namedItem(QStringLiteral("height"))), QStringLiteral("200"));
+    QCOMPARE(domNodeText(root.namedItem(QStringLiteral("open-on-startup"))), QStringLiteral("False"));
+    QList<QDomElement> topLevelLists;
+    for (auto child = content.firstChild(); !child.isNull(); child = child.nextSibling()) {
+        if (child.isElement() && child.toElement().tagName() == QLatin1String("list"))
+            topLevelLists.append(child.toElement());
+    }
+    QCOMPARE(topLevelLists.size(), 3);
+    QCOMPARE(domNodeText(topLevelLists.at(0)), QStringLiteral("hello"));
+    QCOMPARE(domNodeText(topLevelLists.at(1)), QStringLiteral("nested"));
+    QCOMPARE(domNodeText(topLevelLists.at(2)), QStringLiteral("world"));
+    QCOMPARE(topLevelLists.at(0).elementsByTagName(QStringLiteral("list-item")).count(), 1);
+    QCOMPARE(topLevelLists.at(1).elementsByTagName(QStringLiteral("list-item")).count(), 2);
+    QCOMPARE(topLevelLists.at(2).elementsByTagName(QStringLiteral("list-item")).count(), 1);
+
+    const auto reloaded = storage.note(QStringLiteral("formatted"));
+    QVERIFY(!reloaded.isNull());
+    QCOMPARE(reloaded.title(), QStringLiteral("New Note 2026-08-01"));
+    QCOMPARE(reloaded.text(), QStringLiteral("new note test\n\n- hello\n    - nested\n- world"));
+}
+
+void TomboyFolderOverlayTest::richTextHeadingsAndLineBreaksRoundTrip()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    const auto notePath = directory.filePath(QStringLiteral("headings.note"));
+    QFile      noteFile(notePath);
+    QVERIFY(noteFile.open(QIODevice::WriteOnly));
+    QCOMPARE(noteFile.write(headingTomboyNoteXml().toUtf8()), headingTomboyNoteXml().toUtf8().size());
+    noteFile.close();
+
+    QSettings      settings;
+    const auto     settingsKey     = QStringLiteral("storage.tomboy.path");
+    const QVariant previousPath    = settings.value(settingsKey);
+    const bool     hadPreviousPath = settings.contains(settingsKey);
+    const auto     restoreSettings = qScopeGuard([settingsKey, previousPath, hadPreviousPath]() {
+        QSettings restore;
+        if (hadPreviousPath)
+            restore.setValue(settingsKey, previousPath);
+        else
+            restore.remove(settingsKey);
+    });
+    settings.setValue(settingsKey, directory.path());
+
+    TomboyStorage storage(nullptr);
+    QVERIFY(storage.init());
+
+    auto note = storage.note(QStringLiteral("headings"));
+    QVERIFY(!note.isNull());
+    QCOMPARE(note.title(), QStringLiteral("xxxx"));
+    QCOMPARE(note.text(),
+             QStringLiteral("# test\n\n## fgdg\n\nordinary first line\n\nordinary second line\n\n"
+                            "inline large text remains inline"));
+
+    QVERIFY(storage.saveNote(note));
+
+    QFile savedFile(notePath);
+    QVERIFY(savedFile.open(QIODevice::ReadOnly));
+    QDomDocument savedDom;
+    QVERIFY(savedDom.setContent(&savedFile));
+    const auto content = savedDom.documentElement()
+                             .namedItem(QStringLiteral("text"))
+                             .namedItem(QStringLiteral("note-content"))
+                             .toElement();
+    QVERIFY(!content.isNull());
+
+    const auto hugeHeadings  = content.elementsByTagName(QStringLiteral("size:huge"));
+    const auto largeHeadings = content.elementsByTagName(QStringLiteral("size:large"));
+    QCOMPARE(hugeHeadings.count(), 1);
+    QCOMPARE(largeHeadings.count(), 1);
+    QCOMPARE(domNodeText(hugeHeadings.at(0)), QStringLiteral("test"));
+    QCOMPARE(domNodeText(largeHeadings.at(0)), QStringLiteral("fgdg"));
+    QVERIFY(domNodeText(content).contains(
+        QStringLiteral("test\nfgdg\nordinary first line\nordinary second line\ninline large text remains inline")));
+
+    const auto reloaded = storage.note(QStringLiteral("headings"));
+    QVERIFY(!reloaded.isNull());
+    QCOMPARE(reloaded.text(), note.text());
 }
 
 void TomboyFolderOverlayTest::folderAssignmentNeverWritesTomboyFolderData()

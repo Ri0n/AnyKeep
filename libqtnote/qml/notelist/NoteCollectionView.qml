@@ -418,10 +418,20 @@ Item {
     }
 
     function requestContextMenu(item, position) {
-        if (item.noteRow && typeof noteContextHandler === "function")
+        if (item.noteRow && typeof noteContextHandler === "function") {
+            // Match the desktop file-manager convention: opening a context
+            // menu on an unselected row first makes that row the sole
+            // selection, while right-clicking any member of an existing
+            // multi-selection preserves the whole selection.
+            if (!selectionController.isSelected(item.storageId, item.noteId)) {
+                selectionController.select(item, Qt.NoModifier, visibleItems())
+                if (typeof noteSelectionHandler === "function")
+                    noteSelectionHandler(item)
+            }
             noteContextHandler(item, position)
-        else if (item.groupRow && typeof groupContextHandler === "function")
+        } else if (item.groupRow && typeof groupContextHandler === "function") {
             groupContextHandler(item, position)
+        }
     }
 
     function deleteNote(item) {

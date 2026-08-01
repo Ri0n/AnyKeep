@@ -18,13 +18,18 @@ ApplicationWindow {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 12
+        anchors.leftMargin: 12
+        anchors.topMargin: 12
+        anchors.bottomMargin: 12
         spacing: 10
 
         Loader {
             id: contentLoader
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.rightMargin: item && item.scrollBarAtWindowEdge === true ? 0 : 12
+            // Scrollable settings pages reach the window edge.  The page
+            // itself keeps content clear of its scrollbar.
 
             function loadSettings() {
                 if (!window.settingsController || window.settingsContentSource.toString().length === 0) {
@@ -44,6 +49,7 @@ ApplicationWindow {
 
         Label {
             Layout.fillWidth: true
+            Layout.rightMargin: 12
             visible: window.settingsController
                      && window.settingsController.errorString.length > 0
             text: window.settingsController ? window.settingsController.errorString : ""
@@ -53,6 +59,7 @@ ApplicationWindow {
 
         RowLayout {
             Layout.fillWidth: true
+            Layout.rightMargin: 12
 
             Button {
                 text: qsTr("Reset")

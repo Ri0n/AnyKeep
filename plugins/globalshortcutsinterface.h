@@ -10,9 +10,10 @@ namespace QtNote {
 
 class GlobalShortcutsInterface {
 public:
-    virtual bool registerGlobalShortcut(const QString &id, const QKeySequence &key, QAction *action) = 0;
-    virtual bool updateGlobalShortcut(const QString &id, const QKeySequence &key)                    = 0;
-    virtual void setGlobalShortcutEnabled(const QString &id, bool enabled = true)                    = 0;
+    virtual bool    registerGlobalShortcut(const QString &id, const QKeySequence &key, QAction *action) = 0;
+    virtual bool    updateGlobalShortcut(const QString &id, const QKeySequence &key)                    = 0;
+    virtual void    setGlobalShortcutEnabled(const QString &id, bool enabled = true)                    = 0;
+    virtual QString lastGlobalShortcutError() const { return {}; }
     // TODO unregister. add string identifier
 };
 

@@ -8,6 +8,7 @@ Item {
     id: root
 
     required property var controller
+    readonly property bool scrollBarAtWindowEdge: false
 
     ColumnLayout {
         anchors.fill: parent

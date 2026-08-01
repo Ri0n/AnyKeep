@@ -8,6 +8,7 @@
 #include <QQuickImageProvider>
 #include <QQuickItem>
 #include <QQuickWidget>
+#include <QQuickWindow>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QStandardItemModel>
@@ -25,6 +26,7 @@
 #include "pluginlistmodel.h"
 #include "settingscontroller.h"
 #include "themediconimageprovider.h"
+#include "windowgeometryutils.h"
 
 using namespace QtNote;
 
@@ -417,6 +419,25 @@ class DesktopNoteEditorHostTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void restoredWindowGeometryIsConstrainedToAvailableScreens()
+    {
+        const QList<QRect> screens {
+            QRect(0, 0, 1920, 1040),
+            QRect(1920, 0, 2560, 1400),
+        };
+
+        QCOMPARE(WindowGeometryUtils::constrainToAvailableScreens(QRect(3900, 100, 560, 520), screens, QSize(320, 240)),
+                 QRect(3900, 100, 560, 520));
+
+        const QList<QRect> remaining { QRect(0, 0, 1920, 1040) };
+        QCOMPARE(
+            WindowGeometryUtils::constrainToAvailableScreens(QRect(3900, 100, 560, 520), remaining, QSize(320, 240)),
+            QRect(1360, 100, 560, 520));
+        QCOMPARE(
+            WindowGeometryUtils::constrainToAvailableScreens(QRect(-400, -300, 2600, 1600), remaining, QSize(320, 240)),
+            QRect(0, 0, 1920, 1040));
+    }
+
     void themedIconsStayUntintedAndFallbackRecoloringIsExplicit()
     {
         QQmlEngine engine;
@@ -457,6 +478,47 @@ private slots:
             }
         }
         QVERIFY(foundRedPixel);
+    }
+
+    void themedIconSourceTracksApplicationPalette()
+    {
+        class PaletteRestorer {
+        public:
+            PaletteRestorer() : original(qApp->palette()) { }
+            ~PaletteRestorer()
+            {
+                qApp->setPalette(original);
+                QCoreApplication::processEvents();
+            }
+
+            QPalette original;
+        } restore;
+
+        QQuickWidget quick;
+        installThemedIconImageProvider(quick.engine());
+        QQmlComponent component(quick.engine(), QUrl(QStringLiteral("qrc:/qml/ThemedIcon.qml")));
+        QCOMPARE(component.status(), QQmlComponent::Ready);
+
+        QVariantMap properties;
+        properties.insert(QStringLiteral("themeName"), QStringLiteral("__missing_theme_icon__"));
+        properties.insert(QStringLiteral("fallbackName"), QStringLiteral("preferences-system-symbolic.svg"));
+        properties.insert(QStringLiteral("recolorFallback"), true);
+        auto *item = qobject_cast<QQuickItem *>(component.createWithInitialProperties(properties));
+        QVERIFY2(item, qPrintable(component.errorString()));
+        quick.setContent(QUrl(QStringLiteral("qrc:/qml/ThemedIcon.qml")), &component, item);
+        quick.show();
+
+        const QUrl originalSource = item->property("iconSource").toUrl();
+        QVERIFY(originalSource.isValid());
+
+        QPalette changed = qApp->palette();
+        changed.setColor(QPalette::Window, QColor(QStringLiteral("#123456")));
+        changed.setColor(QPalette::WindowText, QColor(QStringLiteral("#fedcba")));
+        changed.setColor(QPalette::Button, QColor(QStringLiteral("#234567")));
+        changed.setColor(QPalette::ButtonText, QColor(QStringLiteral("#edcba9")));
+        qApp->setPalette(changed);
+
+        QTRY_VERIFY(item->property("iconSource").toUrl() != originalSource);
     }
 
     void genericSettingsFormCreatesBoundEditors()
@@ -585,6 +647,41 @@ private slots:
             QMetaObject::invokeMethod(quick->rootObject(), "captureEditorState", Q_RETURN_ARG(QVariant, viewState)));
         QVERIFY(viewState.canConvert<QVariantMap>());
         QCOMPARE(host.model(), editor.model());
+    }
+
+    void quickWidgetClearColorTracksApplicationPalette()
+    {
+        class PaletteRestorer {
+        public:
+            PaletteRestorer() : original(qApp->palette()) { }
+            ~PaletteRestorer()
+            {
+                qApp->setPalette(original);
+                QCoreApplication::processEvents();
+            }
+
+            QPalette original;
+        } restore;
+
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(plainNote(), drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        // A parent widget may retain an explicit palette while the desktop
+        // application palette changes. The Quick scene background must still
+        // follow the application palette.
+        const QColor staleWidgetBase(QStringLiteral("#334455"));
+        QPalette     widgetPalette = host.palette();
+        widgetPalette.setColor(QPalette::Base, staleWidgetBase);
+        host.setPalette(widgetPalette);
+
+        const QColor changedBase(QStringLiteral("#f1f3f4"));
+        QPalette     changed = qApp->palette();
+        changed.setColor(QPalette::Base, changedBase);
+        qApp->setPalette(changed);
+
+        QCOMPARE(host.palette().color(QPalette::Base), staleWidgetBase);
+        QTRY_COMPARE(host.quickWidget()->quickWindow()->color(), changedBase);
     }
 
     void loadsNotesManagerQmlShell()
@@ -750,6 +847,7 @@ private slots:
 
                 QtObject {
                     id: workspace
+                    objectName: "managerWorkspace"
                     property var groupedNotesModel: testNotesModel
                     property var recentNotesModel: testNotesModel
                     property var folderNotesModel: null
@@ -772,19 +870,42 @@ private slots:
                     property int movedStorages: 0
                     property string storageDestination: ""
                     property int storageDestinationRow: -1
+                    property int copiedNotes: 0
+                    property int assignedNotes: 0
+                    property int trashedNotes: 0
+                    property int deletedNotes: 0
+                    property int restoredNotes: 0
+                    property bool recycleAll: false
                     function saveCurrentNote() { return true }
                     function closeCurrentNote() { return true }
                     function reloadCurrentNote() { return true }
                     function openNote(storageId, noteId) { return true }
                     function createNote(storageId) { return true }
-                    function folderIdForNote(storageId, noteId) { return "" }
-                    function assignNoteFolder(storageId, noteId, folderId) { return true }
+                    function folderIdForNote(storageId, noteId) {
+                        return noteId === "note-a2" ? "folder-b" : "folder-a"
+                    }
+                    function assignNoteFolder(storageId, noteId, folderId) {
+                        ++assignedNotes
+                        return true
+                    }
                     function openStandalone(storageId, noteId) { return true }
-                    function deleteNote(storageId, noteId) { return true }
-                    function trashNote(storageId, noteId) { return true }
-                    function restoreRecycledNote(storageId, noteId) { return true }
-                    function isRecycledNote(storageId, noteId) { return false }
-                    function copyNote(sourceStorageId, noteId, destinationStorageId) { return true }
+                    function deleteNote(storageId, noteId) {
+                        ++deletedNotes
+                        return true
+                    }
+                    function trashNote(storageId, noteId) {
+                        ++trashedNotes
+                        return true
+                    }
+                    function restoreRecycledNote(storageId, noteId) {
+                        ++restoredNotes
+                        return true
+                    }
+                    function isRecycledNote(storageId, noteId) { return recycleAll }
+                    function copyNote(sourceStorageId, noteId, destinationStorageId) {
+                        ++copiedNotes
+                        return true
+                    }
                     function moveNote(sourceStorageId, noteId, destinationStorageId) { return true }
                     function openStorageSettings(storageId) {}
                     function moveNotes(notes, destinationStorageId, anchorNoteId, insertAfter) {
@@ -852,6 +973,65 @@ private slots:
         QTRY_VERIFY((noteB = delegate(page, 4)));
         QVERIFY(!noteA->property("selectionCheckBoxVisible").toBool());
 
+        auto *workspace = root->findChild<QObject *>(QStringLiteral("managerWorkspace"));
+        QVERIFY(workspace);
+
+        const QVariantList contextNotes {
+            QVariantMap { { QStringLiteral("storageId"), QStringLiteral("storage-a") },
+                          { QStringLiteral("noteId"), QStringLiteral("note-a") },
+                          { QStringLiteral("title"), QStringLiteral("Note A") },
+                          { QStringLiteral("order"), 1 } },
+            QVariantMap { { QStringLiteral("storageId"), QStringLiteral("storage-a") },
+                          { QStringLiteral("noteId"), QStringLiteral("note-a2") },
+                          { QStringLiteral("title"), QStringLiteral("Note A2") },
+                          { QStringLiteral("order"), 2 } },
+            QVariantMap { { QStringLiteral("storageId"), QStringLiteral("storage-b") },
+                          { QStringLiteral("noteId"), QStringLiteral("note-b") },
+                          { QStringLiteral("title"), QStringLiteral("Note B") },
+                          { QStringLiteral("order"), 4 } },
+        };
+        page->setProperty("contextMenuNotes", contextNotes);
+        QCoreApplication::processEvents();
+
+        auto *contextOpen  = root->findChild<QObject *>(QStringLiteral("noteContextOpen"));
+        auto *folderPicker = root->findChild<QObject *>(QStringLiteral("noteFolderPicker"));
+        QVERIFY(contextOpen);
+        QVERIFY(folderPicker);
+        QVERIFY(!contextOpen->property("enabled").toBool());
+        QVERIFY(folderPicker->property("selectionMixed").toBool());
+
+        const auto invokeContextAction = [page](const char *method, const QVariant &argument = {}) {
+            QVariant   result;
+            const bool invoked = argument.isValid()
+                ? QMetaObject::invokeMethod(page, method, Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, argument))
+                : QMetaObject::invokeMethod(page, method, Q_RETURN_ARG(QVariant, result));
+            return invoked && result.toBool();
+        };
+
+        QVERIFY(invokeContextAction("copyContextNotesToStorage", QStringLiteral("storage-c")));
+        QCOMPARE(workspace->property("copiedNotes").toInt(), 3);
+
+        QVERIFY(invokeContextAction("moveContextNotesToStorage", QStringLiteral("storage-c")));
+        QCOMPARE(workspace->property("movedNotes").toInt(), 3);
+        workspace->setProperty("movedNotes", 0);
+
+        QVERIFY(invokeContextAction("assignContextNotesFolder", QStringLiteral("folder-c")));
+        QCOMPARE(workspace->property("assignedNotes").toInt(), 3);
+
+        workspace->setProperty("recycleAll", false);
+        QVERIFY(invokeContextAction("requestContextNotesDeletion"));
+        QCOMPARE(workspace->property("trashedNotes").toInt(), 3);
+
+        workspace->setProperty("recycleAll", true);
+        QVERIFY(invokeContextAction("restoreContextNotes"));
+        QCOMPARE(workspace->property("restoredNotes").toInt(), 3);
+
+        page->setProperty("confirmDelete", false);
+        QVERIFY(invokeContextAction("requestContextNotesDeletion"));
+        QCOMPARE(workspace->property("deletedNotes").toInt(), 3);
+        page->setProperty("confirmDelete", true);
+        workspace->setProperty("recycleAll", false);
+
         const QPointF storageAPoint = storageA->mapToItem(qobject_cast<QQuickItem *>(root),
                                                           QPointF(storageA->width() / 2, storageA->height() / 2));
         QTest::mouseClick(&quick, Qt::RightButton, Qt::NoModifier, storageAPoint.toPoint());
@@ -865,6 +1045,8 @@ private slots:
             = noteA->mapToItem(qobject_cast<QQuickItem *>(root), QPointF(noteA->width() / 2, noteA->height() / 2));
         QTest::mouseClick(&quick, Qt::RightButton, Qt::NoModifier, noteAPoint.toPoint());
         QTRY_COMPARE(page->property("selectedNoteId").toString(), QStringLiteral("note-a"));
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 1);
+        QTRY_COMPARE(page->property("contextMenuNotes").toList().size(), 1);
         auto *noteContextMenu = root->findChild<QObject *>(QStringLiteral("noteContextMenu"));
         QTRY_VERIFY(noteContextMenu->property("visible").toBool());
         QCOMPARE(noteContextMenu->property("modal").toBool(), true);
@@ -881,6 +1063,15 @@ private slots:
         QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-a\nnote-a")));
         QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-a\nnote-a2")));
         QVERIFY(page->property("selectedNotes").toMap().contains(QStringLiteral("storage-b\nnote-b")));
+
+        const QPointF noteA2ContextPoint
+            = noteA2->mapToItem(qobject_cast<QQuickItem *>(root), QPointF(noteA2->width() / 2, noteA2->height() / 2));
+        QTest::mouseClick(&quick, Qt::RightButton, Qt::NoModifier, noteA2ContextPoint.toPoint());
+        QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 3);
+        QTRY_COMPARE(page->property("contextMenuNotes").toList().size(), 3);
+        QTRY_VERIFY(noteContextMenu->property("visible").toBool());
+        QVERIFY(QMetaObject::invokeMethod(noteContextMenu, "close"));
+        QTRY_VERIFY(!noteContextMenu->property("visible").toBool());
 
         QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
         QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 1);

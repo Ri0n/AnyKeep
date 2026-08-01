@@ -19,6 +19,7 @@ Contacts:
 E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 */
 
+#include <QKeyCombination>
 #include <QKeyEvent>
 
 #include "qtnote.h"
@@ -38,27 +39,38 @@ void ShortcutEdit::keyPressEvent(QKeyEvent *event)
         setText("");
         _seq = QKeySequence();
         setModified(true);
+        event->accept();
         return;
     }
-    QString grab;
-    int     modifiers = event->modifiers();
-    if (modifiers & Qt::ControlModifier) {
-        grab.append("Ctrl+");
+
+    // Modifier key presses arrive as ordinary key events as well.  Building a
+    // sequence from them produced strings such as "Alt+Alt" and could leave a
+    // key-only combination after parsing.  Wait for the actual non-modifier
+    // key; its event already contains all currently held modifiers.
+    switch (event->key()) {
+    case Qt::Key_Control:
+    case Qt::Key_Shift:
+    case Qt::Key_Alt:
+    case Qt::Key_Meta:
+    case Qt::Key_AltGr:
+        event->accept();
+        return;
+    default:
+        break;
     }
-    if (modifiers & Qt::ShiftModifier) {
-        grab.append("Shift+");
+    if (event->key() == Qt::Key_unknown) {
+        event->ignore();
+        return;
     }
-    if (modifiers & Qt::AltModifier) {
-        grab.append("Alt+");
-    }
-    if (modifiers & Qt::MetaModifier) {
-        grab.append("Meta+");
-    }
-    QString      key = QKeySequence(event->key()).toString();
-    QKeySequence seq(grab + key);
-    bool         mod = seq != _seq;
-    setSequence(QKeySequence(grab + key));
-    setModified(mod);
+
+    const auto modifiers
+        = event->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::AltModifier | Qt::MetaModifier);
+    const QKeySequence sequence(QKeyCombination(modifiers, Qt::Key(event->key())));
+    const bool         changed = sequence != _seq;
+    setSequence(sequence);
+    if (changed)
+        setModified(true);
+    event->accept();
 }
 
 void ShortcutEdit::focusInEvent(QFocusEvent *ev)

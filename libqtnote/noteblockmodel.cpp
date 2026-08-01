@@ -1,4 +1,5 @@
 #include "noteblockmodel.h"
+#include "notetagline.h"
 #include <climits>
 
 #include <QRegularExpression>
@@ -217,7 +218,7 @@ QVariant NoteBlockModel::data(const QModelIndex &index, int role) const
     case TypeRole:
         return block.type;
     case TextRole:
-        return block.text;
+        return block.type == TagLine ? NoteTagLine::serialize(block.tags) : block.text;
     case ItemsRole:
         return block.items;
     case CheckedRole:
@@ -246,6 +247,8 @@ QVariant NoteBlockModel::data(const QModelIndex &index, int role) const
         return block.imageWidth;
     case ImageAlignmentRole:
         return block.imageAlignment;
+    case TagsRole:
+        return block.tags;
     default:
         return {};
     }
@@ -333,6 +336,20 @@ bool NoteBlockModel::setData(const QModelIndex &index, const QVariant &value, in
     }
     if (scalar)
         emit scalarEdited(index.row(), role, -1, before, after);
+    if (role == TextRole) {
+        bool mayPrecedeTagLine = index.row() == 0;
+        for (int row = 1; !mayPrecedeTagLine && row < blocks_.size(); ++row) {
+            const Block &candidate = blocks_.at(row);
+            if (candidate.type == TagLine) {
+                mayPrecedeTagLine = index.row() <= row;
+                break;
+            }
+            if (candidate.type != Text || !candidate.text.trimmed().isEmpty())
+                break;
+        }
+        if (mayPrecedeTagLine)
+            notifyNormalizedTagLines();
+    }
     changed(index.row(), { role });
     return true;
 }
@@ -357,7 +374,8 @@ QHash<int, QByteArray> NoteBlockModel::roleNames() const
              { HeadingLevelRole, "headingLevel" },
              { LanguageRole, "codeLanguage" },
              { ImageWidthRole, "imageWidth" },
-             { ImageAlignmentRole, "imageAlignment" } };
+             { ImageAlignmentRole, "imageAlignment" },
+             { TagsRole, "tags" } };
 }
 
 QString NoteBlockModel::contents() const
@@ -421,6 +439,10 @@ QVariantMap NoteBlockModel::findText(const QString &text, const QVariantMap &aft
         case Image:
             // Image alt text is not edited by a text delegate yet, so selecting
             // a search match there would have no visible target.
+            break;
+        case TagLine:
+            // Tag chips are edited by a dedicated structural delegate. Search
+            // result selection currently addresses QTextDocument editors only.
             break;
         }
     }
@@ -517,6 +539,65 @@ QList<NoteBlockModel::Block> NoteBlockModel::cloneBlocks(const QList<Block> &blo
     return result;
 }
 
+bool NoteBlockModel::normalizeTagLinePositions(QList<Block> *blocks, bool markdown, bool promoteTextCandidate)
+{
+    if (!blocks || blocks->isEmpty())
+        return false;
+
+    const Block &title = blocks->constFirst();
+    const bool   titleOnly
+        = markdown && title.type == Text && !title.text.trimmed().isEmpty() && !title.text.contains(QLatin1Char('\n'));
+    bool bodyContentSeen = false;
+    bool keptTagLine     = false;
+    bool changed         = false;
+
+    for (int row = 0; row < blocks->size(); ++row) {
+        Block &block = (*blocks)[row];
+        if (block.type == TagLine) {
+            const bool validPosition
+                = row > 0 && titleOnly && !bodyContentSeen && !keptTagLine && !block.tags.isEmpty();
+            if (validPosition) {
+                keptTagLine     = true;
+                bodyContentSeen = true;
+                continue;
+            }
+
+            Block ordinaryText;
+            ordinaryText.type          = Text;
+            ordinaryText.text          = NoteTagLine::serialize(block.tags);
+            ordinaryText.explicitEmpty = ordinaryText.text.isEmpty();
+            block                      = ordinaryText;
+            changed                    = true;
+        }
+
+        if (row == 0)
+            continue;
+        if (block.type == Text && block.text.trimmed().isEmpty())
+            continue;
+        if (promoteTextCandidate && titleOnly && !bodyContentSeen && !keptTagLine && block.type == Text
+            && !block.text.contains(QLatin1Char('\n'))) {
+            const QStringList tags = NoteTagLine::parseLine(block.text);
+            if (!tags.isEmpty()) {
+                Block tagLine;
+                tagLine.type = TagLine;
+                tagLine.tags = tags;
+                block        = tagLine;
+                keptTagLine  = true;
+                changed      = true;
+            }
+        }
+        bodyContentSeen = true;
+    }
+    return changed;
+}
+
+void NoteBlockModel::notifyNormalizedTagLines(bool promoteTextCandidate)
+{
+    if (!normalizeTagLinePositions(&blocks_, markdown_, promoteTextCandidate) || blocks_.isEmpty())
+        return;
+    emit dataChanged(index(0), index(blocks_.size() - 1), { TypeRole, TextRole, TagsRole });
+}
+
 NoteBlockModel::State NoteBlockModel::state() const { return { cloneBlocks(blocks_), markdown_ }; }
 
 bool NoteBlockModel::restoreState(const State &state)
@@ -527,6 +608,7 @@ bool NoteBlockModel::restoreState(const State &state)
     beginResetModel();
     blocks_   = cloneBlocks(state.blocks);
     markdown_ = state.markdown;
+    normalizeTagLinePositions(&blocks_, markdown_);
     endResetModel();
     if (formatChanged)
         emit markdownChanged();
@@ -539,6 +621,7 @@ void NoteBlockModel::load(const QString &contents, bool markdown)
     beginResetModel();
     markdown_ = markdown;
     blocks_   = markdown ? parseMarkdown(contents) : QList<Block> { Block { Text, contents } };
+    normalizeTagLinePositions(&blocks_, markdown_, true);
     endResetModel();
     emit markdownChanged();
     emit contentsChanged();
@@ -562,6 +645,7 @@ bool NoteBlockModel::mergeTextBlockWithNext(int row)
         = blocks_[row].text.isEmpty() && (blocks_[row].explicitEmpty || blocks_[row + 1].explicitEmpty);
     blocks_.removeAt(row + 1);
     endRemoveRows();
+    notifyNormalizedTagLines();
     changed(row, { TextRole });
     return true;
 }
@@ -632,6 +716,7 @@ bool NoteBlockModel::mergeListItemWithFollowingBlock(int row, int item)
         beginRemoveRows({}, row + 1, row + 1);
         blocks_.removeAt(row + 1);
         endRemoveRows();
+        notifyNormalizedTagLines();
         changed(row, { ItemsRole });
         return true;
     }
@@ -650,6 +735,7 @@ bool NoteBlockModel::mergeListItemWithFollowingBlock(int row, int item)
     beginRemoveRows({}, row + 1, row + 1);
     blocks_.removeAt(row + 1);
     endRemoveRows();
+    notifyNormalizedTagLines();
     changed(row, { ItemsRole, IndentsRole, ItemTypesRole, CheckedRole });
     return true;
 }
@@ -754,6 +840,7 @@ bool NoteBlockModel::moveListRange(int sourceRow, int sourceFirstItem, int sourc
     }
 
     if (removeSourceBlock) {
+        normalizeTagLinePositions(&blocks_, markdown_, true);
         endResetModel();
         emit contentsChanged();
     } else if (sourceRow == targetRow) {
@@ -816,6 +903,7 @@ int NoteBlockModel::moveListRangeToBlock(int sourceRow, int sourceFirstItem, int
 
     targetRow = qBound(0, targetRow, blocks_.size());
     blocks_.insert(targetRow, detached);
+    normalizeTagLinePositions(&blocks_, markdown_, true);
     endResetModel();
     emit contentsChanged();
     return targetRow;
@@ -849,6 +937,75 @@ void NoteBlockModel::convertListToText(int row)
         return;
     blocks_[row] = Block {};
     changed(row, { TypeRole, TextRole, ItemsRole, CheckedRole });
+}
+
+int NoteBlockModel::unlistListItem(int row, int item)
+{
+    if (row < 0 || row >= blocks_.size() || !isListType(blocks_[row].type))
+        return -1;
+
+    Block source = blocks_.at(row);
+    if (item < 0 || item >= source.items.size())
+        return -1;
+    while (source.indents.size() < source.items.size())
+        source.indents.append(0);
+    while (source.itemTypes.size() < source.items.size())
+        source.itemTypes.append(source.type);
+    while (source.checked.size() < source.items.size())
+        source.checked.append(false);
+
+    const int sourceIndent = source.indents.at(item).toInt();
+    if (sourceIndent > 0) {
+        int subtreeEnd = item + 1;
+        while (subtreeEnd < source.items.size() && source.indents.at(subtreeEnd).toInt() > sourceIndent)
+            ++subtreeEnd;
+        indentListItems(row, item, subtreeEnd - 1, -1);
+        return row;
+    }
+
+    const auto listSlice = [](const Block &block, int first, int count) {
+        Block result;
+        result.type          = block.type;
+        result.items         = block.items.mid(first, count);
+        result.indents       = block.indents.mid(first, count);
+        result.itemTypes     = block.itemTypes.mid(first, count);
+        result.checked       = block.checked.mid(first, count);
+        const auto firstType = static_cast<BlockType>(result.itemTypes.value(0, int(block.type)).toInt());
+        if (isListType(firstType))
+            result.type = firstType;
+        return result;
+    };
+
+    int subtreeEnd = item + 1;
+    while (subtreeEnd < source.items.size() && source.indents.at(subtreeEnd).toInt() > sourceIndent)
+        ++subtreeEnd;
+
+    QList<Block> replacement;
+    if (item > 0)
+        replacement.append(listSlice(source, 0, item));
+
+    Block paragraph;
+    paragraph.type = Text;
+    paragraph.text = source.items.at(item);
+    replacement.append(paragraph);
+    const int paragraphRow = row + replacement.size() - 1;
+
+    if (item + 1 < source.items.size()) {
+        Block     after           = listSlice(source, item + 1, source.items.size() - item - 1);
+        const int descendantCount = subtreeEnd - item - 1;
+        for (int index = 0; index < descendantCount; ++index)
+            after.indents[index] = qMax(0, after.indents.at(index).toInt() - 1);
+        replacement.append(after);
+    }
+
+    beginResetModel();
+    blocks_.removeAt(row);
+    for (int index = 0; index < replacement.size(); ++index)
+        blocks_.insert(row + index, replacement.at(index));
+    normalizeTagLinePositions(&blocks_, markdown_);
+    endResetModel();
+    emit contentsChanged();
+    return paragraphRow;
 }
 
 void NoteBlockModel::indentListItems(int row, int firstItem, int lastItem, int delta)
@@ -1037,6 +1194,27 @@ void NoteBlockModel::removeTableColumn(int row, int column)
     changed(row, { CellsRole });
 }
 
+bool NoteBlockModel::moveTableColumn(int row, int from, int to)
+{
+    if (row < 0 || row >= blocks_.size() || blocks_.at(row).type != Table)
+        return false;
+    auto &block = blocks_[row];
+    if (block.columns <= 1 || from < 0 || from >= block.columns)
+        return false;
+    to = qBound(0, to, block.columns - 1);
+    if (from == to)
+        return false;
+
+    const int rows = block.cells.size() / block.columns;
+    for (int tableRow = 0; tableRow < rows; ++tableRow) {
+        const int     source = tableRow * block.columns + from;
+        const QString cell   = block.cells.takeAt(source);
+        block.cells.insert(tableRow * block.columns + to, cell);
+    }
+    changed(row, { CellsRole });
+    return true;
+}
+
 void NoteBlockModel::setImageUrl(int row, const QString &url) { setData(index(row), url, UrlRole); }
 void NoteBlockModel::setImageAlt(int row, const QString &alt) { setData(index(row), alt, AltRole); }
 void NoteBlockModel::setImageWidth(int row, int width) { setData(index(row), width, ImageWidthRole); }
@@ -1053,6 +1231,7 @@ void NoteBlockModel::insertTextBlock(int row)
     block.explicitEmpty = true;
     blocks_.insert(row, block);
     endInsertRows();
+    notifyNormalizedTagLines();
     emit contentsChanged();
 }
 
@@ -1062,6 +1241,7 @@ void NoteBlockModel::appendTextBlock()
     beginInsertRows({}, row, row);
     blocks_.append(Block {});
     endInsertRows();
+    notifyNormalizedTagLines();
     emit contentsChanged();
 }
 
@@ -1081,6 +1261,7 @@ void NoteBlockModel::appendText(const QString &text)
     block.text = text;
     blocks_.append(block);
     endInsertRows();
+    notifyNormalizedTagLines();
     emit contentsChanged();
 }
 
@@ -1096,12 +1277,18 @@ void NoteBlockModel::insertImage(int row, const QString &url, const QString &alt
     block.alt  = alt;
     blocks_.insert(row, block);
     endInsertRows();
+    notifyNormalizedTagLines();
     emit contentsChanged();
 }
 
 int NoteBlockModel::blockTypeAt(int row) const
 {
     return row >= 0 && row < blocks_.size() ? int(blocks_.at(row).type) : -1;
+}
+
+int NoteBlockModel::listItemCountAt(int row) const
+{
+    return row >= 0 && row < blocks_.size() && isListType(blocks_.at(row).type) ? blocks_.at(row).items.size() : 0;
 }
 
 bool NoteBlockModel::isExplicitEmptyTextBlock(int row) const
@@ -1120,6 +1307,7 @@ void NoteBlockModel::insertTable(int row)
     block.cells   = { QString(), QString(), QString(), QString() };
     blocks_.insert(row, block);
     endInsertRows();
+    notifyNormalizedTagLines();
     emit contentsChanged();
 }
 
@@ -1137,6 +1325,7 @@ void NoteBlockModel::insertList(int row, BlockType type)
     block.checked   = { false };
     blocks_.insert(row, block);
     endInsertRows();
+    notifyNormalizedTagLines();
     emit contentsChanged();
 }
 
@@ -1148,6 +1337,7 @@ void NoteBlockModel::insertBlockQuote(int row)
     block.type = BlockQuote;
     blocks_.insert(row, block);
     endInsertRows();
+    notifyNormalizedTagLines();
     emit contentsChanged();
 }
 
@@ -1160,6 +1350,7 @@ void NoteBlockModel::insertCodeBlock(int row, const QString &language)
     block.language = language.trimmed().toLower();
     blocks_.insert(row, block);
     endInsertRows();
+    notifyNormalizedTagLines();
     emit contentsChanged();
 }
 
@@ -1168,6 +1359,228 @@ void NoteBlockModel::setCodeLanguage(int row, const QString &language)
     if (row < 0 || row >= blocks_.size() || blocks_.at(row).type != CodeBlock)
         return;
     setData(index(row), language, LanguageRole);
+}
+
+QVariantMap NoteBlockModel::promoteTagLineFromText(int row, const QString &plainText, const QString &markdownText,
+                                                   int cursorPosition, bool force)
+{
+    QVariantMap result;
+    result.insert(QStringLiteral("handled"), false);
+    const bool titleBlockCandidate   = row == 0 && row < blocks_.size() && blocks_.at(row).type == Text;
+    const bool separateBodyCandidate = row == 1 && row < blocks_.size() && blocks_.at(row).type == Text
+        && blocks_.constFirst().type == Text && !blocks_.constFirst().text.contains(QLatin1Char('\n'));
+    if (!markdown_ || (!titleBlockCandidate && !separateBodyCandidate))
+        return result;
+
+    const QString plainProbePrefix    = separateBodyCandidate ? QStringLiteral("_\n") : QString();
+    const QString markdownProbePrefix = separateBodyCandidate ? QStringLiteral("_\n\n") : QString();
+    const auto    plainMatch          = NoteTagLine::findEditorDocumentTagLine(plainProbePrefix + plainText);
+    if (!plainMatch || (!force && !plainMatch->trailingWhitespace))
+        return result;
+    const auto markdownMatch = NoteTagLine::firstMarkdownDocumentBodyLine(markdownProbePrefix + markdownText);
+    if (!markdownMatch)
+        return result;
+
+    const int plainLineStart    = plainMatch->lineStart - plainProbePrefix.size();
+    const int plainLineEnd      = plainMatch->lineEnd - plainProbePrefix.size();
+    const int markdownLineStart = markdownMatch->lineStart - markdownProbePrefix.size();
+    const int markdownLineEnd   = markdownMatch->lineEnd - markdownProbePrefix.size();
+    if (plainLineStart < 0 || markdownLineStart < 0)
+        return result;
+
+    QList<Block>  replacement;
+    const QString prefix = markdownText.left(markdownLineStart);
+    const QString suffix = markdownText.mid(markdownLineEnd);
+    if (!prefix.trimmed().isEmpty()) {
+        const auto parsed = parseMarkdownCore(prefix);
+        for (const Block &block : parsed)
+            replacement.append(block);
+    }
+
+    Block tagLine;
+    tagLine.type        = TagLine;
+    tagLine.tags        = plainMatch->tags;
+    const int tagOffset = replacement.size();
+    replacement.append(tagLine);
+
+    if (!suffix.trimmed().isEmpty()) {
+        const auto parsed = parseMarkdownCore(suffix);
+        for (const Block &block : parsed)
+            replacement.append(block);
+    }
+
+    beginResetModel();
+    blocks_.removeAt(row);
+    for (int index = 0; index < replacement.size(); ++index)
+        blocks_.insert(row + index, replacement.at(index));
+    normalizeTagLinePositions(&blocks_, markdown_);
+    endResetModel();
+    emit contentsChanged();
+
+    const int tagRow = row + tagOffset;
+    result.insert(QStringLiteral("handled"), true);
+    result.insert(QStringLiteral("tagRow"), tagRow);
+    result.insert(QStringLiteral("focusTagLine"),
+                  cursorPosition >= plainLineStart && cursorPosition <= plainLineEnd + 1);
+    if (cursorPosition > plainLineEnd) {
+        int contentStart = plainLineEnd;
+        while (contentStart < plainText.size() && plainText.at(contentStart).isSpace())
+            ++contentStart;
+        result.insert(QStringLiteral("focusRow"), qMin(tagRow + 1, blocks_.size() - 1));
+        result.insert(QStringLiteral("cursorPosition"), qMax(0, cursorPosition - contentStart));
+    } else {
+        result.insert(QStringLiteral("focusRow"), qMax(0, tagRow - 1));
+        result.insert(QStringLiteral("cursorPosition"), qMax(0, qMin(cursorPosition, plainLineStart - 1)));
+    }
+    return result;
+}
+
+QVariantMap NoteBlockModel::convertTagLineToText(int row, const QString &text, int cursorPosition)
+{
+    QVariantMap result;
+    result.insert(QStringLiteral("handled"), false);
+    if (row < 0 || row >= blocks_.size() || blocks_.at(row).type != TagLine)
+        return result;
+
+    const QString value = text.isNull() ? NoteTagLine::serialize(blocks_.at(row).tags) : text;
+    beginResetModel();
+    Block &block = blocks_[row];
+    block.type   = Text;
+    block.text   = value;
+    block.tags.clear();
+    block.explicitEmpty = value.isEmpty();
+    normalizeTagLinePositions(&blocks_, markdown_);
+    endResetModel();
+    emit contentsChanged();
+    result.insert(QStringLiteral("handled"), true);
+    result.insert(QStringLiteral("focusRow"), row);
+    result.insert(QStringLiteral("cursorPosition"),
+                  cursorPosition < 0 ? value.size() : qBound(0, cursorPosition, value.size()));
+    return result;
+}
+
+QVariantMap NoteBlockModel::setTagLineTag(int row, int tagIndex, const QString &value, int cursorPosition)
+{
+    QVariantMap result;
+    result.insert(QStringLiteral("handled"), false);
+    if (row < 0 || row >= blocks_.size() || blocks_.at(row).type != TagLine || tagIndex < 0
+        || tagIndex >= blocks_.at(row).tags.size()) {
+        return result;
+    }
+
+    const QString tokenText = value.trimmed();
+    if (tokenText.isEmpty() || tokenText == QLatin1String("*"))
+        return removeTagLineTag(row, tagIndex);
+
+    const QStringList parsed = NoteTagLine::parseLine(tokenText);
+    if (parsed.isEmpty()) {
+        QStringList tokens;
+        const auto &tags       = blocks_.at(row).tags;
+        int         tokenStart = 0;
+        for (int index = 0; index < tags.size(); ++index) {
+            const QString token = index == tagIndex ? tokenText : QLatin1Char('*') + tags.at(index);
+            if (index == tagIndex)
+                tokenStart = tokens.join(QLatin1Char(' ')).size() + (tokens.isEmpty() ? 0 : 1);
+            tokens.append(token);
+        }
+        const int restoredCursor = cursorPosition < 0 ? -1 : tokenStart + qBound(0, cursorPosition, tokenText.size());
+        return convertTagLineToText(row, tokens.join(QLatin1Char(' ')), restoredCursor);
+    }
+
+    const QStringList original = blocks_.at(row).tags;
+    QStringList       updated  = original;
+    updated.removeAt(tagIndex);
+    int insertion = tagIndex;
+    for (const QString &name : parsed) {
+        const int duplicate = updated.indexOf(name);
+        if (duplicate >= 0) {
+            insertion = duplicate + 1;
+            continue;
+        }
+        updated.insert(qMin(insertion, updated.size()), name);
+        ++insertion;
+    }
+    if (updated != original) {
+        blocks_[row].tags = updated;
+        changed(row, { TagsRole, TextRole });
+    }
+    result.insert(QStringLiteral("handled"), true);
+    result.insert(QStringLiteral("tagLine"), true);
+    result.insert(QStringLiteral("focusTag"), qBound(0, insertion - 1, updated.size() - 1));
+    return result;
+}
+
+QVariantMap NoteBlockModel::appendTagLineTag(int row, const QString &value, int cursorPosition)
+{
+    QVariantMap result;
+    result.insert(QStringLiteral("handled"), false);
+    if (row < 0 || row >= blocks_.size() || blocks_.at(row).type != TagLine)
+        return result;
+
+    const QString tokenText = value.trimmed();
+    if (tokenText.isEmpty() || tokenText == QLatin1String("*")) {
+        result.insert(QStringLiteral("handled"), true);
+        result.insert(QStringLiteral("tagLine"), true);
+        result.insert(QStringLiteral("focusDraft"), true);
+        return result;
+    }
+
+    const QStringList parsed = NoteTagLine::parseLine(tokenText);
+    if (parsed.isEmpty()) {
+        const QString prefix     = NoteTagLine::serialize(blocks_.at(row).tags);
+        const QString valueText  = prefix.isEmpty() ? tokenText : prefix + QLatin1Char(' ') + tokenText;
+        const int     tokenStart = prefix.isEmpty() ? 0 : prefix.size() + 1;
+        const int restoredCursor = cursorPosition < 0 ? -1 : tokenStart + qBound(0, cursorPosition, tokenText.size());
+        return convertTagLineToText(row, valueText, restoredCursor);
+    }
+
+    auto &tags        = blocks_[row].tags;
+    bool  changedTags = false;
+    for (const QString &name : parsed) {
+        if (!tags.contains(name)) {
+            tags.append(name);
+            changedTags = true;
+        }
+    }
+    if (changedTags)
+        changed(row, { TagsRole, TextRole });
+    result.insert(QStringLiteral("handled"), true);
+    result.insert(QStringLiteral("tagLine"), true);
+    result.insert(QStringLiteral("focusDraft"), true);
+    return result;
+}
+
+QVariantMap NoteBlockModel::removeTagLineTag(int row, int tagIndex)
+{
+    QVariantMap result;
+    result.insert(QStringLiteral("handled"), false);
+    if (row < 0 || row >= blocks_.size() || blocks_.at(row).type != TagLine || tagIndex < 0
+        || tagIndex >= blocks_.at(row).tags.size()) {
+        return result;
+    }
+    if (blocks_.at(row).tags.size() == 1)
+        return convertTagLineToText(row, QStringLiteral(""), 0);
+
+    blocks_[row].tags.removeAt(tagIndex);
+    changed(row, { TagsRole, TextRole });
+    result.insert(QStringLiteral("handled"), true);
+    result.insert(QStringLiteral("tagLine"), true);
+    result.insert(QStringLiteral("focusTag"), qMin(tagIndex, blocks_.at(row).tags.size() - 1));
+    return result;
+}
+
+bool NoteBlockModel::moveTagLineTag(int row, int from, int to)
+{
+    if (row < 0 || row >= blocks_.size() || blocks_.at(row).type != TagLine || from < 0
+        || from >= blocks_.at(row).tags.size()) {
+        return false;
+    }
+    to = qBound(0, to, blocks_.at(row).tags.size() - 1);
+    if (from == to)
+        return false;
+    blocks_[row].tags.move(from, to);
+    changed(row, { TagsRole, TextRole });
+    return true;
 }
 
 bool NoteBlockModel::convertListLevel(int row, int item, BlockType type)
@@ -1246,6 +1659,7 @@ int NoteBlockModel::convertTextBlockToHeading(int row, int position, int level)
     blocks_.removeAt(row);
     for (int i = 0; i < replacement.size(); ++i)
         blocks_.insert(row + i, replacement[i]);
+    normalizeTagLinePositions(&blocks_, markdown_);
     endResetModel();
     emit contentsChanged();
     return row + headingOffset;
@@ -1300,9 +1714,31 @@ int NoteBlockModel::convertTextBlockToQuote(int row, int position, bool quote)
     blocks_.removeAt(row);
     for (int index = 0; index < replacement.size(); ++index)
         blocks_.insert(row + index, replacement.at(index));
+    normalizeTagLinePositions(&blocks_, markdown_);
     endResetModel();
     emit contentsChanged();
     return row + quoteOffset;
+}
+
+bool NoteBlockModel::splitStructuredBlockToText(int row, const QString &before, const QString &after)
+{
+    if (row < 0 || row >= blocks_.size() || (blocks_.at(row).type != Heading && blocks_.at(row).type != BlockQuote)) {
+        return false;
+    }
+
+    blocks_[row].text = coalesceAdjacentMarkdownLinks(before);
+
+    Block following;
+    following.type          = Text;
+    following.text          = coalesceAdjacentMarkdownLinks(after);
+    following.explicitEmpty = following.text.isEmpty();
+
+    beginInsertRows({}, row + 1, row + 1);
+    blocks_.insert(row + 1, following);
+    endInsertRows();
+    notifyNormalizedTagLines();
+    changed(row, { TextRole });
+    return true;
 }
 
 bool NoteBlockModel::moveBlock(int row, int targetRow)
@@ -1312,6 +1748,7 @@ bool NoteBlockModel::moveBlock(int row, int targetRow)
     beginMoveRows({}, row, row, {}, targetRow > row ? targetRow + 1 : targetRow);
     blocks_.move(row, targetRow);
     endMoveRows();
+    notifyNormalizedTagLines();
     emit contentsChanged();
     return true;
 }
@@ -1323,6 +1760,7 @@ void NoteBlockModel::removeBlock(int row)
     beginRemoveRows({}, row, row);
     blocks_.removeAt(row);
     endRemoveRows();
+    notifyNormalizedTagLines();
     emit contentsChanged();
 }
 
@@ -1363,6 +1801,10 @@ NoteFragment NoteBlockModel::extractBlockFragment(int firstRow, int lastRow) con
             destination.type     = NoteFragmentBlockType::CodeBlock;
             destination.markdown = source.text;
             destination.language = source.language;
+            break;
+        case TagLine:
+            destination.type = NoteFragmentBlockType::TagLine;
+            destination.tags = source.tags;
             break;
         case BulletList:
         case CheckList:
@@ -1415,8 +1857,8 @@ NoteFragment NoteBlockModel::extractSelectionFragment(const QList<NoteBlockSelec
             continue;
         }
 
-        // Text editors are the visible selection endpoints, but some blocks
-        // (currently images) have no TextArea and therefore produce no range.
+        // Text editors are the visible selection endpoints, but structural
+        // blocks such as images and tag lines have no TextArea of their own.
         // Every block strictly between two ranged rows is nevertheless fully
         // crossed by the document selection and must be present on the
         // clipboard, just as it is removed by removeSelectionRanges().
@@ -1488,12 +1930,12 @@ NoteFragment NoteBlockModel::extractSelectionFragment(const QList<NoteBlockSelec
                 }
                 fragment.blocks.append(block);
             }
-        } else if (source.type == Image) {
-            const bool wholeImage = std::all_of(ranges.cbegin() + first, ranges.cbegin() + last,
+        } else if (source.type == Image || source.type == TagLine) {
+            const bool wholeBlock = std::all_of(ranges.cbegin() + first, ranges.cbegin() + last,
                                                 [](const auto &range) { return range.wholeEditor; });
-            if (wholeImage) {
+            if (wholeBlock) {
                 fragment.blocks.append(block);
-            } else {
+            } else if (source.type == Image) {
                 NoteFragmentBlock text;
                 text.type = NoteFragmentBlockType::Text;
                 QStringList parts;
@@ -1582,8 +2024,8 @@ int NoteBlockModel::removeSelectionRanges(const QList<NoteBlockSelectionRange> &
             }
             return true;
         }
-        // An image fully crossed by the selection is removed. A selection
-        // beginning or ending inside its editable metadata keeps the image.
+        // A structural block fully crossed by the selection is removed. A
+        // selection beginning or ending inside editable image metadata keeps it.
         return !std::all_of(group.cbegin(), group.cend(), [](const auto &range) { return range.wholeEditor; });
     };
 
@@ -1611,6 +2053,7 @@ int NoteBlockModel::removeSelectionRanges(const QList<NoteBlockSelectionRange> &
         blocks_.removeAt(row);
     for (int index = 0; index < replacement.size(); ++index)
         blocks_.insert(firstRow + index, replacement.at(index));
+    normalizeTagLinePositions(&blocks_, markdown_);
     endResetModel();
     emit contentsChanged();
     return qMin(firstRow, blocks_.size() - 1);
@@ -1651,6 +2094,19 @@ bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Bloc
             destination.type     = CodeBlock;
             destination.text     = source.markdown;
             destination.language = source.language.trimmed().toLower();
+            break;
+        case NoteFragmentBlockType::TagLine:
+            if (source.tags.isEmpty() || std::any_of(source.tags.cbegin(), source.tags.cend(), [](const QString &tag) {
+                    return !NoteTagLine::isValidTagName(tag);
+                })) {
+                if (error)
+                    *error = QStringLiteral("tag line fragment has invalid tags");
+                return false;
+            }
+            destination.type = TagLine;
+            for (const QString &tag : source.tags)
+                if (!destination.tags.contains(tag))
+                    destination.tags.append(tag);
             break;
         case NoteFragmentBlockType::List:
             if (source.listItems.isEmpty()) {
@@ -1713,6 +2169,7 @@ bool NoteBlockModel::insertBlockFragment(int row, const NoteFragment &fragment, 
     for (int index = 0; index < replacement.size(); ++index)
         blocks_.insert(row + index, replacement.at(index));
     endInsertRows();
+    notifyNormalizedTagLines(true);
     emit contentsChanged();
     return true;
 }
@@ -1752,6 +2209,7 @@ int NoteBlockModel::replaceTextBlockRangeWithFragment(int row, const QString &be
     blocks_.removeAt(row);
     for (int index = 0; index < replacement.size(); ++index)
         blocks_.insert(row + index, replacement.at(index));
+    normalizeTagLinePositions(&blocks_, markdown_, true);
     endResetModel();
     emit contentsChanged();
     return insertedRow;
@@ -1881,6 +2339,35 @@ int NoteBlockModel::replaceListItemRangeWithFragment(int row, int item, const QS
 }
 
 QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdown(const QString &source)
+{
+    QString normalized = source;
+    normalized.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    normalized.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+
+    const auto tagLine = NoteTagLine::findMarkdownDocumentTagLine(normalized);
+    if (!tagLine)
+        return parseMarkdownCore(normalized);
+
+    QList<Block> result;
+    const auto   appendPart = [&result](const QString &part) {
+        if (part.trimmed().isEmpty())
+            return;
+        const auto parsed = parseMarkdownCore(part);
+        for (const Block &block : parsed)
+            result.append(block);
+    };
+    appendPart(normalized.left(tagLine->lineStart));
+    Block tags;
+    tags.type = TagLine;
+    tags.tags = tagLine->tags;
+    result.append(tags);
+    appendPart(normalized.mid(tagLine->lineEnd));
+    if (result.isEmpty())
+        result.append(Block {});
+    return result;
+}
+
+QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownCore(const QString &source)
 {
     QString normalized = source;
     normalized.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
@@ -2047,8 +2534,9 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
         QStringLiteral(R"((?<!!)\[(?:\\.|[^\]\\\n])*\]\((?:\\.|[^)\\\n])*\)|<https?://[^>\n]+>)"));
     static const QRegularExpression inlineUnderline(QStringLiteral(R"(<(?:ins|u)(?:\s[^>]*)?>[\s\S]*?</(?:ins|u)\s*>)"),
                                                     QRegularExpression::CaseInsensitiveOption);
-    const bool                      preserveInlineSourceLines
-        = inlineLink.match(protectedSource).hasMatch() || inlineUnderline.match(protectedSource).hasMatch();
+    static const QRegularExpression inlineCode(QStringLiteral(R"((?<!`)`+[^\n]*?`+)"));
+    const bool                      preserveInlineSourceLines = inlineLink.match(protectedSource).hasMatch()
+        || inlineUnderline.match(protectedSource).hasMatch() || inlineCode.match(protectedSource).hasMatch();
     const bool hasHtmlImage = std::any_of(sourceLines.cbegin(), sourceLines.cend(),
                                           [](const QString &line) { return bool(parseHtmlImageBlock(line)); });
     // QTextDocument remains the Markdown reader for inline semantics, but its
@@ -2284,6 +2772,9 @@ QString NoteBlockModel::writeMarkdown(const QList<Block> &blocks)
             // points. Markdown collapses them naturally on save/reload; do
             // not leak a private marker into plain-text mode.
             value = block.text;
+            break;
+        case TagLine:
+            value = NoteTagLine::serialize(block.tags);
             break;
         case Heading:
             value = QString(qBound(1, block.headingLevel, 6), QLatin1Char('#')) + QLatin1Char(' ') + block.text;

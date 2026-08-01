@@ -82,6 +82,7 @@ public:
     QString             lastTrashedFolderName() const;
 
     Q_INVOKABLE bool openNote(const QString &storageId, const QString &noteId);
+    Q_INVOKABLE bool noteMatchesBodySearch(const QString &storageId, const QString &noteId) const;
     bool             openNote(const Note &note, const QUuid &draftId = {});
     Q_INVOKABLE bool createNote(const QString &storageId = {});
     Q_INVOKABLE bool saveCurrentNote();

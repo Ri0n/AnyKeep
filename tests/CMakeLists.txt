@@ -90,6 +90,7 @@ add_test(NAME folderoperationscontroller_test COMMAND folderoperationscontroller
 
 add_executable(tomboyfolderoverlay_test
     tomboyfolderoverlay_test.cpp
+    ../plugins/tomboy/tomboynoteformat.cpp
     ../plugins/tomboy/tomboystorage.cpp
 )
 target_include_directories(tomboyfolderoverlay_test PRIVATE ../plugins/tomboy)

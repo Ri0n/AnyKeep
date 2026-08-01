@@ -44,6 +44,7 @@ public:
         ResetHistory,
         RecordFormatConversion,
         HistoryRestore,
+        ReplaceContent,
     };
     Q_ENUM(LoadPolicy)
 
@@ -113,6 +114,9 @@ public:
     Q_INVOKABLE int         setLink(QQuickTextDocument *document, int start, int end, const QString &href);
     Q_INVOKABLE bool        primaryModifierPressed() const;
     Q_INVOKABLE int         applyInlineFormat(QQuickTextDocument *document, int start, int end, const QString &style);
+    Q_INVOKABLE bool        inlineFormatEnabled(QQuickTextDocument *document, int position, const QString &style) const;
+    Q_INVOKABLE bool        setInlineFormat(QQuickTextDocument *document, int start, int end, const QString &style,
+                                            bool enabled);
     Q_INVOKABLE void        applyInlineHtmlFormatting(QQuickTextDocument *document) const;
     Q_INVOKABLE QString     markdownText(QQuickTextDocument *document) const;
     Q_INVOKABLE QString     markdownTableCellText(QQuickTextDocument *document) const;

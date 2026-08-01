@@ -18,6 +18,14 @@ namespace {
 
     NoteRuleError error(NoteRuleError::Code code, const QString &message) { return { code, message }; }
 
+    QString normalizedTagCondition(QString value)
+    {
+        value = value.trimmed();
+        if (value.startsWith(QLatin1Char('*')))
+            value = value.mid(1).trimmed();
+        return value;
+    }
+
     enum class ConditionState { Matches, DoesNotMatch, NeedsText };
 
     bool validConditionKind(NoteRuleConditionKind kind)
@@ -59,14 +67,16 @@ namespace {
             matches               = expression.isValid() && expression.match(input.title).hasMatch();
             break;
         }
-        case NoteRuleConditionKind::HasTag:
+        case NoteRuleConditionKind::HasTag: {
+            const QString expectedTag = normalizedTagCondition(value);
             for (const auto &tag : input.tags) {
-                if (tag.compare(value, Qt::CaseInsensitive) == 0) {
+                if (tag.compare(expectedTag, Qt::CaseInsensitive) == 0) {
                     matches = true;
                     break;
                 }
             }
             break;
+        }
         case NoteRuleConditionKind::TextContains:
             if (!input.textAvailable)
                 return ConditionState::NeedsText;
@@ -133,7 +143,8 @@ NoteRuleError NoteRuleEvaluator::validate(const NoteRule &rule)
 
     for (const auto &condition : rule.conditions) {
         const auto value = condition.value.trimmed();
-        if (!validConditionKind(condition.kind) || value.isEmpty() || value.size() > MaximumPatternLength) {
+        if (!validConditionKind(condition.kind) || value.isEmpty() || value.size() > MaximumPatternLength
+            || (condition.kind == NoteRuleConditionKind::HasTag && normalizedTagCondition(value).isEmpty())) {
             return error(NoteRuleError::InvalidArgument, QStringLiteral("A rule condition is invalid"));
         }
         if (condition.kind == NoteRuleConditionKind::TitleMatches) {

@@ -57,10 +57,12 @@ protected:
 
 private:
     QString geometryKey() const;
+    void    updateBackgroundColor();
     void    updateWindowTitle();
     void    saveGeometryState(bool remove = false);
     void    removeFromRegistry();
     void    flushEditorChanges();
+    void    ensureWindowGeometryVisible();
     void    requestDeferredClose();
     int     insertionRowAt(const QPointF &position) const;
 

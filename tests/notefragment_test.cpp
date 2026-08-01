@@ -10,8 +10,10 @@ class NoteFragmentTest : public QObject {
 private slots:
     void roundTripsStructuredFragment();
     void roundTripsCodeBlock();
+    void roundTripsTagLine();
     void readsVersionOneFragments();
     void readsVersionTwoImagesWithDefaultPresentation();
+    void readsVersionThreeImagesWithPresentation();
     void rejectsInvalidInput();
 };
 
@@ -97,11 +99,27 @@ void NoteFragmentTest::roundTripsCodeBlock()
 
     const auto decoded = decodeNoteFragment(encodeNoteFragment(fragment));
     QVERIFY2(decoded, qPrintable(decoded.error));
-    QCOMPARE(decoded.fragment.version, quint32(3));
+    QCOMPARE(decoded.fragment.version, NoteFragment::CurrentVersion);
     QCOMPARE(decoded.fragment.blocks.size(), 1);
     QCOMPARE(decoded.fragment.blocks.constFirst().type, NoteFragmentBlockType::CodeBlock);
     QCOMPARE(decoded.fragment.blocks.constFirst().language, code.language);
     QCOMPARE(decoded.fragment.blocks.constFirst().markdown, code.markdown);
+}
+
+void NoteFragmentTest::roundTripsTagLine()
+{
+    NoteFragment      fragment;
+    NoteFragmentBlock tags;
+    tags.type = NoteFragmentBlockType::TagLine;
+    tags.tags = { QStringLiteral("tb"), QStringLiteral("interview") };
+    fragment.blocks.append(tags);
+
+    const auto decoded = decodeNoteFragment(encodeNoteFragment(fragment));
+    QVERIFY2(decoded, qPrintable(decoded.error));
+    QCOMPARE(decoded.fragment.version, NoteFragment::CurrentVersion);
+    QCOMPARE(decoded.fragment.blocks.size(), 1);
+    QCOMPARE(decoded.fragment.blocks.constFirst().type, NoteFragmentBlockType::TagLine);
+    QCOMPARE(decoded.fragment.blocks.constFirst().tags, tags.tags);
 }
 
 void NoteFragmentTest::readsVersionOneFragments()
@@ -139,6 +157,25 @@ void NoteFragmentTest::readsVersionTwoImagesWithDefaultPresentation()
     QCOMPARE(decoded.fragment.blocks.constFirst().image.alignment, QStringLiteral("center"));
 }
 
+void NoteFragmentTest::readsVersionThreeImagesWithPresentation()
+{
+    NoteFragment fragment;
+    fragment.version = 3;
+    NoteFragmentBlock image;
+    image.type            = NoteFragmentBlockType::Image;
+    image.image.sourceUri = QStringLiteral("media://version-three-image");
+    image.image.alt       = QStringLiteral("Version three");
+    image.image.width     = 420;
+    image.image.alignment = QStringLiteral("right");
+    fragment.blocks.append(image);
+
+    const auto decoded = decodeNoteFragment(encodeNoteFragment(fragment));
+    QVERIFY2(decoded, qPrintable(decoded.error));
+    QCOMPARE(decoded.fragment.version, quint32(3));
+    QCOMPARE(decoded.fragment.blocks.constFirst().image.width, 420);
+    QCOMPARE(decoded.fragment.blocks.constFirst().image.alignment, QStringLiteral("right"));
+}
+
 void NoteFragmentTest::rejectsInvalidInput()
 {
     QCOMPARE(decodeNoteFragment(QByteArrayLiteral("not-cbor")).error, QStringLiteral("invalid CBOR fragment"));
@@ -162,6 +199,20 @@ void NoteFragmentTest::rejectsInvalidInput()
     list.listItems = { { QStringLiteral("too deep"), 129, NoteFragmentListKind::Bullet, false } };
     invalidList.blocks.append(list);
     QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidList)));
+
+    NoteFragment      invalidTags;
+    NoteFragmentBlock tags;
+    tags.type = NoteFragmentBlockType::TagLine;
+    invalidTags.blocks.append(tags);
+    QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidTags)));
+
+    tags.tags          = { QStringLiteral("bad?") };
+    invalidTags.blocks = { tags };
+    QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidTags)));
+
+    tags.tags          = { QStringLiteral("tb"), QStringLiteral("tb") };
+    invalidTags.blocks = { tags };
+    QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidTags)));
 
     NoteFragment      invalidImage;
     NoteFragmentBlock image;

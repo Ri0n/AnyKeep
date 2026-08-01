@@ -32,6 +32,7 @@ public:
     bool                setKey(const QString &option, const QKeySequence &seq);
     QList<ShortcutInfo> all() const;
     QString             friendlyName(const QString &option) const;
+    QString             lastError() const;
     QStringList         globalShortcutIds() const;
 
     bool registerGlobal(const char *option, QAction *action);

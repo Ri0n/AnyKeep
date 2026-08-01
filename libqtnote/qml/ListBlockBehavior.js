@@ -98,26 +98,51 @@ function handleKey(host, controller, event, cell, itemIndex) {
             return merged
         })
     }
-    if (event.key === Qt.Key_Backspace && !blocked && cell.length === 0 && cell.cursorPosition === 0) {
-        return controller.runEditTransaction("remove-list-item", function() {
+    if (event.key === Qt.Key_Backspace && !blocked
+            && cell.selectionStart === cell.selectionEnd && cell.cursorPosition === 0) {
+        if (cell.length === 0) {
+            return controller.runEditTransaction("remove-list-item", function() {
+                const viewportY = controller.contentY
+                controller.prepareForStructuralMutation()
+                if (host.itemCount() === 1) {
+                    controller.blockModel.convertListToText(host.block.index)
+                    controller.focusEditorAddress({
+                        blockIndex: host.block.index,
+                        listItemIndex: -1,
+                        tableCellIndex: -1,
+                        cursorPosition: 0,
+                        preserveViewport: true,
+                        viewportY: viewportY
+                    })
+                } else {
+                    const target = itemIndex > 0 ? itemIndex - 1 : 0
+                    const targetLength = itemIndex > 0 ? host.itemText(target).length : 0
+                    controller.blockModel.removeListItem(host.block.index, itemIndex)
+                    host.focusItem(target, targetLength, true, viewportY)
+                }
+                return true
+            })
+        }
+        return controller.runEditTransaction("unlist-list-item", function() {
             const viewportY = controller.contentY
             controller.prepareForStructuralMutation()
-            if (host.itemCount() === 1) {
-                controller.blockModel.convertListToText(host.block.index)
-                controller.focusEditorAddress({
-                    blockIndex: host.block.index,
-                    listItemIndex: -1,
-                    tableCellIndex: -1,
-                    cursorPosition: 0,
-                    preserveViewport: true,
-                    viewportY: viewportY
-                })
-            } else {
-                const target = itemIndex > 0 ? itemIndex - 1 : 0
-                const targetLength = itemIndex > 0 ? host.itemText(target).length : 0
-                controller.blockModel.removeListItem(host.block.index, itemIndex)
-                host.focusItem(target, targetLength, true, viewportY)
+            if (host.itemIndent(itemIndex) > 0) {
+                controller.blockModel.indentListItems(host.block.index, itemIndex,
+                                                      host.subtreeEnd(itemIndex) - 1, -1)
+                host.focusItem(itemIndex, 0, true, viewportY)
+                return true
             }
+            const textRow = controller.blockModel.unlistListItem(host.block.index, itemIndex)
+            if (textRow < 0)
+                return false
+            controller.focusEditorAddress({
+                blockIndex: textRow,
+                listItemIndex: -1,
+                tableCellIndex: -1,
+                cursorPosition: 0,
+                preserveViewport: true,
+                viewportY: viewportY
+            })
             return true
         })
     }
