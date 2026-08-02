@@ -585,6 +585,9 @@ private slots:
         damaged.close();
 
         PTFStorage reader;
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral(
+                                 ".*PTF folder index is unavailable.*Invalid PTF folder index payload.*")));
         QVERIFY(reader.setStoragePath(directory.path()));
         QVERIFY(reader.isAccessible());
         QVERIFY(!reader.folderCatalogAvailable());
@@ -654,6 +657,9 @@ private slots:
         note.setFolderId(secondFolder);
         note.setText(QStringLiteral("Committed body"), Note::Markdown);
         QSignalSpy errors(&storage, &NoteStorage::storageErorr);
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral(
+                                 ".*Failed to update PTF folder index.*Invalid PTF folder index payload.*")));
         QVERIFY(storage.saveNote(note));
         QCOMPARE(errors.size(), 1);
         QVERIFY(!storage.folderCatalogAvailable());

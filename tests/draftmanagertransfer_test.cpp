@@ -213,7 +213,13 @@ void DraftManagerTransferTest::preservesSourceWhenDestinationPublicationFails()
     auto        *data  = store.get();
     DraftManager drafts(std::move(store));
     QUuid        draftId;
-    const auto   error = drafts.stageTransfer(source, destinationRaw->systemName(), {}, &draftId);
+    QTest::ignoreMessage(
+        QtWarningMsg,
+        QRegularExpression(QStringLiteral(".*Draft publication job failed.*transfer-failure-destination.*")));
+    QTest::ignoreMessage(
+        QtWarningMsg,
+        QRegularExpression(QStringLiteral(".*Draft publication retry/failure.*transfer-failure-destination.*")));
+    const auto error = drafts.stageTransfer(source, destinationRaw->systemName(), {}, &draftId);
     QVERIFY2(!error, qPrintable(error.message));
 
     QTRY_VERIFY(data->records_.contains(draftId));

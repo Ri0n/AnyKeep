@@ -3,8 +3,11 @@ import QtQuick.Controls
 
 Item {
     id: interBlockHitLayer
+    objectName: "interBlockHitLayer"
     required property var editorView
     required property var reorderController
+    readonly property bool formatEnabled: Boolean(editorView.editorBackend
+                                                   && editorView.editorBackend.markdown)
 
     SystemPalette {
         id: editorPalette
@@ -13,7 +16,8 @@ Item {
     width: Math.max(0, editorView.width - editorView.scrollBarInset)
     height: editorView.contentHeight
     z: 50000
-    enabled: !editorView.touchMode && !reorderController.dragging
+    visible: formatEnabled
+    enabled: formatEnabled && !editorView.touchMode && !reorderController.dragging
 
     Repeater {
         model: Math.max(0, editorView.count - 1)

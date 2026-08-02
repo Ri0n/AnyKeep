@@ -266,6 +266,8 @@ void FolderOperationsControllerTest::retainsOverlayWhenNativeMoveFails()
 
     FolderOperationsController controller(&catalog, NoteManager::instance());
     QSignalSpy                 finished(&controller, &FolderOperationsController::assignmentFinished);
+    QTest::ignoreMessage(
+        QtWarningMsg, QRegularExpression(QStringLiteral(".*Folder operation failed.*Native folder request failed.*")));
     QVERIFY(controller.assignNoteFolder(raw->systemName(), QStringLiteral("note"), folder));
     QTRY_COMPARE(finished.count(), 1);
     QCOMPARE(raw->changeCalls, 1);

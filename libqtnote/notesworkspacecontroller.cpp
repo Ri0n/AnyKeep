@@ -28,14 +28,20 @@ namespace QtNote {
 Q_LOGGING_CATEGORY(logWorkspaceFolders, "qtnote.workspace.folders")
 
 NotesWorkspaceController::NotesWorkspaceController(QObject *parent) :
-    NotesWorkspaceController(FolderCatalogManager::instance(), parent)
+    NotesWorkspaceController(FolderCatalogManager::instance(), DraftManager::instance(), parent)
 {
 }
 
 NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderCatalogManager, QObject *parent) :
-    QObject(parent)
+    NotesWorkspaceController(folderCatalogManager, DraftManager::instance(), parent)
+{
+}
+
+NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderCatalogManager,
+                                                   DraftManager *draftManager, QObject *parent) : QObject(parent)
 {
     folderCatalogManager_ = folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance();
+    draftManager_         = draftManager ? draftManager : DraftManager::instance();
     notesModel_           = new NotesModel(folderCatalogManager_, this);
     searchModel_          = new NotesSearchModel(this);
     searchModel_->setSourceModel(notesModel_);
@@ -82,7 +88,7 @@ NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderC
                 pendingFolderAssignments_.remove(currentEditor_->draftId());
             });
 
-    auto *drafts = DraftManager::instance();
+    auto *drafts = draftManager_;
     connect(drafts, &DraftManager::draftPublished, this, [this, drafts](const QUuid &draftId, const Note &note) {
         const auto assignment = pendingFolderAssignments_.find(draftId);
         if (assignment != pendingFolderAssignments_.end() && !note.storageId().isEmpty() && !note.id().isEmpty()) {
@@ -230,7 +236,7 @@ bool NotesWorkspaceController::openNote(const Note &note, const QUuid &draftId)
         return false;
     auto editorNote = note;
     editorNote.setFolderId(effectiveFolderId(note));
-    setCurrentEditor(new NoteEditor(editorNote, draftId, this));
+    setCurrentEditor(new NoteEditor(editorNote, *draftManager_, draftId, this));
     setError({});
     return true;
 }
@@ -290,7 +296,7 @@ bool NotesWorkspaceController::closeCurrentNote()
         return false;
     }
     clearCurrentEditor();
-    DraftManager::instance()->publishPending();
+    draftManager_->publishPending();
     return true;
 }
 
@@ -310,7 +316,7 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
         return false;
     setError({});
     if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId) {
-        if (!DraftManager::instance()->isLastEditingSession(currentEditor_->draftId())) {
+        if (!draftManager_->isLastEditingSession(currentEditor_->draftId())) {
             setError(tr("The note is open in another editor and cannot be deleted yet"));
             return false;
         }
@@ -320,12 +326,12 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
         }
         clearCurrentEditor();
     }
-    const auto error = DraftManager::instance()->queueRemoval(storageId, noteId);
+    const auto error = draftManager_->queueRemoval(storageId, noteId);
     if (error) {
         setError(error.message);
         return false;
     }
-    DraftManager::instance()->publishPending();
+    draftManager_->publishPending();
     return true;
 }
 
@@ -350,7 +356,7 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
         return false;
     const QUuid previousFolderId(folderIdForNote(storageId, noteId));
     if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId) {
-        if (!DraftManager::instance()->isLastEditingSession(currentEditor_->draftId())) {
+        if (!draftManager_->isLastEditingSession(currentEditor_->draftId())) {
             setError(tr("The note is open in another editor and cannot be moved to the recycle bin yet"));
             return false;
         }
@@ -433,7 +439,7 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
     setError({});
 
     if (currentEditor_ && currentEditor_->storageId() == sourceStorageId && currentEditor_->noteId() == noteId) {
-        if (!DraftManager::instance()->isLastEditingSession(currentEditor_->draftId())) {
+        if (!draftManager_->isLastEditingSession(currentEditor_->draftId())) {
             setError(tr("The note is open in another editor and cannot be moved yet"));
             return false;
         }
@@ -454,7 +460,7 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
         // the source after its queued removal. The destination is staged first so
         // failure cannot lose local edits; only then discard the source checkpoint.
         if (!currentEditor_->discardAndClose()) {
-            DraftManager::instance()->discard(destinationDraftId);
+            draftManager_->discard(destinationDraftId);
             setError(currentEditor_->errorString());
             return false;
         }
@@ -507,7 +513,7 @@ bool NotesWorkspaceController::copyNote(const QString &sourceStorageId, const QS
         QUuid draftId;
         if (!stageMove(source, destinationStorageId, &draftId, folderUserOverride))
             return false;
-        DraftManager::instance()->publishPending();
+        draftManager_->publishPending();
         return true;
     };
 
@@ -537,7 +543,7 @@ bool NotesWorkspaceController::copyNote(const QString &sourceStorageId, const QS
         job->deleteLater();
         QUuid draftId;
         if (stageMove(source, destinationStorageId, &draftId))
-            DraftManager::instance()->publishPending();
+            draftManager_->publishPending();
         endOperation();
     });
     return true;
@@ -895,7 +901,7 @@ bool NotesWorkspaceController::trashFolder(const QString &folderIdText)
     };
 
     if (currentEditor_ && isInsideBranch(currentEditor_->folderId())) {
-        if (!DraftManager::instance()->isLastEditingSession(currentEditor_->draftId())) {
+        if (!draftManager_->isLastEditingSession(currentEditor_->draftId())) {
             setError(tr("A note in this folder is open in another editor and the folder cannot be moved to the "
                         "Recycle Bin yet"));
             return false;
@@ -1201,7 +1207,7 @@ bool NotesWorkspaceController::stageMove(const Note &source, const QString &dest
     destination.setFolderId(effectiveFolderId(source));
     destination.setMedia(source.media());
 
-    auto       *drafts   = DraftManager::instance();
+    auto       *drafts   = draftManager_;
     const QUuid stagedId = drafts->acquireEditingSession(destination);
     const auto  saveError
         = drafts->saveEditing(stagedId, destination, title, body, destinationFormat, folderUserOverride);
@@ -1233,7 +1239,7 @@ void NotesWorkspaceController::startStagedMove(const QUuid &draftId, const Note 
 {
     pendingMoves_.insert(draftId, { source.storageId(), source.id(), reorderBatchId, reorderIndex });
     beginOperation();
-    DraftManager::instance()->publishPending();
+    draftManager_->publishPending();
 }
 
 bool NotesWorkspaceController::beginMove(const Note &source, const QString &destinationStorageId,

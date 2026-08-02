@@ -21,8 +21,33 @@ class AudioPlaybackController::Impl {
 public:
     Impl(AudioPlaybackController *q, NoteEditor *editor) : owner(q), editor(editor)
     {
-#if defined(QTNOTE_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
         buffer.setBuffer(&bytes);
+#if defined(QTNOTE_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+        if (editor) {
+            QObject::connect(editor, &NoteEditor::mediaChanged, owner, [this](const QList<MediaReference> &media) {
+                if (sourceUri.isEmpty())
+                    return;
+                const bool exists = std::any_of(media.cbegin(), media.cend(),
+                                                [this](const MediaReference &item) { return item.uri() == sourceUri; });
+                if (!exists)
+                    stop();
+            });
+            if (editor->model()) {
+                QObject::connect(editor->model(), &NoteBlockModel::contentsChanged, owner, [this] {
+                    if (!sourceUri.isEmpty() && !sourceStillReferenced())
+                        stop();
+                });
+            }
+        }
+#endif
+    }
+
+#if defined(QTNOTE_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+    bool ensurePlayer()
+    {
+        if (player)
+            return true;
+
         audioOutput = std::make_unique<QAudioOutput>();
         player      = std::make_unique<QMediaPlayer>();
         player->setAudioOutput(audioOutput.get());
@@ -43,24 +68,9 @@ public:
                              error = message;
                              emit owner->stateChanged();
                          });
-#endif
-        if (editor) {
-            QObject::connect(editor, &NoteEditor::mediaChanged, owner, [this](const QList<MediaReference> &media) {
-                if (sourceUri.isEmpty())
-                    return;
-                const bool exists = std::any_of(media.cbegin(), media.cend(),
-                                                [this](const MediaReference &item) { return item.uri() == sourceUri; });
-                if (!exists)
-                    stop();
-            });
-            if (editor->model()) {
-                QObject::connect(editor->model(), &NoteBlockModel::contentsChanged, owner, [this] {
-                    if (!sourceUri.isEmpty() && !sourceStillReferenced())
-                        stop();
-                });
-            }
-        }
+        return true;
     }
+#endif
 
     bool sourceStillReferenced() const
     {
@@ -80,7 +90,7 @@ public:
     bool load(const QString &uri)
     {
 #if defined(QTNOTE_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-        if (!editor || !player || uri.isEmpty())
+        if (!editor || uri.isEmpty() || !ensurePlayer())
             return false;
         const auto media = editor->media();
         const auto it    = std::find_if(media.cbegin(), media.cend(), [&uri](const MediaReference &item) {

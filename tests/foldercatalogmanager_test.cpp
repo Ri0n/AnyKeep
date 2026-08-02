@@ -289,6 +289,8 @@ void FolderCatalogManagerTest::requiresExplicitRecoveryForCorruptCatalog()
     FolderCatalogManager manager(std::make_unique<FileFolderCatalogStore>(path, key));
     QSignalSpy           recovery(&manager, &FolderCatalogManager::recoveryRequired);
     QString              error;
+    QTest::ignoreMessage(
+        QtWarningMsg, QRegularExpression(QStringLiteral(".*Folder catalog is unavailable.*Authentication failed.*")));
     QVERIFY(!manager.initialize(&error));
     QVERIFY(!manager.isAvailable());
     QVERIFY(manager.needsRecovery());

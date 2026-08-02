@@ -24,9 +24,26 @@ namespace QtNote {
 
 class AudioAttachmentRecorder::Impl {
 public:
-    explicit Impl(AudioAttachmentRecorder *q) : owner(q)
+    explicit Impl(AudioAttachmentRecorder *q) : owner(q) { }
+
+    ~Impl()
     {
 #if defined(QTNOTE_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+        // Close the native encoder before QTemporaryDir removes its plaintext
+        // output. This ordering also matters during application shutdown.
+        session.reset();
+        recorder.reset();
+        audioInput.reset();
+        temporaryDir.reset();
+#endif
+    }
+
+#if defined(QTNOTE_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+    bool ensureRecorder()
+    {
+        if (recorder)
+            return recorder->isAvailable();
+
         audioInput = std::make_unique<QAudioInput>();
         recorder   = std::make_unique<QMediaRecorder>();
         session    = std::make_unique<QMediaCaptureSession>();
@@ -70,27 +87,11 @@ public:
                                  return;
                              fail(message.isEmpty() ? AudioAttachmentRecorder::tr("Audio recording failed.") : message);
                          });
-#endif
+        return recorder->isAvailable();
     }
 
-    ~Impl()
-    {
-#if defined(QTNOTE_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-        // Close the native encoder before QTemporaryDir removes its plaintext
-        // output. This ordering also matters during application shutdown.
-        session.reset();
-        recorder.reset();
-        audioInput.reset();
-        temporaryDir.reset();
-#endif
-    }
-
-#if defined(QTNOTE_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     bool resolvePortableFormat(QMediaFormat *result) const
     {
-        if (!recorder || !recorder->isAvailable())
-            return false;
-
         const QMediaFormat::FileFormat containers[] = { QMediaFormat::Mpeg4Audio, QMediaFormat::MPEG4 };
         for (const auto container : containers) {
             QMediaFormat candidate(container);
@@ -124,6 +125,10 @@ public:
         if (!resolvePortableFormat(&format)) {
             fail(AudioAttachmentRecorder::tr(
                 "AAC audio recording in an M4A container is not available on this system."));
+            return false;
+        }
+        if (!ensureRecorder()) {
+            fail(AudioAttachmentRecorder::tr("Audio recording is not available on this system."));
             return false;
         }
         if (QMediaDevices::defaultAudioInput().isNull()) {

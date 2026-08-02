@@ -196,13 +196,19 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
     if (watched == focusWindow_) {
         if (event->type() == QEvent::WindowDeactivate) {
             flushPendingEditorChanges();
-            emit focusLost();
+            if (focusReported_) {
+                focusReported_ = false;
+                emit focusLost();
+            }
         } else if (event->type() == QEvent::WindowActivate) {
             // A sibling manager/standalone window may have checkpointed a newer
             // revision while this shell was inactive. The NoteWidget connection
             // is queued and NoteEditor::reloadNewerDraft() still refuses to
             // overwrite local dirty state.
-            emit focusReceived();
+            if (!focusReported_) {
+                focusReported_ = true;
+                emit focusReceived();
+            }
         }
     }
 
@@ -258,11 +264,17 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
             if (invokeQmlBoolean(root, "documentHistoryOwnsFocus"))
                 editor_->updateHistoryViewState(captureQmlEditorState(root), false);
         } else if (event->type() == QEvent::FocusIn) {
-            emit focusReceived();
+            if (!focusReported_) {
+                focusReported_ = true;
+                emit focusReceived();
+            }
             QTimer::singleShot(0, this, &DesktopNoteEditorHost::focusEditor);
         } else if (event->type() == QEvent::FocusOut) {
             flushPendingEditorChanges();
-            emit focusLost();
+            if (focusReported_) {
+                focusReported_ = false;
+                emit focusLost();
+            }
         }
     }
     return QWidget::eventFilter(watched, event);

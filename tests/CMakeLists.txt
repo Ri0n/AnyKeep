@@ -3,7 +3,6 @@ find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Test Xml REQUIRED)
 add_executable(noteblockmodel_test noteblockmodel_test.cpp)
 target_link_libraries(noteblockmodel_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME noteblockmodel_test COMMAND noteblockmodel_test)
-set_tests_properties(noteblockmodel_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(dialogservice_test dialogservice_test.cpp)
 target_link_libraries(dialogservice_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
@@ -20,7 +19,6 @@ add_test(NAME notefragment_test COMMAND notefragment_test)
 add_executable(notetransfercontroller_test notetransfercontroller_test.cpp)
 target_link_libraries(notetransfercontroller_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME notetransfercontroller_test COMMAND notetransfercontroller_test)
-set_tests_properties(notetransfercontroller_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(notefragmentmediatransfer_test notefragmentmediatransfer_test.cpp)
 target_link_libraries(notefragmentmediatransfer_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
@@ -29,7 +27,6 @@ add_test(NAME notefragmentmediatransfer_test COMMAND notefragmentmediatransfer_t
 add_executable(desktopnoteeditorhost_test desktopnoteeditorhost_test.cpp)
 target_link_libraries(desktopnoteeditorhost_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::QuickWidgets)
 add_test(NAME desktopnoteeditorhost_test COMMAND desktopnoteeditorhost_test)
-set_tests_properties(desktopnoteeditorhost_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software")
 
 add_executable(ptfstorage_test ptfstorage_test.cpp)
 target_link_libraries(ptfstorage_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
@@ -78,7 +75,6 @@ add_test(NAME rulescontroller_test COMMAND rulescontroller_test)
 add_executable(rulespage_test rulespage_test.cpp)
 target_link_libraries(rulespage_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::QuickWidgets)
 add_test(NAME rulespage_test COMMAND rulespage_test)
-set_tests_properties(rulespage_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software")
 
 add_executable(foldernotesmodel_test foldernotesmodel_test.cpp)
 target_link_libraries(foldernotesmodel_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
@@ -100,7 +96,6 @@ add_test(NAME tomboyfolderoverlay_test COMMAND tomboyfolderoverlay_test)
 add_executable(notesworkspacefolders_test notesworkspacefolders_test.cpp)
 target_link_libraries(notesworkspacefolders_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME notesworkspacefolders_test COMMAND notesworkspacefolders_test)
-set_tests_properties(notesworkspacefolders_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software")
 
 add_executable(fileremotecachestore_test fileremotecachestore_test.cpp)
 target_link_libraries(fileremotecachestore_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
@@ -228,7 +223,6 @@ endif()
 add_executable(pluginmetadata_test pluginmetadata_test.cpp)
 target_link_libraries(pluginmetadata_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME pluginmetadata_test COMMAND pluginmetadata_test)
-set_tests_properties(pluginmetadata_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 if(TARGET Qt${QT_VERSION_MAJOR}::Multimedia)
     add_executable(yandexspeechutils_test
@@ -239,3 +233,11 @@ if(TARGET Qt${QT_VERSION_MAJOR}::Multimedia)
     target_link_libraries(yandexspeechutils_test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Multimedia)
     add_test(NAME yandexspeechutils_test COMMAND yandexspeechutils_test)
 endif()
+
+# Keep every test independent of the developer's active display server.  This
+# also covers new QTEST_MAIN-based tests automatically instead of relying on
+# each target to remember its own headless environment.
+get_property(qtnote_tests DIRECTORY PROPERTY TESTS)
+set_tests_properties(${qtnote_tests} PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software"
+)

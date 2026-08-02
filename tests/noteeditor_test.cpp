@@ -407,6 +407,6 @@ private slots:
     }
 };
 
-QTEST_GUILESS_MAIN(NoteEditorTest)
+QTEST_MAIN(NoteEditorTest)
 
 #include "noteeditor_test.moc"

@@ -28,16 +28,27 @@ Item {
     readonly property real translationX: reorderCore.translationX
     readonly property real translationY: reorderCore.translationY
     readonly property real draggedHeight: reorderCore.draggedExtent
-    readonly property real structuralDraggedHeight: draggedHeight
-                                                    + (sourceKind === "list" && editorView
-                                                       ? Number(editorView.spacing) : 0)
+    readonly property bool wholeListBlockDrag: sourceKind === "list"
+                                                && sourceRemovesWholeBlock
+    readonly property real listDraggedHeight: sourceKind === "list"
+                                               ? sourceListRowsExtent() : draggedHeight
+    readonly property real structuralDraggedHeight: wholeListBlockDrag
+                                                    ? draggedHeight
+                                                    : draggedHeight
+                                                      + (sourceKind === "list" && editorView
+                                                         ? Number(editorView.spacing) : 0)
     readonly property bool committingDrop: reorderCore.committingDrop
     readonly property bool sourceListRemovesWholeBlock: sourceKind === "list"
                                                         && sourceRemovesWholeBlock
     readonly property bool structuralTargetActive: dragging && targetKind === "block"
+    readonly property bool wholeListTargetActive: dragging && wholeListBlockDrag
+                                                  && targetKind === "list"
+    // Keep Behaviors enabled for the entire structural drag. Enabling them only
+    // when targetKind changes makes the first block-to-list displacement land
+    // in the same binding update as `enabled`, which Qt applies without animation.
     readonly property bool blockAnimationActive: dragging
-                                                 && (structuralTargetActive
-                                                     || sourceListRemovesWholeBlock)
+                                                 && (sourceKind === "block"
+                                                     || wholeListBlockDrag)
 
     property string targetKind: ""
     property var targetBlock: null
@@ -71,7 +82,8 @@ Item {
         id: listLayout
 
         geometryItem: controller.editorView ? controller.editorView.contentItem : null
-        sourceEntries: controller.sourceKind === "list" ? reorderCore.sourceEntries : []
+        sourceEntries: controller.sourceKind === "list" && !controller.wholeListBlockDrag
+                       ? reorderCore.sourceEntries : []
         keyProvider: function(item) { return item }
         orderProvider: function(item) {
             if (!item)
@@ -180,10 +192,39 @@ Item {
         }
         sourceRows = rows
 
+        let dragSources = sources
+        let previewItems = undefined
+        if (sourceRemovesWholeBlock) {
+            const blockItem = editorView.itemAtIndex(sourceBlockRow)
+            if (!blockItem) {
+                resetAdapterState()
+                return
+            }
+            dragSources = [{
+                item: blockItem,
+                key: sourceBlockRow,
+                order: sourceBlockRow,
+                previewItem: listBlock,
+                geometryItem: blockItem,
+                naturalExtent: Number(blockItem.height) + Number(editorView.spacing)
+            }]
+            previewItems = []
+            for (const sourceRow of rows) {
+                previewItems.push({
+                    sourceItem: sourceRow.dragContent,
+                    sourceX: 0,
+                    sourceY: 0,
+                    width: sourceRow.dragContent.width,
+                    height: sourceRow.dragContent.height
+                })
+            }
+        }
+
         const markerCenter = pointerItem.mapToItem(
             editorView.contentItem, pointerItem.width / 2, pointerItem.height / 2)
         const started = reorderCore.beginDrag({
-            sources: sources,
+            sources: dragSources,
+            previewItems: previewItems,
             payload: {
                 kind: "list",
                 block: listBlock,
@@ -251,17 +292,9 @@ Item {
     }
 
     function blockLayoutSourceEntries() {
-        if (sourceKind === "block")
+        if (sourceKind === "block" || wholeListBlockDrag)
             return reorderCore.sourceEntries
-        if (!sourceListRemovesWholeBlock || !editorView)
-            return []
-        const item = editorView.itemAtIndex(sourceBlockRow)
-        return item ? [{
-            item: item,
-            key: sourceBlockRow,
-            order: sourceBlockRow,
-            naturalExtent: Number(editorView.spacing)
-        }] : []
+        return []
     }
 
     function visibleBlockItems() {
@@ -278,7 +311,7 @@ Item {
 
     function blockInsertionBoundaries() {
         const items = visibleBlockItems()
-        if (sourceKind === "block") {
+        if (sourceKind === "block" || wholeListBlockDrag) {
             return blockLayout.boundaries(items, function(item, after) {
                 return {
                     kind: "block",
@@ -324,6 +357,7 @@ Item {
     function listBlockAtProbe() {
         if (!editorView)
             return null
+
         const probeY = reorderCore.currentPointerY
         const pointerX = reorderCore.currentPointerX
         let best = null
@@ -332,19 +366,12 @@ Item {
             if (!listBlock || !listBlock.visible || listBlock.remainingItemCount() <= 0)
                 continue
             const mapped = listBlock.mapToItem(editorView.contentItem, 0, 0)
-            const blockDelegate = editorView.itemAtIndex(listBlock.blockIndex)
-            // A structural target gap is rendered with a Translate on the whole
-            // delegate.  Hit-testing that translated rectangle makes the target
-            // list run away from a dragged standalone list whenever another block
-            // sits between them.  Use the post-source-removal logical rectangle,
-            // just like listInsertionBoundaries(), so list attachment remains
-            // possible while the surrounding structural blocks animate.
-            const structuralOffset = blockDelegate
-                    && blockDelegate.reorderOffset !== undefined
-                    ? Number(blockDelegate.reorderOffset) : 0
+            // Partial list-range moves still use the logical post-removal
+            // geometry because their source rows collapse inside a live list.
+            const structuralOffset = structuralOffsetForBlock(listBlock.blockIndex)
             const top = mapped.y - structuralOffset
                     - animatedDisplacementBeforeBlock(listBlock.blockIndex)
-                    - sourceBlockSpacingBefore(listBlock.blockIndex)
+                    - sourceStructuralExtentBeforeBlock(listBlock.blockIndex)
             const bottom = top + Number(listBlock.height)
             if (probeY < top || probeY > bottom)
                 continue
@@ -361,9 +388,31 @@ Item {
     }
 
     function listOrBlockInsertionBoundaries() {
+        if (wholeListBlockDrag)
+            return wholeListDocumentBoundaries()
         const listBlock = listBlockAtProbe()
         return listBlock ? listInsertionBoundaries(listBlock)
                          : blockInsertionBoundaries()
+    }
+
+    function wholeListDocumentBoundaries() {
+        // Project every destination list row into the same temporary structural
+        // space as ordinary document blocks. The model remains a list; boundary
+        // metadata decides whether commit moves the source as a block or inserts
+        // its rows into an existing list.
+        const boundaries = []
+        for (const boundary of blockInsertionBoundaries()) {
+            let listOwner = false
+            for (const listBlock of listBlocks) {
+                if (listBlock && Number(listBlock.blockIndex) === Number(boundary.ownerKey)) {
+                    listOwner = true
+                    break
+                }
+            }
+            if (!listOwner)
+                boundaries.push(boundary)
+        }
+        return boundaries.concat(listInsertionBoundaries())
     }
 
     function applyBlockTarget(boundary) {
@@ -409,10 +458,12 @@ Item {
             return false
 
         let moved = false
+        let resolvedRow = sourceBlockRow
         editorView.runEditTransaction("move-block", function() {
             editorView.prepareForStructuralMutation()
-            moved = blockModel.moveBlock(sourceBlockRow, destination)
-            const selectedRow = moved ? destination : sourceBlockRow
+            resolvedRow = blockModel.moveBlockResolved(sourceBlockRow, destination)
+            moved = resolvedRow >= 0
+            const selectedRow = moved ? resolvedRow : sourceBlockRow
             if (sourceBlockType === 4) {
                 editorView.focusImageBlock(selectedRow)
             } else if (sourceFocusAddress) {
@@ -427,7 +478,8 @@ Item {
     }
 
     function blockSourceActive(item) {
-        return sourceKind === "block" && blockLayout.containsSource(item)
+        return (sourceKind === "block" || wholeListBlockDrag)
+                && blockLayout.containsSource(item)
     }
 
     function blockTargetBefore(item) {
@@ -443,15 +495,12 @@ Item {
     }
 
     function blockTranslation(item) {
-        if (structuralTargetActive) {
-            return blockLayout.translationByOrder(
-                        item, reorderCore.targetBoundary, structuralDraggedHeight)
-        }
-        if (sourceListRemovesWholeBlock && item
-                && Number(item.index) > sourceBlockRow) {
-            return -Number(editorView.spacing)
-        }
-        return 0
+        if (wholeListTargetActive)
+            return -blockLayout.sourceExtentBefore(item)
+        if (!structuralTargetActive)
+            return 0
+        return blockLayout.translationByOrder(
+                    item, reorderCore.targetBoundary, structuralDraggedHeight)
     }
 
     function animatedDisplacementBeforeBlock(blockIndex) {
@@ -463,16 +512,36 @@ Item {
         return displacement
     }
 
-    function sourceBlockSpacingBefore(blockIndex) {
-        return sourceListRemovesWholeBlock && editorView
-                && sourceBlockRow < Number(blockIndex)
-                ? Number(editorView.spacing) : 0
+    function sourceStructuralExtentBeforeBlock(blockIndex) {
+        if (!editorView || sourceBlockRow >= Number(blockIndex))
+            return 0
+        if (wholeListBlockDrag)
+            return structuralDraggedHeight
+        return sourceListRemovesWholeBlock ? Number(editorView.spacing) : 0
+    }
+
+    function structuralOffsetForBlock(blockIndex) {
+        if (!editorView)
+            return 0
+        const blockDelegate = editorView.itemAtIndex(Number(blockIndex))
+        return blockDelegate && blockDelegate.reorderOffset !== undefined
+                ? Number(blockDelegate.reorderOffset) : 0
+    }
+
+    function sourceListRowsExtent() {
+        let extent = 0
+        for (const row of sourceRows || []) {
+            if (row)
+                extent += Number(row.naturalHeight)
+        }
+        return extent
     }
 
     function listInsertionBoundaries(onlyBlock) {
         const boundaries = []
         for (const listBlock of listBlocks) {
             if (!listBlock || !listBlock.visible
+                    || (wholeListBlockDrag && listBlock === sourceBlock)
                     || (onlyBlock && listBlock !== onlyBlock))
                 continue
             const count = listBlock.remainingItemCount()
@@ -480,15 +549,30 @@ Item {
                 const boundary = listBlock.boundaryDescriptor(item)
                 if (!boundary || !boundary.owner)
                     continue
-                const correction =
-                        animatedDisplacementBeforeBlock(listBlock.blockIndex)
-                        + sourceBlockSpacingBefore(listBlock.blockIndex)
-                        + listBlock.animatedDisplacementBeforeBoundary(item)
+                let position = 0
+                if (wholeListBlockDrag) {
+                    // Derive structural row boundaries from immutable natural
+                    // extents. Reading an animated Column row through mapToItem()
+                    // races its next polish pass and can briefly reverse the
+                    // selected item during a very slow drag.
+                    const mapped = listBlock.mapToItem(editorView.contentItem, 0, 0)
+                    position = mapped.y
+                            - structuralOffsetForBlock(listBlock.blockIndex)
+                            - animatedDisplacementBeforeBlock(listBlock.blockIndex)
+                            - sourceStructuralExtentBeforeBlock(listBlock.blockIndex)
+                            + listBlock.naturalBoundaryOffset(item)
+                } else {
+                    const correction = structuralOffsetForBlock(listBlock.blockIndex)
+                            + animatedDisplacementBeforeBlock(listBlock.blockIndex)
+                            + sourceStructuralExtentBeforeBlock(listBlock.blockIndex)
+                            + listBlock.animatedDisplacementBeforeBoundary(item)
+                    position = listLayout.logicalPosition(
+                                boundary.owner, boundary.afterOwner,
+                                correction, false)
+                }
                 boundaries.push({
                     kind: "list",
-                    position: listLayout.logicalPosition(
-                                  boundary.owner, boundary.afterOwner,
-                                  correction, false),
+                    position: position,
                     block: listBlock,
                     item: item
                 })
@@ -595,19 +679,18 @@ Item {
         const toBlock = boundary.block.blockIndex
         const toItem = boundary.item
         const toIndent = targetIndent
-        const removesSourceBlock = fromBlock !== toBlock
-                && sourceRemovesWholeBlock
         let moved = false
         editorView.runEditTransaction("move-list-item", function() {
             editorView.prepareForStructuralMutation()
-            if (!blockModel.moveListRange(fromBlock, fromItem, fromEnd - 1,
-                                          toBlock, toItem, toIndent)) {
+            const resolvedTargetRow = blockModel.moveListRangeResolved(
+                        fromBlock, fromItem, fromEnd - 1,
+                        toBlock, toItem, toIndent)
+            if (resolvedTargetRow < 0) {
                 return
             }
             moved = true
             editorView.focusEditorAddress({
-                blockIndex: removesSourceBlock && fromBlock < toBlock
-                            ? toBlock - 1 : toBlock,
+                blockIndex: resolvedTargetRow,
                 listItemIndex: toItem + Math.max(0, focus.offset),
                 tableCellIndex: -1,
                 field: "listItem",

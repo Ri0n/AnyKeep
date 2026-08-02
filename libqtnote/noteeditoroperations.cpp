@@ -1128,6 +1128,17 @@ QVariantMap NoteEditor::pasteStructuredFromClipboard(QQuickTextDocument *quickDo
         return result;
     }
 
+    // The title is a plain first-line field, but pasting a whole QtNote
+    // document into an empty/new note must retain its following structural
+    // blocks. A one-block inline fragment still uses the plain-text title path
+    // so bold/link formatting cannot leak into the title.
+    const int targetDocumentEnd = documentEnd(quickDocument->textDocument());
+    if (row == 0
+        && (start != 0 || end != targetDocumentEnd || imported.fragment.blocks.size() < 2
+            || imported.fragment.blocks.constFirst().type != NoteFragmentBlockType::Text)) {
+        return result;
+    }
+
     NoteFragment          fragment = imported.fragment;
     QList<MediaReference> insertedMedia;
     if (!fragment.media.isEmpty()) {

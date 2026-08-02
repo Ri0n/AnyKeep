@@ -1244,12 +1244,25 @@ ListView {
                 return true
             })
         }
+        if (platformBackend && typeof platformBackend.insertClipboardImage === "function"
+                && platformBackend.insertClipboardImage(insertionBlockIndex()))
+            return true
+
+        // Try QtNote's private/Markdown clipboard representation before the
+        // title's plain-text fallback. This preserves a copied whole document
+        // (title plus lists/tables/media) when it is pasted into a new note.
+        const structuredPasted = runEditTransaction("paste", function() {
+            return pasteStructuredSelection(activeEditor)
+        })
+        if (structuredPasted)
+            return true
+
         // The first line is the note title and deliberately does not support
-        // inline styling. Paste its plain-text clipboard representation so
-        // HTML/RTF formatting cannot become persistent Markdown markup.
+        // inline styling. Single-block rich text therefore still uses the
+        // clipboard's plain-text representation.
         if (selectionTouchesTitle(activeEditor) && root.editorBackend
                 && typeof root.editorBackend.pastePlainText === "function") {
-            const titlePasted = runEditTransaction("paste", function() {
+            return runEditTransaction("paste", function() {
                 const position = root.editorBackend.pastePlainText(activeEditor.textDocument,
                                                                    activeEditor.selectionStart,
                                                                    activeEditor.selectionEnd)
@@ -1262,19 +1275,13 @@ ListView {
                     activeEditor.tryPromoteTagLine(true)
                 return true
             })
-            if (titlePasted)
-                return true
         }
-        if (platformBackend && typeof platformBackend.insertClipboardImage === "function"
-                && platformBackend.insertClipboardImage(insertionBlockIndex()))
-            return true
+
         return runEditTransaction("paste", function() {
             const editor = activeEditor
-            if (!pasteStructuredSelection(editor)) {
-                editor.paste()
-                if (typeof editor.tryPromoteTagLine === "function")
-                    editor.tryPromoteTagLine(true)
-            }
+            editor.paste()
+            if (typeof editor.tryPromoteTagLine === "function")
+                editor.tryPromoteTagLine(true)
             return true
         })
     }
@@ -1977,18 +1984,30 @@ ListView {
     }
 
     function handleStructuredEnter(event, editor) {
-        const modifiers = event.modifiers
-                & (Qt.ShiftModifier | Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
         if (!editor || editor.codeDocument
-                || (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter)
-                || modifiers)
-            return false
-        if (blockModel.blockTypeAt(editor.blockIndex) !== 6)
+                || (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter))
             return false
 
+        const modifiers = event.modifiers
+                & (Qt.ShiftModifier | Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
         const row = editor.blockIndex
         const before = editor.markdownRange(0, editor.selectionStart)
         const after = editor.markdownRange(editor.selectionEnd, editor.length)
+        const titleSplitModifiers = modifiers
+                & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
+        if (!titleSplitModifiers && editor.titleDocument && row === 0
+                && blockModel.blockTypeAt(row) === 0) {
+            return runEditTransaction("split-title", function() {
+                prepareForStructuralMutation()
+                if (!blockModel.splitTitleBlock(before, after))
+                    return false
+                focusBlock(1, false, 0)
+                return true
+            })
+        }
+
+        if (modifiers || blockModel.blockTypeAt(row) !== 6)
+            return false
         return runEditTransaction("exit-heading", function() {
             prepareForStructuralMutation()
             if (!blockModel.splitStructuredBlockToText(row, before, after))

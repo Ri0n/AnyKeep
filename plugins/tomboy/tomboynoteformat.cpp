@@ -307,13 +307,27 @@ namespace {
 
     QString removeEmbeddedTitle(QString markdown, const QString &title)
     {
-        markdown = normalizedNewlines(markdown);
-        if (title.isEmpty())
+        markdown                      = normalizedNewlines(markdown);
+        const QString normalizedTitle = normalizedNewlines(title).trimmed();
+        if (normalizedTitle.isEmpty())
             return markdown;
 
-        const int  firstBreak = markdown.indexOf(QLatin1Char('\n'));
-        const auto firstLine  = firstBreak < 0 ? markdown : markdown.left(firstBreak);
-        if (firstLine != title)
+        int titleStart = 0;
+        while (titleStart < markdown.size() && markdown.at(titleStart) == QLatin1Char('\n'))
+            ++titleStart;
+
+        const int firstBreak = markdown.indexOf(QLatin1Char('\n'), titleStart);
+        QString   firstLine
+            = firstBreak < 0 ? markdown.mid(titleStart) : markdown.mid(titleStart, firstBreak - titleStart);
+        firstLine = firstLine.trimmed();
+
+        // Tomboy variants commonly wrap the embedded title in size:huge. The
+        // rich-text renderer intentionally maps an isolated huge element to a
+        // Markdown heading, so compare the semantic first line rather than the
+        // generated heading marker.
+        static const QRegularExpression headingPrefix(QStringLiteral(R"(^#{1,6}[ \t]+)"));
+        firstLine.remove(headingPrefix);
+        if (firstLine.trimmed() != normalizedTitle)
             return markdown;
 
         if (firstBreak < 0)
@@ -391,7 +405,10 @@ void appendMarkdownContent(QDomDocument &dom, QDomElement &content, const QStrin
     // empty line before the body. Keep this separator even for an empty note.
     content.appendChild(dom.createTextNode(QStringLiteral("\n\n")));
 
-    const QString normalized = normalizedNewlines(markdown);
+    // QtNote stores title and body separately. Canonicalize a legacy/draft
+    // body that still contains Tomboy's embedded title before writing the
+    // inverse representation, otherwise every save would add another copy.
+    const QString normalized = removeEmbeddedTitle(markdown, title);
     if (normalized.isEmpty())
         return;
     const auto lines = normalized.split(QLatin1Char('\n'), Qt::KeepEmptyParts);

@@ -98,5 +98,5 @@ void LocalMediaStoreTest::markdownDisplayTitle()
     QVERIFY(note.title().startsWith(QStringLiteral("![")));
 }
 
-QTEST_GUILESS_MAIN(LocalMediaStoreTest)
+QTEST_MAIN(LocalMediaStoreTest)
 #include "localmediastore_test.moc"

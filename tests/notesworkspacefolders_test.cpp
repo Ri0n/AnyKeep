@@ -1,3 +1,5 @@
+#include "draftmanager.h"
+#include "filedraftstore.h"
 #include "filefoldercatalogstore.h"
 #include "foldercatalogmanager.h"
 #include "foldernotesmodel.h"
@@ -83,12 +85,19 @@ static std::unique_ptr<FileFolderCatalogStore> makeCatalogStore(QTemporaryDir &d
                                                     SecureEnvelope::generateMasterKey());
 }
 
+static std::unique_ptr<FileDraftStore> makeDraftStore(QTemporaryDir &directory)
+{
+    return std::make_unique<FileDraftStore>(directory.filePath(QStringLiteral("drafts")),
+                                            SecureEnvelope::generateMasterKey());
+}
+
 void NotesWorkspaceFoldersTest::createsUnnamedFoldersForInlineRename()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     FolderCatalogManager     catalog(makeCatalogStore(directory));
-    NotesWorkspaceController workspace(&catalog, nullptr);
+    DraftManager             drafts(makeDraftStore(directory));
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
     QVERIFY(catalog.initialize());
 
     const auto first  = workspace.createFolder({});
@@ -104,6 +113,7 @@ void NotesWorkspaceFoldersTest::exposesFoldersAndMovesCleanEditorMetadata()
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
     QVERIFY(catalog.initialize());
 
     auto storage   = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-folders"));
@@ -117,7 +127,7 @@ void NotesWorkspaceFoldersTest::exposesFoldersAndMovesCleanEditorMetadata()
     });
     QTRY_VERIFY(manager->notesIndex()->hasSnapshot(raw->systemName()));
 
-    NotesWorkspaceController workspace(&catalog, nullptr);
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
     const auto               projects = workspace.createFolder(QStringLiteral("Projects"));
     QVERIFY(!projects.isEmpty());
     const auto child = workspace.createFolder(QStringLiteral("QtNote"), projects);
@@ -164,6 +174,7 @@ void NotesWorkspaceFoldersTest::recycleBinHidesNotesUntilRestored()
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
     QVERIFY(catalog.initialize());
 
     auto storage   = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-recycle"));
@@ -177,7 +188,7 @@ void NotesWorkspaceFoldersTest::recycleBinHidesNotesUntilRestored()
     });
     QTRY_VERIFY(manager->notesIndex()->hasSnapshot(raw->systemName()));
 
-    NotesWorkspaceController workspace(&catalog, nullptr);
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
     QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 1);
     QVERIFY(workspace.trashNote(raw->systemName(), QStringLiteral("note")));
     QVERIFY(catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("note")));
@@ -192,6 +203,7 @@ void NotesWorkspaceFoldersTest::deletesFolderBranchesWithSessionUndo()
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
     QVERIFY(catalog.initialize());
 
     auto storage   = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-folder-delete"));
@@ -208,7 +220,7 @@ void NotesWorkspaceFoldersTest::deletesFolderBranchesWithSessionUndo()
     });
     QTRY_VERIFY(manager->notesIndex()->hasSnapshot(raw->systemName()));
 
-    NotesWorkspaceController workspace(&catalog, nullptr);
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
     const auto               parent = workspace.createFolder(QStringLiteral("Projects"));
     const auto               child  = workspace.createFolder(QStringLiteral("QtNote"), parent);
     QVERIFY(!parent.isEmpty());
@@ -237,8 +249,9 @@ void NotesWorkspaceFoldersTest::exposesBodySearchMatchesForEditorFind()
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
     QVERIFY(catalog.initialize());
-    NotesWorkspaceController workspace(&catalog, nullptr);
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
 
     workspace.setSearchText(QStringLiteral("needle"));
     workspace.setSearchInBody(true);
@@ -256,8 +269,9 @@ void NotesWorkspaceFoldersTest::recentReorderRejectsCrossStorageMove()
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
     QVERIFY(catalog.initialize());
-    NotesWorkspaceController workspace(&catalog, nullptr);
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
 
     const QVariantList notes {
         QVariantMap { { QStringLiteral("storageId"), QStringLiteral("local") },

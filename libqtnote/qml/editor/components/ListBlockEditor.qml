@@ -141,6 +141,10 @@ Column {
     function isSourceIndex(index) {
         return reorderController.dragging
                 && reorderController.sourceBlock === listRoot
+                // A complete list is already collapsed by its document block
+                // delegate. Collapsing its rows as well would remove the same
+                // height twice and pull every following block above the source.
+                && !reorderController.wholeListBlockDrag
                 && index >= reorderController.sourceItem
                 && index < reorderController.sourceEnd
     }
@@ -168,6 +172,18 @@ Column {
         const original = originalIndexForRemaining(index)
         return original >= 0 && original < listModel.count
                 ? Number(listModel.get(original).itemIndent) : 0
+    }
+
+    function naturalBoundaryOffset(index) {
+        const count = remainingItemCount()
+        const boundary = Math.max(0, Math.min(Number(index), count))
+        let offset = 0
+        for (let remaining = 0; remaining < boundary; ++remaining) {
+            const row = rowAt(originalIndexForRemaining(remaining))
+            if (row)
+                offset += Number(row.naturalHeight)
+        }
+        return offset
     }
 
     function animatedRowDisplacement(row) {

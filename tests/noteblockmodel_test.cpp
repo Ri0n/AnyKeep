@@ -10,13 +10,72 @@ class NoteBlockModelTest : public QObject {
     Q_OBJECT
 
 private slots:
-    void plainTextIsOneBlock()
+    void titleIsAlwaysASeparateTextBlock()
+    {
+        NoteBlockModel plain;
+        plain.load(QStringLiteral("title\nbody\ncontinued"), false);
+        QCOMPARE(plain.rowCount(), 2);
+        QCOMPARE(plain.data(plain.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("title"));
+        QCOMPARE(plain.data(plain.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("body\ncontinued"));
+        QCOMPARE(plain.contents(), QStringLiteral("title\nbody\ncontinued"));
+        QVERIFY(plain.mergeTextBlockWithNext(0));
+        QCOMPARE(plain.rowCount(), 2);
+        QCOMPARE(plain.data(plain.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("titlebody"));
+        QCOMPARE(plain.data(plain.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("continued"));
+        QCOMPARE(plain.contents(), QStringLiteral("titlebody\ncontinued"));
+
+        NoteBlockModel markdown;
+        markdown.load(QStringLiteral("Title\n\nBody paragraph"), true);
+        QCOMPARE(markdown.rowCount(), 2);
+        QCOMPARE(markdown.data(markdown.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("Title"));
+        QCOMPARE(markdown.data(markdown.index(1), NoteBlockModel::TextRole).toString(),
+                 QStringLiteral("Body paragraph"));
+        QCOMPARE(markdown.contents(), QStringLiteral("Title\n\nBody paragraph"));
+        QVERIFY(markdown.mergeTextBlockWithNext(0));
+        QCOMPARE(markdown.rowCount(), 1);
+        QCOMPARE(markdown.contents(), QStringLiteral("TitleBody paragraph"));
+
+        NoteBlockModel split;
+        split.load(QStringLiteral("Title"), true);
+        QVERIFY(split.splitTitleBlock(QStringLiteral("Ti"), QStringLiteral("tle")));
+        QCOMPARE(split.rowCount(), 2);
+        QCOMPARE(split.data(split.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("Ti"));
+        QCOMPARE(split.data(split.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("tle"));
+        QCOMPARE(split.contents(), QStringLiteral("Ti\n\ntle"));
+    }
+
+    void structuredPasteIntoTitleKeepsFollowingBlocks()
     {
         NoteBlockModel model;
-        model.load(QStringLiteral("title\nbody"), false);
-        QCOMPARE(model.rowCount(), 1);
-        QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
-        QCOMPARE(model.contents(), QStringLiteral("title\nbody"));
+        model.load(QString(), true);
+
+        NoteFragment      fragment;
+        NoteFragmentBlock title;
+        title.type     = NoteFragmentBlockType::Text;
+        title.markdown = QStringLiteral("Copied title");
+        fragment.blocks.append(title);
+
+        NoteFragmentBlock list;
+        list.type      = NoteFragmentBlockType::List;
+        list.listItems = { { QStringLiteral("first"), 0, NoteFragmentListKind::Check, false },
+                           { QStringLiteral("nested"), 1, NoteFragmentListKind::Numbered, false } };
+        fragment.blocks.append(list);
+
+        QString error;
+        QCOMPARE(model.replaceTextBlockRangeWithFragment(0, QString(), QString(), fragment, &error), 0);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.blockTypeAt(0), int(NoteBlockModel::Text));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("Copied title"));
+        QCOMPARE(model.blockTypeAt(1), int(NoteBlockModel::CheckList));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::ItemTypesRole).toList(),
+                 QVariantList({ int(NoteBlockModel::CheckList), int(NoteBlockModel::NumberedList) }));
+        QCOMPARE(model.contents(), QStringLiteral("Copied title\n\n- [ ] first\n    1. nested"));
+
+        NoteFragment listOnly;
+        listOnly.blocks.append(list);
+        QCOMPARE(model.replaceTextBlockRangeWithFragment(0, QString(), QString(), listOnly, &error), -1);
+        QCOMPARE(model.blockTypeAt(0), int(NoteBlockModel::Text));
     }
 
     void movingWholeListBlockRestoresTagLineAtBodyBoundary()
@@ -116,14 +175,16 @@ private slots:
     {
         NoteBlockModel escaped;
         escaped.load(QStringLiteral("Title\n\n\\*tb\n\nhello"), true);
-        QCOMPARE(escaped.rowCount(), 1);
+        QCOMPARE(escaped.rowCount(), 2);
         QCOMPARE(escaped.data(escaped.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
+        QCOMPARE(escaped.data(escaped.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
         QVERIFY(NoteData::tagsFromText(QStringLiteral("\\*tb\nhello")).isEmpty());
 
         NoteBlockModel mixed;
         mixed.load(QStringLiteral("Title\n\n*tb extra\n\nhello"), true);
-        QCOMPARE(mixed.rowCount(), 1);
+        QCOMPARE(mixed.rowCount(), 2);
         QCOMPARE(mixed.data(mixed.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
+        QCOMPARE(mixed.data(mixed.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
         QVERIFY(NoteData::tagsFromText(QStringLiteral("*tb extra\nhello")).isEmpty());
     }
 
@@ -178,9 +239,9 @@ private slots:
 
         NoteBlockModel afterBody;
         afterBody.load(QStringLiteral("Title\n\nbody"), true);
-        QVERIFY2(afterBody.insertBlockFragment(1, tagFragment, &error), qPrintable(error));
-        QCOMPARE(afterBody.data(afterBody.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
-        QCOMPARE(afterBody.data(afterBody.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("*tb"));
+        QVERIFY2(afterBody.insertBlockFragment(2, tagFragment, &error), qPrintable(error));
+        QCOMPARE(afterBody.data(afterBody.index(2), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
+        QCOMPARE(afterBody.data(afterBody.index(2), NoteBlockModel::TextRole).toString(), QStringLiteral("*tb"));
         QVERIFY(NoteData::tagsFromText(afterBody.contents().section(QStringLiteral("\n\n"), 1)).isEmpty());
     }
 
@@ -671,13 +732,14 @@ private slots:
     void mergesAdjacentMarkdownParagraphs()
     {
         NoteBlockModel model;
-        model.load(QStringLiteral("first paragraph\n\nsecond paragraph"), true);
+        model.load(QStringLiteral("Title\n\nfirst paragraph\n\nsecond paragraph"), true);
 
-        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.rowCount(), 2);
         QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
-        QCOMPARE(model.data(model.index(0), NoteBlockModel::TextRole).toString(),
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("Title"));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(),
                  QStringLiteral("first paragraph\n\nsecond paragraph"));
-        QCOMPARE(model.contents(), QStringLiteral("first paragraph\n\nsecond paragraph"));
+        QCOMPARE(model.contents(), QStringLiteral("Title\n\nfirst paragraph\n\nsecond paragraph"));
     }
 
     void keepsStructuralBoundariesBetweenTextSections()
@@ -685,11 +747,11 @@ private slots:
         NoteBlockModel model;
         model.load(QStringLiteral("before one\n\nbefore two\n\n- item\n\nafter one\n\nafter two"), true);
 
-        QCOMPARE(model.rowCount(), 3);
-        QCOMPARE(model.data(model.index(0), NoteBlockModel::TextRole).toString(),
-                 QStringLiteral("before one\n\nbefore two"));
-        QCOMPARE(model.data(model.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::BulletList));
-        QCOMPARE(model.data(model.index(2), NoteBlockModel::TextRole).toString(),
+        QCOMPARE(model.rowCount(), 4);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("before one"));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("before two"));
+        QCOMPARE(model.data(model.index(2), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::BulletList));
+        QCOMPARE(model.data(model.index(3), NoteBlockModel::TextRole).toString(),
                  QStringLiteral("after one\n\nafter two"));
     }
 
@@ -1113,7 +1175,7 @@ private slots:
 
         NoteBlockModel converted;
         converted.load(QStringLiteral("before\n\ntarget\n\nafter"), true);
-        QCOMPARE(converted.convertTextBlockToHeading(0, 10, 2), 1);
+        QCOMPARE(converted.convertTextBlockToHeading(1, 0, 2), 1);
         QCOMPARE(converted.rowCount(), 3);
         QCOMPARE(converted.data(converted.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Heading));
         QCOMPARE(converted.data(converted.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("target"));
@@ -1294,16 +1356,20 @@ private slots:
 
         const int movedRow = model.moveListRangeToBlock(1, 0, 2, 0);
         QCOMPARE(movedRow, 0);
-        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(model.rowCount(), 2);
         QCOMPARE(model.data(model.index(0), NoteBlockModel::ItemsRole).toStringList(),
                  QStringList({ "parent", "child", "tail" }));
         QCOMPARE(model.data(model.index(0), NoteBlockModel::IndentsRole).toList(), QVariantList({ 0, 1, 0 }));
         QCOMPARE(model.data(model.index(0), NoteBlockModel::ItemTypesRole).toList(),
                  QVariantList({ int(NoteBlockModel::BulletList), int(NoteBlockModel::NumberedList),
                                 int(NoteBlockModel::BulletList) }));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("before\n\nafter"));
         QCOMPARE(model.contents(), QStringLiteral("- parent\n    1. child\n- tail\n\nbefore\n\nafter"));
 
-        QCOMPARE(model.moveListRangeToBlock(0, 0, 2, 3), 2);
+        QCOMPARE(model.moveListRangeToBlock(0, 0, 2, model.rowCount()), 2);
+        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("before"));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("after"));
         QCOMPARE(model.contents(), QStringLiteral("before\n\nafter\n\n- parent\n    1. child\n- tail"));
         QCOMPARE(model.moveListRangeToBlock(2, 0, 2, 2), -1);
     }
@@ -1316,6 +1382,100 @@ private slots:
         QCOMPARE(model.contents(), QStringLiteral("![image](media://image)\n\nfirst\n\n- item"));
         QVERIFY(model.moveBlock(0, 2));
         QCOMPARE(model.contents(), QStringLiteral("first\n\n- item\n\n![image](media://image)"));
+    }
+
+    void movingMultilineTextToTitleSplitsAndRecombinesBody()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("Old title\n\n- item\n\nNew title\n\nrest"), true);
+        QCOMPARE(model.rowCount(), 3);
+
+        QCOMPARE(model.moveBlockResolved(2, 0), 0);
+        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::TextRole).toString(), QStringLiteral("New title"));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("rest\n\nOld title"));
+        QCOMPARE(model.blockTypeAt(2), int(NoteBlockModel::BulletList));
+        QCOMPARE(model.contents(), QStringLiteral("New title\n\nrest\n\nOld title\n\n- item"));
+    }
+
+    void movingStructuredBlockAwayRecombinesTextNeighbors()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("Title\n\nA\n\n![image](media://image)\n\nB\n\n- item"), true);
+        QCOMPARE(model.rowCount(), 5);
+
+        QCOMPARE(model.moveBlockResolved(2, 4), 3);
+        QCOMPARE(model.rowCount(), 4);
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("A\n\nB"));
+        QCOMPARE(model.blockTypeAt(2), int(NoteBlockModel::BulletList));
+        QCOMPARE(model.blockTypeAt(3), int(NoteBlockModel::Image));
+        QCOMPARE(model.contents(), QStringLiteral("Title\n\nA\n\nB\n\n- item\n\n![image](media://image)"));
+    }
+
+    void movingListBlockNextToListMergesAndAdoptsResidentType()
+    {
+        NoteBlockModel afterTarget;
+        afterTarget.load(QStringLiteral("- bullet\n\nseparator\n\n1. numbered"), true);
+        QCOMPARE(afterTarget.moveBlockResolved(2, 1), 0);
+        QCOMPARE(afterTarget.rowCount(), 2);
+        QCOMPARE(afterTarget.data(afterTarget.index(0), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ QStringLiteral("bullet"), QStringLiteral("numbered") }));
+        QCOMPARE(afterTarget.data(afterTarget.index(0), NoteBlockModel::ItemTypesRole).toList(),
+                 QVariantList({ int(NoteBlockModel::BulletList), int(NoteBlockModel::BulletList) }));
+
+        NoteBlockModel beforeTarget;
+        beforeTarget.load(QStringLiteral("1. numbered\n\nseparator\n\n- bullet"), true);
+        QCOMPARE(beforeTarget.moveBlockResolved(0, 1), 1);
+        QCOMPARE(beforeTarget.rowCount(), 2);
+        QCOMPARE(beforeTarget.data(beforeTarget.index(1), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ QStringLiteral("numbered"), QStringLiteral("bullet") }));
+        QCOMPARE(beforeTarget.data(beforeTarget.index(1), NoteBlockModel::ItemTypesRole).toList(),
+                 QVariantList({ int(NoteBlockModel::BulletList), int(NoteBlockModel::BulletList) }));
+    }
+
+    void movingBlockAwayMergesAdjacentListsAtSourceGap()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("Title\n\n- bullet\n\n![image](media://image)\n\n1. numbered\n\nend"), true);
+        QCOMPARE(model.rowCount(), 5);
+
+        QCOMPARE(model.moveBlockResolved(2, 4), 3);
+        QCOMPARE(model.rowCount(), 4);
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ QStringLiteral("bullet"), QStringLiteral("numbered") }));
+        QCOMPARE(model.data(model.index(1), NoteBlockModel::ItemTypesRole).toList(),
+                 QVariantList({ int(NoteBlockModel::BulletList), int(NoteBlockModel::BulletList) }));
+        QCOMPARE(model.blockTypeAt(2), int(NoteBlockModel::Text));
+        QCOMPARE(model.blockTypeAt(3), int(NoteBlockModel::Image));
+    }
+
+    void movingListRangeIntoListAdoptsExistingTypeAtSameLevel()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("- bullet\n\nseparator\n\n1. numbered\n    - nested"), true);
+        QCOMPARE(model.moveListRangeResolved(2, 0, 1, 0, 1, 0), 0);
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ QStringLiteral("bullet"), QStringLiteral("numbered"), QStringLiteral("nested") }));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::IndentsRole).toList(), QVariantList({ 0, 0, 1 }));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::ItemTypesRole).toList(),
+                 QVariantList({ int(NoteBlockModel::BulletList), int(NoteBlockModel::BulletList),
+                                int(NoteBlockModel::BulletList) }));
+    }
+
+    void indentingListSubtreePreservesItemTypes()
+    {
+        NoteBlockModel model;
+        model.load(QStringLiteral("- first\n- second\n    1. child"), true);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::ItemTypesRole).toList(),
+                 QVariantList({ int(NoteBlockModel::BulletList), int(NoteBlockModel::BulletList),
+                                int(NoteBlockModel::NumberedList) }));
+
+        model.indentListItems(0, 1, 2, 1);
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::IndentsRole).toList(), QVariantList({ 0, 1, 2 }));
+        QCOMPARE(model.data(model.index(0), NoteBlockModel::ItemTypesRole).toList(),
+                 QVariantList({ int(NoteBlockModel::BulletList), int(NoteBlockModel::BulletList),
+                                int(NoteBlockModel::NumberedList) }));
     }
 
     void movesStyledImageBlocksWithoutChangingPresentation()
@@ -1367,10 +1527,12 @@ private slots:
         model.load(QStringLiteral("Target one\n\nsecond target"), true);
 
         auto match = model.findText(QStringLiteral("target"), {}, false, true);
-        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 19);
+        QCOMPARE(match.value(QStringLiteral("blockIndex")).toInt(), 1);
+        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 7);
 
         match = model.findText(QStringLiteral("target"), match, false, true);
-        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 19);
+        QCOMPARE(match.value(QStringLiteral("blockIndex")).toInt(), 1);
+        QCOMPARE(match.value(QStringLiteral("start")).toInt(), 7);
         QVERIFY(match.value(QStringLiteral("wrapped")).toBool());
 
         const auto insensitive = model.findText(QStringLiteral("target"));

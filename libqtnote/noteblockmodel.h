@@ -88,6 +88,8 @@ public:
     Q_INVOKABLE void removeListItems(int row, int firstItem, int lastItem);
     Q_INVOKABLE bool moveListRange(int sourceRow, int sourceFirstItem, int sourceLastItem, int targetRow,
                                    int targetItem, int targetIndent);
+    Q_INVOKABLE int  moveListRangeResolved(int sourceRow, int sourceFirstItem, int sourceLastItem, int targetRow,
+                                           int targetItem, int targetIndent);
     Q_INVOKABLE int  moveListRangeToBlock(int sourceRow, int sourceFirstItem, int sourceLastItem, int targetRow);
     Q_INVOKABLE bool moveListSubtree(int sourceRow, int sourceItem, int targetRow, int targetItem, int targetIndent);
     Q_INVOKABLE void convertListToText(int row);
@@ -137,8 +139,10 @@ public:
     Q_INVOKABLE bool        convertListLevel(int row, int item, BlockType type);
     Q_INVOKABLE int         convertTextBlockToHeading(int row, int position, int level);
     Q_INVOKABLE int         convertTextBlockToQuote(int row, int position, bool quote);
+    Q_INVOKABLE bool        splitTitleBlock(const QString &before, const QString &after);
     Q_INVOKABLE bool        splitStructuredBlockToText(int row, const QString &before, const QString &after);
     Q_INVOKABLE bool        moveBlock(int row, int targetRow);
+    Q_INVOKABLE int         moveBlockResolved(int row, int targetRow);
     Q_INVOKABLE void        removeBlock(int row);
     void                    setPreviewUrls(const QHash<QString, QString> &urls);
 
@@ -211,6 +215,13 @@ private:
     static QList<Block> parseMarkdownCore(const QString &source);
     static QList<Block> parseMarkdownWithoutCode(const QString &source);
     static QString      writeMarkdown(const QList<Block> &blocks);
+    static bool         normalizeTitleBlock(QList<Block> *blocks, bool markdown);
+    static void         normalizeListStorage(Block *block);
+    static void         normalizeMovedListTypes(Block *block, int firstItem, int itemCount);
+    static void         mergeListPair(QList<Block> *blocks, int leftRow, bool residentIsLeft, int *trackedRow);
+    static void         coalesceListAtBoundary(QList<Block> *blocks, int boundary, int *trackedRow);
+    static void         coalesceMovedList(QList<Block> *blocks, int *movedRow);
+    static void         coalesceTextNear(QList<Block> *blocks, int row, bool markdown, int *trackedRow);
     static bool         blocksFromFragment(const NoteFragment &fragment, QList<Block> *blocks, QString *error);
     static QList<Block> cloneBlocks(const QList<Block> &blocks);
     static bool normalizeTagLinePositions(QList<Block> *blocks, bool markdown, bool promoteTextCandidate = false);

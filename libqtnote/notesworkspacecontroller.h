@@ -15,6 +15,7 @@
 
 namespace QtNote {
 
+class DraftManager;
 class NoteEditor;
 class NoteLoadJob;
 class NoteStorage;
@@ -54,6 +55,7 @@ class QTNOTE_EXPORT NotesWorkspaceController final : public QObject {
 public:
     explicit NotesWorkspaceController(QObject *parent = nullptr);
     NotesWorkspaceController(FolderCatalogManager *folderCatalogManager, QObject *parent);
+    NotesWorkspaceController(FolderCatalogManager *folderCatalogManager, DraftManager *draftManager, QObject *parent);
     ~NotesWorkspaceController() override;
 
     QAbstractItemModel *notesModel() const;
@@ -200,6 +202,7 @@ private:
     NotesModel                           *notesModel_ { nullptr };
     NotesSearchModel                     *searchModel_ { nullptr };
     RecentNotesModel                     *recentNotesModel_ { nullptr };
+    DraftManager                         *draftManager_ { nullptr };
     FolderCatalogManager                 *folderCatalogManager_ { nullptr };
     FolderNotesModel                     *folderNotesModel_ { nullptr };
     FolderOperationsController           *folderOperations_ { nullptr };

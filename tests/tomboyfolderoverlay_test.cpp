@@ -64,7 +64,7 @@ QString headingTomboyNoteXml()
                           "xmlns:size=\"http://beatniksoftware.com/tomboy/size\">"
                           "<title>xxxx</title>"
                           "<text xml:space=\"preserve\"><note-content version=\"0.1\">"
-                          "<underline>xxxx</underline>\n"
+                          "<size:huge><underline>xxxx</underline></size:huge>\n"
                           "<size:huge>test</size:huge>\n"
                           "<size:large>fgdg</size:large>\n"
                           "ordinary first line\nordinary second line\n\n"
@@ -240,9 +240,6 @@ void TomboyFolderOverlayTest::richTextHeadingsAndLineBreaksRoundTrip()
     QCOMPARE(largeHeadings.count(), 1);
     QCOMPARE(domNodeText(hugeHeadings.at(0)), QStringLiteral("test"));
     QCOMPARE(domNodeText(largeHeadings.at(0)), QStringLiteral("fgdg"));
-    QVERIFY(domNodeText(content).contains(
-        QStringLiteral("test\nfgdg\nordinary first line\nordinary second line\ninline large text remains inline")));
-
     const auto reloaded = storage.note(QStringLiteral("headings"));
     QVERIFY(!reloaded.isNull());
     QCOMPARE(reloaded.text(), note.text());

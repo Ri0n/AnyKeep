@@ -381,7 +381,12 @@ NoteTransferController::ExportResult NoteTransferController::createMimeData(cons
             result.error = error;
             return result;
         }
-        mime->setText(markdown);
+        const QString plainText = plainTextForFragment(fragment, &error);
+        if (!error.isEmpty()) {
+            result.error = error;
+            return result;
+        }
+        mime->setText(plainText);
         mime->setData(QString::fromLatin1(MarkdownMimeType), markdown.toUtf8());
         mime->setHtml(html);
     } else {
@@ -511,11 +516,27 @@ QString NoteTransferController::plainTextForFragment(const NoteFragment &fragmen
             blocks.append(block.markdown);
         return normalizePlainText(blocks.join(QStringLiteral("\n\n")));
     }
+
+    // A code block is already literal plain text. Passing it through
+    // QTextDocument's Markdown renderer turns blank source lines into extra
+    // paragraph separators and leaves a trailing empty paragraph in the
+    // clipboard representation.
+    if (fragment.blocks.size() == 1 && fragment.blocks.constFirst().type == NoteFragmentBlockType::CodeBlock) {
+        if (error)
+            error->clear();
+        QString plainText = normalizePlainText(fragment.blocks.constFirst().markdown);
+        while (plainText.endsWith(QLatin1Char('\n')))
+            plainText.chop(1);
+        return plainText;
+    }
+
     const QString markdown = markdownForFragment(fragment, error);
     if (error && !error->isEmpty())
         return {};
     static const QString hardBreakMarker   = QStringLiteral("QTNOTEPLAINHARDLINEBREAK8D27");
     QString              protectedMarkdown = markdown;
+    // Protect hard breaks from QTextDocument and restore both the two
+    // Markdown-significant spaces and the line break in text/plain.
     protectedMarkdown.replace(QRegularExpression(QStringLiteral(" {2,}\\r?\\n")), hardBreakMarker);
     QTextDocument document;
     setMarkdownPreservingGithubUnderlines(&document, protectedMarkdown);
@@ -523,7 +544,7 @@ QString NoteTransferController::plainTextForFragment(const NoteFragment &fragmen
     for (QTextBlock block = document.begin(); block.isValid(); block = block.next())
         paragraphs.append(block.text());
     QString plainText = normalizePlainText(paragraphs.join(QStringLiteral("\n\n")));
-    plainText.replace(hardBreakMarker, QStringLiteral("\n"));
+    plainText.replace(hardBreakMarker, QStringLiteral("  \n"));
     return plainText;
 }
 

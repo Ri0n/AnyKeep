@@ -369,14 +369,20 @@ Item {
             return false
         const notes = []
         for (const note of contextMenuNotes || []) {
-            if (note.storageId !== destinationStorageId)
-                notes.push(Object.assign({}, note))
+            if (note.storageId !== destinationStorageId) {
+                notes.push({
+                    storageId: note.storageId,
+                    noteId: note.noteId,
+                    title: note.title,
+                    order: note.order
+                })
+            }
         }
         if (notes.length === 0)
             return false
         if (workspace.currentEditor && !checkpointEditor())
             return false
-        const changed = workspace.moveNotes(notes, destinationStorageId)
+        const changed = workspace.moveNotes(notes, destinationStorageId, "", false)
         if (changed)
             noteSelection.clear()
         return changed
@@ -901,7 +907,7 @@ Item {
                 onMicrophoneModeRequested: mode => root.speechController.setMode(mode)
                 Connections {
                     target: root.speechController
-                    function onRecognizedText(text) { managerEditorPane.insertRecognizedText(text) }
+                    function onRecognizedText(text) { managerEditorPane.insertTextAtCursor(text) }
                 }
             }
 
