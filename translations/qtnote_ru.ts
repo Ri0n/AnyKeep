@@ -1183,4 +1183,128 @@ Notes will be automatically saved to special storage, so you should not worry ab
         <translation>О QtNote</translation>
     </message>
 </context>
+<context>
+    <name>QtNote::YandexSettingsController</name>
+    <message>
+        <source>API key</source>
+        <translation>API-ключ</translation>
+    </message>
+    <message>
+        <source>Create the key in Yandex AI Studio and paste its secret value here. Keep it private.</source>
+        <translation>Создайте ключ в Yandex AI Studio и вставьте сюда его секретное значение. Никому не передавайте ключ.</translation>
+    </message>
+    <message>
+        <source>Paste API key</source>
+        <translation>Вставьте API-ключ</translation>
+    </message>
+    <message>
+        <source>Use deferred recognition</source>
+        <translation>Использовать отложенное распознавание</translation>
+    </message>
+    <message>
+        <source>Uses the lower-cost deferred-general model. Results can take much longer; keep QtNote running until the transcript arrives.</source>
+        <translation>Используется более дешёвая модель deferred-general. Результат может прийти значительно позже; не закрывайте QtNote до завершения распознавания.</translation>
+    </message>
+    <message>
+        <source>Normalize numbers and dates</source>
+        <translation>Нормализовать числа и даты</translation>
+    </message>
+    <message>
+        <source>Converts spoken numbers, dates, and times to their written numeric form.</source>
+        <translation>Преобразует произнесённые числа, даты и время в цифровую запись.</translation>
+    </message>
+    <message>
+        <source>Literary text formatting</source>
+        <translation>Литературное оформление текста</translation>
+    </message>
+    <message>
+        <source>Lets SpeechKit add punctuation and rewrite the transcript into a more literary form.</source>
+        <translation>Позволяет SpeechKit расставлять знаки препинания и придавать распознанному тексту более литературную форму.</translation>
+    </message>
+    <message>
+        <source>Usage</source>
+        <translation>Использование</translation>
+    </message>
+    <message>
+        <source>Yandex bills every accepted asynchronous recognition session for at least 15 seconds. For longer mono audio, the duration is rounded up to whole seconds. The estimate shown here does not replace the Yandex Cloud billing report.</source>
+        <translation>Яндекс тарифицирует каждую принятую сессию асинхронного распознавания как минимум за 15 секунд. Для более длинного монофонического аудио длительность округляется вверх до целых секунд. Эта оценка не заменяет отчёт о расходах Yandex Cloud.</translation>
+    </message>
+    <message>
+        <source>Enter an API key first.</source>
+        <translation>Сначала введите API-ключ.</translation>
+    </message>
+    <message>
+        <source>API key is accepted by Yandex SpeechKit.</source>
+        <translation>API-ключ принят Yandex SpeechKit.</translation>
+    </message>
+</context>
+<context>
+    <name>QtNote::YandexPlugin</name>
+    <message>
+        <source>&lt;b&gt;Tracked audio sessions:&lt;/b&gt; %1&lt;br/&gt;&lt;b&gt;Actual audio:&lt;/b&gt; %2&lt;br/&gt;&lt;b&gt;Estimated billable audio:&lt;/b&gt; %3&lt;br/&gt;&lt;b&gt;Uploaded:&lt;/b&gt; %4</source>
+        <translation>&lt;b&gt;Учтённые аудиосессии:&lt;/b&gt; %1&lt;br/&gt;&lt;b&gt;Фактическое аудио:&lt;/b&gt; %2&lt;br/&gt;&lt;b&gt;Расчётное тарифицируемое аудио:&lt;/b&gt; %3&lt;br/&gt;&lt;b&gt;Отправлено:&lt;/b&gt; %4</translation>
+    </message>
+    <message>
+        <source>%1 s</source>
+        <translation>%1 с</translation>
+    </message>
+    <message>
+        <source>%1 B</source>
+        <translation>%1 Б</translation>
+    </message>
+    <message>
+        <source>%1 KiB</source>
+        <translation>%1 КиБ</translation>
+    </message>
+    <message>
+        <source>%1 MiB</source>
+        <translation>%1 МиБ</translation>
+    </message>
+</context>
+<context>
+    <name>QtNote::YandexApi</name>
+    <message>
+        <source>The Yandex API key is invalid or has expired. Create a new key in Yandex AI Studio.</source>
+        <translation>API-ключ Яндекса недействителен или истёк. Создайте новый ключ в Yandex AI Studio.</translation>
+    </message>
+    <message>
+        <source>Yandex Cloud denied access to the project. Check that the billing account is active and that the API key has SpeechKit access.</source>
+        <translation>Yandex Cloud запретил доступ к проекту. Проверьте, что платёжный аккаунт активен, а API-ключ имеет доступ к SpeechKit.</translation>
+    </message>
+    <message>
+        <source>This Yandex API key is not allowed to use SpeechKit. Check the key permissions and the Yandex Cloud billing status.</source>
+        <translation>Этому API-ключу Яндекса не разрешено использовать SpeechKit. Проверьте права ключа и состояние биллинга Yandex Cloud.</translation>
+    </message>
+    <message>
+        <source>Yandex SpeechKit request failed</source>
+        <translation>Не удалось выполнить запрос к Yandex SpeechKit</translation>
+    </message>
+</context>
+<context>
+    <name>YandexSettings</name>
+    <message>
+        <source>Open Yandex AI Studio, sign in, and click “Create API key” in the top-right corner. Copy the secret key before closing the dialog.</source>
+        <translation>Откройте Yandex AI Studio, авторизуйтесь и нажмите «Создать API-ключ» в правом верхнем углу. Скопируйте секретный ключ до закрытия диалога.</translation>
+    </message>
+    <message>
+        <source>Get API key</source>
+        <translation>Получить API-ключ</translation>
+    </message>
+    <message>
+        <source>Checking…</source>
+        <translation>Проверка…</translation>
+    </message>
+    <message>
+        <source>Check key</source>
+        <translation>Проверить ключ</translation>
+    </message>
+    <message>
+        <source>Manual setup: &lt;a href=&quot;https://aistudio.yandex.ru/platform&quot;&gt;aistudio.yandex.ru/platform&lt;/a&gt;</source>
+        <translation>Получение вручную: &lt;a href=&quot;https://aistudio.yandex.ru/platform&quot;&gt;aistudio.yandex.ru/platform&lt;/a&gt;</translation>
+    </message>
+    <message>
+        <source>Applied after restarting QtNote.</source>
+        <translation>Применяется после перезапуска QtNote.</translation>
+    </message>
+</context>
 </TS>

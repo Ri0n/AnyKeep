@@ -18,7 +18,7 @@ if(TARGET qtnote_bundled_xmpppubsub)
 endif()
 
 if(NOT TARGET qtnote_bundled_nextcloud OR NOT TARGET qtnote_bundled_gemini
-   OR NOT TARGET qtnote_bundled_openaiwhisper)
+   OR NOT TARGET qtnote_bundled_openaiwhisper OR NOT TARGET qtnote_bundled_yandex)
     message(FATAL_ERROR "Required bundled mobile plugin targets were not created")
 endif()
 
@@ -182,6 +182,7 @@ target_include_directories(qtnote_mobile PRIVATE
     "${CMAKE_SOURCE_DIR}/plugins/nextcloud"
     "${CMAKE_SOURCE_DIR}/plugins/gemini"
     "${CMAKE_SOURCE_DIR}/plugins/openaiwhisper"
+    "${CMAKE_SOURCE_DIR}/plugins/yandex"
     "${CMAKE_SOURCE_DIR}/plugins/xmpppubsub"
     "${CMAKE_BINARY_DIR}"
 )
@@ -191,6 +192,7 @@ target_link_libraries(qtnote_mobile PRIVATE
     qtnote_bundled_nextcloud
     qtnote_bundled_gemini
     qtnote_bundled_openaiwhisper
+    qtnote_bundled_yandex
     Qt6::Core
     Qt6::Gui
     Qt6::Qml

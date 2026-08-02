@@ -111,5 +111,15 @@
             <extracomment>xmpp_pubsub_storage plugin description</extracomment>
             <translation>Зберігає нотатки як приватні постійні елементи в сервісі XMPP PEP облікового запису</translation>
         </message>
+        <message id="plugin.yandex.name">
+            <source>Yandex</source>
+            <extracomment>yandex plugin name</extracomment>
+            <translation>Яндекс</translation>
+        </message>
+        <message id="plugin.yandex.description">
+            <source>Yandex cloud services</source>
+            <extracomment>yandex plugin description</extracomment>
+            <translation>Хмарні сервіси Яндекса</translation>
+        </message>
     </context>
 </TS>

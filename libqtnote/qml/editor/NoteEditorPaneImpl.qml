@@ -35,6 +35,7 @@ Item {
     property var saveHandler: null
     property var closeHandler: null
     property alias blockEditor: editorView
+    property var pendingSpeechInsertionTarget: null
     readonly property bool findVisible: findBar.visible
 
     signal backRequested()
@@ -87,6 +88,22 @@ Item {
         const inserted = editorView.insertTextAtCursor(text)
         if (inserted)
             saveTimer.restart()
+        return inserted
+    }
+
+    function captureSpeechInsertionTarget() {
+        pendingSpeechInsertionTarget = editorView.captureSpeechInsertionTarget()
+        return pendingSpeechInsertionTarget
+    }
+
+    function insertRecognizedText(text) {
+        const target = pendingSpeechInsertionTarget
+        pendingSpeechInsertionTarget = null
+        const inserted = editorView.insertTextAtTarget(text, target)
+        if (inserted)
+            saveTimer.restart()
+        else
+            root.checkpointFailed(qsTr("Could not insert recognized text into the note."))
         return inserted
     }
 
@@ -173,7 +190,10 @@ Item {
             onPrintRequested: root.printRequested()
             onPinRequested: root.pinRequested()
             onAlwaysOnTopRequested: enabled => root.alwaysOnTopRequested(enabled)
-            onMicrophoneRequested: root.microphoneRequested()
+            onMicrophoneRequested: {
+                root.captureSpeechInsertionTarget()
+                root.microphoneRequested()
+            }
             onMicrophoneReleased: root.microphoneReleased()
             onMicrophoneModeRequested: mode => root.microphoneModeRequested(mode)
             onAddToHomeScreenRequested: root.addToHomeScreenRequested()

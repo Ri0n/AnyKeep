@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "id": "yandex",
+  "nameId": "plugin.yandex.name",
+  "descriptionId": "plugin.yandex.description",
+  "author": "Rion",
+  "version": "0.0.1",
+  "minVersion": "3.2.0",
+  "maxVersion": "current",
+  "homepage": "https://yandex.cloud/en/services/speechkit",
+  "features": [
+    "regular"
+  ],
+  "extra": {
+    "configurable": true
+  }
+}

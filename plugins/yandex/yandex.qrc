@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="yandex-logo">yandex-logo.svg</file>
+    </qresource>
+    <qresource prefix="/qml">
+        <file alias="YandexSettings.qml">YandexSettings.qml</file>
+    </qresource>
+</RCC>

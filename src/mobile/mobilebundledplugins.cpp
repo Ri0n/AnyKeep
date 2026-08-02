@@ -4,6 +4,7 @@
 #include "geminiplugin.h"
 #include "nextcloudplugin.h"
 #include "openaiwhisperplugin.h"
+#include "yandexplugin.h"
 
 #include <QResource>
 #ifdef QTNOTE_MOBILE_XMPP_AVAILABLE
@@ -13,6 +14,7 @@
 static void initializeNextcloudResourcesForMobile() { Q_INIT_RESOURCE(nextcloudresources); }
 static void initializeGeminiResourcesForMobile() { Q_INIT_RESOURCE(gemini); }
 static void initializeOpenAIWhisperResourcesForMobile() { Q_INIT_RESOURCE(openaiwhisper); }
+static void initializeYandexResourcesForMobile() { Q_INIT_RESOURCE(yandex); }
 #ifdef QTNOTE_MOBILE_XMPP_AVAILABLE
 static void initializeXmppResourcesForMobile() { Q_INIT_RESOURCE(xmppsettings); }
 #endif
@@ -54,6 +56,17 @@ void registerMobileBundledPlugins(BundledPluginRegistry &registry)
     openai.loadPolicy   = PluginListSource::LP_Disabled;
     openai.configurable = true;
     registry.registerFactory(openai, [](QObject *parent) { return new OpenAIWhisperPlugin(parent); });
+
+    initializeYandexResourcesForMobile();
+    PluginListSource::Entry yandex;
+    yandex.id           = QStringLiteral("yandex");
+    yandex.name         = YandexPlugin::tr("Yandex");
+    yandex.description  = YandexPlugin::tr("Yandex cloud services, starting with SpeechKit speech recognition");
+    yandex.versionText  = QStringLiteral("0.0.1");
+    yandex.iconSource   = QStringLiteral("qrc:/icons/yandex-logo");
+    yandex.loadPolicy   = PluginListSource::LP_Auto;
+    yandex.configurable = true;
+    registry.registerFactory(yandex, [](QObject *parent) { return new YandexPlugin(parent); });
 
 #ifdef QTNOTE_MOBILE_XMPP_AVAILABLE
     initializeXmppResourcesForMobile();

@@ -75,9 +75,17 @@ FocusScope {
             Layout.fillWidth: true
             implicitHeight: audioRoot.editorView.touchMode ? 68 : 58
             radius: 6
-            color: playButton.palette.base
+            color: audioRoot.selected
+                   ? Qt.rgba(playButton.palette.highlight.r,
+                             playButton.palette.highlight.g,
+                             playButton.palette.highlight.b, 0.10)
+                   : playButton.palette.alternateBase
             border.width: audioRoot.selected ? 2 : 1
-            border.color: audioRoot.selected ? playButton.palette.highlight : playButton.palette.mid
+            border.color: audioRoot.selected
+                          ? playButton.palette.highlight
+                          : Qt.rgba(playButton.palette.text.r,
+                                    playButton.palette.text.g,
+                                    playButton.palette.text.b, 0.32)
 
             RowLayout {
                 anchors.fill: parent
@@ -172,14 +180,19 @@ FocusScope {
                 }
 
                 ToolButton {
+                    id: audioActionsButton
                     Layout.preferredWidth: audioRoot.editorView.touchMode ? 40 : 30
                     Layout.preferredHeight: Layout.preferredWidth
-                    visible: audioRoot.selected
-                    text: "×"
-                    Accessible.name: qsTr("Remove audio recording")
+                    focusPolicy: Qt.NoFocus
+                    text: "⋮"
+                    font.pixelSize: audioRoot.editorView.touchMode ? 20 : 17
+                    Accessible.name: qsTr("Audio recording actions")
                     ToolTip.visible: hovered
                     ToolTip.text: Accessible.name
-                    onClicked: audioRoot.editorView.removeAudioBlock(audioRoot.block.index, true)
+                    onClicked: {
+                        audioRoot.selectAndFocus()
+                        audioMenu.popup()
+                    }
                 }
             }
 
@@ -204,7 +217,9 @@ FocusScope {
             radius: 5
             color: playButton.palette.alternateBase
             border.width: 1
-            border.color: playButton.palette.midlight
+            border.color: Qt.rgba(playButton.palette.text.r,
+                                  playButton.palette.text.g,
+                                  playButton.palette.text.b, 0.24)
 
             TextArea {
                 id: transcriptText

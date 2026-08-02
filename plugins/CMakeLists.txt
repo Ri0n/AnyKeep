@@ -7,6 +7,7 @@ if(QTNOTE_BUILD_MOBILE)
         gemini
         nextcloud
         openaiwhisper
+        yandex
         xmpppubsub
     )
 else()
@@ -21,6 +22,7 @@ else()
         openaiwhisper
         spellchecker
         tomboy
+        yandex
         xmpppubsub
     )
 endif()

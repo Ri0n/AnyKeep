@@ -901,7 +901,7 @@ Item {
                 onMicrophoneModeRequested: mode => root.speechController.setMode(mode)
                 Connections {
                     target: root.speechController
-                    function onRecognizedText(text) { managerEditorPane.insertTextAtCursor(text) }
+                    function onRecognizedText(text) { managerEditorPane.insertRecognizedText(text) }
                 }
             }
 

@@ -56,7 +56,7 @@ Item {
 
     Connections {
         target: desktopSpeech
-        function onRecognizedText(text) { editorPane.insertTextAtCursor(text) }
+        function onRecognizedText(text) { editorPane.insertRecognizedText(text) }
     }
 
 }

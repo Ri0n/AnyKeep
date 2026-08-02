@@ -229,3 +229,13 @@ add_executable(pluginmetadata_test pluginmetadata_test.cpp)
 target_link_libraries(pluginmetadata_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME pluginmetadata_test COMMAND pluginmetadata_test)
 set_tests_properties(pluginmetadata_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+if(TARGET Qt${QT_VERSION_MAJOR}::Multimedia)
+    add_executable(yandexspeechutils_test
+        yandexspeechutils_test.cpp
+        ../plugins/yandex/yandexspeechutils.cpp
+    )
+    target_include_directories(yandexspeechutils_test PRIVATE ../plugins/yandex)
+    target_link_libraries(yandexspeechutils_test PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Multimedia)
+    add_test(NAME yandexspeechutils_test COMMAND yandexspeechutils_test)
+endif()

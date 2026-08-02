@@ -141,6 +141,7 @@ ToolBar {
                 height: root.controlSize
                 padding: 0
                 enabled: !root.microphoneBusy
+                focusPolicy: Qt.NoFocus
                 display: AbstractButton.IconOnly
                 contentItem: Item {
                     implicitWidth: root.iconSize

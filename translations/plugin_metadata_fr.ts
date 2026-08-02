@@ -113,5 +113,15 @@
             <extracomment>xmpp_pubsub_storage plugin description</extracomment>
             <translation type="unfinished" />
         </message>
+        <message id="plugin.yandex.name">
+            <source>Yandex</source>
+            <extracomment>yandex plugin name</extracomment>
+            <translation type="unfinished" />
+        </message>
+        <message id="plugin.yandex.description">
+            <source>Yandex cloud services</source>
+            <extracomment>yandex plugin description</extracomment>
+            <translation type="unfinished" />
+        </message>
     </context>
 </TS>

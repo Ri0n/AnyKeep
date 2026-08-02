@@ -1454,15 +1454,81 @@ ListView {
             setEditorSelection(editor, 0, editor.length)
     }
 
+    function captureSpeechInsertionTarget() {
+        const address = pendingFocusAddress || editorAddress(activeEditor)
+        const fallbackRow = address && Number(address.blockIndex) >= 0
+                ? Number(address.blockIndex) + 1 : insertionBlockIndex()
+        if (!address) {
+            return {
+                blockIndex: -1,
+                listItemIndex: -1,
+                tableCellIndex: -1,
+                field: "",
+                cursorPosition: 0,
+                selectionStart: 0,
+                selectionEnd: 0,
+                fallbackInsertionRow: fallbackRow
+            }
+        }
+        return {
+            blockIndex: Number(address.blockIndex),
+            listItemIndex: Number(address.listItemIndex === undefined ? -1 : address.listItemIndex),
+            tableCellIndex: Number(address.tableCellIndex === undefined ? -1 : address.tableCellIndex),
+            field: String(address.field || "text"),
+            cursorPosition: Number(address.cursorPosition === undefined ? 0 : address.cursorPosition),
+            selectionStart: Number(address.selectionStart === undefined
+                                   ? address.cursorPosition : address.selectionStart),
+            selectionEnd: Number(address.selectionEnd === undefined
+                                 ? address.cursorPosition : address.selectionEnd),
+            fallbackInsertionRow: fallbackRow
+        }
+    }
+
+    function insertTextIntoEditor(editor, value, address) {
+        if (!editor)
+            return false
+        return runEditTransaction("insert-speech-text", function() {
+            applyEditorAddress(editor, address)
+            const start = Math.max(0, Math.min(editor.length,
+                              Math.min(Number(address.selectionStart), Number(address.selectionEnd))))
+            const end = Math.max(start, Math.min(editor.length,
+                            Math.max(Number(address.selectionStart), Number(address.selectionEnd))))
+            if (end > start)
+                editor.remove(start, end)
+            editor.insert(start, value)
+            editor.cursorPosition = start + value.length
+            activeEditor = editor
+            editor.forceActiveFocus()
+            scheduleCursorVisibility(editor)
+            return true
+        })
+    }
+
+    function insertTextAtTarget(value, target) {
+        if (!value || value.length === 0 || !blockModel)
+            return false
+        const address = target || captureSpeechInsertionTarget()
+        const editor = editorForAddress(address)
+        if (editor && addressMatchesEditor(address, editor, true)) {
+            return insertTextIntoEditor(editor, value, address)
+        }
+
+        const requestedRow = Number(address && address.fallbackInsertionRow !== undefined
+                                    ? address.fallbackInsertionRow : insertionBlockIndex())
+        const row = Math.max(0, Math.min(blockModel.rowCount(), requestedRow))
+        return runEditTransaction("insert-speech-text-block", function() {
+            prepareForStructuralMutation()
+            blockModel.insertTextBlock(row)
+            blockModel.setBlockText(row, value)
+            focusBlock(row, true)
+            return true
+        })
+    }
+
     function insertTextAtCursor(value) {
         if (!activeEditor)
             return false
-        return runEditTransaction("insert-text", function() {
-            const position = activeEditor.cursorPosition
-            activeEditor.insert(position, value)
-            activeEditor.cursorPosition = position + value.length
-            return true
-        })
+        return insertTextIntoEditor(activeEditor, value, editorAddress(activeEditor))
     }
 
     function focusInitialEditor() {
