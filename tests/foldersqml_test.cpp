@@ -1,0 +1,440 @@
+#include <QElapsedTimer>
+#include <QJsonDocument>
+#include <QPalette>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQuickItem>
+#include <QQuickWidget>
+#include <QStandardItemModel>
+#include <QTemporaryDir>
+#include <QtTest>
+
+#include "desktopnoteeditorhost.h"
+#include "draftmanager.h"
+#include "noteeditor.h"
+#include "notesmanagerwindow.h"
+#include "themediconimageprovider.h"
+
+#include "desktopqmltestsupport.h"
+#include "editortestsupport.h"
+#include "notesmanagerqml_test.h"
+#include "quicktestsupport.h"
+
+using namespace QtNote;
+using namespace QtNote::TestSupport;
+
+void NotesManagerQmlTest::foldersPageUsesInlineRenameAndSharedDragLifecycle()
+{
+    FolderPageTestModel foldersModel;
+    QQuickWidget        quick;
+    quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+    quick.resize(420, 430);
+    installThemedIconImageProvider(quick.engine());
+    quick.rootContext()->setContextProperty(QStringLiteral("testFoldersModel"), &foldersModel);
+
+    QQmlComponent component(quick.engine());
+    component.setData(R"QML(
+        import QtQuick
+        import QtQuick.Controls
+
+        Item {
+            id: harness
+            objectName: "foldersHarness"
+
+            QtObject {
+                id: workspace
+                objectName: "foldersWorkspace"
+                property var folderNotesModel: testFoldersModel
+                property bool folderCatalogAvailable: true
+                property var currentEditor: null
+                property int noteCount: 3
+                property int renameCount: 0
+                property string renamedFolderId: ""
+                property string renamedFolderName: ""
+                property int assignmentCount: 0
+                property string assignedFolderId: ""
+                property int folderMoveCount: 0
+                property string movedFolderId: ""
+                property string movedParentFolderId: ""
+                property string movedBeforeFolderId: ""
+
+                function createNoteInFolder(folderId, storageId) { return true }
+                function createFolder(name, parentFolderId) { return "created-folder" }
+                function renameFolder(folderId, name) {
+                    ++renameCount
+                    renamedFolderId = folderId
+                    renamedFolderName = name
+                    return true
+                }
+                function moveFolderBefore(folderId, parentFolderId, beforeFolderId) {
+                    ++folderMoveCount
+                    movedFolderId = folderId
+                    movedParentFolderId = parentFolderId
+                    movedBeforeFolderId = beforeFolderId
+                    return true
+                }
+                function setFolderCollapsed(folderId, collapsed) { return true }
+                function setFolderFlags(folderId, favorite, archived) { return true }
+                function collapseAllFolders() { return true }
+                function isRecycledNote(storageId, noteId) { return noteId === "note-c" }
+                function assignNoteFolder(storageId, noteId, folderId) {
+                    ++assignmentCount
+                    assignedFolderId = folderId
+                    return testFoldersModel.assignNoteFolder(storageId, noteId, folderId)
+                }
+            }
+
+            FoldersPage {
+                id: page
+                objectName: "foldersPage"
+                anchors.fill: parent
+                workspace: workspace
+                currentStorageId: "storage"
+                currentNoteId: "note-a"
+                checkpointHandler: function() { return true }
+            }
+        }
+    )QML",
+                      QUrl(QStringLiteral("qrc:/qml/FoldersPageHarness.qml")));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QObject *root = component.create();
+    QVERIFY2(root, qPrintable(component.errorString()));
+    quick.setContent(QUrl(QStringLiteral("qrc:/qml/FoldersPageHarness.qml")), &component, root);
+    quick.show();
+    QTest::qWait(60);
+
+    auto *rootItem  = qobject_cast<QQuickItem *>(root);
+    auto *page      = quickItemByName(rootItem, QStringLiteral("foldersPage"));
+    auto *inbox     = quickItemByName(page, QStringLiteral("foldersRow-folder-inbox"));
+    auto *archive   = quickItemByName(page, QStringLiteral("foldersRow-folder-archive"));
+    auto *noteA     = quickItemByName(page, QStringLiteral("foldersRow-note-storage-note-a"));
+    auto *noteC     = quickItemByName(page, QStringLiteral("foldersRow-note-storage-note-c"));
+    auto *noteB     = quickItemByName(page, QStringLiteral("foldersRow-note-storage-note-b"));
+    auto *workspace = root->findChild<QObject *>(QStringLiteral("foldersWorkspace"));
+    QVERIFY(page);
+    QVERIFY(inbox);
+    QVERIFY(archive);
+    QVERIFY(noteA);
+    QVERIFY(noteC);
+    QVERIFY(noteB);
+    QVERIFY(workspace);
+
+    QVERIFY(QMetaObject::invokeMethod(page, "createFolder", Q_ARG(QVariant, QStringLiteral("inbox"))));
+    QCOMPARE(page->property("selectedFolderId").toString(), QStringLiteral("created-folder"));
+    QVERIFY(!page->property("unsortedSelected").toBool());
+
+    const QPointF notePoint = noteA->mapToItem(rootItem, QPointF(noteA->width() / 2, noteA->height() / 2));
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, notePoint.toPoint());
+    QTRY_COMPARE(page->property("selectedFolderId").toString(), QString());
+    QVERIFY(!inbox->property("selectedGroup").toBool());
+
+    const QPointF recycledNotePoint = noteC->mapToItem(rootItem, QPointF(noteC->width() / 2, noteC->height() / 2));
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, recycledNotePoint.toPoint());
+    QTRY_COMPARE(page->property("selectedFolderId").toString(), QString());
+    QVERIFY(!inbox->property("selectedGroup").toBool());
+
+    page->setProperty("editingFolderId", QStringLiteral("inbox"));
+    QQuickItem *rename = nullptr;
+    QTRY_VERIFY((rename = quickItemByName(page, QStringLiteral("folderRenameField-inbox"))));
+    rename->setProperty("text", QStringLiteral("Renamed Inbox"));
+    QVERIFY(QMetaObject::invokeMethod(inbox, "commitRename"));
+    QTRY_COMPARE(workspace->property("renameCount").toInt(), 1);
+    QCOMPARE(workspace->property("renamedFolderId").toString(), QStringLiteral("inbox"));
+    QCOMPARE(workspace->property("renamedFolderName").toString(), QStringLiteral("Renamed Inbox"));
+
+    const QPointF noteAPoint = noteA->mapToItem(rootItem, QPointF(noteA->width() / 2, noteA->height() / 2));
+    const QPointF noteBPoint = noteB->mapToItem(rootItem, QPointF(noteB->width() / 2, noteB->height() / 2));
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::ControlModifier, noteBPoint.toPoint());
+    QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
+
+    const QPointF archiveSelectPoint
+        = archive->mapToItem(rootItem, QPointF(archive->width() / 2, archive->height() / 2));
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, archiveSelectPoint.toPoint());
+    QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 0);
+    QTRY_COMPARE(page->property("selectedFolderId").toString(), QStringLiteral("archive"));
+    QVERIFY(archive->property("selectedGroup").toBool());
+    QVERIFY(!noteA->property("highlighted").toBool());
+
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::ControlModifier, noteBPoint.toPoint());
+    QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
+
+    const QPointF noteDragStart = noteA->mapToItem(rootItem, QPointF(noteA->width() - 12, noteA->height() / 2));
+    const QPointF archivePoint  = archive->mapToItem(rootItem, QPointF(archive->width() / 2, archive->height() / 2));
+    QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, noteDragStart.toPoint());
+    for (int step = 1; step <= 8; ++step)
+        QTest::mouseMove(&quick, (noteDragStart + (archivePoint - noteDragStart) * (qreal(step) / 8)).toPoint(), 15);
+    QTRY_VERIFY(page->property("dragging").toBool());
+    QTRY_COMPARE(page->property("previewCount").toInt(), 2);
+    auto *firstPreview  = quickItemByName(page, QStringLiteral("folderDragPreviewItem-0"));
+    auto *secondPreview = quickItemByName(page, QStringLiteral("folderDragPreviewItem-1"));
+    QTRY_VERIFY(firstPreview);
+    QTRY_VERIFY(secondPreview);
+    QVERIFY(qAbs(secondPreview->y() - firstPreview->y() - firstPreview->height()) < 0.5);
+    // The stable drop contract opens the gap after the row that will own
+    // the notes. It must remain there after the animation settles.
+    QTest::qWait(220);
+    QTest::mouseMove(&quick, (archivePoint + QPointF(1, 0)).toPoint(), 15);
+    QTRY_VERIFY(archive->property("dropAfter").toBool());
+    QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, archivePoint.toPoint());
+    QTRY_VERIFY(!page->property("dragging").toBool());
+    QTRY_COMPARE(workspace->property("assignmentCount").toInt(), 2);
+    QCOMPARE(workspace->property("assignedFolderId").toString(), QStringLiteral("archive"));
+
+    QTRY_VERIFY((inbox = quickItemByName(page, QStringLiteral("foldersRow-folder-inbox"))));
+    QTRY_VERIFY((archive = quickItemByName(page, QStringLiteral("foldersRow-folder-archive"))));
+    const QPointF archiveDragStart = archive->mapToItem(rootItem, QPointF(80, archive->height() / 2));
+    const QPointF inboxBottom      = inbox->mapToItem(rootItem, QPointF(80, inbox->height()));
+    // One indent step to the right while targeting the gap below Inbox
+    // makes Archive its child. Keeping x unchanged would keep both at the
+    // root level.
+    const QPointF inboxChildPoint = inboxBottom + QPointF(18, archive->height() / 2);
+    QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, archiveDragStart.toPoint());
+    for (int step = 1; step <= 8; ++step)
+        QTest::mouseMove(&quick,
+                         (archiveDragStart + (inboxChildPoint - archiveDragStart) * (qreal(step) / 8)).toPoint(), 15);
+    QTRY_VERIFY(page->property("dragging").toBool());
+    QTRY_COMPARE(page->property("previewCount").toInt(), 1);
+    QTRY_VERIFY(inbox->property("dropAfter").toBool());
+    QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, inboxChildPoint.toPoint());
+    QTRY_VERIFY(!page->property("dragging").toBool());
+    QTRY_COMPARE(workspace->property("folderMoveCount").toInt(), 1);
+    QCOMPARE(workspace->property("movedFolderId").toString(), QStringLiteral("archive"));
+    QCOMPARE(workspace->property("movedParentFolderId").toString(), QStringLiteral("inbox"));
+    QCOMPARE(workspace->property("movedBeforeFolderId").toString(), QString());
+
+    QTest::qWait(220);
+    QTRY_VERIFY((inbox = quickItemByName(page, QStringLiteral("foldersRow-folder-inbox"))));
+    QTRY_VERIFY((archive = quickItemByName(page, QStringLiteral("foldersRow-folder-archive"))));
+    const QPointF siblingStart  = archive->mapToItem(rootItem, QPointF(80, archive->height() / 2));
+    const QPointF siblingTarget = inbox->mapToItem(rootItem, QPointF(80, inbox->height() + archive->height() / 2));
+    QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, siblingStart.toPoint());
+    for (int step = 1; step <= 8; ++step)
+        QTest::mouseMove(&quick, (siblingStart + (siblingTarget - siblingStart) * (qreal(step) / 8)).toPoint(), 15);
+    QTRY_VERIFY(page->property("dragging").toBool());
+    QTRY_VERIFY(inbox->property("dropAfter").toBool());
+    QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, siblingTarget.toPoint());
+    QTRY_COMPARE(workspace->property("folderMoveCount").toInt(), 2);
+    QCOMPARE(workspace->property("movedParentFolderId").toString(), QString());
+    QCOMPARE(workspace->property("movedBeforeFolderId").toString(), QString());
+}
+
+void NotesManagerQmlTest::foldersPageOffersEmptyRecycleBinAction()
+{
+    QQuickWidget quick;
+    quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+    quick.resize(360, 240);
+    installThemedIconImageProvider(quick.engine());
+
+    QQmlComponent component(quick.engine());
+    component.setData(R"QML(
+        import QtQuick
+        import QtQuick.Controls
+
+        Item {
+            id: harness
+
+            ListModel {
+                id: folders
+                ListElement {
+                    rowKind: 0
+                    folderId: "recycle"
+                    title: "Recycle Bin"
+                    collapsed: false
+                    systemFolder: true
+                    noteCount: 1
+                }
+            }
+
+            QtObject {
+                id: workspace
+                objectName: "recycleWorkspace"
+                property var folderNotesModel: folders
+                property bool folderCatalogAvailable: true
+                property int noteCount: 1
+                property var currentEditor: null
+                property int emptyCount: 0
+                function emptyRecycleBin() { ++emptyCount; return true }
+            }
+
+            FoldersPage {
+                objectName: "foldersPage"
+                anchors.fill: parent
+                workspace: workspace
+            }
+        }
+    )QML",
+                      QUrl(QStringLiteral("qrc:/qml/RecycleMenuHarness.qml")));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QObject *root = component.create();
+    QVERIFY2(root, qPrintable(component.errorString()));
+    quick.setContent(QUrl(QStringLiteral("qrc:/qml/RecycleMenuHarness.qml")), &component, root);
+    quick.show();
+
+    auto       *rootItem   = qobject_cast<QQuickItem *>(root);
+    auto       *page       = quickItemByName(rootItem, QStringLiteral("foldersPage"));
+    QQuickItem *recycleBin = nullptr;
+    QTRY_VERIFY((recycleBin = quickItemByName(page, QStringLiteral("foldersRow-folder-recycle"))));
+    const QPointF point = recycleBin->mapToItem(rootItem, QPointF(recycleBin->width() / 2, recycleBin->height() / 2));
+    QTest::mouseClick(&quick, Qt::RightButton, Qt::NoModifier, point.toPoint());
+
+    QObject *menu = nullptr;
+    QTRY_VERIFY((menu = root->findChild<QObject *>(QStringLiteral("recycleBinContextMenu"))));
+    QTRY_VERIFY(menu->property("visible").toBool());
+    auto *folderMenu = root->findChild<QObject *>(QStringLiteral("folderContextMenu"));
+    QVERIFY(folderMenu);
+    QVERIFY(!folderMenu->property("visible").toBool());
+    QObject *empty = nullptr;
+    QTRY_VERIFY((empty = root->findChild<QObject *>(QStringLiteral("emptyRecycleBinAction"))));
+    QVERIFY(empty->property("visible").toBool());
+    QVERIFY(empty->property("enabled").toBool());
+    QCOMPARE(empty->property("text").toString(), QStringLiteral("Empty Recycle Bin"));
+    QVERIFY(QMetaObject::invokeMethod(page, "emptyRecycleBin"));
+    auto *workspace = root->findChild<QObject *>(QStringLiteral("recycleWorkspace"));
+    QVERIFY(workspace);
+    QCOMPARE(workspace->property("emptyCount").toInt(), 1);
+}
+
+void NotesManagerQmlTest::folderPickerMenuBuildsTheCompleteFolderTree()
+{
+    FolderPageTestModel foldersModel;
+    QQuickWidget        quick;
+    quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+    quick.resize(360, 240);
+    quick.rootContext()->setContextProperty(QStringLiteral("testFoldersModel"), &foldersModel);
+
+    QQmlComponent component(quick.engine());
+    component.setData(R"QML(
+        import QtQuick
+        import QtQuick.Controls
+
+        Item {
+            QtObject {
+                id: workspace
+                property var folderNotesModel: testFoldersModel
+                property bool folderCatalogAvailable: true
+            }
+
+            FolderPickerMenu {
+                id: picker
+                objectName: "folderPicker"
+                workspace: workspace
+                currentFolderId: "inbox"
+            }
+        }
+    )QML",
+                      QUrl(QStringLiteral("qrc:/qml/FolderPickerHarness.qml")));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QObject *root = component.create();
+    QVERIFY2(root, qPrintable(component.errorString()));
+    quick.setContent(QUrl(QStringLiteral("qrc:/qml/FolderPickerHarness.qml")), &component, root);
+    quick.show();
+
+    QObject *picker = nullptr;
+    QTRY_VERIFY((picker = root->findChild<QObject *>(QStringLiteral("folderPicker"))));
+    QVERIFY(QMetaObject::invokeMethod(picker, "open"));
+    QObject *inbox   = nullptr;
+    QObject *archive = nullptr;
+    QTRY_VERIFY((inbox = picker->findChild<QObject *>(QStringLiteral("folderPickerItem-inbox"))));
+    QTRY_VERIFY((archive = picker->findChild<QObject *>(QStringLiteral("folderPickerItem-archive"))));
+    QVERIFY(inbox->property("checked").toBool());
+    QVERIFY(!archive->property("checked").toBool());
+}
+
+void NotesManagerQmlTest::editorToolbarFolderPickerAssignsTheActiveNote()
+{
+    FolderPageTestModel foldersModel;
+    QQuickWidget        quick;
+    quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+    quick.resize(420, 56);
+    installThemedIconImageProvider(quick.engine());
+    quick.rootContext()->setContextProperty(QStringLiteral("testFoldersModel"), &foldersModel);
+
+    QQmlComponent component(quick.engine());
+    component.setData(R"QML(
+        import QtQuick
+        import QtQuick.Controls
+
+        Item {
+            QtObject {
+                id: editorBackend
+                property bool markdown: true
+                property string undoText: ""
+                property string redoText: ""
+                property bool canUndo: false
+                property bool canRedo: false
+                property bool canInsertImages: false
+                function beginHistoryTransaction(kind, beforeView) {}
+                function endHistoryTransaction(afterView) {}
+                function copyDocumentToClipboard() {}
+                function undo() {}
+                function redo() {}
+            }
+
+            QtObject {
+                id: blockEditor
+                property var activeEditor: null
+                property var blockModel: null
+                function flushPendingEditorChanges() {}
+                function captureEditorState() { return ({}) }
+                function insertionBlockIndex() { return 0 }
+                function insertListBlock(type) { return true }
+                function insertBlockQuoteBlock() { return true }
+                function focusBlock(row) {}
+                function convertActiveToHeading(level) {}
+                function convertActiveToQuote(enabled) {}
+                function applyActiveInlineStyle(style) {}
+                function editActiveLink() {}
+            }
+
+            QtObject {
+                id: workspace
+                objectName: "editorFolderWorkspace"
+                property var folderNotesModel: testFoldersModel
+                property bool folderCatalogAvailable: true
+                property string currentFolderId: "inbox"
+                property string assignedFolderId: ""
+                function assignCurrentNoteFolder(folderId) {
+                    assignedFolderId = folderId
+                    currentFolderId = folderId
+                    return true
+                }
+            }
+
+            EditorToolbar {
+                id: toolbar
+                objectName: "editorToolbar"
+                anchors.fill: parent
+                editorBackend: editorBackend
+                blockEditor: blockEditor
+                folderWorkspace: workspace
+            }
+        }
+    )QML",
+                      QUrl(QStringLiteral("qrc:/qml/EditorToolbarFolderHarness.qml")));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QObject *root = component.create();
+    QVERIFY2(root, qPrintable(component.errorString()));
+    quick.setContent(QUrl(QStringLiteral("qrc:/qml/EditorToolbarFolderHarness.qml")), &component, root);
+    quick.show();
+
+    auto *rootItem = qobject_cast<QQuickItem *>(root);
+    QVERIFY(rootItem);
+    QQuickItem *button = nullptr;
+    QTRY_VERIFY((button = quickItemByName(rootItem, QStringLiteral("editorFolderPickerButton"))));
+    QVERIFY(button->isVisible());
+    const QPointF buttonPoint = button->mapToItem(rootItem, QPointF(button->width() / 2, button->height() / 2));
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, buttonPoint.toPoint());
+
+    auto *picker    = root->findChild<QObject *>(QStringLiteral("editorFolderPicker"));
+    auto *workspace = root->findChild<QObject *>(QStringLiteral("editorFolderWorkspace"));
+    QVERIFY(picker);
+    QVERIFY(workspace);
+    QTRY_VERIFY(picker->property("visible").toBool());
+    QObject *archive = nullptr;
+    QTRY_VERIFY((archive = picker->findChild<QObject *>(QStringLiteral("folderPickerItem-archive"))));
+    QVERIFY(QMetaObject::invokeMethod(picker, "selectFolder", Q_ARG(QVariant, QStringLiteral("archive"))));
+    QTRY_COMPARE(workspace->property("assignedFolderId").toString(), QStringLiteral("archive"));
+    QCOMPARE(workspace->property("currentFolderId").toString(), QStringLiteral("archive"));
+}

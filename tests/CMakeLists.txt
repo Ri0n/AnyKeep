@@ -1,6 +1,18 @@
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Test Xml REQUIRED)
 
-add_executable(noteblockmodel_test noteblockmodel_test.cpp)
+add_library(qtnote_headless_test_init OBJECT headlesstestinit.cpp)
+target_link_libraries(qtnote_headless_test_init PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+set_target_properties(qtnote_headless_test_init PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+
+add_executable(noteblockmodel_test
+    noteblockmodel_test.cpp
+    noteblockmodel_test.h
+    noteblockmodel_markdown_test.cpp
+    noteblockmodel_operations_test.cpp
+    noteblockmodel_lists_tables_test.cpp
+    noteblockmodel_structure_test.cpp
+    noteblockmodel_search_code_test.cpp
+)
 target_link_libraries(noteblockmodel_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
 add_test(NAME noteblockmodel_test COMMAND noteblockmodel_test)
 
@@ -27,6 +39,58 @@ add_test(NAME notefragmentmediatransfer_test COMMAND notefragmentmediatransfer_t
 add_executable(desktopnoteeditorhost_test desktopnoteeditorhost_test.cpp)
 target_link_libraries(desktopnoteeditorhost_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::QuickWidgets)
 add_test(NAME desktopnoteeditorhost_test COMMAND desktopnoteeditorhost_test)
+
+add_executable(editorqml_test editorqml_test.cpp)
+target_link_libraries(editorqml_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::QuickWidgets)
+add_test(NAME editorqml_test COMMAND editorqml_test)
+
+add_executable(notesmanagerqml_test
+    notesmanagerqml_test.cpp
+    notesmanagerqml_test.h
+    notesmanagerqml_shell_test.cpp
+    notesmanagerqml_drag_test.cpp
+    managerinteractionfixture.cpp
+    managerinteractionfixture.h
+    notecollectionqml_test.cpp
+    foldersqml_test.cpp
+    desktopqmltestsupport.h
+    notesmanagerqml_test.qrc
+)
+target_link_libraries(notesmanagerqml_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::QuickWidgets)
+set_target_properties(notesmanagerqml_test PROPERTIES AUTORCC ON)
+add_test(NAME notesmanagerqml_test COMMAND notesmanagerqml_test)
+
+add_executable(settingsqml_test settingsqml_test.cpp desktopqmltestsupport.h)
+target_link_libraries(settingsqml_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::QuickWidgets)
+add_test(NAME settingsqml_test COMMAND settingsqml_test)
+
+add_custom_target(desktop_qml_tests
+    DEPENDS
+        desktopnoteeditorhost_test
+        editorqml_test
+        notesmanagerqml_test
+        settingsqml_test
+)
+
+# One stable entry point for structured-editor work.  The target builds the
+# model/controller/QML layers together, while the matching CTest label runs
+# exactly the same focused set without maintaining a regular expression in
+# contributor instructions or automation.
+add_custom_target(editor_tests
+    DEPENDS
+        noteblockmodel_test
+        noteeditor_test
+        desktopnoteeditorhost_test
+        editorqml_test
+)
+set_tests_properties(
+    noteblockmodel_test
+    noteeditor_test
+    PROPERTIES LABELS editor
+)
+set_tests_properties(desktopnoteeditorhost_test editorqml_test PROPERTIES LABELS "editor;qml")
+set_tests_properties(notesmanagerqml_test PROPERTIES LABELS "notesmanager;qml")
+set_tests_properties(settingsqml_test PROPERTIES LABELS "settings;qml")
 
 add_executable(ptfstorage_test ptfstorage_test.cpp)
 target_link_libraries(ptfstorage_test PRIVATE qtnote Qt${QT_VERSION_MAJOR}::Test)
@@ -234,10 +298,25 @@ if(TARGET Qt${QT_VERSION_MAJOR}::Multimedia)
     add_test(NAME yandexspeechutils_test COMMAND yandexspeechutils_test)
 endif()
 
+# Qt Creator commonly launches the selected test executable directly and does
+# not apply CTest's ENVIRONMENT property. Link an early initializer into every
+# test executable so QTEST_MAIN chooses the offscreen platform before creating
+# QApplication. Explicit environment values still override these defaults.
+get_property(qtnote_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+set(qtnote_test_executable_targets)
+foreach(qtnote_test_target IN LISTS qtnote_test_targets)
+    get_target_property(qtnote_test_target_type ${qtnote_test_target} TYPE)
+    if(qtnote_test_target_type STREQUAL "EXECUTABLE")
+        target_sources(${qtnote_test_target} PRIVATE $<TARGET_OBJECTS:qtnote_headless_test_init>)
+        list(APPEND qtnote_test_executable_targets ${qtnote_test_target})
+    endif()
+endforeach()
+add_custom_target(qtnote_all_tests DEPENDS ${qtnote_test_executable_targets})
+
 # Keep every test independent of the developer's active display server.  This
 # also covers new QTEST_MAIN-based tests automatically instead of relying on
 # each target to remember its own headless environment.
 get_property(qtnote_tests DIRECTORY PROPERTY TESTS)
 set_tests_properties(${qtnote_tests} PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=software;QT_LOGGING_RULES=qtnote.*.info=false"
 )

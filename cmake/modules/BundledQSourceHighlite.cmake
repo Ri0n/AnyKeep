@@ -64,6 +64,9 @@ endif()
 
 ExternalProject_Add(qtnote_bundled_qsourcehighlite
     ${_qsourcehighlite_source_args}
+    # The dependency is pinned. Avoid re-running its update/configure/build/
+    # install chain, and printing that chain, on every focused QtNote build.
+    UPDATE_DISCONNECTED TRUE
     PREFIX "${_qsourcehighlite_prefix}"
     BINARY_DIR "${_qsourcehighlite_prefix}/build"
     INSTALL_DIR "${_qsourcehighlite_install_dir}"

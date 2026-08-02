@@ -1,0 +1,87 @@
+#pragma once
+
+#include <QObject>
+
+class NoteBlockModelTest : public QObject {
+    Q_OBJECT
+
+private slots:
+    void titleIsAlwaysASeparateTextBlock();
+    void structuredPasteIntoTitleKeepsFollowingBlocks();
+    void movingWholeListBlockRestoresTagLineAtBodyBoundary();
+    void inlineCodeListItemKeepsLeadingDashes();
+    void parsesPromotesAndSerializesTagLine();
+    void tagLineUsesFormatSpecificBodyBoundary();
+    void escapedOrMixedTagLinesRemainOrdinaryText();
+    void invalidTagEditRestoresOrdinaryTextAndCursor();
+    void tagLineRoundTripsThroughBlockFragment();
+    void structuredPastePromotesOnlyTheFirstBodyTagLine();
+    void tagLineBecomesOrdinaryTextWhenContentMovesBeforeIt();
+    void parsesAndWritesGithubBlocks();
+    void serializesAndParsesImagePresentation();
+    void serializesParsesAndTransfersAudioBlocks();
+    void serializesParsesAndTransfersAttachments();
+    void parsesSerializesAndTransfersBlockQuotes();
+    void convertsBetweenBlockQuotesAndHeadings();
+    void splitsStructuredBlockIntoFollowingParagraph();
+    void leadingTablePipeDoesNotCreatePhantomColumn();
+    void preservesGithubUnderlineMarkup();
+    void extractsAndInsertsWholeBlockFragments();
+    void extractsCrossBlockSelectionStructurally();
+    void includesUnrangedBlocksCrossedBySelection();
+    void removesCrossBlockSelectionIncludingListAndTable();
+    void removesTrailingImageCrossedFromDocumentBoundary();
+    void rejectsNonBlockFragmentInsertion();
+    void replacesTextRangeWithStructuredFragmentAtomically();
+    void replacesTableRectangleAndExpandsTable();
+    void replacesFlatListItemWithMixedListFragment();
+    void rejectsListPasteIntoItemWithDescendants();
+    void mergesAdjacentMarkdownParagraphs();
+    void keepsStructuralBoundariesBetweenTextSections();
+    void backspaceAtListItemStartUnlistsOrOutdents();
+    void textAfterBlankLineDoesNotJoinChecklistItem();
+    void editsAreSerialized();
+    void nestedTaskChecksPropagateBetweenParentsAndDescendants();
+    void mergesLastListItemWithFollowingTextOrListItem();
+    void equalScalarWritesAreNoOps();
+    void reportsScalarEditsWithoutExposingInternalState();
+    void coalescesAdjacentLinksCreatedAcrossFormatRuns();
+    void keepsLongInlineLinksOnTheirSourceLine();
+    void editsTableStructure();
+    void reordersWholeTableColumns();
+    void tableLineBreaksUseGithubCompatibleHtml();
+    void serializesListContinuationsUsingCommonMarkIndentation();
+    void parsesIndentedListContinuationsAsOneItem();
+    void keepsCanonicalWriterWrapInsideLongListItem();
+    void supportsNumberedAndIndentedLists();
+    void nestedTaskListSurvivesMarkdownRoundTrip();
+    void outdentedListItemAdoptsParentListType();
+    void reindentedListItemRestoresNestedListType();
+    void taskListSurroundingNestedNumberedItemsStaysOneBlock();
+    void preservesThreeLevelMixedListIndentation();
+    void parsesSerializesAndSplitsHeadingBlocks();
+    void insertsMinimalStructuredBlocks();
+    void collapsesUneditedInsertedParagraphOnMarkdownRoundTrip();
+    void insertingAndConvertingListsPreservesIndentation();
+    void removesStructuredRangesAtomically();
+    void movesListSubtreesAcrossBlocks();
+    void movesAndReindentsListSubtreesAtomically();
+    void detachesListSubtreesIntoStandaloneBlocks();
+    void reattachesStandaloneListsAcrossInterveningBlocks();
+    void movesWholeListsThroughStandaloneBoundaries();
+    void movesWholeBlocks();
+    void movingMultilineTextToTitleSplitsAndRecombinesBody();
+    void movingStructuredBlockAwayRecombinesTextNeighbors();
+    void movingListBlockNextToListMergesAndAdoptsResidentType();
+    void movingBlockAwayMergesAdjacentListsAtSourceGap();
+    void movingListRangeIntoListAdoptsExistingTypeAtSameLevel();
+    void indentingListSubtreePreservesItemTypes();
+    void movesStyledImageBlocksWithoutChangingPresentation();
+    void findsTextAcrossStructuredBlocks();
+    void findTextWrapsAndSupportsCaseSensitivity();
+    void findTextWrapsWithinOneField();
+    void preservesFencedCodeBlocksLiterally();
+    void preservesCodeBlockTrailingNewlines();
+    void transfersCodeBlockLanguageAndLiteralText();
+    void previewUrlDoesNotChangeMarkdown();
+};
