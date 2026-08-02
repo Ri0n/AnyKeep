@@ -23,21 +23,60 @@ if(NOT TARGET qtnote_bundled_nextcloud OR NOT TARGET qtnote_bundled_gemini
 endif()
 
 set(qtnote_mobile_shared_qml
-    "${CMAKE_SOURCE_DIR}/libqtnote/qml/EditorContextMenu.qml"
-    "${CMAKE_SOURCE_DIR}/libqtnote/qml/EditorReorderController.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/EditorToolbar.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/EditorActionController.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/DialogHost.qml"
-    "${CMAKE_SOURCE_DIR}/libqtnote/qml/ListBlockBehavior.js"
-    "${CMAKE_SOURCE_DIR}/libqtnote/qml/ListBlockEditor.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteBlockEditor.qml"
-    "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteFindBar.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NoteEditorPane.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/FolderPickerMenu.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/FoldersPage.qml"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/NotesManagerPage.qml"
-    "${CMAKE_SOURCE_DIR}/libqtnote/qml/TableBlockBehavior.js"
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/ThemedIcon.qml"
+)
+set(qtnote_mobile_shared_impl_qml
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/shared/ThemedIconImpl.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/shared/FolderPickerMenuImpl.qml"
+)
+set(qtnote_mobile_editor_qml
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/EditorContextMenu.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/EditorReorderController.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/EditorToolbarImpl.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/EditorActionControllerImpl.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/NoteBlockEditorImpl.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/NoteEditorPaneImpl.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/NoteFindBar.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/CustomDictionaryDialog.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/EditorBlockDelegate.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/EditorBlockFactories.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/InterBlockHitLayer.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/LinkEditorPopup.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/TrailingDocumentArea.qml"
+)
+set(qtnote_mobile_editor_component_qml
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/components/CompactPopupSelector.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/components/HoverActionStrip.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/components/ListBlockEditor.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/components/NoteBlockTextArea.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/components/TagLineEditor.qml"
+)
+set(qtnote_mobile_editor_support_qml
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/support/ListBlockBehavior.js"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/support/TableBlockBehavior.js"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/support/EditorMarkdownRendering.js"
+)
+set(qtnote_mobile_editor_block_qml
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/blocks/AttachmentBlock.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/blocks/AudioBlock.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/blocks/BlockQuoteBlock.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/blocks/CodeBlock.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/blocks/HeadingBlock.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/blocks/ImageAlignmentGlyph.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/blocks/ImageBlock.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/blocks/ImageResizeHandle.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/blocks/ListBlock.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/blocks/TableBlock.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/blocks/TagLineBlock.qml"
+    "${CMAKE_SOURCE_DIR}/libqtnote/qml/editor/blocks/TextBlock.qml"
 )
 set(qtnote_mobile_reorder_qml
     "${CMAKE_SOURCE_DIR}/libqtnote/qml/reorder/DragPreviewLayer.qml"
@@ -50,6 +89,41 @@ set(qtnote_mobile_reorder_qml
 foreach(qtnote_mobile_qml_file IN LISTS qtnote_mobile_shared_qml)
     get_filename_component(qtnote_mobile_qml_alias "${qtnote_mobile_qml_file}" NAME)
     set_source_files_properties("${qtnote_mobile_qml_file}" PROPERTIES QT_RESOURCE_ALIAS "${qtnote_mobile_qml_alias}")
+endforeach()
+foreach(qtnote_mobile_qml_file IN LISTS qtnote_mobile_shared_impl_qml)
+    get_filename_component(qtnote_mobile_qml_alias "${qtnote_mobile_qml_file}" NAME)
+    set_source_files_properties(
+        "${qtnote_mobile_qml_file}"
+        PROPERTIES QT_RESOURCE_ALIAS "shared/${qtnote_mobile_qml_alias}"
+    )
+endforeach()
+foreach(qtnote_mobile_qml_file IN LISTS qtnote_mobile_editor_qml)
+    get_filename_component(qtnote_mobile_qml_alias "${qtnote_mobile_qml_file}" NAME)
+    set_source_files_properties(
+        "${qtnote_mobile_qml_file}"
+        PROPERTIES QT_RESOURCE_ALIAS "editor/${qtnote_mobile_qml_alias}"
+    )
+endforeach()
+foreach(qtnote_mobile_qml_file IN LISTS qtnote_mobile_editor_component_qml)
+    get_filename_component(qtnote_mobile_qml_alias "${qtnote_mobile_qml_file}" NAME)
+    set_source_files_properties(
+        "${qtnote_mobile_qml_file}"
+        PROPERTIES QT_RESOURCE_ALIAS "editor/components/${qtnote_mobile_qml_alias}"
+    )
+endforeach()
+foreach(qtnote_mobile_qml_file IN LISTS qtnote_mobile_editor_support_qml)
+    get_filename_component(qtnote_mobile_qml_alias "${qtnote_mobile_qml_file}" NAME)
+    set_source_files_properties(
+        "${qtnote_mobile_qml_file}"
+        PROPERTIES QT_RESOURCE_ALIAS "editor/support/${qtnote_mobile_qml_alias}"
+    )
+endforeach()
+foreach(qtnote_mobile_qml_file IN LISTS qtnote_mobile_editor_block_qml)
+    get_filename_component(qtnote_mobile_qml_alias "${qtnote_mobile_qml_file}" NAME)
+    set_source_files_properties(
+        "${qtnote_mobile_qml_file}"
+        PROPERTIES QT_RESOURCE_ALIAS "editor/blocks/${qtnote_mobile_qml_alias}"
+    )
 endforeach()
 foreach(qtnote_mobile_qml_file IN LISTS qtnote_mobile_reorder_qml)
     get_filename_component(qtnote_mobile_qml_alias "${qtnote_mobile_qml_file}" NAME)
@@ -81,6 +155,11 @@ qt_add_qml_module(qtnote_mobile
         StorageSettingsPage.qml
         StoragesPage.qml
         ${qtnote_mobile_shared_qml}
+        ${qtnote_mobile_shared_impl_qml}
+        ${qtnote_mobile_editor_qml}
+        ${qtnote_mobile_editor_component_qml}
+        ${qtnote_mobile_editor_support_qml}
+        ${qtnote_mobile_editor_block_qml}
         ${qtnote_mobile_reorder_qml}
     SOURCES
         androidplatformservices.cpp

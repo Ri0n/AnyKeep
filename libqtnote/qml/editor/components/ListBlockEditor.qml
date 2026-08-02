@@ -1,8 +1,8 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import "ListBlockBehavior.js" as ListBlockBehavior
-import "reorder" as Reorder
+import "../support/ListBlockBehavior.js" as ListBlockBehavior
+import "../../reorder" as Reorder
 
 Column {
     id: listRoot

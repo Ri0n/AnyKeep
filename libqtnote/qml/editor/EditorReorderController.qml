@@ -1,5 +1,5 @@
 import QtQuick
-import "reorder" as Reorder
+import "../reorder" as Reorder
 
 Item {
     id: controller

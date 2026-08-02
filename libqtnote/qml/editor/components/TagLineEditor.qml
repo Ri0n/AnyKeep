@@ -2,7 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
-import "reorder" as Reorder
+import "../../reorder" as Reorder
 
 FocusScope {
     id: root

@@ -1,60 +1,22 @@
-# Shared editor QML map
+# Shared QML map
 
-Read this file before opening `NoteBlockEditor.qml`.
+## Editor entry points
 
-## Entry points
+The root-level editor files are compatibility facades. Keep their public type
+names and properties stable because desktop hosts, tests, and the mobile QML
+module instantiate them directly.
 
-- `NoteEditorPane.qml`: shared toolbar/editor composition used by desktop and
-  Android.
-- `NoteBlockEditor.qml`: document-wide selection, clipboard, focus navigation,
-  block delegates, and the shared `BlockTextArea` implementation.
-- `ListBlockEditor.qml`: list rows, marker geometry, item spacing, local mirror
-  model, drop gaps, and keyboard delegation to `ListBlockBehavior.js`.
-- `reorder/GenericReorderController.qml`: shared drag lifecycle, stable preview,
-  compressed-geometry boundary selection, translation, and atomic
-  commit/cancel hooks for every reorderable view.
-- `reorder/LinearReorderLayout.qml`: shared source exclusion, logical boundary
-  coordinates, remaining-row indexes, flow-layout correction, and fixed-row
-  translation. Use its order-snapshot APIs for recycled delegates.
-- `reorder/FlatListReorderController.qml`: reusable `ListView` adapter for
-  fixed-height flat rows. It owns the common preview, compressed boundaries,
-  animated displacement lifecycle, commit callback, and model-reset handling.
-- `EditorReorderController.qml`: editor adapter for the generic controller. It
-  supplies cross-list boundaries, indentation, focus restoration, and the
-  `moveListRange()` commit.
-- `reorder/ReorderDragHandle.qml`: pointer gesture only. It reports absolute
-  `activeTranslation`; it must not mutate a document model.
-- `ListBlockBehavior.js`: Enter/Backspace/Tab and list boundary keyboard rules.
-- `TableBlockBehavior.js`: table keyboard rules.
+- `NoteEditorPane.qml` -> `editor/NoteEditorPaneImpl.qml`
+- `NoteBlockEditor.qml` -> `editor/NoteBlockEditorImpl.qml`
+- `EditorToolbar.qml` -> `editor/EditorToolbarImpl.qml`
+- `EditorActionController.qml` -> `editor/EditorActionControllerImpl.qml`
 
-## List invariants
+Read `editor/AGENTS.md` before changing editor internals.
 
-- `NoteBlockModel` is canonical. `ListBlockEditor` mirrors roles only to create
-  editable delegates; drag previews never reorder that mirror.
-- A list item and all following items with a greater indent form one movable
-  subtree.
-- `moveListSubtree()` receives a target insertion offset after removing the
-  source subtree. Cross-block target rows are the pre-operation model rows.
-- Marker slots have one fixed width. Bullet, task, and numbered markers align to
-  the first text line, not the full wrapped item.
-- Source rows collapse and target gaps expand only visually. One atomic model
-  mutation is made on release and must remain one undo step.
-- Reorderable views provide only source descriptors, logical insertion
-  boundaries, and a commit callback to `GenericReorderController`; do not add a
-  second local drag lifecycle.
-- `TreeView`/`TableView` adapters must keep their row-height provider in sync
-  during displacement animation. Do not collapse a live delegate to exactly
-  zero if the view can pool and reuse it during the gesture.
-- Horizontal drag selects an indent from `0` through `previousIndent + 1`.
-- Markdown list continuations serialize under the marker content column:
-  4 spaces for `- ` and 6 spaces for `- [ ] `.
+## Other shared areas
 
-## Focused verification
-
-```sh
-cmake --build build/qt6_Debug --target noteblockmodel_test -j4
-QT_QPA_PLATFORM=offscreen ./build/qt6_Debug/tests/noteblockmodel_test -v1
-```
-
-For list work, search test names containing `List`, `list`, `drag`, and
-`MarkdownConversion` in `tests/noteblockmodel_test.cpp`.
+- `notelist/`: note-list rows, selection, and collection views.
+- `reorder/`: generic reorder primitives shared by the editor, folders,
+  settings, rules, and note lists. Do not move these under `editor/`.
+- `ThemedIcon.qml`, `DialogHost.qml`, and `FolderPickerMenu.qml` are shared UI
+  primitives rather than editor implementation details.

@@ -231,7 +231,7 @@ void SpeechRecognitionController::cancel()
     audioEditor_.clear();
     pendingAudioRow_ = -1;
     transcriptionEditor_.clear();
-    transcriptionIndex_ = {};
+    transcriptionIndex_ = QPersistentModelIndex();
     if (job_) {
         job_->cancel();
         job_->deleteLater();
@@ -312,7 +312,7 @@ bool SpeechRecognitionController::transcribeAudio(int row, const QString &source
         const QPointer<NoteEditor>  destination      = transcriptionEditor_;
         const QPersistentModelIndex destinationIndex = transcriptionIndex_;
         transcriptionEditor_.clear();
-        transcriptionIndex_ = {};
+        transcriptionIndex_ = QPersistentModelIndex();
         setBusy(false);
         const QString value       = text.trimmed();
         const bool    targetValid = destination && destinationIndex.isValid()
@@ -327,7 +327,7 @@ bool SpeechRecognitionController::transcribeAudio(int row, const QString &source
         job_->deleteLater();
         job_.clear();
         transcriptionEditor_.clear();
-        transcriptionIndex_ = {};
+        transcriptionIndex_ = QPersistentModelIndex();
         setBusy(false);
         emit operationFailed(error);
     });

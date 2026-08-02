@@ -24,6 +24,15 @@ static QString defaultPrompt()
     return GeminiPlugin::tr("Transcribe this speech to text. Return only the transcript without comments.");
 }
 
+static QString geminiAudioMediaType(const QString &mediaType)
+{
+    // Gemini rejects the standard MP4 audio MIME for M4A payloads and requires its M4A alias.
+    const QString normalized = mediaType.trimmed().toLower();
+    if (normalized == QLatin1String("audio/mp4") || normalized == QLatin1String("audio/x-m4a"))
+        return QStringLiteral("audio/m4a");
+    return normalized;
+}
+
 static void appendLE16(QByteArray *data, quint16 value)
 {
     char buf[2];
@@ -175,7 +184,7 @@ private slots:
 
         const bool       encodedInput = !audio.mediaType.isEmpty();
         const QByteArray audioPayload = encodedInput ? audio.data : wavFromPcm(audio);
-        const QString    contentType  = encodedInput ? audio.mediaType : QStringLiteral("audio/wav");
+        const QString contentType = encodedInput ? geminiAudioMediaType(audio.mediaType) : QStringLiteral("audio/wav");
         if (audioPayload.size() > 20 * 1024 * 1024) {
             qWarning() << "Gemini speech job failed before request: inline audio is too large"
                        << "audioBytes" << audioPayload.size();
@@ -319,10 +328,11 @@ bool GeminiPlugin::isSpeechRecognitionReady() const
 SpeechRecognitionCapabilities GeminiPlugin::speechRecognitionCapabilities() const
 {
     SpeechRecognitionCapabilities caps;
-    caps.supportsOneShot        = true;
-    caps.supportsPunctuation    = true;
-    caps.maxOneShotDurationMs   = 120000;
-    caps.encodedAudioMediaTypes = { QStringLiteral("audio/mp4") };
+    caps.supportsOneShot      = true;
+    caps.supportsPunctuation  = true;
+    caps.maxOneShotDurationMs = 120000;
+    caps.encodedAudioMediaTypes
+        = { QStringLiteral("audio/mp4"), QStringLiteral("audio/m4a"), QStringLiteral("audio/x-m4a") };
     return caps;
 }
 
