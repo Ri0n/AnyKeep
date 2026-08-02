@@ -195,6 +195,11 @@ Column {
     }
 
     function animatedLayoutDisplacement() {
+        // Whole-list insertion is rendered with row/block transforms. Letting
+        // dropSpace also enlarge the Column would duplicate the dragged extent
+        // in ListView.contentHeight and send virtualized blocks far downward.
+        if (reorderController.wholeListBlockDrag)
+            return 0
         let displacement = endDropSpacer.dropSpace
         for (let index = 0; index < listModel.count; ++index)
             displacement += animatedRowDisplacement(rowAt(index))
@@ -212,6 +217,24 @@ Column {
         for (let original = 0; original < boundaryOriginal; ++original)
             displacement += animatedRowDisplacement(rowAt(original))
         return displacement
+    }
+
+    function structuralDropOffsetForRow(originalIndex) {
+        if (!reorderController.wholeListBlockDrag)
+            return 0
+        // Sum the animated spacers rather than switching a fixed translation
+        // at targetItem. When the target advances, the old spacer closes while
+        // the new one opens, so every affected row keeps a continuous path.
+        // Keep consuming a closing spacer after the pointer leaves this list:
+        // it cancels the destination block's reverse translation and prevents
+        // untouched list rows from moving with the preceding block.
+        let offset = 0
+        for (let index = 0; index <= originalIndex; ++index) {
+            const row = rowAt(index)
+            if (row)
+                offset += Number(row.dropSpace)
+        }
+        return offset
     }
 
     function boundaryDescriptor(index) {
@@ -313,13 +336,20 @@ Column {
                                                    && reorderController.targetItem === remainingIndex
             readonly property alias collapseSpace: rowDisplacement.collapseSpace
             readonly property alias dropSpace: rowDisplacement.beforeSpace
+            readonly property real structuralDropOffset:
+                listRoot.structuralDropOffsetForRow(index)
             readonly property real trailingSpace: index + 1 < listModel.count ? listRoot.itemSpacing : 0
             readonly property real naturalHeight: rowContent.implicitHeight + trailingSpace
 
             objectName: "listRow-" + listRoot.blockIndex + "-" + index
             width: listRoot.width
-            height: rowDisplacement.layoutExtent
+            height: reorderController.wholeListBlockDrag
+                    ? naturalHeight : rowDisplacement.layoutExtent
             z: ownsLevelHandle || (!editorView.touchMode && startsLevelRange) ? 20 : 0
+
+            transform: Translate {
+                y: rowWrapper.structuralDropOffset
+            }
 
             Reorder.ReorderDisplacement {
                 id: rowDisplacement
@@ -378,7 +408,7 @@ Column {
                 id: rowContent
 
                 x: rowWrapper.itemIndent * editorView.listIndent + rowWrapper.swipeOffset
-                y: rowWrapper.dropSpace
+                y: reorderController.wholeListBlockDrag ? 0 : rowWrapper.dropSpace
                 width: Math.max(0, listRoot.width
                                   - rowWrapper.itemIndent * editorView.listIndent)
                 height: implicitHeight
@@ -544,7 +574,7 @@ Column {
                                        && reorderController.targetItem === listRoot.remainingItemCount()
         readonly property alias dropSpace: endDisplacement.beforeSpace
         width: listRoot.width
-        height: dropSpace
+        height: reorderController.wholeListBlockDrag ? 0 : dropSpace
 
         Reorder.ReorderDisplacement {
             id: endDisplacement

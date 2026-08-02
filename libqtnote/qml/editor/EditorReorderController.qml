@@ -495,8 +495,21 @@ Item {
     }
 
     function blockTranslation(item) {
-        if (wholeListTargetActive)
-            return -blockLayout.sourceExtentBefore(item)
+        if (wholeListTargetActive) {
+            // A whole list attached inside another list uses row transforms,
+            // not an expanded destination-list height. Translate only blocks
+            // between source and destination into the compact post-removal
+            // geometry; blocks below both endpoints must remain stationary.
+            const row = Number(item.index)
+            const destinationRow = targetBlock ? Number(targetBlock.blockIndex) : -1
+            if (sourceBlockRow < destinationRow)
+                return row > sourceBlockRow && row <= destinationRow
+                        ? -structuralDraggedHeight : 0
+            if (destinationRow < sourceBlockRow)
+                return row > destinationRow && row < sourceBlockRow
+                        ? structuralDraggedHeight : 0
+            return 0
+        }
         if (!structuralTargetActive)
             return 0
         return blockLayout.translationByOrder(

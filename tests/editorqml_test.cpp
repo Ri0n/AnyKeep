@@ -55,9 +55,25 @@ private slots:
 
     void wholeListDragUsesItemLevelStructuralBoundaries()
     {
+        const QString  document = QStringLiteral("title\n\n"
+                                                  "- sdfsdf\n"
+                                                  "- 4354\n"
+                                                  "- fdsf\n\n"
+                                                  "Another list\n\n"
+                                                  "1. 1111\n"
+                                                  "2. 2222\n\n"
+                                                  "### Later\n\n"
+                                                  "- [ ] review backlog\n"
+                                                  "- [ ] update documentation\n\n"
+                                                  "### Long term\n\n"
+                                                  "- recurring review\n"
+                                                  "- metrics review\n\n"
+                                                  "Reference work\n\n"
+                                                  "- add adapter\n"
+                                                  "- stream logs");
         NoteBlockModel model;
-        model.load(QStringLiteral("title\n\n- sdfsdf\n- 4354\n- fdsf\n\nAnother list\n\n1. 1111\n2. 2222"), true);
-        QCOMPARE(model.rowCount(), 4);
+        model.load(document, true);
+        QCOMPARE(model.rowCount(), 10);
         QCOMPARE(model.blockTypeAt(1), int(NoteBlockModel::BulletList));
         QCOMPARE(model.blockTypeAt(2), int(NoteBlockModel::Text));
         QCOMPARE(model.blockTypeAt(3), int(NoteBlockModel::NumberedList));
@@ -121,12 +137,17 @@ private slots:
             = sourceHandle->mapToItem(root, QPointF(sourceHandle->width() / 2, sourceHandle->height() / 2));
         const QPointF to = from + QPointF(80, 0);
 
+        auto *controller = root->findChild<QObject *>(QStringLiteral("editorReorderController"));
+        QVERIFY(controller);
+        auto *interBlockLayer = root->findChild<QQuickItem *>(QStringLiteral("interBlockHitLayer"));
+        QVERIFY(interBlockLayer);
+        QVERIFY(interBlockLayer->isVisible());
+
         QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, from.toPoint());
         moveMouseAlong(&quick, from, to, 6);
 
-        auto *controller = root->findChild<QObject *>(QStringLiteral("editorReorderController"));
-        QVERIFY(controller);
         QTRY_VERIFY(controller->property("dragging").toBool());
+        QTRY_VERIFY(!interBlockLayer->isVisible());
         QVERIFY(controller->property("wholeListBlockDrag").toBool());
         QTest::qWait(220);
 
@@ -139,8 +160,8 @@ private slots:
 
         QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, to.toPoint());
         QTRY_VERIFY(!controller->property("dragging").toBool());
-        QCOMPARE(model.contents(),
-                 QStringLiteral("title\n\n- sdfsdf\n- 4354\n- fdsf\n\nAnother list\n\n1. 1111\n2. 2222"));
+        QTRY_VERIFY(interBlockLayer->isVisible());
+        QCOMPARE(model.contents(), document);
 
         auto *destinationFirst       = quickItemByName(root, QStringLiteral("listRow-3-0"));
         auto *destinationSecond      = quickItemByName(root, QStringLiteral("listRow-3-1"));
@@ -150,15 +171,17 @@ private slots:
         QVERIFY(destinationSecond);
         QVERIFY(destinationFirstMarker);
         QVERIFY(destinationMarker);
+        const qreal firstMarkerYBefore   = destinationFirstMarker->mapToItem(root, QPointF()).y();
         const qreal markerDistanceBefore = destinationMarker->mapToItem(root, QPointF()).y()
             - destinationFirstMarker->mapToItem(root, QPointF()).y();
         const QPointF attachFrom
             = sourceHandle->mapToItem(root, QPointF(sourceHandle->width() / 2, sourceHandle->height() / 2));
         auto *editorView = qobject_cast<QQuickItem *>(controller->property("editorView").value<QObject *>());
         QVERIFY(editorView);
-        const qreal structuralExtent     = source->height() + editorView->property("spacing").toReal();
-        const qreal pointerLeadingOffset = attachFrom.y() - source->mapToItem(root, QPointF()).y();
-        const auto  pointerYForBoundary  = [structuralExtent, pointerLeadingOffset](qreal naturalBoundaryY) {
+        const qreal contentHeightBeforeAttachment = editorView->property("contentHeight").toReal();
+        const qreal structuralExtent              = source->height() + editorView->property("spacing").toReal();
+        const qreal pointerLeadingOffset          = attachFrom.y() - source->mapToItem(root, QPointF()).y();
+        const auto  pointerYForBoundary           = [structuralExtent, pointerLeadingOffset](qreal naturalBoundaryY) {
             return naturalBoundaryY - structuralExtent + pointerLeadingOffset;
         };
         const qreal destinationFirstBoundaryY = destinationFirst->mapToItem(root, QPointF()).y();
@@ -186,6 +209,26 @@ private slots:
                  qPrintable(QStringLiteral("The paragraph did not animate after crossing: offset=%1 extent=%2")
                                 .arg(paragraphOffsetDuringAnimation)
                                 .arg(structuralExtent)));
+
+        QTest::qWait(220);
+        QVERIFY2(qAbs(destinationFirstMarker->mapToItem(root, QPointF()).y() - firstMarkerYBefore) < 1,
+                 "The destination list moved after the preceding paragraph crossed upward");
+        QTest::mouseMove(&quick, beforeParagraphSwitch.toPoint(), 15);
+        QTRY_COMPARE(controller->property("targetKind").toString(), QStringLiteral("block"));
+        QTest::qWait(30);
+        const qreal paragraphOffsetDuringReverse = following->property("reorderOffset").toReal();
+        QVERIFY2(paragraphOffsetDuringReverse < -1 && paragraphOffsetDuringReverse > -structuralExtent + 1,
+                 qPrintable(QStringLiteral("The paragraph did not animate backward: offset=%1 extent=%2")
+                                .arg(paragraphOffsetDuringReverse)
+                                .arg(structuralExtent)));
+        QVERIFY2(qAbs(destinationFirstMarker->mapToItem(root, QPointF()).y() - firstMarkerYBefore) < 1,
+                 "The destination list moved with the preceding paragraph during the reverse animation");
+        QTest::qWait(220);
+        QVERIFY2(qAbs(destinationFirstMarker->mapToItem(root, QPointF()).y() - firstMarkerYBefore) < 1,
+                 "The destination list did not remain stationary after the reverse animation");
+        QTest::mouseMove(&quick, afterParagraphSwitch.toPoint(), 15);
+        QTRY_COMPARE(controller->property("targetKind").toString(), QStringLiteral("list"));
+        QTRY_COMPARE(controller->property("targetItem").toInt(), 0);
 
         bool      targetAnimatedAsWholeBlock = false;
         bool      targetRetreated            = false;
@@ -222,10 +265,24 @@ private slots:
         QTRY_VERIFY(destinationMarker->mapToItem(root, QPointF()).y()
                         - destinationFirstMarker->mapToItem(root, QPointF()).y()
                     > markerDistanceBefore + 1);
+        QTest::qWait(220);
+        QVERIFY2(qAbs(editorView->property("contentHeight").toReal() - contentHeightBeforeAttachment) < 1,
+                 "Attaching a whole list must not duplicate its extent in the document layout");
 
+        const qreal firstMarkerBeforeReverse = destinationFirstMarker->mapToItem(root, QPointF()).y();
         QTest::mouseMove(&quick, QPointF(attachFrom.x(), pointerYForBoundary(destinationFirstBoundaryY)).toPoint(), 15);
         QTRY_COMPARE(controller->property("targetKind").toString(), QStringLiteral("list"));
         QTRY_COMPARE(controller->property("targetItem").toInt(), 0);
+        QTest::qWait(30);
+        const qreal firstMarkerDuringReverse = destinationFirstMarker->mapToItem(root, QPointF()).y();
+        QVERIFY2(firstMarkerDuringReverse > firstMarkerBeforeReverse + 1
+                     && firstMarkerDuringReverse < firstMarkerYBefore - 1,
+                 qPrintable(QStringLiteral("The first destination item did not animate backward: before=%1 during=%2 "
+                                           "destination=%3")
+                                .arg(firstMarkerBeforeReverse)
+                                .arg(firstMarkerDuringReverse)
+                                .arg(firstMarkerYBefore)));
+        QTRY_VERIFY(qAbs(destinationFirstMarker->mapToItem(root, QPointF()).y() - firstMarkerYBefore) < 1);
         QTest::mouseMove(&quick, QPointF(attachFrom.x(), pointerYForBoundary(destinationEndBoundaryY)).toPoint(), 15);
         QTRY_COMPARE(controller->property("targetKind").toString(), QStringLiteral("list"));
         QTRY_COMPARE(controller->property("targetItem").toInt(), 2);
@@ -235,7 +292,7 @@ private slots:
 
         QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, attachTo.toPoint());
         QTRY_VERIFY(!controller->property("dragging").toBool());
-        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(model.rowCount(), 9);
         QCOMPARE(model.data(model.index(2), NoteBlockModel::ItemsRole).toStringList(),
                  QStringList({ QStringLiteral("1111"), QStringLiteral("sdfsdf"), QStringLiteral("4354"),
                                QStringLiteral("fdsf"), QStringLiteral("2222") }));

@@ -12,6 +12,7 @@
     "regular"
   ],
   "extra": {
-    "configurable": true
+    "configurable": true,
+    "defaultLoadPolicy": "disabled"
   }
 }

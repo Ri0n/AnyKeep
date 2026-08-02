@@ -16,7 +16,7 @@ Item {
     width: Math.max(0, editorView.width - editorView.scrollBarInset)
     height: editorView.contentHeight
     z: 50000
-    visible: formatEnabled
+    visible: formatEnabled && !reorderController.dragging
     enabled: formatEnabled && !editorView.touchMode && !reorderController.dragging
 
     Repeater {

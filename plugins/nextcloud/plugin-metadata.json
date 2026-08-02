@@ -11,5 +11,7 @@
   "features": [
     "regular"
   ],
-  "extra": {}
+  "extra": {
+    "defaultLoadPolicy": "disabled"
+  }
 }
