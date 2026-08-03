@@ -13,7 +13,7 @@
 
 #include <memory>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class RulesPageTest : public QObject {
     Q_OBJECT

@@ -1,6 +1,6 @@
 # Markdown support in the QML editor
 
-QtNote targets GitHub Flavored Markdown (GFM), but the structured QML editor
+AnyKeep targets GitHub Flavored Markdown (GFM), but the structured QML editor
 does not yet implement every construct accepted by GitHub. This document is
 the compatibility contract for editing and round trips. A construct is not
 considered supported merely because `QTextDocument` happens to render it.
@@ -12,7 +12,7 @@ considered supported merely because `QTextDocument` happens to render it.
   to survive a Markdown/plain-text/Markdown round trip.
 * **Inline** — represented by character formats inside an editable text field
   and serialized back to a canonical Markdown spelling.
-* **Unsupported** — may be displayed or rewritten by Qt, but QtNote currently
+* **Unsupported** — may be displayed or rewritten by Qt, but AnyKeep currently
   makes no lossless round-trip guarantee.
 
 ## Current contract
@@ -25,7 +25,7 @@ considered supported merely because `QTextDocument` happens to render it.
 | Ordered lists | Structured | Nested and mixed list levels are supported. Arbitrary start values and delimiter choice are not preserved. |
 | Task lists | Structured | `- [ ]` and `- [x]`, including nested mixed lists. |
 | Tables | Structured | Rectangular GFM tables with one header row. Inline formatting, links and `<br>` inside cells are supported. Alignment markers, captions, row/column spans and multiple header rows are not. |
-| Standalone images | Structured | Markdown image blocks and QtNote media references. Images mixed inline with paragraph text are not yet supported. |
+| Standalone images | Structured | Markdown image blocks and AnyKeep media references. Images mixed inline with paragraph text are not yet supported. |
 | Block quotes | Structured | Single-level block quotes are edited as dedicated blocks. Nested quotes and complex child blocks are not yet supported. |
 | Fenced code blocks | Structured | Backtick and tilde fences are accepted. Output uses a backtick fence longer than every backtick run in the literal code. The first info-string token is preserved as the language identifier; supported languages receive syntax highlighting. Code text bypasses inline Markdown, list, table and hard-break normalization. |
 | Emphasis | Inline | `*italic*`; editable with `Ctrl+I`. |

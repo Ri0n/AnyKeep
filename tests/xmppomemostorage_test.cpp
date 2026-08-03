@@ -6,7 +6,7 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class XmppOmemoStorageTest : public QObject {
     Q_OBJECT
@@ -72,7 +72,7 @@ void XmppOmemoStorageTest::clearsPeerSessionsWithoutResettingOwnDevice()
     QXmppOmemoStorage::Device peer;
     peer.session = QByteArrayLiteral("stale session");
     storage.addDevice(QStringLiteral("me@example.org"), 7, peer);
-    storage.addDevice(QStringLiteral("me@example.org/QtNote-other"), 8, peer);
+    storage.addDevice(QStringLiteral("me@example.org/AnyKeep-other"), 8, peer);
 
     auto cleared = storage.removeAllDevices();
     QVERIFY(cleared.isFinished());
@@ -92,7 +92,7 @@ void XmppOmemoStorageTest::resetsSessionsWithoutRemovingFingerprints()
     XmppOmemoStorage          storage(dir.filePath(QStringLiteral("omemo.state")), SecureEnvelope::generateMasterKey(),
                                       QStringLiteral("me@example.org"));
     QXmppOmemoStorage::Device peer;
-    peer.label                           = QStringLiteral("Other QtNote");
+    peer.label                           = QStringLiteral("Other AnyKeep");
     peer.keyId                           = QByteArrayLiteral("public identity key");
     peer.session                         = QByteArrayLiteral("stale ratchet session");
     peer.unrespondedSentStanzasCount     = 3;
@@ -105,7 +105,7 @@ void XmppOmemoStorageTest::resetsSessionsWithoutRemovingFingerprints()
     auto dataTask = storage.allData();
     QVERIFY(dataTask.isFinished());
     const auto device = dataTask.takeResult().devices[QStringLiteral("me@example.org")][7];
-    QCOMPARE(device.label, QStringLiteral("Other QtNote"));
+    QCOMPARE(device.label, QStringLiteral("Other AnyKeep"));
     QCOMPARE(device.keyId, QByteArrayLiteral("public identity key"));
     QVERIFY(device.session.isEmpty());
     QCOMPARE(device.unrespondedSentStanzasCount, 0);
@@ -119,7 +119,7 @@ void XmppOmemoStorageTest::preservesIdentityOnPartialOwnDeviceUpdate()
                              QStringLiteral("me@example.org"));
     QXmppOmemoStorage::OwnDevice own;
     own.id                 = 42;
-    own.label              = QStringLiteral("QtNote-device");
+    own.label              = QStringLiteral("AnyKeep-device");
     own.privateIdentityKey = QByteArrayLiteral("private identity");
     own.publicIdentityKey  = QByteArrayLiteral("public identity");
     storage.setOwnDevice(own);
@@ -133,7 +133,7 @@ void XmppOmemoStorageTest::preservesIdentityOnPartialOwnDeviceUpdate()
     QVERIFY(dataTask.isFinished());
     const auto updated = dataTask.takeResult().ownDevice;
     QVERIFY(updated.has_value());
-    QCOMPARE(updated->label, QStringLiteral("QtNote-device"));
+    QCOMPARE(updated->label, QStringLiteral("AnyKeep-device"));
     QCOMPARE(updated->privateIdentityKey, QByteArrayLiteral("private identity"));
     QCOMPARE(updated->publicIdentityKey, QByteArrayLiteral("public identity"));
     QCOMPARE(updated->latestSignedPreKeyId, uint32_t(8));

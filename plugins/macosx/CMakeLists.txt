@@ -1,6 +1,6 @@
-include(QtNoteMacro)
+include(AnyKeepMacro)
 
-add_qtnote_plugin(macosx "Mac OS X integration" ON macosx METADATA plugin-metadata.json ICON logo.png SOURCES
+add_anykeep_plugin(macosx "Mac OS X integration" ON macosx METADATA plugin-metadata.json ICON logo.png SOURCES
     macosx.cpp
     macosx.h
     macosx.qrc
@@ -9,4 +9,4 @@ add_qtnote_plugin(macosx "Mac OS X integration" ON macosx METADATA plugin-metada
 )
 target_link_libraries(macosx ${EXTRA_LINK_TARGET} Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets)
 
-install_qtnote_plugin(macosx)
+install_anykeep_plugin(macosx)

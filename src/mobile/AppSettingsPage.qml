@@ -49,7 +49,7 @@ Page {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                     opacity: 0.7
-                    text: qsTr("When enabled, QtNote shows a microphone button and asks Android for microphone permission. Recognition is provided by the speech service installed on the device.")
+                    text: qsTr("When enabled, AnyKeep shows a microphone button and asks Android for microphone permission. Recognition is provided by the speech service installed on the device.")
                 }
             }
 

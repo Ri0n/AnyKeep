@@ -7,7 +7,7 @@
   "version": "1.0.0",
   "minVersion": "2.3.0",
   "maxVersion": "current",
-  "homepage": "http://ri0n.github.io/QtNote",
+  "homepage": "https://anykeep.net",
   "features": [
     "desktopIntegration",
     "notifications",

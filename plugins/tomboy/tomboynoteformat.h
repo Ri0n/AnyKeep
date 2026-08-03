@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2010 Sergei Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -15,11 +15,11 @@ the Free Software Foundation, either version 3 of the License, or
 #include <QDomElement>
 #include <QString>
 
-namespace QtNote::TomboyNoteFormat {
+namespace AnyKeep::TomboyNoteFormat {
 
 QString markdownFromContent(const QDomElement &content, const QString &title);
 void    appendMarkdownContent(QDomDocument &dom, QDomElement &content, const QString &title, const QString &markdown);
 
-} // namespace QtNote::TomboyNoteFormat
+} // namespace AnyKeep::TomboyNoteFormat
 
 #endif // TOMBOYNOTEFORMAT_H

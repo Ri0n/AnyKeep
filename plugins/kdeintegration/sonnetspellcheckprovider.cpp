@@ -4,13 +4,13 @@
 #include <QSet>
 #include <QSettings>
 
-#ifdef QTNOTE_SONNET_AVAILABLE
+#ifdef ANYKEEP_SONNET_AVAILABLE
 #include <Sonnet/Settings>
 #endif
 
-namespace QtNote {
+namespace AnyKeep {
 namespace {
-#ifdef QTNOTE_SONNET_AVAILABLE
+#ifdef ANYKEEP_SONNET_AVAILABLE
     QString resolveAvailableLanguage(const QString &candidate, const QStringList &available)
     {
         const QString normalized = QString(candidate).replace(QLatin1Char('-'), QLatin1Char('_'));
@@ -65,7 +65,7 @@ namespace {
 
 SonnetSpellCheckProvider::SonnetSpellCheckProvider()
 {
-#ifdef QTNOTE_SONNET_AVAILABLE
+#ifdef ANYKEEP_SONNET_AVAILABLE
     Sonnet::Settings settings;
     Sonnet::Speller  probe;
     const auto       available = probe.availableLanguages();
@@ -105,7 +105,7 @@ QString SonnetSpellCheckProvider::displayName() const { return QStringLiteral("S
 
 bool SonnetSpellCheckProvider::isValid() const
 {
-#ifdef QTNOTE_SONNET_AVAILABLE
+#ifdef ANYKEEP_SONNET_AVAILABLE
     return enabled_ && !spellers_.empty();
 #else
     return false;
@@ -114,7 +114,7 @@ bool SonnetSpellCheckProvider::isValid() const
 
 bool SonnetSpellCheckProvider::isCorrect(const QString &word) const
 {
-#ifdef QTNOTE_SONNET_AVAILABLE
+#ifdef ANYKEEP_SONNET_AVAILABLE
     if (!enabled_)
         return true;
     for (const auto &speller : spellers_) {
@@ -128,7 +128,7 @@ bool SonnetSpellCheckProvider::isCorrect(const QString &word) const
 QStringList SonnetSpellCheckProvider::suggestions(const QString &word) const
 {
     QStringList result;
-#ifdef QTNOTE_SONNET_AVAILABLE
+#ifdef ANYKEEP_SONNET_AVAILABLE
     for (const auto &speller : spellers_) {
         for (const auto &suggestion : speller.suggest(word)) {
             if (!result.contains(suggestion))
@@ -143,7 +143,7 @@ QStringList SonnetSpellCheckProvider::suggestions(const QString &word) const
 
 void SonnetSpellCheckProvider::addToDictionary(const QString &word)
 {
-#ifdef QTNOTE_SONNET_AVAILABLE
+#ifdef ANYKEEP_SONNET_AVAILABLE
     if (!spellers_.empty())
         spellers_.front().addToPersonal(word);
 #else
@@ -162,4 +162,4 @@ void SonnetSpellCheckProvider::onDisabled(DisableMode mode)
     }
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

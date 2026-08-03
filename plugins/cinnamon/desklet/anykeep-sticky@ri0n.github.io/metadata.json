@@ -1,0 +1,8 @@
+{
+    "uuid": "anykeep-sticky@ri0n.github.io",
+    "name": "AnyKeep Sticky Note",
+    "description": "An AnyKeep note pinned to the Cinnamon desktop",
+    "version": "1.0",
+    "max-instances": 100,
+    "prevent-decorations": true
+}

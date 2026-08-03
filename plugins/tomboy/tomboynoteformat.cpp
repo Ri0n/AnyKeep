@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2010 Sergei Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -14,7 +14,7 @@ the Free Software Foundation, either version 3 of the License, or
 #include <QRegularExpression>
 #include <QStringList>
 
-namespace QtNote::TomboyNoteFormat {
+namespace AnyKeep::TomboyNoteFormat {
 
 namespace {
 
@@ -152,7 +152,7 @@ namespace {
         if (localElementName(element) == QLatin1String("list"))
             return renderList(element, listDepth);
 
-        // Tomboy rich-text elements that QtNote does not model are deliberately
+        // Tomboy rich-text elements that AnyKeep does not model are deliberately
         // flattened, while their text and any supported nested lists survive.
         return { renderChildren(element, listDepth), false };
     }
@@ -405,7 +405,7 @@ void appendMarkdownContent(QDomDocument &dom, QDomElement &content, const QStrin
     // empty line before the body. Keep this separator even for an empty note.
     content.appendChild(dom.createTextNode(QStringLiteral("\n\n")));
 
-    // QtNote stores title and body separately. Canonicalize a legacy/draft
+    // AnyKeep stores title and body separately. Canonicalize a legacy/draft
     // body that still contains Tomboy's embedded title before writing the
     // inverse representation, otherwise every save would add another copy.
     const QString normalized = removeEmbeddedTitle(markdown, title);
@@ -438,4 +438,4 @@ void appendMarkdownContent(QDomDocument &dom, QDomElement &content, const QStrin
     }
 }
 
-} // namespace QtNote::TomboyNoteFormat
+} // namespace AnyKeep::TomboyNoteFormat

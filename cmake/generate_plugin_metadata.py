@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--translations-dir", required=True, type=Path)
     parser.add_argument("--icon", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--qtnote-version", required=True)
+    parser.add_argument("--anykeep-version", required=True)
     return parser.parse_args()
 
 
@@ -187,9 +187,9 @@ def main() -> int:
 
     source["name"] = localized_value(catalogs, name_id)
     source["description"] = localized_value(catalogs, description_id)
-    source["version"] = semantic_version(source["version"], args.qtnote_version)
-    source["minVersion"] = semantic_version(source["minVersion"], args.qtnote_version)
-    source["maxVersion"] = semantic_version(source["maxVersion"], args.qtnote_version)
+    source["version"] = semantic_version(source["version"], args.anykeep_version)
+    source["minVersion"] = semantic_version(source["minVersion"], args.anykeep_version)
+    source["maxVersion"] = semantic_version(source["maxVersion"], args.anykeep_version)
     if compare_semantic_versions(source["minVersion"], source["maxVersion"]) > 0:
         raise ValueError("minVersion is greater than maxVersion")
 

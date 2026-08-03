@@ -3,7 +3,7 @@
 #include "draftstore.h"
 #include "notedata.h"
 
-namespace QtNote::TestSupport {
+namespace AnyKeep::TestSupport {
 
 class MemoryDraftStore final : public DraftStore {
 public:
@@ -50,4 +50,4 @@ inline Note plainNote()
     return note;
 }
 
-} // namespace QtNote::TestSupport
+} // namespace AnyKeep::TestSupport

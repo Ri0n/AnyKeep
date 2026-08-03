@@ -4,7 +4,7 @@
 
 Android uses an explicit factory registry for plugins compiled into the APK.
 Each admitted plugin is built as its own bundled static library and linked into
-`qtnote_mobile`; Android does not recompile plugin source files in the
+`anykeep_mobile`; Android does not recompile plugin source files in the
 application target. It does not use desktop shared-library discovery and does
 not use `Q_IMPORT_PLUGIN` as the application-level contract.
 
@@ -35,7 +35,7 @@ plugins implement `initialize()/shutdown()` after receiving
 `BundledPluginInterface` with the same methods. Storage registration uses the
 shared `NoteManager`; settings use `SettingsController` plus QML.
 
-`QTNOTE_BUNDLED_PLUGIN_BUILD` suppresses `Q_PLUGIN_METADATA` in bundled
+`ANYKEEP_BUNDLED_PLUGIN_BUILD` suppresses `Q_PLUGIN_METADATA` in bundled
 static libraries. This prevents bundled classes from exporting desktop dynamic
 plugin entry symbols. A bundled library owns its `.qrc` files; when a resource
 object lives in a static archive, the plugin explicitly initializes that

@@ -13,7 +13,7 @@
 class QQmlEngine;
 class QQuickWindow;
 
-namespace QtNote {
+namespace AnyKeep {
 
 class XmppKeyResolutionController;
 
@@ -48,7 +48,7 @@ private:
  *
  * Android uses the application's active Qt Quick window. Desktop uses an
  * active Qt Quick window when available and creates a small standalone Quick
- * host when QtNote is currently represented only by its tray or QWidget shell.
+ * host when AnyKeep is currently represented only by its tray or QWidget shell.
  */
 class XmppDialogPresenter final : public QObject {
     Q_OBJECT
@@ -88,6 +88,6 @@ private:
     bool                                  hostCreationDeferred_ { false };
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPDIALOGPRESENTER_H

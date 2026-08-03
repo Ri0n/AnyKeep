@@ -6,7 +6,7 @@
 
 #include "noteblockmodel_test.h"
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 void NoteBlockModelTest::parsesSerializesAndSplitsHeadingBlocks()
 {
@@ -52,7 +52,7 @@ void NoteBlockModelTest::collapsesUneditedInsertedParagraphOnMarkdownRoundTrip()
     QCOMPARE(model.data(model.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
     QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), QString());
     QVERIFY(model.isExplicitEmptyTextBlock(1));
-    QVERIFY(!model.contents().contains(QStringLiteral("qtnote:empty-paragraph")));
+    QVERIFY(!model.contents().contains(QStringLiteral("anykeep:empty-paragraph")));
 
     NoteBlockModel restored;
     restored.load(model.contents(), true);
@@ -62,10 +62,10 @@ void NoteBlockModelTest::collapsesUneditedInsertedParagraphOnMarkdownRoundTrip()
 
     NoteBlockModel legacy;
     legacy.load(QStringLiteral("| A | B |\n| --- | --- |\n| one | two |\n\n"
-                               "<!-- qtnote:empty-paragraph -->\n\n- after"),
+                               "<!-- anykeep:empty-paragraph -->\n\n- after"),
                 true);
     QCOMPARE(legacy.rowCount(), 2);
-    QVERIFY(!legacy.contents().contains(QStringLiteral("qtnote:empty-paragraph")));
+    QVERIFY(!legacy.contents().contains(QStringLiteral("anykeep:empty-paragraph")));
 
     model.setBlockText(1, QStringLiteral("between"));
     QVERIFY(!model.isExplicitEmptyTextBlock(1));
@@ -73,7 +73,7 @@ void NoteBlockModelTest::collapsesUneditedInsertedParagraphOnMarkdownRoundTrip()
 
     model.setBlockText(1, QString());
     QVERIFY(model.isExplicitEmptyTextBlock(1));
-    QVERIFY(!model.contents().contains(QStringLiteral("qtnote:empty-paragraph")));
+    QVERIFY(!model.contents().contains(QStringLiteral("anykeep:empty-paragraph")));
 
     NoteBlockModel ordinary;
     ordinary.load(QStringLiteral("title\n\n- item"), true);

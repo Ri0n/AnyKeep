@@ -9,7 +9,7 @@
 
 #include <functional>
 
-namespace QtNote {
+namespace AnyKeep {
 
 class XmppDeviceSelectionModel;
 class XmppStorageKeyModel;
@@ -128,6 +128,6 @@ private:
     bool                      completed_ { false };
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPKEYRESOLUTIONCONTROLLER_H

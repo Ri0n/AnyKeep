@@ -4,7 +4,7 @@
 #include <QTest>
 #include <QXmppTrustLevel.h>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class XmppKeyResolutionControllerTest : public QObject {
     Q_OBJECT
@@ -41,7 +41,7 @@ void XmppKeyResolutionControllerTest::completesRecovery()
             XmppKeyAuditResult audit;
             audit.ok              = true;
             audit.totalIndexItems = 3;
-            audit.candidates.append({ QStringLiteral("QtNote-desktop"), storageKey, QByteArray("key-id"), 3, false });
+            audit.candidates.append({ QStringLiteral("AnyKeep-desktop"), storageKey, QByteArray("key-id"), 3, false });
             completion(audit);
         },
         [&rekeyKeys, &canonical](const QList<QByteArray> &keys, const QByteArray &selected, auto completion) {

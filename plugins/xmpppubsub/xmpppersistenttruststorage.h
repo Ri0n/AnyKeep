@@ -4,7 +4,7 @@
 #include <QList>
 #include <QXmppTrustMemoryStorage.h>
 
-namespace QtNote {
+namespace AnyKeep {
 
 /**
  * @brief Persistent encrypted counterpart of QXmppTrustMemoryStorage.
@@ -51,6 +51,6 @@ private:
     QString      error_;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPPERSISTENTTRUSTSTORAGE_H

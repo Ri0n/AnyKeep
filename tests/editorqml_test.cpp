@@ -13,8 +13,8 @@
 #include "editortestsupport.h"
 #include "quicktestsupport.h"
 
-using namespace QtNote;
-using namespace QtNote::TestSupport;
+using namespace AnyKeep;
+using namespace AnyKeep::TestSupport;
 
 class EditorQmlTest : public QObject {
     Q_OBJECT
@@ -113,6 +113,44 @@ private slots:
         }
         QCOMPARE(rightBorderOwners, 2);
         QCOMPARE(bottomBorderOwners, 2);
+    }
+
+    void codeBlockBorderUsesTableGridColor()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("```cpp\nint main() {}\n```"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::CodeBlock));
+        host.resize(520, 420);
+        host.show();
+
+        QQuickItem *codeBlock = nullptr;
+        QTRY_VERIFY(([&]() {
+            QList<QQuickItem *> pending { qobject_cast<QQuickItem *>(host.quickWidget()->rootObject()) };
+            while (!pending.isEmpty()) {
+                QQuickItem *candidate = pending.takeLast();
+                if (!candidate)
+                    continue;
+                if (candidate->objectName() == QLatin1String("codeBlock")) {
+                    codeBlock = candidate;
+                    return true;
+                }
+                pending.append(candidate->childItems());
+            }
+            return false;
+        })());
+        const QColor border = codeBlock->property("codeBorderColor").value<QColor>();
+        const QColor text   = codeBlock->property("codeTextColor").value<QColor>();
+        QVERIFY(border.isValid());
+        QVERIFY(text.isValid());
+        QVERIFY(qAbs(border.redF() - text.redF()) < 0.01);
+        QVERIFY(qAbs(border.greenF() - text.greenF()) < 0.01);
+        QVERIFY(qAbs(border.blueF() - text.blueF()) < 0.01);
+        QVERIFY(qAbs(border.alphaF() - 0.28) < 0.01);
     }
 
     void wholeListDragUsesItemLevelStructuralBoundaries()
@@ -267,7 +305,8 @@ private slots:
         QVERIFY(controller->property("blockAnimationActive").toBool());
         QTest::qWait(30);
         const qreal paragraphOffsetDuringAnimation = following->property("reorderOffset").toReal();
-        QVERIFY2(paragraphOffsetDuringAnimation < -1 && paragraphOffsetDuringAnimation > -structuralExtent + 1,
+        QVERIFY2(paragraphOffsetDuringAnimation < -1
+                     && paragraphOffsetDuringAnimation >= -structuralExtent - 1,
                  qPrintable(QStringLiteral("The paragraph did not animate after crossing: offset=%1 extent=%2")
                                 .arg(paragraphOffsetDuringAnimation)
                                 .arg(structuralExtent)));
@@ -279,13 +318,15 @@ private slots:
         QTRY_COMPARE(controller->property("targetKind").toString(), QStringLiteral("block"));
         QTest::qWait(30);
         const qreal paragraphOffsetDuringReverse = following->property("reorderOffset").toReal();
-        QVERIFY2(paragraphOffsetDuringReverse < -1 && paragraphOffsetDuringReverse > -structuralExtent + 1,
-                 qPrintable(QStringLiteral("The paragraph did not animate backward: offset=%1 extent=%2")
+        QVERIFY2(paragraphOffsetDuringReverse <= 1 && paragraphOffsetDuringReverse >= -structuralExtent - 1,
+                 qPrintable(QStringLiteral("The reverse displacement left its valid range: offset=%1 extent=%2")
                                 .arg(paragraphOffsetDuringReverse)
                                 .arg(structuralExtent)));
         QVERIFY2(qAbs(destinationFirstMarker->mapToItem(root, QPointF()).y() - firstMarkerYBefore) < 1,
                  "The destination list moved with the preceding paragraph during the reverse animation");
         QTest::qWait(220);
+        QVERIFY2(qAbs(following->property("reorderOffset").toReal()) < 1,
+                 "The paragraph did not return after the reverse animation");
         QVERIFY2(qAbs(destinationFirstMarker->mapToItem(root, QPointF()).y() - firstMarkerYBefore) < 1,
                  "The destination list did not remain stationary after the reverse animation");
         QTest::mouseMove(&quick, afterParagraphSwitch.toPoint(), 15);

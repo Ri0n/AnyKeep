@@ -1,4 +1,4 @@
-include(QtNoteMacro)
+include(AnyKeepMacro)
 
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Network REQUIRED)
 
@@ -8,9 +8,9 @@ set(openaiwhisper_sources
     openaiwhisper.qrc
 )
 
-if(QTNOTE_BUILD_MOBILE)
-    add_qtnote_bundled_plugin(openaiwhisper SOURCES ${openaiwhisper_sources})
-    target_link_libraries(qtnote_bundled_openaiwhisper PUBLIC
+if(ANYKEEP_BUILD_MOBILE)
+    add_anykeep_bundled_plugin(openaiwhisper SOURCES ${openaiwhisper_sources})
+    target_link_libraries(anykeep_bundled_openaiwhisper PUBLIC
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Gui
         Qt${QT_VERSION_MAJOR}::Network
@@ -18,7 +18,7 @@ if(QTNOTE_BUILD_MOBILE)
     return()
 endif()
 
-add_qtnote_plugin(openaiwhisper "OpenAI Whisper speech recognition backend" ON unix macosx windows android METADATA plugin-metadata.json ICON openai-logo.svg SOURCES
+add_anykeep_plugin(openaiwhisper "OpenAI Whisper speech recognition backend" ON unix macosx windows android METADATA plugin-metadata.json ICON openai-logo.svg SOURCES
     ${openaiwhisper_sources}
 )
 
@@ -29,4 +29,4 @@ target_link_libraries(openaiwhisper
     Qt${QT_VERSION_MAJOR}::Network
 )
 
-install_qtnote_plugin(openaiwhisper)
+install_anykeep_plugin(openaiwhisper)

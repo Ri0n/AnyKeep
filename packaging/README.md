@@ -1,6 +1,6 @@
 # Debian package profiles
 
-QtNote uses separate Debian source-package profiles because APT resolves
+AnyKeep uses separate Debian source-package profiles because APT resolves
 `Build-Depends` before `debian/rules` is run. Qt major versions therefore
 cannot be selected reliably with alternative dependencies in one control
 file.
@@ -15,7 +15,7 @@ Available profiles:
   plugin, so no private QXmpp shared libraries are shipped. KF6 integration
   and the Plasma 6 plasmoid are not built. The complete Noble profile is built
   with Clang because QXmpp's public coroutine templates also trigger GCC 13
-  frontend crashes while compiling QtNote's XMPP plugin and tests.
+  frontend crashes while compiling AnyKeep's XMPP plugin and tests.
 
 Build binary and source packages with:
 
@@ -40,23 +40,23 @@ checksum-pinned official QXmpp release tarball during a local build. For a
 network-isolated build, unpack the same release beforehand and configure with:
 
 ```sh
--DQTNOTE_BUILD_BUNDLED_QXMPP=ON \
--DQTNOTE_QXMPP_SOURCE_DIR=/path/to/qxmpp-1.15.1
+-DANYKEEP_BUILD_BUNDLED_QXMPP=ON \
+-DANYKEEP_QXMPP_SOURCE_DIR=/path/to/qxmpp-1.15.1
 ```
 
-Set `-DQTNOTE_BUNDLED_QXMPP_STATIC=OFF` to build and package private shared
+Set `-DANYKEEP_BUNDLED_QXMPP_STATIC=OFF` to build and package private shared
 QXmpp libraries instead.
 
-Set `-DQTNOTE_ENABLE_X11=OFF` for a Wayland-only QtNote build. This removes the
+Set `-DANYKEEP_ENABLE_X11=OFF` for a Wayland-only AnyKeep build. This removes the
 GNOME plugin's X11 activation helper and disables the Linux base-integration
-plugin, whose global-shortcut implementation requires X11. QtNote will not
+plugin, whose global-shortcut implementation requires X11. AnyKeep will not
 search for or link directly to X11 in this mode.
 
 For a Debian profile build, pass additional CMake options through the
 environment, for example:
 
 ```sh
-QTNOTE_CMAKE_EXTRA_ARGS=-DQTNOTE_ENABLE_X11=OFF admin/debbuild.sh qt6-noble
+ANYKEEP_CMAKE_EXTRA_ARGS=-DANYKEEP_ENABLE_X11=OFF admin/debbuild.sh qt6-noble
 ```
 
 An arbitrary package builder can be run under a selected profile after `--`:

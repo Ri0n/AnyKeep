@@ -13,17 +13,18 @@ int main(int argc, char *argv[])
 {
     QGuiApplication application(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("R-Soft"));
-    QCoreApplication::setApplicationName(QStringLiteral("QtNote"));
+    QCoreApplication::setApplicationName(QStringLiteral("AnyKeep"));
+    QGuiApplication::setApplicationDisplayName(QStringLiteral("AnyKeep"));
 
-    QtNote::MobileApplication mobileApplication;
+    AnyKeep::MobileApplication mobileApplication;
     QQmlApplicationEngine     engine;
-    QtNote::installLocalMediaImageProvider(&engine);
-    QtNote::installPluginIconImageProvider(&engine);
-    QtNote::installStorageIconImageProvider(&engine);
-    QtNote::installThemedIconImageProvider(&engine);
-    QtNote::installEditorCursorController(engine.rootContext());
+    AnyKeep::installLocalMediaImageProvider(&engine);
+    AnyKeep::installPluginIconImageProvider(&engine);
+    AnyKeep::installStorageIconImageProvider(&engine);
+    AnyKeep::installThemedIconImageProvider(&engine);
+    AnyKeep::installEditorCursorController(engine.rootContext());
     engine.rootContext()->setContextProperty(QStringLiteral("mobileApp"), &mobileApplication);
-    engine.load(QUrl(QStringLiteral("qrc:/qt/qml/QtNote/Mobile/Main.qml")));
+    engine.load(QUrl(QStringLiteral("qrc:/qt/qml/AnyKeep/Mobile/Main.qml")));
 
     if (engine.rootObjects().isEmpty())
         return 1;

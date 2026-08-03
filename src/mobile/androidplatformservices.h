@@ -1,10 +1,10 @@
-#ifndef QTNOTE_ANDROIDPLATFORMSERVICES_H
-#define QTNOTE_ANDROIDPLATFORMSERVICES_H
+#ifndef ANYKEEP_ANDROIDPLATFORMSERVICES_H
+#define ANYKEEP_ANDROIDPLATFORMSERVICES_H
 
 #include <QObject>
 #include <QUrl>
 
-namespace QtNote {
+namespace AnyKeep {
 
 class AndroidPlatformServices final : public QObject {
     Q_OBJECT
@@ -32,6 +32,6 @@ signals:
     void exportCompleted();
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
-#endif // QTNOTE_ANDROIDPLATFORMSERVICES_H
+#endif // ANYKEEP_ANDROIDPLATFORMSERVICES_H

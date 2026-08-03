@@ -4,7 +4,7 @@
 #include <QXmlStreamWriter>
 #include <QtTest>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class XmppKeySyncExtensionTest : public QObject {
     Q_OBJECT
@@ -26,7 +26,7 @@ void XmppKeySyncExtensionTest::advertisesProtocol()
 void XmppKeySyncExtensionTest::serializesTrustBootstrapWithoutRecoveryKey()
 {
     XmppKeySyncExtension extension;
-    const auto           iq = extension.makeTrustRequest(QStringLiteral("me@example.org/QtNote-laptop"),
+    const auto           iq = extension.makeTrustRequest(QStringLiteral("me@example.org/AnyKeep-laptop"),
                                                          QStringLiteral("trust-1"), QByteArrayLiteral("public-key"));
     QString              xml;
     QXmlStreamWriter     writer(&xml);
@@ -39,13 +39,13 @@ void XmppKeySyncExtensionTest::serializesTrustBootstrapWithoutRecoveryKey()
 void XmppKeySyncExtensionTest::serializesResourceAddressedRequest()
 {
     XmppKeySyncExtension extension;
-    const auto iq = extension.makeRequest(QStringLiteral("me@example.org/QtNote-laptop"), QStringLiteral("request-1"));
+    const auto iq = extension.makeRequest(QStringLiteral("me@example.org/AnyKeep-laptop"), QStringLiteral("request-1"));
     QString    xml;
     QXmlStreamWriter writer(&xml);
     iq.toXml(&writer);
-    QVERIFY(xml.contains(QStringLiteral("to=\"me@example.org/QtNote-laptop\"")));
+    QVERIFY(xml.contains(QStringLiteral("to=\"me@example.org/AnyKeep-laptop\"")));
     QVERIFY(xml.contains(QStringLiteral("type=\"set\"")));
-    QVERIFY(xml.contains(QStringLiteral("urn:xmpp:qtnote:key-sync:1")));
+    QVERIFY(xml.contains(QStringLiteral("urn:xmpp:private-notes:key-sync:0")));
     QVERIFY(xml.contains(QStringLiteral("request-1")));
 }
 
@@ -53,7 +53,7 @@ void XmppKeySyncExtensionTest::parsesTrustBootstrapAcknowledgement()
 {
     QDomDocument document;
     QVERIFY(document.setContent(
-        QStringLiteral("<iq type='result' id='trust-1'><key-sync xmlns='urn:xmpp:qtnote:key-sync:1'>"
+        QStringLiteral("<iq type='result' id='trust-1'><key-sync xmlns='urn:xmpp:private-notes:key-sync:0'>"
                        "{&quot;type&quot;:&quot;trust-approved&quot;,&quot;requestId&quot;:&quot;trust-1&quot;}"
                        "</key-sync></iq>")));
     QVERIFY(XmppKeySyncExtension::isTrustApproved(document.documentElement(), QStringLiteral("trust-1")));
@@ -64,11 +64,11 @@ void XmppKeySyncExtensionTest::parsesMatchingResponseOnly()
 {
     QDomDocument document;
     QVERIFY(document.setContent(
-        QStringLiteral("<iq type='result' id='request-1'><key-sync xmlns='urn:xmpp:qtnote:key-sync:1'>"
+        QStringLiteral("<iq type='result' id='request-1'><key-sync xmlns='urn:xmpp:private-notes:key-sync:0'>"
                        "{&quot;type&quot;:&quot;response&quot;,&quot;requestId&quot;:&quot;request-1&quot;,"
-                       "&quot;recoveryKey&quot;:&quot;qtnote-key-v1:test&quot;}</key-sync></iq>")));
+                       "&quot;recoveryKey&quot;:&quot;private-notes-key-v1:test&quot;}</key-sync></iq>")));
     QCOMPARE(XmppKeySyncExtension::responseRecoveryKey(document.documentElement(), QStringLiteral("request-1")),
-             QStringLiteral("qtnote-key-v1:test"));
+             QStringLiteral("private-notes-key-v1:test"));
     QVERIFY(XmppKeySyncExtension::responseRecoveryKey(document.documentElement(), QStringLiteral("other")).isEmpty());
 }
 

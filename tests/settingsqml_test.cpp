@@ -22,8 +22,8 @@
 #include "editortestsupport.h"
 #include "quicktestsupport.h"
 
-using namespace QtNote;
-using namespace QtNote::TestSupport;
+using namespace AnyKeep;
+using namespace AnyKeep::TestSupport;
 
 class SettingsQmlTest : public QObject {
     Q_OBJECT
@@ -52,7 +52,7 @@ private slots:
     {
         QQmlEngine engine;
         installThemedIconImageProvider(&engine);
-        auto *provider = dynamic_cast<QQuickImageProvider *>(engine.imageProvider(QStringLiteral("qtnoteicons")));
+        auto *provider = dynamic_cast<QQuickImageProvider *>(engine.imageProvider(QStringLiteral("anykeepicons")));
         QVERIFY(provider);
 
         const auto request = [provider](const QString &id) {

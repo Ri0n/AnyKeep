@@ -6,10 +6,10 @@
 #include <QNetworkReply>
 #include <QUuid>
 
-namespace QtNote::YandexApi {
+namespace AnyKeep::YandexApi {
 namespace {
 
-    QString translate(const char *source) { return QCoreApplication::translate("QtNote::YandexApi", source); }
+    QString translate(const char *source) { return QCoreApplication::translate("AnyKeep::YandexApi", source); }
 
     QString responseMessage(const QByteArray &body)
     {
@@ -72,4 +72,4 @@ QString errorMessage(QNetworkReply *reply, const QByteArray &body)
     return networkMessage.isEmpty() ? translate("Yandex SpeechKit request failed") : networkMessage;
 }
 
-} // namespace QtNote::YandexApi
+} // namespace AnyKeep::YandexApi

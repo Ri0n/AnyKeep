@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <utility>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class FakeStorage final : public NoteStorage {
     Q_OBJECT
@@ -177,7 +177,7 @@ private slots:
                                            [](const Note &note) { return note.id() == QLatin1String("two"); });
         QVERIFY(added != afterAdd.cend());
         QVERIFY(!added->isLoaded());
-        QCOMPARE(added->backendValue(QStringLiteral("qtnote.index.preview")).toString(),
+        QCOMPARE(added->backendValue(QStringLiteral("anykeep.index.preview")).toString(),
                  QStringLiteral("Body preview"));
 
         first.setTitle(QStringLiteral("One updated"));

@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2015 Sergei Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -33,7 +33,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include <memory>
 
-namespace QtNote {
+namespace AnyKeep {
 
 class DictListFetcher : public QObject {
     Q_OBJECT
@@ -364,6 +364,6 @@ void HunspellDownloader::findAndDownloadDictionary()
     emit progress(50);
 }
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #include "hunspelldownloader.moc"

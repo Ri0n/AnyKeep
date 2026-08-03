@@ -5,7 +5,7 @@
 
 #include "secureenvelope.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 /**
  * @brief Stateless portable authenticated codec for note index and content payloads.
@@ -39,6 +39,6 @@ public:
                                        const QByteArray &masterKey, const QString &nodeName);
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPNOTECODEC_H

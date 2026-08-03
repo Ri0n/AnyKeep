@@ -31,5 +31,5 @@ For all desktop QML shells, use target `desktop_qml_tests` and CTest label
 Every test executable links `headlesstestinit.cpp`, so direct IDE runs default
 to offscreen/software rendering too. Explicit environment values override the
 defaults. New tests must also be registered before the final shared
-`set_tests_properties` call. Warnings stay visible; routine `qtnote.*` info
+`set_tests_properties` call. Warnings stay visible; routine `anykeep.*` info
 logging is disabled by the CTest environment.

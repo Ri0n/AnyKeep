@@ -6,7 +6,7 @@
 
 #include "noteblockmodel_test.h"
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 void NoteBlockModelTest::findsTextAcrossStructuredBlocks()
 {
@@ -145,8 +145,8 @@ void NoteBlockModelTest::previewUrlDoesNotChangeMarkdown()
 {
     NoteBlockModel model;
     model.load(QStringLiteral("![cat](media://one)"), true);
-    model.setPreviewUrls({ { QStringLiteral("media://one"), QStringLiteral("image://qtnote-media/blob") } });
+    model.setPreviewUrls({ { QStringLiteral("media://one"), QStringLiteral("image://anykeep-media/blob") } });
     QCOMPARE(model.data(model.index(0), NoteBlockModel::PreviewUrlRole).toString(),
-             QStringLiteral("image://qtnote-media/blob"));
+             QStringLiteral("image://anykeep-media/blob"));
     QCOMPARE(model.contents(), QStringLiteral("![cat](media://one)"));
 }

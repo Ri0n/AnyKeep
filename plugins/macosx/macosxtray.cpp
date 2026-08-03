@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2010-2020 Sergey Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -32,23 +32,23 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "macosxtray.h"
 #include "notemanager.h"
 #include "pluginhostinterface.h"
-#include "qtnote.h"
+#include "anykeep.h"
 #include "utils.h"
 
 typedef QPair<QString, QString> NoteIdent;
 Q_DECLARE_METATYPE(NoteIdent)
 
-namespace QtNote {
+namespace AnyKeep {
 
-MacOSXTray::MacOSXTray(Main *qtnote, PluginHostInterface *host, QObject *parent) :
-    TrayImpl(parent), qtnote(qtnote), host(host), contextMenu(0)
+MacOSXTray::MacOSXTray(Main *anykeep, PluginHostInterface *host, QObject *parent) :
+    TrayImpl(parent), anykeep(anykeep), host(host), contextMenu(0)
 {
     menuUpdateTimer = new QTimer(this);
     menuUpdateTimer->setInterval(1000);
     menuUpdateTimer->setSingleShot(true);
     connect(menuUpdateTimer, SIGNAL(timeout()), SLOT(rebuildMenu()));
 
-    sti = new QSystemTrayIcon(QIcon::fromTheme("qtnote", QIcon(":/icons/trayicon")), this);
+    sti = new QSystemTrayIcon(QIcon::fromTheme("anykeep", QIcon(":/icons/trayicon")), this);
 
     actQuit    = new QAction(QIcon(":/icons/exit"), tr("&Quit"), this);
     actNew     = new QAction(QIcon(":/icons/new"), tr("&New"), this);
@@ -122,4 +122,4 @@ void MacOSXTray::noteSelected()
     emit      showNoteTriggered(ni.first, ni.second);
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

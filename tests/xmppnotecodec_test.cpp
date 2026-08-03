@@ -7,7 +7,7 @@
 #include <functional>
 #include <type_traits>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 static_assert(
     std::is_same_v<decltype(&XmppBackend::getNoteAsync), void (XmppBackend::*)(QString, XmppBackend::NoteCallback)>);
@@ -42,7 +42,8 @@ QByteArray masterKey()
 QByteArray openedPlaintext(const XmppEncryptedPayload &payload, const QByteArray &key, XmppEncryptedPayload::Kind kind)
 {
     const auto domain = kind == XmppEncryptedPayload::Index ? KeyDomain::StorageIndex : KeyDomain::StorageContent;
-    const auto opened = SecureEnvelope::decryptAead({ payload.nonce, payload.tag, payload.cipherText }, key, domain);
+    const auto opened = SecureEnvelope::decryptAead({ payload.nonce, payload.tag, payload.cipherText }, key, domain,
+                                                    KeyDerivationProfile::PrivateNotes);
     return opened ? opened.value : QByteArray {};
 }
 
@@ -50,7 +51,7 @@ XmppEncryptedPayload encryptedPlaintext(XmppEncryptedPayload payload, const QByt
                                         const QByteArray &key, XmppEncryptedPayload::Kind kind)
 {
     const auto domain    = kind == XmppEncryptedPayload::Index ? KeyDomain::StorageIndex : KeyDomain::StorageContent;
-    const auto encrypted = SecureEnvelope::encryptAead(plainText, key, domain);
+    const auto encrypted = SecureEnvelope::encryptAead(plainText, key, domain, KeyDerivationProfile::PrivateNotes);
     if (!encrypted)
         return {};
     payload.nonce      = encrypted.value.nonce;
@@ -131,8 +132,8 @@ void XmppNoteCodecTest::roundTrip()
 {
     const auto source      = note();
     const auto key         = masterKey();
-    const auto indexNode   = QStringLiteral("urn:xmpp:qtnote:notes:1:index");
-    const auto contentNode = QStringLiteral("urn:xmpp:qtnote:notes:1:content");
+    const auto indexNode   = QStringLiteral("urn:xmpp:private-notes:0:index");
+    const auto contentNode = QStringLiteral("urn:xmpp:private-notes:0:content");
 
     const auto encodedIndex = XmppNoteCodec::encodeIndex(source, key, indexNode);
     QVERIFY2(encodedIndex, qPrintable(encodedIndex.error.message));
@@ -196,7 +197,7 @@ void XmppNoteCodecTest::preservesUnknownOptionalXml()
     const auto key             = masterKey();
     auto       source          = note();
     source.indexRecordTemplate = QByteArrayLiteral(
-        "<envelope xmlns='urn:xmpp:qtnote:notes:1' xmlns:x='urn:example:qtnote:extension:1' x:root='keep'>"
+        "<envelope xmlns='urn:xmpp:private-notes:0' xmlns:x='urn:example:private-notes:extension:1' x:root='keep'>"
         "<x:envelope value='42'/><content x:box='yes'><index x:record='keep'>"
         "<x:record>future</x:record></index></content></envelope>");
     auto encoded = XmppNoteCodec::encodeIndex(source, key, QStringLiteral("index"));
@@ -207,7 +208,7 @@ void XmppNoteCodecTest::preservesUnknownOptionalXml()
     encoded             = XmppNoteCodec::encodeIndex(decoded.value, key, QStringLiteral("index"));
     QVERIFY(encoded);
     const auto plaintext = openedPlaintext(encoded.value, key, XmppEncryptedPayload::Index);
-    QVERIFY(plaintext.contains("urn:example:qtnote:extension:1"));
+    QVERIFY(plaintext.contains("urn:example:private-notes:extension:1"));
     QVERIFY(plaintext.contains("future"));
     QVERIFY(plaintext.contains("Changed"));
 }
@@ -294,8 +295,8 @@ void XmppNoteCodecTest::rejectsInvalidFolderPathOnEncode()
 void XmppNoteCodecTest::metadataOnlyIndexKeepsBodyBinding()
 {
     const auto key         = masterKey();
-    const auto indexNode   = QStringLiteral("urn:xmpp:qtnote:notes:1:index");
-    const auto contentNode = QStringLiteral("urn:xmpp:qtnote:notes:1:content");
+    const auto indexNode   = QStringLiteral("urn:xmpp:private-notes:0:index");
+    const auto contentNode = QStringLiteral("urn:xmpp:private-notes:0:content");
 
     auto bodyRevision     = note();
     bodyRevision.revision = QStringLiteral("body-revision");
@@ -446,7 +447,7 @@ void XmppNoteCodecTest::rejectsMalformedPlaintextXml()
 void XmppNoteCodecTest::acceptsXmlDeclaration()
 {
     const auto key       = masterKey();
-    const auto node      = QStringLiteral("urn:xmpp:qtnote:notes:1:index");
+    const auto node      = QStringLiteral("urn:xmpp:private-notes:0:index");
     auto       encoded   = XmppNoteCodec::encodeIndex(note(), key, node);
     const auto plaintext = QByteArrayLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
         + openedPlaintext(encoded.value, key, XmppEncryptedPayload::Index);
@@ -459,7 +460,7 @@ void XmppNoteCodecTest::rejectsProcessingInstructions()
 {
     const auto key       = masterKey();
     auto       encoded   = XmppNoteCodec::encodeIndex(note(), key, QStringLiteral("index"));
-    const auto plaintext = QByteArrayLiteral("<?qtnote unsupported?>")
+    const auto plaintext = QByteArrayLiteral("<?anykeep unsupported?>")
         + openedPlaintext(encoded.value, key, XmppEncryptedPayload::Index);
     encoded.value      = encryptedPlaintext(encoded.value, plaintext, key, XmppEncryptedPayload::Index);
     const auto decoded = XmppNoteCodec::decodeIndex(encoded.value, key, QStringLiteral("index"));

@@ -3,15 +3,15 @@
 #include <Plasma/Containment>
 #include <QLoggingCategory>
 
-Q_LOGGING_CATEGORY(logPlasmoid, "qtnote.plasmoid")
+Q_LOGGING_CATEGORY(logPlasmoid, "anykeep.plasmoid")
 
-class QtNotePlasmoidPlugin : public Plasma::Applet {
+class AnyKeepPlasmoidPlugin : public Plasma::Applet {
     Q_OBJECT
 
     Q_PROPERTY(bool inSystemTray READ inSystemTray NOTIFY inSystemTrayChanged)
 
 public:
-    QtNotePlasmoidPlugin(QObject *parent, const KPluginMetaData &data, const QVariantList &args) :
+    AnyKeepPlasmoidPlugin(QObject *parent, const KPluginMetaData &data, const QVariantList &args) :
         Plasma::Applet(parent, data, args)
     {
         connect(this, &Plasma::Applet::containmentChanged, this, [this] { emit inSystemTrayChanged(); });
@@ -33,6 +33,6 @@ signals:
     void inSystemTrayChanged();
 };
 
-K_PLUGIN_CLASS_WITH_JSON(QtNotePlasmoidPlugin, "pluginmetadata.json")
+K_PLUGIN_CLASS_WITH_JSON(AnyKeepPlasmoidPlugin, "pluginmetadata.json")
 
 #include "appletplugin.moc"

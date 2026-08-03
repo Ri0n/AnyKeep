@@ -7,7 +7,7 @@
 
 #include <optional>
 
-namespace QtNote {
+namespace AnyKeep {
 
 struct NextcloudConfig {
     QUrl    serverUrl;
@@ -46,6 +46,6 @@ struct NextcloudNoteResult : NextcloudStatusResult {
     std::optional<NextcloudRemoteNote> remoteOnConflict;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // NEXTCLOUDDTO_H

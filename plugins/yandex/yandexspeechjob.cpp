@@ -15,7 +15,7 @@
 #include "yandexplugin.h"
 #include "yandexspeechutils.h"
 
-namespace QtNote {
+namespace AnyKeep {
 namespace {
 
     constexpr int       TargetSampleRate              = 16000;
@@ -129,9 +129,9 @@ void YandexSpeechJob::start()
 
 bool YandexSpeechJob::prepareRawPcm()
 {
-    const bool isQtNotePcm = audio_.format.compare(QLatin1String("pcm_s16le"), Qt::CaseInsensitive) == 0
+    const bool isAnyKeepPcm = audio_.format.compare(QLatin1String("pcm_s16le"), Qt::CaseInsensitive) == 0
         || audio_.format.compare(QLatin1String("audio/l16"), Qt::CaseInsensitive) == 0;
-    if (!isQtNotePcm || audio_.bitsPerSample != 16 || audio_.channels != 1 || audio_.sampleRate != TargetSampleRate) {
+    if (!isAnyKeepPcm || audio_.bitsPerSample != 16 || audio_.channels != 1 || audio_.sampleRate != TargetSampleRate) {
         fail(tr("Yandex live transcription requires mono PCM S16LE at 16 kHz"));
         return false;
     }
@@ -626,7 +626,7 @@ void YandexSpeechJob::submitRecognition()
             return;
         }
         // SpeechKit has accepted the audio at this point, so the request can be
-        // billable even if QtNote is closed before the transcript is fetched.
+        // billable even if AnyKeep is closed before the transcript is fetched.
         plugin_->addUsage(audio_.durationMs, 1, submittedBytes_);
         emit progressChanged(0, audio_.durationMs);
         if (operation.value(QLatin1String("done")).toBool())
@@ -761,4 +761,4 @@ void YandexSpeechJob::fail(const QString &message)
     emit failed(text.isEmpty() ? tr("Yandex SpeechKit recognition failed") : text);
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

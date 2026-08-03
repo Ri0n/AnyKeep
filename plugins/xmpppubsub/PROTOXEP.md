@@ -2,9 +2,9 @@
 
 Status: **ProtoXEP / implementation draft**
 Version: **0.6**
-Namespaces: `urn:xmpp:qtnote:notes:1`, `urn:xmpp:qtnote:folders:1`, `urn:xmpp:qtnote:content-revision:1`, `urn:xmpp:qtnote:key-sync:1`
+Namespaces: `urn:xmpp:private-notes:0`, `urn:xmpp:private-notes:folders:0`, `urn:xmpp:private-notes:content:0`, `urn:xmpp:private-notes:key-sync:0`
 
-> This document describes the protocol implemented by QtNote. It has not been
+> This document describes the protocol implemented by Private Notes. It has not been
 > submitted to or accepted by the XMPP Standards Foundation and does not have
 > an assigned XEP number. Namespace names are provisional until standardization.
 
@@ -27,10 +27,10 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHOULD**, **SHOULD NOT**,
 and **MAY** are to be interpreted as described by BCP 14 when, and only when,
 they appear in all capitals.
 
-An *account* is an XMPP bare JID. An *installation* is one QtNote instance with
+An *account* is an XMPP bare JID. An *installation* is one Private Notes instance with
 a stable XMPP resource and OMEMO device. A *storage key* is the 32-byte secret
 used to derive the encryption keys for note records. A *note ID* and a
-*revision* are opaque, non-empty strings; QtNote generates UUIDs for both.
+*revision* are opaque, non-empty strings; Private Notes generates UUIDs for both.
 
 ## Dependencies
 
@@ -52,7 +52,7 @@ The incompatible major version of the note-storage protocol is identified by
 one namespace:
 
 ```text
-urn:xmpp:qtnote:notes:1
+urn:xmpp:private-notes:0
 ```
 
 The same identifier is the default configured base node and the XML namespace
@@ -66,19 +66,19 @@ for all core note-storage elements. Two leaf nodes are derived from it:
 The default nodes are therefore:
 
 ```text
-urn:xmpp:qtnote:notes:1:index
-urn:xmpp:qtnote:notes:1:content
+urn:xmpp:private-notes:0:index
+urn:xmpp:private-notes:0:content
 ```
 
-The final `1` in `urn:xmpp:qtnote:notes:1` is the protocol major version. An
+The final `0` identifies this initial experimental protocol version. An
 incompatible change requires a new namespace and new nodes, for example
-`urn:xmpp:qtnote:notes:2`, `urn:xmpp:qtnote:notes:2:index`, and
-`urn:xmpp:qtnote:notes:2:content`. No minor-version field is defined.
+`urn:xmpp:private-notes:1`, `urn:xmpp:private-notes:1:index`, and
+`urn:xmpp:private-notes:1:content`. No minor-version field is defined.
 Compatible additions use optional XML in separate namespaces or authenticated
 `required` feature declarations as described below.
 
 Direct key synchronization is a separate protocol and uses
-`urn:xmpp:qtnote:key-sync:1`.
+`urn:xmpp:private-notes:key-sync:0`.
 
 ## Discovery and server requirements
 
@@ -87,10 +87,10 @@ Before using the store, a client MUST discover its own bare JID and verify:
 1. a `pubsub/pep` service identity is advertised; and
 2. `http://jabber.org/protocol/pubsub#publish-options` is advertised.
 
-Every QtNote installation capable of key transfer MUST advertise:
+Every Private Notes installation capable of key transfer MUST advertise:
 
 ```xml
-<feature var='urn:xmpp:qtnote:key-sync:1'/>
+<feature var='urn:xmpp:private-notes:key-sync:0'/>
 ```
 
 An installation SHOULD use a stable, distinct XMPP resource. A requester MUST
@@ -101,7 +101,7 @@ The index node notification feature is advertised as the node followed by
 `+notify`, for example:
 
 ```xml
-<feature var='urn:xmpp:qtnote:notes:1:index+notify'/>
+<feature var='urn:xmpp:private-notes:0:index+notify'/>
 ```
 
 ## PEP node configuration
@@ -115,7 +115,7 @@ Both nodes MUST be leaf nodes and MUST be configured with at least:
 | `pubsub#max_items` | `max`, or the largest safe server value |
 | `pubsub#deliver_payloads` | `true` |
 | `pubsub#notify_retract` | `true` |
-| `pubsub#type` | `urn:xmpp:qtnote:notes:1` |
+| `pubsub#type` | `urn:xmpp:private-notes:0` |
 
 A client MUST verify the effective access model and persistence after creating
 or repairing a node. It MUST refuse to publish private note data if the node is
@@ -127,7 +127,7 @@ Example configuration form (irrelevant server-specific fields omitted):
 ```xml
 <iq type='set' id='configure-index' to='romeo@example.net'>
   <pubsub xmlns='http://jabber.org/protocol/pubsub#owner'>
-    <configure node='urn:xmpp:qtnote:notes:1:index'>
+    <configure node='urn:xmpp:private-notes:0:index'>
       <x xmlns='jabber:x:data' type='submit'>
         <field var='FORM_TYPE' type='hidden'>
           <value>http://jabber.org/protocol/pubsub#node_config</value>
@@ -137,7 +137,7 @@ Example configuration form (irrelevant server-specific fields omitted):
         <field var='pubsub#deliver_payloads'><value>true</value></field>
         <field var='pubsub#notify_retract'><value>true</value></field>
         <field var='pubsub#type'>
-          <value>urn:xmpp:qtnote:notes:1</value>
+          <value>urn:xmpp:private-notes:0</value>
         </field>
       </x>
     </configure>
@@ -152,7 +152,7 @@ namespace:
 
 ```xml
 <item id='2b7e1516-28ae-4d2a-abf7-158809cf4f3c'>
-  <encrypted xmlns='urn:xmpp:qtnote:notes:1'
+  <encrypted xmlns='urn:xmpp:private-notes:0'
              key-id='tTvC-q553JtqzHXstinSd2A0CDzSXK40wXTK5a0Cddk'>
     <nonce>AAECAwQFBgcICQoL</nonce>
     <payload>...BASE64-CIPHERTEXT...</payload>
@@ -187,7 +187,7 @@ serialization. XML canonicalization is deliberately not part of this protocol.
 Receivers MUST reject malformed XML, document type declarations, entity
 declarations, non-declaration processing instructions, duplicate required
 feature declarations, and structures exceeding implementation-appropriate
-limits. The current QtNote implementation limits one plaintext or ciphertext
+limits. The current Private Notes implementation limits one plaintext or ciphertext
 field to 16 MiB, nesting to 32 levels, 8192 elements, and 256 attributes per
 element.
 
@@ -198,8 +198,8 @@ attributes and subtrees when rewriting a record. An extension required for corre
 inside the authenticated envelope:
 
 ```xml
-<required xmlns='urn:xmpp:qtnote:notes:1'
-          feature='urn:example:qtnote:media:1'/>
+<required xmlns='urn:xmpp:private-notes:0'
+          feature='urn:example:private-notes:media:1'/>
 ```
 
 Feature identifiers SHOULD be URIs or URNs. An implementation that does not
@@ -216,7 +216,7 @@ not an SCE profile: decrypted records remain PubSub application data.
 For a 32-byte storage master key `K`, the identifier is:
 
 ```text
-SHA-256("QtNote storage key id v1" || 0x00 || K)
+SHA-256("private-notes storage key id v1" || 0x00 || K)
 ```
 
 The identifier is not secret. It allows a client to select a candidate key
@@ -229,8 +229,8 @@ as defined by RFC 5869. For the 32-byte storage master key `K`:
 
 ```text
 IKM  = K
-salt = UTF-8("QtNote HKDF salt v1")
-info = UTF-8("QtNote key domain v1:" || domain)
+salt = UTF-8("private-notes HKDF salt v1")
+info = UTF-8("private-notes key domain v1:" || domain)
 L    = 32
 
 PRK = HKDF-Extract(salt, IKM)
@@ -266,8 +266,8 @@ successful GCM authentication.
 AES-GCM plaintext contains one envelope in the protocol namespace:
 
 ```xml
-<envelope xmlns='urn:xmpp:qtnote:notes:1'>
-  <node>urn:xmpp:qtnote:notes:1:index</node>
+<envelope xmlns='urn:xmpp:private-notes:0'>
+  <node>urn:xmpp:private-notes:0:index</node>
   <content>
     <index id='2b7e1516-28ae-4d2a-abf7-158809cf4f3c'
            revision='018f0be0-df0d-7c70-a2ef-1f5c973ec92a'
@@ -303,7 +303,7 @@ An index record is metadata used for listing and synchronization:
   <title>Portable note</title>
   <tag>one</tag>
   <tag>two</tag>
-  <folder xmlns='urn:xmpp:qtnote:folders:1'>
+  <folder xmlns='urn:xmpp:private-notes:folders:0'>
     <segment>Projects</segment>
     <segment>2026</segment>
   </folder>
@@ -313,7 +313,7 @@ An index record is metadata used for listing and synchronization:
 `id`, `revision`, and `modified` MUST be non-empty. `modified` MUST be an ISO
 8601 UTC instant ending in `Z`. Protocol major 1 defines only the format value `markdown`. Exactly one `title` is required; zero or more `tag` elements are
 allowed. `parent-revision` and `origin-id` are optional. The optional folder
-path is defined by the `urn:xmpp:qtnote:folders:1` extension below.
+path is defined by the `urn:xmpp:private-notes:folders:0` extension below.
 
 `revision` is the revision of the complete index and is the optimistic
 concurrency token. Normally it also identifies the corresponding content
@@ -324,13 +324,13 @@ revision.
 ### Folder-path extension
 
 An index MAY contain at most one direct `<folder/>` child in the
-`urn:xmpp:qtnote:folders:1` namespace. Its absence means the note is
+`urn:xmpp:private-notes:folders:0` namespace. Its absence means the note is
 unsorted. If present, it MUST contain one or more direct `<segment/>` children
 in the same namespace. A segment MUST be non-empty and already trimmed; a
 folder or segment MUST NOT have attributes or other child elements.
 
 The ordered segments represent the root-to-leaf folder path. They deliberately
-carry names rather than QtNote's local folder UUIDs: each installation merges
+carry names rather than Private Notes's local folder UUIDs: each installation merges
 the observed path into its own shared folder catalog and retains its stable
 local UUID mapping. The extension remains inside the encrypted index payload,
 so it is not visible to the XMPP server.
@@ -340,18 +340,18 @@ so it is not visible to the XMPP server.
 An index-only update changes metadata such as the folder without uploading the
 body again. Its index revision MUST be fresh, but the existing content record
 still carries the old body revision. In that case the envelope MUST declare
-the required `urn:xmpp:qtnote:content-revision:1` feature and the index MUST
+the required `urn:xmpp:private-notes:content:0` feature and the index MUST
 carry exactly one extension child:
 
 ```xml
-<envelope xmlns='urn:xmpp:qtnote:notes:1'>
-  <node>urn:xmpp:qtnote:notes:1:index</node>
-  <required feature='urn:xmpp:qtnote:content-revision:1'/>
+<envelope xmlns='urn:xmpp:private-notes:0'>
+  <node>urn:xmpp:private-notes:0:index</node>
+  <required feature='urn:xmpp:private-notes:content:0'/>
   <content>
     <index id='note-id' revision='folder-revision'
            modified='2026-07-27T18:01:00.123Z' format='markdown'>
       <title>Portable note</title>
-      <content-revision xmlns='urn:xmpp:qtnote:content-revision:1'>
+      <content-revision xmlns='urn:xmpp:private-notes:content:0'>
         body-revision
       </content-revision>
     </index>
@@ -389,7 +389,7 @@ inconsistent remote state, never as valid note content.
 ### Listing and loading
 
 A client lists item IDs from the index node, then requests index items in
-batches. The QtNote implementation uses batches of 50. A server or library MAY
+batches. The Private Notes implementation uses batches of 50. A server or library MAY
 use RSM pagination instead. If only a truncated page can be obtained, the
 result MUST be marked partial; the client MUST NOT infer that missing local
 notes were deleted.
@@ -453,7 +453,7 @@ with a new note ID. Publishing a conflict copy MUST clear the old revision and
 parent-revision metadata so that it is a genuine create operation rather than
 another update of the contested item.
 
-QtNote's default lossless policy keeps the server winner under the original
+Private Notes's default lossless policy keeps the server winner under the original
 note ID and publishes the losing local edit as a new note titled
 `<title> (conflict <local time>)`. It also notifies the user. For a conflict
 detected before publication, the remote note is passed directly to the policy.
@@ -471,9 +471,9 @@ Example index publication:
 ```xml
 <iq type='set' id='publish-index' to='romeo@example.net'>
   <pubsub xmlns='http://jabber.org/protocol/pubsub'>
-    <publish node='urn:xmpp:qtnote:notes:1:index'>
+    <publish node='urn:xmpp:private-notes:0:index'>
       <item id='2b7e1516-28ae-4d2a-abf7-158809cf4f3c'>
-        <encrypted xmlns='urn:xmpp:qtnote:notes:1'
+        <encrypted xmlns='urn:xmpp:private-notes:0'
                    key-id='tTvC-q553JtqzHXstinSd2A0CDzSXK40wXTK5a0Cddk'>
           <nonce>AAECAwQFBgcICQoL</nonce>
           <payload>...BASE64-CIPHERTEXT...</payload>
@@ -511,9 +511,9 @@ invalidates the complete local view and requires a fresh synchronization.
 
 ```xml
 <message type='headline' from='romeo@example.net'
-         to='romeo@example.net/QtNote-laptop'>
+         to='romeo@example.net/private-notes-laptop'>
   <event xmlns='http://jabber.org/protocol/pubsub#event'>
-    <items node='urn:xmpp:qtnote:notes:1:index'>
+    <items node='urn:xmpp:private-notes:0:index'>
       <retract id='2b7e1516-28ae-4d2a-abf7-158809cf4f3c'/>
     </items>
   </event>
@@ -559,10 +559,10 @@ the storage key.
 
 ```xml
 <iq type='set'
-    from='romeo@example.net/QtNote-new'
-    to='romeo@example.net/QtNote-existing'
+    from='romeo@example.net/private-notes-new'
+    to='romeo@example.net/private-notes-existing'
     id='86de9c36-bc10-41e2-b239-b202de0b0a19'>
-  <key-sync xmlns='urn:xmpp:qtnote:key-sync:1'>
+  <key-sync xmlns='urn:xmpp:private-notes:key-sync:0'>
     {&quot;requestId&quot;:&quot;86de9c36-bc10-41e2-b239-b202de0b0a19&quot;,
      &quot;senderKey&quot;:&quot;ht4nXjYzM9...BASE64...WLQ=&quot;,
      &quot;type&quot;:&quot;trust-request&quot;}
@@ -570,7 +570,7 @@ the storage key.
 </iq>
 ```
 
-Whitespace is shown for readability; QtNote sends compact JSON. `requestId`
+Whitespace is shown for readability; Private Notes sends compact JSON. `requestId`
 MUST be non-empty and SHOULD equal the IQ `id`. The receiver MUST verify all of
 the following before displaying or approving the request:
 
@@ -590,10 +590,10 @@ returns a plaintext result:
 
 ```xml
 <iq type='result'
-    from='romeo@example.net/QtNote-existing'
-    to='romeo@example.net/QtNote-new'
+    from='romeo@example.net/private-notes-existing'
+    to='romeo@example.net/private-notes-new'
     id='86de9c36-bc10-41e2-b239-b202de0b0a19'>
-  <key-sync xmlns='urn:xmpp:qtnote:key-sync:1'>
+  <key-sync xmlns='urn:xmpp:private-notes:key-sync:0'>
     {&quot;requestId&quot;:&quot;86de9c36-bc10-41e2-b239-b202de0b0a19&quot;,
      &quot;type&quot;:&quot;trust-approved&quot;}
   </key-sync>
@@ -610,7 +610,7 @@ decryption, is:
 
 ```xml
 <iq type='set' id='278a35de-3aa8-40e5-bc49-a2ad697b9803'>
-  <key-sync xmlns='urn:xmpp:qtnote:key-sync:1'>
+  <key-sync xmlns='urn:xmpp:private-notes:key-sync:0'>
     {&quot;requestId&quot;:&quot;278a35de-3aa8-40e5-bc49-a2ad697b9803&quot;,
      &quot;type&quot;:&quot;request&quot;}
   </key-sync>
@@ -622,8 +622,8 @@ IQ envelope, for example:
 
 ```xml
 <iq type='set'
-    from='romeo@example.net/QtNote-new'
-    to='romeo@example.net/QtNote-existing'
+    from='romeo@example.net/private-notes-new'
+    to='romeo@example.net/private-notes-existing'
     id='278a35de-3aa8-40e5-bc49-a2ad697b9803'>
   <encrypted xmlns='urn:xmpp:omemo:2'>...</encrypted>
 </iq>
@@ -642,8 +642,8 @@ application payload is:
 
 ```xml
 <iq type='result' id='278a35de-3aa8-40e5-bc49-a2ad697b9803'>
-  <key-sync xmlns='urn:xmpp:qtnote:key-sync:1'>
-    {&quot;recoveryKey&quot;:&quot;qtnote-key-v1:BASE64URL_KEY:12ab34cd56ef&quot;,
+  <key-sync xmlns='urn:xmpp:private-notes:key-sync:0'>
+    {&quot;recoveryKey&quot;:&quot;private-notes-key-v1:BASE64URL_KEY:12ab34cd56ef&quot;,
      &quot;requestId&quot;:&quot;278a35de-3aa8-40e5-bc49-a2ad697b9803&quot;,
      &quot;type&quot;:&quot;response&quot;}
   </key-sync>
@@ -658,7 +658,7 @@ installing the key.
 The recovery key syntax is:
 
 ```text
-qtnote-key-v1:<unpadded-base64url-32-byte-key>:<12-lowercase-hex-digits>
+private-notes-key-v1:<unpadded-base64url-32-byte-key>:<12-lowercase-hex-digits>
 ```
 
 The checksum is the first six bytes of the storage key identifier. It detects
@@ -693,8 +693,8 @@ MUST remain untouched and MUST be reported as inaccessible.
 ## Explicit maintenance of obsolete development records
 
 Pre-release builds used the legacy nodes
-`urn:xmpp:qtnote:notes:0:index:1` and
-`urn:xmpp:qtnote:notes:0:content:1`, plus earlier encrypted payload namespaces.
+`urn:xmpp:private-notes:0:index:1` and
+`urn:xmpp:private-notes:0:content:1`, plus earlier encrypted payload namespaces.
 Those nodes are outside the current major namespace and are never read as
 current records. An implementation MAY expose an explicit legacy-node
 maintenance action. It MUST require confirmation and re-fetch each candidate
@@ -772,7 +772,7 @@ credentials and reduces metadata manipulation and downgrade opportunities.
 ## Interoperability and evolution
 
 The note wire format is language-neutral XML and cryptography; Qt serialization
-is not part of the XMPP protocol. Local QtNote drafts, caches, and OMEMO state
+is not part of the XMPP protocol. Local Private Notes drafts, caches, and OMEMO state
 are implementation details and may continue to use framework-specific formats.
 
 XML serialization is intentionally semantic rather than canonical. Two
@@ -789,10 +789,10 @@ evolution uses optional namespaced XML; no minor version exists on the wire.
 
 The interoperability artifacts are:
 
-- `qtnote-notes.xsd`, the reference schema for the current major XML structures;
-- `qtnote-encrypted-vectors.json`, fixed positive and negative vectors including
+- `private-notes.xsd`, the reference schema for the current major XML structures;
+- `private-notes-encrypted-vectors.json`, fixed positive and negative vectors including
   complete PubSub items and exact reference plaintext XML;
-- `qtnote-encrypted-reference.py`, a Qt-independent encoder, validating decoder,
+- `private-notes-encrypted-reference.py`, a Qt-independent encoder, validating decoder,
   and vector generator;
 - `INTEROPERABILITY.md`, operational instructions and the error taxonomy;
 - `conformance/rust`, a minimal independent Rust consumer that derives keys,
@@ -801,16 +801,16 @@ The interoperability artifacts are:
 The checked-in vectors are regenerated and verified with:
 
 ```sh
-python3 qtnote-encrypted-reference.py generate-vectors \
-  --output qtnote-encrypted-vectors.json
-python3 qtnote-encrypted-reference.py verify-vectors
+python3 private-notes-encrypted-reference.py generate-vectors \
+  --output private-notes-encrypted-vectors.json
+python3 private-notes-encrypted-reference.py verify-vectors
 ```
 
 A self-contained encoder result can be produced and validated with:
 
 ```sh
-python3 qtnote-encrypted-reference.py encode request.json --output encoded.json
-python3 qtnote-encrypted-reference.py decode encoded.json --output decoded.json
+python3 private-notes-encrypted-reference.py encode request.json --output encoded.json
+python3 private-notes-encrypted-reference.py decode encoded.json --output decoded.json
 ```
 
 Before submission as a general XEP, the draft still needs independently
@@ -820,13 +820,13 @@ entries.
 ## XMPP Registrar considerations
 
 No registrar entries currently exist. A future XEP submission needs to request
-permanent namespaces (or replace the provisional QtNote-specific URNs), define
+permanent namespaces (or replace the provisional private-notes URNs), define
 their XML schemas, and register the service-discovery feature and PubSub payload
 type.
 
 ## Implementation status
 
-QtNote's `xmpppubsub` plugin implements this draft, including private-node
+Private Notes's `xmpppubsub` plugin implements this draft, including private-node
 verification, index/content synchronization, optimistic conflicts, persistent
 retryable publication/deletion operations, OMEMO trust bootstrap, storage-key
 transfer, key audit, and canonical-key migration.

@@ -5,11 +5,11 @@
 #include <QPointer>
 
 #include "bundledplugininterface.h"
-#include "qtnoteplugininterface.h"
+#include "anykeepplugininterface.h"
 #include "settingsproviderinterface.h"
 #include "speechrecognitionprovider.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 class OpenAIWhisperPlugin : public QObject,
                             public PluginInterface,
@@ -19,12 +19,12 @@ class OpenAIWhisperPlugin : public QObject,
                             public SpeechRecognitionProviderInterface,
                             public BundledPluginInterface {
     Q_OBJECT
-#ifndef QTNOTE_BUNDLED_PLUGIN_BUILD
+#ifndef ANYKEEP_BUNDLED_PLUGIN_BUILD
 #include "openaiwhisper_plugin_metadata.inc"
 #endif
     Q_INTERFACES(
-        QtNote::PluginInterface QtNote::RegularPluginInterface QtNote::PluginOptionsTooltipInterface
-            QtNote::SettingsProviderInterface QtNote::SpeechRecognitionProviderInterface QtNote::BundledPluginInterface)
+        AnyKeep::PluginInterface AnyKeep::RegularPluginInterface AnyKeep::PluginOptionsTooltipInterface
+            AnyKeep::SettingsProviderInterface AnyKeep::SpeechRecognitionProviderInterface AnyKeep::BundledPluginInterface)
 public:
     explicit OpenAIWhisperPlugin(QObject *parent = nullptr);
     ~OpenAIWhisperPlugin() override;
@@ -60,6 +60,6 @@ private:
     QNetworkAccessManager *network = nullptr;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // OPENAIWHISPERPLUGIN_H

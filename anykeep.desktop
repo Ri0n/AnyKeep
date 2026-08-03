@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=AnyKeep
+Comment=Note-taking Application
+Comment[ru]=Менеджер заметок
+Icon=anykeep
+Exec=anykeep
+StartupWMClass=AnyKeep
+Terminal=false
+Type=Application
+Categories=Qt;Utility;TextEditor;Office;
+X-KDE-StartupNotify=false

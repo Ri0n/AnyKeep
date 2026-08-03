@@ -3,7 +3,7 @@
 
 #include "dialogservice.h"
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class DialogServiceTest : public QObject {
     Q_OBJECT

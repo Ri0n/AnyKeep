@@ -7,7 +7,7 @@
 #include <QXmppGlobal.h>
 #include <QXmppStanza.h>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class XmppErrorTest : public QObject {
     Q_OBJECT

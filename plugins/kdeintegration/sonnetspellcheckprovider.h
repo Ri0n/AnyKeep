@@ -3,13 +3,13 @@
 
 #include "spellcheckprovider.h"
 
-#ifdef QTNOTE_SONNET_AVAILABLE
+#ifdef ANYKEEP_SONNET_AVAILABLE
 #include <Sonnet/Speller>
 
 #include <vector>
 #endif
 
-namespace QtNote {
+namespace AnyKeep {
 
 class SonnetSpellCheckProvider final : public SpellCheckProvider {
 public:
@@ -27,13 +27,13 @@ public:
 private:
     void onDisabled(DisableMode mode) override;
 
-#ifdef QTNOTE_SONNET_AVAILABLE
+#ifdef ANYKEEP_SONNET_AVAILABLE
     std::vector<Sonnet::Speller> spellers_;
 #endif
     QStringList languages_;
     bool        enabled_ = true;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // SONNETSPELLCHECKPROVIDER_H

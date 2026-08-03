@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2015 Sergei Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -24,16 +24,16 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include <QObject>
 
-#include "qtnoteplugininterface.h"
+#include "anykeepplugininterface.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 class PluginHostInterface;
 
 class TomboyPlugin : public QObject, public PluginInterface, public RegularPluginInterface {
     Q_OBJECT
 #include "tomboy_plugin_metadata.inc"
-    Q_INTERFACES(QtNote::PluginInterface QtNote::RegularPluginInterface)
+    Q_INTERFACES(AnyKeep::PluginInterface AnyKeep::RegularPluginInterface)
 
     PluginHostInterface *host;
 
@@ -45,6 +45,6 @@ public:
     void shutdown() override;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // TOMBOYPLUGIN_H

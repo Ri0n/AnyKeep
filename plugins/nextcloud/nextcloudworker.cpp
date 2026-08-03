@@ -12,7 +12,7 @@
 #include <QTimer>
 #include <QUrlQuery>
 
-namespace QtNote {
+namespace AnyKeep {
 
 namespace {
 
@@ -96,7 +96,7 @@ QNetworkRequest NextcloudWorker::makeRequest(const QUrl &url) const
 {
     QNetworkRequest request(url);
     request.setRawHeader("Accept", "application/json");
-    request.setRawHeader("User-Agent", "QtNote Nextcloud Notes/1.0");
+    request.setRawHeader("User-Agent", "AnyKeep Nextcloud Notes/1.0");
 
     const QByteArray credentials = (config_.userName + QLatin1Char(':') + config_.appPassword).toUtf8().toBase64();
     request.setRawHeader("Authorization", "Basic " + credentials);
@@ -496,4 +496,4 @@ NextcloudStatusResult NextcloudWorker::deleteNote(const QString &id)
     return result;
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

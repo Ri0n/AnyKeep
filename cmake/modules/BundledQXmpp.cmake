@@ -19,10 +19,10 @@ if(ANDROID)
     # host libomemo-c target contributes a raw -lomemo-c flag and headers for
     # the wrong platform, while also preventing the bundled ExternalProject
     # from being built.
-    if(NOT QTNOTE_BUILD_BUNDLED_OMEMO_C)
+    if(NOT ANYKEEP_BUILD_BUNDLED_OMEMO_C)
         message(FATAL_ERROR
             "Android bundled QXmpp requires bundled libomemo-c. Enable "
-            "QTNOTE_BUILD_BUNDLED_OMEMO_C.")
+            "ANYKEEP_BUILD_BUNDLED_OMEMO_C.")
     endif()
     message(STATUS
         "Android cross-build: using bundled libomemo-c and protobuf-c runtime")
@@ -32,25 +32,25 @@ else()
     pkg_check_modules(OmemoC QUIET IMPORTED_TARGET libomemo-c)
     if(TARGET PkgConfig::OmemoC)
         message(STATUS "Using system libomemo-c for bundled QXmpp")
-    elseif(QTNOTE_BUILD_BUNDLED_OMEMO_C)
+    elseif(ANYKEEP_BUILD_BUNDLED_OMEMO_C)
         message(STATUS
             "System libomemo-c not found; using bundled libomemo-c and protobuf-c runtime")
         include(BundledOmemoC)
     else()
         message(FATAL_ERROR
             "Bundled QXmpp with OMEMO requires libomemo-c. Install libomemo-c or "
-            "enable QTNOTE_BUILD_BUNDLED_OMEMO_C.")
+            "enable ANYKEEP_BUILD_BUNDLED_OMEMO_C.")
     endif()
 endif()
 
-set(QTNOTE_BUNDLED_QXMPP_VERSION "1.15.1")
-set(QTNOTE_QXMPP_SOURCE_DIR "" CACHE PATH "Local QXmpp source directory (avoids downloading the release tarball)")
-option(QTNOTE_BUNDLED_QXMPP_STATIC "Link bundled QXmpp statically into its consumers" ON)
+set(ANYKEEP_BUNDLED_QXMPP_VERSION "1.15.1")
+set(ANYKEEP_QXMPP_SOURCE_DIR "" CACHE PATH "Local QXmpp source directory (avoids downloading the release tarball)")
+option(ANYKEEP_BUNDLED_QXMPP_STATIC "Link bundled QXmpp statically into its consumers" ON)
 ProcessorCount(_qxmpp_detected_jobs)
 if(NOT _qxmpp_detected_jobs)
     set(_qxmpp_detected_jobs 2)
 endif()
-set(QTNOTE_BUNDLED_QXMPP_JOBS "${_qxmpp_detected_jobs}" CACHE STRING "Parallel jobs used to build bundled QXmpp")
+set(ANYKEEP_BUNDLED_QXMPP_JOBS "${_qxmpp_detected_jobs}" CACHE STRING "Parallel jobs used to build bundled QXmpp")
 
 set(_qxmpp_prefix "${CMAKE_BINARY_DIR}/_deps/qxmpp")
 set(_qxmpp_install_dir "${_qxmpp_prefix}/install")
@@ -58,7 +58,7 @@ set(_qxmpp_library_dir "${_qxmpp_install_dir}/${CMAKE_INSTALL_LIBDIR}")
 set(_qxmpp_include_dir "${_qxmpp_install_dir}/${CMAKE_INSTALL_INCLUDEDIR}/QXmppQt6")
 set(_qxmpp_omemo_include_dir "${_qxmpp_include_dir}/Omemo")
 
-if(QTNOTE_BUNDLED_QXMPP_STATIC)
+if(ANYKEEP_BUNDLED_QXMPP_STATIC)
     set(_qxmpp_library_type STATIC)
     set(_qxmpp_library_suffix "${CMAKE_STATIC_LIBRARY_SUFFIX}")
     set(_qxmpp_build_shared OFF)
@@ -70,26 +70,26 @@ endif()
 set(_qxmpp_library "${_qxmpp_library_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}QXmppQt6${_qxmpp_library_suffix}")
 set(_qxmpp_omemo_library "${_qxmpp_library_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}QXmppOmemoQt6${_qxmpp_library_suffix}")
 
-if(QTNOTE_QXMPP_SOURCE_DIR)
-    if(NOT EXISTS "${QTNOTE_QXMPP_SOURCE_DIR}/CMakeLists.txt")
-        message(FATAL_ERROR "QTNOTE_QXMPP_SOURCE_DIR does not contain a QXmpp source tree: ${QTNOTE_QXMPP_SOURCE_DIR}")
+if(ANYKEEP_QXMPP_SOURCE_DIR)
+    if(NOT EXISTS "${ANYKEEP_QXMPP_SOURCE_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR "ANYKEEP_QXMPP_SOURCE_DIR does not contain a QXmpp source tree: ${ANYKEEP_QXMPP_SOURCE_DIR}")
     endif()
     set(_qxmpp_source_args
-        SOURCE_DIR "${QTNOTE_QXMPP_SOURCE_DIR}"
+        SOURCE_DIR "${ANYKEEP_QXMPP_SOURCE_DIR}"
         DOWNLOAD_COMMAND ""
         UPDATE_COMMAND ""
     )
 else()
     set(_qxmpp_source_args
-        URL "https://download.kde.org/unstable/qxmpp/qxmpp-${QTNOTE_BUNDLED_QXMPP_VERSION}.tar.xz"
+        URL "https://download.kde.org/unstable/qxmpp/qxmpp-${ANYKEEP_BUNDLED_QXMPP_VERSION}.tar.xz"
         URL_HASH "SHA256=0747758a4f5b5ea4c60686c65b390766f1909d09e1a5a457c8e80ef272730c46"
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
 endif()
 
 set(_qxmpp_prefix_path "${CMAKE_PREFIX_PATH}")
-if(DEFINED QTNOTE_OMEMO_C_INSTALL_DIR)
-    list(PREPEND _qxmpp_prefix_path "${QTNOTE_OMEMO_C_INSTALL_DIR}")
+if(DEFINED ANYKEEP_OMEMO_C_INSTALL_DIR)
+    list(PREPEND _qxmpp_prefix_path "${ANYKEEP_OMEMO_C_INSTALL_DIR}")
 endif()
 string(REPLACE ";" "|" _qxmpp_prefix_path_arg "${_qxmpp_prefix_path}")
 
@@ -163,7 +163,7 @@ endforeach()
 set(_qxmpp_extra_cxx_flags "")
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # QXmpp 1.15.1 itself still copies its deprecated QXmppPromise type in a
-    # few places. Keep that third-party warning out of QtNote build logs.
+    # few places. Keep that third-party warning out of AnyKeep build logs.
     string(APPEND _qxmpp_extra_cxx_flags " -Wno-deprecated-declarations")
 endif()
 if(_qxmpp_extra_cxx_flags)
@@ -171,11 +171,11 @@ if(_qxmpp_extra_cxx_flags)
 endif()
 
 set(_qxmpp_external_dependency_args)
-if(TARGET qtnote_bundled_omemoc)
-    list(APPEND _qxmpp_external_dependency_args DEPENDS qtnote_bundled_omemoc)
+if(TARGET anykeep_bundled_omemoc)
+    list(APPEND _qxmpp_external_dependency_args DEPENDS anykeep_bundled_omemoc)
 endif()
 
-ExternalProject_Add(qtnote_bundled_qxmpp
+ExternalProject_Add(anykeep_bundled_qxmpp
     ${_qxmpp_source_args}
     PREFIX "${_qxmpp_prefix}"
     LIST_SEPARATOR "|"
@@ -187,14 +187,14 @@ ExternalProject_Add(qtnote_bundled_qxmpp
     CMAKE_ARGS ${_qxmpp_cmake_args}
     BUILD_COMMAND
         "${CMAKE_COMMAND}" --build <BINARY_DIR>
-        --parallel "${QTNOTE_BUNDLED_QXMPP_JOBS}"
+        --parallel "${ANYKEEP_BUNDLED_QXMPP_JOBS}"
     BUILD_BYPRODUCTS
         "${_qxmpp_library}"
         "${_qxmpp_omemo_library}"
     ${_qxmpp_external_dependency_args}
 )
 
-# Imported targets let the rest of QtNote use the same target names as a
+# Imported targets let the rest of AnyKeep use the same target names as a
 # system QXmpp package. The directories must exist when CMake validates the
 # imported target interfaces; ExternalProject fills them during the build.
 file(MAKE_DIRECTORY "${_qxmpp_include_dir}" "${_qxmpp_omemo_include_dir}")
@@ -205,7 +205,7 @@ set_target_properties(QXmpp::QXmpp PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${_qxmpp_include_dir}"
     INTERFACE_LINK_LIBRARIES "Qt6::Core;Qt6::Network;Qt6::Xml;OpenSSL::Crypto"
 )
-add_dependencies(QXmpp::QXmpp qtnote_bundled_qxmpp)
+add_dependencies(QXmpp::QXmpp anykeep_bundled_qxmpp)
 
 add_library(QXmpp::Omemo ${_qxmpp_library_type} IMPORTED GLOBAL)
 set_target_properties(QXmpp::Omemo PROPERTIES
@@ -213,9 +213,9 @@ set_target_properties(QXmpp::Omemo PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${_qxmpp_omemo_include_dir}"
     INTERFACE_LINK_LIBRARIES "QXmpp::QXmpp;PkgConfig::OmemoC;OpenSSL::Crypto"
 )
-add_dependencies(QXmpp::Omemo qtnote_bundled_qxmpp)
+add_dependencies(QXmpp::Omemo anykeep_bundled_qxmpp)
 
-if(NOT QTNOTE_BUNDLED_QXMPP_STATIC)
+if(NOT ANYKEEP_BUNDLED_QXMPP_STATIC)
     install(
         DIRECTORY "${_qxmpp_library_dir}/"
         DESTINATION "${CMAKE_INSTALL_LIBDIR}"

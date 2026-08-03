@@ -1,7 +1,7 @@
-# Rust QtNote XMPP XML conformance smoke test
+# Rust Private Notes XMPP XML conformance smoke test
 
 This is a deliberately small independent consumer of
-`../../qtnote-encrypted-vectors.json`. It contains no QtNote production code
+`../../private-notes-encrypted-vectors.json`. It contains no Private Notes production code
 and uses common Rust XML and cryptography crates.
 
 Verify all checked-in positive vectors:
@@ -14,7 +14,7 @@ Verify an arbitrary self-contained result produced by Python:
 
 ```sh
 cd ../..
-python3 qtnote-encrypted-reference.py encode request.json \
+python3 private-notes-encrypted-reference.py encode request.json \
   --output conformance/rust/encoded.json
 cd conformance/rust
 cargo run -- encoded.json

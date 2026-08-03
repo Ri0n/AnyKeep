@@ -8,7 +8,7 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class FileDraftStoreTest : public QObject {
     Q_OBJECT
@@ -118,7 +118,7 @@ void FileDraftStoreTest::readsVersionFiveWithoutFolder()
     out << PayloadMagic << quint16(5) << record.id << quint8(record.state) << record.storageId << record.remoteNoteId
         << record.title << record.body << quint8(record.format) << record.tags << record.revision << record.updatedAt
         << record.lastError << record.retryAt << quint8(record.operation) << record.backendData << quint32(0);
-    const AeadContext context { KeyDomain::LocalDraft, QStringLiteral("qtnote-local-drafts"),
+    const AeadContext context { KeyDomain::LocalDraft, QStringLiteral("anykeep-local-drafts"),
                                 record.id.toString(QUuid::WithoutBraces), 1, QStringLiteral("draft") };
     const auto        sealed = SecureEnvelope::seal(bytes, key, context);
     QVERIFY2(sealed, qPrintable(sealed.error.message));
@@ -152,7 +152,7 @@ void FileDraftStoreTest::readsVersionSevenWithoutFolderOverride()
         << record.title << record.body << quint8(record.format) << record.tags << record.folderId
         << record.removeSourceStorageId << record.removeSourceNoteId << record.revision << record.updatedAt
         << record.lastError << record.retryAt << quint8(record.operation) << record.backendData << quint32(0);
-    const AeadContext context { KeyDomain::LocalDraft, QStringLiteral("qtnote-local-drafts"),
+    const AeadContext context { KeyDomain::LocalDraft, QStringLiteral("anykeep-local-drafts"),
                                 record.id.toString(QUuid::WithoutBraces), 1, QStringLiteral("draft") };
     const auto        sealed = SecureEnvelope::seal(bytes, key, context);
     QVERIFY2(sealed, qPrintable(sealed.error.message));

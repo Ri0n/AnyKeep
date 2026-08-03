@@ -11,7 +11,7 @@
 #include <array>
 #include <thread>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class LocalMediaStoreTest : public QObject {
     Q_OBJECT
@@ -91,7 +91,7 @@ void LocalMediaStoreTest::markdownDisplayTitle()
     Note note(new NoteData(nullptr));
     note.setFormat(Note::Markdown);
     note.setTitle(
-        QStringLiteral("![Screenshot_20240724_180235.png](%21%5BScreenshot_20240724_180235.png%5D%28qtnote-media__"
+        QStringLiteral("![Screenshot_20240724_180235.png](%21%5BScreenshot_20240724_180235.png%5D%28anykeep-media__"
                        "e8338b20-71c6-45ed-aa25-425fc2e497e5_Screenshot_20240724_180235.png%20_Screenshot_20240724_"
                        "180235.png_%29/Screenshot_20240724_180235.png \"Screenshot_20240724_180235.png\")"));
     QCOMPARE(note.displayTitle(), QStringLiteral("Screenshot_20240724_180235.png"));

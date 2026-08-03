@@ -1,4 +1,4 @@
-use qtnote_xmpp_conformance::verify_encoded_document;
+use private_notes_xmpp_conformance::verify_encoded_document;
 use serde_json::Value;
 use std::{env, fs, process};
 

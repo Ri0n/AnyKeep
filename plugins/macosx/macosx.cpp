@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2010-2020 Sergey Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -28,7 +28,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "macosx.h"
 #include "macosxtray.h"
 
-namespace QtNote {
+namespace AnyKeep {
 //------------------------------------------------------------
 // MacOSXPlugin
 //------------------------------------------------------------
@@ -36,9 +36,9 @@ MacOSXPlugin::MacOSXPlugin(QObject *parent) : QObject(parent), _tray(0) { }
 
 void MacOSXPlugin::setHost(PluginHostInterface *host) { this->host = host; }
 
-TrayImpl *MacOSXPlugin::initTray(Main *qtnote)
+TrayImpl *MacOSXPlugin::initTray(Main *anykeep)
 {
-    _tray = new MacOSXTray(qtnote, this->host, this);
+    _tray = new MacOSXTray(anykeep, this->host, this);
     return _tray;
 }
 
@@ -49,4 +49,4 @@ void MacOSXPlugin::notifyError(const QString &msg)
     }
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

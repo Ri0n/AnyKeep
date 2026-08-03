@@ -4,7 +4,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
-profile=${QTNOTE_DEB_PROFILE:-qt6}
+profile=${ANYKEEP_DEB_PROFILE:-qt6}
 
 case "${1-}" in
   -h|--help)

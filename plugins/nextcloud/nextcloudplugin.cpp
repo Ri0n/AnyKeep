@@ -6,7 +6,7 @@
 #include "notemanager.h"
 #include "pluginhostinterface.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 NextcloudPlugin::NextcloudPlugin(QObject *parent) : QObject(parent) { }
 
@@ -33,4 +33,4 @@ void NextcloudPlugin::shutdown()
     storage_.clear();
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

@@ -1,6 +1,6 @@
 <?xml version="1.0" ?><!DOCTYPE TS><TS version="2.1" language="nl_NL">
     <context>
-        <name>QtNotePluginMetadata</name>
+        <name>AnyKeepPluginMetadata</name>
         <message id="plugin.base_de.name">
             <source>Base Integration</source>
             <extracomment>base_de plugin name</extracomment>
@@ -49,7 +49,7 @@
         <message id="plugin.kde_de.description">
             <source>Provides native look and feel for KDE users</source>
             <extracomment>kde_de plugin description</extracomment>
-            <translation>Biedt een thema om QtNote te integreren in de KDE-werkomgeving</translation>
+            <translation>Biedt een thema om AnyKeep te integreren in de KDE-werkomgeving</translation>
         </message>
         <message id="plugin.macosx_de.name">
             <source>macOS Integration</source>

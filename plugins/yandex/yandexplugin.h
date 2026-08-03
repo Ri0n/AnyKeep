@@ -4,11 +4,11 @@
 #include <QNetworkAccessManager>
 
 #include "bundledplugininterface.h"
-#include "qtnoteplugininterface.h"
+#include "anykeepplugininterface.h"
 #include "settingsproviderinterface.h"
 #include "speechrecognitionprovider.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 class YandexSpeechJob;
 class YandexSettingsController;
@@ -21,12 +21,12 @@ class YandexPlugin : public QObject,
                      public SpeechRecognitionProviderInterface,
                      public BundledPluginInterface {
     Q_OBJECT
-#ifndef QTNOTE_BUNDLED_PLUGIN_BUILD
+#ifndef ANYKEEP_BUNDLED_PLUGIN_BUILD
 #include "yandex_plugin_metadata.inc"
 #endif
     Q_INTERFACES(
-        QtNote::PluginInterface QtNote::RegularPluginInterface QtNote::PluginOptionsTooltipInterface
-            QtNote::SettingsProviderInterface QtNote::SpeechRecognitionProviderInterface QtNote::BundledPluginInterface)
+        AnyKeep::PluginInterface AnyKeep::RegularPluginInterface AnyKeep::PluginOptionsTooltipInterface
+            AnyKeep::SettingsProviderInterface AnyKeep::SpeechRecognitionProviderInterface AnyKeep::BundledPluginInterface)
 
 public:
     explicit YandexPlugin(QObject *parent = nullptr);
@@ -68,6 +68,6 @@ private:
     QNetworkAccessManager *network_ = nullptr;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // YANDEXPLUGIN_H

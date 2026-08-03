@@ -30,10 +30,10 @@
 #include "settingscontroller.h"
 #include "sonnetspellcheckprovider.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
-Q_LOGGING_CATEGORY(logKdeIntegration, "qtnote.kdeintegration")
-static const QLatin1String stickyPlasmoidId("com.github.ri0n.qtnote.sticky");
+Q_LOGGING_CATEGORY(logKdeIntegration, "anykeep.kdeintegration")
+static const QLatin1String stickyPlasmoidId("com.github.ri0n.anykeep.sticky");
 static const QLatin1String stickyPresentationsGroup("kdeintegration/stickyPresentations");
 static const QLatin1String useSonnetSetting("kdeintegration/useSonnet");
 
@@ -49,26 +49,26 @@ bool KDEIntegration::ensureWaylandGeometryScript()
     if (_waylandGeometryScriptAvailable)
         return true;
 
-#ifdef QTNOTE_DEVEL_KWIN_SCRIPT
-    const QString scriptPath = QStringLiteral(QTNOTE_DEVEL_KWIN_SCRIPT);
+#ifdef ANYKEEP_DEVEL_KWIN_SCRIPT
+    const QString scriptPath = QStringLiteral(ANYKEEP_DEVEL_KWIN_SCRIPT);
 #else
     const QString scriptPath = QStandardPaths::locate(
-        QStandardPaths::GenericDataLocation, QStringLiteral("kwin/scripts/qtnotewindowgeometry/contents/code/main.js"));
+        QStandardPaths::GenericDataLocation, QStringLiteral("kwin/scripts/anykeepwindowgeometry/contents/code/main.js"));
 #endif
     if (scriptPath.isEmpty()) {
-        qCWarning(logKdeIntegration) << "QtNote KWin geometry script was not found";
+        qCWarning(logKdeIntegration) << "AnyKeep KWin geometry script was not found";
         return false;
     }
 
     QDBusInterface scripting(QStringLiteral("org.kde.KWin"), QStringLiteral("/Scripting"),
                              QStringLiteral("org.kde.kwin.Scripting"));
-    const QString  pluginName = QStringLiteral("qtnotewindowgeometry");
+    const QString  pluginName = QStringLiteral("anykeepwindowgeometry");
     // Reload even if a previous process loaded the script but failed before run().
     scripting.call(QStringLiteral("unloadScript"), pluginName);
 
     QDBusReply<int> scriptId = scripting.call(QStringLiteral("loadScript"), scriptPath, pluginName);
     if (!scriptId.isValid() || scriptId.value() < 0) {
-        qCWarning(logKdeIntegration) << "Failed to load QtNote KWin geometry script:" << scriptId.error().message();
+        qCWarning(logKdeIntegration) << "Failed to load AnyKeep KWin geometry script:" << scriptId.error().message();
         return false;
     }
     const QString  scriptObjectPath = QStringLiteral("/Scripting/Script%1").arg(scriptId.value());
@@ -76,9 +76,9 @@ bool KDEIntegration::ensureWaylandGeometryScript()
     const auto     runReply         = script.call(QStringLiteral("run"));
     _waylandGeometryScriptAvailable = runReply.type() != QDBusMessage::ErrorMessage;
     if (!_waylandGeometryScriptAvailable)
-        qCWarning(logKdeIntegration) << "Failed to start QtNote KWin geometry script:" << runReply.errorMessage();
+        qCWarning(logKdeIntegration) << "Failed to start AnyKeep KWin geometry script:" << runReply.errorMessage();
     else
-        qCInfo(logKdeIntegration) << "QtNote KWin geometry script started:" << scriptObjectPath;
+        qCInfo(logKdeIntegration) << "AnyKeep KWin geometry script started:" << scriptObjectPath;
     return _waylandGeometryScriptAvailable;
 }
 
@@ -105,23 +105,23 @@ SettingsController *KDEIntegration::createSettingsController(QObject *parent)
     SettingsController::Field sonnet;
     sonnet.key             = QStringLiteral("useSonnet");
     sonnet.label           = tr("Use Sonnet for spell checking");
-    sonnet.description     = tr("The spell checker selection is applied after restarting QtNote.");
+    sonnet.description     = tr("The spell checker selection is applied after restarting AnyKeep.");
     sonnet.type            = SettingsController::Boolean;
     sonnet.value           = true;
     sonnet.restartRequired = true;
     return new PersistentSettingsController(QStringLiteral("kdeintegration"), { sonnet }, parent);
 }
-TrayImpl *KDEIntegration::initTray(Main *qtnote) { return new KDEIntegrationTray(qtnote, this); }
+TrayImpl *KDEIntegration::initTray(Main *anykeep) { return new KDEIntegrationTray(anykeep, this); }
 
 void KDEIntegration::notifyError(const QString &msg)
 {
-    KNotification::event(KNotification::Error, tr("Error"), msg, QPixmap(":/svg/qtnote"));
+    KNotification::event(KNotification::Error, tr("Error"), msg, QPixmap(":/svg/anykeep"));
 }
 
 void KDEIntegration::notify(const QString &title, const QString &message, const QString &actionText,
                             std::function<void()> action)
 {
-    auto *notification = KNotification::event(KNotification::Notification, title, message, QPixmap(":/svg/qtnote"),
+    auto *notification = KNotification::event(KNotification::Notification, title, message, QPixmap(":/svg/anykeep"),
                                               KNotification::CloseOnTimeout);
     if (!actionText.isEmpty() && action) {
         auto *notificationAction = notification->addAction(actionText);
@@ -147,7 +147,7 @@ void KDEIntegration::activateWindow(QWindow *window)
 
 static KConfigGroup windowGeometryGroup(const QString &key)
 {
-    KConfigGroup root(KSharedConfig::openConfig(), QStringLiteral("QtNote Window Geometry"));
+    KConfigGroup root(KSharedConfig::openConfig(), QStringLiteral("AnyKeep Window Geometry"));
     return KConfigGroup(&root, key);
 }
 
@@ -155,7 +155,7 @@ WindowGeometryRestoreResult KDEIntegration::restoreWindowGeometry(QWindow *windo
 {
     if (KWindowSystem::isPlatformWayland()) {
         // Queue before starting the script. Its initial stacking-order scan may
-        // claim an already visible QtNote window synchronously during run().
+        // claim an already visible AnyKeep window synchronously during run().
         if (!_pendingWindowGeometryKeys.contains(key))
             _pendingWindowGeometryKeys.enqueue(key);
         if (!ensureWaylandGeometryScript()) {
@@ -387,7 +387,7 @@ namespace {
     {
         const QList<QKeySequence> shortcuts = key.isEmpty() ? QList<QKeySequence>() : QList<QKeySequence> { key };
         auto                     *accel     = KGlobalAccel::self();
-        // QtNote's shortcut editor is an explicit user request.  Autoloading would
+        // AnyKeep's shortcut editor is an explicit user request.  Autoloading would
         // restore the previously saved KDE value and ignore the newly supplied
         // sequence. Keep the application default intact and replace only the
         // active user shortcut without autoloading the old value.
@@ -413,7 +413,7 @@ bool KDEIntegration::registerGlobalShortcut(const QString &id, const QKeySequenc
     }
     // Do not call isGlobalShortcutAvailable() here.  KGlobalAccel reports an
     // action's already registered shortcut as unavailable as well, so an
-    // update can conflict with QtNote itself.  globalShortcutsByKey() above
+    // update can conflict with AnyKeep itself.  globalShortcutsByKey() above
     // gives us the actual owners and filters this action; setShortcut() is the
     // authoritative check for reserved combinations that have no owner.
     const bool registered = KGlobalAccel::setGlobalShortcut(act, key);
@@ -445,7 +445,7 @@ bool KDEIntegration::updateGlobalShortcut(const QString &id, const QKeySequence 
     }
     // Do not call isGlobalShortcutAvailable() here.  KGlobalAccel reports an
     // action's already registered shortcut as unavailable as well, so an
-    // update can conflict with QtNote itself.  globalShortcutsByKey() above
+    // update can conflict with AnyKeep itself.  globalShortcutsByKey() above
     // gives us the actual owners and filters this action; setShortcut() is the
     // authoritative check for reserved combinations that have no owner.
     const bool registered = updateKdeGlobalShortcut(act, key);
@@ -469,4 +469,4 @@ void KDEIntegration::setGlobalShortcutEnabled(const QString &id, bool enabled)
     act->setEnabled(enabled);
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

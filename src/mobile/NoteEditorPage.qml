@@ -90,7 +90,7 @@ Page {
         toolbarVisible: false
         compactToolbar: true
         audioTranscriptionController: mobileApp.speechController
-        onCheckpointFailed: message => mobileApp.dialogs.inform(qsTr("QtNote"), message)
+        onCheckpointFailed: message => mobileApp.dialogs.inform(qsTr("AnyKeep"), message)
     }
 
     Connections {

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
     <Package
-        Name="QtNote"
+        Name="AnyKeep"
         Manufacturer="R-Soft"
         Version="@VERSION_FOR_WIX@"
         UpgradeCode="@UPGRADE_CODE@"
@@ -13,20 +13,20 @@
 
         <StandardDirectory Id="TARGETDIR" />
         <StandardDirectory Id="ProgramFiles64Folder">
-            <Directory Id="APPLICATIONROOTDIRECTORY" Name="QtNote">
+            <Directory Id="APPLICATIONROOTDIRECTORY" Name="AnyKeep">
                 @COMPONENTS@
             </Directory>
         </StandardDirectory>
 
         <StandardDirectory Id="ProgramMenuFolder">
-            <Directory Id="ProgramMenuDir" Name="QtNote">
+            <Directory Id="ProgramMenuDir" Name="AnyKeep">
                 <Component Id="StartMenuShortcuts" Guid="*" Bitness="always64">
                     <RemoveFolder Id="ProgramMenuDir" On="uninstall" />
                     <RegistryValue Root="HKCU" Key="Software\[Manufacturer]\[ProductName]" Name="installed" Type="integer" Value="1" KeyPath="yes" />
                     <Shortcut Id="ExeShortcut"
-                              Name="QtNote"
-                              Description="Launch QtNote"
-                              Target="[APPLICATIONROOTDIRECTORY]QtNote.exe"
+                              Name="AnyKeep"
+                              Description="Launch AnyKeep"
+                              Target="[APPLICATIONROOTDIRECTORY]AnyKeep.exe"
                               WorkingDirectory="APPLICATIONROOTDIRECTORY" />
                 </Component>
             </Directory>
@@ -37,8 +37,8 @@
             <ComponentRef Id="StartMenuShortcuts" />
         </Feature>
 
-        <Icon Id="DesktopIcon.exe" SourceFile="@CMAKE_INSTALL_PREFIX@/qtnote.exe" />
-        <Icon Id="StartMenuIcon.exe" SourceFile="@CMAKE_INSTALL_PREFIX@/qtnote.exe" />
+        <Icon Id="DesktopIcon.exe" SourceFile="@CMAKE_INSTALL_PREFIX@/anykeep.exe" />
+        <Icon Id="StartMenuIcon.exe" SourceFile="@CMAKE_INSTALL_PREFIX@/anykeep.exe" />
         <Icon Id="icon.ico" SourceFile="@LOGO_FILE@" />
         <Property Id="ARPPRODUCTICON" Value="icon.ico" />
         <MajorUpgrade

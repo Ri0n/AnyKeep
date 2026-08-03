@@ -25,15 +25,15 @@
 #include <KWaylandExtras>
 #include <KWindowSystem>
 
-#include "qtnote_config.h"
+#include "anykeep_config.h"
 
 namespace {
-constexpr auto ServiceName                 = "com.github.ri0n.QtNote";
-constexpr auto ObjectPath                  = "/QtNote";
-constexpr auto InterfaceName               = "com.github.ri0n.QtNote";
-constexpr auto AutostartSuppressedProperty = "_qtnote_backendAutostartSuppressed";
+constexpr auto ServiceName                 = "com.github.ri0n.AnyKeep";
+constexpr auto ObjectPath                  = "/AnyKeep";
+constexpr auto InterfaceName               = "com.github.ri0n.AnyKeep";
+constexpr auto AutostartSuppressedProperty = "_anykeep_backendAutostartSuppressed";
 
-Q_LOGGING_CATEGORY(logPlasmoid, "qtnote.plasmoid")
+Q_LOGGING_CATEGORY(logPlasmoid, "anykeep.plasmoid")
 
 void loadTranslations()
 {
@@ -41,19 +41,19 @@ void loadTranslations()
     if (std::exchange(loaded, true))
         return;
 
-    QSettings     settings(QStringLiteral("R-Soft"), QStringLiteral("QtNote"));
+    QSettings     settings(QStringLiteral("R-Soft"), QStringLiteral("AnyKeep"));
     const QString forcedLangName = settings.value(QLatin1String("language")).toString();
     const bool    autoLang       = forcedLangName.isEmpty() || forcedLangName == QLatin1String("auto");
     const QLocale locale         = autoLang ? QLocale::system() : QLocale(forcedLangName);
 
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
-        + QLatin1String("/R-Soft/QtNote/translations");
+        + QLatin1String("/R-Soft/AnyKeep/translations");
     QStringList langDirs {
         QStringLiteral(TRANSLATIONSDIR),
         dataDir,
     };
-#ifdef QTNOTE_DEVEL_TRANSLATIONSDIR
-    langDirs.prepend(QStringLiteral(QTNOTE_DEVEL_TRANSLATIONSDIR));
+#ifdef ANYKEEP_DEVEL_TRANSLATIONSDIR
+    langDirs.prepend(QStringLiteral(ANYKEEP_DEVEL_TRANSLATIONSDIR));
 #endif
 
     auto *translator = new QTranslator(qApp);
@@ -294,10 +294,10 @@ void NotesModel::quit()
 {
     if (m_inSystemTray) {
         m_backendAutostartSuppressed = true;
-        qCInfo(logPlasmoid) << "QtNote quit requested from system tray;"
+        qCInfo(logPlasmoid) << "AnyKeep quit requested from system tray;"
                             << "suppressing passive backend autostart";
     } else {
-        qCInfo(logPlasmoid) << "QtNote quit requested from standalone plasmoid";
+        qCInfo(logPlasmoid) << "AnyKeep quit requested from standalone plasmoid";
     }
     m_pendingCall.clear();
     call(QStringLiteral("quit"));
@@ -399,7 +399,7 @@ void NotesModel::callWithActivationToken(const QString &method, const QVariantLi
 
         callMethod();
     });
-    watcher->setFuture(KWaylandExtras::xdgActivationToken(activationWindow, QStringLiteral("qtnote")));
+    watcher->setFuture(KWaylandExtras::xdgActivationToken(activationWindow, QStringLiteral("anykeep")));
 }
 
 bool NotesModel::startBackend()
@@ -409,18 +409,18 @@ bool NotesModel::startBackend()
     if (m_starting)
         return true;
 
-#ifdef QTNOTE_DEVEL_EXECUTABLE
-    qCInfo(logPlasmoid) << "QtNote backend autostart is disabled in development builds";
+#ifdef ANYKEEP_DEVEL_EXECUTABLE
+    qCInfo(logPlasmoid) << "AnyKeep backend autostart is disabled in development builds";
     return false;
 #else
-    const QString executable = QStandardPaths::findExecutable(QStringLiteral("qtnote"));
+    const QString executable = QStandardPaths::findExecutable(QStringLiteral("anykeep"));
     if (executable.isEmpty()) {
-        qCWarning(logPlasmoid) << "Unable to find qtnote executable";
+        qCWarning(logPlasmoid) << "Unable to find anykeep executable";
         return false;
     }
 
     if (!QProcess::startDetached(executable)) {
-        qCWarning(logPlasmoid) << "Failed to start qtnote executable:" << executable;
+        qCWarning(logPlasmoid) << "Failed to start anykeep executable:" << executable;
         return false;
     }
 

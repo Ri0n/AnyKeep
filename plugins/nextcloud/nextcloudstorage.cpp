@@ -18,7 +18,7 @@
 #include <algorithm>
 #include <utility>
 
-namespace QtNote {
+namespace AnyKeep {
 class NextcloudSettingsController final : public SettingsController {
 public:
     explicit NextcloudSettingsController(NextcloudStorage *storage, QObject *parent = nullptr) :
@@ -103,7 +103,7 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
     NoteStorage(parent),
     folderCatalogManager_(folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance())
 {
-    workerThread_.setObjectName(QStringLiteral("QtNoteNextcloudWorker"));
+    workerThread_.setObjectName(QStringLiteral("AnyKeepNextcloudWorker"));
     worker_ = new NextcloudWorker;
     worker_->moveToThread(&workerThread_);
     connect(&workerThread_, &QThread::finished, worker_, &QObject::deleteLater);
@@ -969,4 +969,4 @@ QString NextcloudStorage::tooltip()
 
 QString NextcloudStorage::storageId = QStringLiteral("nextcloud");
 
-} // namespace QtNote
+} // namespace AnyKeep

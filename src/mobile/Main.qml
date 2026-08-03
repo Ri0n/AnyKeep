@@ -9,7 +9,7 @@ ApplicationWindow {
     width: 420
     height: 760
     visible: true
-    title: qsTr("QtNote")
+    title: qsTr("AnyKeep")
 
     StackView {
         id: navigation
@@ -30,7 +30,7 @@ ApplicationWindow {
                 navigation.push(noteEditor, { "editor": mobileApp.currentNoteEditor })
         }
         function onOperationFailed(message) {
-            mobileApp.dialogs.inform(qsTr("QtNote"), message)
+            mobileApp.dialogs.inform(qsTr("AnyKeep"), message)
         }
         function onOperationCompleted(message) {
             mobileApp.dialogs.inform(qsTr("Done"), message)

@@ -6,15 +6,15 @@ if(NOT QT_VERSION_MAJOR EQUAL 6)
     message(FATAL_ERROR "Bundled QtKeychain is supported only with Qt 6")
 endif()
 
-set(QTNOTE_BUNDLED_QTKEYCHAIN_GIT_REPOSITORY "https://github.com/frankosterfeld/qtkeychain.git" CACHE STRING "Bundled QtKeychain git repository")
-set(QTNOTE_BUNDLED_QTKEYCHAIN_GIT_TAG "0.14.3" CACHE STRING "Bundled QtKeychain git tag")
-set(QTNOTE_QTKEYCHAIN_SOURCE_DIR "" CACHE PATH "Local QtKeychain source directory (avoids cloning the repository)")
+set(ANYKEEP_BUNDLED_QTKEYCHAIN_GIT_REPOSITORY "https://github.com/frankosterfeld/qtkeychain.git" CACHE STRING "Bundled QtKeychain git repository")
+set(ANYKEEP_BUNDLED_QTKEYCHAIN_GIT_TAG "0.14.3" CACHE STRING "Bundled QtKeychain git tag")
+set(ANYKEEP_QTKEYCHAIN_SOURCE_DIR "" CACHE PATH "Local QtKeychain source directory (avoids cloning the repository)")
 
 ProcessorCount(_qtkeychain_detected_jobs)
 if(NOT _qtkeychain_detected_jobs)
     set(_qtkeychain_detected_jobs 2)
 endif()
-set(QTNOTE_BUNDLED_QTKEYCHAIN_JOBS "${_qtkeychain_detected_jobs}" CACHE STRING "Parallel jobs used to build bundled QtKeychain")
+set(ANYKEEP_BUNDLED_QTKEYCHAIN_JOBS "${_qtkeychain_detected_jobs}" CACHE STRING "Parallel jobs used to build bundled QtKeychain")
 
 set(_qtkeychain_prefix "${CMAKE_BINARY_DIR}/_deps/qtkeychain")
 set(_qtkeychain_install_dir "${_qtkeychain_prefix}/install")
@@ -22,19 +22,19 @@ set(_qtkeychain_include_dir "${_qtkeychain_install_dir}/${CMAKE_INSTALL_INCLUDED
 set(_qtkeychain_library_dir "${_qtkeychain_install_dir}/${CMAKE_INSTALL_LIBDIR}")
 set(_qtkeychain_library "${_qtkeychain_library_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}qt6keychain${CMAKE_STATIC_LIBRARY_SUFFIX}")
 
-if(QTNOTE_QTKEYCHAIN_SOURCE_DIR)
-    if(NOT EXISTS "${QTNOTE_QTKEYCHAIN_SOURCE_DIR}/CMakeLists.txt")
-        message(FATAL_ERROR "QTNOTE_QTKEYCHAIN_SOURCE_DIR does not contain a QtKeychain source tree: ${QTNOTE_QTKEYCHAIN_SOURCE_DIR}")
+if(ANYKEEP_QTKEYCHAIN_SOURCE_DIR)
+    if(NOT EXISTS "${ANYKEEP_QTKEYCHAIN_SOURCE_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR "ANYKEEP_QTKEYCHAIN_SOURCE_DIR does not contain a QtKeychain source tree: ${ANYKEEP_QTKEYCHAIN_SOURCE_DIR}")
     endif()
     set(_qtkeychain_source_args
-        SOURCE_DIR "${QTNOTE_QTKEYCHAIN_SOURCE_DIR}"
+        SOURCE_DIR "${ANYKEEP_QTKEYCHAIN_SOURCE_DIR}"
         DOWNLOAD_COMMAND ""
         UPDATE_COMMAND ""
     )
 else()
     set(_qtkeychain_source_args
-        GIT_REPOSITORY "${QTNOTE_BUNDLED_QTKEYCHAIN_GIT_REPOSITORY}"
-        GIT_TAG "${QTNOTE_BUNDLED_QTKEYCHAIN_GIT_TAG}"
+        GIT_REPOSITORY "${ANYKEEP_BUNDLED_QTKEYCHAIN_GIT_REPOSITORY}"
+        GIT_TAG "${ANYKEEP_BUNDLED_QTKEYCHAIN_GIT_TAG}"
         UPDATE_COMMAND ""
     )
 endif()
@@ -64,14 +64,14 @@ set(_qtkeychain_cmake_args
     "-DOSX_FRAMEWORK=OFF"
 )
 
-ExternalProject_Add(qtnote_bundled_qtkeychain
+ExternalProject_Add(anykeep_bundled_qtkeychain
     ${_qtkeychain_source_args}
     PREFIX "${_qtkeychain_prefix}"
     INSTALL_DIR "${_qtkeychain_install_dir}"
     CMAKE_ARGS ${_qtkeychain_cmake_args}
     BUILD_COMMAND
         "${CMAKE_COMMAND}" --build <BINARY_DIR>
-        --parallel "${QTNOTE_BUNDLED_QTKEYCHAIN_JOBS}"
+        --parallel "${ANYKEEP_BUNDLED_QTKEYCHAIN_JOBS}"
     BUILD_BYPRODUCTS
         "${_qtkeychain_library}"
 )
@@ -84,4 +84,4 @@ set_target_properties(Qt6Keychain::Qt6Keychain PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${_qtkeychain_include_dir}"
     INTERFACE_LINK_LIBRARIES "Qt6::Core"
 )
-add_dependencies(Qt6Keychain::Qt6Keychain qtnote_bundled_qtkeychain)
+add_dependencies(Qt6Keychain::Qt6Keychain anykeep_bundled_qtkeychain)

@@ -1,0 +1,710 @@
+{
+  "vector_format": "private-notes-xml-v1",
+  "description": "Portable XML/AES-GCM conformance vectors for AnyKeep PubSub records",
+  "generated_by": "private-notes-encrypted-reference.py",
+  "protocol_namespace": "urn:xmpp:private-notes:0",
+  "folder_namespace": "urn:xmpp:private-notes:folders:0",
+  "content_revision_namespace": "urn:xmpp:private-notes:content:0",
+  "crypto": {
+    "cipher": "AES-256-GCM",
+    "nonce_bytes": 12,
+    "tag_bytes": 16,
+    "aad_hex": "",
+    "hkdf_hash": "SHA-256",
+    "hkdf_salt_utf8": "private-notes HKDF salt v1",
+    "hkdf_info_prefix_utf8": "private-notes key domain v1:"
+  },
+  "positive": [
+    {
+      "name": "index",
+      "description": "Complete index record",
+      "request": {
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "nonce_hex": "000102030405060708090a0b",
+        "record": {
+          "revision": "018f0be0-df0d-7c70-a2ef-1f5c973ec92a",
+          "origin_id": "device-a",
+          "title": "Portable note",
+          "modified": "2026-07-27T18:00:00.123Z",
+          "format": "markdown",
+          "tags": [
+            "one",
+            "two"
+          ],
+          "folder_path": [
+            "Projects",
+            "2026"
+          ]
+        }
+      },
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e14706c7e0a47118ba47b672e51eabf619d7c141495570467aaff034d48982489146ad8add3078307aa22569579fe331846c99a7a4a7e6e8bf45f7588030c75c43fb948de6e0c6a7242bd7292d02135489aca56d736ba72a76fad72956d0479910827c7adc3908f41fd3e475dfdbafd25c5c7ebcac2ad2c07897c751c216b9731c18b66cfedd0d7c887b97b6602b8e32dd1b0aad64d7dcae3fcbb27e81b17317139fb558262e9a4ddccb4f204cdc8192ea52f23bca133354e843dac175e4f805c36f1c8df51db32b9cb0877c6552a553c2abdee24f3a5b01838521f2c1444dab9244a3e32cea76815eef8052be5f164ce28e57f5e02029c569a4e119c55d2e6faccb53895abd0466d5bff2568f3048c2e2eb95a1bed5ecb50f03abe2dbf2064059e13cd5a54c7fc8e189a2eb72aab48617ce449ba2a3ad5761f0998d63803273af22c9e5cfb9505b2ef6c51650c3111c71e03dd576c0bc297fdaafae861dfd50cb7b6d1058a08f2",
+        "tag_hex": "8ebe8564c5a1246d7bb6192c95ef67db",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>AAECAwQFBgcICQoL</nonce><payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UcGx+CkcRi6R7Zy5R6r9hnXwUFJVXBGeq/wNNSJgkiRRq2K3TB4MHqiJWlXn+MxhGyZp6Sn5ui/RfdYgDDHXEP7lI3m4ManJCvXKS0CE1SJrKVtc2unKnb61ylW0EeZEIJ8etw5CPQf0+R139uv0lxcfrysKtLAeJfHUcIWuXMcGLZs/t0NfIh7l7ZgK44y3RsKrWTX3K4/y7J+gbFzFxOftVgmLppN3MtPIEzcgZLqUvI7yhMzVOhD2sF15PgFw28cjfUdsyucsId8ZVKlU8Kr3uJPOlsBg4Uh8sFETauSRKPjLOp2gV7vgFK+XxZM4o5X9eAgKcVppOEZxV0ub6zLU4lavQRm1b/yVo8wSMLi65WhvtXstQ8Dq+Lb8gZAWeE81aVMf8jhiaLrcqq0hhfORJuio61XYfCZjWOAMnOvIsnlz7lQWy72xRZQwxEcceA91XbAvCl/2q+uhh39UMt7bRBYoI8g==</payload><tag>jr6FZMWhJG17thksle9n2w==</tag></encrypted></item>"
+      },
+      "expected_decoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "record": {
+          "kind": "index",
+          "id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+          "revision": "018f0be0-df0d-7c70-a2ef-1f5c973ec92a",
+          "content_revision": "018f0be0-df0d-7c70-a2ef-1f5c973ec92a",
+          "parent_revision": "",
+          "origin_id": "device-a",
+          "title": "Portable note",
+          "modified": "2026-07-27T18:00:00.123Z",
+          "format": "markdown",
+          "tags": [
+            "one",
+            "two"
+          ],
+          "folder_path": [
+            "Projects",
+            "2026"
+          ]
+        }
+      }
+    },
+    {
+      "name": "index-metadata-only",
+      "description": "Metadata-only index update bound to an existing body",
+      "request": {
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "nonce_hex": "101112131415161718191a1b",
+        "record": {
+          "revision": "folder-revision",
+          "content_revision": "body-revision",
+          "parent_revision": "body-revision",
+          "origin_id": "device-a",
+          "title": "Portable note",
+          "modified": "2026-07-27T18:01:00.123Z",
+          "format": "markdown",
+          "tags": [
+            "one"
+          ],
+          "folder_path": [
+            "Archive"
+          ]
+        }
+      },
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "101112131415161718191a1b",
+        "ciphertext_hex": "78379c19784de1cbad76b4536b847408a78c21ff61cd1cf58eb8d904c388c794d10e4f201d8cc366c6765185c4cbad4925f230a7badce0037186d56bddb8f19163512430f365d1ceee94ba055b7e80b07b12ef19918fb647eb1eb12116ee61e4a4bb4b85ebb1dd81948f6b73db4501a1673ee262c2a43eb404503e96a27051aea87c32e792aede9c025fc72307ff1e6537cf5c4ce798d22d750622413a5c675cacb6cc0bb62b65c4c30f8b7937911c765fc23f5bd51d3c6d2b330edf5eeb71a58a1685d73dd884d41eec05f9ef2b803cd34135591fa15ac5af2650defd00a3660db6943f0214680162606f0cb75000335ff3c62b35fad60ec44e619627a6f51850c8e1936285f2849180cc750fa5db40ab40be6aa64ec7bc37801ebff27247de5c472f3b61e3472c7d1acdd21958b21a510d94cfe5d3d72a09297a98391d598ae8a6d3fc5211199c4bfbc25640f30619721d3431fa0319d4eee2e80a9d29da45ca96bc8da0fc88e889184d5c21739ce9a314e2704de4bc5a2e2339f8d0baa80bb7dabbab302f2d70acdae82d2b66f3105b727527d40ee14db2f34f319663de8630a694d7b47e1089027a36cc7c1b5149c124271b983ccb96e0be3faf18c06eccc2df3b8b19fb5c50bc65a8724b0425d0138de062fdaf435f2517209432114aab2bf006ad02974e50aae8ac1847d4da972eb04f890ff98cf938840988e04798f1cacbd65157a8b385c82853cb56c58099d6b805adf1c4dd159601cbd8f38bdd240a205eb8f9db2d7fb0d9d55858871910a100913a041f9b453720d4e5cebd1d12be09",
+        "tag_hex": "6fd464de7a545f66555237a44a4946ac",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><required feature=\"urn:xmpp:private-notes:content:0\"/><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"folder-revision\" modified=\"2026-07-27T18:01:00.123Z\" format=\"markdown\" parent-revision=\"body-revision\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Archive</segment></folder><content-revision xmlns=\"urn:xmpp:private-notes:content:0\">body-revision</content-revision></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c726571756972656420666561747572653d2275726e3a786d70703a707269766174652d6e6f7465733a636f6e74656e743a30222f3e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d22666f6c6465722d7265766973696f6e22206d6f6469666965643d22323032362d30372d32375431383a30313a30302e3132335a2220666f726d61743d226d61726b646f776e2220706172656e742d7265766973696f6e3d22626f64792d7265766973696f6e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e417263686976653c2f7365676d656e743e3c2f666f6c6465723e3c636f6e74656e742d7265766973696f6e20786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a636f6e74656e743a30223e626f64792d7265766973696f6e3c2f636f6e74656e742d7265766973696f6e3e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>EBESExQVFhcYGRob</nonce><payload>eDecGXhN4cutdrRTa4R0CKeMIf9hzRz1jrjZBMOIx5TRDk8gHYzDZsZ2UYXEy61JJfIwp7rc4ANxhtVr3bjxkWNRJDDzZdHO7pS6BVt+gLB7Eu8ZkY+2R+sesSEW7mHkpLtLheux3YGUj2tz20UBoWc+4mLCpD60BFA+lqJwUa6ofDLnkq7enAJfxyMH/x5lN89cTOeY0i11BiJBOlxnXKy2zAu2K2XEww+LeTeRHHZfwj9b1R08bSszDt9e63GlihaF1z3YhNQe7AX57yuAPNNBNVkfoVrFryZQ3v0Ao2YNtpQ/AhRoAWJgbwy3UAAzX/PGKzX61g7ETmGWJ6b1GFDI4ZNihfKEkYDMdQ+l20CrQL5qpk7HvDeAHr/yckfeXEcvO2HjRyx9Gs3SGViyGlENlM/l09cqCSl6mDkdWYroptP8UhEZnEv7wlZA8wYZch00MfoDGdTu4ugKnSnaRcqWvI2g/IjoiRhNXCFznOmjFOJwTeS8Wi4jOfjQuqgLt9q7qzAvLXCs2ugtK2bzEFtydSfUDuFNsvNPMZZj3oYwppTXtH4QiQJ6Nsx8G1FJwSQnG5g8y5bgvj+vGMBuzMLfO4sZ+1xQvGWocksEJdATjeBi/a9DXyUXIJQyEUqrK/AGrQKXTlCq6KwYR9Taly6wT4kP+Yz5OIQJiOBHmPHKy9ZRV6izhcgoU8tWxYCZ1rgFrfHE3RWWAcvY84vdJAogXrj52y1/sNnVWFiHGRChAJE6BB+bRTcg1OXOvR0Svgk=</payload><tag>b9Rk3npUX2ZVUjekSklGrA==</tag></encrypted></item>"
+      },
+      "expected_decoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><required feature=\"urn:xmpp:private-notes:content:0\"/><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"folder-revision\" modified=\"2026-07-27T18:01:00.123Z\" format=\"markdown\" parent-revision=\"body-revision\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Archive</segment></folder><content-revision xmlns=\"urn:xmpp:private-notes:content:0\">body-revision</content-revision></index></content></envelope>",
+        "record": {
+          "kind": "index",
+          "id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+          "revision": "folder-revision",
+          "content_revision": "body-revision",
+          "parent_revision": "body-revision",
+          "origin_id": "device-a",
+          "title": "Portable note",
+          "modified": "2026-07-27T18:01:00.123Z",
+          "format": "markdown",
+          "tags": [
+            "one"
+          ],
+          "folder_path": [
+            "Archive"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content",
+      "description": "Complete content record",
+      "request": {
+        "kind": "content",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:content",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "nonce_hex": "0c0d0e0f1011121314151617",
+        "record": {
+          "revision": "018f0be0-df0d-7c70-a2ef-1f5c973ec92a",
+          "body": "Portable body\n"
+        }
+      },
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "content",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:content",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "f201cabde9a341f20890f6eae19ecce61d80a813c94b2c05314ece3cb78fe947",
+        "nonce_hex": "0c0d0e0f1011121314151617",
+        "ciphertext_hex": "330778c2aabb62c2f57e406c8f646af31367419e6ce278617f2c4557f53ac5adadf160fce79da3a6dbbceb5adecf2d6b9673bd9a916db7cf582b17685b935a25bb5aaddc71f05534dcde07bc05d04e02bd76fdb180bc8c822b9dde15834a65827752f516a2ab1a33ba44725904d5acaf6b45587bd2ffef0b6819dce6bb58874dd8ad918e4620d24602285894491f92982fadd3ef1efca149b68be9da562b200e5427dd64c2f10e7787f6d88a6feb722a2e9d4ae645eaafc8faf1d296a1b3545fde770ad40a0c127ff201bc76835d41ab8aec23f25f67df1ccf26862aebdcbd1f5be29b199f2cb857b0195a75d34bac1edbe941ca113ceacc",
+        "tag_hex": "d26b3be261a4eee54747601d6c603c47",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:content</node><content><note id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\"><body>Portable body\n</body></note></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a636f6e74656e743c2f6e6f64653e3c636f6e74656e743e3c6e6f74652069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d316635633937336563393261223e3c626f64793e506f727461626c6520626f64790a3c2f626f64793e3c2f6e6f74653e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>DA0ODxAREhMUFRYX</nonce><payload>Mwd4wqq7YsL1fkBsj2Rq8xNnQZ5s4nhhfyxFV/U6xa2t8WD8552jptu861rezy1rlnO9mpFtt89YKxdoW5NaJbtardxx8FU03N4HvAXQTgK9dv2xgLyMgiud3hWDSmWCd1L1FqKrGjO6RHJZBNWsr2tFWHvS/+8LaBnc5rtYh03YrZGORiDSRgIoWJRJH5KYL63T7x78oUm2i+naVisgDlQn3WTC8Q53h/bYim/rciounUrmReqvyPrx0pahs1Rf3ncK1AoMEn/yAbx2g11Bq4rsI/JfZ98czyaGKuvcvR9b4psZnyy4V7AZWnXTS6we2+lByhE86sw=</payload><tag>0ms74mGk7uVHR2AdbGA8Rw==</tag></encrypted></item>"
+      },
+      "expected_decoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "content",
+        "node": "urn:xmpp:private-notes:0:content",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:content</node><content><note id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\"><body>Portable body\n</body></note></content></envelope>",
+        "record": {
+          "kind": "content",
+          "id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+          "revision": "018f0be0-df0d-7c70-a2ef-1f5c973ec92a",
+          "body": "Portable body\n"
+        }
+      }
+    },
+    {
+      "name": "index-extensions",
+      "description": "Unicode and optional foreign-namespace extensions",
+      "request": {
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "unicode-note",
+        "nonce_hex": "18191a1b1c1d1e1f20212223",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\" xmlns:x=\"urn:example:private-notes:extension:1\" x:root=\"preserve\"><node>urn:xmpp:private-notes:0:index</node><x:envelope value=\"42\"/><content x:box=\"yes\"><index id=\"unicode-note\" revision=\"revision-unicode\" modified=\"2026-07-27T18:00:00.000Z\" format=\"markdown\" x:record=\"keep\"><title>Привет &amp; café</title><tag>тест</tag><x:record>future</x:record></index></content></envelope>"
+      },
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "unicode-note",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "18191a1b1c1d1e1f20212223",
+        "ciphertext_hex": "9f8705d0390edce9b8aacaef7f3748207065ab35454063b57671936f25d2da1d1de6beec445bedbbd29dfe3b6442dd793feb1b6b231afc1e466059068e9db66b7a0cb255dc9adb45e6db9ae56d1e25cfe7d1a14118102996ec8284afd7004aba4e3574a25965c5602d3b6be734abdd15ee756e40d5a8bde99652f6cfdbe2cec77cd4e9fbf1390329dddd3e18948092807b9a7cdb45e1f3e116925a74383beda73198d43327ea790db7bd95115415acca0fdbb1cbc8b81abd3521eaf8b1860a52df097df244782b18d32a22723f47ee1db05774ff67ca6946502d98d298982f87738b58fe525e4ed094894dc648d59d0fef72b662347606cb96c81438566723cd59bbfd02caab03aeb8023b6867d5c308bb9fb296a81b38cd2ac4147bd745ba49415c32943a928df3a16334946e95ce35a7211837317257e020d73e18c97d70f44c5ebd38b040ab4008516dc8f682e6b21726846bf6e019afdb974b90e7db8ae001dbc87ec106e3f6ba5da93c3d3d28d2a4f197e418f6a830e1a1f264bfb791e0eb78a685108d6b1244dc942b4e90c4997c9ef8611b4817fea5179204ccc5a96534c6053e0819f9b165f2cfde7994e5d9d5d2",
+        "tag_hex": "e2a8dae203d6fad75ed7cca027294df7",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\" xmlns:x=\"urn:example:private-notes:extension:1\" x:root=\"preserve\"><node>urn:xmpp:private-notes:0:index</node><x:envelope value=\"42\"/><content x:box=\"yes\"><index id=\"unicode-note\" revision=\"revision-unicode\" modified=\"2026-07-27T18:00:00.000Z\" format=\"markdown\" x:record=\"keep\"><title>Привет &amp; café</title><tag>тест</tag><x:record>future</x:record></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a302220786d6c6e733a783d2275726e3a6578616d706c653a707269766174652d6e6f7465733a657874656e73696f6e3a312220783a726f6f743d227072657365727665223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c783a656e76656c6f70652076616c75653d223432222f3e3c636f6e74656e7420783a626f783d22796573223e3c696e6465782069643d22756e69636f64652d6e6f746522207265766973696f6e3d227265766973696f6e2d756e69636f646522206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3030305a2220666f726d61743d226d61726b646f776e2220783a7265636f72643d226b656570223e3c7469746c653ed09fd180d0b8d0b2d0b5d1822026616d703b20636166c3a93c2f7469746c653e3c7461673ed182d0b5d181d1823c2f7461673e3c783a7265636f72643e6675747572653c2f783a7265636f72643e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"unicode-note\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>GBkaGxwdHh8gISIj</nonce><payload>n4cF0DkO3Om4qsrvfzdIIHBlqzVFQGO1dnGTbyXS2h0d5r7sRFvtu9Kd/jtkQt15P+sbayMa/B5GYFkGjp22a3oMslXcmttF5tua5W0eJc/n0aFBGBApluyChK/XAEq6TjV0olllxWAtO2vnNKvdFe51bkDVqL3pllL2z9vizsd81On78TkDKd3dPhiUgJKAe5p820Xh8+EWklp0ODvtpzGY1DMn6nkNt72VEVQVrMoP27HLyLgavTUh6vixhgpS3wl98kR4KxjTKiJyP0fuHbBXdP9nymlGUC2Y0piYL4dzi1j+Ul5O0JSJTcZI1Z0P73K2YjR2BsuWyBQ4VmcjzVm7/QLKqwOuuAI7aGfVwwi7n7KWqBs4zSrEFHvXRbpJQVwylDqSjfOhYzSUbpXONachGDcxclfgINc+GMl9cPRMXr04sECrQAhRbcj2guayFyaEa/bgGa/bl0uQ59uK4AHbyH7BBuP2ul2pPD09KNKk8ZfkGPaoMOGh8mS/t5Hg63imhRCNaxJE3JQrTpDEmXye+GEbSBf+pReSBMzFqWU0xgU+CBn5sWXyz955lOXZ1dI=</payload><tag>4qja4gPW+tde18ygJylN9w==</tag></encrypted></item>"
+      },
+      "expected_decoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "unicode-note",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\" xmlns:x=\"urn:example:private-notes:extension:1\" x:root=\"preserve\"><node>urn:xmpp:private-notes:0:index</node><x:envelope value=\"42\"/><content x:box=\"yes\"><index id=\"unicode-note\" revision=\"revision-unicode\" modified=\"2026-07-27T18:00:00.000Z\" format=\"markdown\" x:record=\"keep\"><title>Привет &amp; café</title><tag>тест</tag><x:record>future</x:record></index></content></envelope>",
+        "record": {
+          "kind": "index",
+          "id": "unicode-note",
+          "revision": "revision-unicode",
+          "content_revision": "revision-unicode",
+          "parent_revision": "",
+          "origin_id": "",
+          "title": "Привет & café",
+          "modified": "2026-07-27T18:00:00.000Z",
+          "format": "markdown",
+          "tags": [
+            "тест"
+          ],
+          "folder_path": []
+        }
+      }
+    },
+    {
+      "name": "index-minimal",
+      "description": "Empty title and no optional index fields",
+      "request": {
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "minimal-note",
+        "nonce_hex": "2425262728292a2b2c2d2e2f",
+        "record": {
+          "revision": "minimal-revision",
+          "title": "",
+          "modified": "2026-07-27T18:00:00Z",
+          "format": "markdown",
+          "tags": []
+        }
+      },
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "minimal-note",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "2425262728292a2b2c2d2e2f",
+        "ciphertext_hex": "ce8ae178b39ee9dd4c7e5a647733feadf228710e7d6012b7efa97ceea8dc8731f91371006ae1b599f6a993b06414ec405a31f3cb2bca6301af149ea533e5925a1125bab9ee2510a779ce6ac59c38b8ebd1ea17fc6b44c58da79b23c1ec788f3eb586578a0edc7d687f19afdc815557ad83104d5f2aac5ac9b3539802aa3ce14f986ed22530182570c0ad5dd2c95c1704034d68bca379411972fe2cc6d84ccc466b63ba835609ed4e9ba1baeabc38805d31886ae85a1ecbfee051287ab00560ea0985f558000a465f30f0a51a43b10b63958c68212dc9ae47994b2c463af0071a766baf8469e4e11daabc7eb0b7853af14373",
+        "tag_hex": "d5f5db26efffd6e267770aa7860c34dc",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"minimal-note\" revision=\"minimal-revision\" modified=\"2026-07-27T18:00:00Z\" format=\"markdown\"><title></title></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d226d696e696d616c2d6e6f746522207265766973696f6e3d226d696e696d616c2d7265766973696f6e22206d6f6469666965643d22323032362d30372d32375431383a30303a30305a2220666f726d61743d226d61726b646f776e223e3c7469746c653e3c2f7469746c653e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"minimal-note\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>JCUmJygpKissLS4v</nonce><payload>zorheLOe6d1MflpkdzP+rfIocQ59YBK376l87qjchzH5E3EAauG1mfapk7BkFOxAWjHzyyvKYwGvFJ6lM+WSWhElurnuJRCnec5qxZw4uOvR6hf8a0TFjaebI8HseI8+tYZXig7cfWh/Ga/cgVVXrYMQTV8qrFrJs1OYAqo84U+YbtIlMBglcMCtXdLJXBcEA01ovKN5QRly/izG2EzMRmtjuoNWCe1Om6G66rw4gF0xiGroWh7L/uBRKHqwBWDqCYX1WAAKRl8w8KUaQ7ELY5WMaCEtya5HmUssRjrwBxp2a6+EaeThHaq8frC3hTrxQ3M=</payload><tag>1fXbJu//1uJndwqnhgw03A==</tag></encrypted></item>"
+      },
+      "expected_decoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "minimal-note",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"minimal-note\" revision=\"minimal-revision\" modified=\"2026-07-27T18:00:00Z\" format=\"markdown\"><title></title></index></content></envelope>",
+        "record": {
+          "kind": "index",
+          "id": "minimal-note",
+          "revision": "minimal-revision",
+          "content_revision": "minimal-revision",
+          "parent_revision": "",
+          "origin_id": "",
+          "title": "",
+          "modified": "2026-07-27T18:00:00Z",
+          "format": "markdown",
+          "tags": [],
+          "folder_path": []
+        }
+      }
+    },
+    {
+      "name": "content-empty",
+      "description": "Empty note body",
+      "request": {
+        "kind": "content",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:content",
+        "item_id": "empty-note",
+        "nonce_hex": "303132333435363738393a3b",
+        "record": {
+          "revision": "empty-revision",
+          "body": ""
+        }
+      },
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "content",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:content",
+        "item_id": "empty-note",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "f201cabde9a341f20890f6eae19ecce61d80a813c94b2c05314ece3cb78fe947",
+        "nonce_hex": "303132333435363738393a3b",
+        "ciphertext_hex": "2af82ea9d3748560cb314d63f645fe059fcca93b3d09a23c4d7c6bf34c01a278e9ce9256b314258ad32c6d92d92e3e3fff5cd4c71026310f2cb3df072596a10a892fce6dd0f446014b96d23dc972e804e1be049a541f5a81bb27387e855a1af52cb893b6c7fb27bfac320010247d4a96ecf6086fdee68c996f25d7b2f86a3fbe3e006f571bc5f73d52846f3f592e5d39ecd992e52412fc9e8b5331e836f69de48e40d90a6313fdcfb28cd165a1982ae2f76de3ee2660d887bf2f",
+        "tag_hex": "843cd96f63fd10220dbcf7e58e470ed7",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:content</node><content><note id=\"empty-note\" revision=\"empty-revision\"><body></body></note></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a636f6e74656e743c2f6e6f64653e3c636f6e74656e743e3c6e6f74652069643d22656d7074792d6e6f746522207265766973696f6e3d22656d7074792d7265766973696f6e223e3c626f64793e3c2f626f64793e3c2f6e6f74653e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"empty-note\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>MDEyMzQ1Njc4OTo7</nonce><payload>KvguqdN0hWDLMU1j9kX+BZ/MqTs9CaI8TXxr80wBonjpzpJWsxQlitMsbZLZLj4//1zUxxAmMQ8ss98HJZahCokvzm3Q9EYBS5bSPcly6AThvgSaVB9agbsnOH6FWhr1LLiTtsf7J7+sMgAQJH1Kluz2CG/e5oyZbyXXsvhqP74+AG9XG8X3PVKEbz9ZLl057NmS5SQS/J6LUzHoNvad5I5A2QpjE/3PsozRZaGYKuL3bePuJmDYh78v</payload><tag>hDzZb2P9ECINvPfljkcO1w==</tag></encrypted></item>"
+      },
+      "expected_decoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "content",
+        "node": "urn:xmpp:private-notes:0:content",
+        "item_id": "empty-note",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:content</node><content><note id=\"empty-note\" revision=\"empty-revision\"><body></body></note></content></envelope>",
+        "record": {
+          "kind": "content",
+          "id": "empty-note",
+          "revision": "empty-revision",
+          "body": ""
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "name": "obsolete-legacy-namespace",
+      "description": "Pre-unified encrypted namespace",
+      "expected_error": "obsolete",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e14706c7e0a47118ba47b672e51eabf619d7c141495570467aaff034d48982489146ad8add3078307aa22569579fe331846c99a7a4a7e6e8bf45f7588030c75c43fb948de6e0c6a7242bd7292d02135489aca56d736ba72a76fad72956d0479910827c7adc3908f41fd3e475dfdbafd25c5c7ebcac2ad2c07897c751c216b9731c18b66cfedd0d7c887b97b6602b8e32dd1b0aad64d7dcae3fcbb27e81b17317139fb558262e9a4ddccb4f204cdc8192ea52f23bca133354e843dac175e4f805c36f1c8df51db32b9cb0877c6552a553c2abdee24f3a5b01838521f2c1444dab9244a3e32cea76815eef8052be5f164ce28e57f5e02029c569a4e119c55d2e6faccb53895abd0466d5bff2568f3048c2e2eb95a1bed5ecb50f03abe2dbf2064059e13cd5a54c7fc8e189a2eb72aab48617ce449ba2a3ad5761f0998d63803273af22c9e5cfb9505b2ef6c51650c3111c71e03dd576c0bc297fdaafae861dfd50cb7b6d1058a08f2",
+        "tag_hex": "8ebe8564c5a1246d7bb6192c95ef67db",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item xmlns:legacy=\"urn:xmpp:private-notes:encrypted:0\" xmlns:pn=\"urn:xmpp:private-notes:0\" id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><legacy:encrypted key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><pn:nonce>AAECAwQFBgcICQoL</pn:nonce><pn:payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UcGx+CkcRi6R7Zy5R6r9hnXwUFJVXBGeq/wNNSJgkiRRq2K3TB4MHqiJWlXn+MxhGyZp6Sn5ui/RfdYgDDHXEP7lI3m4ManJCvXKS0CE1SJrKVtc2unKnb61ylW0EeZEIJ8etw5CPQf0+R139uv0lxcfrysKtLAeJfHUcIWuXMcGLZs/t0NfIh7l7ZgK44y3RsKrWTX3K4/y7J+gbFzFxOftVgmLppN3MtPIEzcgZLqUvI7yhMzVOhD2sF15PgFw28cjfUdsyucsId8ZVKlU8Kr3uJPOlsBg4Uh8sFETauSRKPjLOp2gV7vgFK+XxZM4o5X9eAgKcVppOEZxV0ub6zLU4lavQRm1b/yVo8wSMLi65WhvtXstQ8Dq+Lb8gZAWeE81aVMf8jhiaLrcqq0hhfORJuio61XYfCZjWOAMnOvIsnlz7lQWy72xRZQwxEcceA91XbAvCl/2q+uhh39UMt7bRBYoI8g==</pn:payload><pn:tag>jr6FZMWhJG17thksle9n2w==</pn:tag></legacy:encrypted></item>"
+      }
+    },
+    {
+      "name": "wrong-key",
+      "description": "Configured master key differs",
+      "expected_error": "wrong_key",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "5555555555555555555555555555555555555555555555555555555555555555",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e14706c7e0a47118ba47b672e51eabf619d7c141495570467aaff034d48982489146ad8add3078307aa22569579fe331846c99a7a4a7e6e8bf45f7588030c75c43fb948de6e0c6a7242bd7292d02135489aca56d736ba72a76fad72956d0479910827c7adc3908f41fd3e475dfdbafd25c5c7ebcac2ad2c07897c751c216b9731c18b66cfedd0d7c887b97b6602b8e32dd1b0aad64d7dcae3fcbb27e81b17317139fb558262e9a4ddccb4f204cdc8192ea52f23bca133354e843dac175e4f805c36f1c8df51db32b9cb0877c6552a553c2abdee24f3a5b01838521f2c1444dab9244a3e32cea76815eef8052be5f164ce28e57f5e02029c569a4e119c55d2e6faccb53895abd0466d5bff2568f3048c2e2eb95a1bed5ecb50f03abe2dbf2064059e13cd5a54c7fc8e189a2eb72aab48617ce449ba2a3ad5761f0998d63803273af22c9e5cfb9505b2ef6c51650c3111c71e03dd576c0bc297fdaafae861dfd50cb7b6d1058a08f2",
+        "tag_hex": "8ebe8564c5a1246d7bb6192c95ef67db",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>AAECAwQFBgcICQoL</nonce><payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UcGx+CkcRi6R7Zy5R6r9hnXwUFJVXBGeq/wNNSJgkiRRq2K3TB4MHqiJWlXn+MxhGyZp6Sn5ui/RfdYgDDHXEP7lI3m4ManJCvXKS0CE1SJrKVtc2unKnb61ylW0EeZEIJ8etw5CPQf0+R139uv0lxcfrysKtLAeJfHUcIWuXMcGLZs/t0NfIh7l7ZgK44y3RsKrWTX3K4/y7J+gbFzFxOftVgmLppN3MtPIEzcgZLqUvI7yhMzVOhD2sF15PgFw28cjfUdsyucsId8ZVKlU8Kr3uJPOlsBg4Uh8sFETauSRKPjLOp2gV7vgFK+XxZM4o5X9eAgKcVppOEZxV0ub6zLU4lavQRm1b/yVo8wSMLi65WhvtXstQ8Dq+Lb8gZAWeE81aVMf8jhiaLrcqq0hhfORJuio61XYfCZjWOAMnOvIsnlz7lQWy72xRZQwxEcceA91XbAvCl/2q+uhh39UMt7bRBYoI8g==</payload><tag>jr6FZMWhJG17thksle9n2w==</tag></encrypted></item>"
+      }
+    },
+    {
+      "name": "wrong-node",
+      "description": "Authenticated node differs",
+      "expected_error": "context_mismatch",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:another-index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e14706c7e0a47118ba47b672e51eabf619d7c141495570467aaff034d48982489146ad8add3078307aa22569579fe331846c99a7a4a7e6e8bf45f7588030c75c43fb948de6e0c6a7242bd7292d02135489aca56d736ba72a76fad72956d0479910827c7adc3908f41fd3e475dfdbafd25c5c7ebcac2ad2c07897c751c216b9731c18b66cfedd0d7c887b97b6602b8e32dd1b0aad64d7dcae3fcbb27e81b17317139fb558262e9a4ddccb4f204cdc8192ea52f23bca133354e843dac175e4f805c36f1c8df51db32b9cb0877c6552a553c2abdee24f3a5b01838521f2c1444dab9244a3e32cea76815eef8052be5f164ce28e57f5e02029c569a4e119c55d2e6faccb53895abd0466d5bff2568f3048c2e2eb95a1bed5ecb50f03abe2dbf2064059e13cd5a54c7fc8e189a2eb72aab48617ce449ba2a3ad5761f0998d63803273af22c9e5cfb9505b2ef6c51650c3111c71e03dd576c0bc297fdaafae861dfd50cb7b6d1058a08f2",
+        "tag_hex": "8ebe8564c5a1246d7bb6192c95ef67db",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>AAECAwQFBgcICQoL</nonce><payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UcGx+CkcRi6R7Zy5R6r9hnXwUFJVXBGeq/wNNSJgkiRRq2K3TB4MHqiJWlXn+MxhGyZp6Sn5ui/RfdYgDDHXEP7lI3m4ManJCvXKS0CE1SJrKVtc2unKnb61ylW0EeZEIJ8etw5CPQf0+R139uv0lxcfrysKtLAeJfHUcIWuXMcGLZs/t0NfIh7l7ZgK44y3RsKrWTX3K4/y7J+gbFzFxOftVgmLppN3MtPIEzcgZLqUvI7yhMzVOhD2sF15PgFw28cjfUdsyucsId8ZVKlU8Kr3uJPOlsBg4Uh8sFETauSRKPjLOp2gV7vgFK+XxZM4o5X9eAgKcVppOEZxV0ub6zLU4lavQRm1b/yVo8wSMLi65WhvtXstQ8Dq+Lb8gZAWeE81aVMf8jhiaLrcqq0hhfORJuio61XYfCZjWOAMnOvIsnlz7lQWy72xRZQwxEcceA91XbAvCl/2q+uhh39UMt7bRBYoI8g==</payload><tag>jr6FZMWhJG17thksle9n2w==</tag></encrypted></item>"
+      }
+    },
+    {
+      "name": "wrong-item-id",
+      "description": "Record ID differs from outer item ID",
+      "expected_error": "context_mismatch",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e14706c7e0a47118ba47b672e51eabf619d7c141495570467aaff034d48982489146ad8add3078307aa22569579fe331846c99a7a4a7e6e8bf45f7588030c75c43fb948de6e0c6a7242bd7292d02135489aca56d736ba72a76fad72956d0479910827c7adc3908f41fd3e475dfdbafd25c5c7ebcac2ad2c07897c751c216b9731c18b66cfedd0d7c887b97b6602b8e32dd1b0aad64d7dcae3fcbb27e81b17317139fb558262e9a4ddccb4f204cdc8192ea52f23bca133354e843dac175e4f805c36f1c8df51db32b9cb0877c6552a553c2abdee24f3a5b01838521f2c1444dab9244a3e32cea76815eef8052be5f164ce28e57f5e02029c569a4e119c55d2e6faccb53895abd0466d5bff2568f3048c2e2eb95a1bed5ecb50f03abe2dbf2064059e13cd5a54c7fc8e189a2eb72aab48617ce449ba2a3ad5761f0998d63803273af22c9e5cfb9505b2ef6c51650c3111c71e03dd576c0bc297fdaafae861dfd50cb7b6d1058a08f2",
+        "tag_hex": "8ebe8564c5a1246d7bb6192c95ef67db",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item xmlns:pn=\"urn:xmpp:private-notes:0\" id=\"moved-item\"><pn:encrypted key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><pn:nonce>AAECAwQFBgcICQoL</pn:nonce><pn:payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UcGx+CkcRi6R7Zy5R6r9hnXwUFJVXBGeq/wNNSJgkiRRq2K3TB4MHqiJWlXn+MxhGyZp6Sn5ui/RfdYgDDHXEP7lI3m4ManJCvXKS0CE1SJrKVtc2unKnb61ylW0EeZEIJ8etw5CPQf0+R139uv0lxcfrysKtLAeJfHUcIWuXMcGLZs/t0NfIh7l7ZgK44y3RsKrWTX3K4/y7J+gbFzFxOftVgmLppN3MtPIEzcgZLqUvI7yhMzVOhD2sF15PgFw28cjfUdsyucsId8ZVKlU8Kr3uJPOlsBg4Uh8sFETauSRKPjLOp2gV7vgFK+XxZM4o5X9eAgKcVppOEZxV0ub6zLU4lavQRm1b/yVo8wSMLi65WhvtXstQ8Dq+Lb8gZAWeE81aVMf8jhiaLrcqq0hhfORJuio61XYfCZjWOAMnOvIsnlz7lQWy72xRZQwxEcceA91XbAvCl/2q+uhh39UMt7bRBYoI8g==</pn:payload><pn:tag>jr6FZMWhJG17thksle9n2w==</pn:tag></pn:encrypted></item>"
+      }
+    },
+    {
+      "name": "tampered-tag",
+      "description": "AES-GCM tag was modified",
+      "expected_error": "authentication_failed",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e14706c7e0a47118ba47b672e51eabf619d7c141495570467aaff034d48982489146ad8add3078307aa22569579fe331846c99a7a4a7e6e8bf45f7588030c75c43fb948de6e0c6a7242bd7292d02135489aca56d736ba72a76fad72956d0479910827c7adc3908f41fd3e475dfdbafd25c5c7ebcac2ad2c07897c751c216b9731c18b66cfedd0d7c887b97b6602b8e32dd1b0aad64d7dcae3fcbb27e81b17317139fb558262e9a4ddccb4f204cdc8192ea52f23bca133354e843dac175e4f805c36f1c8df51db32b9cb0877c6552a553c2abdee24f3a5b01838521f2c1444dab9244a3e32cea76815eef8052be5f164ce28e57f5e02029c569a4e119c55d2e6faccb53895abd0466d5bff2568f3048c2e2eb95a1bed5ecb50f03abe2dbf2064059e13cd5a54c7fc8e189a2eb72aab48617ce449ba2a3ad5761f0998d63803273af22c9e5cfb9505b2ef6c51650c3111c71e03dd576c0bc297fdaafae861dfd50cb7b6d1058a08f2",
+        "tag_hex": "8ebe8564c5a1246d7bb6192c95ef67db",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item xmlns:pn=\"urn:xmpp:private-notes:0\" id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><pn:encrypted key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><pn:nonce>AAECAwQFBgcICQoL</pn:nonce><pn:payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UcGx+CkcRi6R7Zy5R6r9hnXwUFJVXBGeq/wNNSJgkiRRq2K3TB4MHqiJWlXn+MxhGyZp6Sn5ui/RfdYgDDHXEP7lI3m4ManJCvXKS0CE1SJrKVtc2unKnb61ylW0EeZEIJ8etw5CPQf0+R139uv0lxcfrysKtLAeJfHUcIWuXMcGLZs/t0NfIh7l7ZgK44y3RsKrWTX3K4/y7J+gbFzFxOftVgmLppN3MtPIEzcgZLqUvI7yhMzVOhD2sF15PgFw28cjfUdsyucsId8ZVKlU8Kr3uJPOlsBg4Uh8sFETauSRKPjLOp2gV7vgFK+XxZM4o5X9eAgKcVppOEZxV0ub6zLU4lavQRm1b/yVo8wSMLi65WhvtXstQ8Dq+Lb8gZAWeE81aVMf8jhiaLrcqq0hhfORJuio61XYfCZjWOAMnOvIsnlz7lQWy72xRZQwxEcceA91XbAvCl/2q+uhh39UMt7bRBYoI8g==</pn:payload><pn:tag>j76FZMWhJG17thksle9n2w==</pn:tag></pn:encrypted></item>"
+      }
+    },
+    {
+      "name": "missing-tag",
+      "description": "Outer envelope is incomplete",
+      "expected_error": "malformed",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e14706c7e0a47118ba47b672e51eabf619d7c141495570467aaff034d48982489146ad8add3078307aa22569579fe331846c99a7a4a7e6e8bf45f7588030c75c43fb948de6e0c6a7242bd7292d02135489aca56d736ba72a76fad72956d0479910827c7adc3908f41fd3e475dfdbafd25c5c7ebcac2ad2c07897c751c216b9731c18b66cfedd0d7c887b97b6602b8e32dd1b0aad64d7dcae3fcbb27e81b17317139fb558262e9a4ddccb4f204cdc8192ea52f23bca133354e843dac175e4f805c36f1c8df51db32b9cb0877c6552a553c2abdee24f3a5b01838521f2c1444dab9244a3e32cea76815eef8052be5f164ce28e57f5e02029c569a4e119c55d2e6faccb53895abd0466d5bff2568f3048c2e2eb95a1bed5ecb50f03abe2dbf2064059e13cd5a54c7fc8e189a2eb72aab48617ce449ba2a3ad5761f0998d63803273af22c9e5cfb9505b2ef6c51650c3111c71e03dd576c0bc297fdaafae861dfd50cb7b6d1058a08f2",
+        "tag_hex": "8ebe8564c5a1246d7bb6192c95ef67db",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item xmlns:pn=\"urn:xmpp:private-notes:0\" id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><pn:encrypted key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><pn:nonce>AAECAwQFBgcICQoL</pn:nonce><pn:payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UcGx+CkcRi6R7Zy5R6r9hnXwUFJVXBGeq/wNNSJgkiRRq2K3TB4MHqiJWlXn+MxhGyZp6Sn5ui/RfdYgDDHXEP7lI3m4ManJCvXKS0CE1SJrKVtc2unKnb61ylW0EeZEIJ8etw5CPQf0+R139uv0lxcfrysKtLAeJfHUcIWuXMcGLZs/t0NfIh7l7ZgK44y3RsKrWTX3K4/y7J+gbFzFxOftVgmLppN3MtPIEzcgZLqUvI7yhMzVOhD2sF15PgFw28cjfUdsyucsId8ZVKlU8Kr3uJPOlsBg4Uh8sFETauSRKPjLOp2gV7vgFK+XxZM4o5X9eAgKcVppOEZxV0ub6zLU4lavQRm1b/yVo8wSMLi65WhvtXstQ8Dq+Lb8gZAWeE81aVMf8jhiaLrcqq0hhfORJuio61XYfCZjWOAMnOvIsnlz7lQWy72xRZQwxEcceA91XbAvCl/2q+uhh39UMt7bRBYoI8g==</pn:payload></pn:encrypted></item>"
+      }
+    },
+    {
+      "name": "noncanonical-base64",
+      "description": "Base64 is not canonical",
+      "expected_error": "malformed",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e14706c7e0a47118ba47b672e51eabf619d7c141495570467aaff034d48982489146ad8add3078307aa22569579fe331846c99a7a4a7e6e8bf45f7588030c75c43fb948de6e0c6a7242bd7292d02135489aca56d736ba72a76fad72956d0479910827c7adc3908f41fd3e475dfdbafd25c5c7ebcac2ad2c07897c751c216b9731c18b66cfedd0d7c887b97b6602b8e32dd1b0aad64d7dcae3fcbb27e81b17317139fb558262e9a4ddccb4f204cdc8192ea52f23bca133354e843dac175e4f805c36f1c8df51db32b9cb0877c6552a553c2abdee24f3a5b01838521f2c1444dab9244a3e32cea76815eef8052be5f164ce28e57f5e02029c569a4e119c55d2e6faccb53895abd0466d5bff2568f3048c2e2eb95a1bed5ecb50f03abe2dbf2064059e13cd5a54c7fc8e189a2eb72aab48617ce449ba2a3ad5761f0998d63803273af22c9e5cfb9505b2ef6c51650c3111c71e03dd576c0bc297fdaafae861dfd50cb7b6d1058a08f2",
+        "tag_hex": "8ebe8564c5a1246d7bb6192c95ef67db",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item xmlns:pn=\"urn:xmpp:private-notes:0\" id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><pn:encrypted key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><pn:nonce>AAECAwQFBgcICQoL</pn:nonce><pn:payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UcGx+CkcRi6R7Zy5R6r9hnXwUFJVXBGeq/wNNSJgkiRRq2K3TB4MHqiJWlXn+MxhGyZp6Sn5ui/RfdYgDDHXEP7lI3m4ManJCvXKS0CE1SJrKVtc2unKnb61ylW0EeZEIJ8etw5CPQf0+R139uv0lxcfrysKtLAeJfHUcIWuXMcGLZs/t0NfIh7l7ZgK44y3RsKrWTX3K4/y7J+gbFzFxOftVgmLppN3MtPIEzcgZLqUvI7yhMzVOhD2sF15PgFw28cjfUdsyucsId8ZVKlU8Kr3uJPOlsBg4Uh8sFETauSRKPjLOp2gV7vgFK+XxZM4o5X9eAgKcVppOEZxV0ub6zLU4lavQRm1b/yVo8wSMLi65WhvtXstQ8Dq+Lb8gZAWeE81aVMf8jhiaLrcqq0hhfORJuio61XYfCZjWOAMnOvIsnlz7lQWy72xRZQwxEcceA91XbAvCl/2q+uhh39UMt7bRBYoI8g</pn:payload><pn:tag>jr6FZMWhJG17thksle9n2w==</pn:tag></pn:encrypted></item>"
+      }
+    },
+    {
+      "name": "unknown-core-attribute",
+      "description": "Unknown unqualified core attribute",
+      "expected_error": "malformed",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e1474612d47074e9ef068727603faaf6b9e2e5c11c4545367f9a5041f489d75834d7780acd304c805fc384ed725eb3c5f49959765483c3ac5fb1c7e825d1c33923ee503d96f5e6a7247e92790d027304ac9de00d636bf66a468ba31c1355375945870c2b2c1cfd017a2751e0fb4b5e843c4cde7d7c2a03105901976174179876d9ec9259fabdeaf87c6ad7f7000aef932d3b2b9cd4170cbb9fbfd3aa50d1b207134b311877df5fcccd3a9fd04def95462ed3a28a4a87665719f2ae459484a91103da080ce0c9378bfd1012ed71d3f536528a6e126f1feb31663435739121dd8ab3c496678c8e67746bef0197aa3e164806af07e400105ce5181564a905d8ff8afc8a222d9accb4f2450e22237b01cd47d31b85804fb0a8f4c9e74a222bd2e7518d602ee4d5cc0fc8318d72eeb3ca9426977fe03b6267b862d5d1f93c56b54797cfa2c9e49f19e0cb2f32653764a391ace02589346334bc58dfca1f6e861dfd30dafa7d8048e53f0ffdab259ad651cce55d3",
+        "tag_hex": "87a09e555c822846783887b5bb896187",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index minor=\"1\" id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e646578206d696e6f723d2231222069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>AAECAwQFBgcICQoL</nonce><payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UdGEtRwdOnvBocnYD+q9rni5cEcRUU2f5pQQfSJ11g013gKzTBMgF/DhO1yXrPF9JlZdlSDw6xfscfoJdHDOSPuUD2W9eanJH6SeQ0CcwSsneANY2v2akaLoxwTVTdZRYcMKywc/QF6J1Hg+0tehDxM3n18KgMQWQGXYXQXmHbZ7JJZ+r3q+Hxq1/cACu+TLTsrnNQXDLufv9OqUNGyBxNLMRh331/MzTqf0E3vlUYu06KKSodmVxnyrkWUhKkRA9oIDODJN4v9EBLtcdP1NlKKbhJvH+sxZjQ1c5Eh3YqzxJZnjI5ndGvvAZeqPhZIBq8H5AAQXOUYFWSpBdj/ivyKIi2azLTyRQ4iI3sBzUfTG4WAT7Co9MnnSiIr0udRjWAu5NXMD8gxjXLus8qUJpd/4DtiZ7hi1dH5PFa1R5fPosnknxngyy8yZTdko5Gs4CWJNGM0vFjfyh9uhh39MNr6fYBI5T8P/aslmtZRzOVdM=</payload><tag>h6CeVVyCKEZ4OIe1u4lhhw==</tag></encrypted></item>"
+      }
+    },
+    {
+      "name": "unknown-core-element",
+      "description": "Unknown element in the current core namespace",
+      "expected_error": "malformed",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e14706c7e0a47118ba47b672e51eabf619d7c141495570467aaff034d48982489146ad8add3078307aa22569579fe331846c99a7a4a7e6e8bf45f7588030c75c43fb948de6e0c6a7242bd7292d02135489aca56d736ba72a76fad72956d0479910827c7adc3908f41fd3e475dfdbafd25c5c7ebcac2ad2c07897c751c216b9731c18b66cfedd0d7c887b97b6602b8e32dd1b0aad64d7dcae3fcbb27e81b17317139fb558262e9a4ddccb4f204cdc8192ea52f23bca133354e843dac175e4f805c36f1c8df51db32b9cb0877c6552a553c2abdee24f3a5b01838521f2c1444dab9244a3e32cea76815eef8052be5f164ce28e57f5e02029c569a4e119c55d2e6faccb53895abd0466d5bff2568f3048c2e2eb95a1bed5ecb50f03abe2dbf2064059e13cd5a54c7fc8e189a2eb72aab48617ce449ba2a3ad5761f0998d63803273af22c9e5cfb9505b2ef6c512c102b00d00312df44200dc287fdbcb0ea7293df0cb5b6d31ec451e3b5d1aa4aa46603db0e",
+        "tag_hex": "5fe66413758bd5cae9823208c38b6fec",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder><future/></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c6675747572652f3e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>AAECAwQFBgcICQoL</nonce><payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UcGx+CkcRi6R7Zy5R6r9hnXwUFJVXBGeq/wNNSJgkiRRq2K3TB4MHqiJWlXn+MxhGyZp6Sn5ui/RfdYgDDHXEP7lI3m4ManJCvXKS0CE1SJrKVtc2unKnb61ylW0EeZEIJ8etw5CPQf0+R139uv0lxcfrysKtLAeJfHUcIWuXMcGLZs/t0NfIh7l7ZgK44y3RsKrWTX3K4/y7J+gbFzFxOftVgmLppN3MtPIEzcgZLqUvI7yhMzVOhD2sF15PgFw28cjfUdsyucsId8ZVKlU8Kr3uJPOlsBg4Uh8sFETauSRKPjLOp2gV7vgFK+XxZM4o5X9eAgKcVppOEZxV0ub6zLU4lavQRm1b/yVo8wSMLi65WhvtXstQ8Dq+Lb8gZAWeE81aVMf8jhiaLrcqq0hhfORJuio61XYfCZjWOAMnOvIsnlz7lQWy72xRLBArANADEt9EIA3Ch/28sOpyk98MtbbTHsRR47XRqkqkZgPbDg==</payload><tag>X+ZkE3WL1crpgjIIw4tv7A==</tag></encrypted></item>"
+      }
+    },
+    {
+      "name": "untrimmed-folder-segment",
+      "description": "Folder segments must be non-empty and trimmed",
+      "expected_error": "malformed",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e14706c7e0a47118ba47b672e51eabf619d7c141495570467aaff034d48982489146ad8add3078307aa22569579fe331846c99a7a4a7e6e8bf45f7588030c75c43fb948de6e0c6a7242bd7292d02135489aca56d736ba72a76fad72956d0479910827c7adc3908f41fd3e475dfdbafd25c5c7ebcac2ad2c07897c751c216b9731c18b66cfedd0d7c887b97b6602b8e32dd1b0aad64d7dcae3fcbb27e81b17317139fb558262e9a4ddccb4f204cdc8192ea52f23bca133354e843dac175e4f805c36f1c8df51db32b9cb0877c6552a553c2abdee24f3a5b01838521f2c1444dab9244a3e32cea76815eef8052be5f164ce28e57f5e02029c569a4e119c55d2e6faccb53895abd0466d5bff2568f3048c2e2eb95a1bed5ecb508074fe34bf247d13cc48800340cffe8d09ca66fa7dfc17322ebf04ed7d6586244444c19e3309252aa9628f06bb900fb3f82a53764a3c1acc12588f0c31588386f6b2ebba3280d55c",
+        "tag_hex": "b98d4007a6b89e5efc46bc8deb90da02",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment> </segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e203c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>AAECAwQFBgcICQoL</nonce><payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UcGx+CkcRi6R7Zy5R6r9hnXwUFJVXBGeq/wNNSJgkiRRq2K3TB4MHqiJWlXn+MxhGyZp6Sn5ui/RfdYgDDHXEP7lI3m4ManJCvXKS0CE1SJrKVtc2unKnb61ylW0EeZEIJ8etw5CPQf0+R139uv0lxcfrysKtLAeJfHUcIWuXMcGLZs/t0NfIh7l7ZgK44y3RsKrWTX3K4/y7J+gbFzFxOftVgmLppN3MtPIEzcgZLqUvI7yhMzVOhD2sF15PgFw28cjfUdsyucsId8ZVKlU8Kr3uJPOlsBg4Uh8sFETauSRKPjLOp2gV7vgFK+XxZM4o5X9eAgKcVppOEZxV0ub6zLU4lavQRm1b/yVo8wSMLi65WhvtXstQgHT+NL8kfRPMSIADQM/+jQnKZvp9/BcyLr8E7X1lhiRERMGeMwklKqlijwa7kA+z+CpTdko8GswSWI8MMViDhvay67oygNVc</payload><tag>uY1AB6a4nl78RryN65DaAg==</tag></encrypted></item>"
+      }
+    },
+    {
+      "name": "duplicate-folder-path",
+      "description": "An index may contain only one folder path",
+      "expected_error": "malformed",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e14706c7e0a47118ba47b672e51eabf619d7c141495570467aaff034d48982489146ad8add3078307aa22569579fe331846c99a7a4a7e6e8bf45f7588030c75c43fb948de6e0c6a7242bd7292d02135489aca56d736ba72a76fad72956d0479910827c7adc3908f41fd3e475dfdbafd25c5c7ebcac2ad2c07897c751c216b9731c18b66cfedd0d7c887b97b6602b8e32dd1b0aad64d7dcae3fcbb27e81b17317139fb558262e9a4ddccb4f204cdc8192ea52f23bca133354e843dac175e4f805c36f1c8df51db32b9cb0877c6552a553c2abdee24f3a5b01838521f2c1444dab9244a3e32cea76815eef8052be5f164ce28e57f5e02029c569a4e119c55d2e6faccb53895abd0466d5bff2568f3048c2e2eb95a1bed5ecb50f03abe2dbf2064059e13cd5a54c7fc8e189a2eb72aab48617ce449ba2a3ad5761f0998d63803273af22c9e5cfb9505b2ef6c512c0a3311c7141d9915630adfdebab1fcb86788dd12b1e9cd18931bada4daf141a77d16cd0a8ba2c4d19acf63ffaab97c602aaea6fcb4cdaa569d5e31eb9143e52d0cb81d03847cfdc032658a7f81a10d9f96a40d5d47be32ae97792f4e457130126ee4a0a51483436cf373c2600c61e5b74b",
+        "tag_hex": "bca33ca188751497310cd40d56171948",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Duplicate</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e4475706c69636174653c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>AAECAwQFBgcICQoL</nonce><payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UcGx+CkcRi6R7Zy5R6r9hnXwUFJVXBGeq/wNNSJgkiRRq2K3TB4MHqiJWlXn+MxhGyZp6Sn5ui/RfdYgDDHXEP7lI3m4ManJCvXKS0CE1SJrKVtc2unKnb61ylW0EeZEIJ8etw5CPQf0+R139uv0lxcfrysKtLAeJfHUcIWuXMcGLZs/t0NfIh7l7ZgK44y3RsKrWTX3K4/y7J+gbFzFxOftVgmLppN3MtPIEzcgZLqUvI7yhMzVOhD2sF15PgFw28cjfUdsyucsId8ZVKlU8Kr3uJPOlsBg4Uh8sFETauSRKPjLOp2gV7vgFK+XxZM4o5X9eAgKcVppOEZxV0ub6zLU4lavQRm1b/yVo8wSMLi65WhvtXstQ8Dq+Lb8gZAWeE81aVMf8jhiaLrcqq0hhfORJuio61XYfCZjWOAMnOvIsnlz7lQWy72xRLAozEccUHZkVYwrf3rqx/LhniN0SsenNGJMbraTa8UGnfRbNCouixNGaz2P/qrl8YCqupvy0zapWnV4x65FD5S0MuB0DhHz9wDJlin+BoQ2flqQNXUe+Mq6XeS9ORXEwEm7koKUUg0Ns83PCYAxh5bdL</payload><tag>vKM8oYh1FJcxDNQNVhcZSA==</tag></encrypted></item>"
+      }
+    },
+    {
+      "name": "undeclared-content-revision",
+      "description": "Metadata-only content revision requires a declaration",
+      "expected_error": "malformed",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "101112131415161718191a1b",
+        "ciphertext_hex": "78379c19784de1cbad76b4536b847408a78c21ff61cd1cf58eb8d904c388c794d10e4f201d8cc366c6765185c4cbad4925f230a7badce0037186d56bddb8f19163512430f365d1ceee94ba055b7e80b07b12ef19918fb656e101b02d0aff3bf8abb04e94e6e3d1d88bd82b7fd6585de42632bf2293b33aed55196298fb7440f2fc3e6da6cff89a9f511bdc7b08ff532b31cf4451aacdd42d2c413c0e3f5c3f0cb3a69e18ee6d3d9d801f93753dd8417404c6760795493b722c2b06d043e025978f488c842ec2c68146b444a3da679d78da5c345c0eee55daab2252c9fb18a3660dab9a290e1c754974383b57f40b597052e6897666d7ca449b0839df7ef9b50b4294c9d8258af3db9585856a49adcc5ba341fc7cea52dbb83f8617b4b80f5ac95e4f3e3e6bad14616b1095844043a3005d40c1d4ea96c92a152521de235157d0e9e2d8f5401d08d91ef78c060fba4d186c163019f8011d8ffcfce45c9232cb0d98d6bc81a7aa8bb9d90849496c26c2aea107e5744db7e55235711cefc1f2b910be88e7e5773d327bf8d6bb61743aec0e5661666d8d40e04cb2f3527fdd7ed7943ca78e82ea7c56d81d71229c3b005719ba2e29038170ded8a6bb3bbc10886ed7888667d715f85641ab35e02b14486fd7129db43deabc5c453f1121da765345aa36b941b604d4064db1f1af4b58c88ddd60ad44c004eec6a064dd0589fa5693eb80cdc91607bcb98dde754490",
+        "tag_hex": "67bc6721604b247c90f30e65e72efb64",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"folder-revision\" modified=\"2026-07-27T18:01:00.123Z\" format=\"markdown\" parent-revision=\"body-revision\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Archive</segment></folder><content-revision xmlns=\"urn:xmpp:private-notes:content:0\">body-revision</content-revision></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d22666f6c6465722d7265766973696f6e22206d6f6469666965643d22323032362d30372d32375431383a30313a30302e3132335a2220666f726d61743d226d61726b646f776e2220706172656e742d7265766973696f6e3d22626f64792d7265766973696f6e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e417263686976653c2f7365676d656e743e3c2f666f6c6465723e3c636f6e74656e742d7265766973696f6e20786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a636f6e74656e743a30223e626f64792d7265766973696f6e3c2f636f6e74656e742d7265766973696f6e3e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>EBESExQVFhcYGRob</nonce><payload>eDecGXhN4cutdrRTa4R0CKeMIf9hzRz1jrjZBMOIx5TRDk8gHYzDZsZ2UYXEy61JJfIwp7rc4ANxhtVr3bjxkWNRJDDzZdHO7pS6BVt+gLB7Eu8ZkY+2VuEBsC0K/zv4q7BOlObj0diL2Ct/1lhd5CYyvyKTszrtVRlimPt0QPL8Pm2mz/ian1Eb3HsI/1MrMc9EUarN1C0sQTwOP1w/DLOmnhjubT2dgB+TdT3YQXQExnYHlUk7ciwrBtBD4CWXj0iMhC7CxoFGtESj2medeNpcNFwO7lXaqyJSyfsYo2YNq5opDhx1SXQ4O1f0C1lwUuaJdmbXykSbCDnffvm1C0KUydglivPblYWFakmtzFujQfx86lLbuD+GF7S4D1rJXk8+PmutFGFrEJWEQEOjAF1AwdTqlskqFSUh3iNRV9Dp4tj1QB0I2R73jAYPuk0YbBYwGfgBHY/8/ORckjLLDZjWvIGnqou52QhJSWwmwq6hB+V0TbflUjVxHO/B8rkQvojn5Xc9Mnv41rthdDrsDlZhZm2NQOBMsvNSf91+15Q8p46C6nxW2B1xIpw7AFcZui4pA4Fw3timuzu8EIhu14iGZ9cV+FZBqzXgKxRIb9cSnbQ96rxcRT8RIdp2U0WqNrlBtgTUBk2x8a9LWMiN3WCtRMAE7sagZN0FifpWk+uAzckWB7y5jd51RJA=</payload><tag>Z7xnIWBLJHyQ8w5l5y77ZA==</tag></encrypted></item>"
+      }
+    },
+    {
+      "name": "content-revision-on-content",
+      "description": "Content payloads cannot declare an index-only extension",
+      "expected_error": "malformed",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "content",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:content",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "f201cabde9a341f20890f6eae19ecce61d80a813c94b2c05314ece3cb78fe947",
+        "nonce_hex": "0c0d0e0f1011121314151617",
+        "ciphertext_hex": "330778c2aabb62c2f57e406c8f646af31367419e6ce278617f2c4557f53ac5adadf160fce79da3a6dbbceb5adecf2d6b9673bd9a916db7cf582b17685b935a25bb5aaddc71f05534dcde07bc05d04e02bd76fdb180bc8c822b8cd40a824679932d4efd1cb7ba4f28bb44721e148cf3e633041e6c90b5e7182459ddf9b41a924acda0dfd01d6c8f184f710e820012cdd960b1c2fc19fbf61ab6d9bf8f477a220314708f7ec3a60b229cec89853ea33e2c2fc906fa42bdaac6e0f382cda0b10c1e867f0e880d570c5df805a164885e4ab6cab376b3336b921b906f9b72e797fe474cb09508d17db25fe94d52348e4eb448d0fc1d941f6eb1ce46c9041701b0a46dfc23239dac072d576b0d828652d60448209a2c065e3e55aa4abe6749acd0b070387567d3625e54e1adb3b66fbe65",
+        "tag_hex": "d247d88f68d16fbe1d0538b031a3c824",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:content</node><required feature=\"urn:xmpp:private-notes:content:0\"/><content><note id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\"><body>Portable body\n</body></note></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a636f6e74656e743c2f6e6f64653e3c726571756972656420666561747572653d2275726e3a786d70703a707269766174652d6e6f7465733a636f6e74656e743a30222f3e3c636f6e74656e743e3c6e6f74652069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d316635633937336563393261223e3c626f64793e506f727461626c6520626f64790a3c2f626f64793e3c2f6e6f74653e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>DA0ODxAREhMUFRYX</nonce><payload>Mwd4wqq7YsL1fkBsj2Rq8xNnQZ5s4nhhfyxFV/U6xa2t8WD8552jptu861rezy1rlnO9mpFtt89YKxdoW5NaJbtardxx8FU03N4HvAXQTgK9dv2xgLyMgiuM1AqCRnmTLU79HLe6Tyi7RHIeFIzz5jMEHmyQtecYJFnd+bQakkrNoN/QHWyPGE9xDoIAEs3ZYLHC/Bn79hq22b+PR3oiAxRwj37DpgsinOyJhT6jPiwvyQb6Qr2qxuDzgs2gsQwehn8OiA1XDF34BaFkiF5KtsqzdrMza5IbkG+bcueX/kdMsJUI0X2yX+lNUjSOTrRI0PwdlB9usc5GyQQXAbCkbfwjI52sBy1Xaw2ChlLWBEggmiwGXj5Vqkq+Z0ms0LBwOHVn02JeVOGts7ZvvmU=</payload><tag>0kfYj2jRb74dBTiwMaPIJA==</tag></encrypted></item>"
+      }
+    },
+    {
+      "name": "future-major-namespace",
+      "description": "Unknown major namespace",
+      "expected_error": "unsupported",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b789d748e654ae0377373b9a4dc7e14706c7e0a47118ba47b672e51eabf619d7c141495570467aaff034d48982489146ad8add3078307aa22569579fe331846c99a7a4a7e6e8bf45f7588030c75c43fb948de6e0c6a7242bd7292d02135489aca56d736ba72a76fad72956d0479910827c7adc3908f41fd3e475dfdbafd25c5c7ebcac2ad2c07897c751c216b9731c18b66cfedd0d7c887b97b6602b8e32dd1b0aad64d7dcae3fcbb27e81b17317139fb558262e9a4ddccb4f204cdc8192ea52f23bca133354e843dac175e4f805c36f1c8df51db32b9cb0877c6552a553c2abdee24f3a5b01838521f2c1444dab9244a3e32cea76815eef8052be5f164ce28e57f5e02029c569a4e119c55d2e6faccb53895abd0466d5bff2568f3048c2e2eb95a1bed5ecb50f03abe2dbf2064059e13cd5a54c7fc8e189a2eb72aab48617ce449ba2a3ad5761f0998d63803273af22c9e5cfb9505b2ef6c51650c3111c71e03dd576c0bc297fdaafae861dfd50cb7b6d1058a08f2",
+        "tag_hex": "8ebe8564c5a1246d7bb6192c95ef67db",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item xmlns:ns0=\"urn:xmpp:private-notes:1\" xmlns:pn=\"urn:xmpp:private-notes:0\" id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><ns0:encrypted key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><pn:nonce>AAECAwQFBgcICQoL</pn:nonce><pn:payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbeJ10jmVK4Ddzc7mk3H4UcGx+CkcRi6R7Zy5R6r9hnXwUFJVXBGeq/wNNSJgkiRRq2K3TB4MHqiJWlXn+MxhGyZp6Sn5ui/RfdYgDDHXEP7lI3m4ManJCvXKS0CE1SJrKVtc2unKnb61ylW0EeZEIJ8etw5CPQf0+R139uv0lxcfrysKtLAeJfHUcIWuXMcGLZs/t0NfIh7l7ZgK44y3RsKrWTX3K4/y7J+gbFzFxOftVgmLppN3MtPIEzcgZLqUvI7yhMzVOhD2sF15PgFw28cjfUdsyucsId8ZVKlU8Kr3uJPOlsBg4Uh8sFETauSRKPjLOp2gV7vgFK+XxZM4o5X9eAgKcVppOEZxV0ub6zLU4lavQRm1b/yVo8wSMLi65WhvtXstQ8Dq+Lb8gZAWeE81aVMf8jhiaLrcqq0hhfORJuio61XYfCZjWOAMnOvIsnlz7lQWy72xRZQwxEcceA91XbAvCl/2q+uhh39UMt7bRBYoI8g==</pn:payload><pn:tag>jr6FZMWhJG17thksle9n2w==</pn:tag></ns0:encrypted></item>"
+      }
+    },
+    {
+      "name": "malformed-plaintext",
+      "description": "Authenticated plaintext is not XML",
+      "expected_error": "malformed",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "a1f2ba6d3f1080",
+        "tag_hex": "9488df2d097b1cd81c03d425d0fe9726",
+        "plaintext_xml": "not XML",
+        "plaintext_hex": "6e6f7420584d4c",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>AAECAwQFBgcICQoL</nonce><payload>ofK6bT8QgA==</payload><tag>lIjfLQl7HNgcA9Ql0P6XJg==</tag></encrypted></item>"
+      }
+    },
+    {
+      "name": "unknown-required-extension",
+      "description": "Unknown required feature",
+      "expected_error": "unsupported",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3f8a03b0231a3fc047633435e83266c8d8dc1c1068417ffc93b26b6d3966b2b121850fd15ea6acf69273d3cd507e42efd9a553c58b9b32ecc3271103f546f05a306d157f015c9dbe9c7b9e282e7a4e8039dec5d0fe85b69976b8f6956f16d6f7cb2a1cd73467c35615d071d86a432337217abe8638e7c48559817002ef1ac47555b9572de422e84a0c10dd95da764139f3ce13e560d9496700d7f6a82a44225d552443c966bef04c46c593c680ebe22ccc5206a1e9fc707d730fb6be76bf93b8b6b0f7eca437292a88792dd16fb3e130ce0ece74697c8e1d793a579518a7c211a18708064cb9a329cf8cfd5c889af796404aae932d3ede88d1c3994f9b8ed2d9e4e4a7d286aa448d36ee6aa9affe2be079cea1b3da57363bda56130459f2ffe1a0a49865934a69a8659d831f4c1083d80422e1f6334f7b337a4a5ab123a2d043f071b84b32e063438c8e22c57f6ff027aa2ba2ad473fa2c411c5dd00b875917d60c8be9f286a43cc0f1905e6859b36a34ac4ad6772ffc451be45ecc53823da329e03b7d06d206ce4d5adcf89409897cab3ba9563e74ff1bec7f7a90700058c38d26032e23a97ec504c48b0ebdf8311939597006c7015084167b5a9090fda3e3b333848e50f1e18b56d51ea9b7d2b941bc374f915682a1ccd08d832ceaf3f5263921f5fdbeb2ccb01cbc4535b9c40fe1371fe15e1f917eae",
+        "tag_hex": "a8c2dc62cb3145047cf79e259a7b0b45",
+        "plaintext_xml": "<envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><required feature=\"urn:example:required:1\"/><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c726571756972656420666561747572653d2275726e3a6578616d706c653a72657175697265643a31222f3e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>AAECAwQFBgcICQoL</nonce><payload>8/igOwIxo/wEdjNDXoMmbI2NwcEGhBf/yTsmttOWaysSGFD9Fepqz2knPTzVB+Qu/ZpVPFi5sy7MMnEQP1RvBaMG0VfwFcnb6ce54oLnpOgDnexdD+hbaZdrj2lW8W1vfLKhzXNGfDVhXQcdhqQyM3IXq+hjjnxIVZgXAC7xrEdVW5Vy3kIuhKDBDdldp2QTnzzhPlYNlJZwDX9qgqRCJdVSRDyWa+8ExGxZPGgOviLMxSBqHp/HB9cw+2vna/k7i2sPfspDcpKoh5LdFvs+Ewzg7OdGl8jh15OleVGKfCEaGHCAZMuaMpz4z9XIia95ZASq6TLT7eiNHDmU+bjtLZ5OSn0oaqRI027mqpr/4r4HnOobPaVzY72lYTBFny/+GgpJhlk0ppqGWdgx9MEIPYBCLh9jNPezN6SlqxI6LQQ/BxuEsy4GNDjI4ixX9v8CeqK6KtRz+ixBHF3QC4dZF9YMi+nyhqQ8wPGQXmhZs2o0rErWdy/8RRvkXsxTgj2jKeA7fQbSBs5NWtz4lAmJfKs7qVY+dP8b7H96kHAAWMONJgMuI6l+xQTEiw69+DEZOVlwBscBUIQWe1qQkP2j47MzhI5Q8eGLVtUeqbfSuUG8N0+RVoKhzNCNgyzq8/UmOSH1/b6yzLAcvEU1ucQP4Tcf4V4fkX6u</payload><tag>qMLcYssxRQR8954lmnsLRQ==</tag></encrypted></item>"
+      }
+    },
+    {
+      "name": "doctype-plaintext",
+      "description": "DTD and entities are forbidden",
+      "expected_error": "malformed",
+      "encoded": {
+        "protocol_namespace": "urn:xmpp:private-notes:0",
+        "kind": "index",
+        "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "node": "urn:xmpp:private-notes:0:index",
+        "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
+        "key_id_hex": "bc9a465cd672f7eaf84a0ecc890d041439ed393992b8f044f00bf45360ec47a9",
+        "key_id_base64url": "vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k",
+        "derived_key_hex": "24e1e4b35dd07a7baea005946b73a72b856acd509b264ce0c32075de93193e29",
+        "nonce_hex": "000102030405060708090a0b",
+        "ciphertext_hex": "f3bc8a02240995dc24762e404488393edf9d93f400dd3fc1ed48029d9a982a7d155a51ff43b144cb65606d76de04ef3ba6cf5f3f0eafad639e7d730c6c5a6301b611cf4aed06db95bcd0bee392e7afee1cd1bd0504b9037ecc6f886e1eec643f6aedb0cb6f42787c26051b1cc8a439682f5daee33d9961050f9f0a012ff5a106150bdd74df5864dda7db57804ce96912da3eba385c4a97c1765e636d8bf30a3ad95713708f6ebf03de200a6f671bbf2e979b24354e9ad1419636af22e667e03cc5205021cf0772c1f5d18fdb15fb775a5db3bffa5c95cdb49cdfa67a02c474701c1e2a8e65cfdb2bc3f6899cc38fae743f4ffdbd3dc7f2e8880726939aa4e720fa4f48772874af4ad01af5b8cfcab2f30087a55431b03c2ab4ab643503d037e2514d4f9a1d3aabc98954d97abfc608668803750e767fbde326f381a805701c0921165a88b03f436678c8ee6414e7a84a62a6e328cf7cf82e0106598b1acf4c118f0e8bfffa84ff3fceaa81166f51e13237b106ca7f31b24e4baa45cd009a30bc37aa796004cb4adf4b5687f78f18c161fe29a3496077e204b22a2add76431f9adc30083d709c62de50f19a15a4a17d1e2f023210cc1203dd0b6a03c186f6b0b0e46dc2865eeea0d80d9708a2a481e000ae661fda559ff3949a96d374a0e2a57e733aa4afe5b4cdaa56e50424e98e45e83619e10c",
+        "tag_hex": "c520c431041b13c161841599a134b52e",
+        "plaintext_xml": "<!DOCTYPE envelope [<!ENTITY x \"boom\">]><envelope xmlns=\"urn:xmpp:private-notes:0\"><node>urn:xmpp:private-notes:0:index</node><content><index id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\" revision=\"018f0be0-df0d-7c70-a2ef-1f5c973ec92a\" modified=\"2026-07-27T18:00:00.123Z\" format=\"markdown\" origin-id=\"device-a\"><title>Portable note</title><tag>one</tag><tag>two</tag><folder xmlns=\"urn:xmpp:private-notes:folders:0\"><segment>Projects</segment><segment>2026</segment></folder></index></content></envelope>",
+        "plaintext_hex": "3c21444f435459504520656e76656c6f7065205b3c21454e5449545920782022626f6f6d223e5d3e3c656e76656c6f706520786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a30223e3c6e6f64653e75726e3a786d70703a707269766174652d6e6f7465733a303a696e6465783c2f6e6f64653e3c636f6e74656e743e3c696e6465782069643d2232623765313531362d323861652d346432612d616266372d31353838303963663466336322207265766973696f6e3d2230313866306265302d646630642d376337302d613265662d31663563393733656339326122206d6f6469666965643d22323032362d30372d32375431383a30303a30302e3132335a2220666f726d61743d226d61726b646f776e22206f726967696e2d69643d226465766963652d61223e3c7469746c653e506f727461626c65206e6f74653c2f7469746c653e3c7461673e6f6e653c2f7461673e3c7461673e74776f3c2f7461673e3c666f6c64657220786d6c6e733d2275726e3a786d70703a707269766174652d6e6f7465733a666f6c646572733a30223e3c7365676d656e743e50726f6a656374733c2f7365676d656e743e3c7365676d656e743e323032363c2f7365676d656e743e3c2f666f6c6465723e3c2f696e6465783e3c2f636f6e74656e743e3c2f656e76656c6f70653e",
+        "xml": "<item id=\"2b7e1516-28ae-4d2a-abf7-158809cf4f3c\"><encrypted xmlns=\"urn:xmpp:private-notes:0\" key-id=\"vJpGXNZy9-r4Sg7MiQ0EFDntOTmSuPBE8Av0U2DsR6k\"><nonce>AAECAwQFBgcICQoL</nonce><payload>87yKAiQJldwkdi5ARIg5Pt+dk/QA3T/B7UgCnZqYKn0VWlH/Q7FEy2VgbXbeBO87ps9fPw6vrWOefXMMbFpjAbYRz0rtBtuVvNC+45Lnr+4c0b0FBLkDfsxviG4e7GQ/au2wy29CeHwmBRscyKQ5aC9druM9mWEFD58KAS/1oQYVC91031hk3afbV4BM6WkS2j66OFxKl8F2XmNti/MKOtlXE3CPbr8D3iAKb2cbvy6XmyQ1TprRQZY2ryLmZ+A8xSBQIc8HcsH10Y/bFft3Wl2zv/pclc20nN+megLEdHAcHiqOZc/bK8P2iZzDj650P0/9vT3H8uiIByaTmqTnIPpPSHcodK9K0Br1uM/KsvMAh6VUMbA8KrSrZDUD0DfiUU1Pmh06q8mJVNl6v8YIZogDdQ52f73jJvOBqAVwHAkhFlqIsD9DZnjI7mQU56hKYqbjKM98+C4BBlmLGs9MEY8Oi//6hP8/zqqBFm9R4TI3sQbKfzGyTkuqRc0AmjC8N6p5YATLSt9LVof3jxjBYf4po0lgd+IEsioq3XZDH5rcMAg9cJxi3lDxmhWkoX0eLwIyEMwSA90LagPBhvawsORtwoZe7qDYDZcIoqSB4ACuZh/aVZ/zlJqW03Sg4qV+czqkr+W0zapW5QQk6Y5F6DYZ4Qw=</payload><tag>xSDEMQQbE8FhhBWZoTS1Lg==</tag></encrypted></item>"
+      }
+    }
+  ]
+}

@@ -5,7 +5,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class NoteFragmentMediaTransferTest : public QObject {
     Q_OBJECT
@@ -173,7 +173,7 @@ void NoteFragmentMediaTransferTest::rejectsImageWithoutMedia()
     NoteFragment      fragment;
     NoteFragmentBlock image;
     image.type            = NoteFragmentBlockType::Image;
-    image.image.sourceUri = QStringLiteral("qtnote-media:/missing/image.png");
+    image.image.sourceUri = QStringLiteral("anykeep-media:/missing/image.png");
     fragment.blocks.append(image);
 
     const auto cloned = NoteFragmentMediaTransfer::cloneForDestination(fragment, destination);

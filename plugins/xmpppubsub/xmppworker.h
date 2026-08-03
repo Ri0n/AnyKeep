@@ -20,7 +20,7 @@ class QXmppOmemoManager;
 class QXmppTrustManager;
 class QXmppTrustStorage;
 
-namespace QtNote {
+namespace AnyKeep {
 
 class XmppPepExtension;
 class XmppOmemoStorage;
@@ -104,7 +104,7 @@ private:
     QCoro::Task<XmppStatusResult>                          repairOwnOmemoDeviceTask();
     QCoro::Task<XmppStatusResult>                          trustOwnOmemoDeviceTask(QByteArray keyId);
     QCoro::Task<XmppStatusResult>                          trustOwnOmemoDevicesTask(QList<QByteArray> keyIds);
-    QCoro::Task<std::pair<QStringList, QString>>           onlineQtNoteResourcesTask();
+    QCoro::Task<std::pair<QStringList, QString>>           onlinePrivateNotesResourcesTask();
     QCoro::Task<XmppKeyAuditResult>                        auditStorageKeysTask();
     QCoro::Task<XmppRekeyResult>   rekeyStorageTask(QList<QByteArray> keys, QByteArray canonicalKey);
     QCoro::Task<XmppCleanupResult> scanObsoleteItemsTask();
@@ -170,6 +170,6 @@ private:
     QHash<QString, PendingInboundKeyRequest> pendingInboundKeyRequests_;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPWORKER_H

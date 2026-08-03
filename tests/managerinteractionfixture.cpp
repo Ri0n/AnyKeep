@@ -8,7 +8,7 @@
 
 #include "themediconimageprovider.h"
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 ManagerInteractionFixture::ManagerInteractionFixture()
 {

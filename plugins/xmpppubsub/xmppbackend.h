@@ -6,7 +6,7 @@
 #include <QObject>
 #include <functional>
 
-namespace QtNote {
+namespace AnyKeep {
 
 /**
  * @brief Backend-neutral asynchronous XMPP/PubSub service used by XmppStorage.
@@ -66,7 +66,7 @@ public:
 
 signals:
     /// A complete remote note was published or changed.
-    void remoteNotePublished(const QtNote::XmppRemoteNote &note);
+    void remoteNotePublished(const AnyKeep::XmppRemoteNote &note);
     /// A note item was retracted from the remote index.
     void remoteNoteRetracted(const QString &id);
     /// The remote index changed in a way that requires a full refresh.
@@ -79,6 +79,6 @@ signals:
     void keySyncTrustRequested(const QString &requestId, const QByteArray &keyId);
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPBACKEND_H

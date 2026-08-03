@@ -1,27 +1,27 @@
-2018-11-16 QtNote-3.0.5 Release
+2018-11-16 AnyKeep-3.0.5 Release
 * Plasma integration fixes nd updates
 * New hunpell compatibility and encoding fixes
 * Fixed classification of plugins
 
-2015-07-29 QtNote-3.0.3 Release
+2015-07-29 AnyKeep-3.0.3 Release
 + Allow changing global shortcuts w/o restart
 + Set default shortcuts
 * Fixed note from selection is not saved until edited
 * Cache all notes and check cache validity when required
 
-2015-07-27 QtNote-3.0.2 Release
+2015-07-27 AnyKeep-3.0.2 Release
 + File types in note save dialog
 * Fixed compilation wih kde5
 * Fixed print dialog on windows (missed qt plugin)
 + Notifications if something went wrong with storage (moved for example)
 
-2015-07-13 QtNote-3.0.0 Release
+2015-07-13 AnyKeep-3.0.0 Release
 + Plugins support
 + Notes search
 * Multiple ui improvements
 * Better support for various desktop environments
 
-2013-08-12 QtNote-0.2.3.1 Release
+2013-08-12 AnyKeep-0.2.3.1 Release
 + Note from selection + hotkey feature
 + Print feature
 + Save feature
@@ -36,13 +36,13 @@
 * reorganized file structure
 + added desktop file
 
-2010-07-02 QtNote-0.2.1 Release
+2010-07-02 AnyKeep-0.2.1 Release
 * Updated russian translation
 + Added copy to clipboard tool button
 * Fixed ampersand escaping in the notes menu
 * Various small UI improvements
 
-2010-04-26 QtNote-0.2.0 Release
+2010-04-26 AnyKeep-0.2.0 Release
 + Delete notes with optional confirmation
 + Added option for amount of visible notes in the tray menu
 + Added settings for storage priority

@@ -4,7 +4,7 @@
 #include <QXmlStreamWriter>
 #include <QtTest>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class XmppOmemoPubSubItemsTest : public QObject {
     Q_OBJECT
@@ -20,7 +20,7 @@ void XmppOmemoPubSubItemsTest::parsesDeviceList()
 {
     QDomDocument document;
     auto         xmlData = QStringLiteral("<item id='current'><devices xmlns='urn:xmpp:omemo:2'>"
-                                                  "<device id='9523' label='QtNote-one'/><device id='672' label='QtNote-two'/>"
+                                                  "<device id='9523' label='AnyKeep-one'/><device id='672' label='AnyKeep-two'/>"
                                                   "</devices></item>");
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     QVERIFY(document.setContent(xmlData, QDomDocument::ParseOption::UseNamespaceProcessing));
@@ -34,20 +34,20 @@ void XmppOmemoPubSubItemsTest::parsesDeviceList()
     item.parse(document.documentElement());
     QCOMPARE(item.devices().size(), 2);
     QCOMPARE(item.devices().at(1).id, QStringLiteral("672"));
-    QCOMPARE(item.devices().at(1).label, QStringLiteral("QtNote-two"));
+    QCOMPARE(item.devices().at(1).label, QStringLiteral("AnyKeep-two"));
 }
 
 void XmppOmemoPubSubItemsTest::serializesDeviceList()
 {
     XmppOmemoDeviceListItem item;
     item.setId(QStringLiteral("current"));
-    item.setDevices({ { QStringLiteral("QtNote-one"), QStringLiteral("9523"), QStringLiteral("signature") },
-                      { QStringLiteral("QtNote-two"), QStringLiteral("672"), {} } });
+    item.setDevices({ { QStringLiteral("AnyKeep-one"), QStringLiteral("9523"), QStringLiteral("signature") },
+                      { QStringLiteral("AnyKeep-two"), QStringLiteral("672"), {} } });
     QString          xml;
     QXmlStreamWriter writer(&xml);
     item.toXml(&writer);
-    QVERIFY(xml.contains(QStringLiteral("<device id=\"9523\" label=\"QtNote-one\" labelsig=\"signature\"")));
-    QVERIFY(xml.contains(QStringLiteral("<device id=\"672\" label=\"QtNote-two\"")));
+    QVERIFY(xml.contains(QStringLiteral("<device id=\"9523\" label=\"AnyKeep-one\" labelsig=\"signature\"")));
+    QVERIFY(xml.contains(QStringLiteral("<device id=\"672\" label=\"AnyKeep-two\"")));
 }
 
 void XmppOmemoPubSubItemsTest::parsesBundleIdentityKey()

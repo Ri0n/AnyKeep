@@ -14,7 +14,7 @@
 
 #include "settingscontroller.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 static const QLatin1String SettingsGroup("gemini");
 static const QLatin1String DefaultModel("gemini-3.1-flash-lite");
@@ -395,6 +395,6 @@ void GeminiPlugin::addUsage(qint64 audioMs, qint64 bytesSent)
     s.setValue(QLatin1String("stats/bytesSent"), s.value(QLatin1String("stats/bytesSent"), 0).toLongLong() + bytesSent);
 }
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #include "geminiplugin.moc"

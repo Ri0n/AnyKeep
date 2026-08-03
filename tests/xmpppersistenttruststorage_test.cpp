@@ -9,7 +9,7 @@
 
 #include <optional>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class XmppPersistentTrustStorageTest : public QObject {
     Q_OBJECT

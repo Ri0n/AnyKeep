@@ -1,5 +1,5 @@
-#ifndef QTNOTE_MOBILEEDITORPLATFORMBACKEND_H
-#define QTNOTE_MOBILEEDITORPLATFORMBACKEND_H
+#ifndef ANYKEEP_MOBILEEDITORPLATFORMBACKEND_H
+#define ANYKEEP_MOBILEEDITORPLATFORMBACKEND_H
 
 #include "editorplatformbackend.h"
 
@@ -8,7 +8,7 @@
 
 #include <memory>
 
-namespace QtNote {
+namespace AnyKeep {
 
 class AndroidPlatformServices;
 
@@ -33,6 +33,6 @@ private:
     std::unique_ptr<QTemporaryDir> attachmentOpenDirectory_;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
-#endif // QTNOTE_MOBILEEDITORPLATFORMBACKEND_H
+#endif // ANYKEEP_MOBILEEDITORPLATFORMBACKEND_H

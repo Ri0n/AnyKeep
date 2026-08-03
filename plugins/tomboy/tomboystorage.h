@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2010 Sergei Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -26,7 +26,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include "filestorage.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 class TomboyStorage : public FileStorage {
     Q_OBJECT
@@ -41,8 +41,8 @@ public:
     QIcon         noteIcon() const override;
     QList<Note>   noteListFromInfoList(const QFileInfoList &) override;
 
-    // Tomboy has tags but no folder/notebook contract that QtNote can safely
-    // extend. Folder membership is kept in QtNote's encrypted local overlay.
+    // Tomboy has tags but no folder/notebook contract that AnyKeep can safely
+    // extend. Folder membership is kept in AnyKeep's encrypted local overlay.
     bool supportsNativeFolders() const override { return false; }
     bool supportsFolderRuleOverlayImport() const override { return true; }
 

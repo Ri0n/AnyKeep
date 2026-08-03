@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2015 Sergei Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -34,7 +34,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "spellcheckplugin.h"
 #include "spellcheckprovider.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 static const QLatin1String pluginId("spellchecker");
 
@@ -554,6 +554,6 @@ void SpellCheckPlugin::applyLanguagePreferences(const QList<QLocale> &selected, 
     settings.setValue(QStringLiteral("langs"), storedLanguages);
 }
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #include "spellcheckplugin.moc"

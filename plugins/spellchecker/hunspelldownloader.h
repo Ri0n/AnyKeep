@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2015 Sergei Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -38,7 +38,7 @@ class QNetworkReply;
 #define COUNTRY_STR countryToString
 #endif
 
-namespace QtNote {
+namespace AnyKeep {
 
 class HunspellDownloader : public DictionaryDownloader {
     Q_OBJECT
@@ -58,5 +58,5 @@ private:
     QStringList            cachedDirs_;
 };
 
-} // QtNote
+} // AnyKeep
 #endif // HUNSPELLDOWNLOADER_H

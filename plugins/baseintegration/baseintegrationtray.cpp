@@ -16,11 +16,11 @@
 
 #include "baseintegrationtray.h"
 #include "pluginhostinterface.h"
-#include "qtnote.h"
+#include "anykeep.h"
 #include "trayiconutils.h"
 #include "utils.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 namespace {
     constexpr int NoteTitleLimit = 48;
@@ -49,8 +49,8 @@ namespace {
     }
 }
 
-BaseIntegrationTray::BaseIntegrationTray(Main *qtnote, PluginHostInterface *host, QObject *parent) :
-    TrayImpl(parent), qtnote(qtnote), host(host)
+BaseIntegrationTray::BaseIntegrationTray(Main *anykeep, PluginHostInterface *host, QObject *parent) :
+    TrayImpl(parent), anykeep(anykeep), host(host)
 {
     actQuit    = new QAction(QIcon(":/icons/exit"), tr("&Quit"), this);
     actNew     = new QAction(QIcon(":/icons/new"), tr("&New"), this);
@@ -206,8 +206,8 @@ void BaseIntegrationTray::showNoteList(QSystemTrayIcon::ActivationReason reason)
     }
     popup->setGeometry(mr);
     popup->show();
-    qtnote->activateWidget(popup);
+    anykeep->activateWidget(popup);
     QTimer::singleShot(0, filter, [filter]() { filter->setFocus(Qt::PopupFocusReason); });
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

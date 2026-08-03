@@ -10,8 +10,8 @@
 
 #include "editortestsupport.h"
 
-using namespace QtNote;
-using namespace QtNote::TestSupport;
+using namespace AnyKeep;
+using namespace AnyKeep::TestSupport;
 
 class DesktopNoteEditorHostTest : public QObject {
     Q_OBJECT

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14.0)
-include(QtNoteMacro)
-project(installer VERSION ${QTNOTE_VERSION})
+include(AnyKeepMacro)
+project(installer VERSION ${ANYKEEP_VERSION})
 
 find_program(WINDEPLOYQT_EXECUTABLE windeployqt)
 if(NOT WINDEPLOYQT_EXECUTABLE)
@@ -16,13 +16,13 @@ if(NOT WIX_EXECUTABLE OR NOT WINDEPLOYQT_EXECUTABLE)
 endif()
 
 set(WIX_TEMPLATE "${CMAKE_SOURCE_DIR}/wix/installer.wxs.in")
-set(WIX_BUNDLE_TEMPLATE "${CMAKE_SOURCE_DIR}/wix/QtNoteInstaller.wixbundle.in")
+set(WIX_BUNDLE_TEMPLATE "${CMAKE_SOURCE_DIR}/wix/AnyKeepInstaller.wixbundle.in")
 set(WIX_OUTPUT "${CMAKE_BINARY_DIR}/installer.wxs")
-set(WIX_BUNDLE_OUTPUT "${CMAKE_BINARY_DIR}/QtNoteInstaller.wixbundle")
-set(QTNOTE_MSI ${CMAKE_BINARY_DIR}/QtNote.msi)
+set(WIX_BUNDLE_OUTPUT "${CMAKE_BINARY_DIR}/AnyKeepInstaller.wixbundle")
+set(ANYKEEP_MSI ${CMAKE_BINARY_DIR}/AnyKeep.msi)
 
-set(QTNOTE_INSTALLER_EXE QtNote.Installer-${QTNOTE_VERSION}.exe)
-set(QTNOTE_INSTALLER_EXE_PATH ${CMAKE_BINARY_DIR}/${QTNOTE_INSTALLER_EXE})
+set(ANYKEEP_INSTALLER_EXE AnyKeep.Installer-${ANYKEEP_VERSION}.exe)
+set(ANYKEEP_INSTALLER_EXE_PATH ${CMAKE_BINARY_DIR}/${ANYKEEP_INSTALLER_EXE})
 
 set(LICENSE_TXT "${CMAKE_SOURCE_DIR}/license.txt")
 set(LICENSE_RTF "GPLv3.rtf")
@@ -45,7 +45,7 @@ add_custom_command(
         -DLICENSE_TXT=${LICENSE_TXT}
         -DLICENSE_RTF=${LICENSE_RTF}
         -DLOGO_FILE=${LOGO_FILE}
-        -DQTNOTE_MSI=${QTNOTE_MSI}
+        -DANYKEEP_MSI=${ANYKEEP_MSI}
         -P ${CMAKE_CURRENT_BINARY_DIR}/gen-wix.cmake
     COMMENT "Prepare installer files"
     DEPENDS gen-wix.cmake
@@ -56,27 +56,27 @@ add_custom_target(prepare_install
 set_target_properties(prepare_install PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 add_custom_command(
-    OUTPUT ${QTNOTE_MSI}
-    COMMAND ${WIX_EXECUTABLE} build ${WIX_OUTPUT} -platform x64 -o ${QTNOTE_MSI}
+    OUTPUT ${ANYKEEP_MSI}
+    COMMAND ${WIX_EXECUTABLE} build ${WIX_OUTPUT} -platform x64 -o ${ANYKEEP_MSI}
     COMMENT "Building MSI package with WiX"
     DEPENDS ${WIX_OUTPUT}
 )
 add_custom_target(package
-    DEPENDS ${QTNOTE_MSI}
+    DEPENDS ${ANYKEEP_MSI}
 )
 set_target_properties(package PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # don't forget `wix extension add -g WixToolset.BootstrapperApplications.wixext`
 add_custom_command(
-    OUTPUT ${QTNOTE_INSTALLER_EXE_PATH}
+    OUTPUT ${ANYKEEP_INSTALLER_EXE_PATH}
     COMMAND ${WIX_EXECUTABLE}
         build ${WIX_BUNDLE_OUTPUT}
         -ext WixToolset.BootstrapperApplications.wixext
         -ext WixToolset.Util.wixext
-        -o ${QTNOTE_INSTALLER_EXE_PATH}
-    DEPENDS ${WIX_BUNDLE_OUTPUT} ${QTNOTE_MSI} ${LICENSE_RTF}
+        -o ${ANYKEEP_INSTALLER_EXE_PATH}
+    DEPENDS ${WIX_BUNDLE_OUTPUT} ${ANYKEEP_MSI} ${LICENSE_RTF}
     COMMENT "Building Burn Bootstrapper"
 )
 
-add_custom_target(burn_installer DEPENDS ${QTNOTE_INSTALLER_EXE_PATH} ${LICENSE_TXT} ${WIX_TEMPLATE} ${WIX_BUNDLE_TEMPLATE})
+add_custom_target(burn_installer DEPENDS ${ANYKEEP_INSTALLER_EXE_PATH} ${LICENSE_TXT} ${WIX_TEMPLATE} ${WIX_BUNDLE_TEMPLATE})
 set_target_properties(burn_installer PROPERTIES EXCLUDE_FROM_ALL TRUE)

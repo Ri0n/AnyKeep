@@ -2,9 +2,9 @@
 
 #include <QtTest>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
-Q_DECLARE_METATYPE(QtNote::AeadContext)
+Q_DECLARE_METATYPE(AnyKeep::AeadContext)
 
 class SecureEnvelopeTest : public QObject {
     Q_OBJECT
@@ -14,6 +14,7 @@ private slots:
     void contextIsAuthenticated_data();
     void contextIsAuthenticated();
     void rawAeadRoundTrip();
+    void privateNotesProfileRoundTrip();
     void recoveryKeyRoundTrip();
     void rejectsRecoveryKeyTypo();
     void opensLargeEnvelope();
@@ -35,13 +36,13 @@ void SecureEnvelopeTest::domainsProduceDifferentKeys()
 void SecureEnvelopeTest::contextIsAuthenticated_data()
 {
     QTest::addColumn<AeadContext>("changed");
-    const AeadContext base { KeyDomain::StorageIndex, QStringLiteral("urn:xmpp:qtnote:index:1"),
+    const AeadContext base { KeyDomain::StorageIndex, QStringLiteral("urn:xmpp:private-notes:index:0"),
                              QStringLiteral("note-1"), 1, QStringLiteral("index") };
     auto              context = base;
     context.domain            = KeyDomain::StorageContent;
     QTest::newRow("domain") << context;
     context           = base;
-    context.container = QStringLiteral("urn:xmpp:qtnote:content:1");
+    context.container = QStringLiteral("urn:xmpp:private-notes:content:0");
     QTest::newRow("container") << context;
     context        = base;
     context.itemId = QStringLiteral("note-2");
@@ -58,7 +59,7 @@ void SecureEnvelopeTest::contextIsAuthenticated()
 {
     QFETCH(AeadContext, changed);
     const auto        key = SecureEnvelope::generateMasterKey();
-    const AeadContext original { KeyDomain::StorageIndex, QStringLiteral("urn:xmpp:qtnote:index:1"),
+    const AeadContext original { KeyDomain::StorageIndex, QStringLiteral("urn:xmpp:private-notes:index:0"),
                                  QStringLiteral("note-1"), 1, QStringLiteral("index") };
     auto              encrypted = SecureEnvelope::seal(QByteArrayLiteral("secret"), key, original);
     QVERIFY(encrypted);
@@ -83,11 +84,30 @@ void SecureEnvelopeTest::rawAeadRoundTrip()
     QCOMPARE(wrongDomain.error.code, CryptoError::AuthenticationFailed);
 }
 
+void SecureEnvelopeTest::privateNotesProfileRoundTrip()
+{
+    const auto key = SecureEnvelope::generateMasterKey();
+    const auto encrypted = SecureEnvelope::encryptAead(QByteArrayLiteral("portable plaintext"), key,
+                                                        KeyDomain::StorageIndex,
+                                                        KeyDerivationProfile::PrivateNotes);
+    QVERIFY2(encrypted, qPrintable(encrypted.error.message));
+    const auto opened = SecureEnvelope::decryptAead(encrypted.value, key, KeyDomain::StorageIndex,
+                                                    KeyDerivationProfile::PrivateNotes);
+    QVERIFY2(opened, qPrintable(opened.error.message));
+    QCOMPARE(opened.value, QByteArrayLiteral("portable plaintext"));
+    QVERIFY(SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes) != SecureEnvelope::keyId(key));
+
+    const auto recovery = SecureEnvelope::encodeRecoveryKey(key, KeyDerivationProfile::PrivateNotes);
+    QVERIFY(recovery.startsWith(QStringLiteral("private-notes-key-v1:")));
+    QVERIFY(SecureEnvelope::decodeRecoveryKey(recovery, KeyDerivationProfile::PrivateNotes));
+    QVERIFY(!SecureEnvelope::decodeRecoveryKey(recovery));
+}
+
 void SecureEnvelopeTest::recoveryKeyRoundTrip()
 {
     const auto key     = SecureEnvelope::generateMasterKey();
     const auto encoded = SecureEnvelope::encodeRecoveryKey(key);
-    QVERIFY(encoded.startsWith(QStringLiteral("qtnote-key-v1:")));
+    QVERIFY(encoded.startsWith(QStringLiteral("anykeep-key-v1:")));
     auto decoded = SecureEnvelope::decodeRecoveryKey(encoded);
     QVERIFY(decoded);
     QCOMPARE(decoded.value, key);

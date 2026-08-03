@@ -19,8 +19,8 @@ Item {
         case 0:
             return controller.localKeyMissing
                     ? qsTr("The local XMPP storage key is missing")
-                    : qsTr("QtNote found incompatible storage keys")
-        case 1: return qsTr("Verify your QtNote devices")
+                    : qsTr("AnyKeep found incompatible storage keys")
+        case 1: return qsTr("Verify your AnyKeep devices")
         case 2: return qsTr("Choose the key to keep")
         case 3: return qsTr("Review and repair")
         case 4: return qsTr("Recovery result")
@@ -32,14 +32,14 @@ Item {
         switch (controller.currentPage) {
         case 0:
             return controller.localKeyMissing
-                    ? qsTr("QtNote can securely obtain the key from another online device on this account.")
-                    : qsTr("Notes or another QtNote device use a different encryption key.")
+                    ? qsTr("AnyKeep can securely obtain the key from another online device on this account.")
+                    : qsTr("Notes or another AnyKeep device use a different encryption key.")
         case 1:
             return qsTr("Select devices you recognize. Their fingerprints are used only to establish encrypted OMEMO sessions.")
         case 2:
-            return qsTr("QtNote grouped existing notes and online devices by their storage-key fingerprint.")
+            return qsTr("AnyKeep grouped existing notes and online devices by their storage-key fingerprint.")
         case 3:
-            return qsTr("QtNote is ready to republish accessible notes with the selected key.")
+            return qsTr("AnyKeep is ready to republish accessible notes with the selected key.")
         case 4:
             return ""
         default:
@@ -109,7 +109,7 @@ Item {
 
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("This recovery flow locates your other online QtNote devices, establishes trusted OMEMO sessions, collects the storage keys they hold, and safely moves every accessible note to one key you choose.")
+                            text: qsTr("This recovery flow locates your other online AnyKeep devices, establishes trusted OMEMO sessions, collects the storage keys they hold, and safely moves every accessible note to one key you choose.")
                             wrapMode: Text.WordWrap
                         }
 
@@ -203,7 +203,7 @@ Item {
                             visible: devicesView.count === 0
                             width: Math.min(parent.width - 24, 420)
                             horizontalAlignment: Text.AlignHCenter
-                            text: qsTr("No OMEMO devices are currently available. Start QtNote on another device and retry.")
+                            text: qsTr("No OMEMO devices are currently available. Start AnyKeep on another device and retry.")
                             wrapMode: Text.WordWrap
                             color: palette.mid
                         }

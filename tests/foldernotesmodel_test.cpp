@@ -13,7 +13,7 @@
 #include <algorithm>
 #include <memory>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class FolderModelStorage final : public NoteStorage {
     Q_OBJECT
@@ -92,7 +92,7 @@ void FolderNotesModelTest::projectsHierarchyAndUnsortedNotes()
     const auto rootResult = manager.addFolder(root);
     QVERIFY(rootResult);
     FolderRecord child;
-    child.name             = QStringLiteral("QtNote");
+    child.name             = QStringLiteral("AnyKeep");
     child.parentId         = rootResult.value;
     const auto childResult = manager.addFolder(child);
     QVERIFY(childResult);
@@ -117,7 +117,7 @@ void FolderNotesModelTest::projectsHierarchyAndUnsortedNotes()
     QCOMPARE(model.index(0, 0).data(FolderNotesModel::RowKindRole).toInt(), int(FolderNotesModel::FolderRow));
     QCOMPARE(model.index(0, 0).data(FolderNotesModel::TitleRole).toString(), QStringLiteral("Projects"));
     QCOMPARE(model.index(0, 0).data(FolderNotesModel::DepthRole).toInt(), 0);
-    QCOMPARE(model.index(1, 0).data(FolderNotesModel::TitleRole).toString(), QStringLiteral("QtNote"));
+    QCOMPARE(model.index(1, 0).data(FolderNotesModel::TitleRole).toString(), QStringLiteral("AnyKeep"));
     QCOMPARE(model.index(1, 0).data(FolderNotesModel::DepthRole).toInt(), 1);
     QCOMPARE(model.index(2, 0).data(FolderNotesModel::NoteIdRole).toString(), QStringLiteral("child"));
     QCOMPARE(model.index(2, 0).data(FolderNotesModel::DepthRole).toInt(), 2);
@@ -218,7 +218,7 @@ void FolderNotesModelTest::folderPickerIgnoresCollapsedAndArchivedBranches()
     const auto root    = manager.addFolder(projects);
     QVERIFY(root);
     FolderRecord child;
-    child.name        = QStringLiteral("QtNote");
+    child.name        = QStringLiteral("AnyKeep");
     child.parentId    = root.value;
     const auto nested = manager.addFolder(child);
     QVERIFY(nested);

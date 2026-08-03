@@ -9,22 +9,22 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
-import plasma.applet.com.github.ri0n.qtnote.sticky 1.0 as QtNote
+import plasma.applet.com.github.ri0n.anykeep.sticky 1.0 as AnyKeep
 
 PlasmoidItem {
     id: root
 
     preferredRepresentation: fullRepresentation
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
-    Plasmoid.icon: "qtnote-symbolic"
+    Plasmoid.icon: "anykeep-symbolic"
     Plasmoid.status: PlasmaCore.Types.ActiveStatus
 
-    toolTipMainText: stickyNote.title || qsTr("QtNote Sticky Note")
+    toolTipMainText: stickyNote.title || qsTr("AnyKeep Sticky Note")
     toolTipSubText: stickyNote.available
         ? qsTr("Double-click to edit")
-        : qsTr("QtNote is not running")
+        : qsTr("AnyKeep is not running")
 
-    QtNote.StickyNoteModel {
+    AnyKeep.StickyNoteModel {
         id: stickyNote
         presentationId: String(Plasmoid.id)
     }
@@ -69,7 +69,7 @@ PlasmoidItem {
                 font: Kirigami.Theme.defaultFont
                 text: stickyNote.available
                     ? stickyNote.body
-                    : qsTr("QtNote is not running")
+                    : qsTr("AnyKeep is not running")
                 textFormat: Text.PlainText
                 verticalAlignment: Text.AlignTop
                 wrapMode: Text.Wrap

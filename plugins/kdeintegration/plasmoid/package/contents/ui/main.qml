@@ -10,7 +10,7 @@ import org.kde.kirigami as Kirigami
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
 import QtQuick.Layouts
-import plasma.applet.com.github.ri0n.qtnote 1.0 as QtNote
+import plasma.applet.com.github.ri0n.anykeep 1.0 as AnyKeep
 
 PlasmoidItem {
     id: root
@@ -18,7 +18,7 @@ PlasmoidItem {
     switchWidth: Kirigami.Units.gridUnit * 16
     switchHeight: Kirigami.Units.gridUnit * 12
 
-    Plasmoid.icon: "qtnote-symbolic"
+    Plasmoid.icon: "anykeep-symbolic"
     Plasmoid.status: {
         if (!Plasmoid.inSystemTray) {
             return PlasmaCore.Types.ActiveStatus;
@@ -36,7 +36,7 @@ PlasmoidItem {
             : notesModel.hasMore
                 ? qsTr("%1+ recent notes").arg(notesModel.count)
                 : qsTr("%1 recent notes").arg(notesModel.count)
-        : qsTr("QtNote is not running")
+        : qsTr("AnyKeep is not running")
 
     onExpandedChanged: {
         if (root.expanded) {
@@ -44,7 +44,7 @@ PlasmoidItem {
         }
     }
 
-    QtNote.NotesModel {
+    AnyKeep.NotesModel {
         id: notesModel
         inSystemTray: Plasmoid.inSystemTray
     }
@@ -84,7 +84,7 @@ PlasmoidItem {
         },
         PlasmaCore.Action {
             id: configureAction
-            text: qsTr("Configure QtNote...")
+            text: qsTr("Configure AnyKeep...")
             icon.name: "configure"
             onTriggered: notesModel.showOptions(root.Window.window)
         },
@@ -95,12 +95,12 @@ PlasmoidItem {
             onTriggered: notesModel.showNoteManager(root.Window.window)
         },
         PlasmaCore.Action {
-            text: qsTr("About QtNote")
+            text: qsTr("About AnyKeep")
             icon.name: "help-about"
             onTriggered: notesModel.showAbout(root.Window.window)
         },
         PlasmaCore.Action {
-            text: qsTr("Close QtNote")
+            text: qsTr("Close AnyKeep")
             icon.name: "window-close"
             visible: notesModel.available
             onTriggered: notesModel.quit()

@@ -1,4 +1,4 @@
-include(QtNoteMacro)
+include(AnyKeepMacro)
 
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Network Xml QUIET)
 if(NOT TARGET QCoro::Core)
@@ -21,8 +21,8 @@ set(xmpppubsub_sources
     xmppdto.h
     xmpperror.cpp
     xmpperror.h
-    qtnotepubsubitem.cpp
-    qtnotepubsubitem.h
+    privatenotespubsubitem.cpp
+    privatenotespubsubitem.h
     xmpppepextension.cpp
     xmpppepextension.h
     xmppkeysyncextension.cpp
@@ -35,9 +35,9 @@ set(xmpppubsub_sources
     XmppKeySyncTrustHost.qml
     xmppnotecodec.cpp
     xmppnotecodec.h
-    qtnote-notes.xsd
-    qtnote-encrypted-reference.py
-    qtnote-encrypted-vectors.json
+    private-notes.xsd
+    private-notes-encrypted-reference.py
+    private-notes-encrypted-vectors.json
     conformance/rust/Cargo.toml
     conformance/rust/README.md
     conformance/rust/src/lib.rs
@@ -59,15 +59,15 @@ set(xmpppubsub_sources
     xmppplugin.h
 )
 
-if(QTNOTE_BUILD_MOBILE)
+if(ANYKEEP_BUILD_MOBILE)
     if(NOT _xmpppubsub_buildable)
-        message(STATUS "XMPP Private Notes is omitted from qtnote_mobile: QXmpp OMEMO and QCoro are required")
+        message(STATUS "XMPP Private Notes is omitted from anykeep_mobile: QXmpp OMEMO and QCoro are required")
         return()
     endif()
 
     message(STATUS "Building XMPP Private Notes as a bundled static plugin")
-    add_qtnote_bundled_plugin(xmpppubsub SOURCES ${xmpppubsub_sources})
-    target_link_libraries(qtnote_bundled_xmpppubsub PUBLIC
+    add_anykeep_bundled_plugin(xmpppubsub SOURCES ${xmpppubsub_sources})
+    target_link_libraries(anykeep_bundled_xmpppubsub PUBLIC
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Gui
         Qt${QT_VERSION_MAJOR}::Qml
@@ -79,11 +79,11 @@ if(QTNOTE_BUILD_MOBILE)
         QXmpp::Omemo
         QCoro::Core
     )
-    qtnote_configure_qxmpp_target(qtnote_bundled_xmpppubsub)
+    anykeep_configure_qxmpp_target(anykeep_bundled_xmpppubsub)
     return()
 endif()
 
-add_qtnote_plugin(
+add_anykeep_plugin(
     xmpppubsub
     "Stores notes in a private persistent XMPP PEP node"
     ${_xmpppubsub_buildable}
@@ -107,6 +107,6 @@ target_link_libraries(
     QXmpp::Omemo
     QCoro::Core
 )
-qtnote_configure_qxmpp_target(xmpppubsub)
+anykeep_configure_qxmpp_target(xmpppubsub)
 
-install_qtnote_plugin(xmpppubsub)
+install_anykeep_plugin(xmpppubsub)

@@ -209,7 +209,7 @@ PlasmaExtras.Representation {
                     ? root.hasFilter
                         ? qsTr("No notes match the search")
                         : qsTr("No notes yet")
-                    : qsTr("QtNote is not running")
+                    : qsTr("AnyKeep is not running")
                 helpfulAction: placeholderNewNoteAction
             }
 

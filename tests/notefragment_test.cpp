@@ -2,7 +2,7 @@
 
 #include <QTest>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class NoteFragmentTest : public QObject {
     Q_OBJECT
@@ -50,7 +50,7 @@ void NoteFragmentTest::roundTripsStructuredFragment()
 
     NoteFragmentBlock image;
     image.type            = NoteFragmentBlockType::Image;
-    image.image.sourceUri = QStringLiteral("qtnote-media:/11111111-1111-1111-1111-111111111111/picture.png");
+    image.image.sourceUri = QStringLiteral("anykeep-media:/11111111-1111-1111-1111-111111111111/picture.png");
     image.image.alt       = QStringLiteral("Diagram");
     image.image.width     = 360;
     image.image.alignment = QStringLiteral("right");
@@ -129,7 +129,7 @@ void NoteFragmentTest::roundTripsAudioBlock()
     NoteFragment      fragment;
     NoteFragmentBlock audio;
     audio.type             = NoteFragmentBlockType::Audio;
-    audio.audio.sourceUri  = QStringLiteral("qtnote-media:/11111111-1111-1111-1111-111111111111/recording.m4a");
+    audio.audio.sourceUri  = QStringLiteral("anykeep-media:/11111111-1111-1111-1111-111111111111/recording.m4a");
     audio.audio.title      = QStringLiteral("Meeting note");
     audio.audio.durationMs = 91234;
     audio.audio.transcript = QStringLiteral("First line\nSecond line");
@@ -151,7 +151,7 @@ void NoteFragmentTest::roundTripsAttachmentBlock()
     NoteFragment      fragment;
     NoteFragmentBlock attachment;
     attachment.type                 = NoteFragmentBlockType::Attachment;
-    attachment.attachment.sourceUri = QStringLiteral("qtnote-media:/22222222-2222-2222-2222-222222222222/spec.pdf");
+    attachment.attachment.sourceUri = QStringLiteral("anykeep-media:/22222222-2222-2222-2222-222222222222/spec.pdf");
     attachment.attachment.fileName  = QStringLiteral("Specification.pdf");
     attachment.attachment.mediaType = QStringLiteral("application/pdf");
     attachment.attachment.size      = 123456;

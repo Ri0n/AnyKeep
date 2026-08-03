@@ -1,4 +1,4 @@
-include(QtNoteMacro)
+include(AnyKeepMacro)
 
 set(nextcloud_sources
     nextcloudcategory.cpp
@@ -15,9 +15,9 @@ set(nextcloud_sources
 
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Network REQUIRED)
 
-if(QTNOTE_BUILD_MOBILE)
-    add_qtnote_bundled_plugin(nextcloud SOURCES ${nextcloud_sources})
-    target_link_libraries(qtnote_bundled_nextcloud PUBLIC
+if(ANYKEEP_BUILD_MOBILE)
+    add_anykeep_bundled_plugin(nextcloud SOURCES ${nextcloud_sources})
+    target_link_libraries(anykeep_bundled_nextcloud PUBLIC
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Gui
         Qt${QT_VERSION_MAJOR}::Network
@@ -25,7 +25,7 @@ if(QTNOTE_BUILD_MOBILE)
     return()
 endif()
 
-add_qtnote_plugin(
+add_anykeep_plugin(
     nextcloud
     "Allows to load and save notes using Nextcloud Notes"
     ON
@@ -43,4 +43,4 @@ target_link_libraries(
     Qt${QT_VERSION_MAJOR}::Network
 )
 
-install_qtnote_plugin(nextcloud)
+install_anykeep_plugin(nextcloud)

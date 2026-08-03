@@ -36,7 +36,7 @@ Flickable {
         onAccepted: root.controller.resetUsageStats()
 
         contentItem: Label {
-            text: qsTr("This clears QtNote’s local SpeechKit counters only. Yandex Cloud billing history and charges are not changed.")
+            text: qsTr("This clears AnyKeep’s local SpeechKit counters only. Yandex Cloud billing history and charges are not changed.")
             wrapMode: Text.WordWrap
         }
     }
@@ -213,7 +213,7 @@ Flickable {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Resets only QtNote’s local estimate.")
+                        text: qsTr("Resets only AnyKeep’s local estimate.")
                         color: palette.text
                         opacity: 0.72
                         font.pixelSize: 12
@@ -227,7 +227,7 @@ Flickable {
                     text: fieldDelegate.description
                           + (fieldDelegate.restartRequired
                              ? (fieldDelegate.description.length > 0 ? "\n" : "")
-                               + qsTr("Applied after restarting QtNote.")
+                               + qsTr("Applied after restarting AnyKeep.")
                              : "")
                     color: palette.text
                     opacity: 0.72

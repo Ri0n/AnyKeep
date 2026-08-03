@@ -1,0 +1,65 @@
+#ifndef DESKTOPNOTEEDITORHOST_H
+#define DESKTOPNOTEEDITORHOST_H
+
+#include "anykeep_export.h"
+
+#include <QPointer>
+#include <QWidget>
+
+class QEvent;
+class QMimeData;
+class QPointF;
+class QQuickWidget;
+class QShowEvent;
+
+namespace AnyKeep {
+
+class DesktopEditorPlatformBackend;
+class NoteBlockModel;
+class NoteEditor;
+
+class ANYKEEP_EXPORT DesktopNoteEditorHost final : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit DesktopNoteEditorHost(NoteEditor *editor, QWidget *parent = nullptr);
+    ~DesktopNoteEditorHost() override;
+
+    NoteEditor                   *editor() const;
+    NoteBlockModel               *model() const;
+    DesktopEditorPlatformBackend *platformBackend() const { return platformBackend_; }
+    QQuickWidget                 *quickWidget() const { return quick_; }
+
+    void flushPendingEditorChanges();
+    void insertText(const QString &text);
+    void focusEditor();
+    void insertTable();
+    void insertList(int type);
+
+signals:
+    void focusReceived();
+    void focusLost();
+
+protected:
+    bool event(QEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+
+private:
+    void updateClearColor();
+    void updateFocusWindow();
+    int  insertionRowAt(const QPointF &position) const;
+    bool canAcceptImageDrop(const QMimeData *mimeData) const;
+    bool handleImageDrop(const QMimeData *mimeData, int row);
+
+    QPointer<NoteEditor>          editor_;
+    DesktopEditorPlatformBackend *platformBackend_ { nullptr };
+    QQuickWidget                 *quick_ { nullptr };
+    QPointer<QWidget>             focusWindow_;
+    bool                          imageDragAccepted_ { false };
+    bool                          focusReported_ { false };
+};
+
+} // namespace AnyKeep
+
+#endif // DESKTOPNOTEEDITORHOST_H

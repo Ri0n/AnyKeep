@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2015 Sergei Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -26,11 +26,11 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <memory>
 
 #include "deintegrationinterface.h"
-#include "qtnoteplugininterface.h"
+#include "anykeepplugininterface.h"
 #include "settingsproviderinterface.h"
 #include "trayinterface.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 class SpellEngineInterface;
 class PluginHostInterface;
@@ -43,8 +43,8 @@ class SpellCheckPlugin : public QObject,
                          public SettingsProviderInterface {
     Q_OBJECT
 #include "spellchecker_plugin_metadata.inc"
-    Q_INTERFACES(QtNote::PluginInterface QtNote::RegularPluginInterface QtNote::PluginOptionsTooltipInterface
-                                                                        QtNote::SettingsProviderInterface)
+    Q_INTERFACES(AnyKeep::PluginInterface AnyKeep::RegularPluginInterface AnyKeep::PluginOptionsTooltipInterface
+                                                                        AnyKeep::SettingsProviderInterface)
 public:
     enum DictFlag {
         DictNone           = 0,
@@ -102,6 +102,6 @@ private:
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(SpellCheckPlugin::DictFlags)
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // SpellCheckPlugin_H

@@ -12,7 +12,7 @@ class QNetworkAccessManager;
 class QNetworkReply;
 class QNetworkRequest;
 
-namespace QtNote {
+namespace AnyKeep {
 
 class NextcloudWorker final : public QObject {
 public:
@@ -56,6 +56,6 @@ private:
     QNetworkAccessManager *manager_ { nullptr };
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // NEXTCLOUDWORKER_H

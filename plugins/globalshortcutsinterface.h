@@ -6,7 +6,7 @@ class QObject;
 class QString;
 class QAction;
 
-namespace QtNote {
+namespace AnyKeep {
 
 class GlobalShortcutsInterface {
 public:
@@ -17,8 +17,8 @@ public:
     // TODO unregister. add string identifier
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
-Q_DECLARE_INTERFACE(QtNote::GlobalShortcutsInterface, "com.rion-soft.QtNote.GlobalShortcutsInterface/1.1")
+Q_DECLARE_INTERFACE(AnyKeep::GlobalShortcutsInterface, "com.rion-soft.AnyKeep.GlobalShortcutsInterface/1.1")
 
 #endif // GLOBALSHORTCUTSINTERFACE_H

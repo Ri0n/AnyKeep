@@ -11,7 +11,7 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class FolderRemovalStorage final : public NoteStorage {
     Q_OBJECT

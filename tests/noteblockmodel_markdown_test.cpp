@@ -6,7 +6,7 @@
 
 #include "noteblockmodel_test.h"
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 void NoteBlockModelTest::titleIsAlwaysASeparateTextBlock()
 {
@@ -327,11 +327,11 @@ void NoteBlockModelTest::serializesAndParsesImagePresentation()
 
 void NoteBlockModelTest::serializesParsesAndTransfersAudioBlocks()
 {
-    const QString uri = QStringLiteral("qtnote-media:/11111111-1111-1111-1111-111111111111/recording.m4a");
+    const QString uri = QStringLiteral("anykeep-media:/11111111-1111-1111-1111-111111111111/recording.m4a");
     const QString html
         = QStringLiteral("<audio controls src=\"%1\" title=\"Meeting &amp; notes\" "
-                         "data-qtnote-duration-ms=\"91234\"></audio>\n"
-                         "<div data-qtnote-audio-transcript=\"1\">First line&lt;br&gt;<br />Second &amp; final</div>")
+                         "data-anykeep-duration-ms=\"91234\"></audio>\n"
+                         "<div data-anykeep-audio-transcript=\"1\">First line&lt;br&gt;<br />Second &amp; final</div>")
               .arg(uri);
     NoteBlockModel model;
     model.load(html, true);
@@ -363,14 +363,14 @@ void NoteBlockModelTest::serializesParsesAndTransfersAudioBlocks()
     inserted.insertAudio(1, uri, QStringLiteral("Voice memo"), 2500);
     QCOMPARE(inserted.data(inserted.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Audio));
     QVERIFY(inserted.contents().contains(QStringLiteral("title=\"Voice memo\"")));
-    QVERIFY(inserted.contents().contains(QStringLiteral("data-qtnote-duration-ms=\"2500\"")));
+    QVERIFY(inserted.contents().contains(QStringLiteral("data-anykeep-duration-ms=\"2500\"")));
 }
 
 void NoteBlockModelTest::serializesParsesAndTransfersAttachments()
 {
-    const QString uri  = QStringLiteral("qtnote-media:/22222222-2222-2222-2222-222222222222/spec.pdf");
-    const QString html = QStringLiteral("<a href=\"%1\" data-qtnote-attachment=\"1\" "
-                                        "data-qtnote-media-type=\"application/pdf\" data-qtnote-size=\"123456\">"
+    const QString uri  = QStringLiteral("anykeep-media:/22222222-2222-2222-2222-222222222222/spec.pdf");
+    const QString html = QStringLiteral("<a href=\"%1\" data-anykeep-attachment=\"1\" "
+                                        "data-anykeep-media-type=\"application/pdf\" data-anykeep-size=\"123456\">"
                                         "Spec &amp; notes.pdf</a>")
                              .arg(uri);
     NoteBlockModel model;

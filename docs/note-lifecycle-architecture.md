@@ -71,7 +71,7 @@ flowchart LR
         E2["NoteEditor B"]
     end
 
-    subgraph Core["libqtnote"]
+    subgraph Core["libanykeep"]
         DM["DraftManager<br/>sessions, checkpoints, publication"]
         DS["Encrypted DraftStore"]
         ROUTE["Routing policy<br/>planned: tags / explicit choice"]
@@ -356,7 +356,7 @@ sequenceDiagram
 ```
 
 Loading the current remote note and then saving with its newly loaded token would
-silently rebase over concurrent changes. QtNote therefore restores the original
+silently rebase over concurrent changes. AnyKeep therefore restores the original
 base token from `DraftRecord::backendData` immediately before saving. Storage
 plugins are responsible for using that token in a conditional write.
 
@@ -482,7 +482,7 @@ should be made explicit before adding more backends and Android lifecycle hooks:
 8. Add an event-driven draft revision signal if editors need live synchronization;
    focus-based refresh remains a useful fallback.
 9. Add cross-process locking or a single-instance editing broker before allowing
-   separate QtNote processes to edit the same profile.
+   separate AnyKeep processes to edit the same profile.
 10. Check and persist the outcome of every DraftStore mutation, especially after
     a remote side effect, and route ambiguous results through reconciliation.
 

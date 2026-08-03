@@ -15,7 +15,7 @@
 
 #include "settingscontroller.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 static const QLatin1String SettingsGroup("openaiwhisper");
 static const QLatin1String DefaultModel("whisper-1");
@@ -380,6 +380,6 @@ void OpenAIWhisperPlugin::addUsage(qint64 audioMs, qint64 bytesSent)
     s.setValue(QLatin1String("stats/bytesSent"), s.value(QLatin1String("stats/bytesSent"), 0).toLongLong() + bytesSent);
 }
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #include "openaiwhisperplugin.moc"

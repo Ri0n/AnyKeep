@@ -11,7 +11,7 @@
 
 #include <algorithm>
 
-namespace QtNote {
+namespace AnyKeep {
 namespace {
     constexpr quint32 Magic   = 0x514e5453; // QNTS
     constexpr quint16 Version = 1;
@@ -32,7 +32,7 @@ void XmppPersistentTrustStorage::load()
         error_ = file.errorString();
         return;
     }
-    const AeadContext context { KeyDomain::OmemoState, QStringLiteral("qtnote-omemo-trust"), accountId_, 1,
+    const AeadContext context { KeyDomain::OmemoState, QStringLiteral("private-notes-omemo-trust"), accountId_, 1,
                                 QStringLiteral("omemo-trust") };
     auto              opened = SecureEnvelope::open(file.readAll(), encryptionKey_, context);
     if (!opened) {
@@ -69,7 +69,7 @@ void XmppPersistentTrustStorage::persist()
     out << Magic << Version << quint32(entries_.size());
     for (const auto &entry : entries_)
         out << entry.encryption << entry.owner << entry.keyId << int(entry.level);
-    const AeadContext context { KeyDomain::OmemoState, QStringLiteral("qtnote-omemo-trust"), accountId_, 1,
+    const AeadContext context { KeyDomain::OmemoState, QStringLiteral("private-notes-omemo-trust"), accountId_, 1,
                                 QStringLiteral("omemo-trust") };
     auto              sealed = SecureEnvelope::seal(plain, encryptionKey_, context);
     if (!sealed) {
@@ -144,4 +144,4 @@ QXmppTask<void> XmppPersistentTrustStorage::resetAll(const QString &encryption)
     return QXmppTrustMemoryStorage::resetAll(encryption);
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

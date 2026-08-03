@@ -1,14 +1,14 @@
 # Editor transfer architecture
 
 This document defines the clipboard and drag-and-drop boundary of the QML note
-editor.  It applies to transfer between QtNote notes and to import/export with
+editor.  It applies to transfer between AnyKeep notes and to import/export with
 other applications.
 
 ## Goals
 
 * Preserve the Markdown structure supported by the editor: text, headings,
   lists, task lists, tables, images, audio recordings and links.
-* Make an internal QtNote-to-QtNote transfer lossless, including media
+* Make an internal AnyKeep-to-AnyKeep transfer lossless, including media
   references and nested list structure.
 * Interoperate usefully with browsers, office applications and plain-text
   editors without trusting their input.
@@ -21,7 +21,7 @@ other applications.
 version is encoded as CBOR under the MIME type:
 
 ```text
-application/vnd.qtnote.fragment+cbor
+application/vnd.anykeep.fragment+cbor
 ```
 
 The root contains a schema identifier and a version.  The decoder rejects
@@ -42,7 +42,7 @@ Every copy or drag advertises several representations of the same selection:
 
 | MIME type | Consumer and intent |
 | --- | --- |
-| `application/vnd.qtnote.fragment+cbor` | lossless internal transfer |
+| `application/vnd.anykeep.fragment+cbor` | lossless internal transfer |
 | `text/markdown` | GFM-compatible textual transfer |
 | `text/html` | browsers and rich-text applications |
 | `text/plain` | universal fallback |
@@ -58,7 +58,7 @@ representation can be produced.
 
 Paste and drop choose one supported representation in this order:
 
-1. validated QtNote fragment;
+1. validated AnyKeep fragment;
 2. `text/markdown`;
 3. TSV/CSV;
 4. HTML;
@@ -68,7 +68,7 @@ Paste and drop choose one supported representation in this order:
 
 The image fallback is considered only after the structured formats. In
 particular, office suites may expose a bitmap preview alongside HTML or TSV;
-QtNote must import the table rather than the preview.
+AnyKeep must import the table rather than the preview.
 
 HTML is parsed through `QTextDocument` and traversed into the supported model;
 it is never converted using regular expressions.  Unsupported styling is
@@ -90,7 +90,7 @@ used to flatten a table because Qt may serialize it as ordinary text.
 ## Media ownership
 
 Pasting an internal fragment into a different note creates fresh attachment
-UUIDs and rewrites all `qtnote-media:` URLs.  The immutable blob ID may be
+UUIDs and rewrites all `anykeep-media:` URLs.  The immutable blob ID may be
 shared by `LocalMediaStore`; destination-specific remote metadata is cleared.
 Moving inside one note keeps attachment IDs.  The note save path owns pruning:
 it removes manifest entries only after the final model/document no longer
@@ -128,7 +128,7 @@ list item kinds/indentation, a rectangular table range, headings and complete
 image/audio blocks retain their structure. Copy puts private CBOR, Markdown, HTML and
 plain text on the system clipboard. Referenced media travels with the private
 payload; a sole image up to 8 MiB also carries its bytes, allowing PNG export
-outside QtNote.
+outside AnyKeep.
 
 Markdown text and heading blocks already have a precise insertion path: an
 imported structural fragment splits the current text block at the selection and
@@ -152,7 +152,7 @@ native rich-text importer from racing the block-model operation.
 * Cross-note move is copy-first.  Source deletion happens only after the
   destination confirms a successful internal drop.
 * An external drag is always a copy; a move request is never used to delete
-  data outside QtNote.
+  data outside AnyKeep.
 * Drops into tables use a rectangular replace/expand operation.  Other drops
   insert before, after or split the target text block at the cursor.
 

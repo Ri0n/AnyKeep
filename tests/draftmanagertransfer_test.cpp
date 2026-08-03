@@ -9,7 +9,7 @@
 
 #include <memory>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 namespace {
 

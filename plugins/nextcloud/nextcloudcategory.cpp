@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace QtNote::NextcloudCategory {
+namespace AnyKeep::NextcloudCategory {
 namespace {
 
     void setError(QString *error, const QString &message)
@@ -66,4 +66,4 @@ bool encode(const QStringList &path, QString *category, QString *error)
     return true;
 }
 
-} // namespace QtNote::NextcloudCategory
+} // namespace AnyKeep::NextcloudCategory

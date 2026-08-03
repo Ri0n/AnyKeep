@@ -7,7 +7,7 @@
 #include "yandexplugin.h"
 
 #include <QResource>
-#ifdef QTNOTE_MOBILE_XMPP_AVAILABLE
+#ifdef ANYKEEP_MOBILE_XMPP_AVAILABLE
 #include "xmppplugin.h"
 #endif
 
@@ -15,11 +15,11 @@ static void initializeNextcloudResourcesForMobile() { Q_INIT_RESOURCE(nextcloudr
 static void initializeGeminiResourcesForMobile() { Q_INIT_RESOURCE(gemini); }
 static void initializeOpenAIWhisperResourcesForMobile() { Q_INIT_RESOURCE(openaiwhisper); }
 static void initializeYandexResourcesForMobile() { Q_INIT_RESOURCE(yandex); }
-#ifdef QTNOTE_MOBILE_XMPP_AVAILABLE
+#ifdef ANYKEEP_MOBILE_XMPP_AVAILABLE
 static void initializeXmppResourcesForMobile() { Q_INIT_RESOURCE(xmppsettings); }
 #endif
 
-namespace QtNote {
+namespace AnyKeep {
 
 void registerMobileBundledPlugins(BundledPluginRegistry &registry)
 {
@@ -68,7 +68,7 @@ void registerMobileBundledPlugins(BundledPluginRegistry &registry)
     yandex.configurable = true;
     registry.registerFactory(yandex, [](QObject *parent) { return new YandexPlugin(parent); });
 
-#ifdef QTNOTE_MOBILE_XMPP_AVAILABLE
+#ifdef ANYKEEP_MOBILE_XMPP_AVAILABLE
     initializeXmppResourcesForMobile();
 
     PluginListSource::Entry xmpp;
@@ -83,4 +83,4 @@ void registerMobileBundledPlugins(BundledPluginRegistry &registry)
 #endif
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

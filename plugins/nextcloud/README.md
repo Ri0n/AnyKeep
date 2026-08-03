@@ -1,11 +1,11 @@
-# QtNote Nextcloud Notes storage
+# AnyKeep Nextcloud Notes storage
 
-This directory is intended to be copied to `QtNote/plugins/nextcloud`.
+This directory is intended to be copied to `AnyKeep/plugins/nextcloud`.
 
 ## Integration
 
 1. Add `nextcloud` to `plugins_list` in `plugins/CMakeLists.txt`.
-2. Reconfigure CMake and build QtNote.
+2. Reconfigure CMake and build AnyKeep.
 3. Enable the plugin and enter:
    - the base Nextcloud URL, including any installation subdirectory;
    - the Nextcloud user name;
@@ -35,7 +35,7 @@ The code appends `/index.php/apps/notes/api/v1`.
 - HTTP 412 is treated as a conflict. The local text is preserved and the server version is not overwritten.
 - Server-sanitized titles are adopted from the API response.
 - `category`, `favorite`, `readonly`, and `etag` are preserved as opaque backend attributes of the generic note data.
-- The current QtNote `Note` API does not expose category/favorite/read-only metadata to the editor UI.
+- The current AnyKeep `Note` API does not expose category/favorite/read-only metadata to the editor UI.
 - There is no persistent offline cache and no three-way merge in this first version.
 
 ## Credential storage
@@ -45,7 +45,7 @@ For a distributable production build, replace that field with a platform keychai
 
 ## Validation performed
 
-The source layout and overrides were checked against the current public QtNote
+The source layout and overrides were checked against the current public AnyKeep
 `master` interfaces. This archive was not fully compiled in the generation
-environment because Qt development packages and the complete QtNote build tree
+environment because Qt development packages and the complete AnyKeep build tree
 were not available there.

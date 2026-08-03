@@ -8,7 +8,7 @@
 #include <QPointer>
 #include <QStringList>
 
-namespace QtNote {
+namespace AnyKeep {
 
 class XmppStorage;
 
@@ -65,7 +65,7 @@ signals:
     void omemoDevicesChanged();
     void omemoStatusChanged();
     void cleanupChanged();
-    void applyConfigRequested(const QtNote::XmppConfig &config);
+    void applyConfigRequested(const AnyKeep::XmppConfig &config);
     void createKeyRequested(const QString &jid);
     void importKeyRequested(const QString &jid, const QString &recoveryKey);
     void exportKeyRequested(const QString &jid);
@@ -96,6 +96,6 @@ private:
     XmppCleanupResult     pendingCleanup_;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPSETTINGSCONTROLLER_H

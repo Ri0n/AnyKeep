@@ -7,7 +7,7 @@
 
 class QNetworkReply;
 
-namespace QtNote {
+namespace AnyKeep {
 
 class YandexPlugin;
 
@@ -50,6 +50,6 @@ private:
     bool                    keyStatusError_ { false };
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // YANDEXSETTINGSCONTROLLER_H

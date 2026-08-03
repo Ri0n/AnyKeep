@@ -1,21 +1,21 @@
-# QtNote encrypted PubSub XML interoperability guide
+# Private Notes encrypted PubSub XML interoperability guide
 
 This guide is the operational companion to `PROTOXEP.md`. It shows how an
 independent implementation can reproduce the key derivation and encryption,
 exchange arbitrary records with the Python reference tool, and validate the
-result without Qt or QtNote production code.
+result without Qt or Private Notes production code.
 
 ## Files
 
 | File | Purpose |
 | --- | --- |
 | `PROTOXEP.md` | Normative protocol description |
-| `qtnote-notes.xsd` | Reference schema for the major-version-1 core XML |
-| `qtnote-encrypted-reference.py` | Independent Python encoder, decoder, and vector generator |
-| `qtnote-encrypted-vectors.json` | Fixed positive and negative conformance cases |
+| `private-notes.xsd` | Reference schema for the major-version-1 core XML |
+| `private-notes-encrypted-reference.py` | Independent Python encoder, decoder, and vector generator |
+| `private-notes-encrypted-vectors.json` | Fixed positive and negative conformance cases |
 | `conformance/rust/` | Independent Rust decryption and XML validation smoke test |
 
-The XSD describes only core elements in `urn:xmpp:qtnote:notes:1`. Compatible
+The XSD describes only core elements in `urn:xmpp:private-notes:0`. Compatible
 optional extensions use their own namespaces and therefore may not be fully
 validated by the core schema. Schema validation does not replace the runtime
 checks for node binding, item binding, required extensions, resource limits,
@@ -26,10 +26,10 @@ or cryptographic authentication.
 There is one on-wire protocol version:
 
 ```text
-urn:xmpp:qtnote:notes:1
+urn:xmpp:private-notes:0
 ```
 
-The final `1` is the incompatible major version. It is used as:
+The final `0` identifies the initial experimental protocol version. It is used as:
 
 - the default PubSub base node;
 - the namespace of the outer `encrypted` element;
@@ -38,15 +38,15 @@ The final `1` is the incompatible major version. It is used as:
 The default leaf nodes are:
 
 ```text
-urn:xmpp:qtnote:notes:1:index
-urn:xmpp:qtnote:notes:1:content
+urn:xmpp:private-notes:0:index
+urn:xmpp:private-notes:0:content
 ```
 
 There are no `wire`, `schema`, `kind`, or minor-version fields in the XML.
 The actual PubSub node selects index versus content and therefore also selects
 the HKDF domain. Compatible changes are represented by optional XML in a
 separate namespace. An incompatible change uses a new namespace and new nodes,
-for example `urn:xmpp:qtnote:notes:2`.
+for example `urn:xmpp:private-notes:1`.
 
 The JSON field named `kind` in the reference tools is only a local API argument
 that tells the test harness which node role and HKDF domain to use. It is never
@@ -69,10 +69,10 @@ All implementations must use exactly:
 
 ```text
 master key: 32 bytes
-key ID: SHA-256(UTF-8("QtNote storage key id v1") || 00 || master key)
+key ID: SHA-256(UTF-8("private-notes storage key id v1") || 00 || master key)
 HKDF hash: SHA-256
-HKDF salt: UTF-8("QtNote HKDF salt v1")
-HKDF info: UTF-8("QtNote key domain v1:" || domain)
+HKDF salt: UTF-8("private-notes HKDF salt v1")
+HKDF info: UTF-8("private-notes key domain v1:" || domain)
 HKDF output: 32 bytes
 index domain: storage-index
 content domain: storage-content
@@ -101,15 +101,15 @@ string in either case.
 From `plugins/xmpppubsub`:
 
 ```sh
-python3 qtnote-encrypted-reference.py verify-vectors
+python3 private-notes-encrypted-reference.py verify-vectors
 ```
 
 Regenerate and immediately verify them:
 
 ```sh
-python3 qtnote-encrypted-reference.py generate-vectors \
-  --output qtnote-encrypted-vectors.json
-python3 qtnote-encrypted-reference.py verify-vectors
+python3 private-notes-encrypted-reference.py generate-vectors \
+  --output private-notes-encrypted-vectors.json
+python3 private-notes-encrypted-reference.py verify-vectors
 ```
 
 Generation is deterministic because every fixed vector supplies its nonce.
@@ -123,7 +123,7 @@ A basic index request:
 {
   "kind": "index",
   "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-  "node": "urn:xmpp:qtnote:notes:1:index",
+  "node": "urn:xmpp:private-notes:0:index",
   "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
   "nonce_hex": "000102030405060708090a0b",
   "record": {
@@ -144,7 +144,7 @@ A content request:
 {
   "kind": "content",
   "master_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-  "node": "urn:xmpp:qtnote:notes:1:content",
+  "node": "urn:xmpp:private-notes:0:content",
   "item_id": "2b7e1516-28ae-4d2a-abf7-158809cf4f3c",
   "nonce_hex": "0c0d0e0f1011121314151617",
   "record": {
@@ -157,7 +157,7 @@ A content request:
 Encrypt the request:
 
 ```sh
-python3 qtnote-encrypted-reference.py encode request.json \
+python3 private-notes-encrypted-reference.py encode request.json \
   --output encoded.json
 ```
 
@@ -186,13 +186,13 @@ by the decoder.
 ## Decode and validate a record
 
 ```sh
-python3 qtnote-encrypted-reference.py decode encoded.json \
+python3 private-notes-encrypted-reference.py decode encoded.json \
   --output decoded.json
 ```
 
 The decoder verifies:
 
-1. the PubSub item and `urn:xmpp:qtnote:notes:1` namespaces;
+1. the PubSub item and `urn:xmpp:private-notes:0` namespaces;
 2. canonical padded Base64 and unpadded Base64url;
 3. the storage key ID;
 4. HKDF domain separation selected by the requested node role;
@@ -207,15 +207,15 @@ The key and actual node may be supplied separately instead of using the test
 values embedded in `encoded.json`:
 
 ```sh
-python3 qtnote-encrypted-reference.py decode encoded.json \
+python3 private-notes-encrypted-reference.py decode encoded.json \
   --master-key-hex 000102...1f \
-  --node urn:xmpp:qtnote:notes:1:index
+  --node urn:xmpp:private-notes:0:index
 ```
 
 Known required features can be declared repeatedly:
 
 ```sh
---supported-feature urn:example:qtnote:media:1
+--supported-feature urn:example:private-notes:media:1
 ```
 
 ## XML serialization is semantic
@@ -248,13 +248,13 @@ An unknown field in the same core namespace is malformed. Compatible optional
 extensions must use another XML namespace, for example:
 
 ```xml
-<index xmlns='urn:xmpp:qtnote:notes:1'
-       xmlns:media='urn:example:qtnote:media:1'
+<index xmlns='urn:xmpp:private-notes:0'
+       xmlns:media='urn:example:private-notes:media:1'
        id='note-id' revision='revision-id'
        modified='2026-07-27T18:00:00.123Z' format='markdown'
        media:preview='available'>
   <title>Portable note</title>
-  <folder xmlns='urn:xmpp:qtnote:folders:1'>
+  <folder xmlns='urn:xmpp:private-notes:folders:0'>
     <segment>Projects</segment>
   </folder>
   <media:attachments count='1'/>
@@ -263,12 +263,12 @@ extensions must use another XML namespace, for example:
 
 A rewriting implementation must preserve unknown optional authenticated
 attributes and subtrees. Namespace-aware DOM subtree preservation is the
-simplest approach. `urn:xmpp:qtnote:folders:1` is the currently defined
+simplest approach. `urn:xmpp:private-notes:folders:0` is the currently defined
 optional folder-path extension: it contains at most one direct `folder` with
 one or more trimmed, non-empty `segment` values. A missing folder means an
 empty `folder_path` in the reference codec.
 
-`urn:xmpp:qtnote:content-revision:1` is a known **required** extension used
+`urn:xmpp:private-notes:content:0` is a known **required** extension used
 only when an index revision changes without republishing the note body. Its
 single `content-revision` child identifies the revision encoded by the content
 item. It must differ from the index `revision`; without this extension the
@@ -279,8 +279,8 @@ An extension required for safe interpretation is declared inside the
 authenticated envelope:
 
 ```xml
-<required xmlns='urn:xmpp:qtnote:notes:1'
-          feature='urn:example:qtnote:media:1'/>
+<required xmlns='urn:xmpp:private-notes:0'
+          feature='urn:example:private-notes:media:1'/>
 ```
 
 An unknown required feature makes the record unsupported and read-only. It is
@@ -288,7 +288,7 @@ not malformed and must not be deleted by the maintenance tool.
 
 ## Vector file structure
 
-`qtnote-encrypted-vectors.json` contains:
+`private-notes-encrypted-vectors.json` contains:
 
 - `protocol_namespace`: the one supported major namespace;
 - `folder_namespace` and `content_revision_namespace`: defined extension namespaces;
@@ -335,7 +335,7 @@ To verify an arbitrary Python result:
 
 ```sh
 cd ..
-python3 qtnote-encrypted-reference.py encode request.json \
+python3 private-notes-encrypted-reference.py encode request.json \
   --output conformance/rust/encoded.json
 cd conformance/rust
 cargo run -- encoded.json

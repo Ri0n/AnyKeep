@@ -8,7 +8,7 @@ class QSystemTrayIcon;
 class QTimer;
 class QMenu;
 
-namespace QtNote {
+namespace AnyKeep {
 
 class Main;
 class PluginHostInterface;
@@ -16,7 +16,7 @@ class PluginHostInterface;
 class MacOSXTray : public TrayImpl {
     Q_OBJECT
 public:
-    explicit MacOSXTray(Main *qtnote, PluginHostInterface *host, QObject *parent);
+    explicit MacOSXTray(Main *anykeep, PluginHostInterface *host, QObject *parent);
     ~MacOSXTray();
 
 signals:
@@ -29,7 +29,7 @@ private slots:
 
 private:
     friend class MacOSXPlugin;
-    Main                *qtnote;
+    Main                *anykeep;
     PluginHostInterface *host;
     QSystemTrayIcon     *sti;
     QAction             *actQuit, *actNew, *actAbout, *actOptions, *actManager;

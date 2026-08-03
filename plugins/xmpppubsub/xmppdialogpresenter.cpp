@@ -16,7 +16,7 @@
 
 #include <utility>
 
-namespace QtNote {
+namespace AnyKeep {
 namespace {
 
     QQuickWindow *activeQuickWindow()
@@ -226,7 +226,7 @@ QQuickWindow *XmppDialogPresenter::presentationWindow()
         standaloneEngine_ = new QQmlEngine(this);
         auto *window      = new QQuickWindow;
         standaloneWindow_ = window;
-        window->setTitle(tr("QtNote — XMPP"));
+        window->setTitle(tr("AnyKeep — XMPP"));
         window->setModality(Qt::ApplicationModal);
         if (auto *focusWindow = QGuiApplication::focusWindow())
             window->setTransientParent(focusWindow);
@@ -292,4 +292,4 @@ void XmppDialogPresenter::scheduleRetry()
     });
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

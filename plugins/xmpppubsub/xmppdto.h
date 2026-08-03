@@ -10,7 +10,7 @@
 
 #include <optional>
 
-namespace QtNote {
+namespace AnyKeep {
 
 /// Broad failure category used to decide whether automatic retry is useful.
 enum class XmppErrorKind {
@@ -29,8 +29,8 @@ struct XmppConfig {
     QString    password;                              ///< Transient keychain value; never persisted in plugin settings.
     QString    host;                                  ///< Optional server override; empty enables normal discovery.
     int        port { 0 };                            ///< Optional port override; zero selects the library default.
-    QString    resource { QStringLiteral("QtNote") }; ///< Requested XMPP resource.
-    QString    nodeName { QStringLiteral("urn:xmpp:qtnote:notes:1") }; ///< Versioned base QtNote node.
+    QString    resource { QStringLiteral("private-notes") }; ///< Requested XMPP resource.
+    QString    nodeName { QStringLiteral("urn:xmpp:private-notes:0") }; ///< Versioned base AnyKeep node.
     QString    originId;            ///< Stable installation ID used in note revision metadata.
     int        timeoutMs { 15000 }; ///< Upper bound for an individual protocol operation.
     QByteArray masterKey;           ///< Content-encryption key for notes (not an OMEMO key).
@@ -141,10 +141,10 @@ struct XmppCleanupResult : XmppStatusResult {
     int obsoleteItemCount() const { return obsoleteIndexItemIds.size() + obsoleteContentItemIds.size(); }
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
-Q_DECLARE_METATYPE(QtNote::XmppRemoteNote)
-Q_DECLARE_METATYPE(QtNote::XmppEncryptedPayload)
-Q_DECLARE_METATYPE(QtNote::XmppStorageKeyCandidate)
+Q_DECLARE_METATYPE(AnyKeep::XmppRemoteNote)
+Q_DECLARE_METATYPE(AnyKeep::XmppEncryptedPayload)
+Q_DECLARE_METATYPE(AnyKeep::XmppStorageKeyCandidate)
 
 #endif // XMPPPUBSUBDTO_H

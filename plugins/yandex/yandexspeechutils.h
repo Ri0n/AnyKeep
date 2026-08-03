@@ -6,7 +6,7 @@
 #include <QString>
 #include <QVector>
 
-namespace QtNote::YandexSpeech {
+namespace AnyKeep::YandexSpeech {
 
 enum class ContainerAudioType { None, Wav, OggOpus, Mp3 };
 
@@ -44,6 +44,6 @@ private:
 QString transcriptFromResult(const QByteArray &body, QString *statusError = nullptr);
 qint64  estimatedAsyncBillableAudioMs(qint64 durationMs, int channels = 1);
 
-} // namespace QtNote::YandexSpeech
+} // namespace AnyKeep::YandexSpeech
 
 #endif // YANDEXSPEECHUTILS_H

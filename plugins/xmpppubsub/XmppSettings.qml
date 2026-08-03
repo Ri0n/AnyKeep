@@ -51,7 +51,7 @@ Flickable {
                 TextField {
                     id: recoveryKey
                     Layout.fillWidth: true
-                    placeholderText: "qtnote-key-v1:…"
+                    placeholderText: "private-notes-key-v1:…"
                     echoMode: TextInput.Password
                     text: root.controller.recoveryKey
                     onTextEdited: root.controller.recoveryKey = text
@@ -133,7 +133,7 @@ Flickable {
 
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("Scan for obsolete pre-XML or malformed QtNote items. Records using an unknown future version or a different encryption key are reported but never deleted.")
+                    text: qsTr("Scan for obsolete pre-XML or malformed private-note items. Records using an unknown future version or a different encryption key are reported but never deleted.")
                     wrapMode: Text.WordWrap
                 }
 
@@ -192,7 +192,7 @@ Flickable {
 
         Label {
             width: Math.min(420, root.width - 40)
-            text: qsTr("The published bundle for this OMEMO device is incomplete. Repairing it creates a new OMEMO device ID and identity key, resets OMEMO sessions and trust decisions, and requires the new device to be trusted again on your other clients. The QtNote storage key is not changed.")
+            text: qsTr("The published bundle for this OMEMO device is incomplete. Repairing it creates a new OMEMO device ID and identity key, resets OMEMO sessions and trust decisions, and requires the new device to be trusted again on your other clients. The private-notes storage key is not changed.")
             wrapMode: Text.WordWrap
         }
 

@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2015 Sergei Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -21,6 +21,6 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include "dictionarydownloader.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
-} // namespace QtNote
+} // namespace AnyKeep

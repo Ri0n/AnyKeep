@@ -1,5 +1,5 @@
-#ifndef QTNOTE_MOBILEAPPLICATION_H
-#define QTNOTE_MOBILEAPPLICATION_H
+#ifndef ANYKEEP_MOBILEAPPLICATION_H
+#define ANYKEEP_MOBILEAPPLICATION_H
 
 #include "bundledpluginregistry.h"
 #include "note.h"
@@ -12,7 +12,7 @@
 #include <QUrl>
 #include <QVariantList>
 
-namespace QtNote {
+namespace AnyKeep {
 
 class AndroidPlatformServices;
 class SpeechRecognitionController;
@@ -145,6 +145,6 @@ private:
     qreal                        editorFontSize_ { 16.0 };
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
-#endif // QTNOTE_MOBILEAPPLICATION_H
+#endif // ANYKEEP_MOBILEAPPLICATION_H

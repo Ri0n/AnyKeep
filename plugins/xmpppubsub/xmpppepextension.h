@@ -6,10 +6,10 @@
 #include <QXmppClientExtension.h>
 #include <QXmppPubSubEventHandler.h>
 
-namespace QtNote {
+namespace AnyKeep {
 
 /**
- * @brief Receives and validates QtNote PEP notifications.
+ * @brief Receives and validates AnyKeep PEP notifications.
  *
  * Only events from the configured own bare JID and note index node are
  * accepted. Valid encrypted items are converted to backend DTOs; ambiguous or
@@ -28,7 +28,7 @@ public:
     bool handlePubSubEvent(const QDomElement &element, const QString &pubSubService, const QString &nodeName) override;
 
 signals:
-    void payloadPublished(const QtNote::XmppEncryptedPayload &payload);
+    void payloadPublished(const AnyKeep::XmppEncryptedPayload &payload);
     void noteRetracted(const QString &id);
     void nodeInvalidated();
     void malformedItem(const QString &error);
@@ -38,6 +38,6 @@ private:
     QString nodeName_;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPPEPEXTENSION_H

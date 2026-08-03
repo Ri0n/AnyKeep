@@ -6,7 +6,7 @@
 
 #include "noteblockmodel_test.h"
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 void NoteBlockModelTest::editsTableStructure()
 {

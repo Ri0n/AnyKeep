@@ -18,7 +18,7 @@
 
 #include <memory>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class WorkspaceFolderStorage final : public NoteStorage {
     Q_OBJECT
@@ -130,7 +130,7 @@ void NotesWorkspaceFoldersTest::exposesFoldersAndMovesCleanEditorMetadata()
     NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
     const auto               projects = workspace.createFolder(QStringLiteral("Projects"));
     QVERIFY(!projects.isEmpty());
-    const auto child = workspace.createFolder(QStringLiteral("QtNote"), projects);
+    const auto child = workspace.createFolder(QStringLiteral("AnyKeep"), projects);
     QVERIFY(!child.isEmpty());
     const auto archive = workspace.createFolder(QStringLiteral("Archive"));
     QVERIFY(!archive.isEmpty());
@@ -222,7 +222,7 @@ void NotesWorkspaceFoldersTest::deletesFolderBranchesWithSessionUndo()
 
     NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
     const auto               parent = workspace.createFolder(QStringLiteral("Projects"));
-    const auto               child  = workspace.createFolder(QStringLiteral("QtNote"), parent);
+    const auto               child  = workspace.createFolder(QStringLiteral("AnyKeep"), parent);
     QVERIFY(!parent.isEmpty());
     QVERIFY(!child.isEmpty());
     QVERIFY(workspace.assignNoteFolder(raw->systemName(), QStringLiteral("one"), parent));

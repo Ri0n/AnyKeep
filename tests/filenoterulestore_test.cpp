@@ -6,7 +6,7 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 namespace {
 

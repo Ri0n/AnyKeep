@@ -1,20 +1,20 @@
-// QtNote companion script for restoring window state on Wayland.
-// Geometry and keep-above preferences are owned by QtNote; this script keeps
+// AnyKeep companion script for restoring window state on Wayland.
+// Geometry and keep-above preferences are owned by AnyKeep; this script keeps
 // only an in-memory window/key mapping.
 
-const service = "com.github.ri0n.QtNote";
-const objectPath = "/QtNote";
-const interfaceName = "com.github.ri0n.QtNote";
+const service = "com.github.ri0n.AnyKeep";
+const objectPath = "/AnyKeep";
+const interfaceName = "com.github.ri0n.AnyKeep";
 const trackedWindows = {};
 
 function windowId(window) {
     return String(window.internalId);
 }
 
-function isQtNoteWindow(window) {
+function isAnyKeepWindow(window) {
     const desktopFile = String(window.desktopFileName || "").toLowerCase();
     const resourceClass = String(window.resourceClass || "").toLowerCase();
-    return desktopFile === "qtnote" || resourceClass === "qtnote";
+    return desktopFile === "anykeep" || resourceClass === "anykeep";
 }
 
 function saveGeometry(window) {
@@ -42,7 +42,7 @@ function claimWindow(window) {
         try {
             state = JSON.parse(response);
         } catch (error) {
-            print("QtNote Window Geometry: invalid response: " + error);
+            print("AnyKeep Window Geometry: invalid response: " + error);
             return;
         }
         if (!state.key)
@@ -63,7 +63,7 @@ function claimWindow(window) {
 }
 
 function watchWindow(window) {
-    if (!isQtNoteWindow(window) || !window.normalWindow)
+    if (!isAnyKeepWindow(window) || !window.normalWindow)
         return;
 
     claimWindow(window);

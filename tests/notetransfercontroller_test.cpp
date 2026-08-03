@@ -6,7 +6,7 @@
 #include <QTextCursor>
 #include <QTextDocument>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class NoteTransferControllerTest : public QObject {
     Q_OBJECT
@@ -145,7 +145,13 @@ void NoteTransferControllerTest::roundTripsCodeBlockWithoutFormatting()
 
 void NoteTransferControllerTest::convertsPlainTextNotesToMarkdownWithoutChangingTheirText()
 {
-    const QString plain    = QStringLiteral("# literal heading\n* literal emphasis *\nordinary text");
+    const QString plain = QStringLiteral("# literal heading\n"
+                                         "* literal emphasis *\n"
+                                         "> literal quote\n"
+                                         "1. literal list item\n"
+                                         "inline *emphasis*, `code`, and [link](https://example.org)\n"
+                                         "literal \\ slash\n"
+                                         "ordinary text");
     const QString markdown = NoteTransferController::convertTextFormat(plain, Note::PlainText, Note::Markdown);
 
     QVERIFY(markdown != plain);
@@ -273,7 +279,7 @@ void NoteTransferControllerTest::roundTripsSingleImageAsPng()
     NoteFragment      fragment;
     NoteFragmentBlock block;
     block.type            = NoteFragmentBlockType::Image;
-    block.image.sourceUri = QStringLiteral("qtnote-media:/11111111-1111-1111-1111-111111111111/image.png");
+    block.image.sourceUri = QStringLiteral("anykeep-media:/11111111-1111-1111-1111-111111111111/image.png");
     fragment.blocks.append(block);
     NoteFragmentMedia media;
     media.sourceUri              = block.image.sourceUri;
@@ -289,7 +295,7 @@ void NoteTransferControllerTest::roundTripsSingleImageAsPng()
     // An unrelated entry must not become the copied image merely because it
     // appears first in the payload.
     NoteFragmentMedia unrelated = media;
-    unrelated.sourceUri         = QStringLiteral("qtnote-media:/22222222-2222-2222-2222-222222222222/other.png");
+    unrelated.sourceUri         = QStringLiteral("anykeep-media:/22222222-2222-2222-2222-222222222222/other.png");
     unrelated.reference.id      = QUuid(QStringLiteral("{22222222-2222-2222-2222-222222222222}"));
     unrelated.data              = QByteArrayLiteral("not an image");
     fragment.media.prepend(unrelated);
@@ -301,7 +307,7 @@ void NoteTransferControllerTest::roundTripsSingleImageAsPng()
     QVERIFY(exported.mimeData->hasFormat(QStringLiteral("image/png")));
     const auto imported = controller.importMimeData(exported.mimeData.get());
     QVERIFY2(imported, qPrintable(imported.error));
-    // The private QtNote representation remains the preferred round-trip.
+    // The private AnyKeep representation remains the preferred round-trip.
     QCOMPARE(imported.sourceMimeType, QString::fromLatin1(NoteTransferController::FragmentMimeType));
 }
 

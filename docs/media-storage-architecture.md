@@ -1,17 +1,17 @@
 # Media storage architecture
 
 Status: partially implemented. The shared encrypted local blob store, draft/cache
-manifests, `qtnote-media:` references, image/audio insertion and playback, and
+manifests, `anykeep-media:` references, image/audio insertion and playback, and
 PTF sidecars are in place. Remote media transport and Tomboy/Gnote adapters
 remain future work.
 
-QtNote notes are Markdown documents. Attachments and inline media are addressed
+AnyKeep notes are Markdown documents. Attachments and inline media are addressed
 from Markdown by a stable attachment UUID and a readable portable filename:
 
 ```markdown
-[Project budget.xlsx](qtnote-media:/7f28c5de-5f48-4d44-918f-b24d5b672f30/project-budget.xlsx)
-![Wiring diagram](qtnote-media:/d839a73b-9818-41aa-a939-59d50fce94fb/IMG_142315.png)
-<audio controls src="qtnote-media:/9b82323d-6aa4-43d1-b547-acde11bd37fe/Audio_20260801_211300.m4a" title="Audio recording" data-qtnote-duration-ms="42000"></audio>
+[Project budget.xlsx](anykeep-media:/7f28c5de-5f48-4d44-918f-b24d5b672f30/project-budget.xlsx)
+![Wiring diagram](anykeep-media:/d839a73b-9818-41aa-a939-59d50fce94fb/IMG_142315.png)
+<audio controls src="anykeep-media:/9b82323d-6aa4-43d1-b547-acde11bd37fe/Audio_20260801_211300.m4a" title="Audio recording" data-anykeep-duration-ms="42000"></audio>
 ```
 
 The UUID is authoritative. The final URI component is only a readable fallback
@@ -33,7 +33,7 @@ also accepts the duration reported by the decoder at runtime.
 
 ## Hybrid storage model
 
-QtNote uses logically separate draft and remote-cache records, but they refer to
+AnyKeep uses logically separate draft and remote-cache records, but they refer to
 one profile-wide immutable media store. Each record owns its manifest; the shared
 store owns only encrypted bytes.
 
@@ -75,7 +75,7 @@ information:
 
 ```cpp
 struct MediaReference {
-    QUuid id;                 // Attachment identity used by qtnote-media URIs.
+    QUuid id;                 // Attachment identity used by anykeep-media URIs.
     QByteArray blobId;        // Identity of immutable local content.
     QString originalName;     // Original display/export filename.
     QString portableName;     // Cross-platform fallback used in the URI.
@@ -145,7 +145,7 @@ the expected identifier, size, schema, and object kind.
 A sharded physical layout avoids oversized directories:
 
 ```text
-<QtNote data>/media/
+<AnyKeep data>/media/
   ab/
     cd/
       abcdef...blob
@@ -257,7 +257,7 @@ URI and filesystem materialization by:
 
 PTF, Tomboy, and similar file-oriented stores may materialize attachments in a
 sidecar directory named after the note. This is a storage adapter representation,
-not QtNote's internal ownership model:
+not AnyKeep's internal ownership model:
 
 ```text
 note.ptf
@@ -266,12 +266,12 @@ note/
   IMG_142315.png
 ```
 
-The adapter converts `qtnote-media:` URIs to relative paths on export and performs
+The adapter converts `anykeep-media:` URIs to relative paths on export and performs
 the inverse import into `LocalMediaStore` on load.
 
 ## Audio recording and playback
 
-QtNote requests AAC-LC in an M4A/MP4 container, mono, 48 kHz, 64 kbit/s average
+AnyKeep requests AAC-LC in an M4A/MP4 container, mono, 48 kHz, 64 kbit/s average
 bit rate. The recorder is exposed only when the active Qt Multimedia backend can
 resolve that codec/container pair; it does not silently fall back to a
 platform-specific container.
@@ -283,7 +283,7 @@ after import. Normal playback decrypts the immutable blob into a seekable
 `QBuffer` and supplies it to `QMediaPlayer`; no persistent plaintext playback
 copy is created.
 
-Audio is a first-class structural block. Its `qtnote-media:` URI participates in
+Audio is a first-class structural block. Its `anykeep-media:` URI participates in
 manifest pruning, undo/redo, internal copy/paste, cross-note attachment cloning,
 and PTF sidecar import/export exactly like an image URI.
 
@@ -344,17 +344,17 @@ participating XMPP entities.
 
 For persistent notes, source lifetime remains important. A direct DataChannel is
 useful while another device is online, but is not by itself durable storage. An
-HTTP-uploaded source is naturally available to offline devices, but QtNote must
+HTTP-uploaded source is naturally available to offline devices, but AnyKeep must
 decide whether it stores plaintext behind HTTPS or uploads an independently
 encrypted object whose key is distributed through the authenticated XMPP storage
 protocol. Multiple XEP-0447 sources may allow both paths for the same content.
 
 The specification is Experimental, and its primary examples use messages,
-Carbons, and MAM. Before implementation QtNote still needs to define how an
+Carbons, and MAM. Before implementation AnyKeep still needs to define how an
 XEP-0447 file-sharing description and its source lifetime are bound to a persistent
 note revision in the private PubSub protocol. The design must also decide:
 
-- which source protocols QtNote requires, prefers, or advertises together;
+- which source protocols AnyKeep requires, prefers, or advertises together;
 - which Jingle transports and end-to-end encryption profiles are interoperable;
 - how remote attachment encryption and key rotation work;
 - whether sources survive as long as their note revisions;
@@ -363,7 +363,7 @@ note revision in the private PubSub protocol. The design must also decide:
 - which XEP-0446 metadata and thumbnails are retained in `MediaReference`.
 
 Until those questions are specified, XEP-0447 is a direction and interoperability
-target, not part of the implemented QtNote XMPP wire protocol.
+target, not part of the implemented AnyKeep XMPP wire protocol.
 
 ## Failure and security rules
 

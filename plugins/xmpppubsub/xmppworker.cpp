@@ -1,6 +1,6 @@
 #include "xmppworker.h"
 
-#include "qtnotepubsubitem.h"
+#include "privatenotespubsubitem.h"
 #include "xmpperror.h"
 #include "xmppkeysyncextension.h"
 #include "xmppnotecodec.h"
@@ -40,7 +40,7 @@
 #include <utility>
 #include <variant>
 
-namespace QtNote {
+namespace AnyKeep {
 
 namespace {
 
@@ -102,7 +102,7 @@ namespace {
         config.setIncludePayloads(true);
         config.setRetractNotificationsEnabled(true);
         config.setNodeType(QXmppPubSubNodeConfig::Leaf);
-        config.setPayloadType(QtNotePubSubItem::payloadNamespace);
+        config.setPayloadType(PrivateNotesPubSubItem::payloadNamespace);
         return config;
     }
 
@@ -243,7 +243,7 @@ void XmppWorker::createClient()
     }
 
     client_ = new QXmppClient(QXmppClient::BasicExtensions, this);
-    if (qEnvironmentVariableIntValue("QTNOTE_XMPP_XML_LOG") > 0) {
+    if (qEnvironmentVariableIntValue("ANYKEEP_XMPP_XML_LOG") > 0) {
         auto *logger = new QXmppLogger(client_);
         logger->setMessageTypes(QXmppLogger::SentMessage | QXmppLogger::ReceivedMessage | QXmppLogger::WarningMessage);
         logger->setLoggingType(QXmppLogger::SignalLogging);
@@ -278,7 +278,7 @@ void XmppWorker::createClient()
     connect(pepExtension_, &XmppPepExtension::payloadPublished, this, [this](const XmppEncryptedPayload &payload) {
         auto note = XmppNoteCodec::decodeIndex(payload, config_.masterKey, config_.indexNodeName());
         if (note) {
-            qInfo().noquote() << "Decoded QtNote PEP index item" << payload.id << "revision=" << note.value.revision;
+            qInfo().noquote() << "Decoded private-note PEP index item" << payload.id << "revision=" << note.value.revision;
             emit remoteNotePublished(note.value);
             return;
         }
@@ -287,7 +287,7 @@ void XmppWorker::createClient()
         // is not a storage-wide failure. Ask the storage layer to refresh the
         // authoritative index; list refresh isolates unreadable items and can
         // still apply every valid record.
-        qWarning().noquote() << "Could not decode QtNote PEP index item" << payload.id << ':' << note.error.message
+        qWarning().noquote() << "Could not decode private-note PEP index item" << payload.id << ':' << note.error.message
                              << "-- scheduling a full index refresh";
         emit remoteNodeInvalidated();
     });
@@ -296,7 +296,7 @@ void XmppWorker::createClient()
     connect(pepExtension_, &XmppPepExtension::malformedItem, this, [](const QString &error) {
         // Per-item event damage is already followed by nodeInvalidated(). Do
         // not feed it into the storage-wide error-state machinery.
-        qWarning().noquote() << "QtNote PEP event item ignored:" << error;
+        qWarning().noquote() << "Private-note PEP event item ignored:" << error;
     });
     // The handlers perform synchronous-looking waits for additional PubSub IQs.
     // Do not run them from inside QXmppClient's stanza dispatch: an IQ response
@@ -472,7 +472,7 @@ QCoro::Task<XmppStatusResult> XmppWorker::verifyPrivateStorageSupportTask()
     if (!info.features().contains(QString::fromLatin1(PublishOptionsFeature))) {
         co_return XmppStatusResult { false, false, false,
                                      QStringLiteral("The server does not advertise PubSub publish-options; "
-                                                    "QtNote will not store private notes there") };
+                                                    "the client will not store private notes there") };
     }
     co_return XmppStatusResult { true };
 }
@@ -483,13 +483,13 @@ QCoro::Task<XmppStatusResult> XmppWorker::verifyNodeTask(QString nodeName)
     if (const auto *error = std::get_if<QXmppError>(&result)) {
         co_return XmppStatusResult {
             false, false,
-            false, QStringLiteral("Could not verify the QtNote PEP node: %1").arg(errorText(*error)),
+            false, QStringLiteral("Could not verify the private-note PEP node: %1").arg(errorText(*error)),
             {},    classifyXmppError(*error)
         };
     }
     if (!nodeConfigIsPrivate(std::get<QXmppPubSubNodeConfig>(result))) {
         co_return XmppStatusResult {
-            false, false, false, QStringLiteral("The QtNote PEP node is not persistent and private after configuration")
+            false, false, false, QStringLiteral("The private-note PEP node is not persistent and private after configuration")
         };
     }
     co_return XmppStatusResult { true };
@@ -504,7 +504,7 @@ QCoro::Task<XmppStatusResult> XmppWorker::ensureNodeTask(QString nodeName)
                 false,
                 false,
                 false,
-                QStringLiteral("Could not read the QtNote PEP node configuration: %1").arg(errorText(*requestError)),
+                QStringLiteral("Could not read the private-note PEP node configuration: %1").arg(errorText(*requestError)),
                 {},
                 classifyXmppError(*requestError)
             };
@@ -515,7 +515,7 @@ QCoro::Task<XmppStatusResult> XmppWorker::ensureNodeTask(QString nodeName)
             error && !hasStanzaCondition(*error, QXmppStanza::Error::Conflict)) {
             co_return XmppStatusResult {
                 false, false,
-                false, QStringLiteral("Could not create the private QtNote PEP node: %1").arg(errorText(*error)),
+                false, QStringLiteral("Could not create the private-notes PEP node: %1").arg(errorText(*error)),
                 {},    classifyXmppError(*error)
             };
         }
@@ -532,13 +532,13 @@ QCoro::Task<XmppStatusResult> XmppWorker::ensureNodeTask(QString nodeName)
     nodeConfig.setIncludePayloads(true);
     nodeConfig.setRetractNotificationsEnabled(true);
     nodeConfig.setNodeType(QXmppPubSubNodeConfig::Leaf);
-    nodeConfig.setPayloadType(QtNotePubSubItem::payloadNamespace);
+    nodeConfig.setPayloadType(PrivateNotesPubSubItem::payloadNamespace);
 
     auto configured = co_await pubSub_->configureOwnPepNode(nodeName, nodeConfig).toFuture(this);
     if (const auto *error = resultError(configured)) {
         co_return XmppStatusResult {
             false, false,
-            false, QStringLiteral("Could not configure the private QtNote PEP node: %1").arg(errorText(*error)),
+            false, QStringLiteral("Could not configure the private-notes PEP node: %1").arg(errorText(*error)),
             {},    classifyXmppError(*error)
         };
     }
@@ -874,21 +874,21 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
             return obsoleteItems + malformedItems + unsupportedItems + protectedUnreadableItems + keyMismatchItems;
         }
     } decodeSummary;
-    const auto configuredKeyId = SecureEnvelope::keyId(config_.masterKey);
+    const auto configuredKeyId = SecureEnvelope::keyId(config_.masterKey, KeyDerivationProfile::PrivateNotes);
     const auto decodeItems     = [this, &decodeSummary, &configuredKeyId](const auto &items, XmppListResult &result) {
         for (const auto &item : items) {
             if (!item.isValid()) {
                 switch (item.parseFailure()) {
-                case QtNotePubSubItem::ParseFailure::ObsoleteFormat:
+                case PrivateNotesPubSubItem::ParseFailure::ObsoleteFormat:
                     ++decodeSummary.obsoleteItems;
                     break;
-                case QtNotePubSubItem::ParseFailure::UnsupportedFormat:
+                case PrivateNotesPubSubItem::ParseFailure::UnsupportedFormat:
                     ++decodeSummary.unsupportedItems;
                     break;
-                case QtNotePubSubItem::ParseFailure::Malformed:
+                case PrivateNotesPubSubItem::ParseFailure::Malformed:
                     ++decodeSummary.malformedItems;
                     break;
-                case QtNotePubSubItem::ParseFailure::None:
+                case PrivateNotesPubSubItem::ParseFailure::None:
                     ++decodeSummary.protectedUnreadableItems;
                     break;
                 }
@@ -899,7 +899,7 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
                 ++decodeSummary.keyMismatchItems;
                 if (decodeSummary.firstKeyMismatch.isEmpty()) {
                     decodeSummary.firstKeyMismatch
-                        = QStringLiteral("Encrypted QtNote storage key mismatch (item %1, configured %2)")
+                        = QStringLiteral("Encrypted private-note storage key mismatch (item %1, configured %2)")
                               .arg(QString::fromLatin1(item.payload().keyId.left(8).toHex()),
                                        QString::fromLatin1(configuredKeyId.left(8).toHex()));
                 }
@@ -932,7 +932,7 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
                 batch.append(ids.at(i));
 
             auto result = co_await pubSub_
-                              ->requestItems<QtNotePubSubItem>(QXmppUtils::jidToBareJid(config_.jid),
+                              ->requestItems<PrivateNotesPubSubItem>(QXmppUtils::jidToBareJid(config_.jid),
                                                                config_.indexNodeName(), batch)
                               .toFuture(this);
             if (generation != clientGeneration_)
@@ -941,7 +941,7 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
                 setXmppFailure(output, *error, errorText(*error));
                 co_return output;
             }
-            decodeItems(std::get<QXmppPubSubManager::Items<QtNotePubSubItem>>(result).items, output);
+            decodeItems(std::get<QXmppPubSubManager::Items<PrivateNotesPubSubItem>>(result).items, output);
         }
         if (output.notes.isEmpty() && decodeSummary.keyMismatchItems > 0) {
             output.error     = decodeSummary.firstKeyMismatch;
@@ -963,7 +963,7 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
 
     // Compatibility fallback for servers without disco item IDs.
     auto result = co_await pubSub_
-                      ->requestItems<QtNotePubSubItem>(QXmppUtils::jidToBareJid(config_.jid), config_.indexNodeName())
+                      ->requestItems<PrivateNotesPubSubItem>(QXmppUtils::jidToBareJid(config_.jid), config_.indexNodeName())
                       .toFuture(this);
     if (generation != clientGeneration_)
         co_return configurationChangedResult<XmppListResult>();
@@ -971,7 +971,7 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
         setXmppFailure(output, *error, errorText(*error));
         co_return output;
     }
-    const auto &items = std::get<QXmppPubSubManager::Items<QtNotePubSubItem>>(result);
+    const auto &items = std::get<QXmppPubSubManager::Items<PrivateNotesPubSubItem>>(result);
     output.partial    = items.continuation.has_value();
     decodeItems(items.items, output);
     if (output.notes.isEmpty() && decodeSummary.keyMismatchItems > 0) {
@@ -996,7 +996,7 @@ QCoro::Task<XmppNoteResult> XmppWorker::requestIndexTask(QString id, quint64 cli
     XmppNoteResult output;
     auto           result
         = co_await pubSub_
-              ->requestItem<QtNotePubSubItem>(QXmppUtils::jidToBareJid(config_.jid), config_.indexNodeName(), id)
+              ->requestItem<PrivateNotesPubSubItem>(QXmppUtils::jidToBareJid(config_.jid), config_.indexNodeName(), id)
               .toFuture(this);
     if (clientGeneration != clientGeneration_)
         co_return configurationChangedResult<XmppNoteResult>();
@@ -1005,7 +1005,7 @@ QCoro::Task<XmppNoteResult> XmppWorker::requestIndexTask(QString id, quint64 cli
         output.notFound = isItemNotFound(*error);
         co_return output;
     }
-    const auto &item = std::get<QtNotePubSubItem>(result);
+    const auto &item = std::get<PrivateNotesPubSubItem>(result);
     if (!item.isValid()) {
         output.error = item.parseError();
         co_return output;
@@ -1026,7 +1026,7 @@ QCoro::Task<XmppNoteResult> XmppWorker::requestNoteTask(QString id, quint64 clie
     // replaced atomically. A reader may briefly observe an old index together
     // with new content while another client is publishing a note.
     constexpr int snapshotAttempts          = 3;
-    const auto    inconsistentSnapshotError = QStringLiteral("QtNote content does not match its index revision");
+    const auto    inconsistentSnapshotError = QStringLiteral("private-note content does not match its index revision");
 
     for (int attempt = 1; attempt <= snapshotAttempts; ++attempt) {
         XmppNoteResult output;
@@ -1038,7 +1038,7 @@ QCoro::Task<XmppNoteResult> XmppWorker::requestNoteTask(QString id, quint64 clie
 
         auto contentResult
             = co_await pubSub_
-                  ->requestItem<QtNotePubSubItem>(QXmppUtils::jidToBareJid(config_.jid), config_.contentNodeName(), id)
+                  ->requestItem<PrivateNotesPubSubItem>(QXmppUtils::jidToBareJid(config_.jid), config_.contentNodeName(), id)
                   .toFuture(this);
         if (clientGeneration != clientGeneration_)
             co_return configurationChangedResult<XmppNoteResult>();
@@ -1046,7 +1046,7 @@ QCoro::Task<XmppNoteResult> XmppWorker::requestNoteTask(QString id, quint64 clie
             setXmppFailure(output, *error, errorText(*error));
             co_return output;
         }
-        const auto &contentItem = std::get<QtNotePubSubItem>(contentResult);
+        const auto &contentItem = std::get<PrivateNotesPubSubItem>(contentResult);
         if (!contentItem.isValid()) {
             output.error = contentItem.parseError();
             co_return output;
@@ -1110,7 +1110,7 @@ QCoro::Task<XmppNoteResult> XmppWorker::publishNoteTask(XmppRemoteNote note, qui
     }
 
     auto published = co_await pubSub_
-                         ->publishOwnPepItem(config_.contentNodeName(), QtNotePubSubItem(contentPayload.value),
+                         ->publishOwnPepItem(config_.contentNodeName(), PrivateNotesPubSubItem(contentPayload.value),
                                              privatePublishOptions())
                          .toFuture(this);
     if (clientGeneration != clientGeneration_)
@@ -1120,7 +1120,7 @@ QCoro::Task<XmppNoteResult> XmppWorker::publishNoteTask(XmppRemoteNote note, qui
         co_return output;
     }
     published = co_await pubSub_
-                    ->publishOwnPepItem(config_.indexNodeName(), QtNotePubSubItem(indexPayload.value),
+                    ->publishOwnPepItem(config_.indexNodeName(), PrivateNotesPubSubItem(indexPayload.value),
                                         privatePublishOptions())
                     .toFuture(this);
     if (clientGeneration != clientGeneration_)
@@ -1240,7 +1240,7 @@ QCoro::Task<XmppNoteResult> XmppWorker::updateNoteIndexTask(XmppRemoteNote note)
 
     auto published
         = co_await pubSub_
-              ->publishOwnPepItem(config_.indexNodeName(), QtNotePubSubItem(payload.value), privatePublishOptions())
+              ->publishOwnPepItem(config_.indexNodeName(), PrivateNotesPubSubItem(payload.value), privatePublishOptions())
               .toFuture(this);
     if (generation != clientGeneration_)
         co_return configurationChangedResult<XmppNoteResult>();
@@ -1460,7 +1460,7 @@ QCoro::Task<XmppStatusResult> XmppWorker::repairOwnOmemoDeviceTask()
     co_return XmppStatusResult { true };
 }
 
-QCoro::Task<std::pair<QStringList, QString>> XmppWorker::onlineQtNoteResourcesTask()
+QCoro::Task<std::pair<QStringList, QString>> XmppWorker::onlinePrivateNotesResourcesTask()
 {
     if (!roster_ || !discovery_)
         co_return std::make_pair(QStringList {}, QStringLiteral("XMPP resource discovery is unavailable"));
@@ -1502,10 +1502,10 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
     }
     if (config_.masterKey.size() == SecureEnvelope::MasterKeySize)
         output.candidates.append({ client_->configuration().resource(), config_.masterKey,
-                                   SecureEnvelope::keyId(config_.masterKey), 0, true });
+                                   SecureEnvelope::keyId(config_.masterKey, KeyDerivationProfile::PrivateNotes), 0, true });
 
     const auto bareJid               = QXmppUtils::jidToBareJid(config_.jid);
-    auto [resources, discoveryError] = co_await onlineQtNoteResourcesTask();
+    auto [resources, discoveryError] = co_await onlinePrivateNotesResourcesTask();
     QStringList errors;
     if (!discoveryError.isEmpty())
         errors.append(discoveryError);
@@ -1540,12 +1540,12 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
             continue;
         }
         const auto encoded = XmppKeySyncExtension::responseRecoveryKey(std::get<QDomElement>(result), requestId);
-        auto       key     = SecureEnvelope::decodeRecoveryKey(encoded);
+        auto       key     = SecureEnvelope::decodeRecoveryKey(encoded, KeyDerivationProfile::PrivateNotes);
         if (!key) {
             errors.append(QStringLiteral("%1: invalid storage key response").arg(resource));
             continue;
         }
-        const auto keyId    = SecureEnvelope::keyId(key.value);
+        const auto keyId    = SecureEnvelope::keyId(key.value, KeyDerivationProfile::PrivateNotes);
         auto       existing = std::find_if(output.candidates.begin(), output.candidates.end(),
                                            [&keyId](const auto &candidate) { return candidate.keyId == keyId; });
         if (existing == output.candidates.end())
@@ -1567,12 +1567,12 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
         for (int i = offset; i < qMin(offset + BatchSize, ids.size()); ++i)
             batch.append(ids.at(i));
         auto items
-            = co_await pubSub_->requestItems<QtNotePubSubItem>(bareJid, config_.indexNodeName(), batch).toFuture(this);
+            = co_await pubSub_->requestItems<PrivateNotesPubSubItem>(bareJid, config_.indexNodeName(), batch).toFuture(this);
         if (const auto *error = std::get_if<QXmppError>(&items)) {
             setXmppFailure(output, *error, errorText(*error));
             co_return output;
         }
-        for (const auto &item : std::get<QXmppPubSubManager::Items<QtNotePubSubItem>>(items).items) {
+        for (const auto &item : std::get<QXmppPubSubManager::Items<PrivateNotesPubSubItem>>(items).items) {
             if (!item.isValid()) {
                 qWarning().noquote() << "Skipping unreadable XMPP index item during storage-key audit" << item.id()
                                      << ':' << item.parseError();
@@ -1589,7 +1589,7 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
     }
     output.ok = true;
     if (!errors.isEmpty())
-        output.error = QStringLiteral("Some QtNote resources failed:\n%1").arg(errors.join('\n'));
+        output.error = QStringLiteral("Some private-note resources failed:\n%1").arg(errors.join('\n'));
     co_return output;
 }
 
@@ -1613,14 +1613,14 @@ QCoro::Task<XmppCleanupResult> XmppWorker::scanNodeForObsoleteItemsTask(QString 
         QStringList batch;
         for (int i = offset; i < qMin(offset + BatchSize, ids.size()); ++i)
             batch.append(ids.at(i));
-        auto items = co_await pubSub_->requestItems<QtNotePubSubItem>(bareJid, nodeName, batch).toFuture(this);
+        auto items = co_await pubSub_->requestItems<PrivateNotesPubSubItem>(bareJid, nodeName, batch).toFuture(this);
         if (generation != clientGeneration_)
             co_return configurationChangedResult<XmppCleanupResult>();
         if (const auto *error = std::get_if<QXmppError>(&items)) {
             setXmppFailure(output, *error, errorText(*error));
             co_return output;
         }
-        for (const auto &item : std::get<QXmppPubSubManager::Items<QtNotePubSubItem>>(items).items) {
+        for (const auto &item : std::get<QXmppPubSubManager::Items<PrivateNotesPubSubItem>>(items).items) {
             bool obsolete = false;
             if (!item.isValid()) {
                 obsolete = item.isObsoleteOrMalformed();
@@ -1699,7 +1699,7 @@ QCoro::Task<XmppCleanupResult> XmppWorker::deleteObsoleteItemsTask(QStringList i
     const auto generation = clientGeneration_;
     for (const auto &candidate : std::as_const(candidates)) {
         auto current
-            = co_await pubSub_->requestItem<QtNotePubSubItem>(bareJid, candidate.node, candidate.id).toFuture(this);
+            = co_await pubSub_->requestItem<PrivateNotesPubSubItem>(bareJid, candidate.node, candidate.id).toFuture(this);
         if (generation != clientGeneration_)
             co_return configurationChangedResult<XmppCleanupResult>();
         if (const auto *error = std::get_if<QXmppError>(&current)) {
@@ -1709,7 +1709,7 @@ QCoro::Task<XmppCleanupResult> XmppWorker::deleteObsoleteItemsTask(QStringList i
             co_return output;
         }
 
-        const auto &item      = std::get<QtNotePubSubItem>(current);
+        const auto &item      = std::get<PrivateNotesPubSubItem>(current);
         bool        removable = !item.isValid() && item.isObsoleteOrMalformed();
         if (item.isValid()) {
             const auto decodeError
@@ -1754,9 +1754,9 @@ QCoro::Task<XmppRekeyResult> XmppWorker::rekeyStorageTask(QList<QByteArray> keys
     QHash<QByteArray, QByteArray> keyring;
     for (const auto &key : keys) {
         if (key.size() == SecureEnvelope::MasterKeySize)
-            keyring.insert(SecureEnvelope::keyId(key), key);
+            keyring.insert(SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes), key);
     }
-    keyring.insert(SecureEnvelope::keyId(canonicalKey), canonicalKey);
+    keyring.insert(SecureEnvelope::keyId(canonicalKey, KeyDerivationProfile::PrivateNotes), canonicalKey);
 
     auto idsResult = co_await pubSub_->requestOwnPepItemIds(config_.indexNodeName()).toFuture(this);
     if (const auto *error = std::get_if<QXmppError>(&idsResult)) {
@@ -1768,9 +1768,9 @@ QCoro::Task<XmppRekeyResult> XmppWorker::rekeyStorageTask(QList<QByteArray> keys
     const auto bareJid = QXmppUtils::jidToBareJid(config_.jid);
     for (const auto &id : ids) {
         auto indexResult
-            = co_await pubSub_->requestItem<QtNotePubSubItem>(bareJid, config_.indexNodeName(), id).toFuture(this);
+            = co_await pubSub_->requestItem<PrivateNotesPubSubItem>(bareJid, config_.indexNodeName(), id).toFuture(this);
         auto contentResult
-            = co_await pubSub_->requestItem<QtNotePubSubItem>(bareJid, config_.contentNodeName(), id).toFuture(this);
+            = co_await pubSub_->requestItem<PrivateNotesPubSubItem>(bareJid, config_.contentNodeName(), id).toFuture(this);
         const auto *indexError   = std::get_if<QXmppError>(&indexResult);
         const auto *contentError = std::get_if<QXmppError>(&contentResult);
         if (indexError || contentError) {
@@ -1778,8 +1778,8 @@ QCoro::Task<XmppRekeyResult> XmppWorker::rekeyStorageTask(QList<QByteArray> keys
             setXmppFailure(output, error, errorText(error));
             co_return output;
         }
-        const auto &indexItem   = std::get<QtNotePubSubItem>(indexResult);
-        const auto &contentItem = std::get<QtNotePubSubItem>(contentResult);
+        const auto &indexItem   = std::get<PrivateNotesPubSubItem>(indexResult);
+        const auto &contentItem = std::get<PrivateNotesPubSubItem>(contentResult);
         if (!indexItem.isValid() || !contentItem.isValid()) {
             qWarning() << "Skipping unreadable XMPP note during rekey:" << id
                        << (!indexItem.isValid() ? indexItem.parseError() : contentItem.parseError());
@@ -1813,7 +1813,7 @@ QCoro::Task<XmppRekeyResult> XmppWorker::rekeyStorageTask(QList<QByteArray> keys
             co_return output;
         }
         auto published = co_await pubSub_
-                             ->publishOwnPepItem(config_.contentNodeName(), QtNotePubSubItem(newContent.value),
+                             ->publishOwnPepItem(config_.contentNodeName(), PrivateNotesPubSubItem(newContent.value),
                                                  privatePublishOptions())
                              .toFuture(this);
         if (const auto *error = std::get_if<QXmppError>(&published)) {
@@ -1821,7 +1821,7 @@ QCoro::Task<XmppRekeyResult> XmppWorker::rekeyStorageTask(QList<QByteArray> keys
             co_return output;
         }
         published = co_await pubSub_
-                        ->publishOwnPepItem(config_.indexNodeName(), QtNotePubSubItem(newIndex.value),
+                        ->publishOwnPepItem(config_.indexNodeName(), PrivateNotesPubSubItem(newIndex.value),
                                             privatePublishOptions())
                         .toFuture(this);
         if (const auto *error = std::get_if<QXmppError>(&published)) {
@@ -1856,7 +1856,8 @@ QCoro::Task<> XmppWorker::approveKeySyncRequestTask(QString requestId)
         co_return;
     }
     if (config_.masterKey.size() == SecureEnvelope::MasterKeySize)
-        keySyncExtension_->replyWithKey(requestId, SecureEnvelope::encodeRecoveryKey(config_.masterKey));
+        keySyncExtension_->replyWithKey(
+            requestId, SecureEnvelope::encodeRecoveryKey(config_.masterKey, KeyDerivationProfile::PrivateNotes));
 }
 
 QCoro::Task<> XmppWorker::handleKeySyncRequestTask(QString requestId, QString from, QByteArray senderKey)
@@ -1887,7 +1888,9 @@ QCoro::Task<> XmppWorker::handleKeySyncRequestTask(QString requestId, QString fr
         keySyncExtension_->reject(requestId);
         co_return;
     }
-    keySyncExtension_->replyWithKey(requestId, SecureEnvelope::encodeRecoveryKey(config_.masterKey));
+    keySyncExtension_->replyWithKey(requestId,
+                                    SecureEnvelope::encodeRecoveryKey(config_.masterKey,
+                                                                      KeyDerivationProfile::PrivateNotes));
 }
 
 QCoro::Task<> XmppWorker::cacheOwnOmemoBundleTask()
@@ -1965,4 +1968,4 @@ QString XmppWorker::errorText(const QXmppError &error)
     return error.description.isEmpty() ? QStringLiteral("Unknown XMPP error") : error.description;
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

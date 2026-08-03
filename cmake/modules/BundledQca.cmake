@@ -6,20 +6,20 @@ if(NOT QT_VERSION_MAJOR EQUAL 6)
     message(FATAL_ERROR "Bundled QCA is supported only with Qt 6")
 endif()
 
-set(QTNOTE_BUNDLED_QCA_GIT_REPOSITORY "https://github.com/psi-im/qca.git" CACHE STRING "Bundled QCA git repository")
-set(QTNOTE_BUNDLED_QCA_GIT_TAG "master" CACHE STRING "Bundled QCA git tag or branch")
-set(QTNOTE_QCA_SOURCE_DIR "" CACHE PATH "Local QCA source directory (avoids cloning the repository)")
+set(ANYKEEP_BUNDLED_QCA_GIT_REPOSITORY "https://github.com/psi-im/qca.git" CACHE STRING "Bundled QCA git repository")
+set(ANYKEEP_BUNDLED_QCA_GIT_TAG "master" CACHE STRING "Bundled QCA git tag or branch")
+set(ANYKEEP_QCA_SOURCE_DIR "" CACHE PATH "Local QCA source directory (avoids cloning the repository)")
 
 ProcessorCount(_qca_detected_jobs)
 if(NOT _qca_detected_jobs)
     set(_qca_detected_jobs 2)
 endif()
-set(QTNOTE_BUNDLED_QCA_JOBS "${_qca_detected_jobs}" CACHE STRING "Parallel jobs used to build bundled QCA")
+set(ANYKEEP_BUNDLED_QCA_JOBS "${_qca_detected_jobs}" CACHE STRING "Parallel jobs used to build bundled QCA")
 
 if(Qt6Core_DIR AND NOT Qt6Test_DIR)
-    get_filename_component(_qtnote_qt6_cmake_root "${Qt6Core_DIR}/.." ABSOLUTE)
-    if(EXISTS "${_qtnote_qt6_cmake_root}/Qt6Test/Qt6TestConfig.cmake")
-        set(Qt6Test_DIR "${_qtnote_qt6_cmake_root}/Qt6Test" CACHE PATH "Qt6Test package directory" FORCE)
+    get_filename_component(_anykeep_qt6_cmake_root "${Qt6Core_DIR}/.." ABSOLUTE)
+    if(EXISTS "${_anykeep_qt6_cmake_root}/Qt6Test/Qt6TestConfig.cmake")
+        set(Qt6Test_DIR "${_anykeep_qt6_cmake_root}/Qt6Test" CACHE PATH "Qt6Test package directory" FORCE)
     endif()
 endif()
 
@@ -36,19 +36,19 @@ set(_qca_library_dir "${_qca_install_dir}/${CMAKE_INSTALL_LIBDIR}")
 set(_qca_library "${_qca_library_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}qca-qt6${CMAKE_STATIC_LIBRARY_SUFFIX}")
 set(_qca_ossl_plugin "${_qca_library_dir}/qca-qt6/crypto/${CMAKE_STATIC_LIBRARY_PREFIX}qca-ossl${CMAKE_STATIC_LIBRARY_SUFFIX}")
 
-if(QTNOTE_QCA_SOURCE_DIR)
-    if(NOT EXISTS "${QTNOTE_QCA_SOURCE_DIR}/CMakeLists.txt")
-        message(FATAL_ERROR "QTNOTE_QCA_SOURCE_DIR does not contain a QCA source tree: ${QTNOTE_QCA_SOURCE_DIR}")
+if(ANYKEEP_QCA_SOURCE_DIR)
+    if(NOT EXISTS "${ANYKEEP_QCA_SOURCE_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR "ANYKEEP_QCA_SOURCE_DIR does not contain a QCA source tree: ${ANYKEEP_QCA_SOURCE_DIR}")
     endif()
     set(_qca_source_args
-        SOURCE_DIR "${QTNOTE_QCA_SOURCE_DIR}"
+        SOURCE_DIR "${ANYKEEP_QCA_SOURCE_DIR}"
         DOWNLOAD_COMMAND ""
         UPDATE_COMMAND ""
     )
 else()
     set(_qca_source_args
-        GIT_REPOSITORY "${QTNOTE_BUNDLED_QCA_GIT_REPOSITORY}"
-        GIT_TAG "${QTNOTE_BUNDLED_QCA_GIT_TAG}"
+        GIT_REPOSITORY "${ANYKEEP_BUNDLED_QCA_GIT_REPOSITORY}"
+        GIT_TAG "${ANYKEEP_BUNDLED_QCA_GIT_TAG}"
         UPDATE_COMMAND ""
     )
 endif()
@@ -87,14 +87,14 @@ set(_qca_cmake_args
     "-DOSX_FRAMEWORK=OFF"
 )
 
-ExternalProject_Add(qtnote_bundled_qca
+ExternalProject_Add(anykeep_bundled_qca
     ${_qca_source_args}
     PREFIX "${_qca_prefix}"
     INSTALL_DIR "${_qca_install_dir}"
     CMAKE_ARGS ${_qca_cmake_args}
     BUILD_COMMAND
         "${CMAKE_COMMAND}" --build <BINARY_DIR>
-        --parallel "${QTNOTE_BUNDLED_QCA_JOBS}"
+        --parallel "${ANYKEEP_BUNDLED_QCA_JOBS}"
     BUILD_BYPRODUCTS
         "${_qca_library}"
         "${_qca_ossl_plugin}"
@@ -109,4 +109,4 @@ set_target_properties(qca-qt6 PROPERTIES
     INTERFACE_LINK_LIBRARIES "${_qca_ossl_plugin};OpenSSL::SSL;OpenSSL::Crypto;Qt6::Core"
     INTERFACE_COMPILE_DEFINITIONS QCA_STATIC
 )
-add_dependencies(qca-qt6 qtnote_bundled_qca)
+add_dependencies(qca-qt6 anykeep_bundled_qca)

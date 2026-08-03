@@ -4,7 +4,7 @@
 #include <QtPlugin>
 #include <memory>
 
-namespace QtNote {
+namespace AnyKeep {
 class SpellCheckProvider;
 
 class SpellCheckProviderInterface {
@@ -14,6 +14,6 @@ public:
 };
 }
 
-Q_DECLARE_INTERFACE(QtNote::SpellCheckProviderInterface, "com.rion-soft.QtNote.SpellCheckProviderInterface/1.0")
+Q_DECLARE_INTERFACE(AnyKeep::SpellCheckProviderInterface, "com.rion-soft.AnyKeep.SpellCheckProviderInterface/1.0")
 
 #endif // SPELLCHECKPROVIDERINTERFACE_H

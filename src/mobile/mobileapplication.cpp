@@ -28,9 +28,9 @@
 
 #include <algorithm>
 
-namespace QtNote {
+namespace AnyKeep {
 
-Q_LOGGING_CATEGORY(logMobilePersistence, "qtnote.persistence.mobile")
+Q_LOGGING_CATEGORY(logMobilePersistence, "anykeep.persistence.mobile")
 
 namespace {
     const char *applicationStateName(Qt::ApplicationState state)
@@ -337,7 +337,7 @@ bool MobileApplication::closeCurrentNote()
 QString MobileApplication::currentNoteTitle() const
 {
     auto title = workspace_->currentTitle().trimmed();
-    return title.isEmpty() ? tr("QtNote note") : title;
+    return title.isEmpty() ? tr("AnyKeep note") : title;
 }
 
 QString MobileApplication::currentNoteFileName(const QString &suffix) const
@@ -346,7 +346,7 @@ QString MobileApplication::currentNoteFileName(const QString &suffix) const
     name.replace(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|\\x00-\\x1f]")), QStringLiteral("_"));
     name = name.trimmed().left(96);
     if (name.isEmpty())
-        name = QStringLiteral("qtnote-note");
+        name = QStringLiteral("anykeep-note");
     return name + suffix;
 }
 
@@ -533,7 +533,7 @@ bool MobileApplication::addCurrentNoteToHomeScreen()
 bool MobileApplication::processPendingLaunchIntent()
 {
     const auto url = platformServices_->pendingLaunchUrl();
-    if (!url.isValid() || url.scheme() != QStringLiteral("qtnote") || url.host() != QStringLiteral("note"))
+    if (!url.isValid() || url.scheme() != QStringLiteral("anykeep") || url.host() != QStringLiteral("note"))
         return false;
     const auto encoded = url.toString(QUrl::FullyEncoded);
     if (encoded == handledLaunchUrl_)
@@ -611,4 +611,4 @@ void MobileApplication::setEditorFontSize(qreal value)
     emit editorFontSizeChanged();
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

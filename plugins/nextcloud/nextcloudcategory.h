@@ -4,7 +4,7 @@
 #include <QString>
 #include <QStringList>
 
-namespace QtNote::NextcloudCategory {
+namespace AnyKeep::NextcloudCategory {
 
 /**
  * Decode a Nextcloud Notes category into the provider's slash-separated path.
@@ -20,6 +20,6 @@ bool decode(const QString &category, QStringList *path, QString *error = nullptr
  */
 bool encode(const QStringList &path, QString *category, QString *error = nullptr);
 
-} // namespace QtNote::NextcloudCategory
+} // namespace AnyKeep::NextcloudCategory
 
 #endif // NEXTCLOUDCATEGORY_H

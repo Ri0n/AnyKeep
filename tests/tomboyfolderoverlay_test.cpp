@@ -20,7 +20,7 @@
 
 #include <memory>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 namespace {
 
@@ -290,7 +290,7 @@ void TomboyFolderOverlayTest::folderAssignmentNeverWritesTomboyFolderData()
         catalogDirectory.filePath(QStringLiteral("folders.bin")), SecureEnvelope::generateMasterKey()));
     QVERIFY(catalog.initialize());
     FolderRecord folder;
-    folder.name        = QStringLiteral("QtNote-only folder");
+    folder.name        = QStringLiteral("AnyKeep-only folder");
     const auto created = catalog.addFolder(folder);
     QVERIFY(created);
 
@@ -308,7 +308,7 @@ void TomboyFolderOverlayTest::folderAssignmentNeverWritesTomboyFolderData()
     note.setFolderId(created.value);
     QVERIFY(raw->saveNote(note));
     const auto savedXml = readFile(notePath);
-    QVERIFY(!savedXml.contains(QByteArrayLiteral("QtNote-only folder")));
+    QVERIFY(!savedXml.contains(QByteArrayLiteral("AnyKeep-only folder")));
     QVERIFY(savedXml.contains(QByteArrayLiteral("personal")));
     QVERIFY(savedXml.contains(QByteArrayLiteral("system:notebook:Existing Tomboy notebook")));
 

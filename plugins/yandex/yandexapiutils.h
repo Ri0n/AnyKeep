@@ -8,11 +8,11 @@
 
 class QNetworkReply;
 
-namespace QtNote::YandexApi {
+namespace AnyKeep::YandexApi {
 
 QNetworkRequest authenticatedRequest(const QUrl &url, const QString &apiKey);
 QString         errorMessage(QNetworkReply *reply, const QByteArray &body);
 
-} // namespace QtNote::YandexApi
+} // namespace AnyKeep::YandexApi
 
 #endif // YANDEXAPIUTILS_H

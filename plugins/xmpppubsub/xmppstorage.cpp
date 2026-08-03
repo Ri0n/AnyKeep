@@ -29,12 +29,12 @@
 #include <memory>
 #include <utility>
 
-namespace QtNote {
+namespace AnyKeep {
 
 namespace {
     constexpr int MinimumRetryDelaySeconds  = 30;
     constexpr int MaximumRetryDelaySeconds  = 300;
-    const QString QtNoteKeychainService     = QStringLiteral("com.github.ri0n.qtnote");
+    const QString AnyKeepKeychainService     = QStringLiteral("org.xmpp.private-notes");
     const QString PsiKeychainService        = QStringLiteral("xmpp");
     const QString IndexRecordTemplateKey    = QStringLiteral("xmpp.xml.v1.index-template");
     const QString ContentRecordTemplateKey  = QStringLiteral("xmpp.xml.v1.content-template");
@@ -158,7 +158,7 @@ void XmppStorage::installReceivedStorageKey(const QString &jid, const QByteArray
     ++configEpoch_;
     config_ = readConfig();
     clearErrorState();
-    const auto keyId = SecureEnvelope::keyId(key);
+    const auto keyId = SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes);
     qInfo().noquote() << "XMPP storage key installed from a trusted device: key="
                       << QString::fromLatin1(keyId.left(8).toHex());
     emit encryptionKeyChanged(keyId, tr("Storage key received from a trusted device"));
@@ -295,13 +295,13 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController 
                                     return;
                                 if (!rekeyed.ok) {
                                     if (settingsGuard)
-                                        settingsGuard->setKeyState(SecureEnvelope::keyId(canonical), rekeyed.error);
+                                        settingsGuard->setKeyState(SecureEnvelope::keyId(canonical, KeyDerivationProfile::PrivateNotes), rekeyed.error);
                                     return;
                                 }
                                 installReceivedStorageKey(jid, canonical);
                                 if (settingsGuard) {
                                     settingsGuard->setKeyState(
-                                        SecureEnvelope::keyId(canonical),
+                                        SecureEnvelope::keyId(canonical, KeyDerivationProfile::PrivateNotes),
                                         tr("Recovery complete: %1 notes use the canonical key").arg(rekeyed.migrated));
                                 }
                             });
@@ -361,24 +361,24 @@ XmppConfig XmppStorage::readConfig() const
     config.jid
         = settings.value(QStringLiteral("storage.xmpppubsub.jid")).toString().trimmed().section(QLatin1Char('/'), 0, 0);
     if (!config.jid.isEmpty()) {
-        const auto ownPassword = SecureKeyStore::readPassword(QtNoteKeychainService, passwordKeyName(config.jid));
+        const auto ownPassword = SecureKeyStore::readPassword(AnyKeepKeychainService, passwordKeyName(config.jid));
         if (ownPassword) {
             config.password = ownPassword.value;
             settings.remove(QStringLiteral("storage.xmpppubsub.password"));
         } else {
             // Psi uses service "xmpp" and the bare JID as its key. Importing it
-            // also keeps QtNote usable on keychain backends that restrict
+            // also keeps AnyKeep usable on keychain backends that restrict
             // cross-application access later.
             const auto psiPassword = SecureKeyStore::readPassword(PsiKeychainService, config.jid);
             if (psiPassword) {
                 config.password = psiPassword.value;
-                if (!SecureKeyStore::writePassword(QtNoteKeychainService, passwordKeyName(config.jid), config.password))
+                if (!SecureKeyStore::writePassword(AnyKeepKeychainService, passwordKeyName(config.jid), config.password))
                     settings.remove(QStringLiteral("storage.xmpppubsub.password"));
             } else {
                 const auto legacy = settings.value(QStringLiteral("storage.xmpppubsub.password")).toString();
                 if (!legacy.isEmpty()) {
                     config.password = legacy;
-                    if (!SecureKeyStore::writePassword(QtNoteKeychainService, passwordKeyName(config.jid), legacy))
+                    if (!SecureKeyStore::writePassword(AnyKeepKeychainService, passwordKeyName(config.jid), legacy))
                         settings.remove(QStringLiteral("storage.xmpppubsub.password"));
                 }
             }
@@ -387,10 +387,10 @@ XmppConfig XmppStorage::readConfig() const
     config.host = settings.value(QStringLiteral("storage.xmpppubsub.host")).toString();
     config.port = settings.value(QStringLiteral("storage.xmpppubsub.port"), 0).toInt();
 
-    const QString defaultResource = QStringLiteral("QtNote-") + config.originId.left(8);
+    const QString defaultResource = QStringLiteral("private-notes-") + config.originId.left(8);
     config.resource = settings.value(QStringLiteral("storage.xmpppubsub.resource"), defaultResource).toString();
     const auto storedNodeName = settings.value(QStringLiteral("storage.xmpppubsub.node")).toString().trimmed();
-    config.nodeName           = storedNodeName.isEmpty() || storedNodeName == QStringLiteral("urn:xmpp:qtnote:notes:0")
+    config.nodeName           = storedNodeName.isEmpty() || storedNodeName == QStringLiteral("urn:xmpp:private-notes:0")
                   ? XmppConfig {}.nodeName
                   : storedNodeName;
     config.timeoutMs          = settings.value(QStringLiteral("storage.xmpppubsub.timeoutMs"), 15000).toInt();
@@ -403,7 +403,7 @@ XmppConfig XmppStorage::readConfig() const
         if (omemoKey)
             config.omemoStateKey = omemoKey.value;
         const auto accountHash = QCryptographicHash::hash(config.jid.toUtf8(), QCryptographicHash::Sha256).toHex();
-        config.omemoStatePath  = Utils::qtnoteDataDir() + QStringLiteral("/xmpp-omemo-")
+        config.omemoStatePath  = Utils::anykeepDataDir() + QStringLiteral("/xmpp-omemo-")
             + QString::fromLatin1(accountHash.left(16)) + QStringLiteral(".state");
     }
     return config;
@@ -884,7 +884,7 @@ bool XmppStorage::openPersistentCache(const XmppConfig &config)
             reportError(tr("The local note cache could not be opened: %1").arg(keyError));
             return false;
         }
-        const auto path = Utils::qtnoteDataDir() + QStringLiteral("/remote-cache/xmpppubsub/") + config.instanceId
+        const auto path = Utils::anykeepDataDir() + QStringLiteral("/remote-cache/xmpppubsub/") + config.instanceId
             + QLatin1Char('-') + QString::fromLatin1(nodeHash) + QStringLiteral(".cache");
         persistentCache_           = std::make_unique<FileRemoteCacheStore>(path, cacheScope, std::move(localKey));
         persistentCacheInstanceId_ = cacheScope;
@@ -1671,7 +1671,7 @@ void XmppStorage::applyConfig(const XmppConfig &config)
     settings.setValue(QStringLiteral("storage.xmpppubsub.instanceId"), instanceId);
     settings.setValue(QStringLiteral("storage.xmpppubsub.jid"), config.jid);
     const auto passwordError
-        = SecureKeyStore::writePassword(QtNoteKeychainService, passwordKeyName(config.jid), config.password);
+        = SecureKeyStore::writePassword(AnyKeepKeychainService, passwordKeyName(config.jid), config.password);
     if (passwordError) {
         // Preserve compatibility on systems without a usable keychain. The
         // validation path will continue to report an empty password normally.
@@ -1704,7 +1704,7 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
 {
     const auto current = readConfig();
     auto      *widget  = new XmppSettingsController(this, current, parent);
-    widget->setKeyState(SecureEnvelope::keyId(current.masterKey));
+    widget->setKeyState(SecureEnvelope::keyId(current.masterKey, KeyDerivationProfile::PrivateNotes));
     connect(this, &XmppStorage::encryptionKeyChanged, widget, &XmppSettingsController::setKeyState);
     connect(widget, &XmppSettingsController::applyConfigRequested, this, &XmppStorage::applyConfig);
     connect(widget, &XmppSettingsController::createKeyRequested, this, [this, widget](const QString &jid) {
@@ -1714,7 +1714,7 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
         }
         auto existing = SecureKeyStore::read(storageKeyName(jid));
         if (existing) {
-            widget->setKeyState(SecureEnvelope::keyId(existing.value), tr("A key already exists"));
+            widget->setKeyState(SecureEnvelope::keyId(existing.value, KeyDerivationProfile::PrivateNotes), tr("A key already exists"));
             return;
         }
         const auto key   = SecureEnvelope::generateMasterKey();
@@ -1723,7 +1723,7 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
             widget->setKeyState({}, error.message);
             return;
         }
-        widget->setKeyState(SecureEnvelope::keyId(key));
+        widget->setKeyState(SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes));
         clearErrorState();
     });
     connect(widget, &XmppSettingsController::importKeyRequested, this,
@@ -1732,14 +1732,14 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
                     widget->setKeyState({}, tr("Enter the XMPP JID first"));
                     return;
                 }
-                auto imported = SecureEnvelope::decodeRecoveryKey(encoded);
+                auto imported = SecureEnvelope::decodeRecoveryKey(encoded, KeyDerivationProfile::PrivateNotes);
                 if (!imported) {
                     widget->setKeyState({}, imported.error.message);
                     return;
                 }
                 auto existing = SecureKeyStore::read(storageKeyName(jid));
                 if (existing && existing.value != imported.value) {
-                    widget->setKeyState(SecureEnvelope::keyId(existing.value),
+                    widget->setKeyState(SecureEnvelope::keyId(existing.value, KeyDerivationProfile::PrivateNotes),
                                         tr("A different key already exists; it was not replaced"));
                     return;
                 }
@@ -1748,7 +1748,7 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
                     widget->setKeyState({}, error.message);
                     return;
                 }
-                widget->setKeyState(SecureEnvelope::keyId(imported.value));
+                widget->setKeyState(SecureEnvelope::keyId(imported.value, KeyDerivationProfile::PrivateNotes));
                 clearErrorState();
             });
     connect(widget, &XmppSettingsController::exportKeyRequested, this, [widget](const QString &jid) {
@@ -1757,8 +1757,8 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
             widget->setKeyState({}, key.error.message);
             return;
         }
-        widget->setRecoveryKey(SecureEnvelope::encodeRecoveryKey(key.value));
-        widget->setKeyState(SecureEnvelope::keyId(key.value));
+        widget->setRecoveryKey(SecureEnvelope::encodeRecoveryKey(key.value, KeyDerivationProfile::PrivateNotes));
+        widget->setKeyState(SecureEnvelope::keyId(key.value, KeyDerivationProfile::PrivateNotes));
     });
     connect(widget, &XmppSettingsController::omemoSyncRequested, this, [this, widget](const QString &jid) {
         if (jid != config_.jid) {
@@ -1939,9 +1939,9 @@ QString XmppStorage::tooltip()
     }
     return tr("Account: %1\nPEP nodes: %2\nEncryption: end-to-end, key %3")
         .arg(config_.jid, config_.nodeName,
-             QString::fromLatin1(SecureEnvelope::keyId(config_.masterKey).left(8).toHex()));
+             QString::fromLatin1(SecureEnvelope::keyId(config_.masterKey, KeyDerivationProfile::PrivateNotes).left(8).toHex()));
 }
 
 QString XmppStorage::storageId = QStringLiteral("xmpp-pubsub");
 
-} // namespace QtNote
+} // namespace AnyKeep

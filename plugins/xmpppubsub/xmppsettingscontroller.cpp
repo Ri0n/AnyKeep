@@ -5,7 +5,7 @@
 
 #include <utility>
 
-namespace QtNote {
+namespace AnyKeep {
 
 XmppSettingsController::XmppSettingsController(XmppStorage *storage, const XmppConfig &config, QObject *parent) :
     SettingsController(parent), storage_(storage), originId_(config.originId), instanceId_(config.instanceId)
@@ -46,14 +46,14 @@ XmppSettingsController::XmppSettingsController(XmppStorage *storage, const XmppC
     resource.key         = QStringLiteral("resource");
     resource.label       = tr("Resource");
     resource.value       = config.resource;
-    resource.placeholder = QStringLiteral("QtNote-device");
+    resource.placeholder = QStringLiteral("private-notes-device");
     fields.append(resource);
 
     Field node;
     node.key         = QStringLiteral("nodeName");
     node.label       = tr("PEP node");
     node.value       = config.nodeName;
-    node.placeholder = QStringLiteral("urn:xmpp:qtnote:notes:1");
+    node.placeholder = QStringLiteral("urn:xmpp:private-notes:0");
     fields.append(node);
 
     Field timeout;
@@ -66,7 +66,7 @@ XmppSettingsController::XmppSettingsController(XmppStorage *storage, const XmppC
     fields.append(timeout);
 
     setFields(std::move(fields));
-    setKeyState(SecureEnvelope::keyId(config.masterKey));
+    setKeyState(SecureEnvelope::keyId(config.masterKey, KeyDerivationProfile::PrivateNotes));
 }
 
 XmppConfig XmppSettingsController::config() const
@@ -234,4 +234,4 @@ bool XmppSettingsController::applyValues(const QVariantMap &, QString *error)
     return true;
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

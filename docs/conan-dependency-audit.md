@@ -2,14 +2,14 @@
 
 Audit date: 2026-07-31
 
-This audit covers the third-party libraries that QtNote either resolves through
+This audit covers the third-party libraries that AnyKeep either resolves through
 `find_package()` or builds from source. Build tools and platform APIs such as
 Git, Python, pkg-config, X11 and KDE Frameworks are intentionally left to the
 host SDK/package manager.
 
-| Dependency | QtNote requirement | ConanCenter result | Decision |
+| Dependency | AnyKeep requirement | ConanCenter result | Decision |
 | --- | --- | --- | --- |
-| Qt | Qt 6.4+ (6.11 on the current Android branch) | A current Qt 6 recipe exists | Keep the ordinary `find_package(Qt6 ...)` path. `CMakeDeps`/`CMakeToolchain` can provide the same package without QtNote-specific code. |
+| Qt | Qt 6.4+ (6.11 on the current Android branch) | A current Qt 6 recipe exists | Keep the ordinary `find_package(Qt6 ...)` path. `CMakeDeps`/`CMakeToolchain` can provide the same package without AnyKeep-specific code. |
 | Hunspell | 1.7.x | `hunspell/1.7.2` is available | Already consumed from `conanfile.txt`; keep the system-package fallback in the spellchecker plugin. |
 | QSourceHighlite | pinned source revision | No matching ConanCenter recipe found | Try a configured CMake package first (including a private Conan recipe), then build the pinned revision through `ExternalProject`. |
 | protobuf-c | 1.5.x runtime for libomemo-c | `protobuf-c/1.5.2` is available | Candidate for a later OMEMO build-stack migration. The current bundled libomemo-c pipeline expects protobuf-c and libomemo-c in one staging prefix and must remain internally consistent for cross-builds. |

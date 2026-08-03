@@ -2,8 +2,8 @@ filters:
 - filter_type: file
   file_format: QT
   source_language: en
-  source_file: translations/qtnote_en.ts
-  translation_files_expression: 'translations/qtnote_<lang>.ts'
+  source_file: translations/anykeep_en.ts
+  translation_files_expression: 'translations/anykeep_<lang>.ts'
 - filter_type: file
   file_format: QT
   source_language: en

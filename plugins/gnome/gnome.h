@@ -6,12 +6,12 @@
 
 #include "deintegrationinterface.h"
 #include "notificationinterface.h"
-#include "qtnoteplugininterface.h"
+#include "anykeepplugininterface.h"
 #include "stickynotesintegrationinterface.h"
 
 class QWindow;
 
-namespace QtNote {
+namespace AnyKeep {
 
 class PluginHostInterface;
 
@@ -22,8 +22,8 @@ class GnomePlugin : public QObject,
                     public StickyNotesIntegrationInterface {
     Q_OBJECT
 #include "gnome_plugin_metadata.inc"
-    Q_INTERFACES(QtNote::PluginInterface QtNote::DEIntegrationInterface QtNote::NotificationInterface
-                                                                        QtNote::StickyNotesIntegrationInterface)
+    Q_INTERFACES(AnyKeep::PluginInterface AnyKeep::DEIntegrationInterface AnyKeep::NotificationInterface
+                                                                        AnyKeep::StickyNotesIntegrationInterface)
 public:
     explicit GnomePlugin(QObject *parent = 0);
     void setHost(PluginHostInterface *host) override;
@@ -59,6 +59,6 @@ private:
     bool                 geometryBridgeReady   = false;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // GNOMEPLUGIN_H

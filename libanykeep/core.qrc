@@ -1,0 +1,27 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="trayicon">images/anykeep24.png</file>
+    </qresource>
+    <qresource prefix="/qml">
+        <file alias="SettingsForm.qml">qml/SettingsForm.qml</file>
+    </qresource>
+    <qresource prefix="/svg">
+        <file alias="markdown.svg">images/markdown.svg</file>
+        <file alias="txt.svg">images/txt.svg</file>
+        <file alias="edit-find-symbolic.svg">images/edit-find-symbolic.svg</file>
+        <file alias="edit-redo-symbolic.svg">images/edit-redo-symbolic.svg</file>
+        <file alias="edit-undo-symbolic.svg">images/edit-undo-symbolic.svg</file>
+        <file alias="table-symbolic.svg">images/table-symbolic.svg</file>
+        <file alias="insert-image-symbolic.svg">images/insert-image-symbolic.svg</file>
+        <file alias="microphone.svg">images/microphone.svg</file>
+        <file alias="preferences-system-symbolic.svg">images/preferences-system-symbolic.svg</file>
+        <file alias="format-list-unordered-symbolic.svg">images/format-list-unordered-symbolic.svg</file>
+        <file alias="user-trash-full-symbolic.svg">images/user-trash-full-symbolic.svg</file>
+        <file alias="folder-symbolic.svg">images/folder-symbolic.svg</file>
+        <file alias="attachment-symbolic.svg">images/attachment-symbolic.svg</file>
+        <file alias="task-list-symbolic.svg">images/task-list-symbolic.svg</file>
+        <file alias="media-record-symbolic.svg">images/media-record-symbolic.svg</file>
+        <file alias="overflow-menu-symbolic.svg">images/overflow-menu-symbolic.svg</file>
+        <file alias="document-share-symbolic.svg">images/document-share-symbolic.svg</file>
+    </qresource>
+</RCC>

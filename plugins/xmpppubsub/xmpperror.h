@@ -5,14 +5,14 @@
 
 struct QXmppError;
 
-namespace QtNote {
+namespace AnyKeep {
 
 /**
- * @brief Maps a QXmpp protocol error to QtNote's retry/error-state policy.
+ * @brief Maps a QXmpp protocol error to AnyKeep's retry/error-state policy.
  * @param error Error returned by a QXmpp asynchronous operation.
  */
 XmppErrorKind classifyXmppError(const QXmppError &error);
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPERROR_H

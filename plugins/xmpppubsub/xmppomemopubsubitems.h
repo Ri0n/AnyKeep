@@ -7,7 +7,7 @@
 #include <QString>
 #include <QXmppPubSubBaseItem.h>
 
-namespace QtNote {
+namespace AnyKeep {
 
 /// One entry in the XEP-0384 OMEMO device list.
 struct XmppOmemoListedDevice {
@@ -59,6 +59,6 @@ private:
     QHash<uint32_t, QByteArray> publicPreKeys_;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPOMEMOPUBSUBITEMS_H

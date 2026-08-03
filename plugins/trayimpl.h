@@ -5,7 +5,7 @@
 
 #include "notemanager.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 class TrayImpl : public QObject {
     Q_OBJECT
@@ -22,6 +22,6 @@ signals:
     void showNoteTriggered(const QString &storageId, const QString &noteId);
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // TRAYIMPL_H

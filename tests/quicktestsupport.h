@@ -3,7 +3,7 @@
 #include <QQuickItem>
 #include <QtTest>
 
-namespace QtNote::TestSupport {
+namespace AnyKeep::TestSupport {
 
 inline QQuickItem *quickItemByName(QQuickItem *root, const QString &name)
 {
@@ -36,4 +36,4 @@ void moveMouseAlong(Window *window, const QPointF &from, const QPointF &to, int 
     }
 }
 
-} // namespace QtNote::TestSupport
+} // namespace AnyKeep::TestSupport

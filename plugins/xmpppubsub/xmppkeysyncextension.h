@@ -8,10 +8,10 @@
 
 #include <optional>
 
-namespace QtNote {
+namespace AnyKeep {
 
 /**
- * @brief Implements QtNote's private key-sync IQ protocol.
+ * @brief Implements AnyKeep's private key-sync IQ protocol.
  *
  * Requests and responses are addressed to full JIDs. Recovery-key replies may
  * be OMEMO encrypted; QXmppE2eeMetadata retained in PendingRequest lets the
@@ -51,6 +51,6 @@ private:
     QHash<QString, PendingRequest> pendingRequests_;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPKEYSYNCEXTENSION_H

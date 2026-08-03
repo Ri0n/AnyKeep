@@ -5,7 +5,7 @@
 
 class QWindow;
 
-namespace QtNote {
+namespace AnyKeep {
 
 enum class WindowGeometryRestoreResult { Unsupported, Restored, Pending };
 
@@ -25,8 +25,8 @@ public:
     virtual void    windowGeometryBridgeReady() { }
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
-Q_DECLARE_INTERFACE(QtNote::DEIntegrationInterface, "com.rion-soft.QtNote.DEIntegrationInterface/2.0")
+Q_DECLARE_INTERFACE(AnyKeep::DEIntegrationInterface, "com.rion-soft.AnyKeep.DEIntegrationInterface/2.0")
 
 #endif

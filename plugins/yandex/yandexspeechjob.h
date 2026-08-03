@@ -25,7 +25,7 @@
 #include "speechrecognitionprovider.h"
 #include "yandexspeechutils.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 class YandexPlugin;
 
@@ -114,6 +114,6 @@ private:
 #endif
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // YANDEXSPEECHJOB_H

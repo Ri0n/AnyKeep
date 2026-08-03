@@ -1,5 +1,5 @@
-#ifndef QTNOTE_PLASMOID_H
-#define QTNOTE_PLASMOID_H
+#ifndef ANYKEEP_PLASMOID_H
+#define ANYKEEP_PLASMOID_H
 
 #include <QAbstractListModel>
 #include <QString>

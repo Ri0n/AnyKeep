@@ -4,7 +4,7 @@
 #include <QString>
 #include <functional>
 
-namespace QtNote {
+namespace AnyKeep {
 
 class ActionNotificationInterface {
 public:
@@ -14,8 +14,8 @@ public:
         = 0;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
-Q_DECLARE_INTERFACE(QtNote::ActionNotificationInterface, "com.rion-soft.QtNote.ActionNotificationInterface/1.0")
+Q_DECLARE_INTERFACE(AnyKeep::ActionNotificationInterface, "com.rion-soft.AnyKeep.ActionNotificationInterface/1.0")
 
 #endif // ACTIONNOTIFICATIONINTERFACE_H

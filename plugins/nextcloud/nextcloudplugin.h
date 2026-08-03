@@ -3,11 +3,11 @@
 
 #include "bundledplugininterface.h"
 #include "notestorage.h"
-#include "qtnoteplugininterface.h"
+#include "anykeepplugininterface.h"
 
 #include <QObject>
 
-namespace QtNote {
+namespace AnyKeep {
 
 class PluginHostInterface;
 
@@ -16,10 +16,10 @@ class NextcloudPlugin final : public QObject,
                               public RegularPluginInterface,
                               public BundledPluginInterface {
     Q_OBJECT
-#ifndef QTNOTE_BUNDLED_PLUGIN_BUILD
+#ifndef ANYKEEP_BUNDLED_PLUGIN_BUILD
 #include "nextcloud_plugin_metadata.inc"
 #endif
-    Q_INTERFACES(QtNote::PluginInterface QtNote::RegularPluginInterface QtNote::BundledPluginInterface)
+    Q_INTERFACES(AnyKeep::PluginInterface AnyKeep::RegularPluginInterface AnyKeep::BundledPluginInterface)
 
 public:
     explicit NextcloudPlugin(QObject *parent = nullptr);
@@ -33,6 +33,6 @@ private:
     NoteStorage::Ptr     storage_;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // NEXTCLOUDPLUGIN_H

@@ -22,14 +22,14 @@ Item {
         width: Math.max(300, Math.min(520, root.width - 24))
         modal: true
         closePolicy: Popup.NoAutoClose
-        title: qsTr("Trust an own QtNote device?")
+        title: qsTr("Trust an own AnyKeep device?")
 
         contentItem: ColumnLayout {
             spacing: 12
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Another device on your XMPP account wants to synchronize the QtNote storage key.")
+                text: qsTr("Another device on your XMPP account wants to synchronize the AnyKeep storage key.")
                 wrapMode: Text.WordWrap
             }
 

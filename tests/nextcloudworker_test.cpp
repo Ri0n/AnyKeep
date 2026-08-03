@@ -7,7 +7,7 @@
 #include <QTcpSocket>
 #include <QtTest>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class NextcloudWorkerTest : public QObject {
     Q_OBJECT

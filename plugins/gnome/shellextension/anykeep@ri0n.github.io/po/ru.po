@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: GPL-3.0-only
+msgid ""
+msgstr ""
+"Project-Id-Version: anykeep-gnome\n"
+"Report-Msgid-Bugs-To: https://anykeep.net\n"
+"POT-Creation-Date: 2026-07-08 00:00+0300\n"
+"PO-Revision-Date: 2026-07-08 00:00+0300\n"
+"Last-Translator: AnyKeep developers\n"
+"Language-Team: Russian\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "AnyKeep panel indicator"
+msgstr "Индикатор AnyKeep на панели"
+
+msgid "Note Manager"
+msgstr "Менеджер заметок"
+
+msgid "Configure AnyKeep..."
+msgstr "Настроить AnyKeep..."
+
+msgid "About AnyKeep"
+msgstr "О AnyKeep"
+
+msgid "Close AnyKeep"
+msgstr "Закрыть AnyKeep"
+
+msgid "New Note"
+msgstr "Новая заметка"
+
+msgid "Search notes"
+msgstr "Поиск заметок"
+
+msgid "AnyKeep is not running"
+msgstr "AnyKeep не запущен"
+
+msgid "No notes match the search"
+msgstr "Нет заметок, подходящих под поиск"
+
+msgid "No notes yet"
+msgstr "Заметок пока нет"
+
+msgid "Loading..."
+msgstr "Загрузка..."
+
+msgid "Untitled Note"
+msgstr "Безымянная заметка"
+
+msgid "Load more"
+msgstr "Загрузить еще"

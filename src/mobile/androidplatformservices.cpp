@@ -12,7 +12,7 @@
 #include <QtCore/private/qandroidextras_p.h>
 #endif
 
-namespace QtNote {
+namespace AnyKeep {
 
 namespace {
 #ifdef Q_OS_ANDROID
@@ -506,7 +506,7 @@ bool AndroidPlatformServices::addHomeScreenShortcut(const QString &storageId, co
     if (!manager.isValid() || !launchIntent.isValid())
         return false;
 
-    QUrl      url(QStringLiteral("qtnote://note"));
+    QUrl      url(QStringLiteral("anykeep://note"));
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("storage"), storageId);
     query.addQueryItem(QStringLiteral("id"), noteId);
@@ -524,7 +524,7 @@ bool AndroidPlatformServices::addHomeScreenShortcut(const QString &storageId, co
     const auto shortcutId = javaString(QStringLiteral("note-") + QString::fromLatin1(digest));
     QJniObject builder("android/content/pm/ShortcutInfo$Builder", "(Landroid/content/Context;Ljava/lang/String;)V",
                        context.object(), shortcutId.object<jstring>());
-    const auto label = javaString(title.isEmpty() ? tr("QtNote note") : title.left(80));
+    const auto label = javaString(title.isEmpty() ? tr("AnyKeep note") : title.left(80));
     builder.callObjectMethod("setShortLabel", "(Ljava/lang/CharSequence;)Landroid/content/pm/ShortcutInfo$Builder;",
                              label.object<jstring>());
     builder.callObjectMethod("setIntent", "(Landroid/content/Intent;)Landroid/content/pm/ShortcutInfo$Builder;",
@@ -558,4 +558,4 @@ QUrl AndroidPlatformServices::pendingLaunchUrl() const
 #endif
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

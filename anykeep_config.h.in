@@ -1,0 +1,38 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#if defined __cplusplus
+
+#include <QtGlobal>
+
+#ifdef Q_OS_WIN
+#ifndef WINVER
+#define WINVER _WIN32_WINNT_VISTA
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+#include <winsock2.h>
+#include <winuser.h>
+
+#include <windows.h>
+#endif
+#endif
+
+#define str_helper(s) #s
+#define stringify(s) str_helper(s)
+
+#define APPNAME "@APP_NAME@"
+#define DATADIR "@CMAKE_INSTALL_FULL_DATADIR@"
+#define LIBDIR "@CMAKE_INSTALL_FULL_LIBDIR@"
+#define TRANSLATIONSDIR "@TRANSLATIONSDIR@"
+
+#define ANYKEEP_VERSION_MAJOR @anykeep_VERSION_MAJOR@
+#define ANYKEEP_VERSION_MINOR @anykeep_VERSION_MINOR@
+#define ANYKEEP_VERSION_PATCH @anykeep_VERSION_PATCH@
+#define ANYKEEP_VERSION_STR "@ANYKEEP_VERSION@"
+#define ANYKEEP_VERSION_W                                                                                             \
+    stringify(ANYKEEP_VERSION_MAJOR) "," stringify(ANYKEEP_VERSION_MINOR) "," stringify(ANYKEEP_VERSION_PATCH)
+
+
+#endif // CONFIG_H

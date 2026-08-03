@@ -7,7 +7,7 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class FolderCatalogTest : public QObject {
     Q_OBJECT
@@ -450,7 +450,7 @@ void FolderCatalogTest::readsVersionOneCatalogWithoutPathHints()
         << record.sortOrder << record.collapsed << record.favorite << record.archived << record.revision
         << record.modifiedAt << record.tombstone;
 
-    const AeadContext context { KeyDomain::LocalFolderCatalog, QStringLiteral("qtnote-folder-catalog"),
+    const AeadContext context { KeyDomain::LocalFolderCatalog, QStringLiteral("anykeep-folder-catalog"),
                                 QStringLiteral("global"), 1, QStringLiteral("catalog") };
     const auto        sealed = SecureEnvelope::seal(payload, key, context);
     QVERIFY2(sealed, qPrintable(sealed.error.message));

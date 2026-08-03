@@ -8,7 +8,7 @@
 #include "deintegrationinterface.h"
 #include "globalshortcutsinterface.h"
 #include "notificationinterface.h"
-#include "qtnoteplugininterface.h"
+#include "anykeepplugininterface.h"
 #include "settingsproviderinterface.h"
 #include "spellcheckproviderinterface.h"
 #include "stickynotesintegrationinterface.h"
@@ -18,7 +18,7 @@ class KAction;
 
 class QWindow;
 
-namespace QtNote {
+namespace AnyKeep {
 
 class PluginHostInterface;
 
@@ -35,9 +35,9 @@ class KDEIntegration : public QObject,
     Q_OBJECT
 #include "kdeintegration_plugin_metadata.inc"
     Q_INTERFACES(
-        QtNote::PluginInterface QtNote::TrayInterface QtNote::DEIntegrationInterface QtNote::GlobalShortcutsInterface
-            QtNote::NotificationInterface QtNote::ActionNotificationInterface QtNote::StickyNotesIntegrationInterface
-                QtNote::SpellCheckProviderInterface QtNote::SettingsProviderInterface)
+        AnyKeep::PluginInterface AnyKeep::TrayInterface AnyKeep::DEIntegrationInterface AnyKeep::GlobalShortcutsInterface
+            AnyKeep::NotificationInterface AnyKeep::ActionNotificationInterface AnyKeep::StickyNotesIntegrationInterface
+                AnyKeep::SpellCheckProviderInterface AnyKeep::SettingsProviderInterface)
 public:
     explicit KDEIntegration(QObject *parent = 0);
     void                                setHost(PluginHostInterface *host) override;
@@ -45,7 +45,7 @@ public:
     QUrl                                settingsComponent() const override;
     SettingsController                 *createSettingsController(QObject *parent) override;
 
-    TrayImpl                   *initTray(Main *qtnote) override;
+    TrayImpl                   *initTray(Main *anykeep) override;
     void                        notifyError(const QString &msg) override;
     void                        notify(const QString &title, const QString &message, const QString &actionText,
                                        std::function<void()> action) override;
@@ -79,6 +79,6 @@ private:
     QString                   _lastGlobalShortcutError;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // KDEINTEGRATION_H

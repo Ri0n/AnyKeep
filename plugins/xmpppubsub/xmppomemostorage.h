@@ -5,7 +5,7 @@
 
 #include <functional>
 
-namespace QtNote {
+namespace AnyKeep {
 
 /**
  * @brief Encrypted persistent implementation of QXmppOmemoStorage.
@@ -51,6 +51,6 @@ private:
     std::function<void(uint32_t)> preKeyRemovedHandler_;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPOMEMOSTORAGE_H

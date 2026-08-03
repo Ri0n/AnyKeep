@@ -6,7 +6,7 @@
 #include "notesmanagerqml_test.h"
 #include "quicktestsupport.h"
 
-using namespace QtNote::TestSupport;
+using namespace AnyKeep::TestSupport;
 
 void NotesManagerQmlTest::notesManagerContextMenusAndSelectionWork()
 {

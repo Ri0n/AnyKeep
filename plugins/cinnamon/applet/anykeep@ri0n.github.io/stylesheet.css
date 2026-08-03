@@ -1,0 +1,47 @@
+.anykeep-popup {
+    min-width: 320px;
+    max-width: 420px;
+}
+
+.anykeep-header {
+    padding: 4px 6px 8px;
+}
+
+.anykeep-actions {
+    spacing: 6px;
+    padding-bottom: 6px;
+}
+
+.anykeep-action-icon {
+    icon-size: 16px;
+}
+
+.anykeep-search-entry {
+    min-height: 22px;
+}
+
+.anykeep-header-separator {
+    height: 1px;
+    background-color: rgba(128, 128, 128, 0.35);
+}
+
+.anykeep-scroll-view {
+    max-height: 420px;
+}
+
+.anykeep-notes-list {
+    spacing: 1px;
+}
+
+.anykeep-note-row {
+    padding: 6px 10px;
+}
+
+.anykeep-note-row:hover,
+.anykeep-note-row:focus {
+    background-color: rgba(128, 128, 128, 0.18);
+}
+
+.anykeep-message {
+    padding: 12px;
+}

@@ -8,15 +8,15 @@
             }
         ],
         "Category": "Utilities",
-        "Description": "A QtNote note pinned to the Plasma desktop",
+        "Description": "An AnyKeep note pinned to the Plasma desktop",
         "EnabledByDefault": true,
         "FormFactors": [
             "desktop"
         ],
-        "Icon": "qtnote",
+        "Icon": "anykeep",
         "License": "GPL-3.0-only",
-        "Name": "QtNote Sticky Note",
+        "Name": "AnyKeep Sticky Note",
         "Version": "1.0.0",
-        "Website": "https://ri0n.github.io/QtNote"
+        "Website": "https://anykeep.net"
     }
 }

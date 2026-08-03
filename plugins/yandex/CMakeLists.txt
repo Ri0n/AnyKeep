@@ -1,7 +1,7 @@
-include(QtNoteMacro)
+include(AnyKeepMacro)
 
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Network REQUIRED)
-if(QTNOTE_BUILD_MOBILE)
+if(ANYKEEP_BUILD_MOBILE)
     find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Multimedia REQUIRED)
 else()
     find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Multimedia QUIET)
@@ -25,9 +25,9 @@ set(yandex_sources
     yandex.qrc
 )
 
-if(QTNOTE_BUILD_MOBILE)
-    add_qtnote_bundled_plugin(yandex SOURCES ${yandex_sources})
-    target_link_libraries(qtnote_bundled_yandex PUBLIC
+if(ANYKEEP_BUILD_MOBILE)
+    add_anykeep_bundled_plugin(yandex SOURCES ${yandex_sources})
+    target_link_libraries(anykeep_bundled_yandex PUBLIC
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Gui
         Qt${QT_VERSION_MAJOR}::Network
@@ -36,7 +36,7 @@ if(QTNOTE_BUILD_MOBILE)
     return()
 endif()
 
-add_qtnote_plugin(yandex "Yandex cloud services" ON unix macosx windows android
+add_anykeep_plugin(yandex "Yandex cloud services" ON unix macosx windows android
     METADATA plugin-metadata.json ICON yandex-logo.svg SOURCES ${yandex_sources})
 
 target_link_libraries(yandex
@@ -47,4 +47,4 @@ target_link_libraries(yandex
     Qt${QT_VERSION_MAJOR}::Multimedia
 )
 
-install_qtnote_plugin(yandex)
+install_anykeep_plugin(yandex)

@@ -3,16 +3,20 @@
 #include <QClipboard>
 #include <QGuiApplication>
 #include <QMimeData>
+#include <QTextBlock>
+#include <QTextDocument>
 
 #include "draftmanager.h"
 #include "draftstore.h"
 #include "noteblockmodel.h"
 #include "notedata.h"
 #include "noteeditor.h"
+#include "notehighlighter.h"
 #include "noterule.h"
+#include "spellcheckprovider.h"
 #include "notetransfercontroller.h"
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 namespace {
 class MemoryDraftStore final : public DraftStore {
@@ -58,12 +62,51 @@ Note plainNote(const QString &title = QStringLiteral("Title"), const QString &bo
     note.setText(body, Note::PlainText);
     return note;
 }
+
+class RejectAllSpellCheckProvider final : public SpellCheckProvider {
+public:
+    QString id() const override { return QStringLiteral("test"); }
+    QString displayName() const override { return QStringLiteral("Test"); }
+    bool isValid() const override { return true; }
+    bool isCorrect(const QString &) const override { return false; }
+    QStringList suggestions(const QString &) const override { return {}; }
+    void addToDictionary(const QString &) override { }
+
+protected:
+    void onDisabled(DisableMode) override { }
+};
 } // namespace
 
 class NoteEditorTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void spellCheckSkipsInlineCode()
+    {
+        QTextDocument document;
+        document.setMarkdown(QStringLiteral("misspelled `inlinecode` misspelled"));
+        NoteHighlighter highlighter(&document);
+        const auto extension = makeSpellCheckExtension(std::make_shared<RejectAllSpellCheckProvider>());
+        highlighter.addExtension(extension, NoteHighlighter::SpellCheck);
+        highlighter.rehighlight();
+
+        const QString plain       = document.toPlainText();
+        const int     inlineStart = plain.indexOf(QStringLiteral("inlinecode"));
+        int           spellingRanges = 0;
+        for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
+            if (!block.layout())
+                continue;
+            for (const auto &range : block.layout()->formats()) {
+                if (!range.format.property(SpellCheckFormatProperty).toBool())
+                    continue;
+                ++spellingRanges;
+                const int start = block.position() + range.start;
+                QVERIFY(start < inlineStart || start >= inlineStart + 10);
+            }
+        }
+        QCOMPARE(spellingRanges, 2);
+    }
+
     void noteCopiesDetachBeforeMutation()
     {
         const auto original = plainNote();
@@ -383,7 +426,7 @@ private slots:
         NoteEditor   editor(plainNote(), drafts);
 
         editor.setMarkdown(true);
-        const QString source = QStringLiteral("qtnote-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
+        const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
         editor.model()->insertAudio(1, source, QStringLiteral("Voice memo"), 2500);
         editor.model()->insertAudio(2, source, QStringLiteral("Duplicate voice memo"), 2500);
         editor.resetHistory();

@@ -3,7 +3,7 @@
 
 #include <QObject>
 
-namespace QtNote {
+namespace AnyKeep {
 
 class Main;
 
@@ -12,8 +12,8 @@ public:
     virtual void notifyError(const QString &message) = 0;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
-Q_DECLARE_INTERFACE(QtNote::NotificationInterface, "com.rion-soft.QtNote.NotificationInterface/1.0")
+Q_DECLARE_INTERFACE(AnyKeep::NotificationInterface, "com.rion-soft.AnyKeep.NotificationInterface/1.0")
 
 #endif // NOTIFICATIONINTERFACE_H

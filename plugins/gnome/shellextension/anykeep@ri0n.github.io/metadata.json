@@ -1,0 +1,10 @@
+{
+  "uuid": "anykeep@ri0n.github.io",
+  "name": "AnyKeep",
+  "description": "AnyKeep panel indicator",
+  "version": 1,
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "url": "https://anykeep.net",
+  "gettext-domain": "anykeep-gnome",
+  "settings-schema": "org.gnome.shell.extensions.anykeep"
+}

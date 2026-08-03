@@ -1,12 +1,12 @@
-#ifndef QTNOTE_MOBILEBUNDLEDPLUGINS_H
-#define QTNOTE_MOBILEBUNDLEDPLUGINS_H
+#ifndef ANYKEEP_MOBILEBUNDLEDPLUGINS_H
+#define ANYKEEP_MOBILEBUNDLEDPLUGINS_H
 
-namespace QtNote {
+namespace AnyKeep {
 
 class BundledPluginRegistry;
 
 void registerMobileBundledPlugins(BundledPluginRegistry &registry);
 
-} // namespace QtNote
+} // namespace AnyKeep
 
-#endif // QTNOTE_MOBILEBUNDLEDPLUGINS_H
+#endif // ANYKEEP_MOBILEBUNDLEDPLUGINS_H

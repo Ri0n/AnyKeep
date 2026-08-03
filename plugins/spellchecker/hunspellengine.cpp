@@ -22,10 +22,10 @@
 
 #include "hunspelldownloader.h"
 #include "pluginhostinterface.h"
-#include "qtnote_config.h"
+#include "anykeep_config.h"
 #include "utils.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 namespace {
     QStringList diagnostics;
@@ -42,7 +42,7 @@ static QStringList findDictPaths()
     QStringList dictPaths;
 #if defined(Q_OS_WIN)
     dictPaths << QCoreApplication::applicationDirPath() + QLatin1String(stringify(DICTSUBDIR));
-    dictPaths << Utils::qtnoteDataDir() + QLatin1String(stringify(DICTSUBDIR));
+    dictPaths << Utils::anykeepDataDir() + QLatin1String(stringify(DICTSUBDIR));
 #elif defined(Q_OS_MAC)
     dictPaths << QLatin1String("/opt/local/share/myspell"); // MacPorts standard paths
 #else
@@ -110,7 +110,7 @@ static bool scanDictPaths(const QStringList &dictPaths, const QString &language,
 HunspellEngine::HunspellEngine(PluginHostInterface *host) :
     // Editor backends may retain the provider until after PluginHost has been
     // destroyed during application shutdown. The destructor must not consult it.
-    customDictionaryPath_(host ? host->qtnoteDataDir() + QLatin1String("/spellcheck-custom.words") : QString())
+    customDictionaryPath_(host ? host->anykeepDataDir() + QLatin1String("/spellcheck-custom.words") : QString())
 {
     QFile f(customDictionaryPath_);
     if (f.open(QIODevice::ReadOnly)) {
@@ -249,7 +249,7 @@ DictionaryDownloader *HunspellEngine::download(const QLocale &locale)
     if (!qnam) {
         qnam = new QNetworkAccessManager(qApp);
     }
-    auto storePath  = Utils::qtnoteDataDir() + QLatin1String(stringify(DICTSUBDIR));
+    auto storePath  = Utils::anykeepDataDir() + QLatin1String(stringify(DICTSUBDIR));
     auto downloader = new HunspellDownloader(locale, storePath, qnam, this);
     connect(downloader, &HunspellDownloader::finished, this, [downloader, this]() {
         if (!downloader->hasErrors()) {
@@ -323,7 +323,7 @@ QList<SpellEngineInterface::DictInfo> HunspellEngine::loadedDicts() const
     return ret;
 }
 
-QStringList HunspellEngine::diagnostics() const { return QtNote::diagnostics; }
+QStringList HunspellEngine::diagnostics() const { return AnyKeep::diagnostics; }
 
 int HunspellEngine::findLangItem(const QLocale &locale)
 {

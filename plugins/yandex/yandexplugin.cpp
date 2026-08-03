@@ -9,7 +9,7 @@
 #include "yandexspeechjob.h"
 #include "yandexspeechutils.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 static const QLatin1String SettingsGroup("yandex");
 
@@ -70,7 +70,7 @@ SpeechRecognitionCapabilities YandexPlugin::speechRecognitionCapabilities() cons
     SpeechRecognitionCapabilities caps;
     caps.supportsOneShot     = true;
     caps.supportsPunctuation = true;
-    // This limit controls QtNote's in-memory live PCM recorder. Recorded
+    // This limit controls AnyKeep's in-memory live PCM recorder. Recorded
     // attachments use the provider job directly and retain SpeechKit's
     // four-hour asynchronous file limit.
     caps.maxOneShotDurationMs = 2 * 60 * 1000;
@@ -152,4 +152,4 @@ void YandexPlugin::addUsage(qint64 audioMs, int channels, qint64 bytesSent)
                s.value(QLatin1String("speechkit/stats/v2/bytesSent"), 0).toLongLong() + qMax<qint64>(0, bytesSent));
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

@@ -1,10 +1,10 @@
-QtNote
+AnyKeep
 ======
 It's just very small Qt app which usually lives in your system tray and allows you to make notes quick way.
 
-QtNote was written as a clone of Tomboy with use of Qt.
+AnyKeep was written as a clone of Tomboy with use of Qt.
 It's not so feature rich as Tomboy but light and fast and usually suits all common needs.
-Moreover QtNote can work with Tomboy notes and it's not so hard add support of other apps.
+Moreover AnyKeep can work with Tomboy notes and it's not so hard add support of other apps.
 
 Some features:
 * Quick access to notes from tray menu
@@ -19,13 +19,13 @@ Some features:
 
 ## Downloads
 
-Check https://github.com/Ri0n/QtNote/releases page for the latest downloads.
+Check https://anykeep.net page for the latest downloads.
 
 Some older releases could be found at https://yadi.sk/d/HbnqnaTN6fwzN.
 
 ## Building
 
-QtNote requires:
+AnyKeep requires:
 
 * a C++20 compiler;
 * CMake 3.25 or newer;
@@ -42,19 +42,19 @@ Optional dependencies enable additional features and plugins:
 
 * Qt Multimedia for audio recording;
 * Xlib development files for `baseintegration` and other direct X11 support
-  when `QTNOTE_ENABLE_X11=ON` (the default on Linux);
+  when `ANYKEEP_ENABLE_X11=ON` (the default on Linux);
 * Hunspell for spell checking;
 * ECM, KDE Frameworks 6 (Config, CoreAddons, GlobalAccel, Notifications, and
   WindowSystem), and Plasma 6 development files for KDE integration;
 * QXmpp 1.11 or newer with OMEMO, QCoro, and Qt Network/XML for XMPP PubSub
-  storage. Alternatively, configure with `QTNOTE_BUILD_BUNDLED_QXMPP=ON`; the
+  storage. Alternatively, configure with `ANYKEEP_BUILD_BUNDLED_QXMPP=ON`; the
   bundled build additionally requires OpenSSL 3 and `libomemo-c`.
 
 On Plasma 5 systems, use an X11 session with `baseintegration`. The native KDE
 integration targets Qt 6, KDE Frameworks 6, and Plasma 6; Qt 5/KF5 builds are
 not supported.
 
-Configure and build QtNote with:
+Configure and build AnyKeep with:
 
 ```bash
 cmake -S . -B build
@@ -69,19 +69,19 @@ The install step is optional. Its default prefix is normally `/usr/local`; set
 another one during configuration with, for example,
 `-DCMAKE_INSTALL_PREFIX=/usr`.
 
-To list QtNote-specific configuration options after configuring the build
+To list AnyKeep-specific configuration options after configuring the build
 directory, run:
 
 ```bash
-cmake -LA -N build | grep QTNOTE
+cmake -LA -N build | grep ANYKEEP
 ```
 
 The principal options are:
 
-* `QTNOTE_DEVEL` — use development resource and plugin search paths;
-* `QTNOTE_ENABLE_X11` — build components which access X11 directly;
-* `QTNOTE_BUILD_BUNDLED_QXMPP` — build the bundled QXmpp fallback;
-* `QTNOTE_PLUGIN_ENABLE_<name>` — enable or disable an individual plugin.
+* `ANYKEEP_DEVEL` — use development resource and plugin search paths;
+* `ANYKEEP_ENABLE_X11` — build components which access X11 directly;
+* `ANYKEEP_BUILD_BUNDLED_QXMPP` — build the bundled QXmpp fallback;
+* `ANYKEEP_PLUGIN_ENABLE_<name>` — enable or disable an individual plugin.
   Plugins default to enabled when the platform and their dependencies support
   them.
 
@@ -108,11 +108,11 @@ Follow next steps after installing dependencies and configuring PATH:
    * cmake install
    * cmake build of `burn_installer` target
 4. try to run and this will execute the deployment.
-5. deployment creates QtNote installer, so check terminal for logs.
+5. deployment creates AnyKeep installer, so check terminal for logs.
 
 ## Internationalization
 
-https://app.transifex.com/rion/qtnote
+https://anykeep.net
 
 ## Architecture documentation
 

@@ -54,5 +54,5 @@ desktop and Android; the XMPP sources no longer contain a QWidget workflow or di
 ## ABI and compatibility
 
 Removing the old widget-returning storage/plugin settings methods and changing
-desktop integration to `QWindow *` are ABI-breaking changes. The libqtnote
-SONAME is therefore `QTNOTE_ABI_VERSION=3`. External plugins must be rebuilt.
+desktop integration to `QWindow *` are ABI-breaking changes. The libanykeep
+SONAME is therefore `ANYKEEP_ABI_VERSION=3`. External plugins must be rebuilt.

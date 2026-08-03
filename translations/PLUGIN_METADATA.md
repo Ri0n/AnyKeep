@@ -26,7 +26,7 @@ During CMake configuration, `cmake/generate_plugin_metadata.py` combines:
 1. the static plugin descriptor;
 2. the English source strings and every finished translation from the TS catalogs;
 3. the plugin icon, embedded as Base64;
-4. the current QtNote version where a descriptor uses `"current"`.
+4. the current AnyKeep version where a descriptor uses `"current"`.
 
 `version`, `minVersion`, and `maxVersion` are ordinary JSON strings and must follow SemVer 2.0.0, for example
 `"1.2.0"`, `"3.3.0-rc.1"`, or `"3.3.0+distribution.2"`. Build metadata does not affect compatibility
@@ -36,7 +36,7 @@ The resulting self-contained JSON file is passed to `Q_PLUGIN_METADATA`. `Plugin
 plugin's identity, localized text, compatibility range, capabilities, load policy, and icon through
 `QPluginLoader::metaData()` without constructing the plugin object.
 
-All dynamic plugins use the common `QTNOTE_PLUGIN_INTERFACE_IID`; their stable, unique identity is the `id` field
+All dynamic plugins use the common `ANYKEEP_PLUGIN_INTERFACE_IID`; their stable, unique identity is the `id` field
 inside the generated JSON.
 
 Desktop-specific plugins declare a top-level `desktopEnvironments` string array, for example

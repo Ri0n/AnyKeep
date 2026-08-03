@@ -92,7 +92,7 @@ the next event-loop turn.
 
 `NoteBlockModel::Block`, `State`, and their snapshot/restore methods remain
 private implementation details. `notedocumenthistory.h` is a private build
-header and is deliberately excluded from the installed libqtnote SDK.
+header and is deliberately excluded from the installed libanykeep SDK.
 
 ## Editor addresses and view state
 

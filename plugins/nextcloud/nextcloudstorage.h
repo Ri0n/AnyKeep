@@ -8,7 +8,7 @@
 #include <QSet>
 #include <QThread>
 
-namespace QtNote {
+namespace AnyKeep {
 
 class NextcloudWorker;
 class FolderCatalogManager;
@@ -79,6 +79,6 @@ private:
     bool                 accessible_ { false };
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // NEXTCLOUDSTORAGE_H

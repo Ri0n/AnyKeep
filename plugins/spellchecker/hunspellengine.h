@@ -12,7 +12,7 @@ class QStringEncoder;
 class QStringDecoder;
 class QNetworkAccessManager;
 
-namespace QtNote {
+namespace AnyKeep {
 
 class PluginHostInterface;
 
@@ -61,6 +61,6 @@ private:
     QString                lastError_;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // HUNSPELLENGINE_H

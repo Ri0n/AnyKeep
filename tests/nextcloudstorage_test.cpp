@@ -15,7 +15,7 @@
 
 #include <utility>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 namespace {
 

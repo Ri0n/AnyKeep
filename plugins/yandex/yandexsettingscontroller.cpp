@@ -8,7 +8,7 @@
 #include "yandexapiutils.h"
 #include "yandexplugin.h"
 
-namespace QtNote {
+namespace AnyKeep {
 namespace {
 
     const QUrl RecognizeUrl(QStringLiteral("https://stt.api.cloud.yandex.net/stt/v3/recognizeFileAsync"));
@@ -26,7 +26,7 @@ YandexSettingsController::YandexSettingsController(YandexPlugin *plugin, QObject
     apiKeyField.placeholder = tr("Paste API key");
     addField(std::move(apiKeyField));
     addField({ QStringLiteral("deferredRecognition"), tr("Use deferred recognition"),
-               tr("Uses the lower-cost deferred-general model. Results can take much longer; keep QtNote running "
+               tr("Uses the lower-cost deferred-general model. Results can take much longer; keep AnyKeep running "
                   "until the transcript arrives."),
                Boolean, settings.deferredRecognition });
     addField({ QStringLiteral("normalizeText"), tr("Normalize numbers and dates"),
@@ -154,4 +154,4 @@ void YandexSettingsController::clearCheckReply()
     reply->deleteLater();
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

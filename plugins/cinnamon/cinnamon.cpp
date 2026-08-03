@@ -12,9 +12,9 @@
 #include "cinnamon.h"
 #include "freedesktopnotifier.h"
 
-namespace QtNote {
-static const QLatin1String appletId("qtnote@ri0n.github.io");
-static const QLatin1String deskletId("qtnote-sticky@ri0n.github.io");
+namespace AnyKeep {
+static const QLatin1String appletId("anykeep@ri0n.github.io");
+static const QLatin1String deskletId("anykeep-sticky@ri0n.github.io");
 static const QLatin1String stickyPresentationsGroup("cinnamonintegration/stickyPresentations");
 
 static QString runGSettings(const QStringList &arguments, bool *ok = nullptr)
@@ -164,16 +164,16 @@ void CinnamonPlugin::ensureAppletEnabled()
         return;
     settings.setValue(QLatin1String("appletEnableAsked"), true);
 
-    const auto result = QMessageBox::question(nullptr, tr("Add QtNote Cinnamon Applet"),
-                                              tr("QtNote can add a native applet to the Cinnamon panel. "
+    const auto result = QMessageBox::question(nullptr, tr("Add AnyKeep Cinnamon Applet"),
+                                              tr("AnyKeep can add a native applet to the Cinnamon panel. "
                                                  "It provides Wayland-friendly access to recent notes."),
                                               QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
     if (result == QMessageBox::Yes && !enableApplet()) {
         QMessageBox::warning(
-            nullptr, tr("Add QtNote Cinnamon Applet"),
-            tr("Failed to add the QtNote applet. You can add it manually in Cinnamon Applets settings."));
+            nullptr, tr("Add AnyKeep Cinnamon Applet"),
+            tr("Failed to add the AnyKeep applet. You can add it manually in Cinnamon Applets settings."));
     } else if (result == QMessageBox::Yes) {
-        qInfo() << "Cinnamon integration: QtNote applet added to the panel";
+        qInfo() << "Cinnamon integration: AnyKeep applet added to the panel";
     }
 }
 
@@ -321,4 +321,4 @@ QUuid CinnamonPlugin::stickyNoteIdForPresentation(const QString &presentationId)
     return QUuid(settings.value(presentationId).toString());
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

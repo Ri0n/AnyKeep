@@ -12,7 +12,7 @@ constexpr auto TimeZoneUTC = QTimeZone::Initialization::UTC;
 constexpr auto TimeZoneUTC = Qt::UTC;
 #endif
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class FileRemoteCacheStoreTest : public QObject {
     Q_OBJECT
@@ -94,7 +94,7 @@ void FileRemoteCacheStoreTest::readsVersionTwoWithoutFolder()
     out << PayloadMagic << quint16(2) << quint32(1) << record.id << record.title << record.tags << record.modified
         << quint8(record.format) << record.body << record.bodyPresent << record.backendData << quint8(record.syncState)
         << record.lastOpenedAt << record.cachedAt << quint32(0);
-    const AeadContext context { KeyDomain::LocalRemoteCache, QStringLiteral("qtnote-remote-cache"),
+    const AeadContext context { KeyDomain::LocalRemoteCache, QStringLiteral("anykeep-remote-cache"),
                                 QStringLiteral("instance-1"), 1, QStringLiteral("records") };
     const auto        sealed = SecureEnvelope::seal(bytes, key, context);
     QVERIFY2(sealed, qPrintable(sealed.error.message));

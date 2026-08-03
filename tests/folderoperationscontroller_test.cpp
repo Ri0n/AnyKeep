@@ -14,7 +14,7 @@
 #include <algorithm>
 #include <memory>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class FolderOperationStorage final : public NoteStorage {
     Q_OBJECT

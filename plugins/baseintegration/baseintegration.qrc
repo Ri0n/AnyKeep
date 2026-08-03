@@ -1,5 +1,5 @@
 <RCC>
     <qresource prefix="/icons">
-        <file alias="logo">qtnote16.png</file>
+        <file alias="logo">anykeep16.png</file>
     </qresource>
 </RCC>

@@ -3,7 +3,7 @@
 
 #include "yandexspeechutils.h"
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class YandexSpeechUtilsTest : public QObject {
     Q_OBJECT

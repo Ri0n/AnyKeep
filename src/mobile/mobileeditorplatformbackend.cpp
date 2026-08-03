@@ -15,7 +15,7 @@
 #include <algorithm>
 #include <utility>
 
-namespace QtNote {
+namespace AnyKeep {
 
 MobileEditorPlatformBackend::MobileEditorPlatformBackend(AndroidPlatformServices *services, QObject *parent) :
     EditorPlatformBackend(parent), services_(services)
@@ -103,7 +103,7 @@ void MobileEditorPlatformBackend::openAttachment(const QString &url)
     }
     if (!attachmentOpenDirectory_)
         attachmentOpenDirectory_
-            = std::make_unique<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/qtnote-attachment-open-XXXXXX"));
+            = std::make_unique<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/anykeep-attachment-open-XXXXXX"));
     if (!attachmentOpenDirectory_->isValid()) {
         emit operationFailed(tr("Could not create a temporary directory for the attached file."));
         return;
@@ -156,4 +156,4 @@ void MobileEditorPlatformBackend::saveAttachmentAs(const QString &url)
         emit operationFailed(tr("Could not open the system file export picker."));
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

@@ -12,7 +12,7 @@
 #include <cmath>
 #include <cstring>
 
-namespace QtNote::YandexSpeech {
+namespace AnyKeep::YandexSpeech {
 namespace {
 
     QString normalizedMediaType(QString mediaType)
@@ -312,4 +312,4 @@ qint64 estimatedAsyncBillableAudioMs(qint64 durationMs, int channels)
     return roundedSeconds * 1000 * channelPairs;
 }
 
-} // namespace QtNote::YandexSpeech
+} // namespace AnyKeep::YandexSpeech

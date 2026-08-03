@@ -3,7 +3,7 @@
 #include <QDomElement>
 #include <QXmlStreamWriter>
 
-namespace QtNote {
+namespace AnyKeep {
 namespace {
     const QString OmemoNamespace = QStringLiteral("urn:xmpp:omemo:2");
 
@@ -130,4 +130,4 @@ XmppOmemoBundleItem XmppOmemoBundleItem::repairedFrom(const XmppOmemoBundleItem 
     return repaired;
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

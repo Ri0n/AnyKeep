@@ -1,7 +1,7 @@
 # XMPP Private Notes plugin
 
-`xmpppubsub` is an encrypted QtNote storage backend. It synchronizes Markdown
-notes between QtNote installations through the user's XMPP account using
+`xmpppubsub` is an encrypted AnyKeep storage backend. It synchronizes Markdown
+notes between AnyKeep installations through the user's XMPP account using
 private persistent PEP nodes.
 
 The implemented wire protocol is documented separately in
@@ -16,8 +16,8 @@ is currently an implementation direction for attachments, not part of the
 implemented private-notes wire protocol.
 
 The XMPP server stores encrypted note records and routes synchronization
-events. Note plaintext and the QtNote storage master key are not published to
-PEP. OMEMO is used to authenticate the user's QtNote devices and to transport
+events. Note plaintext and the AnyKeep storage master key are not published to
+PEP. OMEMO is used to authenticate the user's AnyKeep devices and to transport
 the storage key during device onboarding.
 
 ## Capabilities
@@ -32,7 +32,7 @@ the storage key during device onboarding.
   outbox and retries transient failures with exponential backoff;
 - discovers the account's OMEMO devices and displays their fingerprints;
 - repairs incomplete own-device OMEMO bundles produced after pre-key use;
-- establishes trust between two own QtNote devices and transfers the storage
+- establishes trust between two own AnyKeep devices and transfers the storage
   key over an OMEMO-protected IQ;
 - audits notes encrypted with different storage keys and can re-encrypt them
   with a selected canonical key;
@@ -48,7 +48,7 @@ default when all required development packages are present:
 - the matching QXmpp OMEMO library;
 - QCoro Core for the matching Qt major version.
 
-Configure QtNote normally to build the plugin:
+Configure AnyKeep normally to build the plugin:
 
 ```sh
 cmake -S . -B build
@@ -58,10 +58,10 @@ cmake --build build
 Disable it explicitly when building without the XMPP dependencies:
 
 ```sh
-cmake -S . -B build -DQTNOTE_PLUGIN_ENABLE_xmpppubsub=OFF
+cmake -S . -B build -DANYKEEP_PLUGIN_ENABLE_xmpppubsub=OFF
 ```
 
-The CMake cache option is named `QTNOTE_PLUGIN_ENABLE_xmpppubsub`. Dependency
+The CMake cache option is named `ANYKEEP_PLUGIN_ENABLE_xmpppubsub`. Dependency
 detection controls its default value. Explicitly forcing it to `ON` while a
 required package is unavailable produces a normal CMake target/dependency
 error.
@@ -72,21 +72,21 @@ On Debian/Ubuntu the Qt 6 build uses, among the usual Qt development packages,
 
 ## Configuration
 
-Open QtNote's plugin settings and configure **XMPP Private Notes**:
+Open AnyKeep's plugin settings and configure **XMPP Private Notes**:
 
 1. enter the bare JID and password;
 2. optionally override the host and port;
-3. keep a distinct resource for every installation (QtNote generates one from
+3. keep a distinct resource for every installation (AnyKeep generates one from
    a stable installation UUID);
-4. create/import a storage key, or obtain it from another trusted QtNote device;
+4. create/import a storage key, or obtain it from another trusted AnyKeep device;
 5. apply the configuration and inspect the OMEMO device list.
 
-The default base node is `urn:xmpp:qtnote:notes:1`; the final `1` is the
-incompatible protocol major version. It expands to:
+The default base node is `urn:xmpp:private-notes:0`; the final `0` identifies
+the initial experimental protocol version. It expands to:
 
-- `urn:xmpp:qtnote:notes:1:index` — encrypted title, tags, optional folder
+- `urn:xmpp:private-notes:0:index` — encrypted title, tags, optional folder
   path, timestamp, format, index revision, parent revision, and origin;
-- `urn:xmpp:qtnote:notes:1:content` — encrypted note body bound to the same
+- `urn:xmpp:private-notes:0:content` — encrypted note body bound to the same
   note ID and content revision. Folder-only moves publish a fresh index while
   keeping the existing body revision through a required encrypted extension,
   so they do not upload the body again.
@@ -114,7 +114,7 @@ frame is not part of the asynchronous lifetime.
 
 ```mermaid
 graph TD;
-    UI["QtNote UI and NoteManager"];
+    UI["AnyKeep UI and NoteManager"];
     OUTBOX["DraftManager: encrypted persistent outbox"];
     STORAGE["XmppStorage: adapter and memory cache"];
     API["XmppBackend: asynchronous backend contract"];
@@ -143,11 +143,11 @@ graph TD;
 
 | Component | Responsibility |
 | --- | --- |
-| `XmppStorage` | QtNote `NoteStorage` adapter, configuration, in-memory cache, job completion, UI-facing errors |
+| `XmppStorage` | AnyKeep `NoteStorage` adapter, configuration, in-memory cache, job completion, UI-facing errors |
 | `XmppBackend` | backend-neutral asynchronous CRUD, lifecycle, OMEMO, audit, and key-sync contract |
 | `XmppWorker` | current QXmpp implementation; connection, PEP, PubSub, OMEMO, and QCoro flows |
 | `XmppPepExtension` | incoming PubSub event filtering and conversion to backend signals |
-| `XmppKeySyncExtension` | `urn:xmpp:qtnote:key-sync:1` IQ parsing, request tracking, and replies |
+| `XmppKeySyncExtension` | `urn:xmpp:private-notes:key-sync:0` IQ parsing, request tracking, and replies |
 | `XmppNoteCodec` | encryption/decryption and binding index/content records to the PubSub node and item ID |
 | `XmppOmemoStorage` | encrypted persistence of local OMEMO identity, sessions, and pre-keys |
 | `XmppPersistentTrustStorage` | persistent OMEMO trust decisions |
@@ -214,7 +214,7 @@ for the current delay to expire.
 
 ```mermaid
 sequenceDiagram
-    participant UI as QtNote
+    participant UI as AnyKeep
     participant O as Persistent outbox
     participant S as XmppStorage
     participant B as XmppBackend
@@ -271,13 +271,13 @@ published first and index second so readers never observe a new index pointing
 at content that has not been uploaded. A failure between the two publications
 leaves an unreferenced content revision; the durable outbox preserves the local
 draft for retry. During a successful publication another reader can briefly
-observe the old index with the new content. QtNote recognizes this revision
+observe the old index with the new content. AnyKeep recognizes this revision
 mismatch as a transient inconsistent snapshot and repeats the complete
 index-plus-content read before making a conflict decision.
 
 ### Delete
 
-Deletion is also durable. QtNote first writes a `Delete` record to the encrypted
+Deletion is also durable. AnyKeep first writes a `Delete` record to the encrypted
 outbox, then retracts the index and content items asynchronously. Successful or
 already-missing items complete the operation. A temporary error retains the
 record and retries with a delay capped at five minutes.
@@ -303,7 +303,7 @@ graph TD;
 
 The storage master key and the OMEMO identity key are different things:
 
-- the random storage master key encrypts QtNote index/content envelopes;
+- the random storage master key encrypts AnyKeep index/content envelopes;
 - OMEMO device identities authenticate installations and protect the IQ that
   transports the encoded storage recovery key;
 - trust is limited to devices published by the same bare JID and still requires
@@ -316,14 +316,14 @@ response are sent only after trust approval and are OMEMO encrypted.
 ```mermaid
 sequenceDiagram
     actor U as User
-    participant N as New QtNote device
+    participant N as New AnyKeep device
     participant P as Account PEP
-    participant E as Existing QtNote device
+    participant E as Existing AnyKeep device
 
     N->>P: request OMEMO device list and bundles
     P-->>N: device IDs, labels, identity keys, pre-keys
     N->>E: disco info
-    E-->>N: advertises qtnote key-sync feature
+    E-->>N: advertises anykeep key-sync feature
 
     alt fingerprint or bundle missing
         N->>P: refresh bundle
@@ -385,7 +385,7 @@ non-empty mismatching identity is not overwritten automatically.
 
 ## Encryption and privacy boundary
 
-QtNote uses AES-256-GCM application-level envelopes. Associated data binds an
+AnyKeep uses AES-256-GCM application-level envelopes. Associated data binds an
 envelope to its key domain, PubSub node, and item ID. The index
 and content payloads additionally cross-check note ID and revision.
 
@@ -397,16 +397,16 @@ The server can still observe:
 - OMEMO device IDs, labels, and public bundles.
 
 It cannot derive note titles, bodies, tags, formats, revisions, or timestamps
-from the encrypted QtNote payload without the storage master key.
+from the encrypted AnyKeep payload without the storage master key.
 
 Local drafts, pending deletions, the storage key, and OMEMO state are also
 protected at rest. The storage key and OMEMO-state wrapping key are kept in the
 platform keychain; encrypted draft/outbox and OMEMO state files live in the
-QtNote data directory.
+AnyKeep data directory.
 
 ## Backend evolution and Iris
 
-`XmppBackend` deliberately describes QtNote operations instead of exposing
+`XmppBackend` deliberately describes AnyKeep operations instead of exposing
 QXmpp classes. An Iris backend should implement:
 
 1. connection lifecycle and permanent/transient error classification;

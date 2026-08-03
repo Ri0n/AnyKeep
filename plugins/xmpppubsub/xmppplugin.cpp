@@ -8,7 +8,7 @@
 #include "pluginhostinterface.h"
 #include "xmppstorage.h"
 
-#ifdef QTNOTE_BUNDLED_PLUGIN_BUILD
+#ifdef ANYKEEP_BUNDLED_PLUGIN_BUILD
 static int initializeXmppPluginResources()
 {
     Q_INIT_RESOURCE(xmppsettings);
@@ -16,11 +16,11 @@ static int initializeXmppPluginResources()
 }
 #endif
 
-namespace QtNote {
+namespace AnyKeep {
 
 XmppPlugin::XmppPlugin(QObject *parent) : QObject(parent)
 {
-#ifdef QTNOTE_BUNDLED_PLUGIN_BUILD
+#ifdef ANYKEEP_BUNDLED_PLUGIN_BUILD
     static const int resourcesInitialized = initializeXmppPluginResources();
     Q_UNUSED(resourcesInitialized);
 #endif
@@ -55,4 +55,4 @@ void XmppPlugin::shutdown()
     storage_.clear();
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

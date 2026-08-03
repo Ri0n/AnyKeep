@@ -9,7 +9,7 @@
 #include <QXmppStanza.h>
 #include <QXmppStreamError.h>
 
-namespace QtNote {
+namespace AnyKeep {
 namespace {
 
     XmppErrorKind classifySocketError(QAbstractSocket::SocketError error)
@@ -106,4 +106,4 @@ XmppErrorKind classifyXmppError(const QXmppError &error)
     return XmppErrorKind::Protocol;
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

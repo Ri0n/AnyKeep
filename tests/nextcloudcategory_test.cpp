@@ -2,7 +2,7 @@
 
 #include <QtTest>
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class NextcloudCategoryTest : public QObject {
     Q_OBJECT

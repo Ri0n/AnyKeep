@@ -1,28 +1,28 @@
-Source: qtnote
+Source: anykeep
 Section: text
 Priority: optional
 Maintainer: Sergei Ilinykh <rion4ik@gmail.com>
 Build-Depends: cmake (>= 3.25.0), dh-cmake, dh-cmake-compat (= 1), dh-sequence-cmake, debhelper (>= 11), clang, qt6-base-dev, qt6-base-dev-tools, qt6-tools-dev, qt6-declarative-dev, qt6-multimedia-dev, libqca-qt6-dev, qtkeychain-qt6-dev, qcoro-qt6-dev, libomemo-c-dev, libssl-dev, libhunspell-dev, libx11-dev, pkgconf
 Standards-Version: 4.5.1
-Homepage: http://ri0n.github.io/QtNote
-Vcs-Git: https://github.com/Ri0n/QtNote.git
-Vcs-Browser: https://github.com/Ri0n/qtnote
+Homepage: https://anykeep.net
+Vcs-Git: https://github.com/Ri0n/AnyKeep.git
+Vcs-Browser: https://github.com/Ri0n/anykeep
 
-Package: libqtnote3
+Package: libanykeep3
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: QtNote library to work with various notes storages
- Also works with QtNote plugins and able to provide some GUI
+Description: AnyKeep library to work with various notes storages
+ Also works with AnyKeep plugins and able to provide some GUI
 
-Package: libqtnote-dev
+Package: libanykeep-dev
 Architecture: any
-Depends: libqtnote3 (= ${binary:Version}), ${misc:Depends}
-Description: QtNote development files
- Development files to write plugins or to work directly with QtNote library
+Depends: libanykeep3 (= ${binary:Version}), ${misc:Depends}
+Description: AnyKeep development files
+ Development files to write plugins or to work directly with the AnyKeep library
 
-Package: qtnote
+Package: anykeep
 Architecture: any
-Depends: libqtnote3 (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Depends: libanykeep3 (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
 Recommends: wl-clipboard
 Description: Note-taking application written with Qt in mind.
  It's mostly Tomboy clone but with less features. So it's app

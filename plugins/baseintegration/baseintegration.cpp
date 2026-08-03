@@ -13,15 +13,15 @@
 #include "qxtglobalshortcut.h"
 #include "stickynotewindow.h"
 
-#ifdef QTNOTE_ENABLE_X11
+#ifdef ANYKEEP_ENABLE_X11
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #endif
 
-namespace QtNote {
+namespace AnyKeep {
 static const QLatin1String stickyGeometryGroup("baseintegration/stickyPresentations");
 
-#ifdef QTNOTE_ENABLE_X11
+#ifdef ANYKEEP_ENABLE_X11
 static void prepareX11StickyWindowHints(QWidget *window)
 {
     if (!window || QGuiApplication::platformName() != QLatin1String("xcb"))
@@ -102,9 +102,9 @@ void BaseIntegration::activateWindow(QWindow *window)
     window->requestActivate();
 }
 
-TrayImpl *BaseIntegration::initTray(Main *qtnote)
+TrayImpl *BaseIntegration::initTray(Main *anykeep)
 {
-    tray = new BaseIntegrationTray(qtnote, host, this);
+    tray = new BaseIntegrationTray(anykeep, host, this);
     return tray;
 }
 
@@ -174,11 +174,11 @@ bool BaseIntegration::presentStickyNote(const QUuid &stickyId, const QRect &pref
     });
     connect(window, &QObject::destroyed, this, [this, stickyId] { stickyWindows.remove(stickyId); });
     stickyWindows.insert(stickyId, window);
-#ifdef QTNOTE_ENABLE_X11
+#ifdef ANYKEEP_ENABLE_X11
     prepareX11StickyWindowHints(window);
 #endif
     window->show();
-#ifdef QTNOTE_ENABLE_X11
+#ifdef ANYKEEP_ENABLE_X11
     QPointer<StickyNoteWindow> guardedWindow(window);
     const auto                 applyHints = [guardedWindow] {
         if (guardedWindow)
@@ -215,4 +215,4 @@ void BaseIntegration::notifyError(const QString &message)
     }
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

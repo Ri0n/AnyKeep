@@ -7,7 +7,7 @@
 
 #include <utility>
 
-namespace QtNote {
+namespace AnyKeep {
 namespace {
 
     bool isTrusted(const XmppDeviceInfo &device)
@@ -269,8 +269,8 @@ void XmppKeyResolutionController::next()
         }
         if (!devicesModel_->hasTrustedOrSelectedDevice()) {
             setDeviceStatus(
-                tr("Select at least one QtNote device you recognize, then continue. If no expected device is shown, "
-                   "start QtNote on the other machine and reopen this recovery flow."));
+                tr("Select at least one AnyKeep device you recognize, then continue. If no expected device is shown, "
+                   "start AnyKeep on the other machine and reopen this recovery flow."));
             return;
         }
         if (!trustDevices_ || !auditKeys_) {
@@ -429,7 +429,7 @@ void XmppKeyResolutionController::populateKeys(const XmppKeyAuditResult &audit)
         selectedKeyIndex_ = preferredRow;
         emit selectedKeyIndexChanged();
     }
-    setKeyStatus(audit.error.isEmpty() ? tr("All responding QtNote devices were queried successfully.")
+    setKeyStatus(audit.error.isEmpty() ? tr("All responding AnyKeep devices were queried successfully.")
                                        : tr("Some devices could not provide a key:\n%1").arg(audit.error));
     updateSummary();
     emit navigationChanged();
@@ -448,7 +448,7 @@ void XmppKeyResolutionController::updateSummary()
                 inaccessible += candidate.indexItemCount;
         }
         nextSummary = tr("Canonical key: %1\nNotes found: %2\nNotes whose key is unavailable: %3\n\n"
-                         "For each accessible note QtNote will publish encrypted content first and its index second. "
+                         "For each accessible note the client will publish encrypted content first and its index second. "
                          "Inaccessible notes are never overwritten or deleted. The operation can be safely resumed "
                          "after interruption.")
                           .arg(QString::fromLatin1(canonical->keyId.left(8).toHex()))
@@ -473,4 +473,4 @@ void XmppKeyResolutionController::finish(bool accepted)
     emit finished(accepted);
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

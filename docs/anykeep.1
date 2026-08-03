@@ -1,0 +1,24 @@
+.TH ANYKEEP 1 "July 12, 2013"
+.SH NAME
+anykeep \- Qt note-taking application
+.SH SYNOPSIS
+.B anykeep
+.RI [ options ]
+.SH DESCRIPTION
+\fBanykeep\fP lives in your system tray area and allows you to make notes quickly
+.SH OPTIONS
+.TP
+.B \-h, \-\-help
+Show summary of options.
+.TP
+.B \-n [type]
+Create new note. Optional `type` param means source of contents.
+Only `selection` type is currently supported and you have to install xsel util to use it.
+.TP
+.B \-m, \-\-note-manager
+Open the Notes Manager.
+.TP
+.B \-\-safe-mode, \-\-safemode
+Load only the base desktop integration plugin. This is useful for recovering from a failing optional plugin. AnyKeep must not already be running.
+.SH AUTHOR
+anykeep was written by Sergei Ilinykh.

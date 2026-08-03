@@ -20,7 +20,7 @@ constexpr auto TimeZoneUTC = QTimeZone::Initialization::UTC;
 constexpr auto TimeZoneUTC = Qt::UTC;
 #endif
 
-using namespace QtNote;
+using namespace AnyKeep;
 
 class PTFStorageTest : public QObject {
     Q_OBJECT
@@ -97,8 +97,8 @@ private slots:
         QVERIFY2(imported, qPrintable(imported.error));
 
         const QString body = QStringLiteral("<audio controls src=\"%1\" title=\"Voice memo\" "
-                                            "data-qtnote-duration-ms=\"42000\"></audio>\n"
-                                            "<div data-qtnote-audio-transcript=\"1\">Recorded transcript</div>")
+                                            "data-anykeep-duration-ms=\"42000\"></audio>\n"
+                                            "<div data-anykeep-audio-transcript=\"1\">Recorded transcript</div>")
                                  .arg(imported.value.uri());
         {
             PTFStorage writer(mediaWriter);
@@ -140,8 +140,8 @@ private slots:
             = mediaWriter.importData(fileBytes, QStringLiteral("specification.pdf"), QStringLiteral("application/pdf"));
         QVERIFY2(imported, qPrintable(imported.error));
 
-        const QString body = QStringLiteral("<a href=\"%1\" data-qtnote-attachment=\"1\" "
-                                            "data-qtnote-media-type=\"application/pdf\" data-qtnote-size=\"%2\">"
+        const QString body = QStringLiteral("<a href=\"%1\" data-anykeep-attachment=\"1\" "
+                                            "data-anykeep-media-type=\"application/pdf\" data-anykeep-size=\"%2\">"
                                             "specification.pdf</a>")
                                  .arg(imported.value.uri(), QString::number(fileBytes.size()));
         {
@@ -207,6 +207,50 @@ private slots:
             settings.setValue(QStringLiteral("storage.ptf.path"), previousPath);
         else
             settings.remove(QStringLiteral("storage.ptf.path"));
+    }
+
+    void legacyPtfMetadataIsMigrated()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+
+        QSettings settings;
+        const auto previousPath    = settings.value(QStringLiteral("storage.ptf.path"));
+        const bool hadPreviousPath = settings.contains(QStringLiteral("storage.ptf.path"));
+        struct SettingsGuard {
+            QVariant previousPath;
+            bool     hadPreviousPath;
+            ~SettingsGuard()
+            {
+                QSettings settings;
+                if (hadPreviousPath)
+                    settings.setValue(QStringLiteral("storage.ptf.path"), previousPath);
+                else
+                    settings.remove(QStringLiteral("storage.ptf.path"));
+            }
+        } guard { previousPath, hadPreviousPath };
+
+        QFile note(directory.filePath(QStringLiteral("legacy.md")));
+        QVERIFY(note.open(QIODevice::WriteOnly | QIODevice::Text));
+        QVERIFY(note.write("Legacy\n<a href=\"qtnote-media:/00000000-0000-0000-0000-000000000001/file.pdf\" "
+                           "data-qtnote-attachment=\"1\">file.pdf</a>")
+                > 0);
+        note.close();
+        QFile legacyIndex(directory.filePath(QStringLiteral(".qtnote-folders.json")));
+        QVERIFY(legacyIndex.open(QIODevice::WriteOnly));
+        QVERIFY(legacyIndex.write("[]") > 0);
+        legacyIndex.close();
+
+        settings.setValue(QStringLiteral("storage.ptf.path"), directory.path());
+        PTFStorage storage;
+        QVERIFY(storage.init());
+
+        QVERIFY(!QFileInfo::exists(directory.filePath(QStringLiteral(".qtnote-folders.json"))));
+        QVERIFY(QFileInfo::exists(directory.filePath(QStringLiteral(".anykeep-folders.json"))));
+        QVERIFY(note.open(QIODevice::ReadOnly | QIODevice::Text));
+        const auto contents = QString::fromUtf8(note.readAll());
+        QVERIFY(contents.contains(QStringLiteral("anykeep-media:/")));
+        QVERIFY(contents.contains(QStringLiteral("data-anykeep-attachment")));
     }
 
     void noteListDoesNotRetainPreInitDirectory()
@@ -576,7 +620,7 @@ private slots:
         QCOMPARE(catalog->state(), StorageJob::Succeeded);
         delete catalog;
 
-        const auto indexPath = directory.filePath(QStringLiteral(".qtnote-folders.json"));
+        const auto indexPath = directory.filePath(QStringLiteral(".anykeep-folders.json"));
         QVERIFY(QFile::exists(indexPath));
         QVERIFY(QFile::exists(indexPath + QStringLiteral(".bak")));
         QFile damaged(indexPath);
@@ -648,7 +692,7 @@ private slots:
         QVERIFY(catalog->isFinished());
         QCOMPARE(catalog->state(), StorageJob::Succeeded);
         delete catalog;
-        QFile damaged(directory.filePath(QStringLiteral(".qtnote-folders.json")));
+        QFile damaged(directory.filePath(QStringLiteral(".anykeep-folders.json")));
         QVERIFY(damaged.open(QIODevice::WriteOnly | QIODevice::Truncate));
         QVERIFY(damaged.write("corrupt") > 0);
         damaged.close();
@@ -670,6 +714,6 @@ private slots:
     }
 };
 
-QTEST_GUILESS_MAIN(PTFStorageTest)
+QTEST_MAIN(PTFStorageTest)
 
 #include "ptfstorage_test.moc"

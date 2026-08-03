@@ -1,6 +1,6 @@
 <?xml version="1.0" ?><!DOCTYPE TS><TS version="2.1" language="uk">
     <context>
-        <name>QtNotePluginMetadata</name>
+        <name>AnyKeepPluginMetadata</name>
         <message id="plugin.base_de.name">
             <source>Base Integration</source>
             <extracomment>base_de plugin name</extracomment>

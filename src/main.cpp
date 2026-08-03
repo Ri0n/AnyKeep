@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2010 Sergei Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -36,7 +36,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <unistd.h>
 #endif
 
-#include "qtnote.h"
+#include "anykeep.h"
 
 #ifdef Q_OS_UNIX
 namespace {
@@ -105,7 +105,7 @@ int main(int argc, char *argv[])
     for (int i = 1; i < argc; i++) {
         QLatin1String v(argv[i]);
         if (v == "-h" || v == "--help") {
-            std::cout << "QtNote - note taking application\n\n"
+            std::cout << "AnyKeep - note taking application\n\n"
                       << " -n [type]          Create a new note from 'type'. 'selection' is the only supported type.\n"
                       << " -m, --note-manager Open the Notes Manager.\n"
                       << " --safe-mode, --safemode\n"
@@ -117,32 +117,33 @@ int main(int argc, char *argv[])
     QtSingleApplication a(argc, argv); //, true, SingleApplication::Mode::User, 1000, "xxx");
     if (a.isRunning()) {
         if (safeMode) {
-            std::cerr << "QtNote is already running. Stop it before starting with --safe-mode.\n";
+            std::cerr << "AnyKeep is already running. Stop it before starting with --safe-mode.\n";
             return 1;
         }
         QStringList args = a.arguments();
         if (args.size() > 1) {
             args.pop_front();
-            a.sendMessage(args.join("!qtnote_argdelim!").toUtf8());
+            a.sendMessage(args.join("!anykeep_argdelim!").toUtf8());
         }
         return 0;
     }
 
     QCoreApplication::setOrganizationName("R-Soft"); // get rid of useless dirs
-    QCoreApplication::setApplicationName("QtNote");
-    QGuiApplication::setDesktopFileName("qtnote");
+    QCoreApplication::setApplicationName("AnyKeep");
+    QGuiApplication::setApplicationDisplayName("AnyKeep");
+    QGuiApplication::setDesktopFileName("anykeep");
 
     QApplication::setQuitOnLastWindowClosed(false);
-    a.setProperty("qtnoteSafeMode", safeMode);
+    a.setProperty("anykeepSafeMode", safeMode);
 
 #ifdef Q_OS_UNIX
     installUnixSignalHandlers(&a);
 #endif
 
-    QtNote::Main qtnote;
-    if (qtnote.isOperable()) {
-        a.connect(&a, &QtSingleApplication::messageReceived, &qtnote, &QtNote::Main::appMessageReceived);
-        qtnote.parseAppArguments(a.arguments().mid(1));
+    AnyKeep::Main anykeep;
+    if (anykeep.isOperable()) {
+        a.connect(&a, &QtSingleApplication::messageReceived, &anykeep, &AnyKeep::Main::appMessageReceived);
+        anykeep.parseAppArguments(a.arguments().mid(1));
         return a.exec();
     }
     return 1;

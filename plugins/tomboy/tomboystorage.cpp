@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2010 Sergei Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -34,7 +34,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "tomboynoteformat.h"
 #include "tomboystorage.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 namespace {
 
@@ -382,4 +382,4 @@ QString TomboyStorage::findStorageDir() const
 
 QString TomboyStorage::storageId = QStringLiteral("tomboy");
 
-} // namespace QtNote
+} // namespace AnyKeep

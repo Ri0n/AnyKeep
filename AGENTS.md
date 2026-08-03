@@ -1,10 +1,10 @@
-# QtNote contributor map
+# AnyKeep contributor map
 
-- `libqtnote/`: shared C++ models, storage, controllers, and desktop host API.
-- `libqtnote/qml/`: shared desktop/mobile QML; read its scoped `AGENTS.md`.
-- `libqtnote/qml/editor/`: structured editor internals; read its scoped `AGENTS.md`.
+- `libanykeep/`: shared C++ models, storage, controllers, and desktop host API.
+- `libanykeep/qml/`: shared desktop/mobile QML; read its scoped `AGENTS.md`.
+- `libanykeep/qml/editor/`: structured editor internals; read its scoped `AGENTS.md`.
 - `src/` and `src/mobile/`: desktop and Android application shells.
-- `plugins/`: optional integrations; keep plugin-specific code out of `libqtnote`.
+- `plugins/`: optional integrations; keep plugin-specific code out of `libanykeep`.
 - `tests/`: QtTest executables; read `tests/AGENTS.md` before changing tests.
 
 Use the existing `build/qt6_Debug` tree. Prefer focused targets and CTest labels:
@@ -14,7 +14,7 @@ cmake --build build/qt6_Debug --target editor_tests -j4
 ctest --test-dir build/qt6_Debug -L editor --output-on-failure
 ```
 
-Use target `qtnote_all_tests` followed by unfiltered CTest for a full run.
+Use target `anykeep_all_tests` followed by unfiltered CTest for a full run.
 
 CTest supplies the offscreen/software-rendering environment. Run executables
 directly only when test arguments or verbose diagnostics are needed, and then

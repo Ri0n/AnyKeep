@@ -25,31 +25,31 @@
 
 #include "kdeintegrationtray.h"
 #include "notemanager.h"
-#include "qtnote.h"
+#include "anykeep.h"
 #include "trayiconutils.h"
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include "utils.h"
 #endif
 
-namespace QtNote {
+namespace AnyKeep {
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 namespace {
-    constexpr auto PlasmoidId = "com.github.ri0n.qtnote";
-#ifdef QTNOTE_DEVEL
+    constexpr auto PlasmoidId = "com.github.ri0n.anykeep";
+#ifdef ANYKEEP_DEVEL
     constexpr auto DevelopmentPlasmoidPackageSetting       = "developmentPlasmoidPackageLink";
     constexpr auto DevelopmentStickyPlasmoidPackageSetting = "developmentStickyPlasmoidPackageLink";
     constexpr auto DevelopmentPlasmoidQmlSetting           = "developmentPlasmoidQmlLinks";
     constexpr auto DevelopmentPlasmoidOldQmlSetting        = "developmentPlasmoidQmlLink";
-    constexpr auto DevelopmentPlasmoidMarker               = ".qtnote-devel-package";
+    constexpr auto DevelopmentPlasmoidMarker               = ".anykeep-devel-package";
 #endif
 }
 
-KDEIntegrationTray::KDEIntegrationTray(Main *qtnote, QObject *parent) : TrayImpl(parent)
+KDEIntegrationTray::KDEIntegrationTray(Main *anykeep, QObject *parent) : TrayImpl(parent)
 {
-    Q_UNUSED(qtnote)
+    Q_UNUSED(anykeep)
 
-#ifdef QTNOTE_DEVEL
+#ifdef ANYKEEP_DEVEL
     auto *plasmaShellWatcher
         = new QDBusServiceWatcher(QLatin1String("org.kde.plasmashell"), QDBusConnection::sessionBus(),
                                   QDBusServiceWatcher::WatchForRegistration, this);
@@ -59,7 +59,7 @@ KDEIntegrationTray::KDEIntegrationTray(Main *qtnote, QObject *parent) : TrayImpl
     });
 #endif
 
-#ifndef QTNOTE_DEVEL
+#ifndef ANYKEEP_DEVEL
     if (isPlasmoidInstalled() && !isPlasmoidRegisteredInSystemTray())
         announcePlasmoidPackageInstalled();
 #endif
@@ -68,7 +68,7 @@ KDEIntegrationTray::KDEIntegrationTray(Main *qtnote, QObject *parent) : TrayImpl
 
 KDEIntegrationTray::~KDEIntegrationTray()
 {
-#ifdef QTNOTE_DEVEL
+#ifdef ANYKEEP_DEVEL
     removeDevelopmentPlasmoidFromPanel();
     cleanupDevelopmentPlasmoidLinks();
 #endif
@@ -76,7 +76,7 @@ KDEIntegrationTray::~KDEIntegrationTray()
 
 void KDEIntegrationTray::ensurePlasmoidInSystemTray()
 {
-#ifdef QTNOTE_DEVEL
+#ifdef ANYKEEP_DEVEL
     if (!ensureDevelopmentPlasmoidLinks())
         return;
 
@@ -93,7 +93,7 @@ void KDEIntegrationTray::ensurePlasmoidInSystemTray()
 
 void KDEIntegrationTray::addPlasmoidToPanel()
 {
-#ifdef QTNOTE_DEVEL
+#ifdef ANYKEEP_DEVEL
     if (isPlasmoidRegisteredInSystemTray()) {
         return;
     }
@@ -154,7 +154,7 @@ void KDEIntegrationTray::announcePlasmoidPackageInstalled() const
     message << QLatin1String(PlasmoidId);
 
     if (!QDBusConnection::sessionBus().send(message))
-        qWarning("Failed to announce QtNote Plasma applet package installation");
+        qWarning("Failed to announce AnyKeep Plasma applet package installation");
 }
 
 bool KDEIntegrationTray::isPlasmoidRegisteredInSystemTray() const
@@ -187,7 +187,7 @@ bool KDEIntegrationTray::isPlasmoidInstalled() const
                 .isEmpty();
 }
 
-#ifdef QTNOTE_DEVEL
+#ifdef ANYKEEP_DEVEL
 bool KDEIntegrationTray::ensureDevelopmentPlasmoidLinks()
 {
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
@@ -199,11 +199,11 @@ bool KDEIntegrationTray::ensureDevelopmentPlasmoidLinks()
         return false;
 
     const QString     packageLink       = dataDir + QLatin1String("/plasma/plasmoids/") + QLatin1String(PlasmoidId);
-    const QString     stickyPackageLink = dataDir + QLatin1String("/plasma/plasmoids/com.github.ri0n.qtnote.sticky");
-    const QString     qmlSource         = QLatin1String(QTNOTE_DEVEL_PLASMOID_QML_DIR);
+    const QString     stickyPackageLink = dataDir + QLatin1String("/plasma/plasmoids/com.github.ri0n.anykeep.sticky");
+    const QString     qmlSource         = QLatin1String(ANYKEEP_DEVEL_PLASMOID_QML_DIR);
     const QStringList qmlLinks          = {
-        localPrefix.absoluteFilePath(QLatin1String(QTNOTE_DEVEL_PLASMOID_QML_INSTALL_DIR)),
-        dataDir + QLatin1String("/QtProject/qml/com/github/ri0n/qtnote"),
+        localPrefix.absoluteFilePath(QLatin1String(ANYKEEP_DEVEL_PLASMOID_QML_INSTALL_DIR)),
+        dataDir + QLatin1String("/QtProject/qml/com/github/ri0n/anykeep"),
     };
 
     cleanupDevelopmentPlasmoidLinks();
@@ -215,8 +215,8 @@ bool KDEIntegrationTray::ensureDevelopmentPlasmoidLinks()
     settings.setValue(QLatin1String(DevelopmentPlasmoidQmlSetting), qmlLinks);
 
     const bool packageOk
-        = updateDevelopmentPackage(QLatin1String(QTNOTE_DEVEL_PLASMOID_PACKAGE_DIR), packageLink, qmlSource);
-    const bool stickyPackageOk = updateDevelopmentPackage(QLatin1String(QTNOTE_DEVEL_STICKY_PLASMOID_PACKAGE_DIR),
+        = updateDevelopmentPackage(QLatin1String(ANYKEEP_DEVEL_PLASMOID_PACKAGE_DIR), packageLink, qmlSource);
+    const bool stickyPackageOk = updateDevelopmentPackage(QLatin1String(ANYKEEP_DEVEL_STICKY_PLASMOID_PACKAGE_DIR),
                                                           stickyPackageLink, qmlSource);
     bool       qmlOk           = true;
     for (const auto &qmlLink : qmlLinks)
@@ -261,20 +261,20 @@ void KDEIntegrationTray::cleanupDevelopmentPlasmoidLinks()
 
     QFileInfo packageInfo(packageLink);
     if (packageInfo.isSymLink()) {
-        removeExpectedLink(packageLink, QLatin1String(QTNOTE_DEVEL_PLASMOID_PACKAGE_DIR));
+        removeExpectedLink(packageLink, QLatin1String(ANYKEEP_DEVEL_PLASMOID_PACKAGE_DIR));
     } else if (QFileInfo::exists(packageLink + QLatin1Char('/') + QLatin1String(DevelopmentPlasmoidMarker))) {
         QDir(packageLink).removeRecursively();
     }
 
     QFileInfo stickyPackageInfo(stickyPackageLink);
     if (stickyPackageInfo.isSymLink()) {
-        removeExpectedLink(stickyPackageLink, QLatin1String(QTNOTE_DEVEL_STICKY_PLASMOID_PACKAGE_DIR));
+        removeExpectedLink(stickyPackageLink, QLatin1String(ANYKEEP_DEVEL_STICKY_PLASMOID_PACKAGE_DIR));
     } else if (QFileInfo::exists(stickyPackageLink + QLatin1Char('/') + QLatin1String(DevelopmentPlasmoidMarker))) {
         QDir(stickyPackageLink).removeRecursively();
     }
 
     for (const auto &qmlLink : std::as_const(qmlLinks))
-        removeExpectedLink(qmlLink, QLatin1String(QTNOTE_DEVEL_PLASMOID_QML_DIR));
+        removeExpectedLink(qmlLink, QLatin1String(ANYKEEP_DEVEL_PLASMOID_QML_DIR));
 
     settings.remove(QLatin1String(DevelopmentPlasmoidPackageSetting));
     settings.remove(QLatin1String(DevelopmentStickyPlasmoidPackageSetting));
@@ -417,14 +417,14 @@ bool KDEIntegrationTray::updateDevelopmentMainQml(const QString &sourcePath, con
     QByteArray content = source.readAll();
     source.close();
 
-    content.replace("import plasma.applet.com.github.ri0n.qtnote 1.0 as QtNote", "import \"QtNote\" as QtNote");
+    content.replace("import plasma.applet.com.github.ri0n.anykeep 1.0 as AnyKeep", "import \"AnyKeep\" as AnyKeep");
 
     const QString iconPath
         = QFileInfo(QFileInfo(sourcePath)
                         .dir()
-                        .absoluteFilePath(QLatin1String("../../../../../../libqtnote/images/qtnote-symbolic.svg")))
+                        .absoluteFilePath(QLatin1String("../../../../../../libanykeep/images/anykeep-symbolic.svg")))
               .canonicalFilePath();
-    content.replace("Plasmoid.icon: \"qtnote-symbolic\"",
+    content.replace("Plasmoid.icon: \"anykeep-symbolic\"",
                     "Plasmoid.icon: \"" + QUrl::fromLocalFile(iconPath).toEncoded() + "\"");
 
     QFileInfo fileInfo(filePath);
@@ -479,10 +479,10 @@ bool KDEIntegrationTray::updateDevelopmentQmlBackend(const QString &sourcePath, 
 
     return updateDevelopmentFile(sourceDir.absoluteFilePath(QLatin1String("qmldir")),
                                  backendDir.absoluteFilePath(QLatin1String("qmldir")))
-        && updateDevelopmentLink(sourceDir.absoluteFilePath(QLatin1String("libplasmoid_qtnote_devel.so")),
-                                 backendDir.absoluteFilePath(QLatin1String("libplasmoid_qtnote_devel.so")))
-        && updateDevelopmentLink(sourceDir.absoluteFilePath(QLatin1String("plasmoid_qtnote_devel.qmltypes")),
-                                 backendDir.absoluteFilePath(QLatin1String("plasmoid_qtnote_devel.qmltypes")));
+        && updateDevelopmentLink(sourceDir.absoluteFilePath(QLatin1String("libplasmoid_anykeep_devel.so")),
+                                 backendDir.absoluteFilePath(QLatin1String("libplasmoid_anykeep_devel.so")))
+        && updateDevelopmentLink(sourceDir.absoluteFilePath(QLatin1String("plasmoid_anykeep_devel.qmltypes")),
+                                 backendDir.absoluteFilePath(QLatin1String("plasmoid_anykeep_devel.qmltypes")));
 }
 
 bool KDEIntegrationTray::updateDevelopmentPackage(const QString &sourcePath, const QString &packagePath,
@@ -525,14 +525,14 @@ bool KDEIntegrationTray::updateDevelopmentPackage(const QString &sourcePath, con
     }
 
     QDir packageDir(packagePath);
-    if (!packageDir.mkpath(QLatin1String("contents/ui/QtNote"))) {
+    if (!packageDir.mkpath(QLatin1String("contents/ui/AnyKeep"))) {
         return false;
     }
 
     QFile marker(packageDir.absoluteFilePath(QLatin1String(DevelopmentPlasmoidMarker)));
     if (!marker.open(QIODevice::WriteOnly | QIODevice::Truncate))
         return false;
-    marker.write("QtNote development package\n");
+    marker.write("AnyKeep development package\n");
     marker.close();
 
     if (!updateDevelopmentFile(sourceInfo.absoluteFilePath() + QLatin1String("/metadata.json"),
@@ -564,15 +564,15 @@ bool KDEIntegrationTray::updateDevelopmentPackage(const QString &sourcePath, con
         }
     }
 
-    return updateDevelopmentQmlBackend(qmlSourcePath, targetUi.absoluteFilePath(QLatin1String("QtNote")));
+    return updateDevelopmentQmlBackend(qmlSourcePath, targetUi.absoluteFilePath(QLatin1String("AnyKeep")));
 }
 #endif
 
 #else
 
-KDEIntegrationTray::KDEIntegrationTray(Main *qtnote, QObject *parent) : TrayImpl(parent), qtnote(qtnote)
+KDEIntegrationTray::KDEIntegrationTray(Main *anykeep, QObject *parent) : TrayImpl(parent), anykeep(anykeep)
 {
-    sni = new KStatusNotifierItem("qtnote", this);
+    sni = new KStatusNotifierItem("anykeep", this);
     sni->setIconByName(TrayIconUtils::themedTrayIconName());
     sni->setStatus(KStatusNotifierItem::Active);
     sni->setTitle("Notes");
@@ -614,7 +614,7 @@ void KDEIntegrationTray::showNotes(bool active, const QPoint &pos)
     }
 
     menu.show();
-    qtnote->activateWidget(&menu);
+    anykeep->activateWidget(&menu);
     QRect desktopRect = QGuiApplication::screenAt(QCursor::pos())->geometry();
     QRect menuRect    = menu.geometry();
     menuRect.setSize(menu.sizeHint());
@@ -645,4 +645,4 @@ void KDEIntegrationTray::showNotes(bool active, const QPoint &pos)
 
 #endif
 
-} // namespace QtNote
+} // namespace AnyKeep

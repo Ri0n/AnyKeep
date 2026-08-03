@@ -9,7 +9,7 @@ class QMenu;
 class KStatusNotifierItem;
 #endif
 
-namespace QtNote {
+namespace AnyKeep {
 
 class Main;
 
@@ -17,7 +17,7 @@ class KDEIntegrationTray : public TrayImpl {
     Q_OBJECT
 
 public:
-    explicit KDEIntegrationTray(Main *qtnote, QObject *parent);
+    explicit KDEIntegrationTray(Main *anykeep, QObject *parent);
     ~KDEIntegrationTray() override;
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
@@ -27,7 +27,7 @@ private:
     void announcePlasmoidPackageInstalled() const;
     bool isPlasmoidRegisteredInSystemTray() const;
     bool isPlasmoidInstalled() const;
-#ifdef QTNOTE_DEVEL
+#ifdef ANYKEEP_DEVEL
     bool ensureDevelopmentPlasmoidLinks();
     void cleanupDevelopmentPlasmoidLinks();
     void clearDevelopmentPlasmaCache();
@@ -45,7 +45,7 @@ private slots:
     void showNotes(bool active, const QPoint &pos);
 
 private:
-    Main                *qtnote;
+    Main                *anykeep;
     KStatusNotifierItem *sni;
     QAction             *actNew;
     QMenu               *currentMenu = nullptr;

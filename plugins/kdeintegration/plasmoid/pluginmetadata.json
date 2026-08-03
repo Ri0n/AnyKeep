@@ -15,16 +15,16 @@
         "FormFactors": [
             "desktop"
         ],
-        "Icon": "qtnote",
+        "Icon": "anykeep",
         "License": "GPL-3.0-only",
         "Name": "Note Keeper",
         "Name[ru]": "Заметки",
         "Version": "1.0.0",
-        "Website": "https://ri0n.github.io/QtNote"
+        "Website": "https://anykeep.net"
     },
     "X-Plasma-API": "declarativeappletscript",
     "X-Plasma-API-Minimum-Version": "6.0",
-    "X-Plasma-DBusActivationService": "com.github.ri0n.QtNote",
+    "X-Plasma-DBusActivationService": "com.github.ri0n.AnyKeep",
     "X-Plasma-NotificationArea": "true",
     "X-Plasma-NotificationAreaCategory": "ApplicationStatus"
 }

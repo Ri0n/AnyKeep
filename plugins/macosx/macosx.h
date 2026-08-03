@@ -5,10 +5,10 @@
 
 #include "deintegrationinterface.h"
 #include "notificationinterface.h"
-#include "qtnoteplugininterface.h"
+#include "anykeepplugininterface.h"
 #include "trayinterface.h"
 
-namespace QtNote {
+namespace AnyKeep {
 
 class MacOSXTray;
 class PluginHostInterface;
@@ -16,12 +16,12 @@ class PluginHostInterface;
 class MacOSXPlugin : public QObject, public PluginInterface, public TrayInterface, public NotificationInterface {
     Q_OBJECT
 #include "macosx_plugin_metadata.inc"
-    Q_INTERFACES(QtNote::PluginInterface QtNote::TrayInterface QtNote::NotificationInterface)
+    Q_INTERFACES(AnyKeep::PluginInterface AnyKeep::TrayInterface AnyKeep::NotificationInterface)
 public:
     explicit MacOSXPlugin(QObject *parent = 0);
     void setHost(PluginHostInterface *host);
 
-    TrayImpl *initTray(Main *qtnote);
+    TrayImpl *initTray(Main *anykeep);
     void      notifyError(const QString &msg);
 
 private:
@@ -29,6 +29,6 @@ private:
     PluginHostInterface *host;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // MACOSXPLUGIN_H

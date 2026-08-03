@@ -20,8 +20,8 @@
 #include "notesmanagerqml_test.h"
 #include "quicktestsupport.h"
 
-using namespace QtNote;
-using namespace QtNote::TestSupport;
+using namespace AnyKeep;
+using namespace AnyKeep::TestSupport;
 
 void NotesManagerQmlTest::loadsNotesManagerQmlShell()
 {

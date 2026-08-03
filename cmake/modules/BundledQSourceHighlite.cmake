@@ -2,20 +2,20 @@ include(ExternalProject)
 include(GNUInstallDirs)
 include(ProcessorCount)
 
-set(QTNOTE_QSOURCEHIGHLITE_GIT_REPOSITORY
+set(ANYKEEP_QSOURCEHIGHLITE_GIT_REPOSITORY
     "https://github.com/Waqar144/QSourceHighlite.git"
     CACHE STRING "QSourceHighlite repository")
-set(QTNOTE_QSOURCEHIGHLITE_GIT_TAG
+set(ANYKEEP_QSOURCEHIGHLITE_GIT_TAG
     "d78f0d4171580a18646b15425c449db3f2bb240a"
     CACHE STRING "Pinned QSourceHighlite revision")
-set(QTNOTE_QSOURCEHIGHLITE_SOURCE_DIR "" CACHE PATH
+set(ANYKEEP_QSOURCEHIGHLITE_SOURCE_DIR "" CACHE PATH
     "Local QSourceHighlite source directory (avoids cloning the repository)")
 
 ProcessorCount(_qsourcehighlite_detected_jobs)
 if(NOT _qsourcehighlite_detected_jobs)
     set(_qsourcehighlite_detected_jobs 2)
 endif()
-set(QTNOTE_QSOURCEHIGHLITE_JOBS "${_qsourcehighlite_detected_jobs}" CACHE STRING
+set(ANYKEEP_QSOURCEHIGHLITE_JOBS "${_qsourcehighlite_detected_jobs}" CACHE STRING
     "Parallel jobs used to build bundled QSourceHighlite")
 
 set(_qsourcehighlite_prefix "${CMAKE_BINARY_DIR}/_deps/qsourcehighlite")
@@ -42,30 +42,30 @@ if(CMAKE_GENERATOR_TOOLSET)
     list(APPEND _qsourcehighlite_generator_args -T "${CMAKE_GENERATOR_TOOLSET}")
 endif()
 
-if(QTNOTE_QSOURCEHIGHLITE_SOURCE_DIR)
-    if(NOT EXISTS "${QTNOTE_QSOURCEHIGHLITE_SOURCE_DIR}/qsourcehighliter.cpp")
+if(ANYKEEP_QSOURCEHIGHLITE_SOURCE_DIR)
+    if(NOT EXISTS "${ANYKEEP_QSOURCEHIGHLITE_SOURCE_DIR}/qsourcehighliter.cpp")
         message(FATAL_ERROR
-            "QTNOTE_QSOURCEHIGHLITE_SOURCE_DIR does not contain a QSourceHighlite source tree: "
-            "${QTNOTE_QSOURCEHIGHLITE_SOURCE_DIR}")
+            "ANYKEEP_QSOURCEHIGHLITE_SOURCE_DIR does not contain a QSourceHighlite source tree: "
+            "${ANYKEEP_QSOURCEHIGHLITE_SOURCE_DIR}")
     endif()
     set(_qsourcehighlite_source_args
-        SOURCE_DIR "${QTNOTE_QSOURCEHIGHLITE_SOURCE_DIR}"
+        SOURCE_DIR "${ANYKEEP_QSOURCEHIGHLITE_SOURCE_DIR}"
         DOWNLOAD_COMMAND ""
         UPDATE_COMMAND ""
     )
 else()
     set(_qsourcehighlite_source_args
-        GIT_REPOSITORY "${QTNOTE_QSOURCEHIGHLITE_GIT_REPOSITORY}"
-        GIT_TAG "${QTNOTE_QSOURCEHIGHLITE_GIT_TAG}"
+        GIT_REPOSITORY "${ANYKEEP_QSOURCEHIGHLITE_GIT_REPOSITORY}"
+        GIT_TAG "${ANYKEEP_QSOURCEHIGHLITE_GIT_TAG}"
         GIT_SHALLOW FALSE
         UPDATE_COMMAND ""
     )
 endif()
 
-ExternalProject_Add(qtnote_bundled_qsourcehighlite
+ExternalProject_Add(anykeep_bundled_qsourcehighlite
     ${_qsourcehighlite_source_args}
     # The dependency is pinned. Avoid re-running its update/configure/build/
-    # install chain, and printing that chain, on every focused QtNote build.
+    # install chain, and printing that chain, on every focused AnyKeep build.
     UPDATE_DISCONNECTED TRUE
     PREFIX "${_qsourcehighlite_prefix}"
     BINARY_DIR "${_qsourcehighlite_prefix}/build"
@@ -97,7 +97,7 @@ ExternalProject_Add(qtnote_bundled_qsourcehighlite
         "-DANDROID_NDK=${ANDROID_NDK}"
     BUILD_COMMAND
         "${CMAKE_COMMAND}" --build <BINARY_DIR>
-        --parallel "${QTNOTE_QSOURCEHIGHLITE_JOBS}"
+        --parallel "${ANYKEEP_QSOURCEHIGHLITE_JOBS}"
     INSTALL_COMMAND
         "${CMAKE_COMMAND}" --install <BINARY_DIR>
     BUILD_BYPRODUCTS "${_qsourcehighlite_library}"
@@ -111,4 +111,4 @@ set_target_properties(QSourceHighlite::QSourceHighlite PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${_qsourcehighlite_include_dir}"
     INTERFACE_LINK_LIBRARIES "Qt6::Core;Qt6::Gui"
 )
-add_dependencies(QSourceHighlite::QSourceHighlite qtnote_bundled_qsourcehighlite)
+add_dependencies(QSourceHighlite::QSourceHighlite anykeep_bundled_qsourcehighlite)

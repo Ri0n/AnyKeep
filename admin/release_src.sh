@@ -19,7 +19,7 @@ gittag2version() {
 }
 
 version=$(gittag2version ${1:-$(git describe --tags 2>/dev/null)})
-base_name=qtnote-$version
+base_name=anykeep-$version
 release_dir=../${base_name}
 tar_file=${release_dir}.tar
 git archive -o $tar_file HEAD
@@ -29,11 +29,11 @@ rm -rf $release_dir
 mkdir $release_dir
 tar -C ../${base_name} -xf $tar_file
 
-echo -n "$version" > ${release_dir}/qtnote.version
+echo -n "$version" > ${release_dir}/anykeep.version
 sed -i -e "s|^pkgver=.*|pkgver=$version|" ${release_dir}/PKGBUILD
-sed -i -e "s|^\(Version:\s*\)[0-9].*|\1$version|" ${release_dir}/qtnote.spec
+sed -i -e "s|^\(Version:\s*\)[0-9].*|\1$version|" ${release_dir}/anykeep.spec
 sed -i -e "s| Version=\"[^\"]\+\"| Version=\"$version\"|" ${release_dir}/installer.wxs
-sed -i -e "1 s|qtnote ([^)]\+)|qtnote ($version)|" ${release_dir}/debian/changelog
+sed -i -e "1 s|anykeep ([^)]\+)|anykeep ($version)|" ${release_dir}/debian/changelog
 
 tar cJvf $tar_file.xz $release_dir
 echo "result: $tar_file.xz"

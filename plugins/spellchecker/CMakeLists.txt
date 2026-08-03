@@ -1,4 +1,4 @@
-include(QtNoteMacro)
+include(AnyKeepMacro)
 
 if("${CMAKE_MODULE_PATH}" MATCHES "^.*conan.*$")
     message(STATUS "Conan detected. Trying to get hunspell from there")
@@ -6,7 +6,7 @@ if("${CMAKE_MODULE_PATH}" MATCHES "^.*conan.*$")
     set(HUNSPELL_DEP hunspell::hunspell)
     set(HUNSPEL_ENABLED ${hunspell_FOUND})
 else()
-    qtnote_optional_pkgconfig(Hunspell IMPORTED_TARGET hunspell)
+    anykeep_optional_pkgconfig(Hunspell IMPORTED_TARGET hunspell)
     set(HUNSPELL_DEP  PkgConfig::Hunspell)
     set(HUNSPEL_ENABLED ${Hunspell_FOUND})
 endif()
@@ -16,7 +16,7 @@ if (NOT Qt${QT_VERSION_MAJOR}Network_FOUND)
 endif()
 
 
-add_qtnote_plugin(spellchecker "Check for spelling errors" ${HUNSPEL_ENABLED} unix macosx windows android METADATA plugin-metadata.json ICON logo.png SOURCES
+add_anykeep_plugin(spellchecker "Check for spelling errors" ${HUNSPEL_ENABLED} unix macosx windows android METADATA plugin-metadata.json ICON logo.png SOURCES
     engineinterface.cpp
     engineinterface.h
     hunspellengine.cpp
@@ -45,4 +45,4 @@ target_link_libraries(spellchecker
     ${HUNSPELL_DEP}
 )
 
-install_qtnote_plugin(spellchecker)
+install_anykeep_plugin(spellchecker)

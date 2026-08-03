@@ -1,13 +1,13 @@
 #include "xmpppepextension.h"
 
-#include "qtnotepubsubitem.h"
+#include "privatenotespubsubitem.h"
 
 #include <QDebug>
 #include <QDomElement>
 #include <QXmppPubSubEvent.h>
 #include <QXmppUtils.h>
 
-namespace QtNote {
+namespace AnyKeep {
 
 XmppPepExtension::XmppPepExtension() = default;
 
@@ -33,32 +33,32 @@ bool XmppPepExtension::handlePubSubEvent(const QDomElement &element, const QStri
     // XEP-0223 requires private-data events to originate from our own PEP
     // service. Some servers omit the service JID, which is valid here.
     if (!pubSubService.isEmpty() && QXmppUtils::jidToBareJid(pubSubService) != ownBareJid_) {
-        qWarning().noquote() << "Ignoring QtNote PEP event from unexpected service" << pubSubService << "for"
+        qWarning().noquote() << "Ignoring private-note PEP event from unexpected service" << pubSubService << "for"
                              << ownBareJid_;
         return true;
     }
 
-    if (!QXmppPubSubEvent<QtNotePubSubItem>::isPubSubEvent(element)) {
-        const auto error = QStringLiteral("Malformed QtNote PubSub event for node %1").arg(nodeName);
+    if (!QXmppPubSubEvent<PrivateNotesPubSubItem>::isPubSubEvent(element)) {
+        const auto error = QStringLiteral("Malformed private-note PubSub event for node %1").arg(nodeName);
         qWarning().noquote() << error;
         emit malformedItem(error);
         emit nodeInvalidated();
         return true;
     }
 
-    QXmppPubSubEvent<QtNotePubSubItem> event;
+    QXmppPubSubEvent<PrivateNotesPubSubItem> event;
     event.parse(element);
 
     switch (event.eventType()) {
     case QXmppPubSubEventBase::Items: {
-        qInfo().noquote() << "QtNote PEP items event received: node=" << nodeName << "items=" << event.items().size();
+        qInfo().noquote() << "private-note PEP items event received: node=" << nodeName << "items=" << event.items().size();
         bool refreshRequired = event.items().isEmpty();
         for (const auto &item : event.items()) {
             if (item.isValid()) {
                 emit payloadPublished(item.payload());
             } else {
                 refreshRequired = true;
-                qWarning().noquote() << "Ignoring unreadable QtNote PEP item" << item.id() << ':' << item.parseError();
+                qWarning().noquote() << "Ignoring unreadable private-note PEP item" << item.id() << ':' << item.parseError();
                 emit malformedItem(item.parseError());
             }
         }
@@ -83,4 +83,4 @@ bool XmppPepExtension::handlePubSubEvent(const QDomElement &element, const QStri
     return true;
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

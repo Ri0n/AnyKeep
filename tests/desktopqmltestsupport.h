@@ -5,7 +5,7 @@
 #include "pluginlistmodel.h"
 #include "settingscontroller.h"
 
-namespace QtNote::TestSupport {
+namespace AnyKeep::TestSupport {
 
 class SettingsReorderTestModel final : public QAbstractListModel {
     Q_OBJECT
@@ -336,4 +336,4 @@ protected:
     bool applyValues(const QVariantMap &, QString *) override { return true; }
 };
 
-} // namespace QtNote::TestSupport
+} // namespace AnyKeep::TestSupport

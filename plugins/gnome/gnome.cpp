@@ -1,5 +1,5 @@
 /*
-QtNote - Simple note-taking application
+AnyKeep - Simple note-taking application
 Copyright (C) 2010 Sergei Ilinykh
 
 This program is free software: you can redistribute it and/or modify
@@ -35,13 +35,13 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include "freedesktopnotifier.h"
 #include "gnome.h"
-#ifdef QTNOTE_ENABLE_X11
+#ifdef ANYKEEP_ENABLE_X11
 #include "x11util.h"
 #endif
 
-namespace QtNote {
-static const QLatin1String shellExtensionId("qtnote@ri0n.github.io");
-static const QLatin1String shellExtensionSchema("org.gnome.shell.extensions.qtnote");
+namespace AnyKeep {
+static const QLatin1String shellExtensionId("anykeep@ri0n.github.io");
+static const QLatin1String shellExtensionSchema("org.gnome.shell.extensions.anykeep");
 static const QLatin1String stickyNotesKey("sticky-notes");
 
 static QString runGSettings(const QStringList &arguments, bool *ok = nullptr)
@@ -106,15 +106,15 @@ void GnomePlugin::askEnableShellExtension()
         return;
     settings.setValue(QLatin1String("shellExtensionEnableAsked"), true);
 
-    auto result = QMessageBox::question(nullptr, tr("Enable QtNote GNOME Extension"),
-                                        tr("QtNote can enable a native GNOME Shell indicator. "
+    auto result = QMessageBox::question(nullptr, tr("Enable AnyKeep GNOME Extension"),
+                                        tr("AnyKeep can enable a native GNOME Shell indicator. "
                                            "It provides Wayland-friendly access to recent notes."),
                                         QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
     if (result == QMessageBox::Yes) {
         shellExtensionEnabled = enableShellExtension();
         if (!shellExtensionEnabled) {
-            QMessageBox::warning(nullptr, tr("Enable QtNote GNOME Extension"),
-                                 tr("Failed to enable the QtNote GNOME Shell extension. "
+            QMessageBox::warning(nullptr, tr("Enable AnyKeep GNOME Extension"),
+                                 tr("Failed to enable the AnyKeep GNOME Shell extension. "
                                     "You may need to log out and log back in before enabling it."));
         }
     }
@@ -263,11 +263,11 @@ void GnomePlugin::activateWindow(QWindow *window)
         guarded->showNormal();
         guarded->raise();
         guarded->requestActivate();
-#ifdef QTNOTE_ENABLE_X11
+#ifdef ANYKEEP_ENABLE_X11
         if (QGuiApplication::platformName() == QLatin1String("xcb"))
             X11Util::forceActivateWindow(guarded->winId());
 #endif
     });
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

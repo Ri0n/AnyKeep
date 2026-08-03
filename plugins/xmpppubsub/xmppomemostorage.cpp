@@ -10,7 +10,7 @@
 #include <QSaveFile>
 #include <QXmppPromise.h>
 
-namespace QtNote {
+namespace AnyKeep {
 namespace {
     constexpr quint32 Magic   = 0x514e4f53; // QNOS
     constexpr quint16 Version = 1;
@@ -59,7 +59,7 @@ void XmppOmemoStorage::load()
         error_ = file.errorString();
         return;
     }
-    const AeadContext context { KeyDomain::OmemoState, QStringLiteral("qtnote-omemo-state"), accountId_, 1,
+    const AeadContext context { KeyDomain::OmemoState, QStringLiteral("private-notes-omemo-state"), accountId_, 1,
                                 QStringLiteral("omemo-state") };
     auto              opened = SecureEnvelope::open(file.readAll(), encryptionKey_, context);
     if (!opened) {
@@ -139,7 +139,7 @@ void XmppOmemoStorage::persist()
             writeDevice(out, it.value());
         }
     }
-    const AeadContext context { KeyDomain::OmemoState, QStringLiteral("qtnote-omemo-state"), accountId_, 1,
+    const AeadContext context { KeyDomain::OmemoState, QStringLiteral("private-notes-omemo-state"), accountId_, 1,
                                 QStringLiteral("omemo-state") };
     auto              sealed = SecureEnvelope::seal(plain, encryptionKey_, context);
     if (!sealed) {
@@ -256,4 +256,4 @@ QXmppTask<void> XmppOmemoStorage::resetAll()
     return done();
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

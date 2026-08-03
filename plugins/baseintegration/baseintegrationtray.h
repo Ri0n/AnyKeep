@@ -4,14 +4,14 @@
 #include <QPointer>
 #include <QSystemTrayIcon>
 
-#include "qtnote.h"
+#include "anykeep.h"
 #include "trayimpl.h"
 
 class QMenu;
 class QAction;
 class QWidget;
 
-namespace QtNote {
+namespace AnyKeep {
 
 class PluginHostInterface;
 
@@ -20,7 +20,7 @@ class BaseIntegrationTray : public TrayImpl {
 
     friend class BaseIntegration;
 
-    Main                *qtnote;
+    Main                *anykeep;
     PluginHostInterface *host;
     QSystemTrayIcon     *tray;
     QMenu               *contextMenu;
@@ -28,7 +28,7 @@ class BaseIntegrationTray : public TrayImpl {
     QPointer<QWidget>    currentPopup;
 
 public:
-    explicit BaseIntegrationTray(Main *qtnote, PluginHostInterface *host, QObject *parent = 0);
+    explicit BaseIntegrationTray(Main *anykeep, PluginHostInterface *host, QObject *parent = 0);
     ~BaseIntegrationTray();
     void notifyError(const QString &message);
 
@@ -40,6 +40,6 @@ private slots:
     void showNoteList(QSystemTrayIcon::ActivationReason reason);
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // BASEINTEGRATIONTRAY_H

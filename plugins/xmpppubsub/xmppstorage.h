@@ -11,7 +11,7 @@
 
 #include <memory>
 
-namespace QtNote {
+namespace AnyKeep {
 
 class XmppBackend;
 class XmppDialogPresenter;
@@ -21,13 +21,13 @@ class XmppSettingsController;
 class RemoteCacheStore;
 
 /**
- * @brief QtNote storage adapter backed by encrypted XMPP Personal Eventing Protocol nodes.
+ * @brief AnyKeep storage adapter backed by encrypted XMPP Personal Eventing Protocol nodes.
  *
- * XmppStorage translates between QtNote's Note/NoteStorage API and the
+ * XmppStorage translates between AnyKeep's Note/NoteStorage API and the
  * backend-neutral XmppBackend contract. It owns the backend when no backend is
  * injected, maintains a local index cache, classifies failures, and schedules
  * reconnects for transient failures. Durable write/delete retry remains the
- * responsibility of QtNote's draft machinery.
+ * responsibility of AnyKeep's draft machinery.
  *
  * All methods and callbacks run in this object's thread. Asynchronous callbacks
  * capture configEpoch_ and discard their result after an account/configuration
@@ -79,7 +79,7 @@ signals:
     void encryptionKeyChanged(const QByteArray &keyId, const QString &message);
 
 private slots:
-    void onRemoteNotePublished(const QtNote::XmppRemoteNote &remote);
+    void onRemoteNotePublished(const AnyKeep::XmppRemoteNote &remote);
     void onRemoteNoteRetracted(const QString &id);
     void onRemoteNodeInvalidated();
     void onConnectionChanged(bool connected);
@@ -183,6 +183,6 @@ private:
     quint64 configEpoch_ { 0 };
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // XMPPSTORAGE_H

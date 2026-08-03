@@ -8,11 +8,11 @@
 #include <algorithm>
 #include <utility>
 
-namespace QtNote {
+namespace AnyKeep {
 
-const QString XmppNoteCodec::protocolNamespace        = QStringLiteral("urn:xmpp:qtnote:notes:1");
-const QString XmppNoteCodec::folderNamespace          = QStringLiteral("urn:xmpp:qtnote:folders:1");
-const QString XmppNoteCodec::contentRevisionNamespace = QStringLiteral("urn:xmpp:qtnote:content-revision:1");
+const QString XmppNoteCodec::protocolNamespace        = QStringLiteral("urn:xmpp:private-notes:0");
+const QString XmppNoteCodec::folderNamespace          = QStringLiteral("urn:xmpp:private-notes:folders:0");
+const QString XmppNoteCodec::contentRevisionNamespace = QStringLiteral("urn:xmpp:private-notes:content:0");
 
 namespace {
     constexpr int MaxXmlDepth      = 32;
@@ -140,10 +140,10 @@ namespace {
             const bool isXmlDeclaration = !parent.isNull() && parent.isDocument() && node.previousSibling().isNull()
                 && declaration.target() == QStringLiteral("xml");
             if (!isXmlDeclaration)
-                return corrupt(QStringLiteral("Unsupported XML processing instruction in encrypted QtNote record"));
+                return corrupt(QStringLiteral("Unsupported XML processing instruction in encrypted private-note record"));
         }
         if (node.isDocumentType() || node.isEntityReference())
-            return corrupt(QStringLiteral("Unsupported XML node in encrypted QtNote record"));
+            return corrupt(QStringLiteral("Unsupported XML node in encrypted private-note record"));
         if (node.isElement()) {
             if (++*elementCount > MaxXmlElements)
                 return unsupported(QStringLiteral("XML element count exceeds the implementation limit"));
@@ -218,7 +218,7 @@ namespace {
             return {
                 {},
                 unsupported(
-                    QStringLiteral("Unsupported required QtNote extensions: %1").arg(list.join(QStringLiteral(", "))))
+                    QStringLiteral("Unsupported required private-note extensions: %1").arg(list.join(QStringLiteral(", "))))
             };
         }
         return { features, {} };
@@ -232,14 +232,14 @@ namespace {
         result.root     = result.document.documentElement();
         if (result.root.isNull() || result.root.namespaceURI() != XmppNoteCodec::protocolNamespace
             || localName(result.root) != QStringLiteral("envelope")) {
-            return { {}, corrupt(QStringLiteral("Invalid encrypted QtNote XML envelope")) };
+            return { {}, corrupt(QStringLiteral("Invalid encrypted private-note XML envelope")) };
         }
 
-        if (const auto error = validateAttributes(result.root, {}, QStringLiteral("encrypted QtNote envelope")); error)
+        if (const auto error = validateAttributes(result.root, {}, QStringLiteral("encrypted private-note envelope")); error)
             return { {}, error };
         if (const auto error = validateChildren(
                 result.root, { QStringLiteral("node"), QStringLiteral("required"), QStringLiteral("content") },
-                QStringLiteral("encrypted QtNote envelope"));
+                QStringLiteral("encrypted private-note envelope"));
             error)
             return { {}, error };
         const auto requiredFeatures = requiredExtensions(result.root);
@@ -251,21 +251,21 @@ namespace {
             return { {}, corrupt(QStringLiteral("XMPP content-revision extension is valid only for an index record")) };
         }
         if (hasNonWhitespaceDirectText(result.root))
-            return { {}, corrupt(QStringLiteral("Unexpected text in encrypted QtNote XML envelope")) };
+            return { {}, corrupt(QStringLiteral("Unexpected text in encrypted private-note XML envelope")) };
 
         const auto contents = directChildren(result.root, XmppNoteCodec::protocolNamespace, QStringLiteral("content"));
         if (contents.size() != 1)
-            return { {}, corrupt(QStringLiteral("Encrypted QtNote envelope must contain one content element")) };
+            return { {}, corrupt(QStringLiteral("Encrypted private-note envelope must contain one content element")) };
         result.content = contents.constFirst();
-        if (const auto error = validateAttributes(result.content, {}, QStringLiteral("encrypted QtNote content"));
+        if (const auto error = validateAttributes(result.content, {}, QStringLiteral("encrypted private-note content"));
             error)
             return { {}, error };
         if (const auto error = validateChildren(result.content, { QStringLiteral("index"), QStringLiteral("note") },
-                                                QStringLiteral("encrypted QtNote content"));
+                                                QStringLiteral("encrypted private-note content"));
             error)
             return { {}, error };
         if (hasNonWhitespaceDirectText(result.content))
-            return { {}, corrupt(QStringLiteral("Unexpected text in encrypted QtNote content container")) };
+            return { {}, corrupt(QStringLiteral("Unexpected text in encrypted private-note content container")) };
 
         const auto indexRecords
             = directChildren(result.content, XmppNoteCodec::protocolNamespace, QStringLiteral("index"));
@@ -276,7 +276,7 @@ namespace {
             return {
                 {},
                 corrupt(
-                    QStringLiteral("Encrypted QtNote content must contain exactly one %1 record").arg(recordName(kind)))
+                    QStringLiteral("Encrypted private-note content must contain exactly one %1 record").arg(recordName(kind)))
             };
         }
         result.record = records.constFirst();
@@ -284,8 +284,8 @@ namespace {
         if (requireNode) {
             const auto nodes = directChildren(result.root, XmppNoteCodec::protocolNamespace, QStringLiteral("node"));
             if (nodes.size() != 1)
-                return { {}, corrupt(QStringLiteral("Encrypted QtNote envelope must contain one node binding")) };
-            if (const auto error = validateLeaf(nodes.constFirst(), QStringLiteral("encrypted QtNote node binding"));
+                return { {}, corrupt(QStringLiteral("Encrypted private-note envelope must contain one node binding")) };
+            if (const auto error = validateLeaf(nodes.constFirst(), QStringLiteral("encrypted private-note node binding"));
                 error)
                 return { {}, error };
             const auto text = simpleText(nodes.constFirst(), QStringLiteral("node"));
@@ -322,15 +322,15 @@ namespace {
     {
         const auto folders = directChildren(record, XmppNoteCodec::folderNamespace, QStringLiteral("folder"));
         if (folders.size() > 1)
-            return { {}, corrupt(QStringLiteral("Encrypted QtNote index contains more than one folder path")) };
+            return { {}, corrupt(QStringLiteral("Encrypted private-note index contains more than one folder path")) };
         if (folders.isEmpty())
             return { {}, {} };
 
         const auto folder = folders.constFirst();
-        if (const auto error = validateAttributes(folder, {}, QStringLiteral("encrypted QtNote folder"), false); error)
+        if (const auto error = validateAttributes(folder, {}, QStringLiteral("encrypted private-note folder"), false); error)
             return { {}, error };
         if (hasNonWhitespaceDirectText(folder))
-            return { {}, corrupt(QStringLiteral("Unexpected text in encrypted QtNote folder")) };
+            return { {}, corrupt(QStringLiteral("Unexpected text in encrypted private-note folder")) };
 
         QList<QDomElement> segments;
         for (auto node = folder.firstChild(); !node.isNull(); node = node.nextSibling()) {
@@ -339,17 +339,17 @@ namespace {
                 continue;
             if (element.namespaceURI() != XmppNoteCodec::folderNamespace
                 || localName(element) != QStringLiteral("segment")) {
-                return { {}, corrupt(QStringLiteral("Invalid child in encrypted QtNote folder")) };
+                return { {}, corrupt(QStringLiteral("Invalid child in encrypted private-note folder")) };
             }
             segments.append(element);
         }
         if (segments.isEmpty())
-            return { {}, corrupt(QStringLiteral("Encrypted QtNote folder must contain one or more segments")) };
+            return { {}, corrupt(QStringLiteral("Encrypted private-note folder must contain one or more segments")) };
 
         QStringList result;
         result.reserve(segments.size());
         for (const auto &segmentElement : segments) {
-            if (const auto error = validateLeaf(segmentElement, QStringLiteral("encrypted QtNote folder segment"));
+            if (const auto error = validateLeaf(segmentElement, QStringLiteral("encrypted private-note folder segment"));
                 error)
                 return { {}, error };
             const auto segment = simpleText(segmentElement, QStringLiteral("folder segment"));
@@ -357,7 +357,7 @@ namespace {
                 return { {}, segment.error };
             if (segment.value.isEmpty() || segment.value != segment.value.trimmed()) {
                 return { {},
-                         corrupt(QStringLiteral("Encrypted QtNote folder segments must be non-empty and trimmed")) };
+                         corrupt(QStringLiteral("Encrypted private-note folder segments must be non-empty and trimmed")) };
             }
             result.append(segment.value);
         }
@@ -393,17 +393,17 @@ namespace {
             return { indexRevision, {} };
         }
         if (values.size() != 1) {
-            return { {}, corrupt(QStringLiteral("Encrypted QtNote index contains more than one content revision")) };
+            return { {}, corrupt(QStringLiteral("Encrypted private-note index contains more than one content revision")) };
         }
         if (!required) {
             return { {}, corrupt(QStringLiteral("XMPP content-revision extension must be declared as required")) };
         }
         const auto value = values.constFirst();
-        if (const auto error = validateLeaf(value, QStringLiteral("encrypted QtNote content revision")); error)
+        if (const auto error = validateLeaf(value, QStringLiteral("encrypted private-note content revision")); error)
             return { {}, error };
         const auto revision = simpleText(value, QStringLiteral("content revision"));
         if (!revision || revision.value.isEmpty()) {
-            return { {}, corrupt(QStringLiteral("Invalid encrypted QtNote content revision")) };
+            return { {}, corrupt(QStringLiteral("Invalid encrypted private-note content revision")) };
         }
         if (revision.value == indexRevision) {
             return { {},
@@ -444,7 +444,7 @@ namespace {
             content.appendChild(document.createElementNS(XmppNoteCodec::protocolNamespace, recordName(kind)));
             return locateRecord(document, kind, false);
         }
-        auto parsed = parseXml(recordTemplate, QStringLiteral("preserved QtNote record"));
+        auto parsed = parseXml(recordTemplate, QStringLiteral("preserved private-note record"));
         if (!parsed)
             return { {}, parsed.error };
         return locateRecord(parsed.value, kind, false);
@@ -483,7 +483,7 @@ namespace {
     {
         XmppEncryptedPayload payload;
         payload.id    = note.id;
-        payload.keyId = SecureEnvelope::keyId(masterKey);
+        payload.keyId = SecureEnvelope::keyId(masterKey, KeyDerivationProfile::PrivateNotes);
         if (payload.id.isEmpty() || payload.keyId.isEmpty() || nodeName.isEmpty())
             return { {}, cryptoError(CryptoError::InvalidArgument, QStringLiteral("Missing note ID, node or key")) };
 
@@ -573,9 +573,10 @@ namespace {
         if (plaintext.isEmpty() || plaintext.size() > XmppNoteCodec::MaximumXmlSize) {
             return { {},
                      cryptoError(CryptoError::InvalidArgument,
-                                 QStringLiteral("Encrypted QtNote XML record exceeds the size limit")) };
+                                 QStringLiteral("Encrypted private-note XML record exceeds the size limit")) };
         }
-        const auto encrypted = SecureEnvelope::encryptAead(plaintext, masterKey, domainFor(kind));
+        const auto encrypted = SecureEnvelope::encryptAead(plaintext, masterKey, domainFor(kind),
+                                                            KeyDerivationProfile::PrivateNotes);
         if (!encrypted)
             return { {}, encrypted.error };
         payload.nonce      = encrypted.value.nonce;
@@ -590,16 +591,17 @@ namespace {
     {
         if (payload.id.isEmpty() || nodeName.isEmpty())
             return { {}, cryptoError(CryptoError::InvalidArgument, QStringLiteral("Missing note ID or node name")) };
-        const auto expectedKeyId = SecureEnvelope::keyId(masterKey);
+        const auto expectedKeyId = SecureEnvelope::keyId(masterKey, KeyDerivationProfile::PrivateNotes);
         if (payload.keyId != expectedKeyId) {
             return { {},
                      cryptoError(CryptoError::AuthenticationFailed,
-                                 QStringLiteral("Encrypted QtNote storage key mismatch (item %1, configured %2)")
+                                 QStringLiteral("Encrypted private-note storage key mismatch (item %1, configured %2)")
                                      .arg(QString::fromLatin1(payload.keyId.left(8).toHex()),
                                           QString::fromLatin1(expectedKeyId.left(8).toHex()))) };
         }
         AeadCiphertext encrypted { payload.nonce, payload.tag, payload.cipherText };
-        const auto     opened = SecureEnvelope::decryptAead(encrypted, masterKey, domainFor(expected));
+        const auto     opened = SecureEnvelope::decryptAead(encrypted, masterKey, domainFor(expected),
+                                                         KeyDerivationProfile::PrivateNotes);
         if (!opened)
             return { {}, opened.error };
         auto parsed = parseXml(opened.value, QStringLiteral("authenticated plaintext"));
@@ -615,19 +617,19 @@ namespace {
         if (boundNode.value != nodeName)
             return { {},
                      cryptoError(CryptoError::AuthenticationFailed,
-                                 QStringLiteral("Encrypted QtNote node binding mismatch")) };
+                                 QStringLiteral("Encrypted private-note node binding mismatch")) };
         return xml;
     }
 
     CryptoResult<QDateTime> parseModified(const QString &text)
     {
         if (!text.endsWith(QLatin1Char('Z')))
-            return { {}, corrupt(QStringLiteral("Encrypted QtNote modified time must be UTC")) };
+            return { {}, corrupt(QStringLiteral("Encrypted private-note modified time must be UTC")) };
         auto value = QDateTime::fromString(text, Qt::ISODateWithMs);
         if (!value.isValid())
             value = QDateTime::fromString(text, Qt::ISODate);
         if (!value.isValid())
-            return { {}, corrupt(QStringLiteral("Invalid encrypted QtNote modified time")) };
+            return { {}, corrupt(QStringLiteral("Invalid encrypted private-note modified time")) };
         return { value.toUTC(), {} };
     }
 
@@ -639,39 +641,39 @@ namespace {
             = validateAttributes(record,
                                  { QStringLiteral("id"), QStringLiteral("revision"), QStringLiteral("parent-revision"),
                                    QStringLiteral("origin-id"), QStringLiteral("modified"), QStringLiteral("format") },
-                                 QStringLiteral("encrypted QtNote index record"));
+                                 QStringLiteral("encrypted private-note index record"));
             error)
             return error;
         if (const auto error = validateChildren(record, { QStringLiteral("title"), QStringLiteral("tag") },
-                                                QStringLiteral("encrypted QtNote index record"));
+                                                QStringLiteral("encrypted private-note index record"));
             error)
             return error;
         if (hasNonWhitespaceDirectText(record))
-            return corrupt(QStringLiteral("Unexpected text in encrypted QtNote index record"));
+            return corrupt(QStringLiteral("Unexpected text in encrypted private-note index record"));
         const auto id       = record.attribute(QStringLiteral("id"));
         const auto revision = record.attribute(QStringLiteral("revision"));
         const auto format   = record.attribute(QStringLiteral("format"));
         if (id.isEmpty() || revision.isEmpty() || record.attribute(QStringLiteral("modified")).isEmpty())
-            return corrupt(QStringLiteral("Invalid encrypted QtNote index attributes"));
+            return corrupt(QStringLiteral("Invalid encrypted private-note index attributes"));
         if ((record.hasAttribute(QStringLiteral("parent-revision"))
              && record.attribute(QStringLiteral("parent-revision")).isEmpty())
             || (record.hasAttribute(QStringLiteral("origin-id"))
                 && record.attribute(QStringLiteral("origin-id")).isEmpty())) {
-            return corrupt(QStringLiteral("Optional encrypted QtNote index identifiers must not be empty"));
+            return corrupt(QStringLiteral("Optional encrypted private-note index identifiers must not be empty"));
         }
         if (id != payload.id)
             return cryptoError(CryptoError::AuthenticationFailed,
-                               QStringLiteral("Encrypted QtNote item binding mismatch"));
+                               QStringLiteral("Encrypted private-note item binding mismatch"));
         if (format != QStringLiteral("markdown"))
-            return unsupported(QStringLiteral("Unsupported encrypted QtNote note format %1").arg(format));
+            return unsupported(QStringLiteral("Unsupported encrypted private-note note format %1").arg(format));
         const auto modified = parseModified(record.attribute(QStringLiteral("modified")));
         if (!modified)
             return modified.error;
 
         const auto titles = directChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("title"));
         if (titles.size() != 1)
-            return corrupt(QStringLiteral("Encrypted QtNote index must contain one title"));
-        if (const auto error = validateLeaf(titles.constFirst(), QStringLiteral("encrypted QtNote title")); error)
+            return corrupt(QStringLiteral("Encrypted private-note index must contain one title"));
+        if (const auto error = validateLeaf(titles.constFirst(), QStringLiteral("encrypted private-note title")); error)
             return error;
         const auto title = simpleText(titles.constFirst(), QStringLiteral("title"));
         if (!title)
@@ -694,7 +696,7 @@ namespace {
         decoded.format          = QStringLiteral("markdown");
         decoded.folderPath      = decodedFolderPath.value;
         for (const auto &tagElement : directChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"))) {
-            if (const auto error = validateLeaf(tagElement, QStringLiteral("encrypted QtNote tag")); error)
+            if (const auto error = validateLeaf(tagElement, QStringLiteral("encrypted private-note tag")); error)
                 return error;
             const auto tag = simpleText(tagElement, QStringLiteral("tag"));
             if (!tag)
@@ -713,26 +715,26 @@ namespace {
     {
         const auto &record = opened.record;
         if (const auto error = validateAttributes(record, { QStringLiteral("id"), QStringLiteral("revision") },
-                                                  QStringLiteral("encrypted QtNote content record"));
+                                                  QStringLiteral("encrypted private-note content record"));
             error)
             return error;
         if (const auto error
-            = validateChildren(record, { QStringLiteral("body") }, QStringLiteral("encrypted QtNote content record"));
+            = validateChildren(record, { QStringLiteral("body") }, QStringLiteral("encrypted private-note content record"));
             error)
             return error;
         if (hasNonWhitespaceDirectText(record))
-            return corrupt(QStringLiteral("Unexpected text in encrypted QtNote content record"));
+            return corrupt(QStringLiteral("Unexpected text in encrypted private-note content record"));
         const auto id             = record.attribute(QStringLiteral("id"));
         const auto recordRevision = record.attribute(QStringLiteral("revision"));
         if (id.isEmpty() || recordRevision.isEmpty())
-            return corrupt(QStringLiteral("Invalid encrypted QtNote content attributes"));
+            return corrupt(QStringLiteral("Invalid encrypted private-note content attributes"));
         if (id != payload.id)
             return cryptoError(CryptoError::AuthenticationFailed,
-                               QStringLiteral("Encrypted QtNote item binding mismatch"));
+                               QStringLiteral("Encrypted private-note item binding mismatch"));
         const auto bodies = directChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("body"));
         if (bodies.size() != 1)
-            return corrupt(QStringLiteral("Encrypted QtNote content must contain one body"));
-        if (const auto error = validateLeaf(bodies.constFirst(), QStringLiteral("encrypted QtNote body")); error)
+            return corrupt(QStringLiteral("Encrypted private-note content must contain one body"));
+        if (const auto error = validateLeaf(bodies.constFirst(), QStringLiteral("encrypted private-note body")); error)
             return error;
         const auto body = simpleText(bodies.constFirst(), QStringLiteral("body"));
         if (!body)
@@ -782,7 +784,7 @@ CryptoResult<XmppRemoteNote> XmppNoteCodec::decodeContent(const XmppEncryptedPay
         return { {}, error };
     const auto expectedContentRevision = index.contentRevision.isEmpty() ? index.revision : index.contentRevision;
     if (payload.id != index.id || revision != expectedContentRevision)
-        return { {}, corrupt(QStringLiteral("QtNote content does not match its index revision")) };
+        return { {}, corrupt(QStringLiteral("private-note content does not match its index revision")) };
     auto note                  = index;
     note.content               = std::move(content);
     note.contentPresent        = true;
@@ -801,4 +803,4 @@ CryptoError XmppNoteCodec::validatePayload(const XmppEncryptedPayload &payload, 
     return validateContentRecord(opened.value, payload, nullptr, nullptr);
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

@@ -88,4 +88,4 @@ By storage. The same `NotesManagerPage.qml` implements both layouts.
 
 The notes-manager migration originally introduced ABI version 2. The subsequent
 QWidget-free plugin/storage settings and `QWindow` desktop-integration contracts
-raise the current libqtnote ABI to 3.
+raise the current libanykeep ABI to 3.

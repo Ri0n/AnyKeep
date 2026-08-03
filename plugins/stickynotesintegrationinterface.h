@@ -6,7 +6,7 @@
 
 class QObject;
 
-namespace QtNote {
+namespace AnyKeep {
 
 class StickyNotesServiceInterface {
 public:
@@ -35,9 +35,9 @@ public:
     virtual bool stickyNotesRequireApplicationAutostart() const              = 0;
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
-Q_DECLARE_INTERFACE(QtNote::StickyNotesIntegrationInterface, "com.rion-soft.QtNote.StickyNotesIntegrationInterface/1.0")
-Q_DECLARE_INTERFACE(QtNote::StickyNotesHostInterface, "com.rion-soft.QtNote.StickyNotesHostInterface/1.0")
+Q_DECLARE_INTERFACE(AnyKeep::StickyNotesIntegrationInterface, "com.rion-soft.AnyKeep.StickyNotesIntegrationInterface/1.0")
+Q_DECLARE_INTERFACE(AnyKeep::StickyNotesHostInterface, "com.rion-soft.AnyKeep.StickyNotesHostInterface/1.0")
 
 #endif // STICKYNOTESINTEGRATIONINTERFACE_H

@@ -8,7 +8,7 @@
 #include <QXmppElement.h>
 #include <QXmppTask.h>
 
-namespace QtNote {
+namespace AnyKeep {
 namespace {
     QDomElement keySyncElement(const QDomElement &iq)
     {
@@ -36,7 +36,7 @@ namespace {
     }
 }
 
-const QString XmppKeySyncExtension::feature = QStringLiteral("urn:xmpp:qtnote:key-sync:1");
+const QString XmppKeySyncExtension::feature = QStringLiteral("urn:xmpp:private-notes:key-sync:0");
 
 QStringList XmppKeySyncExtension::discoveryFeatures() const { return { feature }; }
 
@@ -150,4 +150,4 @@ bool XmppKeySyncExtension::isTrustApproved(const QDomElement &iq, const QString 
         && payload.value(QStringLiteral("requestId")).toString() == requestId;
 }
 
-} // namespace QtNote
+} // namespace AnyKeep

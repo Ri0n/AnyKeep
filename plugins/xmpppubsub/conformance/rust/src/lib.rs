@@ -6,12 +6,12 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 const PUBSUB_NS: &str = "http://jabber.org/protocol/pubsub";
-const PROTOCOL_NS: &str = "urn:xmpp:qtnote:notes:1";
-const FOLDER_NS: &str = "urn:xmpp:qtnote:folders:1";
-const CONTENT_REVISION_NS: &str = "urn:xmpp:qtnote:content-revision:1";
-const HKDF_SALT: &[u8] = b"QtNote HKDF salt v1";
-const HKDF_INFO_PREFIX: &[u8] = b"QtNote key domain v1:";
-const KEY_ID_PREFIX: &[u8] = b"QtNote storage key id v1\0";
+const PROTOCOL_NS: &str = "urn:xmpp:private-notes:0";
+const FOLDER_NS: &str = "urn:xmpp:private-notes:folders:0";
+const CONTENT_REVISION_NS: &str = "urn:xmpp:private-notes:content:0";
+const HKDF_SALT: &[u8] = b"private-notes HKDF salt v1";
+const HKDF_INFO_PREFIX: &[u8] = b"private-notes key domain v1:";
+const KEY_ID_PREFIX: &[u8] = b"private-notes storage key id v1\0";
 
 fn text<'a>(value: &'a Value, name: &str) -> Result<&'a str, String> {
     value.as_str().ok_or_else(|| format!("{name} must be text"))
@@ -204,13 +204,13 @@ fn parse_outer_xml(xml: &str) -> Result<OuterPayload, String> {
     let elements: Vec<_> = item.children().filter(|node| node.is_element()).collect();
     if elements.len() != 1 || elements[0].tag_name().namespace() != Some(PROTOCOL_NS)
         || elements[0].tag_name().name() != "encrypted" {
-        return Err("item must contain one current QtNote encrypted element".into());
+        return Err("item must contain one current Private Notes encrypted element".into());
     }
     let encrypted = elements[0];
-    validate_attributes(encrypted, &["key-id"], "encrypted QtNote payload", true)?;
-    validate_children(encrypted, &["nonce", "payload", "tag"], "encrypted QtNote payload")?;
+    validate_attributes(encrypted, &["key-id"], "encrypted Private Notes payload", true)?;
+    validate_children(encrypted, &["nonce", "payload", "tag"], "encrypted Private Notes payload")?;
     if !direct_text_is_whitespace(encrypted) {
-        return Err("unexpected text in encrypted QtNote payload".into());
+        return Err("unexpected text in encrypted Private Notes payload".into());
     }
     let key_id_text = encrypted.attribute("key-id").ok_or_else(|| "missing key-id".to_string())?;
     let key_id = URL_SAFE_NO_PAD.decode(key_id_text).map_err(|error| format!("invalid key-id: {error}"))?;
@@ -234,12 +234,12 @@ fn validate_plaintext(plaintext: &str, kind: &str, actual_node: &str, item_id: &
     let document = Document::parse(plaintext).map_err(|error| format!("invalid plaintext XML: {error}"))?;
     let envelope = document.root_element();
     if envelope.tag_name().namespace() != Some(PROTOCOL_NS) || envelope.tag_name().name() != "envelope" {
-        return Err("plaintext root must be current QtNote envelope".into());
+        return Err("plaintext root must be current Private Notes envelope".into());
     }
-    validate_attributes(envelope, &[], "authenticated QtNote envelope", true)?;
-    validate_children(envelope, &["node", "required", "content"], "authenticated QtNote envelope")?;
+    validate_attributes(envelope, &[], "authenticated Private Notes envelope", true)?;
+    validate_children(envelope, &["node", "required", "content"], "authenticated Private Notes envelope")?;
     if !direct_text_is_whitespace(envelope) {
-        return Err("unexpected text in authenticated QtNote envelope".into());
+        return Err("unexpected text in authenticated Private Notes envelope".into());
     }
     let mut content_revision_required = false;
     for required in children(envelope, "required") {
@@ -266,10 +266,10 @@ fn validate_plaintext(plaintext: &str, kind: &str, actual_node: &str, item_id: &
     if simple_text(nodes[0], "node")? != actual_node {
         return Err("authenticated node mismatch".into());
     }
-    validate_attributes(contents[0], &[], "authenticated QtNote content", true)?;
-    validate_children(contents[0], &["index", "note"], "authenticated QtNote content")?;
+    validate_attributes(contents[0], &[], "authenticated Private Notes content", true)?;
+    validate_children(contents[0], &["index", "note"], "authenticated Private Notes content")?;
     if !direct_text_is_whitespace(contents[0]) {
-        return Err("unexpected text in authenticated QtNote content".into());
+        return Err("unexpected text in authenticated Private Notes content".into());
     }
     let expected = if kind == "index" { "index" } else { "note" };
     let other = if kind == "index" { "note" } else { "index" };
@@ -287,10 +287,10 @@ fn validate_plaintext(plaintext: &str, kind: &str, actual_node: &str, item_id: &
     }
     if kind == "index" {
         validate_attributes(record, &["id", "revision", "parent-revision", "origin-id", "modified", "format"],
-                            "authenticated QtNote index", true)?;
-        validate_children(record, &["title", "tag"], "authenticated QtNote index")?;
+                            "authenticated Private Notes index", true)?;
+        validate_children(record, &["title", "tag"], "authenticated Private Notes index")?;
         if !direct_text_is_whitespace(record) {
-            return Err("unexpected text in authenticated QtNote index".into());
+            return Err("unexpected text in authenticated Private Notes index".into());
         }
         if record.attribute("format") != Some("markdown") || record.attribute("modified").unwrap_or("").is_empty() {
             return Err("invalid index format or modified time".into());
@@ -320,10 +320,10 @@ fn validate_plaintext(plaintext: &str, kind: &str, actual_node: &str, item_id: &
             "folder_path": decoded_folder_path,
         }))
     } else {
-        validate_attributes(record, &["id", "revision"], "authenticated QtNote content record", true)?;
-        validate_children(record, &["body"], "authenticated QtNote content record")?;
+        validate_attributes(record, &["id", "revision"], "authenticated Private Notes content record", true)?;
+        validate_children(record, &["body"], "authenticated Private Notes content record")?;
         if !direct_text_is_whitespace(record) {
-            return Err("unexpected text in authenticated QtNote content record".into());
+            return Err("unexpected text in authenticated Private Notes content record".into());
         }
         let bodies = children(record, "body");
         if bodies.len() != 1 {
@@ -377,7 +377,7 @@ pub fn verify_encoded_document(encoded: &Value) -> Result<Value, String> {
 mod tests {
     use super::*;
 
-    const VECTORS: &str = include_str!("../../../qtnote-encrypted-vectors.json");
+    const VECTORS: &str = include_str!("../../../private-notes-encrypted-vectors.json");
 
     #[test]
     fn decrypts_python_generated_positive_vectors() {

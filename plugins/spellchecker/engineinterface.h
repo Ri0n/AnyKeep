@@ -3,7 +3,7 @@
 
 #include <QLocale>
 
-namespace QtNote {
+namespace AnyKeep {
 
 class DictionaryDownloader;
 
@@ -47,6 +47,6 @@ signals:
     void availableDictsUpdated();
 };
 
-} // namespace QtNote
+} // namespace AnyKeep
 
 #endif // ENGINEINTERFACE_H
