@@ -955,17 +955,26 @@ NoteFragment NoteEditor::withMedia(NoteFragment fragment) const
 
 namespace {
 
-    bool setFragmentClipboard(const NoteFragment &fragment, QClipboard::Mode mode, const QString &fallback)
+    bool setFragmentClipboard(const NoteFragment &fragment, QClipboard::Mode mode, const QString &fallback,
+                              bool markdownAsPlainText = false)
     {
         auto *clipboard = QGuiApplication::clipboard();
         if (!clipboard || (mode == QClipboard::Selection && !clipboard->supportsSelection()))
             return false;
         NoteTransferController controller;
         auto                   exported = controller.createMimeData(fragment);
-        if (exported)
+        if (exported) {
+            if (markdownAsPlainText) {
+                QString       error;
+                const QString markdown = NoteTransferController::markdownForFragment(fragment, &error);
+                if (!error.isEmpty())
+                    return false;
+                exported.mimeData->setText(markdown);
+            }
             clipboard->setMimeData(exported.mimeData.release(), mode);
-        else
+        } else {
             clipboard->setText(fallback, mode);
+        }
         return true;
     }
 
@@ -1017,6 +1026,12 @@ void NoteEditor::copyMarkdownToClipboard(const QString &markdown)
     }
 }
 
+void NoteEditor::copyMarkdownAsPlainTextToClipboard(const QString &markdown)
+{
+    const NoteFragment fragment = markdownFragment(markdown);
+    setFragmentClipboard(fragment, QClipboard::Clipboard, markdown, true);
+}
+
 void NoteEditor::copyDocumentToClipboard()
 {
     NoteTransferController controller;
@@ -1048,6 +1063,16 @@ bool NoteEditor::copySelectionToClipboard(const QVariantList &encodedRanges)
     qInfo() << "QML clipboard copy: structured selection blocks=" << fragment.blocks.size()
             << "formats=" << QGuiApplication::clipboard()->mimeData()->formats();
     return true;
+}
+
+bool NoteEditor::copySelectionAsMarkdownToClipboard(const QVariantList &encodedRanges)
+{
+    NoteFragment fragment = withMedia(model_->extractSelectionFragment(decodeSelectionRanges(encodedRanges)));
+    if (fragment.blocks.isEmpty())
+        return false;
+    QString       error;
+    const QString fallback = NoteTransferController::markdownForFragment(fragment, &error);
+    return error.isEmpty() && setFragmentClipboard(fragment, QClipboard::Clipboard, fallback, true);
 }
 
 bool NoteEditor::copyTextToPrimarySelection(const QString &text)

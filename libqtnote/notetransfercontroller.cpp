@@ -517,6 +517,42 @@ QString NoteTransferController::plainTextForFragment(const NoteFragment &fragmen
         return normalizePlainText(blocks.join(QStringLiteral("\n\n")));
     }
 
+    // Rendering a table as one Markdown document creates empty QTextDocument
+    // paragraphs before and after the table. Those paragraphs must not leak
+    // into text/plain (notably when a complete single cell is copied to an
+    // external editor). Render cells independently and keep tab/newline
+    // separators, while the private MIME payload retains the table structure.
+    if (fragment.blocks.size() == 1 && fragment.blocks.constFirst().type == NoteFragmentBlockType::Table) {
+        const NoteFragmentTable &table = fragment.blocks.constFirst().table;
+        if (table.rows > 0 && table.columns > 0 && table.rows * table.columns == table.markdownCells.size()) {
+            QStringList rows;
+            for (int row = 0; row < table.rows; ++row) {
+                QStringList columns;
+                for (int column = 0; column < table.columns; ++column) {
+                    NoteFragment      cellFragment;
+                    NoteFragmentBlock cell;
+                    cellFragment.sourceFormat = NoteFragmentSourceFormat::Markdown;
+                    cell.type                 = NoteFragmentBlockType::Text;
+                    cell.markdown             = table.markdownCells.at(row * table.columns + column);
+                    cellFragment.blocks.append(cell);
+                    QString cellError;
+                    QString cellText = plainTextForFragment(cellFragment, &cellError);
+                    if (!cellError.isEmpty()) {
+                        if (error)
+                            *error = cellError;
+                        return {};
+                    }
+                    cellText.replace(QLatin1Char('\t'), QLatin1Char(' '));
+                    columns.append(cellText);
+                }
+                rows.append(columns.join(QLatin1Char('\t')));
+            }
+            if (error)
+                error->clear();
+            return rows.join(QLatin1Char('\n'));
+        }
+    }
+
     // A code block is already literal plain text. Passing it through
     // QTextDocument's Markdown renderer turns blank source lines into extra
     // paragraph separators and leaves a trailing empty paragraph in the

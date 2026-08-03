@@ -19,6 +19,7 @@ private slots:
     void importsMarkdownBeforeHtmlAndPlainText();
     void importsTsvAsTable();
     void importsHtmlTableAsTable();
+    void exportsSingleTableCellAsCompactPlainText();
     void importsInlineHtmlLinkWithinParagraph();
     void importsHtmlUnderlineAsGithubIns();
     void exportsGithubUnderlineAsHtmlUnderline();
@@ -86,6 +87,35 @@ void NoteTransferControllerTest::preservesMarkdownHardBreaksInPlainText()
     QVERIFY(exported.mimeData->hasFormat(QString::fromLatin1(NoteTransferController::MarkdownMimeType)));
     QVERIFY(exported.mimeData->hasHtml());
     QCOMPARE(exported.mimeData->text(), QStringLiteral("first line  \nsecond line\n\nthird paragraph"));
+}
+
+void NoteTransferControllerTest::exportsSingleTableCellAsCompactPlainText()
+{
+    NoteFragment fragment;
+    fragment.sourceFormat = NoteFragmentSourceFormat::Markdown;
+    NoteFragmentBlock table;
+    table.type                = NoteFragmentBlockType::Table;
+    table.table.rows          = 1;
+    table.table.columns       = 1;
+    table.table.headerRows    = 1;
+    table.table.markdownCells = { QStringLiteral("copied cell") };
+    fragment.blocks.append(table);
+
+    NoteTransferController controller;
+    const auto             exported = controller.createMimeData(fragment);
+    QVERIFY2(exported, qPrintable(exported.error));
+    QCOMPARE(exported.mimeData->text(), QStringLiteral("copied cell"));
+    QVERIFY(exported.mimeData->hasFormat(QString::fromLatin1(NoteTransferController::FragmentMimeType)));
+    QVERIFY(exported.mimeData->hasFormat(QString::fromLatin1(NoteTransferController::TsvMimeType)));
+
+    table.table.rows          = 2;
+    table.table.columns       = 2;
+    table.table.markdownCells = { QStringLiteral("**Name**"), QStringLiteral("[Value](https://example.org)"),
+                                  QStringLiteral("first"), QStringLiteral("second") };
+    fragment.blocks           = { table };
+    const auto tableExport    = controller.createMimeData(fragment);
+    QVERIFY2(tableExport, qPrintable(tableExport.error));
+    QCOMPARE(tableExport.mimeData->text(), QStringLiteral("Name\tValue\nfirst\tsecond"));
 }
 
 void NoteTransferControllerTest::roundTripsCodeBlockWithoutFormatting()

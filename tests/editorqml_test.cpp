@@ -1,3 +1,4 @@
+#include <QPalette>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
@@ -45,12 +46,73 @@ private slots:
         auto *layer = host.quickWidget()->rootObject()->findChild<QQuickItem *>(QStringLiteral("interBlockHitLayer"));
         QVERIFY(layer);
         QVERIFY(!layer->property("formatEnabled").toBool());
+        auto *copyMarkdown
+            = host.quickWidget()->rootObject()->findChild<QObject *>(QStringLiteral("copyMarkdownMenuItem"));
+        QVERIFY(copyMarkdown);
+        QVERIFY(!copyMarkdown->property("formatEnabled").toBool());
 
         editor.setMarkdown(true);
         QTRY_VERIFY(layer->property("formatEnabled").toBool());
+        QTRY_VERIFY(copyMarkdown->property("formatEnabled").toBool());
 
         editor.setMarkdown(false);
         QTRY_VERIFY(!layer->property("formatEnabled").toBool());
+        QTRY_VERIFY(!copyMarkdown->property("formatEnabled").toBool());
+    }
+
+    void tableBordersUseSinglePixelTextColorGrid()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("| First | Second |\n| --- | --- |\n| value | value |"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::Table));
+        host.resize(520, 420);
+        host.show();
+
+        QList<QQuickItem *> tableCells;
+        QTRY_VERIFY(([&]() {
+            tableCells.clear();
+            QList<QQuickItem *> pending { qobject_cast<QQuickItem *>(host.quickWidget()->rootObject()) };
+            while (!pending.isEmpty()) {
+                QQuickItem *candidate = pending.takeLast();
+                if (!candidate)
+                    continue;
+                if (candidate->property("tableCell").toBool())
+                    tableCells.append(candidate);
+                pending.append(candidate->childItems());
+            }
+            return tableCells.size() == 4;
+        })());
+
+        QQuickItem    *tableCell = tableCells.constFirst();
+        const QColor   border    = tableCell->property("gridBorderColor").value<QColor>();
+        const QPalette palette   = tableCell->property("palette").value<QPalette>();
+        const QColor   text      = palette.color(QPalette::Text);
+        QVERIFY(border.isValid());
+        QVERIFY(text.isValid());
+        QVERIFY(qAbs(border.redF() - text.redF()) < 0.01);
+        QVERIFY(qAbs(border.greenF() - text.greenF()) < 0.01);
+        QVERIFY(qAbs(border.blueF() - text.blueF()) < 0.01);
+        QVERIFY(qAbs(border.alphaF() - 0.28) < 0.01);
+
+        int rightBorderOwners  = 0;
+        int bottomBorderOwners = 0;
+        for (QQuickItem *cell : std::as_const(tableCells)) {
+            const int  column      = cell->property("columnIndex").toInt();
+            const int  row         = cell->property("tableRow").toInt();
+            const bool drawsRight  = cell->property("drawsRightGridBorder").toBool();
+            const bool drawsBottom = cell->property("drawsBottomGridBorder").toBool();
+            QCOMPARE(drawsRight, column == 1);
+            QCOMPARE(drawsBottom, row == 1);
+            rightBorderOwners += drawsRight;
+            bottomBorderOwners += drawsBottom;
+        }
+        QCOMPARE(rightBorderOwners, 2);
+        QCOMPARE(bottomBorderOwners, 2);
     }
 
     void wholeListDragUsesItemLevelStructuralBoundaries()

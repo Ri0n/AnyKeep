@@ -1,11 +1,16 @@
 #include <QtTest>
 
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QMimeData>
+
 #include "draftmanager.h"
 #include "draftstore.h"
 #include "noteblockmodel.h"
 #include "notedata.h"
 #include "noteeditor.h"
 #include "noterule.h"
+#include "notetransfercontroller.h"
 
 using namespace QtNote;
 
@@ -167,6 +172,45 @@ private slots:
         QCOMPARE(record.title, QStringLiteral("Selected title"));
         QCOMPARE(record.body, QStringLiteral("Selected body"));
         QCOMPARE(record.format, Note::Markdown);
+    }
+
+    void copiesStructuredSelectionAsMarkdownPlainText()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("| **cell** | Other |\n| --- | --- |\n| value | value |"), Note::Markdown);
+
+        auto         store = std::make_unique<MemoryDraftStore>();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(note, drafts);
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::Table));
+
+        const QVariantList ranges { QVariantMap { { QStringLiteral("blockIndex"), 1 },
+                                                  { QStringLiteral("listItemIndex"), -1 },
+                                                  { QStringLiteral("tableCellIndex"), 0 },
+                                                  { QStringLiteral("markdown"), QStringLiteral("**cell**") },
+                                                  { QStringLiteral("wholeEditor"), true },
+                                                  { QStringLiteral("before"), QString() },
+                                                  { QStringLiteral("after"), QString() } } };
+
+        QVERIFY(editor.copySelectionToClipboard(ranges));
+        QCOMPARE(QGuiApplication::clipboard()->mimeData()->text(), QStringLiteral("cell"));
+
+        QVERIFY(editor.copySelectionAsMarkdownToClipboard(ranges));
+        const QMimeData *mimeData = QGuiApplication::clipboard()->mimeData();
+        QVERIFY(mimeData);
+        const QString markdown
+            = QString::fromUtf8(mimeData->data(QString::fromLatin1(NoteTransferController::MarkdownMimeType)));
+        QCOMPARE(mimeData->text(), markdown);
+        QVERIFY2(markdown.startsWith(QStringLiteral("| cell |\n| --- |")), qPrintable(markdown));
+        QVERIFY(mimeData->hasFormat(QString::fromLatin1(NoteTransferController::FragmentMimeType)));
+
+        editor.copyMarkdownAsPlainTextToClipboard(QStringLiteral("**bold**"));
+        mimeData = QGuiApplication::clipboard()->mimeData();
+        QVERIFY(mimeData);
+        QCOMPARE(mimeData->text(), QStringLiteral("**bold**"));
+        QCOMPARE(QString::fromUtf8(mimeData->data(QString::fromLatin1(NoteTransferController::MarkdownMimeType))),
+                 QStringLiteral("**bold**"));
     }
 
     void discardAndCloseRemovesPersistedUnpublishedDraft()

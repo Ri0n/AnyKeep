@@ -1177,6 +1177,23 @@ ListView {
         }
     }
 
+    function copyDocumentSelectionAsMarkdown() {
+        if (!root.editorBackend || !root.editorBackend.markdown || !hasDocumentSelection())
+            return false
+        if (wholeDocumentSelected) {
+            root.editorBackend.copyMarkdownAsPlainTextToClipboard(blockModel ? blockModel.contents : "")
+            return true
+        }
+        const ranges = structuredSelectionRanges(false)
+        if (selectionNeedsStructure(ranges)
+                && root.editorBackend.copySelectionAsMarkdownToClipboard(ranges))
+            return true
+        const markdown = selectedDocumentMarkdown()
+        if (markdown.length === 0)
+            return false
+        root.editorBackend.copyMarkdownAsPlainTextToClipboard(markdown)
+        return true
+    }
 
     function copyDocumentSelectionToPrimary() {
         if (!hasDocumentSelection() || !root.editorBackend)

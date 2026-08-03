@@ -93,6 +93,14 @@ Menu {
     MenuItem { action: Action { text: qsTr("Cut"); shortcut: StandardKey.Cut; enabled: menu.controller.documentSelectionAvailable; onTriggered: menu.controller.cutDocumentSelection() } }
     MenuItem { action: Action { text: qsTr("Copy"); shortcut: StandardKey.Copy; enabled: menu.controller.documentSelectionAvailable; onTriggered: menu.controller.copyDocumentSelection() } }
     MenuItem {
+        objectName: "copyMarkdownMenuItem"
+        readonly property bool formatEnabled: menu.editorBackend ? menu.editorBackend.markdown : false
+        visible: formatEnabled
+        text: qsTr("Copy Markdown")
+        enabled: menu.controller.documentSelectionAvailable
+        onTriggered: menu.controller.copyDocumentSelectionAsMarkdown()
+    }
+    MenuItem {
         action: Action {
             text: qsTr("Paste")
             shortcut: StandardKey.Paste

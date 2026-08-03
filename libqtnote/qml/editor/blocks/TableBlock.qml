@@ -241,6 +241,12 @@ Item {
                 readonly property int columnIndex: tableRoot.columns > 0
                                                    ? index % tableRoot.columns : -1
                 readonly property bool headerCell: index < tableRoot.columns
+                readonly property bool drawsRightGridBorder: columnIndex === tableRoot.columns - 1
+                readonly property bool drawsBottomGridBorder: index >= cellModel.count
+                                                               - tableRoot.columns
+                readonly property color gridBorderColor: Qt.rgba(tableCell.palette.text.r,
+                                                                 tableCell.palette.text.g,
+                                                                 tableCell.palette.text.b, 0.28)
                 property real columnReorderOffsetX: tableColumnLayout.translationByOrder(
                                                         tableCell,
                                                         tableColumnReorder.targetBoundary,
@@ -322,8 +328,41 @@ Item {
                 background: Rectangle {
                     color: Math.floor(tableCell.index / tableRoot.columns) % 2
                            ? tableCell.palette.alternateBase : tableCell.palette.base
-                    border.width: 1
-                    border.color: tableCell.palette.midlight
+                    border.width: 0
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        height: 1
+                        color: tableCell.gridBorderColor
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: 1
+                        color: tableCell.gridBorderColor
+                    }
+
+                    Rectangle {
+                        visible: tableCell.drawsRightGridBorder
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: 1
+                        color: tableCell.gridBorderColor
+                    }
+
+                    Rectangle {
+                        visible: tableCell.drawsBottomGridBorder
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        color: tableCell.gridBorderColor
+                    }
                 }
                 commitText: function() {
                     tableRoot.editorView.blockModel.setTableCell(

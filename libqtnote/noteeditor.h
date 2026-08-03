@@ -110,8 +110,10 @@ public:
     Q_INVOKABLE bool        redo();
     Q_INVOKABLE void        copyToClipboard(const QString &text);
     Q_INVOKABLE void        copyMarkdownToClipboard(const QString &markdown);
+    Q_INVOKABLE void        copyMarkdownAsPlainTextToClipboard(const QString &markdown);
     Q_INVOKABLE void        copyDocumentToClipboard();
     Q_INVOKABLE bool        copySelectionToClipboard(const QVariantList &ranges);
+    Q_INVOKABLE bool        copySelectionAsMarkdownToClipboard(const QVariantList &ranges);
     Q_INVOKABLE bool        copyTextToPrimarySelection(const QString &text);
     Q_INVOKABLE bool        copyMarkdownToPrimarySelection(const QString &markdown);
     Q_INVOKABLE bool        copySelectionToPrimarySelection(const QVariantList &ranges);
