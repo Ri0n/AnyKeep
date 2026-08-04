@@ -35,6 +35,7 @@ SwipeDelegate {
     property string errorString: ""
     property int noteCount: 0
     property bool internalDragActive: false
+    property bool inReusePool: false
     property double suppressClickUntil: 0
 
     readonly property bool noteRow: itemType === collection.noteItemType
@@ -72,7 +73,11 @@ SwipeDelegate {
                                                   && collection.swipeDeleteEnabled
                                                   && noteRow
     readonly property bool partOfActiveDrag: sourceActive
-    readonly property bool editing: groupRow && collection.editingGroupId === groupId
+    // TreeView keeps pooled delegates alive with their last model roles. Only
+    // the presented delegate may participate in inline editing; otherwise a
+    // hidden duplicate can receive/lose focus and commit the visible editor.
+    readonly property bool editing: !inReusePool && visible && groupRow
+                                    && collection.editingGroupId === groupId
     readonly property real reorderOffset: displacement.displacement
     readonly property real collapseSpace: displacement.collapseSpace
     readonly property real dropSpace: displacement.beforeSpace
@@ -98,6 +103,8 @@ SwipeDelegate {
                   : preview
 
     Component.onCompleted: collection.registerRow(row)
+    TableView.onPooled: row.inReusePool = true
+    TableView.onReused: row.inReusePool = false
     onNoteIdChanged: closeDeleteSwipe()
     onSwipeDeleteAvailableChanged: {
         if (!swipeDeleteAvailable)
@@ -259,10 +266,6 @@ SwipeDelegate {
             text: row.title
             selectByMouse: true
             verticalAlignment: TextInput.AlignVCenter
-            onVisibleChanged: {
-                if (visible)
-                    row.focusRenameField()
-            }
             onAccepted: row.commitRename()
             onEditingFinished: row.commitRename()
             Keys.onEscapePressed: function(event) {
@@ -326,12 +329,11 @@ SwipeDelegate {
     }
 
     function focusRenameField() {
-        Qt.callLater(function() {
-            if (row.editing) {
-                renameField.forceActiveFocus()
-                renameField.selectAll()
-            }
-        })
+        if (!row.editing || !renameField.visible || !row.visible)
+            return false
+        renameField.forceActiveFocus()
+        renameField.selectAll()
+        return renameField.activeFocus
     }
 
     function openDeleteSwipe() {
@@ -343,8 +345,19 @@ SwipeDelegate {
         swipe.close()
     }
 
+    function claimInteractionFocus() {
+        // Pointer navigation is disabled on the owning TreeView because row
+        // selection is handled explicitly. Mirror the missing focus transfer
+        // so clicks still finish inline editors and leave search fields.
+        if (!row.editing)
+            row.forceActiveFocus(Qt.MouseFocusReason)
+    }
+
     function commitRename() {
-        if (!editing)
+        // Model roles and bindings are updated in separate steps when a
+        // TreeView delegate is reused. Never commit an editing value carried
+        // over from its previous row identity.
+        if (!editing || String(groupId) !== String(collection.editingGroupId))
             return
         const name = renameField.text.trim()
         if (name.length === 0) {
@@ -359,26 +372,34 @@ SwipeDelegate {
         id: rowDrag
 
         target: null
-        cursorShape: row.internalDragActive && collection.pointerOutsideWindow()
+        cursorShape: row.internalDragActive && row.collection
+                     && row.collection.pointerOutsideWindow()
                      ? Qt.ForbiddenCursor : Qt.ClosedHandCursor
-        enabled: collection.dragEnabled(row) && !row.editing
+        enabled: Boolean(row.collection)
+                 && typeof row.collection.dragEnabled === "function"
+                 && row.collection.dragEnabled(row) && !row.editing
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad | PointerDevice.TouchScreen
         onActiveTranslationChanged: {
-            if (active)
-                collection.moveDrag(row, activeTranslation.x, activeTranslation.y)
+            if (active && row.collection)
+                row.collection.moveDrag(row, activeTranslation.x, activeTranslation.y)
         }
         onActiveChanged: {
+            if (!row.collection) {
+                row.internalDragActive = false
+                return
+            }
             if (active) {
+                row.claimInteractionFocus()
                 // pressPosition is in this delegate's local coordinates.
                 // Do not reconstruct it from activeTranslation: TreeView can
                 // scroll between the press and its drag threshold, making the
                 // two values refer to different coordinate spaces.
-                collection.beginDrag(row,
-                                     centroid.pressPosition.x,
-                                     centroid.pressPosition.y)
+                row.collection.beginDrag(row,
+                                         centroid.pressPosition.x,
+                                         centroid.pressPosition.y)
             }
             else if (row.internalDragActive)
-                collection.finishDrag(row)
+                row.collection.finishDrag(row)
         }
     }
 
@@ -391,6 +412,7 @@ SwipeDelegate {
                  && !collection.dragSelectionSuppressed && !row.editing
         gesturePolicy: TapHandler.DragThreshold
         onTapped: function(eventPoint, button) {
+            row.claimInteractionFocus()
             row.suppressClickUntil = Date.now() + 100
             collection.selectDesktopNote(row, desktopSelectionHandler.point.modifiers)
         }
@@ -409,6 +431,7 @@ SwipeDelegate {
             suppressClickUntil = 0
             return
         }
+        row.claimInteractionFocus()
         if (row.groupRow)
             collection.activateGroup(row)
         else if (collection.touchActions)
@@ -422,6 +445,7 @@ SwipeDelegate {
         acceptedButtons: Qt.RightButton
         preventStealing: true
         onClicked: function(mouse) {
+            row.claimInteractionFocus()
             collection.requestContextMenu(
                         row, contextArea.mapToItem(collection,
                                                    Qt.point(mouse.x, mouse.y)))
@@ -434,6 +458,7 @@ SwipeDelegate {
         acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Stylus
         gesturePolicy: TapHandler.DragThreshold
         onLongPressed: {
+            row.claimInteractionFocus()
             row.suppressClickUntil = Date.now() + 1000
             collection.requestContextMenu(row)
         }

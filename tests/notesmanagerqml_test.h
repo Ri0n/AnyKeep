@@ -16,6 +16,7 @@ private slots:
     void flatNoteCollectionUsesSharedTreeDragAnimation();
     void genericReorderUsesOutsideDropHandler();
     void foldersPageUsesInlineRenameAndSharedDragLifecycle();
+    void folderInlineRenameSurvivesDelegateReuseInQuickWindow();
     void foldersPageOffersEmptyRecycleBinAction();
     void folderPickerMenuBuildsTheCompleteFolderTree();
     void editorToolbarFolderPickerAssignsTheActiveNote();

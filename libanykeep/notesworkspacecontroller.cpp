@@ -50,6 +50,7 @@ NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderC
     folderNotesModel_     = new FolderNotesModel(folderCatalogManager_, this);
     folderNotesModel_->setSearchModel(searchModel_);
     folderOperations_ = new FolderOperationsController(folderCatalogManager_, NoteManager::instance(), this);
+    connect(this, &NotesWorkspaceController::trashUndoChanged, this, &NotesWorkspaceController::folderTrashUndoChanged);
 
     connect(notesModel_, &NotesModel::statsChanged, this, &NotesWorkspaceController::noteCountChanged);
     connect(notesModel_, &NotesModel::notesDropRequested, this,
@@ -167,11 +168,32 @@ bool NotesWorkspaceController::folderCatalogAvailable() const
 
 QString NotesWorkspaceController::lastTrashedFolderName() const
 {
-    if (deletedFolderBranches_.isEmpty())
+    for (auto entry = trashUndoEntries_.crbegin(); entry != trashUndoEntries_.crend(); ++entry) {
+        if (entry->kind != TrashUndoEntry::FolderTrash)
+            continue;
+        for (const auto &folder : entry->folderBranch.folders) {
+            if (folder.id == entry->folderBranch.rootId)
+                return folder.name;
+        }
+    }
+    return {};
+}
+
+bool NotesWorkspaceController::canUndoFolderTrash() const
+{
+    return std::any_of(trashUndoEntries_.cbegin(), trashUndoEntries_.cend(),
+                       [](const TrashUndoEntry &entry) { return entry.kind == TrashUndoEntry::FolderTrash; });
+}
+
+QString NotesWorkspaceController::lastTrashedItemName() const
+{
+    if (trashUndoEntries_.isEmpty())
         return {};
-    const auto &branch = deletedFolderBranches_.constLast();
-    for (const auto &folder : branch.folders) {
-        if (folder.id == branch.rootId)
+    const auto &entry = trashUndoEntries_.constLast();
+    if (entry.kind == TrashUndoEntry::NoteTrash)
+        return entry.title;
+    for (const auto &folder : entry.folderBranch.folders) {
+        if (folder.id == entry.folderBranch.rootId)
             return folder.name;
     }
     return {};
@@ -331,6 +353,7 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
         setError(error.message);
         return false;
     }
+    removeNoteTrashUndo(storageId, noteId);
     draftManager_->publishPending();
     return true;
 }
@@ -355,6 +378,13 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
     if (!ensureFolderCatalogAvailable())
         return false;
     const QUuid previousFolderId(folderIdForNote(storageId, noteId));
+    QString     title;
+    for (const auto &note : NoteManager::instance()->notesIndex()->notes(storageId)) {
+        if (note.id() == noteId) {
+            title = note.title();
+            break;
+        }
+    }
     if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId) {
         if (!draftManager_->isLastEditingSession(currentEditor_->draftId())) {
             setError(tr("The note is open in another editor and cannot be moved to the recycle bin yet"));
@@ -371,7 +401,10 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
         setError(error.message);
         return false;
     }
-    return folderOperations_->assignNoteFolder(storageId, noteId, FolderCatalog::recycleBinId(), true);
+    const bool accepted = folderOperations_->assignNoteFolder(storageId, noteId, FolderCatalog::recycleBinId(), true);
+    trashUndoEntries_.append({ TrashUndoEntry::NoteTrash, storageId, noteId, title, {} });
+    emit trashUndoChanged();
+    return accepted;
 }
 
 bool NotesWorkspaceController::restoreRecycledNote(const QString &storageId, const QString &noteId)
@@ -384,7 +417,9 @@ bool NotesWorkspaceController::restoreRecycledNote(const QString &storageId, con
         setError(restored.error.message);
         return false;
     }
-    return folderOperations_->assignNoteFolder(storageId, noteId, restored.value, true);
+    const bool accepted = folderOperations_->assignNoteFolder(storageId, noteId, restored.value, true);
+    removeNoteTrashUndo(storageId, noteId);
+    return accepted;
 }
 
 bool NotesWorkspaceController::emptyRecycleBin()
@@ -941,8 +976,11 @@ bool NotesWorkspaceController::trashFolder(const QString &folderIdText)
         return false;
     }
 
-    deletedFolderBranches_.append(deleted.value);
-    emit folderTrashUndoChanged();
+    TrashUndoEntry undoEntry;
+    undoEntry.kind         = TrashUndoEntry::FolderTrash;
+    undoEntry.folderBranch = deleted.value;
+    trashUndoEntries_.append(std::move(undoEntry));
+    emit trashUndoChanged();
 
     for (const auto &assignment : deleted.value.assignments) {
         folderOperations_->assignNoteFolder(assignment.storageId, assignment.noteId, FolderCatalog::recycleBinId(),
@@ -956,19 +994,37 @@ bool NotesWorkspaceController::trashFolder(const QString &folderIdText)
 
 bool NotesWorkspaceController::undoFolderTrash()
 {
-    if (!ensureFolderCatalogAvailable() || deletedFolderBranches_.isEmpty())
-        return false;
+    for (qsizetype index = trashUndoEntries_.size() - 1; index >= 0; --index) {
+        if (trashUndoEntries_.at(index).kind == TrashUndoEntry::FolderTrash)
+            return restoreFolderTrashAt(index);
+    }
+    return false;
+}
 
-    const auto branch = deletedFolderBranches_.constLast();
+bool NotesWorkspaceController::undoTrash()
+{
+    if (trashUndoEntries_.isEmpty())
+        return false;
+    const auto entry = trashUndoEntries_.constLast();
+    if (entry.kind == TrashUndoEntry::FolderTrash)
+        return restoreFolderTrashAt(trashUndoEntries_.size() - 1);
+    return restoreRecycledNote(entry.storageId, entry.noteId);
+}
+
+bool NotesWorkspaceController::restoreFolderTrashAt(qsizetype index)
+{
+    if (!ensureFolderCatalogAvailable() || index < 0 || index >= trashUndoEntries_.size()
+        || trashUndoEntries_.at(index).kind != TrashUndoEntry::FolderTrash) {
+        return false;
+    }
+    const auto branch = trashUndoEntries_.at(index).folderBranch;
     if (const auto restoreError = folderCatalogManager_->restoreFolderBranch(branch)) {
         setError(restoreError.message);
         return false;
     }
-
-    deletedFolderBranches_.removeLast();
-    emit folderTrashUndoChanged();
+    trashUndoEntries_.removeAt(index);
+    emit trashUndoChanged();
     setError({});
-
     const auto &catalog = folderCatalogManager_->catalog();
     for (const auto &assignment : branch.assignments) {
         if (catalog.folderForNote(assignment.storageId, assignment.noteId) != assignment.folderId)
@@ -981,10 +1037,29 @@ bool NotesWorkspaceController::undoFolderTrash()
 
 void NotesWorkspaceController::clearFolderTrashUndo()
 {
-    if (deletedFolderBranches_.isEmpty())
+    const auto previousSize = trashUndoEntries_.size();
+    trashUndoEntries_.removeIf([](const TrashUndoEntry &entry) { return entry.kind == TrashUndoEntry::FolderTrash; });
+    if (trashUndoEntries_.size() == previousSize)
         return;
-    deletedFolderBranches_.clear();
-    emit folderTrashUndoChanged();
+    emit trashUndoChanged();
+}
+
+void NotesWorkspaceController::clearTrashUndo()
+{
+    if (trashUndoEntries_.isEmpty())
+        return;
+    trashUndoEntries_.clear();
+    emit trashUndoChanged();
+}
+
+void NotesWorkspaceController::removeNoteTrashUndo(const QString &storageId, const QString &noteId)
+{
+    const auto previousSize = trashUndoEntries_.size();
+    trashUndoEntries_.removeIf([&](const TrashUndoEntry &entry) {
+        return entry.kind == TrashUndoEntry::NoteTrash && entry.storageId == storageId && entry.noteId == noteId;
+    });
+    if (trashUndoEntries_.size() != previousSize)
+        emit trashUndoChanged();
 }
 
 bool NotesWorkspaceController::collapseAllFolders()

@@ -4,6 +4,7 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
+#include <QQuickView>
 #include <QQuickWidget>
 #include <QStandardItemModel>
 #include <QTemporaryDir>
@@ -105,11 +106,11 @@ void NotesManagerQmlTest::foldersPageUsesInlineRenameAndSharedDragLifecycle()
 
     auto *rootItem  = qobject_cast<QQuickItem *>(root);
     auto *page      = quickItemByName(rootItem, QStringLiteral("foldersPage"));
-    auto *inbox     = quickItemByName(page, QStringLiteral("foldersRow-folder-inbox"));
-    auto *archive   = quickItemByName(page, QStringLiteral("foldersRow-folder-archive"));
-    auto *noteA     = quickItemByName(page, QStringLiteral("foldersRow-note-storage-note-a"));
-    auto *noteC     = quickItemByName(page, QStringLiteral("foldersRow-note-storage-note-c"));
-    auto *noteB     = quickItemByName(page, QStringLiteral("foldersRow-note-storage-note-b"));
+    auto *inbox     = quickVisibleItemByName(page, QStringLiteral("foldersRow-folder-inbox"));
+    auto *archive   = quickVisibleItemByName(page, QStringLiteral("foldersRow-folder-archive"));
+    auto *noteA     = quickVisibleItemByName(page, QStringLiteral("foldersRow-note-storage-note-a"));
+    auto *noteC     = quickVisibleItemByName(page, QStringLiteral("foldersRow-note-storage-note-c"));
+    auto *noteB     = quickVisibleItemByName(page, QStringLiteral("foldersRow-note-storage-note-b"));
     auto *workspace = root->findChild<QObject *>(QStringLiteral("foldersWorkspace"));
     QVERIFY(page);
     QVERIFY(inbox);
@@ -133,17 +134,45 @@ void NotesManagerQmlTest::foldersPageUsesInlineRenameAndSharedDragLifecycle()
     QTRY_COMPARE(page->property("selectedFolderId").toString(), QString());
     QVERIFY(!inbox->property("selectedGroup").toBool());
 
-    page->setProperty("editingFolderId", QStringLiteral("inbox"));
+    QVERIFY(QMetaObject::invokeMethod(page, "beginFolderRename", Q_ARG(QVariant, QStringLiteral("inbox"))));
     QQuickItem *rename = nullptr;
-    QTRY_VERIFY((rename = quickItemByName(page, QStringLiteral("folderRenameField-inbox"))));
+    QTRY_VERIFY((rename = quickVisibleItemByName(page, QStringLiteral("folderRenameField-inbox"))));
+    QTRY_VERIFY(rename->hasActiveFocus());
+    // A pooled TreeView delegate may emit editingFinished while its model
+    // identity is being replaced. It must not commit and close the active
+    // inline editor.
+    QTest::qWait(80);
+    QCOMPARE(page->property("editingFolderId").toString(), QStringLiteral("inbox"));
+    QCOMPARE(workspace->property("renameCount").toInt(), 0);
     rename->setProperty("text", QStringLiteral("Renamed Inbox"));
-    QVERIFY(QMetaObject::invokeMethod(inbox, "commitRename"));
+    auto *renameRow = ancestorWithProperty(rename, "editing");
+    QVERIFY(renameRow);
+    QVERIFY(QMetaObject::invokeMethod(renameRow, "commitRename"));
     QTRY_COMPARE(workspace->property("renameCount").toInt(), 1);
     QCOMPARE(workspace->property("renamedFolderId").toString(), QStringLiteral("inbox"));
     QCOMPARE(workspace->property("renamedFolderName").toString(), QStringLiteral("Renamed Inbox"));
 
+    const QPointF archiveMenuPoint = archive->mapToItem(rootItem, QPointF(archive->width() / 2, archive->height() / 2));
+    QTest::mouseClick(&quick, Qt::RightButton, Qt::NoModifier, archiveMenuPoint.toPoint());
+    auto *renameAction
+        = qobject_cast<QQuickItem *>(root->findChild<QObject *>(QStringLiteral("folderContextRenameAction")));
+    QVERIFY(renameAction);
+    QTRY_VERIFY(renameAction->isVisible());
+    const QPointF renameActionPoint
+        = renameAction->mapToItem(rootItem, QPointF(renameAction->width() / 2, renameAction->height() / 2));
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, renameActionPoint.toPoint());
+    QTRY_COMPARE(page->property("editingFolderId").toString(), QStringLiteral("archive"));
+    QQuickItem *archiveRename = nullptr;
+    QTRY_VERIFY((archiveRename = quickVisibleItemByName(page, QStringLiteral("folderRenameField-archive"))));
+    QTRY_VERIFY(archiveRename->hasActiveFocus());
+
     const QPointF noteAPoint = noteA->mapToItem(rootItem, QPointF(noteA->width() / 2, noteA->height() / 2));
     const QPointF noteBPoint = noteB->mapToItem(rootItem, QPointF(noteB->width() / 2, noteB->height() / 2));
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
+    QTRY_COMPARE(page->property("editingFolderId").toString(), QString());
+    QVERIFY(!archiveRename->hasActiveFocus());
+    QTRY_COMPARE(workspace->property("renameCount").toInt(), 2);
+
     QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, noteAPoint.toPoint());
     QTest::mouseClick(&quick, Qt::LeftButton, Qt::ControlModifier, noteBPoint.toPoint());
     QTRY_COMPARE(page->property("selectedNotes").toMap().size(), 2);
@@ -182,8 +211,8 @@ void NotesManagerQmlTest::foldersPageUsesInlineRenameAndSharedDragLifecycle()
     QTRY_COMPARE(workspace->property("assignmentCount").toInt(), 2);
     QCOMPARE(workspace->property("assignedFolderId").toString(), QStringLiteral("archive"));
 
-    QTRY_VERIFY((inbox = quickItemByName(page, QStringLiteral("foldersRow-folder-inbox"))));
-    QTRY_VERIFY((archive = quickItemByName(page, QStringLiteral("foldersRow-folder-archive"))));
+    QTRY_VERIFY((inbox = quickVisibleItemByName(page, QStringLiteral("foldersRow-folder-inbox"))));
+    QTRY_VERIFY((archive = quickVisibleItemByName(page, QStringLiteral("foldersRow-folder-archive"))));
     const QPointF archiveDragStart = archive->mapToItem(rootItem, QPointF(80, archive->height() / 2));
     const QPointF inboxBottom      = inbox->mapToItem(rootItem, QPointF(80, inbox->height()));
     // One indent step to the right while targeting the gap below Inbox
@@ -205,8 +234,8 @@ void NotesManagerQmlTest::foldersPageUsesInlineRenameAndSharedDragLifecycle()
     QCOMPARE(workspace->property("movedBeforeFolderId").toString(), QString());
 
     QTest::qWait(220);
-    QTRY_VERIFY((inbox = quickItemByName(page, QStringLiteral("foldersRow-folder-inbox"))));
-    QTRY_VERIFY((archive = quickItemByName(page, QStringLiteral("foldersRow-folder-archive"))));
+    QTRY_VERIFY((inbox = quickVisibleItemByName(page, QStringLiteral("foldersRow-folder-inbox"))));
+    QTRY_VERIFY((archive = quickVisibleItemByName(page, QStringLiteral("foldersRow-folder-archive"))));
     const QPointF siblingStart  = archive->mapToItem(rootItem, QPointF(80, archive->height() / 2));
     const QPointF siblingTarget = inbox->mapToItem(rootItem, QPointF(80, inbox->height() + archive->height() / 2));
     QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, siblingStart.toPoint());
@@ -218,6 +247,103 @@ void NotesManagerQmlTest::foldersPageUsesInlineRenameAndSharedDragLifecycle()
     QTRY_COMPARE(workspace->property("folderMoveCount").toInt(), 2);
     QCOMPARE(workspace->property("movedParentFolderId").toString(), QString());
     QCOMPARE(workspace->property("movedBeforeFolderId").toString(), QString());
+}
+
+void NotesManagerQmlTest::folderInlineRenameSurvivesDelegateReuseInQuickWindow()
+{
+    FolderPageTestModel foldersModel;
+    QQuickView          quick;
+    quick.setResizeMode(QQuickView::SizeRootObjectToView);
+    quick.resize(420, 430);
+    installThemedIconImageProvider(quick.engine());
+    quick.rootContext()->setContextProperty(QStringLiteral("testFoldersModel"), &foldersModel);
+
+    QQmlComponent component(quick.engine());
+    component.setData(R"QML(
+        import QtQuick
+        import QtQuick.Controls
+
+        Item {
+            id: harness
+
+            QtObject {
+                id: workspace
+                objectName: "reuseWorkspace"
+                property var folderNotesModel: testFoldersModel
+                property bool folderCatalogAvailable: true
+                property var currentEditor: null
+                property int noteCount: 3
+                property int renameCount: 0
+                property string renamedFolderId: ""
+                property string renamedFolderName: ""
+
+                function createNoteInFolder(folderId, storageId) { return true }
+                function createFolder(name, parentFolderId) {
+                    return testFoldersModel.addFolder("created-folder", "New folder")
+                }
+                function renameFolder(folderId, name) {
+                    ++renameCount
+                    renamedFolderId = folderId
+                    renamedFolderName = name
+                    return true
+                }
+                function setFolderCollapsed(folderId, collapsed) { return true }
+                function setFolderFlags(folderId, favorite, archived) { return true }
+                function collapseAllFolders() { return true }
+                function isRecycledNote(storageId, noteId) { return false }
+                function assignNoteFolder(storageId, noteId, folderId) { return true }
+            }
+
+            FoldersPage {
+                id: page
+                objectName: "reuseFoldersPage"
+                anchors.fill: parent
+                workspace: workspace
+            }
+        }
+    )QML",
+                      QUrl(QStringLiteral("qrc:/qml/FolderReuseHarness.qml")));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QObject *root = component.create();
+    QVERIFY2(root, qPrintable(component.errorString()));
+    quick.setContent(QUrl(QStringLiteral("qrc:/qml/FolderReuseHarness.qml")), &component, root);
+    quick.show();
+    quick.requestActivate();
+
+    auto *rootItem = qobject_cast<QQuickItem *>(root);
+    auto *page     = quickVisibleItemByName(rootItem, QStringLiteral("reuseFoldersPage"));
+    auto *button   = quickVisibleItemByName(page, QStringLiteral("newFolderButton"));
+    QVERIFY(page);
+    QVERIFY(button);
+    const QPointF buttonPoint = button->mapToItem(rootItem, QPointF(button->width() / 2, button->height() / 2));
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, buttonPoint.toPoint());
+
+    QTRY_VERIFY(quick.activeFocusItem());
+    QTRY_COMPARE(quick.activeFocusItem()->objectName(), QStringLiteral("folderRenameField-created-folder"));
+
+    page->setProperty("editingFolderId", QString());
+    QVERIFY(foldersModel.removeFolder(QStringLiteral("created-folder")));
+    QVERIFY(QMetaObject::invokeMethod(page, "beginFolderRename", Q_ARG(QVariant, QStringLiteral("inbox"))));
+
+    QTRY_VERIFY(quick.activeFocusItem());
+    QTRY_COMPARE(quick.activeFocusItem()->objectName(), QStringLiteral("folderRenameField-inbox"));
+    QQuickItem *rename = quick.activeFocusItem();
+    QVERIFY(rename->hasActiveFocus());
+    QTest::qWait(80);
+    QCOMPARE(page->property("editingFolderId").toString(), QStringLiteral("inbox"));
+
+    rename->setProperty("text", QStringLiteral("Reusable Inbox"));
+    auto *renameRow = ancestorWithProperty(rename, "editing");
+    QVERIFY(renameRow);
+    QCOMPARE(renameRow->property("groupId").toString(), QStringLiteral("inbox"));
+    QVERIFY(renameRow->property("editing").toBool());
+    QCOMPARE(page->property("editingFolderId").toString(), QStringLiteral("inbox"));
+    QVERIFY(QMetaObject::invokeMethod(renameRow, "commitRename"));
+    auto *workspace = root->findChild<QObject *>(QStringLiteral("reuseWorkspace"));
+    QVERIFY(workspace);
+    QTRY_COMPARE(workspace->property("renameCount").toInt(), 1);
+    QCOMPARE(workspace->property("renamedFolderId").toString(), QStringLiteral("inbox"));
+    QCOMPARE(workspace->property("renamedFolderName").toString(), QStringLiteral("Reusable Inbox"));
 }
 
 void NotesManagerQmlTest::foldersPageOffersEmptyRecycleBinAction()

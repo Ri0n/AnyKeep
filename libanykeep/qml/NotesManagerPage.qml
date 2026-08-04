@@ -148,6 +148,8 @@ Item {
     }
 
     function createNote() {
+        if (viewMode === foldersMode)
+            return foldersPage.createNoteInSelectedFolder()
         if (workspace.currentEditor && !checkpointEditor())
             return false
         return workspace.createNote(selectedStorageId)
@@ -601,6 +603,104 @@ Item {
                 anchors.fill: parent
                 spacing: 6
 
+                Pane {
+                    id: searchPane
+                    visible: true
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: visible && root.searchExpanded
+                                            ? searchLayout.implicitHeight + topPadding + bottomPadding : 0
+                    enabled: visible && root.searchExpanded
+                    padding: 6
+                    clip: true
+                    opacity: root.searchExpanded ? 1 : 0
+
+                    Behavior on Layout.preferredHeight { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 110 } }
+
+                    ColumnLayout {
+                        id: searchLayout
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        spacing: 4
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+
+                            TextField {
+                                id: searchField
+                                objectName: "notesSearchField"
+                                Layout.fillWidth: true
+                                placeholderText: qsTr("Search notes")
+                                text: root.workspace.searchText
+                                onTextEdited: root.workspace.searchText = text
+                                Keys.onEscapePressed: root.closeSearch()
+                            }
+
+                            ToolButton {
+                                objectName: "newNoteButton"
+                                visible: root.showCreateButton
+                                Layout.preferredWidth: 27
+                                Layout.preferredHeight: 27
+                                padding: 3
+                                display: AbstractButton.IconOnly
+                                contentItem: Image {
+                                    source: "qrc:/icons/new"
+                                    sourceSize.width: 24
+                                    sourceSize.height: 24
+                                    fillMode: Image.PreserveAspectFit
+                                }
+                                Accessible.name: qsTr("New note")
+                                ToolTip.visible: hovered
+                                ToolTip.text: Accessible.name
+                                onClicked: root.createNote()
+                            }
+
+                            ToolButton {
+                                objectName: "undoTrashButton"
+                                Layout.preferredWidth: 27
+                                Layout.preferredHeight: 27
+                                padding: 3
+                                enabled: Boolean(root.workspace["canUndoTrash"]
+                                                 || root.workspace["canUndoFolderTrash"])
+                                display: AbstractButton.IconOnly
+                                contentItem: ThemedIcon {
+                                    themeName: "edit-undo-symbolic"
+                                    fallbackName: "edit-undo-symbolic.svg"
+                                    recolorFallback: true
+                                    fallbackTintMode: "auto"
+                                    pixelSize: 18
+                                }
+                                Accessible.name: String(root.workspace["lastTrashedItemName"]
+                                                        || root.workspace["lastTrashedFolderName"] || "").length > 0
+                                                 ? qsTr("Undo deleting “%1”")
+                                                       .arg(String(root.workspace["lastTrashedItemName"]
+                                                                   || root.workspace["lastTrashedFolderName"]))
+                                                 : qsTr("Undo delete")
+                                ToolTip.visible: hovered
+                                ToolTip.text: Accessible.name
+                                onClicked: {
+                                    if (typeof root.workspace.undoTrash === "function")
+                                        root.workspace.undoTrash()
+                                    else if (typeof root.workspace.undoFolderTrash === "function")
+                                        root.workspace.undoFolderTrash()
+                                }
+                            }
+                        }
+
+                        CheckBox {
+                            id: searchInTextCheckBox
+                            visible: root.searchOptionsVisible
+                            enabled: visible
+                            focusPolicy: Qt.NoFocus
+                            Layout.preferredHeight: visible ? implicitHeight : 0
+                            text: qsTr("Search in text")
+                            checked: root.workspace.searchInBody
+                            onToggled: root.workspace.searchInBody = checked
+                        }
+                    }
+                }
+
                 GridLayout {
                     id: navigationHeader
                     Layout.fillWidth: true
@@ -643,71 +743,6 @@ Item {
                             }
                             Accessible.name: root.searchExpanded ? qsTr("Close search") : qsTr("Search notes")
                             onClicked: root.searchExpanded ? root.closeSearch() : root.openSearch()
-                        }
-                    }
-                }
-
-                Pane {
-                    id: searchPane
-                    visible: true
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: visible && root.searchExpanded
-                                            ? searchLayout.implicitHeight + topPadding + bottomPadding : 0
-                    enabled: visible && root.searchExpanded
-                    padding: 6
-                    clip: true
-                    opacity: root.searchExpanded ? 1 : 0
-
-                    Behavior on Layout.preferredHeight { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                    Behavior on opacity { NumberAnimation { duration: 110 } }
-
-                    ColumnLayout {
-                        id: searchLayout
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        spacing: 4
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 6
-
-                            TextField {
-                                id: searchField
-                                Layout.fillWidth: true
-                                placeholderText: qsTr("Search notes")
-                                text: root.workspace.searchText
-                                onTextEdited: root.workspace.searchText = text
-                                Keys.onEscapePressed: root.closeSearch()
-                            }
-
-                            ToolButton {
-                                visible: root.showCreateButton && root.viewMode !== root.foldersMode
-                                Layout.preferredWidth: 27
-                                Layout.preferredHeight: 27
-                                padding: 3
-                                display: AbstractButton.IconOnly
-                                contentItem: Image {
-                                    source: "qrc:/icons/new"
-                                    sourceSize.width: 24
-                                    sourceSize.height: 24
-                                    fillMode: Image.PreserveAspectFit
-                                }
-                                Accessible.name: qsTr("New note")
-                                ToolTip.visible: hovered
-                                ToolTip.text: Accessible.name
-                                onClicked: root.createNote()
-                            }
-                        }
-
-                        CheckBox {
-                            id: searchInTextCheckBox
-                            visible: root.searchOptionsVisible
-                            enabled: visible
-                            focusPolicy: Qt.NoFocus
-                            Layout.preferredHeight: visible ? implicitHeight : 0
-                            text: qsTr("Search in text")
-                            checked: root.workspace.searchInBody
-                            onToggled: root.workspace.searchInBody = checked
                         }
                     }
                 }
@@ -819,6 +854,7 @@ Item {
                     // toggle its visibility instead.
                     FoldersPage {
                         id: foldersPage
+                        objectName: "foldersPage"
 
                         anchors.fill: parent
                         anchors.rightMargin: -navigationPane.rightPadding

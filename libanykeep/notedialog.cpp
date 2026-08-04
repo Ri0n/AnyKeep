@@ -1,5 +1,6 @@
 #include "notedialog.h"
 
+#include "anykeep.h"
 #include "deintegrationinterface.h"
 #include "desktopeditorplatformbackend.h"
 #include "desktopnoteactions.h"
@@ -13,7 +14,6 @@
 #include "notemanager.h"
 #include "notestorage.h"
 #include "pluginmanager.h"
-#include "anykeep.h"
 #include "speechrecognitioncontroller.h"
 #include "stickynotesmanager.h"
 #include "storageiconimageprovider.h"
@@ -172,7 +172,11 @@ void NoteDialog::reportError(const QString &message)
 
 bool NoteDialog::pinAvailable() const
 {
-    return main_->stickyNotesManager()->isAvailable() && !editor_->noteId().isEmpty();
+    // A new note is first stored as a draft and published when this window
+    // closes.  pinNote() deliberately follows that same path, so requiring a
+    // remote note id here made the most useful case (write a note and pin it
+    // immediately) unnecessarily unavailable.
+    return main_->stickyNotesManager()->isAvailable();
 }
 
 void NoteDialog::requestClose() { requestDeferredClose(); }

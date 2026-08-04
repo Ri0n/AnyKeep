@@ -236,11 +236,19 @@ Item {
     }
 
     function itemAtRow(row) {
+        // TreeView keeps pooled delegates alive and their last rowIndex can
+        // temporarily collide with the visible delegate after an insertion or
+        // move. itemAtCell() is authoritative for the currently presented
+        // row; liveRows is only a fallback while TreeView is laying it out.
+        const presented = treeView.itemAtCell(Qt.point(0, row))
+        if (presented)
+            return presented
         for (const item of liveRows) {
-            if (item && Number(item.rowIndex) === Number(row))
+            if (item && !item.inReusePool && item.visible
+                    && Number(item.rowIndex) === Number(row))
                 return item
         }
-        return treeView.itemAtCell(Qt.point(0, row))
+        return null
     }
 
     function revealRow(row) {
@@ -259,7 +267,8 @@ Item {
     function visibleItems() {
         const result = []
         for (const item of liveRows) {
-            if (item && item.visible && item.width > 0 && item.height > 0)
+            if (item && !item.inReusePool && item.visible
+                    && item.width > 0 && item.height > 0)
                 result.push(item)
         }
         result.sort(function(left, right) { return Number(left.rowIndex) - Number(right.rowIndex) })

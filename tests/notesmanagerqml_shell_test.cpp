@@ -49,6 +49,7 @@ void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()
 
             QtObject {
                 id: workspace
+                objectName: "managerFoldersWorkspace"
                 property var groupedNotesModel: null
                 property var recentNotesModel: null
                 property var folderNotesModel: testFoldersModel
@@ -64,13 +65,19 @@ void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()
                 property bool busy: false
                 property int noteCount: 3
                 property var storages: []
+                property int folderNoteCreateCount: 0
+                property string createdNoteFolderId: ""
 
                 function saveCurrentNote() { return true }
                 function closeCurrentNote() { return true }
                 function reloadCurrentNote() { return true }
                 function openNote(storageId, noteId) { return true }
                 function createNote(storageId) { return true }
-                function createNoteInFolder(folderId, storageId) { return true }
+                function createNoteInFolder(folderId, storageId) {
+                    ++folderNoteCreateCount
+                    createdNoteFolderId = folderId
+                    return true
+                }
                 function createFolder(name, parentFolderId) { return "" }
                 function renameFolder(folderId, name) { return true }
                 function moveFolderBefore(folderId, parentFolderId, beforeFolderId) { return true }
@@ -120,4 +127,24 @@ void NotesManagerQmlTest::notesManagerFoldersTabInstantiatesInOwnerContext()
     QVERIFY(folderPicker);
     QVERIFY(folderPicker->property("enabled").toBool());
     QVERIFY(!folderPicker->property("visible").toBool());
+
+    auto *foldersPage = quickVisibleItemByName(page, QStringLiteral("foldersPage"));
+    auto *workspace   = quick.rootObject()->findChild<QObject *>(QStringLiteral("managerFoldersWorkspace"));
+    QVERIFY(foldersPage);
+    QVERIFY(workspace);
+    foldersPage->setProperty("selectedFolderId", QStringLiteral("inbox"));
+    QVERIFY(QMetaObject::invokeMethod(page, "createNote"));
+    QCOMPARE(workspace->property("folderNoteCreateCount").toInt(), 1);
+    QCOMPARE(workspace->property("createdNoteFolderId").toString(), QStringLiteral("inbox"));
+
+    auto *searchField = quickVisibleItemByName(page, QStringLiteral("notesSearchField"));
+    auto *inbox       = quickVisibleItemByName(page, QStringLiteral("foldersRow-folder-inbox"));
+    QVERIFY(searchField);
+    QVERIFY(inbox);
+    searchField->forceActiveFocus(Qt::MouseFocusReason);
+    QTRY_VERIFY(searchField->hasActiveFocus());
+    const QPointF inboxPoint = inbox->mapToItem(quick.rootObject(), QPointF(inbox->width() / 2, inbox->height() / 2));
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, inboxPoint.toPoint());
+    QTRY_VERIFY(!searchField->hasActiveFocus());
+    QTRY_VERIFY(inbox->hasActiveFocus());
 }

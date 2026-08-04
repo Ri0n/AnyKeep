@@ -28,6 +28,7 @@ Item {
     property bool contextFolderArchived: false
     property bool contextFolderSystem: false
     property int contextFolderNoteCount: 0
+    property string pendingContextRenameFolderId: ""
 
     readonly property var selectedNotes: folderList.selectedNotes
     readonly property bool dragging: folderList.dragging
@@ -46,6 +47,32 @@ Item {
 
     Reorder.HierarchyDropPolicy {
         id: hierarchyDropPolicy
+    }
+
+    Timer {
+        id: renameFocusTimer
+
+        interval: 16
+        repeat: true
+        property string folderId: ""
+        property int attemptsRemaining: 0
+        onTriggered: {
+            if (root.editingFolderId !== folderId || attemptsRemaining <= 0) {
+                stop()
+                return
+            }
+            --attemptsRemaining
+            const modelRow = root.workspace.folderNotesModel.rowForFolder(folderId)
+            if (modelRow < 0)
+                return
+            folderList.revealRow(modelRow)
+            const item = folderList.itemAtRow(modelRow)
+            if (item && !item.inReusePool && item.visible
+                    && String(item.folderId) === folderId
+                    && item.editing && item.focusRenameField()) {
+                stop()
+            }
+        }
     }
 
     function normalizedFolderId(value) {
@@ -238,33 +265,22 @@ Item {
         beginFolderRename(created)
     }
 
-    function focusFolderRename(folderId, attemptsRemaining) {
-        if (editingFolderId !== String(folderId))
-            return
-        const row = workspace.folderNotesModel.rowForFolder(editingFolderId)
-        if (row < 0)
-            return
-        folderList.revealRow(row)
-        Qt.callLater(function() {
-            if (editingFolderId !== String(folderId))
-                return
-            const item = folderList.itemAtRow(row)
-            if (item) {
-                item.focusRenameField()
-            } else if (attemptsRemaining > 0) {
-                root.focusFolderRename(folderId, attemptsRemaining - 1)
-            }
-        })
+    function focusFolderRename(folderId) {
+        renameFocusTimer.folderId = String(folderId)
+        renameFocusTimer.attemptsRemaining = 12
+        renameFocusTimer.restart()
     }
 
     function beginFolderRename(folderId) {
         editingFolderId = String(folderId)
-        focusFolderRename(editingFolderId, 2)
+        focusFolderRename(editingFolderId)
     }
 
     function cancelFolderRename(folderId) {
-        if (editingFolderId === String(folderId))
+        if (editingFolderId === String(folderId)) {
+            renameFocusTimer.stop()
             editingFolderId = ""
+        }
     }
 
     function createNoteInSelectedFolder() {
@@ -331,29 +347,7 @@ Item {
                 spacing: 3
 
                 ToolButton {
-                    display: AbstractButton.IconOnly
-                    enabled: root.workspace.folderCatalogAvailable
-                    contentItem: Item {
-                        implicitWidth: 22
-                        implicitHeight: 22
-
-                        Image {
-                            anchors.centerIn: parent
-                            width: 22
-                            height: 22
-                            source: "qrc:/icons/new"
-                            sourceSize.width: 22
-                            sourceSize.height: 22
-                            fillMode: Image.PreserveAspectFit
-                        }
-                    }
-                    Accessible.name: qsTr("New note in selected folder")
-                    ToolTip.visible: hovered
-                    ToolTip.text: Accessible.name
-                    onClicked: root.createNoteInSelectedFolder()
-                }
-
-                ToolButton {
+                    objectName: "newFolderButton"
                     display: AbstractButton.IconOnly
                     enabled: root.workspace.folderCatalogAvailable
                     contentItem: ThemedIcon {
@@ -386,33 +380,7 @@ Item {
                     onClicked: root.workspace.collapseAllFolders()
                 }
 
-                ToolButton {
-                    display: AbstractButton.IconOnly
-                    enabled: Boolean(root.workspace["canUndoFolderTrash"] || false)
-                    contentItem: ThemedIcon {
-                        themeName: "edit-undo-symbolic"
-                        fallbackName: "edit-undo-symbolic.svg"
-                        recolorFallback: true
-                        fallbackTintMode: "auto"
-                        pixelSize: 18
-                    }
-                    Accessible.name: String(root.workspace["lastTrashedFolderName"] || "").length > 0
-                                     ? qsTr("Undo deleting folder “%1”")
-                                           .arg(String(root.workspace["lastTrashedFolderName"]))
-                                     : qsTr("Undo deleting folder")
-                    ToolTip.visible: hovered
-                    ToolTip.text: Accessible.name
-                    onClicked: root.workspace.undoFolderTrash()
-                }
-
                 Item { Layout.fillWidth: true }
-
-                Label {
-                    visible: root.selectedFolderId.length > 0
-                    text: qsTr("Selected folder")
-                    color: palette.placeholderText
-                    elide: Text.ElideRight
-                }
             }
         }
 
@@ -555,14 +523,22 @@ Item {
         dim: false
         focus: true
         width: root.touchActions ? Math.min(280, root.width - 32) : implicitWidth
+        onClosed: {
+            if (root.pendingContextRenameFolderId.length === 0)
+                return
+            const folderId = root.pendingContextRenameFolderId
+            root.pendingContextRenameFolderId = ""
+            root.beginFolderRename(folderId)
+        }
 
         MenuItem {
             text: qsTr("New subfolder")
             onTriggered: root.createFolder(root.contextFolderId)
         }
         MenuItem {
+            objectName: "folderContextRenameAction"
             text: qsTr("Rename")
-            onTriggered: root.beginFolderRename(root.contextFolderId)
+            onTriggered: root.pendingContextRenameFolderId = root.contextFolderId
         }
         MenuItem {
             text: root.contextFolderCollapsed ? qsTr("Expand") : qsTr("Collapse")

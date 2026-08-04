@@ -18,8 +18,8 @@
         "Icon": "anykeep",
         "Id": "com.github.ri0n.anykeep",
         "License": "GPL-3.0-only",
-        "Name": "Note Keeper",
-        "Name[ru]": "Заметки",
+        "Name": "AnyKeep Notes",
+        "Name[ru]": "Заметки AnyKeep",
         "Version": "1.0.0",
         "Website": "https://anykeep.net"
     },

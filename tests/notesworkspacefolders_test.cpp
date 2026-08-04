@@ -191,11 +191,19 @@ void NotesWorkspaceFoldersTest::recycleBinHidesNotesUntilRestored()
     NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
     QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 1);
     QVERIFY(workspace.trashNote(raw->systemName(), QStringLiteral("note")));
+    QVERIFY(workspace.canUndoTrash());
+    QCOMPARE(workspace.lastTrashedItemName(), QStringLiteral("Recyclable note"));
     QVERIFY(catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("note")));
     QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 0);
-    QVERIFY(workspace.restoreRecycledNote(raw->systemName(), QStringLiteral("note")));
+    QVERIFY(workspace.undoTrash());
+    QVERIFY(!workspace.canUndoTrash());
     QVERIFY(!catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("note")));
     QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 1);
+
+    QVERIFY(workspace.trashNote(raw->systemName(), QStringLiteral("note")));
+    QVERIFY(workspace.canUndoTrash());
+    QVERIFY(workspace.restoreRecycledNote(raw->systemName(), QStringLiteral("note")));
+    QVERIFY(!workspace.canUndoTrash());
 }
 
 void NotesWorkspaceFoldersTest::deletesFolderBranchesWithSessionUndo()
@@ -228,7 +236,11 @@ void NotesWorkspaceFoldersTest::deletesFolderBranchesWithSessionUndo()
     QVERIFY(workspace.assignNoteFolder(raw->systemName(), QStringLiteral("one"), parent));
     QVERIFY(workspace.assignNoteFolder(raw->systemName(), QStringLiteral("two"), child));
 
+    QVERIFY(workspace.trashNote(raw->systemName(), QStringLiteral("one")));
+    QCOMPARE(workspace.lastTrashedItemName(), QStringLiteral("Parent note"));
     QVERIFY(workspace.trashFolder(parent));
+    QVERIFY(workspace.canUndoTrash());
+    QCOMPARE(workspace.lastTrashedItemName(), QStringLiteral("Projects"));
     QVERIFY(workspace.canUndoFolderTrash());
     QCOMPARE(workspace.lastTrashedFolderName(), QStringLiteral("Projects"));
     QVERIFY(!catalog.catalog().folder(QUuid(parent)));
@@ -236,12 +248,17 @@ void NotesWorkspaceFoldersTest::deletesFolderBranchesWithSessionUndo()
     QVERIFY(catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("one")));
     QVERIFY(catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("two")));
 
-    QVERIFY(workspace.undoFolderTrash());
+    QVERIFY(workspace.undoTrash());
+    QVERIFY(workspace.canUndoTrash());
     QVERIFY(!workspace.canUndoFolderTrash());
     QVERIFY(catalog.catalog().folder(QUuid(parent)));
     QVERIFY(catalog.catalog().folder(QUuid(child)));
-    QCOMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("one")), QUuid(parent));
+    QVERIFY(catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("one")));
     QCOMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("two")), QUuid(child));
+
+    QVERIFY(workspace.undoTrash());
+    QVERIFY(!workspace.canUndoTrash());
+    QCOMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("one")), QUuid(parent));
 }
 
 void NotesWorkspaceFoldersTest::exposesBodySearchMatchesForEditorFind()

@@ -250,6 +250,26 @@ public:
         return -1;
     }
 
+    Q_INVOKABLE QString addFolder(const QString &folderId, const QString &title)
+    {
+        const int insertion = std::max(0, rowForFolder(QStringLiteral("archive")) + 1);
+        beginInsertRows({}, insertion, insertion);
+        rows_.insert(insertion, { 0, folderId, {}, {}, {}, title });
+        endInsertRows();
+        return folderId;
+    }
+
+    Q_INVOKABLE bool removeFolder(const QString &folderId)
+    {
+        const int row = rowForFolder(folderId);
+        if (row < 0)
+            return false;
+        beginRemoveRows({}, row, row);
+        rows_.removeAt(row);
+        endRemoveRows();
+        return true;
+    }
+
     Q_INVOKABLE QVariantList folderPickerItems(bool = false) const
     {
         QVariantList items;

@@ -38,7 +38,9 @@ ApplicationWindow {
             close.accepted = false
             return
         }
-        if (typeof notesWorkspace.clearFolderTrashUndo === "function")
+        if (typeof notesWorkspace.clearTrashUndo === "function")
+            notesWorkspace.clearTrashUndo()
+        else if (typeof notesWorkspace.clearFolderTrashUndo === "function")
             notesWorkspace.clearFolderTrashUndo()
     }
 }
