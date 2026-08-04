@@ -40,10 +40,14 @@ Pane {
 
         TextField {
             id: searchField
+            objectName: "noteFindField"
             Layout.fillWidth: true
             placeholderText: qsTr("Find in note")
             selectByMouse: true
-            onTextEdited: root.blockEditor.resetFind()
+            onTextEdited: {
+                root.blockEditor.resetFind()
+                liveSearch.restart()
+            }
             onAccepted: root.blockEditor.findNext(text, false)
             Keys.onEscapePressed: root.close()
         }
@@ -66,6 +70,16 @@ Pane {
             text: "×"
             Accessible.name: qsTr("Close find")
             onClicked: root.close()
+        }
+    }
+
+    Timer {
+        id: liveSearch
+        interval: 80
+        repeat: false
+        onTriggered: {
+            if (searchField.text.length > 0)
+                root.blockEditor.findNext(searchField.text, false)
         }
     }
 }

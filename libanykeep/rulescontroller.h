@@ -1,8 +1,8 @@
 #ifndef RULESCONTROLLER_H
 #define RULESCONTROLLER_H
 
-#include "noterule.h"
 #include "anykeep_export.h"
+#include "noterule.h"
 
 #include <QAbstractListModel>
 #include <QVariantList>

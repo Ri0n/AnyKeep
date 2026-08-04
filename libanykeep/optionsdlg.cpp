@@ -31,14 +31,14 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QSettings>
 #include <QVBoxLayout>
 
+#include "anykeep.h"
+#include "anykeep_config.h"
 #include "defaults.h"
 #include "filestorage.h"
 #include "notemanager.h"
 #include "optionsdlg.h"
 #include "optionsplugins.h"
 #include "pluginmanager.h"
-#include "anykeep.h"
-#include "anykeep_config.h"
 #include "rulescontroller.h"
 #include "settingswindow.h"
 #include "shortcutedit.h"

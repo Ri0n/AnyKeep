@@ -1,9 +1,9 @@
 #ifndef NOTETRANSFERCONTROLLER_H
 #define NOTETRANSFERCONTROLLER_H
 
+#include "anykeep_export.h"
 #include "note.h"
 #include "notefragment.h"
-#include "anykeep_export.h"
 
 #include <QImage>
 #include <QString>

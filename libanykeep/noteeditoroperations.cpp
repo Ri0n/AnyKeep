@@ -23,6 +23,7 @@
 #include "noteblockmodel.h"
 #include "notefragmentmediatransfer.h"
 #include "notetransfercontroller.h"
+#include "textdroputils.h"
 
 namespace AnyKeep {
 namespace {
@@ -30,6 +31,22 @@ namespace {
 
     QString unwrapMarkdownWriterLines(const QString &markdown);
     QString markdownWithSerializedInlineFormats(QTextDocument *document);
+
+    QString unusedPrivateMarker(const QTextDocument *document, ushort firstCandidate)
+    {
+        const QString contents = document ? document->toPlainText() : QString();
+        for (uint value = firstCandidate; value <= 0xf8ff; ++value) {
+            const QChar candidate(static_cast<ushort>(value));
+            if (!contents.contains(candidate))
+                return QString(1, candidate);
+        }
+        for (uint value = 0xfdd0; value <= 0xfdef; ++value) {
+            const QChar candidate(static_cast<ushort>(value));
+            if (!contents.contains(candidate))
+                return QString(1, candidate);
+        }
+        return QString(1, QChar(0xfffe));
+    }
 
     QString markdownRange(QTextDocument *document, int start, int end)
     {
@@ -871,10 +888,27 @@ QString NoteEditor::markdownText(QQuickTextDocument *quickDocument) const
     if (!quickDocument || !quickDocument->textDocument())
         return {};
 
-    auto   *document = quickDocument->textDocument();
-    QString markdown = unwrapMarkdownWriterLines(markdownWithSerializedInlineFormats(document));
+    // QTextDocument's Markdown writer serializes an intentional visual line
+    // separator like an ordinary soft wrap. Protect only LineSeparator here;
+    // ParagraphSeparator still represents a real Markdown paragraph.
+    std::unique_ptr<QTextDocument> document(quickDocument->textDocument()->clone());
+    // Use one Unicode scalar rather than a long ASCII token. Qt 6.4 may wrap
+    // the Markdown writer output in the middle of a word; an indivisible
+    // marker cannot be torn apart and accidentally exposed to the user.
+    const QString marker = unusedPrivateMarker(document.get(), 0xe100);
+    for (int position = document->characterCount() - 2; position >= 0; --position) {
+        if (document->characterAt(position) != QChar::LineSeparator)
+            continue;
+        QTextCursor cursor(document.get());
+        cursor.setPosition(position);
+        cursor.setPosition(position + 1, QTextCursor::KeepAnchor);
+        cursor.insertText(marker, QTextCharFormat());
+    }
+
+    QString markdown = unwrapMarkdownWriterLines(markdownWithSerializedInlineFormats(document.get()));
     while (markdown.endsWith(QLatin1Char('\n')) || markdown.endsWith(QLatin1Char('\r')))
         markdown.chop(1);
+    markdown.replace(marker, QStringLiteral("<br>"));
     return markdown;
 }
 
@@ -888,7 +922,7 @@ QString NoteEditor::markdownTableCellText(QQuickTextDocument *quickDocument) con
     // intentional separator before invoking the normal Markdown serializer,
     // then restore it using the table-safe GFM spelling.
     std::unique_ptr<QTextDocument> document(quickDocument->textDocument()->clone());
-    const QString                  marker = QStringLiteral("ANYKEEPTABLEHARDBREAK8C53");
+    const QString                  marker = unusedPrivateMarker(document.get(), 0xe200);
     for (int position = document->characterCount() - 2; position >= 0; --position) {
         const QChar character = document->characterAt(position);
         if (character != QChar::LineSeparator && character != QChar::ParagraphSeparator)
@@ -1065,6 +1099,18 @@ bool NoteEditor::copySelectionToClipboard(const QVariantList &encodedRanges)
     return true;
 }
 
+bool NoteEditor::copyBlockToClipboard(int row)
+{
+    if (row < 0 || row >= model_->rowCount())
+        return false;
+    const NoteFragment fragment = withMedia(model_->extractBlockFragment(row, row));
+    if (fragment.blocks.isEmpty())
+        return false;
+    QString       error;
+    const QString fallback = NoteTransferController::plainTextForFragment(fragment, &error);
+    return error.isEmpty() && setFragmentClipboard(fragment, QClipboard::Clipboard, fallback);
+}
+
 bool NoteEditor::copySelectionAsMarkdownToClipboard(const QVariantList &encodedRanges)
 {
     NoteFragment fragment = withMedia(model_->extractSelectionFragment(decodeSelectionRanges(encodedRanges)));
@@ -1112,16 +1158,44 @@ QVariantMap NoteEditor::deleteSelection(const QVariantList &encodedRanges)
     return result;
 }
 
-int NoteEditor::pastePlainText(QQuickTextDocument *quickDocument, int start, int end)
+QVariantMap NoteEditor::convertSelectionToCodeBlock(const QVariantList &encodedRanges, const QString &plainText,
+                                                    const QString &language)
+{
+    QVariantMap result;
+    const int   row
+        = model_->replaceTextSelectionWithCodeBlock(decodeSelectionRanges(encodedRanges), plainText, language);
+    if (row < 0)
+        return result;
+    result.insert(QStringLiteral("handled"), true);
+    result.insert(QStringLiteral("focusRow"), row);
+    return result;
+}
+
+int NoteEditor::insertDroppedCodeBlock(int row, const QString &before, const QString &after, const QString &value,
+                                       const QString &language)
+{
+    if (!model_->markdown())
+        return -1;
+    NoteFragment fragment;
+    fragment.kind         = NoteFragmentKind::BlockSequence;
+    fragment.sourceFormat = NoteFragmentSourceFormat::Markdown;
+    NoteFragmentBlock code;
+    code.type     = NoteFragmentBlockType::CodeBlock;
+    code.markdown = value;
+    code.markdown.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    code.markdown.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    code.language = language.trimmed().toLower();
+    fragment.blocks.append(code);
+    QString error;
+    return model_->replaceTextBlockRangeWithFragment(row, before, after, fragment, &error);
+}
+
+int NoteEditor::insertPlainText(QQuickTextDocument *quickDocument, int start, int end, const QString &value)
 {
     if (!quickDocument || !quickDocument->textDocument())
         return -1;
-    const QClipboard *clipboard = QGuiApplication::clipboard();
-    const QMimeData  *mimeData  = clipboard ? clipboard->mimeData() : nullptr;
-    if (!mimeData || !mimeData->hasText())
-        return -1;
 
-    QString text = mimeData->text();
+    QString text = value;
     text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
     text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
 
@@ -1140,14 +1214,70 @@ int NoteEditor::pastePlainText(QQuickTextDocument *quickDocument, int start, int
     return cursor.position();
 }
 
+int NoteEditor::pastePlainText(QQuickTextDocument *quickDocument, int start, int end)
+{
+    const QClipboard *clipboard = QGuiApplication::clipboard();
+    const QMimeData  *mimeData  = clipboard ? clipboard->mimeData() : nullptr;
+    if (!mimeData || !mimeData->hasText())
+        return -1;
+    return insertPlainText(quickDocument, start, end, mimeData->text());
+}
+
+int NoteEditor::pastePrimarySelection(QQuickTextDocument *quickDocument, int start, int end)
+{
+    if (!quickDocument || !quickDocument->textDocument())
+        return -1;
+    const QClipboard *clipboard = QGuiApplication::clipboard();
+    const QMimeData  *mimeData
+        = clipboard && clipboard->supportsSelection() ? clipboard->mimeData(QClipboard::Selection) : nullptr;
+    if (!mimeData || !mimeData->hasText())
+        return -1;
+
+    QString text = mimeData->text();
+    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+
+    QTextDocument *document = quickDocument->textDocument();
+    const int      limit    = documentEnd(document);
+    start                   = qBound(0, start, limit);
+    end                     = qBound(start, end, limit);
+    QTextCursor cursor(document);
+    cursor.setPosition(start);
+    cursor.setPosition(end, QTextCursor::KeepAnchor);
+    cursor.insertText(text, QTextCharFormat());
+    return cursor.position();
+}
+
 QVariantMap NoteEditor::pasteStructuredFromClipboard(QQuickTextDocument *quickDocument, int row, int start, int end)
 {
     QVariantMap result;
     if (!model_->markdown() || !quickDocument || !quickDocument->textDocument())
         return result;
 
+    const QMimeData *mimeData           = QGuiApplication::clipboard()->mimeData();
+    const bool       hasNativeStructure = mimeData
+        && (mimeData->hasFormat(QString::fromLatin1(NoteTransferController::FragmentMimeType))
+            || mimeData->hasFormat(QString::fromLatin1(NoteTransferController::MarkdownMimeType))
+            || mimeData->hasFormat(QString::fromLatin1(NoteTransferController::TsvMimeType)));
+    const QString codeLanguage = hasNativeStructure ? QString() : TextDropUtils::codeLanguage(mimeData);
+    // Source editors often put both text/plain and presentation-oriented HTML
+    // on the clipboard. The HTML can turn one selection into many paragraphs.
+    // For strongly recognized source, the plain representation is canonical.
+    if (row > 0 && !codeLanguage.isEmpty()) {
+        QTextDocument *document = quickDocument->textDocument();
+        const int      limit    = documentEnd(document);
+        const int      insertedRow
+            = insertDroppedCodeBlock(row, markdownRange(document, 0, start), markdownRange(document, end, limit),
+                                     TextDropUtils::plainText(mimeData), codeLanguage);
+        if (insertedRow >= 0) {
+            result.insert(QStringLiteral("handled"), true);
+            result.insert(QStringLiteral("focusRow"), insertedRow);
+        }
+        return result;
+    }
+
     NoteTransferController controller;
-    const auto             imported = controller.importMimeData(QGuiApplication::clipboard()->mimeData());
+    const auto             imported = controller.importMimeData(mimeData);
     if (!imported || imported.sourceMimeType == QStringLiteral("text/plain") || imported.hasImage()
         || imported.fragment.blocks.isEmpty()) {
         return result;

@@ -67,8 +67,8 @@ void PrivateNotesPubSubItemTest::roundTripCurrentXml()
     payload.cipherText = QByteArrayLiteral("portable-xml-ciphertext");
 
     PrivateNotesPubSubItem source(payload);
-    QString          xml;
-    QXmlStreamWriter writer(&xml);
+    QString                xml;
+    QXmlStreamWriter       writer(&xml);
     source.toXml(&writer);
     QVERIFY(!xml.contains(QStringLiteral("wire=")));
     QVERIFY(!xml.contains(QStringLiteral("schema=")));
@@ -175,11 +175,11 @@ void PrivateNotesPubSubItemTest::pepExtensionPublishesPortableXmlEvent()
 void PrivateNotesPubSubItemTest::classifiesLegacyPayloadAsObsolete()
 {
     QDomDocument document;
-    const auto   element
-        = parseItemElement(QStringLiteral("<item id='note-1'><encrypted xmlns='urn:xmpp:private-notes:encrypted:0' wire='1.0' "
-                                          "schema='1.0' kind='index' key-id='%1'>Y2Jvcg==</encrypted></item>")
-                               .arg(keyIdText()),
-                           &document);
+    const auto   element = parseItemElement(
+        QStringLiteral("<item id='note-1'><encrypted xmlns='urn:xmpp:private-notes:encrypted:0' wire='1.0' "
+                           "schema='1.0' kind='index' key-id='%1'>Y2Jvcg==</encrypted></item>")
+            .arg(keyIdText()),
+        &document);
     QVERIFY(PrivateNotesPubSubItem::isItem(element));
     PrivateNotesPubSubItem parsed;
     parsed.parse(element);

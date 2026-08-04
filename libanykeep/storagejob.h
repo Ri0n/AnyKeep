@@ -5,8 +5,8 @@
 #include <QObject>
 #include <QString>
 
-#include "note.h"
 #include "anykeep_export.h"
+#include "note.h"
 
 namespace AnyKeep {
 

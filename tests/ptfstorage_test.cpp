@@ -214,7 +214,7 @@ private slots:
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
 
-        QSettings settings;
+        QSettings  settings;
         const auto previousPath    = settings.value(QStringLiteral("storage.ptf.path"));
         const bool hadPreviousPath = settings.contains(QStringLiteral("storage.ptf.path"));
         struct SettingsGuard {

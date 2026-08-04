@@ -145,13 +145,13 @@ void NoteTransferControllerTest::roundTripsCodeBlockWithoutFormatting()
 
 void NoteTransferControllerTest::convertsPlainTextNotesToMarkdownWithoutChangingTheirText()
 {
-    const QString plain = QStringLiteral("# literal heading\n"
-                                         "* literal emphasis *\n"
-                                         "> literal quote\n"
-                                         "1. literal list item\n"
-                                         "inline *emphasis*, `code`, and [link](https://example.org)\n"
-                                         "literal \\ slash\n"
-                                         "ordinary text");
+    const QString plain    = QStringLiteral("# literal heading\n"
+                                               "* literal emphasis *\n"
+                                               "> literal quote\n"
+                                               "1. literal list item\n"
+                                               "inline *emphasis*, `code`, and [link](https://example.org)\n"
+                                               "literal \\ slash\n"
+                                               "ordinary text");
     const QString markdown = NoteTransferController::convertTextFormat(plain, Note::PlainText, Note::Markdown);
 
     QVERIFY(markdown != plain);

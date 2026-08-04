@@ -71,19 +71,19 @@ namespace {
     QByteArray keyIdPrefix(KeyDerivationProfile profile)
     {
         return profile == KeyDerivationProfile::PrivateNotes ? QByteArrayLiteral("private-notes storage key id v1\0")
-                                                            : QByteArrayLiteral("AnyKeep storage key id v1\0");
+                                                             : QByteArrayLiteral("AnyKeep storage key id v1\0");
     }
 
     QByteArray hkdfSalt(KeyDerivationProfile profile)
     {
         return profile == KeyDerivationProfile::PrivateNotes ? QByteArrayLiteral("private-notes HKDF salt v1")
-                                                            : QByteArrayLiteral("AnyKeep HKDF salt v1");
+                                                             : QByteArrayLiteral("AnyKeep HKDF salt v1");
     }
 
     QByteArray hkdfInfoPrefix(KeyDerivationProfile profile)
     {
         return profile == KeyDerivationProfile::PrivateNotes ? QByteArrayLiteral("private-notes key domain v1:")
-                                                            : QByteArrayLiteral("AnyKeep key domain v1:");
+                                                             : QByteArrayLiteral("AnyKeep key domain v1:");
     }
 
 } // namespace
@@ -118,7 +118,7 @@ QString SecureEnvelope::encodeRecoveryKey(const QByteArray &masterKey, KeyDeriva
     if (id.isEmpty())
         return {};
     const auto prefix = profile == KeyDerivationProfile::PrivateNotes ? QStringLiteral("private-notes-key-v1")
-                                                                       : QStringLiteral("anykeep-key-v1");
+                                                                      : QStringLiteral("anykeep-key-v1");
     return QStringLiteral("%1:%2:%3")
         .arg(prefix,
              QString::fromLatin1(masterKey.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)),
@@ -132,14 +132,15 @@ QString SecureEnvelope::encodeRecoveryKey(const QByteArray &masterKey)
 
 CryptoResult<QByteArray> SecureEnvelope::decodeRecoveryKey(const QString &encoded, KeyDerivationProfile profile)
 {
-    const auto parts = encoded.trimmed().split(QLatin1Char(':'));
+    const auto parts       = encoded.trimmed().split(QLatin1Char(':'));
     const auto validPrefix = profile == KeyDerivationProfile::PrivateNotes
         ? parts.size() == 3 && parts.at(0) == QStringLiteral("private-notes-key-v1")
         : parts.size() == 3 && parts.at(0) == QStringLiteral("anykeep-key-v1");
     if (!validPrefix)
         return { {}, error(CryptoError::InvalidArgument, QStringLiteral("Invalid recovery key format")) };
     const auto key = QByteArray::fromBase64(parts.at(1).toLatin1(), QByteArray::Base64UrlEncoding);
-    if (key.size() != MasterKeySize || QString::fromLatin1(keyId(key, profile).left(6).toHex()) != parts.at(2).toLower())
+    if (key.size() != MasterKeySize
+        || QString::fromLatin1(keyId(key, profile).left(6).toHex()) != parts.at(2).toLower())
         return { {}, error(CryptoError::AuthenticationFailed, QStringLiteral("Invalid recovery key checksum")) };
     return { key, {} };
 }

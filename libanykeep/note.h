@@ -30,8 +30,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QVariantMap>
 #include <qdatetime.h>
 
-#include "mediareference.h"
 #include "anykeep_export.h"
+#include "mediareference.h"
 
 namespace AnyKeep {
 

@@ -1,10 +1,10 @@
 #ifndef NOTEEDITOR_H
 #define NOTEEDITOR_H
 
+#include "anykeep_export.h"
 #include "draftstore.h"
 #include "note.h"
 #include "notefragment.h"
-#include "anykeep_export.h"
 
 #include <QObject>
 #include <QPointer>
@@ -90,6 +90,7 @@ public:
 
     void             setMedia(const QList<MediaReference> &media);
     bool             insertAudio(const MediaReference &reference, qint64 durationMs, int row = -1);
+    bool             insertAudio(const MediaReference &reference, qint64 durationMs, int row, const QString &title);
     bool             insertAttachment(const MediaReference &reference, int row = -1);
     Q_INVOKABLE bool setAudioTranscript(int row, const QString &transcript);
     void             setFolderId(const QUuid &folderId);
@@ -113,12 +114,19 @@ public:
     Q_INVOKABLE void        copyMarkdownAsPlainTextToClipboard(const QString &markdown);
     Q_INVOKABLE void        copyDocumentToClipboard();
     Q_INVOKABLE bool        copySelectionToClipboard(const QVariantList &ranges);
+    Q_INVOKABLE bool        copyBlockToClipboard(int row);
     Q_INVOKABLE bool        copySelectionAsMarkdownToClipboard(const QVariantList &ranges);
     Q_INVOKABLE bool        copyTextToPrimarySelection(const QString &text);
     Q_INVOKABLE bool        copyMarkdownToPrimarySelection(const QString &markdown);
     Q_INVOKABLE bool        copySelectionToPrimarySelection(const QVariantList &ranges);
     Q_INVOKABLE QVariantMap deleteSelection(const QVariantList &ranges);
-    Q_INVOKABLE int         pastePlainText(QQuickTextDocument *document, int start, int end);
+    Q_INVOKABLE QVariantMap convertSelectionToCodeBlock(const QVariantList &ranges, const QString &plainText,
+                                                        const QString &language = QString());
+    Q_INVOKABLE int insertDroppedCodeBlock(int row, const QString &before, const QString &after, const QString &text,
+                                           const QString &language);
+    Q_INVOKABLE int insertPlainText(QQuickTextDocument *document, int start, int end, const QString &text);
+    Q_INVOKABLE int pastePlainText(QQuickTextDocument *document, int start, int end);
+    Q_INVOKABLE int pastePrimarySelection(QQuickTextDocument *document, int start, int end);
     Q_INVOKABLE QVariantMap pasteStructuredFromClipboard(QQuickTextDocument *document, int row, int start, int end);
     Q_INVOKABLE QVariantMap pasteTableFromClipboard(int row, int cell);
     Q_INVOKABLE QVariantMap pasteListFromClipboard(QQuickTextDocument *document, int row, int item, int start, int end);

@@ -1,8 +1,8 @@
 #ifndef ANYKEEP_PLUGINHOST_H
 #define ANYKEEP_PLUGINHOST_H
 
-#include "pluginhostinterface.h"
 #include "anykeep_export.h"
+#include "pluginhostinterface.h"
 
 #include <QList>
 #include <QObject>

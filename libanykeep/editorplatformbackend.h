@@ -1,9 +1,9 @@
 #ifndef ANYKEEP_EDITORPLATFORMBACKEND_H
 #define ANYKEEP_EDITORPLATFORMBACKEND_H
 
+#include "anykeep_export.h"
 #include "highlighterext.h"
 #include "mediareference.h"
-#include "anykeep_export.h"
 
 #include <QByteArray>
 #include <QObject>

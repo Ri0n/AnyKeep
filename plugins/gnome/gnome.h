@@ -4,9 +4,9 @@
 #include <QObject>
 #include <QQueue>
 
+#include "anykeepplugininterface.h"
 #include "deintegrationinterface.h"
 #include "notificationinterface.h"
-#include "anykeepplugininterface.h"
 #include "stickynotesintegrationinterface.h"
 
 class QWindow;
@@ -23,7 +23,7 @@ class GnomePlugin : public QObject,
     Q_OBJECT
 #include "gnome_plugin_metadata.inc"
     Q_INTERFACES(AnyKeep::PluginInterface AnyKeep::DEIntegrationInterface AnyKeep::NotificationInterface
-                                                                        AnyKeep::StickyNotesIntegrationInterface)
+                                                                          AnyKeep::StickyNotesIntegrationInterface)
 public:
     explicit GnomePlugin(QObject *parent = 0);
     void setHost(PluginHostInterface *host) override;

@@ -3,9 +3,9 @@
 
 #include <QObject>
 
+#include "anykeepplugininterface.h"
 #include "deintegrationinterface.h"
 #include "notificationinterface.h"
-#include "anykeepplugininterface.h"
 #include "trayinterface.h"
 
 namespace AnyKeep {

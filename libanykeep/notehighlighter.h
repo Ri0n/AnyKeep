@@ -5,8 +5,8 @@
 #include <QPointer>
 #include <QSyntaxHighlighter>
 
-#include "highlighterext.h"
 #include "anykeep_export.h"
+#include "highlighterext.h"
 
 class QTextDocument;
 

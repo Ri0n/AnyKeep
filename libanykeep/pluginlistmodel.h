@@ -1,8 +1,8 @@
 #ifndef PLUGINLISTMODEL_H
 #define PLUGINLISTMODEL_H
 
-#include "pluginlistsource.h"
 #include "anykeep_export.h"
+#include "pluginlistsource.h"
 
 #include <QAbstractListModel>
 #include <QPointer>

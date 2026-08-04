@@ -14,9 +14,9 @@
 
 #include <memory>
 
+#include "anykeep.h"
 #include "baseintegrationtray.h"
 #include "pluginhostinterface.h"
-#include "anykeep.h"
 #include "trayiconutils.h"
 #include "utils.h"
 

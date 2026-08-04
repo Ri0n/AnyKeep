@@ -119,7 +119,8 @@ void PluginMetadataTest::rendersAndCachesMetadataIcons()
                                              "<rect width=\"16\" height=\"16\" fill=\"#ff0000\"/></svg>");
     registerPluginIcon(QStringLiteral("render-test"), { svg, QStringLiteral("image/svg+xml"), QString() });
 
-    QCOMPARE(pluginIconSource(QStringLiteral("render-test")), QStringLiteral("image://anykeep-plugin-icon/render-test"));
+    QCOMPARE(pluginIconSource(QStringLiteral("render-test")),
+             QStringLiteral("image://anykeep-plugin-icon/render-test"));
     const QImage small = pluginIconImage(QStringLiteral("render-test"), QSize(16, 16));
     const QImage large = pluginIconImage(QStringLiteral("render-test"), QSize(48, 32));
     QCOMPARE(small.size(), QSize(16, 16));

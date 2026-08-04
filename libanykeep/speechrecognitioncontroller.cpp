@@ -56,7 +56,7 @@ SpeechRecognitionController::SpeechRecognitionController(QObject *parent) :
                 audioEditor_.clear();
                 pendingAudioRow_ = -1;
                 setBusy(false);
-                if (!destination || !destination->insertAudio(reference, durationMs, row))
+                if (!destination || !destination->insertAudio(reference, durationMs, row, tr("Audio recording")))
                     emit operationFailed(tr("Could not insert the audio recording into this note."));
             });
 }

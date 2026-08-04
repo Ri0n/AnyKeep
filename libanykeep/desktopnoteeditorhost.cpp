@@ -5,6 +5,7 @@
 #include "localmediaimageprovider.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
+#include "textdroputils.h"
 #include "themediconimageprovider.h"
 
 #include <QDragEnterEvent>
@@ -42,6 +43,17 @@ namespace {
         if (!QMetaObject::invokeMethod(object, "captureEditorState", Q_RETURN_ARG(QVariant, result)))
             return {};
         return result.toMap();
+    }
+
+    bool invokeQmlTextDrop(QObject *object, const QString &text, const QPointF &position, const QString &codeLanguage)
+    {
+        if (!object || text.isEmpty())
+            return false;
+        QVariant inserted;
+        return QMetaObject::invokeMethod(object, "insertDroppedTextAtPoint", Q_RETURN_ARG(QVariant, inserted),
+                                         Q_ARG(QVariant, text), Q_ARG(QVariant, position.x()),
+                                         Q_ARG(QVariant, position.y()), Q_ARG(QVariant, codeLanguage))
+            && inserted.toBool();
     }
 
 }
@@ -216,23 +228,31 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
         if (event->type() == QEvent::DragEnter) {
             auto *dragEvent    = static_cast<QDragEnterEvent *>(event);
             imageDragAccepted_ = canAcceptImageDrop(dragEvent->mimeData());
-            if (imageDragAccepted_) {
+            textDragAccepted_  = !imageDragAccepted_ && !TextDropUtils::plainText(dragEvent->mimeData()).isEmpty();
+            if (imageDragAccepted_ || textDragAccepted_) {
                 dragEvent->setDropAction(Qt::CopyAction);
                 dragEvent->accept();
                 return true;
             }
-        } else if (event->type() == QEvent::DragMove && imageDragAccepted_) {
+        } else if (event->type() == QEvent::DragMove && (imageDragAccepted_ || textDragAccepted_)) {
             auto *dragEvent = static_cast<QDragMoveEvent *>(event);
             dragEvent->setDropAction(Qt::CopyAction);
             dragEvent->accept();
             return true;
         } else if (event->type() == QEvent::DragLeave) {
             imageDragAccepted_ = false;
-        } else if (event->type() == QEvent::Drop && imageDragAccepted_) {
+            textDragAccepted_  = false;
+        } else if (event->type() == QEvent::Drop && (imageDragAccepted_ || textDragAccepted_)) {
             auto         *dropEvent = static_cast<QDropEvent *>(event);
             const QPointF position  = dropEvent->position();
+            const bool    imageDrop = imageDragAccepted_;
             imageDragAccepted_      = false;
-            if (handleImageDrop(dropEvent->mimeData(), insertionRowAt(position))) {
+            textDragAccepted_       = false;
+            const bool handled      = imageDrop
+                     ? handleImageDrop(dropEvent->mimeData(), insertionRowAt(position))
+                     : invokeQmlTextDrop(quick_->rootObject(), TextDropUtils::plainText(dropEvent->mimeData()), position,
+                                         TextDropUtils::codeLanguage(dropEvent->mimeData()));
+            if (handled) {
                 dropEvent->setDropAction(Qt::CopyAction);
                 dropEvent->accept();
             } else {

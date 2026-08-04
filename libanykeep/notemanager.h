@@ -22,8 +22,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #ifndef NOTEMANAGER_H
 #define NOTEMANAGER_H
 
-#include "notestorage.h"
 #include "anykeep_export.h"
+#include "notestorage.h"
 
 #include <QMap>
 #include <QObject>

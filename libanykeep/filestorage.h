@@ -25,8 +25,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QDir>
 #include <QFileInfoList>
 
-#include "notestorage.h"
 #include "anykeep_export.h"
+#include "notestorage.h"
 
 namespace AnyKeep {
 

@@ -1,8 +1,8 @@
 #ifndef NOTEFRAGMENT_H
 #define NOTEFRAGMENT_H
 
-#include "mediareference.h"
 #include "anykeep_export.h"
+#include "mediareference.h"
 
 #include <QByteArray>
 #include <QList>

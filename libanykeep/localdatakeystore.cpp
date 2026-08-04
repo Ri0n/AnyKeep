@@ -14,7 +14,7 @@
 namespace AnyKeep {
 namespace {
     const QString KeychainService = QStringLiteral("com.github.ri0n.anykeep");
-    const QString KeychainKey = QStringLiteral("draft-store-master-key-v1");
+    const QString KeychainKey     = QStringLiteral("draft-store-master-key-v1");
 
     QString keychainError(QKeychain::Job *job)
     {

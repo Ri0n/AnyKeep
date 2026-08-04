@@ -1,8 +1,8 @@
 #ifndef NOTESMODEL_H
 #define NOTESMODEL_H
 
-#include "notestorage.h"
 #include "anykeep_export.h"
+#include "notestorage.h"
 
 #include <QAbstractItemModel>
 #include <QHash>

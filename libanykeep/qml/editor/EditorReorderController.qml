@@ -30,13 +30,25 @@ Item {
     readonly property real draggedHeight: reorderCore.draggedExtent
     readonly property bool wholeListBlockDrag: sourceKind === "list"
                                                 && sourceRemovesWholeBlock
+    // A source range ending at the bottom of its list has no trailing item
+    // spacing. Every insertion into a non-empty destination list does have
+    // one adjacency, so include that spacing in the animated placeholder.
     readonly property real listDraggedHeight: sourceKind === "list"
-                                               ? sourceListRowsExtent() : draggedHeight
-    readonly property real structuralDraggedHeight: wholeListBlockDrag
-                                                    ? draggedHeight
-                                                    : draggedHeight
-                                                      + (sourceKind === "list" && editorView
-                                                         ? Number(editorView.spacing) : 0)
+                                               ? (sourceRemovesWholeBlock
+                                                  ? draggedHeight
+                                                  : sourceListRowsExtent()
+                                                    + (sourceBlock && sourceRows.length > 0
+                                                       && Number(sourceRows[sourceRows.length - 1].trailingSpace) <= 0
+                                                       ? Number(sourceBlock.itemSpacing) : 0))
+                                               : draggedHeight
+    // A partial list range remains the same flattened sequence of rows while
+    // crossing list and ordinary-block boundaries. Changing its extent from
+    // list spacing to document spacing mid-drag retargets every displaced item
+    // and produces a second animation. The model restores canonical outer
+    // block spacing when the range is committed as a standalone list.
+    readonly property real structuralDraggedHeight: sourceKind === "list"
+                                                    && !wholeListBlockDrag
+                                                    ? listDraggedHeight : draggedHeight
     readonly property bool committingDrop: reorderCore.committingDrop
     readonly property bool sourceListRemovesWholeBlock: sourceKind === "list"
                                                         && sourceRemovesWholeBlock
@@ -47,8 +59,6 @@ Item {
     // when targetKind changes makes the first block-to-list displacement land
     // in the same binding update as `enabled`, which Qt applies without animation.
     readonly property bool blockAnimationActive: dragging
-                                                 && (sourceKind === "block"
-                                                     || wholeListBlockDrag)
 
     property string targetKind: ""
     property var targetBlock: null
@@ -117,7 +127,7 @@ Item {
         boundaryProvider: function() {
             return controller.sourceKind === "block"
                     ? controller.blockInsertionBoundaries()
-                    : controller.listOrBlockInsertionBoundaries()
+                    : controller.listDocumentBoundaries()
         }
         targetChangedHandler: function(boundary, pointerX) {
             if (boundary && boundary.kind === "list")
@@ -193,7 +203,6 @@ Item {
         sourceRows = rows
 
         let dragSources = sources
-        let previewItems = undefined
         if (sourceRemovesWholeBlock) {
             const blockItem = editorView.itemAtIndex(sourceBlockRow)
             if (!blockItem) {
@@ -208,6 +217,15 @@ Item {
                 geometryItem: blockItem,
                 naturalExtent: Number(blockItem.height) + Number(editorView.spacing)
             }]
+        }
+
+        // A level handle must keep the height captured before its source rows
+        // collapse and move with the same overlay as their contents. Leaving
+        // the live handle inside the first source row makes its lower edge move
+        // upward while the pointer moves in the opposite direction.
+        const previewHandle = pointerItem.fullHeight === true ? pointerItem : null
+        let previewItems = undefined
+        if (sourceRemovesWholeBlock || previewHandle) {
             previewItems = []
             for (const sourceRow of rows) {
                 previewItems.push({
@@ -216,6 +234,15 @@ Item {
                     sourceY: 0,
                     width: sourceRow.dragContent.width,
                     height: sourceRow.dragContent.height
+                })
+            }
+            if (previewHandle) {
+                previewItems.push({
+                    sourceItem: previewHandle,
+                    sourceX: 0,
+                    sourceY: 0,
+                    width: previewHandle.width,
+                    height: previewHandle.height
                 })
             }
         }
@@ -354,52 +381,13 @@ Item {
         return boundaries
     }
 
-    function listBlockAtProbe() {
-        if (!editorView)
-            return null
-
-        const probeY = reorderCore.currentPointerY
-        const pointerX = reorderCore.currentPointerX
-        let best = null
-        let bestDistance = Number.POSITIVE_INFINITY
-        for (const listBlock of listBlocks) {
-            if (!listBlock || !listBlock.visible || listBlock.remainingItemCount() <= 0)
-                continue
-            const mapped = listBlock.mapToItem(editorView.contentItem, 0, 0)
-            // Partial list-range moves still use the logical post-removal
-            // geometry because their source rows collapse inside a live list.
-            const structuralOffset = structuralOffsetForBlock(listBlock.blockIndex)
-            const top = mapped.y - structuralOffset
-                    - animatedDisplacementBeforeBlock(listBlock.blockIndex)
-                    - sourceStructuralExtentBeforeBlock(listBlock.blockIndex)
-            const bottom = top + Number(listBlock.height)
-            if (probeY < top || probeY > bottom)
-                continue
-            const markerCenter = listBlock.markerCenterXForIndent(0)
-            if (pointerX < markerCenter - Number(editorView.listMarkerWidth) / 2)
-                continue
-            const distance = Math.abs(probeY - (top + bottom) / 2)
-            if (distance < bestDistance) {
-                best = listBlock
-                bestDistance = distance
-            }
-        }
-        return best
-    }
-
-    function listOrBlockInsertionBoundaries() {
-        if (wholeListBlockDrag)
-            return wholeListDocumentBoundaries()
-        const listBlock = listBlockAtProbe()
-        return listBlock ? listInsertionBoundaries(listBlock)
-                         : blockInsertionBoundaries()
-    }
-
-    function wholeListDocumentBoundaries() {
-        // Project every destination list row into the same temporary structural
-        // space as ordinary document blocks. The model remains a list; boundary
-        // metadata decides whether commit moves the source as a block or inserts
-        // its rows into an existing list.
+    function listDocumentBoundaries() {
+        // Project every destination list row into the same structural sequence
+        // as ordinary document blocks. The model remains grouped into lists;
+        // boundary metadata keeps enough information to rebuild that grouping
+        // on commit. Never use the centre of a multi-row drag to choose between
+        // list and block layouts: its leading row must cross every boundary in
+        // exactly the same way as an ordinary structural item.
         const boundaries = []
         for (const boundary of blockInsertionBoundaries()) {
             let listOwner = false

@@ -2,6 +2,7 @@
 #define ANYKEEPPLUGININTERFACE_H
 
 #include <QString>
+#include <QtPlugin>
 
 #include "pluginhostinterface.h"
 

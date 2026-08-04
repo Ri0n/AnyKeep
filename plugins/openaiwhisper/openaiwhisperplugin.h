@@ -4,8 +4,8 @@
 #include <QNetworkAccessManager>
 #include <QPointer>
 
-#include "bundledplugininterface.h"
 #include "anykeepplugininterface.h"
+#include "bundledplugininterface.h"
 #include "settingsproviderinterface.h"
 #include "speechrecognitionprovider.h"
 
@@ -22,9 +22,9 @@ class OpenAIWhisperPlugin : public QObject,
 #ifndef ANYKEEP_BUNDLED_PLUGIN_BUILD
 #include "openaiwhisper_plugin_metadata.inc"
 #endif
-    Q_INTERFACES(
-        AnyKeep::PluginInterface AnyKeep::RegularPluginInterface AnyKeep::PluginOptionsTooltipInterface
-            AnyKeep::SettingsProviderInterface AnyKeep::SpeechRecognitionProviderInterface AnyKeep::BundledPluginInterface)
+    Q_INTERFACES(AnyKeep::PluginInterface AnyKeep::RegularPluginInterface AnyKeep::PluginOptionsTooltipInterface
+                     AnyKeep::SettingsProviderInterface AnyKeep::SpeechRecognitionProviderInterface
+                                                        AnyKeep::BundledPluginInterface)
 public:
     explicit OpenAIWhisperPlugin(QObject *parent = nullptr);
     ~OpenAIWhisperPlugin() override;

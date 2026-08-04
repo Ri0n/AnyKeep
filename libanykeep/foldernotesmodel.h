@@ -11,8 +11,8 @@ the Free Software Foundation, either version 3 of the License, or
 #ifndef FOLDERNOTESMODEL_H
 #define FOLDERNOTESMODEL_H
 
-#include "note.h"
 #include "anykeep_export.h"
+#include "note.h"
 
 #include <QAbstractListModel>
 #include <QHash>

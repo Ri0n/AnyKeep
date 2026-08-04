@@ -36,7 +36,7 @@ class PluginHostInterface {
 public:
     virtual QString      utilsCuttedDots(const QString &str, int n) = 0;
     virtual NoteManager *noteManager()                              = 0;
-    virtual QString      anykeepDataDir()                            = 0;
+    virtual QString      anykeepDataDir()                           = 0;
     virtual void         rehighlight()                              = 0; // invalide syntax highligh for all open notes
     virtual bool         offerSpellCheckProvider(std::shared_ptr<SpellCheckProvider> provider) = 0;
 };

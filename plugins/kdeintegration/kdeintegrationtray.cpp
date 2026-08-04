@@ -23,9 +23,9 @@
 #endif
 #include <QSettings>
 
+#include "anykeep.h"
 #include "kdeintegrationtray.h"
 #include "notemanager.h"
-#include "anykeep.h"
 #include "trayiconutils.h"
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include "utils.h"

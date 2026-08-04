@@ -11,8 +11,8 @@ the Free Software Foundation, either version 3 of the License, or
 #ifndef FOLDERCATALOGMANAGER_H
 #define FOLDERCATALOGMANAGER_H
 
-#include "foldercatalog.h"
 #include "anykeep_export.h"
+#include "foldercatalog.h"
 
 #include <QObject>
 #include <QSet>

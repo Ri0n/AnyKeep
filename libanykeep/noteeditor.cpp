@@ -359,6 +359,11 @@ bool NoteEditor::canInsertAttachments() const { return supportsMedia(); }
 
 bool NoteEditor::insertAudio(const MediaReference &reference, qint64 durationMs, int row)
 {
+    return insertAudio(reference, durationMs, row, reference.originalName);
+}
+
+bool NoteEditor::insertAudio(const MediaReference &reference, qint64 durationMs, int row, const QString &title)
+{
     if (!reference.isValid() || !reference.mediaType.startsWith(QLatin1String("audio/")) || !supportsMedia())
         return false;
     beginHistoryTransaction(QStringLiteral("insert-audio"));
@@ -371,7 +376,7 @@ bool NoteEditor::insertAudio(const MediaReference &reference, qint64 durationMs,
     if (duplicate == manifest.cend())
         manifest.append(reference);
     setMedia(manifest);
-    model_->insertAudio(row, reference.uri(), reference.originalName, qMax<qint64>(0, durationMs));
+    model_->insertAudio(row, reference.uri(), title.trimmed(), qMax<qint64>(0, durationMs));
     endHistoryTransaction();
     emit mediaInserted({ reference });
     return true;

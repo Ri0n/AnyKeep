@@ -5,10 +5,10 @@
 #include <QObject>
 #include <QPointer>
 
+#include "anykeepplugininterface.h"
 #include "deintegrationinterface.h"
 #include "globalshortcutsinterface.h"
 #include "notificationinterface.h"
-#include "anykeepplugininterface.h"
 #include "stickynotesintegrationinterface.h"
 #include "trayinterface.h"
 
@@ -32,9 +32,9 @@ class BaseIntegration : public QObject,
                         public StickyNotesHostInterface {
     Q_OBJECT
 #include "baseintegration_plugin_metadata.inc"
-    Q_INTERFACES(
-        AnyKeep::PluginInterface AnyKeep::DEIntegrationInterface AnyKeep::TrayInterface AnyKeep::GlobalShortcutsInterface
-            AnyKeep::NotificationInterface AnyKeep::StickyNotesIntegrationInterface AnyKeep::StickyNotesHostInterface)
+    Q_INTERFACES(AnyKeep::PluginInterface AnyKeep::DEIntegrationInterface AnyKeep::TrayInterface
+                     AnyKeep::GlobalShortcutsInterface AnyKeep::NotificationInterface
+                         AnyKeep::StickyNotesIntegrationInterface AnyKeep::StickyNotesHostInterface)
 public:
     explicit BaseIntegration(QObject *parent = 0);
     ~BaseIntegration() override;

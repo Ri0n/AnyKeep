@@ -49,8 +49,8 @@ namespace AnyKeep {
 Q_LOGGING_CATEGORY(logPtfStorage, "anykeep.persistence.ptf")
 
 namespace {
-    const QString MediaManifestName = QStringLiteral(".anykeep-media.json");
-    const QString FolderIndexName   = QStringLiteral(".anykeep-folders.json");
+    const QString MediaManifestName       = QStringLiteral(".anykeep-media.json");
+    const QString FolderIndexName         = QStringLiteral(".anykeep-folders.json");
     const QString LegacyMediaManifestName = QStringLiteral(".qtnote-media.json");
     const QString LegacyFolderIndexName   = QStringLiteral(".qtnote-folders.json");
 
@@ -85,14 +85,14 @@ namespace {
         if (contents == original)
             return true;
         QSaveFile replacement(path);
-        return replacement.open(QIODevice::WriteOnly | QIODevice::Text)
-               && replacement.write(contents.toUtf8()) >= 0 && replacement.commit();
+        return replacement.open(QIODevice::WriteOnly | QIODevice::Text) && replacement.write(contents.toUtf8()) >= 0
+            && replacement.commit();
     }
 
     void migrateLegacySidecars(const QDir &notesDir)
     {
         const auto renameIfNeeded = [&notesDir](const QString &legacyName, const QString &currentName) {
-            const auto legacyPath = notesDir.filePath(legacyName);
+            const auto legacyPath  = notesDir.filePath(legacyName);
             const auto currentPath = notesDir.filePath(currentName);
             if (QFileInfo::exists(legacyPath) && !QFileInfo::exists(currentPath))
                 QFile::rename(legacyPath, currentPath);
@@ -106,7 +106,7 @@ namespace {
         const auto sidecars = notesDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
         for (const auto &sidecar : sidecars) {
             const QDir sidecarDir(sidecar.absoluteFilePath());
-            const auto legacyPath = sidecarDir.filePath(LegacyMediaManifestName);
+            const auto legacyPath  = sidecarDir.filePath(LegacyMediaManifestName);
             const auto currentPath = sidecarDir.filePath(MediaManifestName);
             if (QFileInfo::exists(legacyPath) && !QFileInfo::exists(currentPath))
                 QFile::rename(legacyPath, currentPath);

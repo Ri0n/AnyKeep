@@ -7,6 +7,9 @@ Item {
 
     function flushPendingEditorChanges() { editorPane.flushPendingEditorChanges() }
     function insertTextAtCursor(text) { return editorPane.insertTextAtCursor(text) }
+    function insertDroppedTextAtPoint(text, x, y, codeLanguage) {
+        return editorPane.insertDroppedTextAtPoint(text, x, y, codeLanguage)
+    }
     function focusInitialEditor() { editorPane.focusInitialEditor() }
     function insertionRowAtPoint(x, y) { return editorPane.insertionRowAtPoint(x, y) }
     function captureEditorState() { return editorPane.captureEditorState() }

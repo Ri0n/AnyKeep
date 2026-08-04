@@ -24,12 +24,12 @@ enum class XmppErrorKind {
 
 /** @brief Complete backend configuration for one XMPP account. */
 struct XmppConfig {
-    QString    instanceId;                            ///< Stable local identity of this configured storage instance.
-    QString    jid;                                   ///< Bare JID used for authentication and own PEP service.
-    QString    password;                              ///< Transient keychain value; never persisted in plugin settings.
-    QString    host;                                  ///< Optional server override; empty enables normal discovery.
-    int        port { 0 };                            ///< Optional port override; zero selects the library default.
-    QString    resource { QStringLiteral("private-notes") }; ///< Requested XMPP resource.
+    QString    instanceId; ///< Stable local identity of this configured storage instance.
+    QString    jid;        ///< Bare JID used for authentication and own PEP service.
+    QString    password;   ///< Transient keychain value; never persisted in plugin settings.
+    QString    host;       ///< Optional server override; empty enables normal discovery.
+    int        port { 0 }; ///< Optional port override; zero selects the library default.
+    QString    resource { QStringLiteral("private-notes") };            ///< Requested XMPP resource.
     QString    nodeName { QStringLiteral("urn:xmpp:private-notes:0") }; ///< Versioned base AnyKeep node.
     QString    originId;            ///< Stable installation ID used in note revision metadata.
     int        timeoutMs { 15000 }; ///< Upper bound for an individual protocol operation.

@@ -30,6 +30,8 @@
 
 #include "aboutdlg.h"
 #include "actionnotificationinterface.h"
+#include "anykeep.h"
+#include "anykeep_config.h"
 #include "corestorageregistry.h"
 #include "deintegrationinterface.h"
 #include "desktopeditorplatformbackend.h"
@@ -45,8 +47,6 @@
 #include "optionsdlg.h"
 #include "optionsplugins.h"
 #include "pluginmanager.h"
-#include "anykeep.h"
-#include "anykeep_config.h"
 #ifdef ANYKEEP_DBUS_AVAILABLE
 #include "anykeepdbus.h"
 #endif

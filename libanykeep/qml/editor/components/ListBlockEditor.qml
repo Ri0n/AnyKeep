@@ -358,7 +358,7 @@ Column {
                 sourceActive: rowWrapper.sourceRow
                 targetBefore: rowWrapper.dropBefore
                 naturalExtent: rowWrapper.naturalHeight
-                draggedExtent: reorderController.draggedHeight
+                draggedExtent: reorderController.listDraggedHeight
             }
 
             function removeBySwipe() {
@@ -526,6 +526,7 @@ Column {
             Reorder.BlockReorderHandle {
                 id: levelHandle
 
+                property real dragHeightSnapshot: 0
                 readonly property var handleRange: editorView.touchMode ? listRoot.activeLevelRange
                                                                          : rowWrapper.ownLevelRange
                 readonly property int handleLevel: editorView.touchMode ? listRoot.activeLevel
@@ -541,7 +542,8 @@ Column {
                 x: handleLevel * editorView.listIndent - levelHandleGutter
                 y: 0
                 width: Math.max(12, levelHandleGutter - 2)
-                height: listRoot.levelHandleHeight(handleRange)
+                height: dragging && dragHeightSnapshot > 0
+                        ? dragHeightSnapshot : listRoot.levelHandleHeight(handleRange)
                 z: 10
                 dragEnabled: !reorderController.dragging || dragging
 
@@ -555,14 +557,20 @@ Column {
                     }
                 }
 
-                onDragStarted: reorderController.startListRangeDrag(
-                                   listRoot,
-                                   levelHandle.handleRange.start,
-                                   levelHandle.handleRange.end,
-                                   levelHandle,
-                                   listRoot.markerCenterXForIndent(levelHandle.handleLevel))
+                onDragStarted: {
+                    dragHeightSnapshot = listRoot.levelHandleHeight(handleRange)
+                    reorderController.startListRangeDrag(
+                                listRoot,
+                                levelHandle.handleRange.start,
+                                levelHandle.handleRange.end,
+                                levelHandle,
+                                listRoot.markerCenterXForIndent(levelHandle.handleLevel))
+                }
                 onDragMoved: function(dx, dy) { reorderController.moveListDrag(dx, dy) }
-                onDragFinished: reorderController.finishListDrag()
+                onDragFinished: {
+                    reorderController.finishListDrag()
+                    dragHeightSnapshot = 0
+                }
             }
         }
     }
@@ -581,7 +589,7 @@ Column {
 
             animationEnabled: reorderController.dragging && !reorderController.committingDrop
             targetBefore: endDropSpacer.active
-            draggedExtent: reorderController.draggedHeight
+            draggedExtent: reorderController.listDraggedHeight
         }
     }
 }

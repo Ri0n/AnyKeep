@@ -1,8 +1,8 @@
 #ifndef CONFLICTRESOLVER_H
 #define CONFLICTRESOLVER_H
 
-#include "draftstore.h"
 #include "anykeep_export.h"
+#include "draftstore.h"
 
 #include <functional>
 

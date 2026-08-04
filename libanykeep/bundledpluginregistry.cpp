@@ -1,9 +1,9 @@
 #include "bundledpluginregistry.h"
 
+#include "anykeepplugininterface.h"
 #include "bundledplugininterface.h"
 #include "notemanager.h"
 #include "pluginiconimageprovider.h"
-#include "anykeepplugininterface.h"
 #include "settingsproviderinterface.h"
 
 #include <QSet>

@@ -17,7 +17,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationDisplayName(QStringLiteral("AnyKeep"));
 
     AnyKeep::MobileApplication mobileApplication;
-    QQmlApplicationEngine     engine;
+    QQmlApplicationEngine      engine;
     AnyKeep::installLocalMediaImageProvider(&engine);
     AnyKeep::installPluginIconImageProvider(&engine);
     AnyKeep::installStorageIconImageProvider(&engine);

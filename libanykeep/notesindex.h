@@ -1,8 +1,8 @@
 #ifndef NOTESINDEX_H
 #define NOTESINDEX_H
 
-#include "notestorage.h"
 #include "anykeep_export.h"
+#include "notestorage.h"
 
 #include <QHash>
 #include <QPointer>

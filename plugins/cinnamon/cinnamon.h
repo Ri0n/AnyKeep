@@ -4,9 +4,9 @@
 #include <QObject>
 #include <QQueue>
 
+#include "anykeepplugininterface.h"
 #include "deintegrationinterface.h"
 #include "notificationinterface.h"
-#include "anykeepplugininterface.h"
 #include "stickynotesintegrationinterface.h"
 
 class QWindow;
@@ -23,7 +23,7 @@ class CinnamonPlugin : public QObject,
     Q_OBJECT
 #include "cinnamon_plugin_metadata.inc"
     Q_INTERFACES(AnyKeep::PluginInterface AnyKeep::DEIntegrationInterface AnyKeep::NotificationInterface
-                                                                        AnyKeep::StickyNotesIntegrationInterface)
+                                                                          AnyKeep::StickyNotesIntegrationInterface)
 public:
     explicit CinnamonPlugin(QObject *parent = nullptr);
     void setHost(PluginHostInterface *host) override;

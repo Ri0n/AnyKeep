@@ -6,8 +6,8 @@
 
 #include <memory>
 
-#include "highlighterext.h"
 #include "anykeep_export.h"
+#include "highlighterext.h"
 
 namespace AnyKeep {
 
@@ -39,7 +39,7 @@ private:
 };
 
 ANYKEEP_EXPORT std::shared_ptr<SpellCheckExtension>
-              makeSpellCheckExtension(const std::shared_ptr<SpellCheckProvider> &provider);
+               makeSpellCheckExtension(const std::shared_ptr<SpellCheckProvider> &provider);
 
 } // namespace AnyKeep
 

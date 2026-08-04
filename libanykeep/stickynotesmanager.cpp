@@ -6,9 +6,9 @@
 #include <QMessageBox>
 #include <QSettings>
 
+#include "anykeep.h"
 #include "draftmanager.h"
 #include "notemanager.h"
-#include "anykeep.h"
 #include "stickynotesintegrationinterface.h"
 #include "utils.h"
 
@@ -89,10 +89,10 @@ QUuid StickyNotesManager::pinPublished(const Note &note, const QRect &preferredG
 
     if (requiresApplicationAutostart_ && !autostartPromptShown_ && !Utils::isAutostartEnabled()) {
         autostartPromptShown_ = true;
-        const auto answer     = QMessageBox::question(
-            nullptr, tr("Start AnyKeep automatically?"),
-            tr("AnyKeep must be running to restore sticky notes after sign-in. Start it automatically with the system?"),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        const auto answer     = QMessageBox::question(nullptr, tr("Start AnyKeep automatically?"),
+                                                      tr("AnyKeep must be running to restore sticky notes after sign-in. "
+                                                             "Start it automatically with the system?"),
+                                                      QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
         if (answer == QMessageBox::Yes && !Utils::setAutostartEnabled(true))
             main_->notifyError(tr("Failed to enable automatic startup."));
     }

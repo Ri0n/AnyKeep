@@ -37,16 +37,16 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "pluginiconimageprovider.h"
 #include "pluginmanager.h"
 
-#include "editorplatformbackend.h"
 #include "anykeep.h"
+#include "editorplatformbackend.h"
 #include "shortcutsmanager.h"
 #include "spellcheckproviderinterface.h"
 #include "utils.h"
 
+#include "anykeep_config.h"
 #include "deintegrationinterface.h"
 #include "globalshortcutsinterface.h"
 #include "notificationinterface.h"
-#include "anykeep_config.h"
 #include "stickynotesintegrationinterface.h"
 #include "stickynotesmanager.h"
 #include "trayinterface.h"

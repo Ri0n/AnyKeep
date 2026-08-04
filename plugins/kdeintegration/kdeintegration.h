@@ -5,10 +5,10 @@
 #include <QQueue>
 
 #include "actionnotificationinterface.h"
+#include "anykeepplugininterface.h"
 #include "deintegrationinterface.h"
 #include "globalshortcutsinterface.h"
 #include "notificationinterface.h"
-#include "anykeepplugininterface.h"
 #include "settingsproviderinterface.h"
 #include "spellcheckproviderinterface.h"
 #include "stickynotesintegrationinterface.h"
@@ -34,10 +34,10 @@ class KDEIntegration : public QObject,
                        public SettingsProviderInterface {
     Q_OBJECT
 #include "kdeintegration_plugin_metadata.inc"
-    Q_INTERFACES(
-        AnyKeep::PluginInterface AnyKeep::TrayInterface AnyKeep::DEIntegrationInterface AnyKeep::GlobalShortcutsInterface
-            AnyKeep::NotificationInterface AnyKeep::ActionNotificationInterface AnyKeep::StickyNotesIntegrationInterface
-                AnyKeep::SpellCheckProviderInterface AnyKeep::SettingsProviderInterface)
+    Q_INTERFACES(AnyKeep::PluginInterface AnyKeep::TrayInterface AnyKeep::DEIntegrationInterface
+                     AnyKeep::GlobalShortcutsInterface AnyKeep::NotificationInterface
+                         AnyKeep::ActionNotificationInterface AnyKeep::StickyNotesIntegrationInterface
+                             AnyKeep::SpellCheckProviderInterface AnyKeep::SettingsProviderInterface)
 public:
     explicit KDEIntegration(QObject *parent = 0);
     void                                setHost(PluginHostInterface *host) override;

@@ -162,6 +162,12 @@ TextArea {
     }
 
     function markdownRange(start, end) {
+        if (codeDocument) {
+            const plain = currentPlainText()
+            const boundedStart = Math.max(0, Math.min(plain.length, Number(start)))
+            const boundedEnd = Math.max(boundedStart, Math.min(plain.length, Number(end)))
+            return plain.substring(boundedStart, boundedEnd)
+        }
         return editorView.editorBackend.markdownSelection(textDocument, start, end)
     }
 
@@ -187,14 +193,105 @@ TextArea {
             rememberPlainText()
             return false
         }
+        // Assigning TextArea.text resets both the cursor and the selection.
+        // Model synchronization commonly happens exactly when a toolbar
+        // button or another window takes focus, so preserve the user's view
+        // state across the assignment.
+        const oldCursor = cursorPosition
+        const oldSelectionStart = selectionStart
+        const oldSelectionEnd = selectionEnd
         syncingSourceText = true
         text = sourceText
         if (renderedMarkdown && sourceText.indexOf("ANYKEEPINSOPEN7F3A") >= 0
                 && typeof editorView.editorBackend !== "undefined" && editorView.editorBackend !== null)
             editorView.editorBackend.applyInlineHtmlFormatting(textDocument)
         syncingSourceText = false
+        const restoredStart = Math.max(0, Math.min(length, oldSelectionStart))
+        const restoredEnd = Math.max(0, Math.min(length, oldSelectionEnd))
+        const restoredCursor = Math.max(0, Math.min(length, oldCursor))
+        if (restoredStart !== restoredEnd) {
+            if (oldCursor === oldSelectionStart)
+                select(restoredEnd, restoredStart)
+            else
+                select(restoredStart, restoredEnd)
+        } else {
+            cursorPosition = restoredCursor
+        }
         rememberPlainText()
         return true
+    }
+
+    function insertExternalText(value, position) {
+        value = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+        if (value.length === 0)
+            return false
+        // A source newline is only a soft wrap in Markdown.  Insert an
+        // explicit QTextDocument line separator so the serializer writes a
+        // real Markdown hard break and the rendered note keeps every line.
+        const insertedValue = editorView.blockModel && editorView.blockModel.markdown && !codeDocument
+                ? value.replace(/\n/g, "\u2028") : value
+        const insertionPosition = Math.max(0, Math.min(length, Number(position)))
+        return editorView.runEditTransaction("drop-text", function() {
+            editorView.clearDocumentSelection()
+            forceActiveFocus()
+            insert(insertionPosition, insertedValue)
+            cursorPosition = insertionPosition + insertedValue.length
+            commitText(false)
+            rememberPlainText()
+            return true
+        })
+    }
+
+    function externalDropText(drop) {
+        let value = drop && drop.text !== undefined ? String(drop.text || "") : ""
+        if (value.length === 0 && drop && drop.formats !== undefined
+                && typeof drop.getDataAsString === "function") {
+            for (const format of drop.formats) {
+                if (String(format).indexOf("text/plain") === 0) {
+                    value = String(drop.getDataAsString(format) || "")
+                    if (value.length > 0)
+                        break
+                }
+            }
+        }
+        return value
+    }
+
+    function externalDragHasText(drag) {
+        if (!drag)
+            return false
+        if (drag.hasText !== undefined && drag.hasText)
+            return true
+        if (drag.formats !== undefined) {
+            for (const format of drag.formats) {
+                if (String(format).indexOf("text/plain") === 0)
+                    return true
+            }
+        }
+        return false
+    }
+
+    function acceptExternalTextDrag(drag) {
+        if (!externalDragHasText(drag)) {
+            drag.accepted = false
+            return false
+        }
+        if (typeof drag.acceptProposedAction === "function")
+            drag.acceptProposedAction()
+        else
+            drag.accepted = true
+        return true
+    }
+
+    function selectLineAt(position) {
+        const plain = currentPlainText()
+        position = Math.max(0, Math.min(plain.length, Number(position)))
+        let start = plain.lastIndexOf("\n", Math.max(0, position - 1))
+        start = start < 0 ? 0 : start + 1
+        let end = plain.indexOf("\n", position)
+        if (end < 0)
+            end = plain.length
+        select(start, end)
     }
 
     function synchronizeSourceText(force) {
@@ -341,6 +438,8 @@ TextArea {
             event.accepted = true
         } else if (keyHandler && keyHandler(event)) {
             event.accepted = true
+        } else if (!blockArea.codeDocument && blockArea.handleLinkEnterExit(event)) {
+            event.accepted = true
         } else if (editorView.handleBlockBoundaryNavigation(event, blockArea)) {
             event.accepted = true
         } else if (event.matches(StandardKey.SelectAll)) {
@@ -383,6 +482,30 @@ TextArea {
 
             cursorPosition = position
             commitText(false)
+            return true
+        })
+    }
+
+    function handleLinkEnterExit(event) {
+        if (!renderedMarkdown
+                || (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter)
+                || event.modifiers || selectionStart !== selectionEnd
+                || cursorPosition <= 0) {
+            return false
+        }
+
+        const position = cursorPosition
+        const info = editorView.editorBackend.linkInfo(textDocument, position - 1, position)
+        if (!info.valid || !info.href || info.end !== position)
+            return false
+
+        return editorView.runEditTransaction("leave-link", function() {
+            const end = editorView.editorBackend.insertPlainText(textDocument, position, position, "\n")
+            if (end < 0)
+                return false
+            cursorPosition = end
+            commitText(false)
+            rememberPlainText()
             return true
         })
     }
@@ -472,7 +595,7 @@ TextArea {
         anchors.fill: parent
         z: 20
         enabled: !editorView.touchMode
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
         hoverEnabled: true
         preventStealing: true
         cursorShape: (blockArea.renderedMarkdown && hoveredRenderedLink.length > 0)
@@ -486,6 +609,8 @@ TextArea {
         property string hoveredRenderedLink: ""
         property var hoveredRenderedLinkInfo: null
         property var hoveredPlainLinkInfo: null
+        property double lastDoubleClickTimestamp: 0
+        property bool tripleClickActive: false
 
         function clearPlainLinkHover() {
             renderedLinkHoverTimer.stop()
@@ -537,7 +662,36 @@ TextArea {
         onPressed: function(mouse) {
             editorView.editorBackend.updateHistoryViewState(editorView.captureEditorState(), true)
             const position = blockArea.positionAt(mouse.x, mouse.y)
+            if (mouse.button === Qt.MiddleButton) {
+                blockArea.forceActiveFocus()
+                editorView.activeEditor = blockArea
+                const pasted = editorView.runEditTransaction("paste-primary", function() {
+                    const end = editorView.editorBackend.pastePrimarySelection(
+                                    blockArea.textDocument, position, position)
+                    if (end < 0)
+                        return false
+                    blockArea.cursorPosition = end
+                    blockArea.commitText(false)
+                    blockArea.rememberPlainText()
+                    return true
+                })
+                mouse.accepted = pasted
+                return
+            }
             if (mouse.button === Qt.LeftButton) {
+                if (Date.now() - lastDoubleClickTimestamp < 650) {
+                    lastDoubleClickTimestamp = 0
+                    blockArea.forceActiveFocus()
+                    editorView.activeEditor = blockArea
+                    editorView.clearDocumentSelection()
+                    blockArea.selectLineAt(position)
+                    tripleClickActive = true
+                    selecting = false
+                    editorView.mouseSelectionActive = false
+                    Qt.callLater(function() { editorView.copyDocumentSelectionToPrimary() })
+                    mouse.accepted = true
+                    return
+                }
                 blockArea.forceActiveFocus()
                 editorView.activeEditor = blockArea
                 editorView.selectionAnchorEditor = blockArea
@@ -584,6 +738,11 @@ TextArea {
         }
         onReleased: function(mouse) {
             if (mouse.button === Qt.LeftButton) {
+                if (tripleClickActive) {
+                    tripleClickActive = false
+                    editorView.scheduleSelectionStateRefresh()
+                    return
+                }
                 if (!selectionMoved) {
                     const position = blockArea.positionAt(mouse.x, mouse.y)
                     if (blockArea.renderedMarkdown) {
@@ -616,7 +775,24 @@ TextArea {
             blockArea.cursorPosition = blockArea.positionAt(mouse.x, mouse.y)
             blockArea.selectWord()
             editorView.wholeDocumentSelected = false
+            lastDoubleClickTimestamp = Date.now()
             Qt.callLater(function() { editorView.copyDocumentSelectionToPrimary() })
+        }
+    }
+
+    DropArea {
+        anchors.fill: parent
+        z: 19
+        onEntered: function(drag) { blockArea.acceptExternalTextDrag(drag) }
+        onPositionChanged: function(drag) { blockArea.acceptExternalTextDrag(drag) }
+        onDropped: function(drop) {
+            const value = blockArea.externalDropText(drop)
+            if (!blockArea.insertExternalText(value, blockArea.positionAt(drop.x, drop.y)))
+                return
+            if (typeof drop.acceptProposedAction === "function")
+                drop.acceptProposedAction()
+            else
+                drop.accepted = true
         }
     }
 

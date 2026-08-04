@@ -1,9 +1,9 @@
 #ifndef NEXTCLOUDPLUGIN_H
 #define NEXTCLOUDPLUGIN_H
 
+#include "anykeepplugininterface.h"
 #include "bundledplugininterface.h"
 #include "notestorage.h"
-#include "anykeepplugininterface.h"
 
 #include <QObject>
 

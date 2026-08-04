@@ -1,9 +1,9 @@
 #ifndef NOTERULEAPPLICATIONCONTROLLER_H
 #define NOTERULEAPPLICATIONCONTROLLER_H
 
+#include "anykeep_export.h"
 #include "draftstore.h"
 #include "noterule.h"
-#include "anykeep_export.h"
 
 #include <QHash>
 #include <QObject>

@@ -51,14 +51,16 @@ bool XmppPepExtension::handlePubSubEvent(const QDomElement &element, const QStri
 
     switch (event.eventType()) {
     case QXmppPubSubEventBase::Items: {
-        qInfo().noquote() << "private-note PEP items event received: node=" << nodeName << "items=" << event.items().size();
+        qInfo().noquote() << "private-note PEP items event received: node=" << nodeName
+                          << "items=" << event.items().size();
         bool refreshRequired = event.items().isEmpty();
         for (const auto &item : event.items()) {
             if (item.isValid()) {
                 emit payloadPublished(item.payload());
             } else {
                 refreshRequired = true;
-                qWarning().noquote() << "Ignoring unreadable private-note PEP item" << item.id() << ':' << item.parseError();
+                qWarning().noquote() << "Ignoring unreadable private-note PEP item" << item.id() << ':'
+                                     << item.parseError();
                 emit malformedItem(item.parseError());
             }
         }

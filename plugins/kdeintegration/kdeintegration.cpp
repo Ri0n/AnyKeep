@@ -52,8 +52,9 @@ bool KDEIntegration::ensureWaylandGeometryScript()
 #ifdef ANYKEEP_DEVEL_KWIN_SCRIPT
     const QString scriptPath = QStringLiteral(ANYKEEP_DEVEL_KWIN_SCRIPT);
 #else
-    const QString scriptPath = QStandardPaths::locate(
-        QStandardPaths::GenericDataLocation, QStringLiteral("kwin/scripts/anykeepwindowgeometry/contents/code/main.js"));
+    const QString scriptPath
+        = QStandardPaths::locate(QStandardPaths::GenericDataLocation,
+                                 QStringLiteral("kwin/scripts/anykeepwindowgeometry/contents/code/main.js"));
 #endif
     if (scriptPath.isEmpty()) {
         qCWarning(logKdeIntegration) << "AnyKeep KWin geometry script was not found";

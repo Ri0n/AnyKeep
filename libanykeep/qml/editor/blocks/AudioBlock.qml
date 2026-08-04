@@ -43,6 +43,10 @@ FocusScope {
     }
 
     Keys.onPressed: function(event) {
+        if (event.matches(StandardKey.Copy)) {
+            event.accepted = audioRoot.editorView.copyActiveSelection()
+            return
+        }
         if (event.modifiers)
             return
         if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -273,8 +277,44 @@ FocusScope {
         }
         MenuSeparator { }
         MenuItem {
+            text: qsTr("Rename")
+            onTriggered: renameDialog.openForCurrentTitle()
+        }
+        MenuSeparator { }
+        MenuItem {
             text: qsTr("Remove Audio Recording")
             onTriggered: audioRoot.editorView.removeAudioBlock(audioRoot.block.index, true)
+        }
+    }
+
+    Dialog {
+        id: renameDialog
+        objectName: "audioRenameDialog-" + audioRoot.block.index
+        parent: Overlay.overlay
+        modal: true
+        title: qsTr("Rename audio recording")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        width: Math.min(420, Math.max(260, parent ? parent.width - 24 : 360))
+
+        function openForCurrentTitle() {
+            titleField.text = audioRoot.block.alt.length > 0
+                    ? audioRoot.block.alt : qsTr("Audio recording")
+            open()
+            Qt.callLater(function() {
+                titleField.forceActiveFocus()
+                titleField.selectAll()
+            })
+        }
+
+        onAccepted: audioRoot.editorView.renameAudioBlock(audioRoot.block.index, titleField.text)
+
+        TextField {
+            id: titleField
+            objectName: "audioTitleField-" + audioRoot.block.index
+            width: parent.width
+            placeholderText: qsTr("Audio recording title")
+            selectByMouse: true
+            onAccepted: renameDialog.accept()
         }
     }
 }

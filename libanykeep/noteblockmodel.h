@@ -114,6 +114,7 @@ public:
     Q_INVOKABLE void insertImage(int row, const QString &url, const QString &alt);
     Q_INVOKABLE void appendAudio(const QString &url, const QString &title, qint64 durationMs);
     Q_INVOKABLE void insertAudio(int row, const QString &url, const QString &title, qint64 durationMs);
+    Q_INVOKABLE bool setAudioTitle(int row, const QString &title);
     Q_INVOKABLE bool setAudioTranscript(int row, const QString &transcript);
     Q_INVOKABLE void appendAttachment(const QString &url, const QString &fileName, const QString &mediaType,
                                       qint64 size);
@@ -151,9 +152,11 @@ public:
     NoteFragment extractBlockFragment(int firstRow, int lastRow) const;
     NoteFragment extractSelectionFragment(const QList<NoteBlockSelectionRange> &ranges) const;
     int          removeSelectionRanges(const QList<NoteBlockSelectionRange> &ranges);
-    bool         insertBlockFragment(int row, const NoteFragment &fragment, QString *error = nullptr);
-    int          replaceTextBlockRangeWithFragment(int row, const QString &before, const QString &after,
-                                                   const NoteFragment &fragment, QString *error = nullptr);
+    int  replaceTextSelectionWithCodeBlock(const QList<NoteBlockSelectionRange> &ranges, const QString &plainText,
+                                           const QString &language = QString());
+    bool insertBlockFragment(int row, const NoteFragment &fragment, QString *error = nullptr);
+    int  replaceTextBlockRangeWithFragment(int row, const QString &before, const QString &after,
+                                           const NoteFragment &fragment, QString *error = nullptr);
     bool replaceTableCellsWithFragment(int row, int firstCell, const NoteFragment &fragment, QString *error = nullptr);
     int  replaceListItemRangeWithFragment(int row, int item, const QString &before, const QString &after,
                                           const NoteFragment &fragment, QString *error = nullptr);

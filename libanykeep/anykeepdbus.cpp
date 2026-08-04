@@ -15,10 +15,10 @@
 
 #include <algorithm>
 
+#include "anykeep.h"
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
 #include "notemanager.h"
-#include "anykeep.h"
 #include "shortcutsmanager.h"
 #include "stickynotesmanager.h"
 #include "windowgeometryutils.h"

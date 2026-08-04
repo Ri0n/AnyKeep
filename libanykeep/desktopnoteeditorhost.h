@@ -57,6 +57,7 @@ private:
     QQuickWidget                 *quick_ { nullptr };
     QPointer<QWidget>             focusWindow_;
     bool                          imageDragAccepted_ { false };
+    bool                          textDragAccepted_ { false };
     bool                          focusReported_ { false };
 };
 

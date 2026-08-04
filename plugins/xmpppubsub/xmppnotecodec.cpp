@@ -140,7 +140,8 @@ namespace {
             const bool isXmlDeclaration = !parent.isNull() && parent.isDocument() && node.previousSibling().isNull()
                 && declaration.target() == QStringLiteral("xml");
             if (!isXmlDeclaration)
-                return corrupt(QStringLiteral("Unsupported XML processing instruction in encrypted private-note record"));
+                return corrupt(
+                    QStringLiteral("Unsupported XML processing instruction in encrypted private-note record"));
         }
         if (node.isDocumentType() || node.isEntityReference())
             return corrupt(QStringLiteral("Unsupported XML node in encrypted private-note record"));
@@ -215,11 +216,9 @@ namespace {
         if (!unsupportedFeatures.isEmpty()) {
             auto list = unsupportedFeatures.values();
             std::sort(list.begin(), list.end());
-            return {
-                {},
-                unsupported(
-                    QStringLiteral("Unsupported required private-note extensions: %1").arg(list.join(QStringLiteral(", "))))
-            };
+            return { {},
+                     unsupported(QStringLiteral("Unsupported required private-note extensions: %1")
+                                     .arg(list.join(QStringLiteral(", ")))) };
         }
         return { features, {} };
     }
@@ -235,7 +234,8 @@ namespace {
             return { {}, corrupt(QStringLiteral("Invalid encrypted private-note XML envelope")) };
         }
 
-        if (const auto error = validateAttributes(result.root, {}, QStringLiteral("encrypted private-note envelope")); error)
+        if (const auto error = validateAttributes(result.root, {}, QStringLiteral("encrypted private-note envelope"));
+            error)
             return { {}, error };
         if (const auto error = validateChildren(
                 result.root, { QStringLiteral("node"), QStringLiteral("required"), QStringLiteral("content") },
@@ -273,11 +273,9 @@ namespace {
             = directChildren(result.content, XmppNoteCodec::protocolNamespace, QStringLiteral("note"));
         const auto &records = kind == XmppEncryptedPayload::Index ? indexRecords : noteRecords;
         if (records.size() != 1 || indexRecords.size() + noteRecords.size() != 1) {
-            return {
-                {},
-                corrupt(
-                    QStringLiteral("Encrypted private-note content must contain exactly one %1 record").arg(recordName(kind)))
-            };
+            return { {},
+                     corrupt(QStringLiteral("Encrypted private-note content must contain exactly one %1 record")
+                                 .arg(recordName(kind))) };
         }
         result.record = records.constFirst();
 
@@ -285,7 +283,8 @@ namespace {
             const auto nodes = directChildren(result.root, XmppNoteCodec::protocolNamespace, QStringLiteral("node"));
             if (nodes.size() != 1)
                 return { {}, corrupt(QStringLiteral("Encrypted private-note envelope must contain one node binding")) };
-            if (const auto error = validateLeaf(nodes.constFirst(), QStringLiteral("encrypted private-note node binding"));
+            if (const auto error
+                = validateLeaf(nodes.constFirst(), QStringLiteral("encrypted private-note node binding"));
                 error)
                 return { {}, error };
             const auto text = simpleText(nodes.constFirst(), QStringLiteral("node"));
@@ -327,7 +326,8 @@ namespace {
             return { {}, {} };
 
         const auto folder = folders.constFirst();
-        if (const auto error = validateAttributes(folder, {}, QStringLiteral("encrypted private-note folder"), false); error)
+        if (const auto error = validateAttributes(folder, {}, QStringLiteral("encrypted private-note folder"), false);
+            error)
             return { {}, error };
         if (hasNonWhitespaceDirectText(folder))
             return { {}, corrupt(QStringLiteral("Unexpected text in encrypted private-note folder")) };
@@ -349,15 +349,17 @@ namespace {
         QStringList result;
         result.reserve(segments.size());
         for (const auto &segmentElement : segments) {
-            if (const auto error = validateLeaf(segmentElement, QStringLiteral("encrypted private-note folder segment"));
+            if (const auto error
+                = validateLeaf(segmentElement, QStringLiteral("encrypted private-note folder segment"));
                 error)
                 return { {}, error };
             const auto segment = simpleText(segmentElement, QStringLiteral("folder segment"));
             if (!segment)
                 return { {}, segment.error };
             if (segment.value.isEmpty() || segment.value != segment.value.trimmed()) {
-                return { {},
-                         corrupt(QStringLiteral("Encrypted private-note folder segments must be non-empty and trimmed")) };
+                return {
+                    {}, corrupt(QStringLiteral("Encrypted private-note folder segments must be non-empty and trimmed"))
+                };
             }
             result.append(segment.value);
         }
@@ -393,7 +395,8 @@ namespace {
             return { indexRevision, {} };
         }
         if (values.size() != 1) {
-            return { {}, corrupt(QStringLiteral("Encrypted private-note index contains more than one content revision")) };
+            return { {},
+                     corrupt(QStringLiteral("Encrypted private-note index contains more than one content revision")) };
         }
         if (!required) {
             return { {}, corrupt(QStringLiteral("XMPP content-revision extension must be declared as required")) };
@@ -575,8 +578,8 @@ namespace {
                      cryptoError(CryptoError::InvalidArgument,
                                  QStringLiteral("Encrypted private-note XML record exceeds the size limit")) };
         }
-        const auto encrypted = SecureEnvelope::encryptAead(plaintext, masterKey, domainFor(kind),
-                                                            KeyDerivationProfile::PrivateNotes);
+        const auto encrypted
+            = SecureEnvelope::encryptAead(plaintext, masterKey, domainFor(kind), KeyDerivationProfile::PrivateNotes);
         if (!encrypted)
             return { {}, encrypted.error };
         payload.nonce      = encrypted.value.nonce;
@@ -601,7 +604,7 @@ namespace {
         }
         AeadCiphertext encrypted { payload.nonce, payload.tag, payload.cipherText };
         const auto     opened = SecureEnvelope::decryptAead(encrypted, masterKey, domainFor(expected),
-                                                         KeyDerivationProfile::PrivateNotes);
+                                                            KeyDerivationProfile::PrivateNotes);
         if (!opened)
             return { {}, opened.error };
         auto parsed = parseXml(opened.value, QStringLiteral("authenticated plaintext"));
@@ -718,8 +721,8 @@ namespace {
                                                   QStringLiteral("encrypted private-note content record"));
             error)
             return error;
-        if (const auto error
-            = validateChildren(record, { QStringLiteral("body") }, QStringLiteral("encrypted private-note content record"));
+        if (const auto error = validateChildren(record, { QStringLiteral("body") },
+                                                QStringLiteral("encrypted private-note content record"));
             error)
             return error;
         if (hasNonWhitespaceDirectText(record))

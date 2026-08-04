@@ -34,11 +34,11 @@ struct PluginMetadata {
 
 ANYKEEP_EXPORT QLocale pluginMetadataLocale();
 ANYKEEP_EXPORT bool    compareSemanticVersions(const QString &left, const QString &right, int *result,
-                                              QString *error = nullptr);
+                                               QString *error = nullptr);
 ANYKEEP_EXPORT bool    semanticVersionInRange(const QString &version, const QString &minimum, const QString &maximum,
-                                             QString *error = nullptr);
+                                              QString *error = nullptr);
 ANYKEEP_EXPORT bool    pluginMetadataFromJson(const QJsonObject &loaderMetadata, const QLocale &locale,
-                                             PluginMetadata *metadata, QString *error = nullptr);
+                                              PluginMetadata *metadata, QString *error = nullptr);
 
 } // namespace AnyKeep
 

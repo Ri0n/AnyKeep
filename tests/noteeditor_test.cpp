@@ -13,8 +13,8 @@
 #include "noteeditor.h"
 #include "notehighlighter.h"
 #include "noterule.h"
-#include "spellcheckprovider.h"
 #include "notetransfercontroller.h"
+#include "spellcheckprovider.h"
 
 using namespace AnyKeep;
 
@@ -65,12 +65,12 @@ Note plainNote(const QString &title = QStringLiteral("Title"), const QString &bo
 
 class RejectAllSpellCheckProvider final : public SpellCheckProvider {
 public:
-    QString id() const override { return QStringLiteral("test"); }
-    QString displayName() const override { return QStringLiteral("Test"); }
-    bool isValid() const override { return true; }
-    bool isCorrect(const QString &) const override { return false; }
+    QString     id() const override { return QStringLiteral("test"); }
+    QString     displayName() const override { return QStringLiteral("Test"); }
+    bool        isValid() const override { return true; }
+    bool        isCorrect(const QString &) const override { return false; }
     QStringList suggestions(const QString &) const override { return {}; }
-    void addToDictionary(const QString &) override { }
+    void        addToDictionary(const QString &) override { }
 
 protected:
     void onDisabled(DisableMode) override { }
@@ -86,12 +86,12 @@ private slots:
         QTextDocument document;
         document.setMarkdown(QStringLiteral("misspelled `inlinecode` misspelled"));
         NoteHighlighter highlighter(&document);
-        const auto extension = makeSpellCheckExtension(std::make_shared<RejectAllSpellCheckProvider>());
+        const auto      extension = makeSpellCheckExtension(std::make_shared<RejectAllSpellCheckProvider>());
         highlighter.addExtension(extension, NoteHighlighter::SpellCheck);
         highlighter.rehighlight();
 
-        const QString plain       = document.toPlainText();
-        const int     inlineStart = plain.indexOf(QStringLiteral("inlinecode"));
+        const QString plain          = document.toPlainText();
+        const int     inlineStart    = plain.indexOf(QStringLiteral("inlinecode"));
         int           spellingRanges = 0;
         for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
             if (!block.layout())
@@ -443,6 +443,54 @@ private slots:
         QVERIFY(editor.redo());
         QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AudioTranscriptRole).toString(),
                  QStringLiteral("Recognized text"));
+    }
+
+    void audioTitleChangesParticipateInUndo()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(plainNote(), drafts);
+
+        editor.setMarkdown(true);
+        const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
+        editor.model()->insertAudio(1, source, QStringLiteral("audio.m4a"), 2500);
+        editor.resetHistory();
+
+        QVERIFY(editor.model()->setAudioTitle(1, QStringLiteral("  Planning notes  ")));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AltRole).toString(),
+                 QStringLiteral("Planning notes"));
+        QVERIFY(editor.canUndo());
+        QVERIFY(editor.undo());
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AltRole).toString(),
+                 QStringLiteral("audio.m4a"));
+        QVERIFY(editor.redo());
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AltRole).toString(),
+                 QStringLiteral("Planning notes"));
+    }
+
+    void copiesSingleAudioBlockAsStructuredClipboardData()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(plainNote(), drafts);
+
+        editor.setMarkdown(true);
+        const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
+        editor.model()->insertAudio(1, source, QStringLiteral("Planning notes"), 2500);
+
+        QVERIFY(editor.copyBlockToClipboard(1));
+        const QMimeData *mimeData = QGuiApplication::clipboard()->mimeData();
+        QVERIFY(mimeData);
+        QVERIFY(mimeData->hasFormat(QString::fromLatin1(NoteTransferController::FragmentMimeType)));
+
+        NoteTransferController controller;
+        const auto             imported = controller.importMimeData(mimeData);
+        QVERIFY2(imported, qPrintable(imported.error));
+        QCOMPARE(imported.fragment.blocks.size(), 1);
+        QCOMPARE(imported.fragment.blocks.constFirst().type, NoteFragmentBlockType::Audio);
+        QCOMPARE(imported.fragment.blocks.constFirst().audio.sourceUri, source);
+        QCOMPARE(imported.fragment.blocks.constFirst().audio.title, QStringLiteral("Planning notes"));
+        QCOMPARE(imported.fragment.blocks.constFirst().audio.durationMs, qint64(2500));
     }
 
     void imagePresentationChangesParticipateInUndo()

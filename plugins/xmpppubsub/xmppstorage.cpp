@@ -34,7 +34,7 @@ namespace AnyKeep {
 namespace {
     constexpr int MinimumRetryDelaySeconds  = 30;
     constexpr int MaximumRetryDelaySeconds  = 300;
-    const QString AnyKeepKeychainService     = QStringLiteral("org.xmpp.private-notes");
+    const QString AnyKeepKeychainService    = QStringLiteral("org.xmpp.private-notes");
     const QString PsiKeychainService        = QStringLiteral("xmpp");
     const QString IndexRecordTemplateKey    = QStringLiteral("xmpp.xml.v1.index-template");
     const QString ContentRecordTemplateKey  = QStringLiteral("xmpp.xml.v1.content-template");
@@ -295,7 +295,9 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController 
                                     return;
                                 if (!rekeyed.ok) {
                                     if (settingsGuard)
-                                        settingsGuard->setKeyState(SecureEnvelope::keyId(canonical, KeyDerivationProfile::PrivateNotes), rekeyed.error);
+                                        settingsGuard->setKeyState(
+                                            SecureEnvelope::keyId(canonical, KeyDerivationProfile::PrivateNotes),
+                                            rekeyed.error);
                                     return;
                                 }
                                 installReceivedStorageKey(jid, canonical);
@@ -372,7 +374,8 @@ XmppConfig XmppStorage::readConfig() const
             const auto psiPassword = SecureKeyStore::readPassword(PsiKeychainService, config.jid);
             if (psiPassword) {
                 config.password = psiPassword.value;
-                if (!SecureKeyStore::writePassword(AnyKeepKeychainService, passwordKeyName(config.jid), config.password))
+                if (!SecureKeyStore::writePassword(AnyKeepKeychainService, passwordKeyName(config.jid),
+                                                   config.password))
                     settings.remove(QStringLiteral("storage.xmpppubsub.password"));
             } else {
                 const auto legacy = settings.value(QStringLiteral("storage.xmpppubsub.password")).toString();
@@ -1714,7 +1717,8 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
         }
         auto existing = SecureKeyStore::read(storageKeyName(jid));
         if (existing) {
-            widget->setKeyState(SecureEnvelope::keyId(existing.value, KeyDerivationProfile::PrivateNotes), tr("A key already exists"));
+            widget->setKeyState(SecureEnvelope::keyId(existing.value, KeyDerivationProfile::PrivateNotes),
+                                tr("A key already exists"));
             return;
         }
         const auto key   = SecureEnvelope::generateMasterKey();
@@ -1939,7 +1943,8 @@ QString XmppStorage::tooltip()
     }
     return tr("Account: %1\nPEP nodes: %2\nEncryption: end-to-end, key %3")
         .arg(config_.jid, config_.nodeName,
-             QString::fromLatin1(SecureEnvelope::keyId(config_.masterKey, KeyDerivationProfile::PrivateNotes).left(8).toHex()));
+             QString::fromLatin1(
+                 SecureEnvelope::keyId(config_.masterKey, KeyDerivationProfile::PrivateNotes).left(8).toHex()));
 }
 
 QString XmppStorage::storageId = QStringLiteral("xmpp-pubsub");

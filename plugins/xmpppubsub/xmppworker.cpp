@@ -278,7 +278,8 @@ void XmppWorker::createClient()
     connect(pepExtension_, &XmppPepExtension::payloadPublished, this, [this](const XmppEncryptedPayload &payload) {
         auto note = XmppNoteCodec::decodeIndex(payload, config_.masterKey, config_.indexNodeName());
         if (note) {
-            qInfo().noquote() << "Decoded private-note PEP index item" << payload.id << "revision=" << note.value.revision;
+            qInfo().noquote() << "Decoded private-note PEP index item" << payload.id
+                              << "revision=" << note.value.revision;
             emit remoteNotePublished(note.value);
             return;
         }
@@ -287,8 +288,8 @@ void XmppWorker::createClient()
         // is not a storage-wide failure. Ask the storage layer to refresh the
         // authoritative index; list refresh isolates unreadable items and can
         // still apply every valid record.
-        qWarning().noquote() << "Could not decode private-note PEP index item" << payload.id << ':' << note.error.message
-                             << "-- scheduling a full index refresh";
+        qWarning().noquote() << "Could not decode private-note PEP index item" << payload.id << ':'
+                             << note.error.message << "-- scheduling a full index refresh";
         emit remoteNodeInvalidated();
     });
     connect(pepExtension_, &XmppPepExtension::noteRetracted, this, &XmppWorker::remoteNoteRetracted);
@@ -489,7 +490,8 @@ QCoro::Task<XmppStatusResult> XmppWorker::verifyNodeTask(QString nodeName)
     }
     if (!nodeConfigIsPrivate(std::get<QXmppPubSubNodeConfig>(result))) {
         co_return XmppStatusResult {
-            false, false, false, QStringLiteral("The private-note PEP node is not persistent and private after configuration")
+            false, false, false,
+            QStringLiteral("The private-note PEP node is not persistent and private after configuration")
         };
     }
     co_return XmppStatusResult { true };
@@ -933,7 +935,7 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
 
             auto result = co_await pubSub_
                               ->requestItems<PrivateNotesPubSubItem>(QXmppUtils::jidToBareJid(config_.jid),
-                                                               config_.indexNodeName(), batch)
+                                                                     config_.indexNodeName(), batch)
                               .toFuture(this);
             if (generation != clientGeneration_)
                 co_return configurationChangedResult<XmppListResult>();
@@ -962,9 +964,10 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
     }
 
     // Compatibility fallback for servers without disco item IDs.
-    auto result = co_await pubSub_
-                      ->requestItems<PrivateNotesPubSubItem>(QXmppUtils::jidToBareJid(config_.jid), config_.indexNodeName())
-                      .toFuture(this);
+    auto result
+        = co_await pubSub_
+              ->requestItems<PrivateNotesPubSubItem>(QXmppUtils::jidToBareJid(config_.jid), config_.indexNodeName())
+              .toFuture(this);
     if (generation != clientGeneration_)
         co_return configurationChangedResult<XmppListResult>();
     if (const auto *error = std::get_if<QXmppError>(&result)) {
@@ -1036,10 +1039,10 @@ QCoro::Task<XmppNoteResult> XmppWorker::requestNoteTask(QString id, quint64 clie
         if (!index.ok)
             co_return index;
 
-        auto contentResult
-            = co_await pubSub_
-                  ->requestItem<PrivateNotesPubSubItem>(QXmppUtils::jidToBareJid(config_.jid), config_.contentNodeName(), id)
-                  .toFuture(this);
+        auto contentResult = co_await pubSub_
+                                 ->requestItem<PrivateNotesPubSubItem>(QXmppUtils::jidToBareJid(config_.jid),
+                                                                       config_.contentNodeName(), id)
+                                 .toFuture(this);
         if (clientGeneration != clientGeneration_)
             co_return configurationChangedResult<XmppNoteResult>();
         if (const auto *error = std::get_if<QXmppError>(&contentResult)) {
@@ -1238,10 +1241,10 @@ QCoro::Task<XmppNoteResult> XmppWorker::updateNoteIndexTask(XmppRemoteNote note)
         co_return output;
     }
 
-    auto published
-        = co_await pubSub_
-              ->publishOwnPepItem(config_.indexNodeName(), PrivateNotesPubSubItem(payload.value), privatePublishOptions())
-              .toFuture(this);
+    auto published = co_await pubSub_
+                         ->publishOwnPepItem(config_.indexNodeName(), PrivateNotesPubSubItem(payload.value),
+                                             privatePublishOptions())
+                         .toFuture(this);
     if (generation != clientGeneration_)
         co_return configurationChangedResult<XmppNoteResult>();
     if (const auto *error = resultError(published)) {
@@ -1502,7 +1505,8 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
     }
     if (config_.masterKey.size() == SecureEnvelope::MasterKeySize)
         output.candidates.append({ client_->configuration().resource(), config_.masterKey,
-                                   SecureEnvelope::keyId(config_.masterKey, KeyDerivationProfile::PrivateNotes), 0, true });
+                                   SecureEnvelope::keyId(config_.masterKey, KeyDerivationProfile::PrivateNotes), 0,
+                                   true });
 
     const auto bareJid               = QXmppUtils::jidToBareJid(config_.jid);
     auto [resources, discoveryError] = co_await onlinePrivateNotesResourcesTask();
@@ -1566,8 +1570,8 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
         QStringList batch;
         for (int i = offset; i < qMin(offset + BatchSize, ids.size()); ++i)
             batch.append(ids.at(i));
-        auto items
-            = co_await pubSub_->requestItems<PrivateNotesPubSubItem>(bareJid, config_.indexNodeName(), batch).toFuture(this);
+        auto items = co_await pubSub_->requestItems<PrivateNotesPubSubItem>(bareJid, config_.indexNodeName(), batch)
+                         .toFuture(this);
         if (const auto *error = std::get_if<QXmppError>(&items)) {
             setXmppFailure(output, *error, errorText(*error));
             co_return output;
@@ -1698,8 +1702,8 @@ QCoro::Task<XmppCleanupResult> XmppWorker::deleteObsoleteItemsTask(QStringList i
     const auto bareJid    = QXmppUtils::jidToBareJid(config_.jid);
     const auto generation = clientGeneration_;
     for (const auto &candidate : std::as_const(candidates)) {
-        auto current
-            = co_await pubSub_->requestItem<PrivateNotesPubSubItem>(bareJid, candidate.node, candidate.id).toFuture(this);
+        auto current = co_await pubSub_->requestItem<PrivateNotesPubSubItem>(bareJid, candidate.node, candidate.id)
+                           .toFuture(this);
         if (generation != clientGeneration_)
             co_return configurationChangedResult<XmppCleanupResult>();
         if (const auto *error = std::get_if<QXmppError>(&current)) {
@@ -1767,10 +1771,11 @@ QCoro::Task<XmppRekeyResult> XmppWorker::rekeyStorageTask(QList<QByteArray> keys
     output.total       = ids.size();
     const auto bareJid = QXmppUtils::jidToBareJid(config_.jid);
     for (const auto &id : ids) {
-        auto indexResult
-            = co_await pubSub_->requestItem<PrivateNotesPubSubItem>(bareJid, config_.indexNodeName(), id).toFuture(this);
+        auto indexResult = co_await pubSub_->requestItem<PrivateNotesPubSubItem>(bareJid, config_.indexNodeName(), id)
+                               .toFuture(this);
         auto contentResult
-            = co_await pubSub_->requestItem<PrivateNotesPubSubItem>(bareJid, config_.contentNodeName(), id).toFuture(this);
+            = co_await pubSub_->requestItem<PrivateNotesPubSubItem>(bareJid, config_.contentNodeName(), id)
+                  .toFuture(this);
         const auto *indexError   = std::get_if<QXmppError>(&indexResult);
         const auto *contentError = std::get_if<QXmppError>(&contentResult);
         if (indexError || contentError) {
@@ -1888,9 +1893,8 @@ QCoro::Task<> XmppWorker::handleKeySyncRequestTask(QString requestId, QString fr
         keySyncExtension_->reject(requestId);
         co_return;
     }
-    keySyncExtension_->replyWithKey(requestId,
-                                    SecureEnvelope::encodeRecoveryKey(config_.masterKey,
-                                                                      KeyDerivationProfile::PrivateNotes));
+    keySyncExtension_->replyWithKey(
+        requestId, SecureEnvelope::encodeRecoveryKey(config_.masterKey, KeyDerivationProfile::PrivateNotes));
 }
 
 QCoro::Task<> XmppWorker::cacheOwnOmemoBundleTask()

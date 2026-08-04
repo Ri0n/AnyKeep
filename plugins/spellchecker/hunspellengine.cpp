@@ -20,9 +20,9 @@
 #include <hunspell.hxx>
 #endif
 
+#include "anykeep_config.h"
 #include "hunspelldownloader.h"
 #include "pluginhostinterface.h"
-#include "anykeep_config.h"
 #include "utils.h"
 
 namespace AnyKeep {

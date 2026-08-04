@@ -78,6 +78,7 @@ private:
     bool                          closing_ { false };
     bool                          closeQueued_ { false };
     bool                          imageDragAccepted_ { false };
+    bool                          textDragAccepted_ { false };
 
     static QHash<QPair<QString, QString>, NoteDialog *> dialogs_;
     static QSet<NoteDialog *>                           allDialogs_;

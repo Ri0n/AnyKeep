@@ -1,8 +1,8 @@
 #ifndef NOTERULEMANAGER_H
 #define NOTERULEMANAGER_H
 
-#include "noterule.h"
 #include "anykeep_export.h"
+#include "noterule.h"
 
 #include <QObject>
 

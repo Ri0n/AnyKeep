@@ -75,9 +75,8 @@ public:
     static CryptoResult<QByteArray> decodeRecoveryKey(const QString &encoded);
     static CryptoResult<QByteArray> decodeRecoveryKey(const QString &encoded, KeyDerivationProfile profile);
     static QByteArray               deriveKey(const QByteArray &masterKey, KeyDomain domain);
-    static QByteArray               deriveKey(const QByteArray &masterKey, KeyDomain domain,
-                                               KeyDerivationProfile profile);
-    static QByteArray               associatedData(const AeadContext &context);
+    static QByteArray deriveKey(const QByteArray &masterKey, KeyDomain domain, KeyDerivationProfile profile);
+    static QByteArray associatedData(const AeadContext &context);
 
     /**
      * Raw domain-separated AES-256-GCM for portable protocol codecs.

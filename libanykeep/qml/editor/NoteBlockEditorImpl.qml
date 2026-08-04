@@ -579,6 +579,43 @@ ListView {
         return { editor: nearest.editor, position: nearest.editor.positionAt(nearest.x, nearest.y) }
     }
 
+    function insertExternalTextAtPoint(value, x, y, codeLanguage) {
+        const target = editorAtPoint(x, y)
+        if (!target || !target.editor
+                || typeof target.editor.insertExternalText !== "function") {
+            return false
+        }
+        const language = String(codeLanguage || "")
+        if (language.length > 0 && blockModel && blockModel.markdown
+                && !target.editor.codeDocument) {
+            value = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+            if (value.length === 0)
+                return false
+            return runEditTransaction("drop-code", function() {
+                prepareForStructuralMutation()
+                const row = Number(target.editor.blockIndex)
+                const type = blockModel.blockTypeAt(row)
+                let insertedRow = -1
+                if (!target.editor.titleDocument && (type === 0 || type === 6)) {
+                    insertedRow = root.editorBackend.insertDroppedCodeBlock(
+                                row,
+                                target.editor.markdownRange(0, target.position),
+                                target.editor.markdownRange(target.position, target.editor.length),
+                                value, language)
+                } else {
+                    insertedRow = Math.max(1, row + 1)
+                    blockModel.insertCodeBlock(insertedRow, language)
+                    blockModel.setBlockText(insertedRow, value)
+                }
+                if (insertedRow < 0)
+                    return false
+                focusBlock(insertedRow, true)
+                return true
+            })
+        }
+        return target.editor.insertExternalText(value, target.position)
+    }
+
     function selectionAnchorAtBoundary(boundary, direction) {
         const ordered = orderedEditors()
         if (direction < 0) {
@@ -905,7 +942,20 @@ ListView {
         const targetIndex = index + direction
         if (targetIndex < 0 || targetIndex >= ordered.length)
             return true
-        const target = ordered[targetIndex]
+        let target = ordered[targetIndex]
+        if ((event.key === Qt.Key_Up || event.key === Qt.Key_Down) && editor.tableCell) {
+            const currentRow = ordered.filter(function(candidate) {
+                return candidate.blockIndex === editor.blockIndex
+                        && candidate.tableRow === editor.tableRow
+            })
+            const targetRow = ordered.filter(function(candidate) {
+                return candidate.blockIndex === editor.blockIndex
+                        && candidate.tableRow === editor.tableRow + direction
+            })
+            const column = currentRow.indexOf(editor)
+            if (column >= 0 && column < targetRow.length)
+                target = targetRow[column]
+        }
         const position = direction < 0 ? target.length : 0
         applyDocumentSelection(keyboardSelectionAnchorEditor, keyboardSelectionAnchorPosition, target, position)
         return true
@@ -1071,20 +1121,16 @@ ListView {
                 listItemIndex: editor.listItemIndex,
                 tableCellIndex: editor.tableCellIndex,
                 tableRow: editor.tableRow,
-                markdown: selected ? root.editorBackend.markdownSelection(
-                                         editor.textDocument, rangeStart, rangeEnd) : "",
+                markdown: selected ? editor.markdownRange(rangeStart, rangeEnd) : "",
                 wholeEditor: !boundaryOnly && rangeStart === 0 && rangeEnd === editor.length,
                 boundaryOnly: boundaryOnly,
                 selectionStart: rangeStart,
-                before: selected ? root.editorBackend.markdownSelection(
-                                       editor.textDocument, 0, rangeStart)
+                before: selected ? editor.markdownRange(0, rangeStart)
                                  : (boundaryOnly && rangeStart > 0
-                                    ? root.editorBackend.markdownSelection(editor.textDocument, 0, rangeStart) : ""),
-                after: selected ? root.editorBackend.markdownSelection(
-                                      editor.textDocument, rangeEnd, editor.length)
+                                    ? editor.markdownRange(0, rangeStart) : ""),
+                after: selected ? editor.markdownRange(rangeEnd, editor.length)
                                 : (boundaryOnly && rangeEnd < editor.length
-                                   ? root.editorBackend.markdownSelection(editor.textDocument,
-                                                                     rangeEnd, editor.length) : "")
+                                   ? editor.markdownRange(rangeEnd, editor.length) : "")
             })
         }
 
@@ -1211,10 +1257,24 @@ ListView {
     }
 
     function copyActiveSelection() {
+        const mediaIndex = selectedImageIndex >= 0 ? selectedImageIndex
+                         : selectedAudioIndex >= 0 ? selectedAudioIndex
+                         : selectedAttachmentIndex
+        if (mediaIndex >= 0 && root.editorBackend
+                && typeof root.editorBackend.copyBlockToClipboard === "function")
+            return root.editorBackend.copyBlockToClipboard(mediaIndex)
         if (!hasDocumentSelection())
             return false
         copyDocumentSelection()
         return true
+    }
+
+    function renameAudioBlock(blockIndex, title) {
+        if (!blockModel || blockModel.blockTypeAt(blockIndex) !== 10)
+            return false
+        return runEditTransaction("rename-audio", function() {
+            return blockModel.setAudioTitle(blockIndex, String(title || ""))
+        })
     }
 
     function pasteStructuredSelection(editor) {
@@ -1415,15 +1475,15 @@ ListView {
                     return true
                 }
 
-                const tableCells = ranges.filter(range => range.tableCellIndex >= 0)
-                if (tableCells.length === ranges.length
+                const tableCells = affected.filter(range => range.tableCellIndex >= 0)
+                if (tableCells.length === affected.length
                         && tableCells.every(range => range.blockIndex === block)
                         && tableCells.every(range => range.tableRow === tableCells[0].tableRow)) {
                     // A selection crossing neighbouring cells in one table
                     // row is still a text selection, not a request to remove
                     // the row.  Native TextArea only knows the focused cell,
                     // so apply both boundary fragments explicitly.
-                    const start = tableCells[0]
+                    const start = ranges.find(range => range.boundaryOnly) || tableCells[0]
                     prepareForStructuralMutation()
                     for (const cell of tableCells) {
                         blockModel.setTableCell(block, cell.tableCellIndex, cell.before + cell.after)
@@ -2200,8 +2260,41 @@ ListView {
         if (!activeEditor || !editorBackend || activeEditor.editorField === "code"
                 || selectionTouchesTitle(activeEditor))
             return false
+        if (style === "code" && hasDocumentSelection()) {
+            const selectedText = selectedDocumentText().replace(/\r\n/g, "\n")
+                                                       .replace(/[\r\u2028\u2029]/g, "\n")
+            // Inline code is deliberately a one-line operation. Multiline
+            // selections either become one code block or remain unchanged if
+            // they contain a structural/non-text block.
+            if (selectedText.indexOf("\n") >= 0)
+                return convertTextSelectionToCodeBlock(selectedText)
+        }
         return runEditTransaction("inline-" + style, function() {
             applyInlineStyle(activeEditor, style)
+            return true
+        })
+    }
+
+    function convertTextSelectionToCodeBlock(plainText) {
+        if (!editorBackend.markdown || !hasDocumentSelection() || wholeDocumentSelected)
+            return false
+        const ranges = structuredSelectionRanges(true)
+        if (ranges.length === 0)
+            return false
+        for (const range of ranges) {
+            if (Number(range.blockIndex) <= 0 || blockModel.blockTypeAt(Number(range.blockIndex)) !== 0
+                    || Number(range.listItemIndex) >= 0 || Number(range.tableCellIndex) >= 0) {
+                return false
+            }
+        }
+        if (plainText.indexOf("\n") < 0)
+            return false
+        return runEditTransaction("selection-to-code-block", function() {
+            prepareForStructuralMutation()
+            const converted = editorBackend.convertSelectionToCodeBlock(ranges, plainText, "")
+            if (!converted.handled)
+                return false
+            focusBlock(converted.focusRow, true)
             return true
         })
     }
@@ -2326,6 +2419,12 @@ ListView {
             const selected = orderedEditors().filter(candidate => candidate.selectionStart !== candidate.selectionEnd
                                                       && !selectionTouchesTitle(candidate))
             openLinkEditor(selected.length === 1 ? selected[0] : editor)
+            return true
+        }
+        if (style === "code") {
+            if (editor && activeEditor !== editor)
+                activeEditor = editor
+            applyActiveInlineStyle("code")
             return true
         }
         const selected = orderedEditors().filter(candidate => candidate.selectionStart !== candidate.selectionEnd

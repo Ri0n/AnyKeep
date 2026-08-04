@@ -1750,6 +1750,13 @@ bool NoteBlockModel::setAudioTranscript(int row, const QString &transcript)
     return setData(index(row), transcript, AudioTranscriptRole);
 }
 
+bool NoteBlockModel::setAudioTitle(int row, const QString &title)
+{
+    if (blockTypeAt(row) != Audio)
+        return false;
+    return setData(index(row), title.trimmed(), AltRole);
+}
+
 void NoteBlockModel::appendAttachment(const QString &url, const QString &fileName, const QString &mediaType,
                                       qint64 size)
 {
@@ -2586,6 +2593,67 @@ int NoteBlockModel::removeSelectionRanges(const QList<NoteBlockSelectionRange> &
     return qMin(firstRow, blocks_.size() - 1);
 }
 
+int NoteBlockModel::replaceTextSelectionWithCodeBlock(const QList<NoteBlockSelectionRange> &ranges,
+                                                      const QString &plainText, const QString &language)
+{
+    if (!markdown_ || ranges.isEmpty())
+        return -1;
+    const int firstRow = ranges.constFirst().blockIndex;
+    const int lastRow  = ranges.constLast().blockIndex;
+    if (firstRow <= 0 || lastRow < firstRow || lastRow >= blocks_.size())
+        return -1;
+
+    QSet<int> selectedRows;
+    for (const NoteBlockSelectionRange &range : ranges) {
+        if (range.blockIndex < firstRow || range.blockIndex > lastRow || range.listItemIndex >= 0
+            || range.tableCellIndex >= 0 || selectedRows.contains(range.blockIndex)) {
+            return -1;
+        }
+        selectedRows.insert(range.blockIndex);
+    }
+    for (int row = firstRow; row <= lastRow; ++row) {
+        if (!selectedRows.contains(row) || blocks_.at(row).type != Text)
+            return -1;
+    }
+
+    QString codeText = plainText;
+    codeText.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    codeText.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    codeText.replace(QChar::LineSeparator, QLatin1Char('\n'));
+    codeText.replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+    if (!codeText.contains(QLatin1Char('\n')))
+        return -1;
+
+    QList<Block> replacement;
+    if (!ranges.constFirst().before.isEmpty()) {
+        Block prefix = blocks_.at(firstRow);
+        prefix.text  = ranges.constFirst().before;
+        replacement.append(prefix);
+    }
+    const int codeRow = firstRow + replacement.size();
+    Block     code;
+    code.type     = CodeBlock;
+    code.text     = codeText;
+    code.language = language.trimmed().toLower();
+    replacement.append(code);
+    if (!ranges.constLast().after.isEmpty()) {
+        Block suffix = blocks_.at(lastRow);
+        suffix.text  = ranges.constLast().after;
+        replacement.append(suffix);
+    }
+
+    beginResetModel();
+    for (int row = lastRow; row >= firstRow; --row)
+        blocks_.removeAt(row);
+    for (int index = 0; index < replacement.size(); ++index)
+        blocks_.insert(firstRow + index, replacement.at(index));
+    normalizeTitleBlock(&blocks_, markdown_);
+    normalizeTagLinePositions(&blocks_, markdown_, true);
+    endResetModel();
+    emit contentsChanged();
+    return codeRow;
+}
+
 bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Block> *blocks, QString *error)
 {
     if (fragment.kind != NoteFragmentKind::BlockSequence) {
@@ -3109,9 +3177,8 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
     // phantom empty column.
     const bool tableShapeChanged   = tableColumnCounts(sourceLines) != tableColumnCounts(canonicalLines);
     const bool preserveSourceLines = preserveInlineSourceLines || hasHtmlMedia || hasListContinuation(sourceLines)
-        || std::any_of(sourceLines.cbegin(), sourceLines.cend(), [](const QString &line) {
-               return quote.match(line).hasMatch();
-           })
+        || std::any_of(sourceLines.cbegin(), sourceLines.cend(),
+                       [](const QString &line) { return quote.match(line).hasMatch(); })
         || (hasTable(sourceLines) && (!hasTable(canonicalLines) || tableShapeChanged));
     const QStringList              &lines = preserveSourceLines ? sourceLines : canonicalLines;
     QList<Block>                    result;

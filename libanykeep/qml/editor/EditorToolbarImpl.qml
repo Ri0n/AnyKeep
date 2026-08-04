@@ -160,11 +160,11 @@ ToolBar {
                     Rectangle {
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
-                        width: root.microphoneRecording ? 7 : 6
+                        width: 7
                         height: width
-                        radius: root.microphoneRecording ? width / 2 : 1
-                        visible: !root.microphoneBusy && (root.microphoneMode === 1 || root.microphoneRecording)
-                        color: root.palette.highlight
+                        radius: width / 2
+                        visible: !root.microphoneBusy && root.microphoneRecording
+                        color: "#d32f2f"
                         border.width: 1
                         border.color: root.palette.base
                     }
@@ -395,7 +395,7 @@ ToolBar {
             font.family: "monospace"
             padding: 0
             enabled: root.editorBackend && root.editorBackend.markdown
-            Accessible.name: qsTr("Inline code")
+            Accessible.name: qsTr("Code")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
             onClicked: root.blockEditor.applyActiveInlineStyle("code")
@@ -554,7 +554,7 @@ ToolBar {
                     MenuItem { text: qsTr("Bold"); onTriggered: root.blockEditor.applyActiveInlineStyle("bold") }
                     MenuItem { text: qsTr("Italic"); onTriggered: root.blockEditor.applyActiveInlineStyle("italic") }
                     MenuItem { text: qsTr("Strikethrough"); onTriggered: root.blockEditor.applyActiveInlineStyle("strike") }
-                    MenuItem { text: qsTr("Inline code"); onTriggered: root.blockEditor.applyActiveInlineStyle("code") }
+                    MenuItem { text: qsTr("Code"); onTriggered: root.blockEditor.applyActiveInlineStyle("code") }
                     MenuItem { text: qsTr("Edit link"); onTriggered: root.blockEditor.editActiveLink() }
                 }
 
@@ -646,7 +646,7 @@ ToolBar {
                     MenuItem { text: qsTr("Bold"); onTriggered: root.blockEditor.applyActiveInlineStyle("bold") }
                     MenuItem { text: qsTr("Italic"); onTriggered: root.blockEditor.applyActiveInlineStyle("italic") }
                     MenuItem { text: qsTr("Strikethrough"); onTriggered: root.blockEditor.applyActiveInlineStyle("strike") }
-                    MenuItem { text: qsTr("Inline code"); onTriggered: root.blockEditor.applyActiveInlineStyle("code") }
+                    MenuItem { text: qsTr("Code"); onTriggered: root.blockEditor.applyActiveInlineStyle("code") }
                     MenuItem { text: qsTr("Edit link"); onTriggered: root.blockEditor.editActiveLink() }
                 }
 

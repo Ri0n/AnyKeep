@@ -1,8 +1,8 @@
 #ifndef ANYKEEP_AUDIOATTACHMENTRECORDER_H
 #define ANYKEEP_AUDIOATTACHMENTRECORDER_H
 
-#include "mediareference.h"
 #include "anykeep_export.h"
+#include "mediareference.h"
 
 #include <QObject>
 #include <memory>

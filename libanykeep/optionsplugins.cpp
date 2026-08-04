@@ -1,9 +1,9 @@
 #include "optionsplugins.h"
 
+#include "anykeep.h"
 #include "pluginiconimageprovider.h"
 #include "pluginlistmodel.h"
 #include "pluginmanager.h"
-#include "anykeep.h"
 #include "settingswindow.h"
 #include "themediconimageprovider.h"
 #include "ui_optionsplugins.h"

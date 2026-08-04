@@ -120,7 +120,9 @@ FocusScope {
     Keys.onPressed: function(event) {
         if (altEditor.activeFocus)
             return
-        if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) {
+        if (event.matches(StandardKey.Copy)) {
+            event.accepted = imageRoot.editorView.copyActiveSelection()
+        } else if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) {
             imageRoot.editorView.removeImageBlock(block.index, true)
             event.accepted = true
         } else if (event.key === Qt.Key_Escape) {

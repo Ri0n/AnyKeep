@@ -1,8 +1,8 @@
 #ifndef REMOTECACHESTORE_H
 #define REMOTECACHESTORE_H
 
-#include "note.h"
 #include "anykeep_export.h"
+#include "note.h"
 
 #include <QDateTime>
 #include <QList>

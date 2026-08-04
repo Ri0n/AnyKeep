@@ -29,10 +29,10 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QSystemTrayIcon>
 #include <QTimer>
 
+#include "anykeep.h"
 #include "macosxtray.h"
 #include "notemanager.h"
 #include "pluginhostinterface.h"
-#include "anykeep.h"
 #include "utils.h"
 
 typedef QPair<QString, QString> NoteIdent;

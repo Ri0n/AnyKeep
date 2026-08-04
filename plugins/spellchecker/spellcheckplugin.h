@@ -25,8 +25,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QObject>
 #include <memory>
 
-#include "deintegrationinterface.h"
 #include "anykeepplugininterface.h"
+#include "deintegrationinterface.h"
 #include "settingsproviderinterface.h"
 #include "trayinterface.h"
 
@@ -44,7 +44,7 @@ class SpellCheckPlugin : public QObject,
     Q_OBJECT
 #include "spellchecker_plugin_metadata.inc"
     Q_INTERFACES(AnyKeep::PluginInterface AnyKeep::RegularPluginInterface AnyKeep::PluginOptionsTooltipInterface
-                                                                        AnyKeep::SettingsProviderInterface)
+                                                                          AnyKeep::SettingsProviderInterface)
 public:
     enum DictFlag {
         DictNone           = 0,

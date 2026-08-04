@@ -11,9 +11,9 @@ the Free Software Foundation, either version 3 of the License, or
 #ifndef FOLDEROPERATIONSCONTROLLER_H
 #define FOLDEROPERATIONSCONTROLLER_H
 
+#include "anykeep_export.h"
 #include "foldercatalog.h"
 #include "note.h"
-#include "anykeep_export.h"
 
 #include <QObject>
 

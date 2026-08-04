@@ -10,7 +10,7 @@
 namespace AnyKeep::WindowGeometryUtils {
 
 ANYKEEP_EXPORT QRect constrainToAvailableScreens(const QRect &requested, const QList<QRect> &availableScreens,
-                                                const QSize &minimumSize = QSize(1, 1));
+                                                 const QSize &minimumSize = QSize(1, 1));
 ANYKEEP_EXPORT QRect constrainToCurrentScreens(const QRect &requested, const QSize &minimumSize = QSize(1, 1));
 
 } // namespace AnyKeep::WindowGeometryUtils

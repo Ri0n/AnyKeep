@@ -1,9 +1,15 @@
+#include <QClipboard>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
 #include <QPalette>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QtTest>
+
+#include <algorithm>
 
 #include "desktopnoteeditorhost.h"
 #include "draftmanager.h"
@@ -15,6 +21,45 @@
 
 using namespace AnyKeep;
 using namespace AnyKeep::TestSupport;
+
+namespace {
+
+QList<QQuickItem *> textEditors(QQuickItem *root)
+{
+    QList<QQuickItem *> result;
+    if (!root)
+        return result;
+    if (root->objectName() == QLatin1String("noteBlockTextArea"))
+        result.append(root);
+    for (QQuickItem *child : root->childItems())
+        result.append(textEditors(child));
+    return result;
+}
+
+QQuickItem *textEditorForBlock(QQuickItem *root, int blockIndex)
+{
+    for (QQuickItem *editor : textEditors(root))
+        if (editor->property("blockIndex").toInt() == blockIndex && editor->property("tableCellIndex").toInt() < 0
+            && editor->property("listItemIndex").toInt() < 0) {
+            return editor;
+        }
+    return nullptr;
+}
+
+QList<QQuickItem *> tableCellEditors(QQuickItem *root, int blockIndex)
+{
+    QList<QQuickItem *> result;
+    for (QQuickItem *editor : textEditors(root))
+        if (editor->property("blockIndex").toInt() == blockIndex && editor->property("tableCellIndex").toInt() >= 0) {
+            result.append(editor);
+        }
+    std::sort(result.begin(), result.end(), [](QQuickItem *left, QQuickItem *right) {
+        return left->property("tableCellIndex").toInt() < right->property("tableCellIndex").toInt();
+    });
+    return result;
+}
+
+} // namespace
 
 class EditorQmlTest : public QObject {
     Q_OBJECT
@@ -153,6 +198,625 @@ private slots:
         QVERIFY(qAbs(border.alphaF() - 0.28) < 0.01);
     }
 
+private:
+    void pendingSourceSyncPreservesToolbarSelection()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("before selected after"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(560, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        auto *blockEditor = ancestorWithProperty(body, "currentFindText");
+        QVERIFY(blockEditor);
+
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(body->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(body, "select", Q_ARG(int, 7), Q_ARG(int, 15)));
+        QCOMPARE(body->property("selectedText").toString(), QStringLiteral("selected"));
+
+        // Reapplying a pending model value is what used to reset the cursor
+        // when a toolbar button or another window took focus.
+        body->setProperty("sourceTextPending", true);
+        QVariant synchronized;
+        QVERIFY(QMetaObject::invokeMethod(body, "applyPendingSourceText", Q_RETURN_ARG(QVariant, synchronized)));
+        QVERIFY(synchronized.toBool());
+        QCOMPARE(body->property("selectionStart").toInt(), 7);
+        QCOMPARE(body->property("selectionEnd").toInt(), 15);
+
+        QVariant opened;
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "editActiveLink", Q_RETURN_ARG(QVariant, opened)));
+        QVERIFY(opened.toBool());
+        QObject *linkPopup = blockEditor->property("linkEditorPopup").value<QObject *>();
+        QVERIFY(linkPopup);
+        QCOMPARE(linkPopup->property("selectionStart").toInt(), 7);
+        QCOMPARE(linkPopup->property("selectionEnd").toInt(), 15);
+        QVERIFY(QMetaObject::invokeMethod(linkPopup, "close"));
+
+        QTRY_VERIFY(body->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(body, "select", Q_ARG(int, 7), Q_ARG(int, 15)));
+        body->setProperty("sourceTextPending", true);
+        QVERIFY(QMetaObject::invokeMethod(body, "applyPendingSourceText", Q_RETURN_ARG(QVariant, synchronized)));
+        QVERIFY(synchronized.toBool());
+
+        QVariant formatted;
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "applyActiveInlineStyle", Q_RETURN_ARG(QVariant, formatted),
+                                          Q_ARG(QVariant, QStringLiteral("code"))));
+        QVERIFY(formatted.toBool());
+        QTRY_VERIFY(editor.model()->contents().contains(QStringLiteral("`selected`")));
+    }
+
+    void codeActionConvertsMultilineTextSelectionWithoutBlankParagraphs()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("keep before selected first\n\nselected second keep after"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        const QString         originalText = editor.text();
+
+        host.resize(620, 440);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        auto *blockEditor = ancestorWithProperty(body, "currentFindText");
+        QVERIFY(blockEditor);
+
+        QVariant renderedValue;
+        QVERIFY(QMetaObject::invokeMethod(body, "currentPlainText", Q_RETURN_ARG(QVariant, renderedValue)));
+        const QString rendered   = renderedValue.toString();
+        const int     firstStart = rendered.indexOf(QStringLiteral("selected first"));
+        const int     lastEnd
+            = rendered.indexOf(QStringLiteral("selected second")) + QStringLiteral("selected second").size();
+        QVERIFY(firstStart >= 0);
+        QVERIFY(lastEnd > firstStart);
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(body->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(body, "select", Q_ARG(int, firstStart), Q_ARG(int, lastEnd)));
+        QTRY_VERIFY(body->property("selectedText").toString().contains(QStringLiteral("selected first")));
+        QTRY_VERIFY(body->property("selectedText").toString().contains(QStringLiteral("selected second")));
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_QuoteLeft, Qt::ControlModifier);
+
+        QTRY_COMPARE(editor.model()->rowCount(), 4);
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::Text));
+        QCOMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::CodeBlock));
+        QCOMPARE(editor.model()->blockTypeAt(3), int(NoteBlockModel::Text));
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::TextRole).toString(),
+                 QStringLiteral("selected first\nselected second"));
+        QVERIFY(!editor.model()
+                     ->data(editor.model()->index(2), NoteBlockModel::TextRole)
+                     .toString()
+                     .contains(QStringLiteral("\n\n")));
+        QVERIFY2(editor.text().contains(QStringLiteral("```\nselected first\nselected second\n```")),
+                 qPrintable(editor.text()));
+
+        QVERIFY(editor.canUndo());
+        QVERIFY(editor.undo());
+        QTRY_COMPARE(editor.text(), originalText);
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::Text));
+        QVERIFY(editor.redo());
+        QTRY_COMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::CodeBlock));
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::TextRole).toString(),
+                 QStringLiteral("selected first\nselected second"));
+
+        // The same action remains inline for a one-line selection.
+        QQuickItem *prefix = nullptr;
+        QTRY_VERIFY((prefix = textEditorForBlock(root, 1)));
+        prefix->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(prefix->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(prefix, "select", Q_ARG(int, 0), Q_ARG(int, 4)));
+        QVariant converted;
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "applyActiveInlineStyle", Q_RETURN_ARG(QVariant, converted),
+                                          Q_ARG(QVariant, QStringLiteral("code"))));
+        QVERIFY(converted.toBool());
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TextRole).toString(),
+                     QStringLiteral("`keep` before"));
+        int codeBlocks = 0;
+        for (int row = 0; row < editor.model()->rowCount(); ++row)
+            codeBlocks += editor.model()->blockTypeAt(row) == NoteBlockModel::CodeBlock;
+        QCOMPARE(codeBlocks, 1);
+    }
+
+    void deletingAcrossAdjacentCodeBlocksKeepsLiteralLineBreaks()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("```cpp\n"
+                                    "first 1\n"
+                                    "first 2\n"
+                                    "first 3\n"
+                                    "```\n\n"
+                                    "```python\n"
+                                    "second 1\n"
+                                    "second 2\n"
+                                    "second 3\n"
+                                    "```"),
+                     Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(620, 460);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *first = nullptr;
+        QQuickItem *last  = nullptr;
+        QTRY_VERIFY((first = textEditorForBlock(root, 1)));
+        QTRY_VERIFY((last = textEditorForBlock(root, 2)));
+        QVERIFY(first->property("codeDocument").toBool());
+        QVERIFY(last->property("codeDocument").toBool());
+        auto *blockEditor = ancestorWithProperty(first, "currentFindText");
+        QVERIFY(blockEditor);
+
+        const QString firstText  = first->property("text").toString();
+        const int     firstStart = firstText.indexOf(QStringLiteral("first 3")) + QStringLiteral("first ").size();
+        const int     lastEnd    = QStringLiteral("second ").size();
+        QVERIFY(firstStart > 0);
+        QVERIFY(QMetaObject::invokeMethod(
+            blockEditor, "applyDocumentSelection", Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(first))),
+            Q_ARG(QVariant, firstStart), Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(last))),
+            Q_ARG(QVariant, lastEnd), Q_ARG(QVariant, false)));
+        QTRY_VERIFY(first->property("selectionStart").toInt() != first->property("selectionEnd").toInt());
+        QTRY_VERIFY(last->property("selectionStart").toInt() != last->property("selectionEnd").toInt());
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_Delete);
+
+        QTRY_COMPARE(editor.model()->rowCount(), 3);
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::CodeBlock));
+        QCOMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::CodeBlock));
+        const QString firstRemainder
+            = editor.model()->data(editor.model()->index(1), NoteBlockModel::TextRole).toString();
+        const QString lastRemainder
+            = editor.model()->data(editor.model()->index(2), NoteBlockModel::TextRole).toString();
+        QCOMPARE(firstRemainder, QStringLiteral("first 1\nfirst 2\nfirst "));
+        QCOMPARE(lastRemainder, QStringLiteral("1\nsecond 2\nsecond 3"));
+        QVERIFY(!firstRemainder.contains(QStringLiteral("\n\n")));
+        QVERIFY(!lastRemainder.contains(QStringLiteral("\n\n")));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::LanguageRole).toString(),
+                 QStringLiteral("cpp"));
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::LanguageRole).toString(),
+                 QStringLiteral("python"));
+    }
+
+    void externalTextInsertionUsesDropPosition()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("alpha omega"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(520, 360);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+
+        QString firstLogLine = QStringLiteral("Qt Creator log one:");
+        for (int index = 0; index < 24; ++index)
+            firstLogLine += QStringLiteral(" payload");
+        const QString secondLogLine = QStringLiteral("Qt Creator log two");
+        QMimeData     mimeData;
+        mimeData.setData(QStringLiteral("text/plain;charset=utf-8"),
+                         (firstLogLine + QLatin1Char('\n') + secondLogLine).toUtf8());
+        const QPointF   dragPoint = body->mapToItem(root, QPointF(body->width() / 2, body->height() / 2));
+        QDragEnterEvent enterEvent(dragPoint.toPoint(), Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &enterEvent);
+        QVERIFY(enterEvent.isAccepted());
+        QCOMPARE(enterEvent.dropAction(), Qt::CopyAction);
+        QDropEvent dropEvent(dragPoint, Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &dropEvent);
+        QVERIFY(dropEvent.isAccepted());
+        QCOMPARE(dropEvent.dropAction(), Qt::CopyAction);
+        QTRY_VERIFY(editor.model()->contents().contains(QStringLiteral("Qt Creator log one")));
+        const QString droppedMarkdown = editor.model()->contents();
+        QVERIFY2(droppedMarkdown.contains(firstLogLine + QStringLiteral("  \n") + secondLogLine)
+                     || droppedMarkdown.contains(firstLogLine + QStringLiteral("<br>") + secondLogLine),
+                 qPrintable(droppedMarkdown));
+        QVERIFY(!droppedMarkdown.contains(QStringLiteral("ANYKEEP")));
+
+        QVariant inserted;
+        QVERIFY(QMetaObject::invokeMethod(body, "insertExternalText", Q_RETURN_ARG(QVariant, inserted),
+                                          Q_ARG(QVariant, QStringLiteral("browser")), Q_ARG(QVariant, 6)));
+        QVERIFY(inserted.toBool());
+        QTRY_VERIFY(editor.model()->contents().contains(QStringLiteral("browser")));
+        QCOMPARE(body->property("cursorPosition").toInt(), 13);
+    }
+
+    void findRunsWhileTheQueryIsTyped()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("alpha needle omega"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(560, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QVERIFY(QMetaObject::invokeMethod(root, "openFind"));
+        QQuickItem *field = nullptr;
+        QTRY_VERIFY((field = quickVisibleItemByName(root, QStringLiteral("noteFindField"))));
+        field->forceActiveFocus(Qt::ShortcutFocusReason);
+        QTRY_VERIFY(field->hasActiveFocus());
+        QTest::keyClicks(host.quickWidget(), QStringLiteral("needle"));
+
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QTRY_COMPARE(body->property("selectedText").toString(), QStringLiteral("needle"));
+    }
+
+    void tableShiftUpSelectsTheRowAndDeleteClearsIt()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("| Left | Right |\n| --- | --- |\n| lower left | lower right |"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(620, 440);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QList<QQuickItem *> cells;
+        QTRY_VERIFY(([&]() {
+            cells = tableCellEditors(root, 1);
+            return cells.size() == 4;
+        })());
+
+        QQuickItem *lowerRight = cells.at(3);
+        lowerRight->forceActiveFocus(Qt::MouseFocusReason);
+        lowerRight->setProperty("cursorPosition", lowerRight->property("length"));
+        QTRY_VERIFY(lowerRight->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Up, Qt::ShiftModifier);
+
+        QTRY_COMPARE(cells.at(2)->property("selectionStart").toInt(), 0);
+        QCOMPARE(cells.at(2)->property("selectionEnd").toInt(), cells.at(2)->property("length").toInt());
+        QCOMPARE(cells.at(3)->property("selectionStart").toInt(), 0);
+        QCOMPARE(cells.at(3)->property("selectionEnd").toInt(), cells.at(3)->property("length").toInt());
+        QTRY_VERIFY(cells.at(1)->hasActiveFocus());
+        QCOMPARE(cells.at(1)->property("cursorPosition").toInt(), cells.at(1)->property("length").toInt());
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_Delete);
+        QTRY_VERIFY(([&]() {
+            const QStringList values = editor.model()
+                                           ->data(editor.model()->index(1), NoteBlockModel::CellsRole)
+                                           .toMap()
+                                           .value(QStringLiteral("values"))
+                                           .toStringList();
+            return values.size() == 4 && values.at(2).isEmpty() && values.at(3).isEmpty();
+        })());
+        QTRY_VERIFY(cells.at(1)->hasActiveFocus());
+    }
+
+    void lineSelectionHelperSelectsOnlyTheClickedLine()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("first line\nsecond line\nthird line"), Note::PlainText);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(520, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+
+        QVariant ignored;
+        QVERIFY(QMetaObject::invokeMethod(body, "selectLineAt", Q_RETURN_ARG(QVariant, ignored), Q_ARG(QVariant, 15)));
+        QCOMPARE(body->property("selectedText").toString(), QStringLiteral("second line"));
+        QCOMPARE(body->property("selectionStart").toInt(), 11);
+        QCOMPARE(body->property("selectionEnd").toInt(), 22);
+    }
+
+    void enterAfterLinkLeavesLinkFormatting()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("[example](https://example.org)"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(520, 360);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        body->setProperty("cursorPosition", body->property("length"));
+        QTRY_VERIFY(body->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Return);
+        QTest::keyClicks(host.quickWidget(), QStringLiteral("plain"));
+
+        QTRY_VERIFY(editor.model()->contents().contains(QStringLiteral("plain")));
+        const QString markdown = editor.model()->contents();
+        QVERIFY2(markdown.contains(QStringLiteral("[example](https://example.org)")), qPrintable(markdown));
+        QVERIFY2(!markdown.contains(QStringLiteral("[plain](")), qPrintable(markdown));
+        QVERIFY2(!markdown.contains(QStringLiteral("example\nplain](")), qPrintable(markdown));
+    }
+
+    void plainTextDropKeepsLiteralNewlines()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("alpha omega"), Note::PlainText);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(520, 360);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QTRY_VERIFY(!textEditors(root).isEmpty());
+        QQuickItem *target = textEditors(root).constFirst();
+
+        QMimeData mimeData;
+        mimeData.setText(QStringLiteral("plain one\nplain two"));
+        const QPointF   point = target->mapToItem(root, QPointF(target->width() / 2, target->height() / 2));
+        QDragEnterEvent enterEvent(point.toPoint(), Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &enterEvent);
+        QVERIFY(enterEvent.isAccepted());
+        QDropEvent dropEvent(point, Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &dropEvent);
+        QVERIFY(dropEvent.isAccepted());
+
+        QTRY_VERIFY(editor.model()->contents().contains(QStringLiteral("plain one\nplain two")));
+    }
+
+    void codeMimeCreatesCodeBlockButCodeTargetKeepsItsBlock()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("alpha omega"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(560, 400);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+
+        QMimeData mimeData;
+        mimeData.setText(QStringLiteral("int main() {\n    return 0;\n}"));
+        mimeData.setData(QStringLiteral("text/x-c++src"), QByteArrayLiteral("code metadata"));
+        const QPointF   point = body->mapToItem(root, QPointF(body->width() / 2, body->height() / 2));
+        QDragEnterEvent enterEvent(point.toPoint(), Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &enterEvent);
+        QVERIFY(enterEvent.isAccepted());
+        QDropEvent dropEvent(point, Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &dropEvent);
+        QVERIFY(dropEvent.isAccepted());
+
+        int codeRow = -1;
+        QTRY_VERIFY(([&]() {
+            for (int row = 0; row < editor.model()->rowCount(); ++row) {
+                if (editor.model()->blockTypeAt(row) == NoteBlockModel::CodeBlock) {
+                    codeRow = row;
+                    return true;
+                }
+            }
+            return false;
+        })());
+        QCOMPARE(editor.model()->data(editor.model()->index(codeRow), NoteBlockModel::LanguageRole).toString(),
+                 QStringLiteral("cpp"));
+        QCOMPARE(editor.model()->data(editor.model()->index(codeRow), NoteBlockModel::TextRole).toString(),
+                 QStringLiteral("int main() {\n    return 0;\n}"));
+
+        QQuickItem *codeEditor = nullptr;
+        QTRY_VERIFY(([&]() {
+            for (QQuickItem *candidate : textEditors(root)) {
+                if (candidate->property("blockIndex").toInt() == codeRow
+                    && candidate->property("codeDocument").toBool()) {
+                    codeEditor = candidate;
+                    return true;
+                }
+            }
+            return false;
+        })());
+        QMimeData nestedMime;
+        nestedMime.setText(QStringLiteral("first\nsecond"));
+        nestedMime.setData(QStringLiteral("text/x-python"), QByteArrayLiteral("python metadata"));
+        const QPointF nestedPoint
+            = codeEditor->mapToItem(root, QPointF(codeEditor->width() / 2, codeEditor->height() / 2));
+        QDragEnterEvent nestedEnter(nestedPoint.toPoint(), Qt::CopyAction, &nestedMime, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &nestedEnter);
+        QVERIFY(nestedEnter.isAccepted());
+        QDropEvent nestedDrop(nestedPoint, Qt::CopyAction, &nestedMime, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &nestedDrop);
+        QVERIFY(nestedDrop.isAccepted());
+
+        int codeBlocks = 0;
+        for (int row = 0; row < editor.model()->rowCount(); ++row)
+            codeBlocks += editor.model()->blockTypeAt(row) == NoteBlockModel::CodeBlock;
+        QCOMPARE(codeBlocks, 1);
+        QTRY_VERIFY(editor.model()
+                        ->data(editor.model()->index(codeRow), NoteBlockModel::TextRole)
+                        .toString()
+                        .contains(QStringLiteral("first\nsecond")));
+        QCOMPARE(editor.model()->data(editor.model()->index(codeRow), NoteBlockModel::LanguageRole).toString(),
+                 QStringLiteral("cpp"));
+    }
+
+    void qtCreatorPlainTextCodeSurvivesFocusFlushAndFormatChanges()
+    {
+        const QString source
+            = QStringLiteral("std::vector<std::string> visibleLabels(const std::vector<Record> &records)\n"
+                             "{\n"
+                             "    std::vector<std::string> labels;\n"
+                             "    for (const auto &record : records) {\n"
+                             "        if (!record.hidden)\n"
+                             "            labels.push_back(record.label);\n"
+                             "    }\n"
+                             "    return labels;\n"
+                             "}");
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("alpha omega"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(620, 440);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+
+        // Qt Creator may advertise a source selection as text/plain only.
+        QMimeData mimeData;
+        mimeData.setText(source);
+        const QPointF   point = body->mapToItem(root, QPointF(body->width() / 2, body->height() / 2));
+        QDragEnterEvent enterEvent(point.toPoint(), Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &enterEvent);
+        QVERIFY(enterEvent.isAccepted());
+        QDropEvent dropEvent(point, Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &dropEvent);
+        QVERIFY(dropEvent.isAccepted());
+
+        int codeRow = -1;
+        QTRY_VERIFY(([&]() {
+            for (int row = 0; row < editor.model()->rowCount(); ++row) {
+                if (editor.model()->blockTypeAt(row) == NoteBlockModel::CodeBlock) {
+                    codeRow = row;
+                    return true;
+                }
+            }
+            return false;
+        })());
+        QCOMPARE(editor.model()->data(editor.model()->index(codeRow), NoteBlockModel::LanguageRole).toString(),
+                 QStringLiteral("cpp"));
+        QCOMPARE(editor.model()->data(editor.model()->index(codeRow), NoteBlockModel::TextRole).toString(), source);
+
+        // Window deactivation follows this same flush path. It must not apply
+        // a stale rendered source and roll the newly inserted block back.
+        QVERIFY(QMetaObject::invokeMethod(root, "flushPendingEditorChanges"));
+        QCOMPARE(editor.model()->data(editor.model()->index(codeRow), NoteBlockModel::TextRole).toString(), source);
+        QVERIFY(!editor.text().contains(QStringLiteral("ANYKEEPHARDLINEBREAK")));
+
+        editor.setMarkdown(false);
+        QTRY_VERIFY(!editor.isMarkdown());
+        const QString fencedSource = QStringLiteral("```cpp\n") + source + QStringLiteral("\n```");
+        QVERIFY2(editor.text().contains(fencedSource), qPrintable(editor.text()));
+        QVERIFY(!editor.text().contains(QStringLiteral("ANYKEEP")));
+
+        editor.setMarkdown(true);
+        QTRY_VERIFY(editor.isMarkdown());
+        int restoredCodeRow = -1;
+        for (int row = 0; row < editor.model()->rowCount(); ++row) {
+            if (editor.model()->blockTypeAt(row) == NoteBlockModel::CodeBlock) {
+                restoredCodeRow = row;
+                break;
+            }
+        }
+        QVERIFY(restoredCodeRow >= 0);
+        QCOMPARE(editor.model()->data(editor.model()->index(restoredCodeRow), NoteBlockModel::LanguageRole).toString(),
+                 QStringLiteral("cpp"));
+        QCOMPARE(editor.model()->data(editor.model()->index(restoredCodeRow), NoteBlockModel::TextRole).toString(),
+                 source);
+        QVERIFY(!editor.text().contains(QStringLiteral("ANYKEEP")));
+    }
+
+    void pythonClipboardUsesExactPlainTextInsteadOfRichHtmlFragments()
+    {
+        const QString source
+            = QStringLiteral("def test_cache_refresh_preserves_active_session(workspace: Workspace):\n"
+                             "    cache = workspace.create_cache()\n"
+                             "    session = workspace.open_session()\n"
+                             "    cache.store(\"theme\", \"midnight\")\n"
+                             "\n"
+                             "    monitor: EventMonitor = workspace.event_monitor()\n"
+                             "    client = workspace.client(event_sink=monitor)\n"
+                             "    clock: TestClock = workspace.test_clock\n"
+                             "\n"
+                             "    SessionAssertions.check_connected(client, session)\n"
+                             "    monitor.expect(\"CacheRefreshStarted\").wait(10)\n"
+                             "\n"
+                             "    with client.refresh_cache(force=True, namespace=\"settings\"):\n"
+                             "        monitor.expect(\"CacheRefreshFinished\", cache_id=cache.id).wait()");
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("paste here"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(620, 440);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        body->setProperty("cursorPosition", body->property("length"));
+        QTRY_VERIFY(body->hasActiveFocus());
+
+        auto *mimeData = new QMimeData;
+        mimeData->setText(source);
+        // Source editors commonly add presentation HTML. It must not outrank
+        // the exact text/plain representation once the payload is code.
+        mimeData->setHtml(QStringLiteral(
+            "<pre><span>def test_cache_refresh_preserves_active_session(workspace: Workspace):</span><br><br>"
+            "    cache = workspace.create_cache()<br><br>    session = workspace.open_session()<br><br>"
+            "    cache.store(&quot;theme&quot;, &quot;midnight&quot;)<br><br>"
+            "    monitor: EventMonitor = workspace.event_monitor()<br><br>"
+            "    with client.refresh_cache(force=True, namespace=&quot;settings&quot;):"
+            "</pre>"));
+        QGuiApplication::clipboard()->setMimeData(mimeData);
+
+        QVariant pasted;
+        QVERIFY(QMetaObject::invokeMethod(root, "pasteClipboard", Q_RETURN_ARG(QVariant, pasted)));
+        QVERIFY(pasted.toBool());
+
+        int codeRow    = -1;
+        int codeBlocks = 0;
+        QTRY_VERIFY(([&]() {
+            codeBlocks = 0;
+            codeRow    = -1;
+            for (int row = 0; row < editor.model()->rowCount(); ++row) {
+                if (editor.model()->blockTypeAt(row) != NoteBlockModel::CodeBlock)
+                    continue;
+                ++codeBlocks;
+                codeRow = row;
+            }
+            return codeBlocks > 0;
+        })());
+        QCOMPARE(codeBlocks, 1);
+        QCOMPARE(editor.model()->data(editor.model()->index(codeRow), NoteBlockModel::LanguageRole).toString(),
+                 QStringLiteral("python"));
+        QCOMPARE(editor.model()->data(editor.model()->index(codeRow), NoteBlockModel::TextRole).toString(), source);
+        const QString fencedSource = QStringLiteral("```python\n") + source + QStringLiteral("\n```");
+        QVERIFY2(editor.text().contains(fencedSource), qPrintable(editor.text()));
+    }
+
+private slots:
     void wholeListDragUsesItemLevelStructuralBoundaries()
     {
         const QString  document = QStringLiteral("title\n\n"
@@ -303,13 +967,9 @@ private slots:
         QCOMPARE(controller->property("targetKind").toString(), QStringLiteral("list"));
         QCOMPARE(controller->property("targetItem").toInt(), 0);
         QVERIFY(controller->property("blockAnimationActive").toBool());
-        QTest::qWait(30);
-        const qreal paragraphOffsetDuringAnimation = following->property("reorderOffset").toReal();
-        QVERIFY2(paragraphOffsetDuringAnimation < -1
-                     && paragraphOffsetDuringAnimation >= -structuralExtent - 1,
-                 qPrintable(QStringLiteral("The paragraph did not animate after crossing: offset=%1 extent=%2")
-                                .arg(paragraphOffsetDuringAnimation)
-                                .arg(structuralExtent)));
+        QTRY_VERIFY_WITH_TIMEOUT(following->property("reorderOffset").toReal() < -1
+                                     && following->property("reorderOffset").toReal() >= -structuralExtent - 1,
+                                 200);
 
         QTest::qWait(220);
         QVERIFY2(qAbs(destinationFirstMarker->mapToItem(root, QPointF()).y() - firstMarkerYBefore) < 1,
@@ -376,15 +1036,8 @@ private slots:
         QTest::mouseMove(&quick, QPointF(attachFrom.x(), pointerYForBoundary(destinationFirstBoundaryY)).toPoint(), 15);
         QTRY_COMPARE(controller->property("targetKind").toString(), QStringLiteral("list"));
         QTRY_COMPARE(controller->property("targetItem").toInt(), 0);
-        QTest::qWait(30);
-        const qreal firstMarkerDuringReverse = destinationFirstMarker->mapToItem(root, QPointF()).y();
-        QVERIFY2(firstMarkerDuringReverse > firstMarkerBeforeReverse + 1
-                     && firstMarkerDuringReverse < firstMarkerYBefore - 1,
-                 qPrintable(QStringLiteral("The first destination item did not animate backward: before=%1 during=%2 "
-                                           "destination=%3")
-                                .arg(firstMarkerBeforeReverse)
-                                .arg(firstMarkerDuringReverse)
-                                .arg(firstMarkerYBefore)));
+        QTRY_VERIFY_WITH_TIMEOUT(destinationFirstMarker->mapToItem(root, QPointF()).y() > firstMarkerBeforeReverse + 1,
+                                 200);
         QTRY_VERIFY(qAbs(destinationFirstMarker->mapToItem(root, QPointF()).y() - firstMarkerYBefore) < 1);
         QTest::mouseMove(&quick, QPointF(attachFrom.x(), pointerYForBoundary(destinationEndBoundaryY)).toPoint(), 15);
         QTRY_COMPARE(controller->property("targetKind").toString(), QStringLiteral("list"));
@@ -399,6 +1052,264 @@ private slots:
         QCOMPARE(model.data(model.index(2), NoteBlockModel::ItemsRole).toStringList(),
                  QStringList({ QStringLiteral("1111"), QStringLiteral("sdfsdf"), QStringLiteral("4354"),
                                QStringLiteral("fdsf"), QStringLiteral("2222") }));
+    }
+
+    void nestedListItemDragKeepsExactGapAndAnimatesParagraph()
+    {
+        const QString  document = QStringLiteral("list\n\n"
+                                                  "test\n\n"
+                                                  "- 1\n"
+                                                  "    - 2\n"
+                                                  "    - 3\n"
+                                                  "    - 4\n"
+                                                  "    - 5");
+        NoteBlockModel model;
+        model.load(document, true);
+        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(model.blockTypeAt(2), int(NoteBlockModel::BulletList));
+
+        QQuickWidget quick;
+        quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+        quick.resize(520, 420);
+        quick.rootContext()->setContextProperty(QStringLiteral("noteBlockModel"), &model);
+        QQmlComponent component(quick.engine());
+        component.setData(R"QML(
+            import QtQuick
+            import "qrc:/qml/editor" as Editor
+
+            Item {
+                QtObject {
+                    id: backend
+                    property bool markdown: true
+                    property string undoText: ""
+                    property string redoText: ""
+                    property bool canUndo: false
+                    property bool canRedo: false
+                    function beginHistoryTransaction(kind, state) {}
+                    function endHistoryTransaction(state) {}
+                }
+
+                Editor.NoteBlockEditorImpl {
+                    anchors.fill: parent
+                    blockModel: noteBlockModel
+                    editorBackend: backend
+                }
+            }
+        )QML",
+                          QUrl(QStringLiteral("qrc:/qml/NestedListDragHarness.qml")));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        QObject *harness = component.create();
+        QVERIFY2(harness, qPrintable(component.errorString()));
+        quick.setContent(QUrl(QStringLiteral("qrc:/qml/NestedListDragHarness.qml")), &component, harness);
+        quick.show();
+
+        auto *root = qobject_cast<QQuickItem *>(quick.rootObject());
+        QVERIFY(root);
+
+        QQuickItem *firstRow     = nullptr;
+        QQuickItem *firstMarker  = nullptr;
+        QQuickItem *sourceRow    = nullptr;
+        QQuickItem *sourceHandle = nullptr;
+        QQuickItem *textHandle   = nullptr;
+        QTRY_VERIFY((firstRow = quickItemByName(root, QStringLiteral("listRow-2-0"))));
+        QTRY_VERIFY((firstMarker = quickItemByName(root, QStringLiteral("listMarker-2-0"))));
+        QTRY_VERIFY((sourceRow = quickItemByName(root, QStringLiteral("listRow-2-1"))));
+        QTRY_VERIFY((sourceHandle = quickItemByName(root, QStringLiteral("listReorderHandle-2-1"))));
+        QTRY_VERIFY((textHandle = quickItemByName(root, QStringLiteral("blockReorderHandle-1"))));
+
+        auto *listBlock = ancestorWithProperty(sourceHandle, "itemSpacing");
+        auto *textBlock = ancestorWithProperty(textHandle, "reorderSourceActive");
+        QVERIFY(listBlock);
+        QVERIFY(textBlock);
+
+        auto *controller = root->findChild<QObject *>(QStringLiteral("editorReorderController"));
+        QVERIFY(controller);
+        QVERIFY(QMetaObject::invokeMethod(controller, "startListDrag", Q_ARG(QVariant, QVariant::fromValue(listBlock)),
+                                          Q_ARG(QVariant, QVariant::fromValue(sourceRow))));
+        QTRY_VERIFY(controller->property("dragging").toBool());
+        QVERIFY(!controller->property("wholeListBlockDrag").toBool());
+        QVERIFY(controller->property("blockAnimationActive").toBool());
+
+        const qreal expectedListGap = sourceRow->property("naturalHeight").toReal()
+            + (sourceRow->property("trailingSpace").toReal() <= 0 ? listBlock->property("itemSpacing").toReal() : 0);
+        QVERIFY2(qAbs(controller->property("listDraggedHeight").toReal() - expectedListGap) < 1,
+                 "A last list item must gain exactly one adjacency spacing at a list insertion target");
+
+        const auto moveDrag = [controller](qreal dy) {
+            return QMetaObject::invokeMethod(controller, "moveListDrag", Q_ARG(QVariant, 0.0), Q_ARG(QVariant, dy));
+        };
+        const qreal sourceTop = sourceRow->mapToItem(root, QPointF()).y();
+        const qreal textTop   = textBlock->mapToItem(root, QPointF()).y();
+        const int   finalDy   = qFloor(textTop - sourceTop - 100);
+
+        int listTargetDy = 0;
+        for (int dy = -1; dy >= finalDy; --dy) {
+            QVERIFY(moveDrag(dy));
+            QCoreApplication::processEvents();
+            if (controller->property("targetKind").toString() == QStringLiteral("list")
+                && controller->property("targetItem").toInt() == 0) {
+                listTargetDy = dy;
+                break;
+            }
+        }
+        QVERIFY2(listTargetDy < 0, "The slow upward drag never reached the gap before the first list item");
+        QTRY_VERIFY(qAbs(firstRow->property("dropSpace").toReal() - expectedListGap) < 1);
+        const qreal firstMarkerYAtListTarget = firstMarker->mapToItem(root, QPointF()).y();
+
+        const qreal structuralExtent = controller->property("structuralDraggedHeight").toReal();
+        QVERIFY2(qAbs(structuralExtent - expectedListGap) < 1,
+                 "A partial list range must keep one structural extent across list and block targets");
+        bool  sawAnimatedFrame             = false;
+        bool  firstRowMovedBeforeParagraph = false;
+        qreal maximumFirstMarkerDeviation  = 0;
+        for (int dy = listTargetDy - 1; dy >= finalDy; --dy) {
+            QVERIFY(moveDrag(dy));
+            QCoreApplication::processEvents();
+            QTest::qWait(25);
+            const qreal paragraphOffset = textBlock->property("reorderOffset").toReal();
+            maximumFirstMarkerDeviation
+                = qMax(maximumFirstMarkerDeviation,
+                       qAbs(firstMarker->mapToItem(root, QPointF()).y() - firstMarkerYAtListTarget));
+            if (paragraphOffset <= 0.5
+                && qAbs(firstMarker->mapToItem(root, QPointF()).y() - firstMarkerYAtListTarget) > 1) {
+                firstRowMovedBeforeParagraph = true;
+                break;
+            }
+            if (paragraphOffset > 0.5) {
+                sawAnimatedFrame = paragraphOffset < structuralExtent - 0.5;
+                break;
+            }
+        }
+        QVERIFY2(!firstRowMovedBeforeParagraph,
+                 "The remaining list started a second animation before the paragraph moved");
+        QVERIFY2(sawAnimatedFrame, "The paragraph jumped directly to its final position instead of animating there");
+        for (int frame = 0; frame < 20; ++frame) {
+            QTest::qWait(10);
+            maximumFirstMarkerDeviation
+                = qMax(maximumFirstMarkerDeviation,
+                       qAbs(firstMarker->mapToItem(root, QPointF()).y() - firstMarkerYAtListTarget));
+        }
+        QTRY_VERIFY(qAbs(textBlock->property("reorderOffset").toReal() - structuralExtent) < 1);
+        QTRY_VERIFY(qAbs(firstMarker->mapToItem(root, QPointF()).y() - firstMarkerYAtListTarget) < 1);
+        QVERIFY2(maximumFirstMarkerDeviation < 1,
+                 "The visible remaining list item moved during the list-to-block transition");
+
+        QVERIFY(QMetaObject::invokeMethod(controller, "cancelDrag"));
+        QTRY_VERIFY(!controller->property("dragging").toBool());
+        QTRY_VERIFY(qAbs(firstRow->property("dropSpace").toReal()) < 1);
+        QTRY_VERIFY(qAbs(sourceRow->property("collapseSpace").toReal()) < 1);
+        QTRY_VERIFY(qAbs(textBlock->property("reorderOffset").toReal()) < 1);
+
+        QQuickItem *levelHandle = nullptr;
+        QQuickItem *thirdRow    = nullptr;
+        QTRY_VERIFY((levelHandle = quickItemByName(root, QStringLiteral("listLevelReorderHandle-2-1-1"))));
+        QTRY_VERIFY((thirdRow = quickItemByName(root, QStringLiteral("listRow-2-2"))));
+        auto *editorView = qobject_cast<QQuickItem *>(controller->property("editorView").value<QObject *>());
+        QVERIFY(editorView);
+        auto *contentItem = qobject_cast<QQuickItem *>(editorView->property("contentItem").value<QObject *>());
+        QVERIFY(contentItem);
+        auto *thirdContent = qobject_cast<QQuickItem *>(thirdRow->property("dragContent").value<QObject *>());
+        QVERIFY(thirdContent);
+        auto *sourceContent = qobject_cast<QQuickItem *>(sourceRow->property("dragContent").value<QObject *>());
+        QVERIFY(sourceContent);
+        QTRY_VERIFY(thirdContent->mapToItem(contentItem, QPointF()).y()
+                    > sourceContent->mapToItem(contentItem, QPointF()).y() + 1);
+        const qreal sourceTopBeforeDrag = sourceContent->mapToItem(contentItem, QPointF()).y();
+        const qreal thirdTopBeforeDrag  = thirdContent->mapToItem(contentItem, QPointF()).y();
+
+        const qreal   handleHeightBeforeDrag = levelHandle->height();
+        const qreal   handleTopBeforeDrag    = levelHandle->mapToItem(root, QPointF()).y();
+        const QPointF handleFrom
+            = levelHandle->mapToItem(root, QPointF(levelHandle->width() / 2, levelHandle->height() / 2));
+        const QPointF handleTo = handleFrom + QPointF(0, -24);
+        QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, handleFrom.toPoint());
+        moveMouseAlong(&quick, handleFrom, handleTo, 4);
+        QTRY_VERIFY(controller->property("dragging").toBool());
+        QTest::qWait(220);
+        QVERIFY2(qAbs(levelHandle->height() - handleHeightBeforeDrag) < 1,
+                 "The active level handle collapsed with its source rows");
+        QQuickItem *handlePreview = nullptr;
+        QTRY_VERIFY((handlePreview = quickItemByName(root, QStringLiteral("editorDragPreview-4"))));
+        QVERIFY2(qAbs(handlePreview->height() - handleHeightBeforeDrag) < 1,
+                 "The level-handle preview did not preserve its captured height");
+        const qreal expectedHandlePreviewTop = handleTopBeforeDrag + handleTo.y() - handleFrom.y();
+        QVERIFY2(qAbs(handlePreview->mapToItem(root, QPointF()).y() - expectedHandlePreviewTop) < 2,
+                 "The level-handle preview did not follow the drag translation");
+        QVERIFY(QMetaObject::invokeMethod(controller, "cancelDrag"));
+        QTRY_VERIFY(!controller->property("dragging").toBool());
+        QTest::mouseRelease(&quick, Qt::LeftButton, Qt::NoModifier, handleTo.toPoint());
+        QTRY_VERIFY(!levelHandle->property("dragging").toBool());
+        QTRY_VERIFY(qAbs(levelHandle->height() - handleHeightBeforeDrag) < 1);
+
+        QVariant markerCenterX;
+        QVERIFY(QMetaObject::invokeMethod(listBlock, "markerCenterXForIndent", Q_RETURN_ARG(QVariant, markerCenterX),
+                                          Q_ARG(QVariant, 1)));
+        QVERIFY(QMetaObject::invokeMethod(
+            controller, "startListRangeDrag", Q_ARG(QVariant, QVariant::fromValue(listBlock)), Q_ARG(QVariant, 1),
+            Q_ARG(QVariant, 5), Q_ARG(QVariant, QVariant::fromValue(levelHandle)), Q_ARG(QVariant, markerCenterX)));
+        QTRY_VERIFY(controller->property("dragging").toBool());
+
+        const qreal textBoundary = textBlock->mapToItem(contentItem, QPointF()).y();
+        const qreal listBoundary = firstRow->mapToItem(contentItem, QPointF()).y();
+        const qreal switchProbe  = (textBoundary + listBoundary) / 2 - 2;
+        const qreal rangeDy      = switchProbe - controller->property("startDraggedTopY").toReal();
+        QVERIFY(rangeDy < 0);
+        QVERIFY(moveDrag(rangeDy));
+        QCoreApplication::processEvents();
+
+        QCOMPARE(controller->property("targetKind").toString(), QStringLiteral("block"));
+        const qreal thirdTopAfterMove = thirdTopBeforeDrag + rangeDy;
+        const qreal textBottom        = textBoundary + textBlock->height();
+        QVERIFY2(thirdTopAfterMove > textBottom,
+                 qPrintable(QStringLiteral("The fixture must reach the paragraph boundary before the second "
+                                           "dragged row overlaps it: third=%1 textBottom=%2 dy=%3")
+                                .arg(thirdTopAfterMove)
+                                .arg(textBottom)
+                                .arg(rangeDy)));
+        QTRY_VERIFY(textBlock->property("reorderOffset").toReal() > 0.5);
+
+        QVERIFY(QMetaObject::invokeMethod(controller, "cancelDrag"));
+        QTRY_VERIFY(!controller->property("dragging").toBool());
+        QCOMPARE(model.contents(), document);
+    }
+
+    void regressionPendingSourceSyncPreservesToolbarSelection() { pendingSourceSyncPreservesToolbarSelection(); }
+
+    void regressionCodeActionConvertsMultilineTextSelectionWithoutBlankParagraphs()
+    {
+        codeActionConvertsMultilineTextSelectionWithoutBlankParagraphs();
+    }
+
+    void regressionDeletingAcrossAdjacentCodeBlocksKeepsLiteralLineBreaks()
+    {
+        deletingAcrossAdjacentCodeBlocksKeepsLiteralLineBreaks();
+    }
+
+    void regressionExternalTextInsertionUsesDropPosition() { externalTextInsertionUsesDropPosition(); }
+
+    void regressionFindRunsWhileTheQueryIsTyped() { findRunsWhileTheQueryIsTyped(); }
+
+    void regressionTableShiftUpSelectsTheRowAndDeleteClearsIt() { tableShiftUpSelectsTheRowAndDeleteClearsIt(); }
+
+    void regressionLineSelectionHelperSelectsOnlyTheClickedLine() { lineSelectionHelperSelectsOnlyTheClickedLine(); }
+
+    void regressionEnterAfterLinkLeavesLinkFormatting() { enterAfterLinkLeavesLinkFormatting(); }
+
+    void regressionPlainTextDropKeepsLiteralNewlines() { plainTextDropKeepsLiteralNewlines(); }
+
+    void regressionCodeMimeCreatesCodeBlockButCodeTargetKeepsItsBlock()
+    {
+        codeMimeCreatesCodeBlockButCodeTargetKeepsItsBlock();
+    }
+
+    void regressionQtCreatorPlainTextCodeSurvivesFocusFlushAndFormatChanges()
+    {
+        qtCreatorPlainTextCodeSurvivesFocusFlushAndFormatChanges();
+    }
+
+    void regressionPythonClipboardUsesExactPlainTextInsteadOfRichHtmlFragments()
+    {
+        pythonClipboardUsesExactPlainTextInsteadOfRichHtmlFragments();
     }
 };
 

@@ -447,13 +447,14 @@ void XmppKeyResolutionController::updateSummary()
             if (candidate.key.isEmpty())
                 inaccessible += candidate.indexItemCount;
         }
-        nextSummary = tr("Canonical key: %1\nNotes found: %2\nNotes whose key is unavailable: %3\n\n"
-                         "For each accessible note the client will publish encrypted content first and its index second. "
-                         "Inaccessible notes are never overwritten or deleted. The operation can be safely resumed "
-                         "after interruption.")
-                          .arg(QString::fromLatin1(canonical->keyId.left(8).toHex()))
-                          .arg(audit_.totalIndexItems)
-                          .arg(inaccessible);
+        nextSummary
+            = tr("Canonical key: %1\nNotes found: %2\nNotes whose key is unavailable: %3\n\n"
+                 "For each accessible note the client will publish encrypted content first and its index second. "
+                 "Inaccessible notes are never overwritten or deleted. The operation can be safely resumed "
+                 "after interruption.")
+                  .arg(QString::fromLatin1(canonical->keyId.left(8).toHex()))
+                  .arg(audit_.totalIndexItems)
+                  .arg(inaccessible);
     }
     if (summary_ == nextSummary)
         return;

@@ -31,7 +31,7 @@ considered supported merely because `QTextDocument` happens to render it.
 | Emphasis | Inline | `*italic*`; editable with `Ctrl+I`. |
 | Strong emphasis | Inline | `**bold**`; editable with `Ctrl+B`. |
 | Strikethrough | Inline | `~~text~~`; editable with `Ctrl+Shift+S`. |
-| Inline code | Inline | Backtick code spans; editable with `Ctrl+Backtick`. |
+| Code | Contextual | `Ctrl+Backtick` creates an inline code span for one line. A multiline selection containing only text blocks becomes one fenced code block. |
 | Underline | Inline | `<ins>text</ins>` is canonical and editable with `Ctrl+U`. `<u>text</u>` is accepted as an input alias and rewritten as `<ins>` after editing. |
 | External links | Inline | `[label](URL)` with editable label and destination; `Ctrl+K` opens the link editor. Inline styles in labels are preserved. |
 | Hard breaks in table cells | Inline | Stored internally as a line break and written as `<br>`. |

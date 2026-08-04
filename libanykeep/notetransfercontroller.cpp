@@ -29,7 +29,7 @@ namespace {
 
     QString markdownFromPlainText(const QString &text)
     {
-        QStringList escapedLines;
+        QStringList   escapedLines;
         const QString normalized = normalizePlainText(text);
         for (const QString &line : normalized.split(QLatin1Char('\n'), Qt::KeepEmptyParts)) {
             QString escaped;

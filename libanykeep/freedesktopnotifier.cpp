@@ -30,13 +30,13 @@ bool FreedesktopNotifier::notifyError(const QString &summary, const QString &bod
         QLatin1String("org.freedesktop.Notifications"), QLatin1String("/org/freedesktop/Notifications"),
         QLatin1String("org.freedesktop.Notifications"), QLatin1String("Notify"));
     message << QLatin1String("AnyKeep") // app_name
-            << uint(0)                 // replaces_id
+            << uint(0)                  // replaces_id
             << QLatin1String("anykeep") // app_icon
-            << summary                 // summary
-            << body                    // body
-            << QStringList()           // actions
-            << hints                   // hints
-            << 5000;                   // expire_timeout
+            << summary                  // summary
+            << body                     // body
+            << QStringList()            // actions
+            << hints                    // hints
+            << 5000;                    // expire_timeout
 
     QDBusReply<uint> reply = bus.call(message, QDBus::Block, 1500);
     return reply.isValid();

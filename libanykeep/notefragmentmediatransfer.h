@@ -1,8 +1,8 @@
 #ifndef NOTEFRAGMENTMEDIATRANSFER_H
 #define NOTEFRAGMENTMEDIATRANSFER_H
 
-#include "notefragment.h"
 #include "anykeep_export.h"
+#include "notefragment.h"
 
 #include <QList>
 #include <QString>

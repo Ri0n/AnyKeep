@@ -29,6 +29,10 @@ FocusScope {
     }
 
     Keys.onPressed: function(event) {
+        if (event.matches(StandardKey.Copy)) {
+            event.accepted = attachmentRoot.editorView.copyActiveSelection()
+            return
+        }
         if (event.modifiers)
             return
         if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) {

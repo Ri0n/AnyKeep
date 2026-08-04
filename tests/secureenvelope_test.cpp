@@ -86,10 +86,9 @@ void SecureEnvelopeTest::rawAeadRoundTrip()
 
 void SecureEnvelopeTest::privateNotesProfileRoundTrip()
 {
-    const auto key = SecureEnvelope::generateMasterKey();
+    const auto key       = SecureEnvelope::generateMasterKey();
     const auto encrypted = SecureEnvelope::encryptAead(QByteArrayLiteral("portable plaintext"), key,
-                                                        KeyDomain::StorageIndex,
-                                                        KeyDerivationProfile::PrivateNotes);
+                                                       KeyDomain::StorageIndex, KeyDerivationProfile::PrivateNotes);
     QVERIFY2(encrypted, qPrintable(encrypted.error.message));
     const auto opened = SecureEnvelope::decryptAead(encrypted.value, key, KeyDomain::StorageIndex,
                                                     KeyDerivationProfile::PrivateNotes);
