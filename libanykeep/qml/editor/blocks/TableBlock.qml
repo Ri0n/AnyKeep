@@ -13,6 +13,11 @@ Item {
     required property var block
     property var tableData: block.table
     property int columns: Number(tableData.columns || 0)
+    property int cachedColumnCount: 0
+    property var comfortableColumnWidths: []
+    property var columnMaxCells: []
+    property var distributedColumnWidths: []
+    readonly property real minimumColumnWidth: editorView.touchMode ? 56 : 42
     readonly property bool tableFocused: {
         const editor = tableRoot.editorView.activeEditor
         return Boolean(editor && editor.tableCell
@@ -27,15 +32,150 @@ Item {
 
     function syncCells() {
         const values = tableData.values || []
+        const shapeChanged = cachedColumnCount !== columns
+                || cellModel.count !== values.length
         while (cellModel.count > values.length)
             cellModel.remove(cellModel.count - 1)
         while (cellModel.count < values.length)
-            cellModel.append({ cellText: "" })
+            cellModel.append({ cellText: "", comfortableWidth: 0 })
         for (let index = 0; index < values.length; ++index) {
             const value = values[index] || ""
             if (cellModel.get(index).cellText !== value)
                 cellModel.setProperty(index, "cellText", value)
         }
+        if (shapeChanged) {
+            cachedColumnCount = columns
+            resetComfortableWidths()
+        }
+    }
+
+    function resetComfortableWidths() {
+        const widths = []
+        const owners = []
+        for (let column = 0; column < columns; ++column) {
+            widths.push(1)
+            owners.push(-1)
+        }
+        for (let index = 0; index < cellModel.count; ++index)
+            cellModel.setProperty(index, "comfortableWidth", 0)
+        comfortableColumnWidths = widths
+        columnMaxCells = owners
+        distributeColumnWidths()
+        scheduleAllComfortableWidthUpdates()
+    }
+
+    function scheduleAllComfortableWidthUpdates() {
+        Qt.callLater(function() {
+            if (!tableRoot)
+                return
+            for (let index = 0; index < cellRepeater.count; ++index) {
+                const cell = cellRepeater.itemAt(index)
+                if (cell)
+                    cell.scheduleComfortableWidthUpdate()
+            }
+        })
+    }
+
+    function updateComfortableWidth(cellIndex, width) {
+        if (cellIndex < 0 || cellIndex >= cellModel.count || columns <= 0)
+            return
+        width = Math.max(1, Number(width) || 0)
+        const previous = Number(cellModel.get(cellIndex).comfortableWidth || 0)
+        if (Math.abs(previous - width) < 0.25)
+            return
+        cellModel.setProperty(cellIndex, "comfortableWidth", width)
+
+        const column = cellIndex % columns
+        const oldMaximum = Number(comfortableColumnWidths[column] || 1)
+        const oldOwner = Number(columnMaxCells[column] === undefined
+                                ? -1 : columnMaxCells[column])
+        let newMaximum = oldMaximum
+        let newOwner = oldOwner
+        if (oldOwner < 0 || width > oldMaximum) {
+            newMaximum = width
+            newOwner = cellIndex
+        } else if (oldOwner === cellIndex && width < oldMaximum) {
+            newMaximum = 1
+            newOwner = -1
+            for (let candidate = column; candidate < cellModel.count;
+                 candidate += columns) {
+                const candidateWidth = Number(cellModel.get(candidate).comfortableWidth || 0)
+                if (candidateWidth > newMaximum) {
+                    newMaximum = candidateWidth
+                    newOwner = candidate
+                }
+            }
+        }
+        if (newOwner === oldOwner && Math.abs(newMaximum - oldMaximum) < 0.25)
+            return
+
+        const widths = comfortableColumnWidths.slice()
+        const owners = columnMaxCells.slice()
+        widths[column] = newMaximum
+        owners[column] = newOwner
+        comfortableColumnWidths = widths
+        columnMaxCells = owners
+        columnDistributionTimer.restart()
+    }
+
+    function distributeColumnWidths() {
+        if (columns <= 0) {
+            distributedColumnWidths = []
+            return
+        }
+
+        const available = Math.max(0, Number(width) || 0)
+        const minimum = Math.min(minimumColumnWidth, available / columns)
+        const result = new Array(columns).fill(0)
+        let remainingWidth = available
+        let remainingColumns = []
+        for (let column = 0; column < columns; ++column)
+            remainingColumns.push(column)
+
+        // Clamp narrow weighted columns first, then distribute the remaining
+        // space proportionally. This prevents a long URL in one column from
+        // making its neighbours unusable without consulting any cell geometry.
+        while (remainingColumns.length > 0) {
+            let weightSum = 0
+            for (const column of remainingColumns)
+                weightSum += Math.max(1, Number(comfortableColumnWidths[column] || 1))
+            const clamped = []
+            for (const column of remainingColumns) {
+                const weight = Math.max(1, Number(comfortableColumnWidths[column] || 1))
+                if (remainingWidth * weight / weightSum < minimum)
+                    clamped.push(column)
+            }
+            if (clamped.length === 0) {
+                let assigned = 0
+                for (let position = 0; position < remainingColumns.length; ++position) {
+                    const column = remainingColumns[position]
+                    const columnWidth = position === remainingColumns.length - 1
+                            ? remainingWidth - assigned
+                            : remainingWidth * Math.max(1, Number(comfortableColumnWidths[column] || 1))
+                              / weightSum
+                    result[column] = Math.max(0, columnWidth)
+                    assigned += columnWidth
+                }
+                break
+            }
+            for (const column of clamped) {
+                result[column] = minimum
+                remainingWidth -= minimum
+            }
+            remainingColumns = remainingColumns.filter(function(column) {
+                return clamped.indexOf(column) < 0
+            })
+        }
+        distributedColumnWidths = result
+    }
+
+    onWidthChanged: distributeColumnWidths()
+    onMinimumColumnWidthChanged: distributeColumnWidths()
+
+    Timer {
+        id: columnDistributionTimer
+        interval: 0
+        onTriggered: tableRoot.distributeColumnWidths()
     }
 
     function focusCell(cellIndex, position) {
@@ -238,6 +378,7 @@ Item {
                 blockIndex: tableRoot.block.index
                 required property int index
                 required property string cellText
+                required property real comfortableWidth
                 readonly property int columnIndex: tableRoot.columns > 0
                                                    ? index % tableRoot.columns : -1
                 readonly property bool headerCell: index < tableRoot.columns
@@ -251,8 +392,15 @@ Item {
                                                         tableCell,
                                                         tableColumnReorder.targetBoundary,
                                                         tableColumnReorder.draggedExtent)
-                Layout.fillWidth: true
+                readonly property real assignedColumnWidth: columnIndex >= 0
+                        && columnIndex < tableRoot.distributedColumnWidths.length
+                        ? Number(tableRoot.distributedColumnWidths[columnIndex]) : 0
+                property bool comfortableWidthUpdatePending: false
+                Layout.fillWidth: false
                 Layout.fillHeight: true
+                Layout.preferredWidth: assignedColumnWidth
+                Layout.minimumWidth: assignedColumnWidth
+                Layout.maximumWidth: assignedColumnWidth
                 font.bold: headerCell
                 sourceText: tableRoot.editorView.markdownTableCellForRendering(cellText)
                 textFormat: TextEdit.MarkdownText
@@ -263,6 +411,24 @@ Item {
                 canRemoveTableRow: cellModel.count / tableRoot.columns > 1
                 canRemoveTableColumn: tableRoot.columns > 1
                 transform: Translate { x: tableCell.columnReorderOffsetX }
+
+                function scheduleComfortableWidthUpdate() {
+                    if (comfortableWidthUpdatePending)
+                        return
+                    comfortableWidthUpdatePending = true
+                    Qt.callLater(function() {
+                        if (!tableCell)
+                            return
+                        tableCell.comfortableWidthUpdatePending = false
+                        const backend = tableRoot.editorView.editorBackend
+                        if (!backend)
+                            return
+                        const contentWidth = backend.intrinsicTextWidth(tableCell.textDocument)
+                        tableRoot.updateComfortableWidth(
+                                    tableCell.index,
+                                    contentWidth + tableCell.leftPadding + tableCell.rightPadding)
+                    })
+                }
 
                 Behavior on columnReorderOffsetX {
                     enabled: tableColumnReorder.dragging
@@ -374,7 +540,14 @@ Item {
                     // parse its line separators for a second time.
                     sourceTextPending = false
                 }
-                onTextChanged: commitChangedText(activeFocus)
+                onTextChanged: {
+                    commitChangedText(activeFocus)
+                    scheduleComfortableWidthUpdate()
+                }
+                onFontChanged: scheduleComfortableWidthUpdate()
+                onLeftPaddingChanged: scheduleComfortableWidthUpdate()
+                onRightPaddingChanged: scheduleComfortableWidthUpdate()
+                Component.onCompleted: scheduleComfortableWidthUpdate()
                 onLinkActivated: link => Qt.openUrlExternally(link)
 
                 Item {

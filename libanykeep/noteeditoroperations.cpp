@@ -883,6 +883,20 @@ void NoteEditor::applyInlineHtmlFormatting(QQuickTextDocument *quickDocument) co
     }
 }
 
+qreal NoteEditor::intrinsicTextWidth(QQuickTextDocument *quickDocument) const
+{
+    if (!quickDocument || !quickDocument->textDocument())
+        return 0;
+
+    // Measure an unconstrained clone instead of changing the live document's
+    // textWidth. The clone keeps all character formats, inline objects, and
+    // nested QTextDocument structures, while avoiding a wrap/layout feedback
+    // loop in the QML item that owns the original document.
+    std::unique_ptr<QTextDocument> document(quickDocument->textDocument()->clone());
+    document->setTextWidth(-1);
+    return document->idealWidth();
+}
+
 QString NoteEditor::markdownText(QQuickTextDocument *quickDocument) const
 {
     if (!quickDocument || !quickDocument->textDocument())

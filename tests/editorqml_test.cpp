@@ -160,6 +160,62 @@ private slots:
         QCOMPARE(bottomBorderOwners, 2);
     }
 
+    void tableColumnsUseCachedIntrinsicWidths()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("| A | B |\n| --- | --- |\n| MMMMMMMM | **MMMMMMMM** |"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::Table));
+        host.resize(620, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+
+        QList<QQuickItem *> cells;
+        QTRY_VERIFY(([&]() {
+            cells = tableCellEditors(root, 1);
+            return cells.size() == 4;
+        })());
+        QTRY_VERIFY(cells.at(2)->property("comfortableWidth").toReal() > 0);
+        QTRY_VERIFY(cells.at(3)->property("comfortableWidth").toReal() > 0);
+
+        const qreal plainWidth = cells.at(2)->property("comfortableWidth").toReal();
+        const qreal boldWidth  = cells.at(3)->property("comfortableWidth").toReal();
+        QVERIFY2(boldWidth > plainWidth, qPrintable(QStringLiteral("bold=%1 plain=%2").arg(boldWidth).arg(plainWidth)));
+        QTRY_VERIFY(cells.at(1)->width() > cells.at(0)->width());
+        QVERIFY(qAbs(cells.at(0)->width() - cells.at(2)->width()) < 0.5);
+        QVERIFY(qAbs(cells.at(1)->width() - cells.at(3)->width()) < 0.5);
+
+        editor.model()->setTableCell(1, 2, QStringLiteral("MMMM\nMMMM"));
+        QTRY_VERIFY(cells.at(2)->property("comfortableWidth").toReal() < plainWidth * 0.8);
+
+        const QList<qreal> intrinsicBeforeResize { cells.at(0)->property("comfortableWidth").toReal(),
+                                                   cells.at(1)->property("comfortableWidth").toReal(),
+                                                   cells.at(2)->property("comfortableWidth").toReal(), boldWidth };
+        const qreal        totalWidthBeforeResize = cells.at(0)->width() + cells.at(1)->width();
+        host.resize(820, 420);
+        QTRY_VERIFY(cells.at(0)->width() + cells.at(1)->width() > totalWidthBeforeResize);
+        for (int index = 0; index < cells.size(); ++index)
+            QCOMPARE(cells.at(index)->property("comfortableWidth").toReal(), intrinsicBeforeResize.at(index));
+
+        cells.at(2)->forceActiveFocus(Qt::MouseFocusReason);
+        cells.at(2)->setProperty("text", QString(80, QLatin1Char('W')));
+        QTRY_VERIFY(cells.at(2)->property("comfortableWidth").toReal() > boldWidth * 2);
+        QTRY_VERIFY(cells.at(0)->width() > cells.at(1)->width());
+
+        editor.model()->insertTableRow(1, 2);
+        QTRY_VERIFY(([&]() {
+            cells = tableCellEditors(root, 1);
+            return cells.size() == 6;
+        })());
+        for (QQuickItem *cell : std::as_const(cells))
+            QTRY_VERIFY(cell->property("comfortableWidth").toReal() > 0);
+    }
+
     void codeBlockBorderUsesTableGridColor()
     {
         Note note(new NoteData(nullptr));

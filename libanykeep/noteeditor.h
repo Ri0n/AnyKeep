@@ -138,6 +138,7 @@ public:
     Q_INVOKABLE bool        setInlineFormat(QQuickTextDocument *document, int start, int end, const QString &style,
                                             bool enabled);
     Q_INVOKABLE void        applyInlineHtmlFormatting(QQuickTextDocument *document) const;
+    Q_INVOKABLE qreal       intrinsicTextWidth(QQuickTextDocument *document) const;
     Q_INVOKABLE QString     markdownText(QQuickTextDocument *document) const;
     Q_INVOKABLE QString     markdownTableCellText(QQuickTextDocument *document) const;
     Q_INVOKABLE QString     markdownSelection(QQuickTextDocument *document, int start, int end) const;
