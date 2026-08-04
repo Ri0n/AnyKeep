@@ -43,7 +43,7 @@
 &lt;li&gt;Vitaly Tonkacheyev &lt;/li&gt;&lt;/ul&gt;
 and to other contributors whose names have been lost or not yet added.
 </source>
-        <translation>Alle vertalingen worden gedaan en beheerd op &lt;a href=&quot;https://app.transifex.com/rion/anykeep&quot;&gt;Transifex&lt;/a&gt;, en zijn afkomstig van diverse bijdragers. &lt;br /&gt;&lt;br /&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Veel dank aan:&lt;/span&gt;
+        <translation>Alle vertalingen worden gedaan en beheerd op &lt;a href=&quot;https://app.transifex.com/rion/anykeep&quot;&gt;Transifex, en zijn afkomstig van diverse bijdragers. &lt;br /&gt;&lt;br /&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Veel dank aan:&lt;/span&gt;
 &lt;ul&gt;
 &lt;li&gt;Eduardo Delmoral&lt;/li&gt;
 &lt;li&gt;Heimen Stoffels&lt;/li&gt;
@@ -465,7 +465,7 @@ You can quit and investigate the problem, or start with a new empty draft store.
 %1</source>
         <translation>AnyKeep kan geen concepten uit de beveiligde crashomgeving lezen. Bestaande concepten zijn echter niet verwijderd.
 
-Sluit AnyKeep af en onderzoek het probleem, of start zonder conceptopslag. Door deze opnieuw aan te maken, worden onleesbare concepten in een reservekopiemap geplaatst, maar zijn ze niet beschikbaar binnen AnyKeep.
+Sluit AnyKeep af en onderzoek het probleem, of start zonder conceptopslag. Door deze opnieuw aan te maken, worden onleesbare concepten in een reservekopiemap geplaatst, maar zijn ze niet beschikbaar binnen QtNote.
 
 %1</translation>
     </message>
@@ -507,7 +507,7 @@ Sluit AnyKeep af en onderzoek het probleem, of start zonder conceptopslag. Door 
     <message>
         <location filename="../libanykeep/anykeep.cpp" line="320"/>
         <source>First Start</source>
-        <translation>Welkom bij AnyKeep</translation>
+        <translation>Welkom bij QtNote</translation>
     </message>
     <message>
         <location filename="../libanykeep/anykeep.cpp" line="321"/>
@@ -517,7 +517,7 @@ To start using just click on pencil in the system tray and choose &quot;New&quot
 Notes will be automatically saved to special storage, so you should not worry about this.</source>
         <translation>Dit is de eerste keer dat je AnyKeep opstart.
 
-Klik op het potlood in het systeemvak en kies &apos;Nieuw&apos; om een notitie te creëren.
+Klik op het potlood in het systeemvak en kies ‘Nieuw’ om een notitie te creëren.
 Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze nooit kwijtraakt.</translation>
     </message>
     <message>
@@ -666,7 +666,7 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libanykeep/notewidget.cpp" line="509"/>
         <source>HTML files (*.html)</source>
-        <translation>HTML-bestanden (*.html)</translation>
+        <translation>Html-bestanden (*.html)</translation>
     </message>
     <message>
         <location filename="../libanykeep/notewidget.cpp" line="517"/>
@@ -869,7 +869,7 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libanykeep/stickynotesmanager.cpp" line="94"/>
         <source>AnyKeep must be running to restore sticky notes after sign-in. Start it automatically with the system?</source>
-        <translation>AnyKeep dient actief te zijn om plaknotities na het aanmelden te kunnen bewaren. Wil je AnyKeep automatisch opstarten?</translation>
+        <translation>AnyKeep dient actief te zijn om plaknotities na het aanmelden te kunnen bewaren. Wil je QtNote automatisch opstarten?</translation>
     </message>
     <message>
         <location filename="../libanykeep/stickynotesmanager.cpp" line="97"/>
