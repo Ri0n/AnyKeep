@@ -9,8 +9,12 @@ FocusScope {
     required property var block
     property var playback: audioRoot.editorView.editorBackend ? audioRoot.editorView.editorBackend.audioPlayback : null
     property var transcription: audioRoot.editorView.audioTranscriptionController
-    property bool selected: audioRoot.editorView.selectedAudioIndex === block.index
+    readonly property bool individuallySelected:
+        audioRoot.editorView.selectedAudioIndex === block.index
+    readonly property bool selected: individuallySelected
+                                     || audioRoot.editorView.structuralBlockSelected(block.index)
     property bool transcriptExpanded: false
+    property bool renaming: false
     readonly property bool current: playback && playback.currentSourceUri === block.url
     readonly property bool playing: current && playback.playing
     readonly property bool loading: current && playback.loading
@@ -34,6 +38,30 @@ FocusScope {
                 || transcriptionBlocked || transcribing)
             return false
         return transcription.transcribeAudio(block.index, block.url, block.audioDuration)
+    }
+
+    function beginRename() {
+        renameField.text = block.alt.length > 0 ? block.alt : qsTr("Audio recording")
+        renaming = true
+        Qt.callLater(function() {
+            renameField.forceActiveFocus()
+            renameField.selectAll()
+        })
+    }
+
+    function finishRename() {
+        if (!renaming)
+            return
+        renaming = false
+        editorView.renameAudioBlock(block.index, renameField.text)
+        selectAndFocus()
+    }
+
+    function cancelRename() {
+        if (!renaming)
+            return
+        renaming = false
+        selectAndFocus()
     }
 
     function formatTime(milliseconds) {
@@ -115,14 +143,34 @@ FocusScope {
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 1
+                    spacing: audioRoot.editorView.touchMode ? 4 : 3
 
                     Label {
                         Layout.fillWidth: true
+                        visible: !audioRoot.renaming
                         text: audioRoot.block.alt.length > 0
                               ? audioRoot.block.alt : qsTr("Audio recording")
                         elide: Text.ElideMiddle
                         font.bold: audioRoot.selected
+                    }
+
+                    TextField {
+                        id: renameField
+                        objectName: "audioTitleField-" + audioRoot.block.index
+                        Layout.fillWidth: true
+                        visible: audioRoot.renaming
+                        selectByMouse: true
+                        font: audioRoot.editorView.editorFont
+                        placeholderText: qsTr("Audio recording title")
+                        onAccepted: audioRoot.finishRename()
+                        onActiveFocusChanged: {
+                            if (!activeFocus && audioRoot.renaming)
+                                audioRoot.finishRename()
+                        }
+                        Keys.onEscapePressed: function(event) {
+                            audioRoot.cancelRename()
+                            event.accepted = true
+                        }
                     }
 
                     Slider {
@@ -259,6 +307,7 @@ FocusScope {
                   ? qsTr("Show transcript") : qsTr("Transcribe audio")
             visible: audioRoot.transcription
                      && audioRoot.transcription.audioTranscriptionAvailable
+            height: visible ? implicitHeight : 0
             enabled: !audioRoot.transcriptionBlocked && !audioRoot.transcribing
             onTriggered: {
                 if (audioRoot.block.audioTranscript.length > 0)
@@ -272,13 +321,14 @@ FocusScope {
             visible: audioRoot.block.audioTranscript.length > 0
                      && audioRoot.transcription
                      && audioRoot.transcription.audioTranscriptionAvailable
+            height: visible ? implicitHeight : 0
             enabled: !audioRoot.transcriptionBlocked && !audioRoot.transcribing
             onTriggered: audioRoot.requestTranscription()
         }
         MenuSeparator { }
         MenuItem {
             text: qsTr("Rename")
-            onTriggered: renameDialog.openForCurrentTitle()
+            onTriggered: audioRoot.beginRename()
         }
         MenuSeparator { }
         MenuItem {
@@ -287,34 +337,4 @@ FocusScope {
         }
     }
 
-    Dialog {
-        id: renameDialog
-        objectName: "audioRenameDialog-" + audioRoot.block.index
-        parent: Overlay.overlay
-        modal: true
-        title: qsTr("Rename audio recording")
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        width: Math.min(420, Math.max(260, parent ? parent.width - 24 : 360))
-
-        function openForCurrentTitle() {
-            titleField.text = audioRoot.block.alt.length > 0
-                    ? audioRoot.block.alt : qsTr("Audio recording")
-            open()
-            Qt.callLater(function() {
-                titleField.forceActiveFocus()
-                titleField.selectAll()
-            })
-        }
-
-        onAccepted: audioRoot.editorView.renameAudioBlock(audioRoot.block.index, titleField.text)
-
-        TextField {
-            id: titleField
-            objectName: "audioTitleField-" + audioRoot.block.index
-            width: parent.width
-            placeholderText: qsTr("Audio recording title")
-            selectByMouse: true
-            onAccepted: renameDialog.accept()
-        }
-    }
 }

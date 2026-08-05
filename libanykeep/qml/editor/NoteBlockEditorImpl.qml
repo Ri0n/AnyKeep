@@ -1044,6 +1044,28 @@ ListView {
         return false
     }
 
+    function structuralBlockSelected(blockIndex) {
+        if (wholeDocumentSelected)
+            return true
+        if (selectionSpansEditors && documentSelectionStartEditor
+                && documentSelectionEndEditor) {
+            const firstRow = Math.min(documentSelectionStartEditor.blockIndex,
+                                      documentSelectionEndEditor.blockIndex)
+            const lastRow = Math.max(documentSelectionStartEditor.blockIndex,
+                                     documentSelectionEndEditor.blockIndex)
+            if (blockIndex > firstRow && blockIndex < lastRow)
+                return true
+        }
+        if (documentSelectionBlankBoundary >= 0) {
+            const ranges = structuredSelectionRanges(false)
+            for (const range of ranges) {
+                if (range.wholeEditor && Number(range.blockIndex) === blockIndex)
+                    return true
+            }
+        }
+        return false
+    }
+
     function selectedDocumentText() {
         if (wholeDocumentSelected)
             return blockModel ? blockModel.contents : ""
