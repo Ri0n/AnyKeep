@@ -48,12 +48,18 @@ set(xmpppubsub_sources
     xmppomemopubsubitems.h
     xmpppersistenttruststorage.cpp
     xmpppersistenttruststorage.h
-    xmppworker.cpp
+    worker/connection.cpp
+    worker/maintenance.cpp
+    worker/notes.cpp
+    worker/omemo.cpp
     xmppworker.h
     xmppsettings.qrc
     xmppsettingscontroller.cpp
     xmppsettingscontroller.h
-    xmppstorage.cpp
+    storage/cache_folders.cpp
+    storage/core.cpp
+    storage/crud.cpp
+    storage/events_retry.cpp
     xmppstorage.h
     xmppplugin.cpp
     xmppplugin.h
@@ -79,6 +85,7 @@ if(ANYKEEP_BUILD_MOBILE)
         QXmpp::Omemo
         QCoro::Core
     )
+    target_include_directories(anykeep_bundled_xmpppubsub PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     anykeep_configure_qxmpp_target(anykeep_bundled_xmpppubsub)
     return()
 endif()
@@ -107,6 +114,7 @@ target_link_libraries(
     QXmpp::Omemo
     QCoro::Core
 )
+target_include_directories(xmpppubsub PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 anykeep_configure_qxmpp_target(xmpppubsub)
 
 install_anykeep_plugin(xmpppubsub)

@@ -9,8 +9,8 @@ behavior or reference vectors.
 | Area | Owner |
 | --- | --- |
 | Plugin registration | `xmppplugin.*` |
-| Storage API, cache, jobs, reconnect/retry | `xmppstorage.*` |
-| QXmpp connection, PEP/PubSub CRUD, OMEMO flows, maintenance | `xmppworker.*` |
+| Storage API, cache, jobs, reconnect/retry | `xmppstorage.h`, `storage/` |
+| QXmpp connection, PEP/PubSub CRUD, OMEMO flows, maintenance | `xmppworker.h`, `worker/` |
 | Backend-neutral async contract and DTOs | `xmppbackend.h`, `xmppdto.h` |
 | Encrypted note wire codec | `xmppnotecodec.*`, `privatenotespubsubitem.*` |
 | PubSub/key-sync extensions | `xmpppepextension.*`, `xmppkeysyncextension.*` |
@@ -29,6 +29,23 @@ behavior or reference vectors.
 - TLS is mandatory. Never ignore certificate errors or log passwords, storage
   keys, decrypted payloads, OMEMO secrets, or note plaintext.
 - Maintenance must not delete unreadable/authentication-protected items.
+
+## Implementation routing
+
+| Change | Owner |
+| --- | --- |
+| QXmpp client lifetime, connection, OMEMO readiness and node setup | `worker/connection.cpp` |
+| Backend entry points, note list/load/save/index/delete and inbound key-sync routing | `worker/notes.cpp` |
+| Own-device OMEMO operations, discovery and storage-key audit | `worker/omemo.cpp` |
+| Cleanup, rekey, approved key exchange and own-bundle repair | `worker/maintenance.cpp` |
+| Storage construction, protected configuration, initialization and key recovery | `storage/core.cpp` |
+| DTO conversion, folder paths, persistent cache and body prefetch | `storage/cache_folders.cpp` |
+| Storage note list/load/save/folder/delete jobs | `storage/crud.cpp` |
+| Remote events, error/retry state, config apply and settings controller | `storage/events_retry.cpp` |
+
+`worker/private.h` owns shared QXmpp result helpers. `storage/private.h` owns
+shared backend keys, retry bounds, keychain names and status conversion. Do not
+move mutable worker/storage state into these headers.
 
 ## Verification
 
