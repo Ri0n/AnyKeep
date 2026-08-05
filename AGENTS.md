@@ -7,11 +7,21 @@
 - `plugins/`: optional integrations; keep plugin-specific code out of `libanykeep`.
 - `tests/`: QtTest executables; read `tests/AGENTS.md` before changing tests.
 
-Use the existing `build/qt6_Debug` tree. Prefer focused targets and CTest labels:
+Architecture references (use the scoped `AGENTS.md` first, then open only the
+document relevant to the change):
+
+- editor composition: `docs/note-editor-architecture.md`;
+- undo/history: `docs/note-editor-undo-redo.md`;
+- structured clipboard and media transfer: `docs/editor-transfer-architecture.md`;
+- drafts/storage lifecycle: `docs/note-lifecycle-architecture.md`;
+- local/remote media: `docs/media-storage-architecture.md`;
+- manager and folders UI: `docs/notes-manager-architecture.md`.
+
+Use the existing `build/Desktop-Debug` tree. Prefer focused targets and CTest labels:
 
 ```sh
-cmake --build build/qt6_Debug --target editor_tests -j4
-ctest --test-dir build/qt6_Debug -L editor --output-on-failure
+cmake --build build/Desktop-Debug --target editor_tests -j4
+ctest --test-dir build/Desktop-Debug -L editor --output-on-failure
 ```
 
 Use target `anykeep_all_tests` followed by unfiltered CTest for a full run.
