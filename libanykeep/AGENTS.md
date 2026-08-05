@@ -13,7 +13,7 @@ without moving those headers.
 | Editor QML | `qml/editor/`; read its scoped `AGENTS.md` | `editorqml_test`, `desktopnoteeditorhost_test` |
 | Note lifecycle/drafts | `note.*`, `draftmanager.h`, `drafts/`, `draftstore.h`, `filedraftstore.*`, `conflictresolver.*` | `filedraftstore_test`, `draftmanagertransfer_test` |
 | Workspace/transfer | `notesworkspacecontroller.h`, `workspace/`, `notetransfercontroller.*` | `notesworkspacefolders_test`, `notetransfercontroller_test` |
-| Folders/rules | `foldercatalog*`, `foldernotesmodel.*`, `folderoperationscontroller.*`, `noterule*`, `rulescontroller.*` | matching `folder*`, `noterule*`, and `rules*` targets |
+| Folders/rules | `foldercatalog.h`, `folders/`, `foldercatalogmanager.*`, `foldernotesmodel.*`, `folderoperationscontroller.*`, `noterule*`, `rulescontroller.*` | matching `folder*`, `noterule*`, and `rules*` targets |
 | Storage/cache/media | `notestorage.*`, `ptfstorage.*`, `filestorage.*`, `fileremotecachestore.*`, `localmediastore.*` | `ptfstorage_test`, `fileremotecachestore_test`, `localmediastore_test` |
 | Plugin hosting | `pluginhost*`, `pluginmanager.*`, `pluginmetadata.*`, `bundledpluginregistry.*` | `pluginmetadata_test` plus plugin-specific tests |
 | Desktop host | `anykeep.*`, `desktopnoteeditorhost.*`, `desktopnoteactions.*`, window/widget classes | `desktopnoteeditorhost_test` and relevant QML tests |
@@ -75,6 +75,17 @@ units. Keep clipboard- or formatting-only helpers in their owning `.cpp`.
 
 `drafts/private.h` contains only logging and diagnostic helpers shared by
 multiple draft-manager translation units.
+
+### `FolderCatalog` implementation
+
+| Change | Implementation owner |
+| --- | --- |
+| Snapshot merge, lookup and effective flags | `folders/core.cpp` |
+| Folder creation, moves, flags and branch trash/restore | `folders/tree.cpp` |
+| Note assignment, recycle and restore | `folders/assignments.cpp` |
+| Provider paths, validation, revisions and catalog indices | `folders/reconciliation.cpp` |
+
+`folders/private.h` contains only key/error helpers shared by catalog domains.
 
 ## Architecture references
 

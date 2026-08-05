@@ -64,7 +64,10 @@ set(anykeep_CORE_SRCS
     filenoterulestore.cpp
     fileremotecachestore.cpp
     filestorage.cpp
-    foldercatalog.cpp
+    folders/assignments.cpp
+    folders/core.cpp
+    folders/reconciliation.cpp
+    folders/tree.cpp
     foldercatalogmanager.cpp
     foldernotesmodel.cpp
     folderoperationscontroller.cpp
