@@ -1,5 +1,7 @@
 #include "noteeditor.h"
 
+#include "private.h"
+
 #include <QClipboard>
 #include <QFont>
 #include <QGuiApplication>
@@ -19,15 +21,14 @@
 #include <QVector>
 #include <algorithm>
 
-#include "localmediastore.h"
 #include "noteblockmodel.h"
-#include "notefragmentmediatransfer.h"
-#include "notetransfercontroller.h"
-#include "textdroputils.h"
 
 namespace AnyKeep {
 namespace {
-    int documentEnd(const QTextDocument *document) { return document ? qMax(0, document->characterCount() - 1) : 0; }
+    int documentEndImpl(const QTextDocument *document)
+    {
+        return document ? qMax(0, document->characterCount() - 1) : 0;
+    }
 
     QString unwrapMarkdownWriterLines(const QString &markdown);
     QString markdownWithSerializedInlineFormats(QTextDocument *document);
@@ -48,11 +49,11 @@ namespace {
         return QString(1, QChar(0xfffe));
     }
 
-    QString markdownRange(QTextDocument *document, int start, int end)
+    QString markdownRangeImpl(QTextDocument *document, int start, int end)
     {
         if (!document)
             return {};
-        const int limit = documentEnd(document);
+        const int limit = documentEndImpl(document);
         start           = qBound(0, start, limit);
         end             = qBound(start, end, limit);
         if (start == end)
@@ -101,7 +102,7 @@ namespace {
 
     QTextCharFormat formatAt(QTextDocument *document, int position)
     {
-        const int limit = documentEnd(document);
+        const int limit = documentEndImpl(document);
         if (!document || position < 0 || position >= limit)
             return {};
 
@@ -610,7 +611,7 @@ namespace {
         return markdown;
     }
 
-    QList<NoteBlockSelectionRange> decodeSelectionRanges(const QVariantList &encodedRanges)
+    QList<NoteBlockSelectionRange> decodeSelectionRangesImpl(const QVariantList &encodedRanges)
     {
         QList<NoteBlockSelectionRange> ranges;
         ranges.reserve(encodedRanges.size());
@@ -629,7 +630,26 @@ namespace {
         return ranges;
     }
 
-}
+} // namespace
+
+namespace EditorOperationsPrivate {
+
+    int documentEnd(const QTextDocument *document) { return documentEndImpl(document); }
+
+    QString markdownRange(QTextDocument *document, int start, int end)
+    {
+        return markdownRangeImpl(document, start, end);
+    }
+
+    QList<NoteBlockSelectionRange> decodeSelectionRanges(const QVariantList &encodedRanges)
+    {
+        return decodeSelectionRangesImpl(encodedRanges);
+    }
+
+} // namespace EditorOperationsPrivate
+
+using EditorOperationsPrivate::documentEnd;
+using EditorOperationsPrivate::markdownRange;
 
 void NoteEditor::loadDocument(const QString &contents, Note::Format format, LoadPolicy policy)
 {
@@ -960,435 +980,6 @@ QString NoteEditor::markdownSelection(QQuickTextDocument *quickDocument, int sta
     if (!quickDocument || !quickDocument->textDocument())
         return {};
     return markdownRange(quickDocument->textDocument(), start, end);
-}
-
-NoteFragment NoteEditor::documentFragment() const
-{
-    return withMedia(model_->extractBlockFragment(0, model_->rowCount() - 1));
-}
-
-NoteFragment NoteEditor::withMedia(NoteFragment fragment) const
-{
-    QSet<QString> includedUris;
-    for (const NoteFragmentBlock &block : std::as_const(fragment.blocks)) {
-        const QString sourceUri = block.type == NoteFragmentBlockType::Image ? block.image.sourceUri
-            : block.type == NoteFragmentBlockType::Audio                     ? block.audio.sourceUri
-            : block.type == NoteFragmentBlockType::Attachment                ? block.attachment.sourceUri
-                                                                             : QString();
-        if (sourceUri.isEmpty() || includedUris.contains(sourceUri))
-            continue;
-        for (const MediaReference &reference : media()) {
-            if (reference.isValid() && reference.uri() == sourceUri) {
-                NoteFragmentMedia media;
-                media.sourceUri = sourceUri;
-                media.reference = reference;
-                fragment.media.append(media);
-                includedUris.insert(sourceUri);
-                break;
-            }
-        }
-    }
-
-    // A single copied image is also useful outside AnyKeep.  Keep its PNG data
-    // reasonably bounded; larger images retain their internal blob reference.
-    if (fragment.blocks.size() == 1 && fragment.blocks.constFirst().type == NoteFragmentBlockType::Image
-        && fragment.media.size() == 1
-        && fragment.media.constFirst().reference.size <= NoteTransferController::PortableImageDataLimit) {
-        const auto data = LocalMediaStore::instance()->data(fragment.media.constFirst().reference.blobId);
-        if (data)
-            fragment.media.first().data = data.value;
-    }
-    return fragment;
-}
-
-namespace {
-
-    bool setFragmentClipboard(const NoteFragment &fragment, QClipboard::Mode mode, const QString &fallback,
-                              bool markdownAsPlainText = false)
-    {
-        auto *clipboard = QGuiApplication::clipboard();
-        if (!clipboard || (mode == QClipboard::Selection && !clipboard->supportsSelection()))
-            return false;
-        NoteTransferController controller;
-        auto                   exported = controller.createMimeData(fragment);
-        if (exported) {
-            if (markdownAsPlainText) {
-                QString       error;
-                const QString markdown = NoteTransferController::markdownForFragment(fragment, &error);
-                if (!error.isEmpty())
-                    return false;
-                exported.mimeData->setText(markdown);
-            }
-            clipboard->setMimeData(exported.mimeData.release(), mode);
-        } else {
-            clipboard->setText(fallback, mode);
-        }
-        return true;
-    }
-
-    NoteFragment markdownFragment(const QString &markdown)
-    {
-        NoteBlockModel model;
-        model.load(markdown, true);
-        NoteFragment fragment = model.extractBlockFragment(0, model.rowCount() - 1);
-        fragment.sourceFormat = NoteFragmentSourceFormat::Markdown;
-        return fragment;
-    }
-
-    NoteFragment plainTextFragment(const QString &text)
-    {
-        NoteFragment fragment;
-        fragment.sourceFormat = NoteFragmentSourceFormat::PlainText;
-        NoteFragmentBlock block;
-        block.type     = NoteFragmentBlockType::Text;
-        block.markdown = text;
-        fragment.blocks.append(block);
-        return fragment;
-    }
-
-} // namespace
-
-void NoteEditor::copyToClipboard(const QString &text)
-{
-    setFragmentClipboard(plainTextFragment(text), QClipboard::Clipboard, text);
-}
-
-void NoteEditor::copyMarkdownToClipboard(const QString &markdown)
-{
-    // The visible selection is Markdown, not one literal text block.  Keeping
-    // it as a Text block would make our private MIME format treat list/table
-    // syntax as ordinary characters on the next AnyKeep paste.  Parse it back
-    // through the block model so the private and public representations carry
-    // the same structure.
-    const NoteFragment fragment = markdownFragment(markdown);
-
-    NoteTransferController controller;
-    auto                   exported = controller.createMimeData(fragment);
-    if (exported) {
-        QGuiApplication::clipboard()->setMimeData(exported.mimeData.release());
-        qInfo() << "QML clipboard copy: selection blocks=" << fragment.blocks.size()
-                << "formats=" << QGuiApplication::clipboard()->mimeData()->formats();
-    } else {
-        QGuiApplication::clipboard()->setText(markdown);
-        qWarning() << "QML clipboard copy fell back to plain text:" << exported.error;
-    }
-}
-
-void NoteEditor::copyMarkdownAsPlainTextToClipboard(const QString &markdown)
-{
-    const NoteFragment fragment = markdownFragment(markdown);
-    setFragmentClipboard(fragment, QClipboard::Clipboard, markdown, true);
-}
-
-void NoteEditor::copyDocumentToClipboard()
-{
-    NoteTransferController controller;
-    const NoteFragment     fragment = documentFragment();
-    auto                   exported = controller.createMimeData(fragment);
-    if (exported) {
-        QGuiApplication::clipboard()->setMimeData(exported.mimeData.release());
-        qInfo() << "QML clipboard copy: whole document blocks=" << fragment.blocks.size()
-                << "formats=" << QGuiApplication::clipboard()->mimeData()->formats();
-    } else {
-        QGuiApplication::clipboard()->setText(model_->contents());
-        qWarning() << "QML clipboard copy fell back to plain text:" << exported.error;
-    }
-}
-
-bool NoteEditor::copySelectionToClipboard(const QVariantList &encodedRanges)
-{
-    NoteFragment fragment = withMedia(model_->extractSelectionFragment(decodeSelectionRanges(encodedRanges)));
-    if (fragment.blocks.isEmpty())
-        return false;
-
-    NoteTransferController controller;
-    auto                   exported = controller.createMimeData(fragment);
-    if (!exported) {
-        qWarning() << "QML structured selection copy failed:" << exported.error;
-        return false;
-    }
-    QGuiApplication::clipboard()->setMimeData(exported.mimeData.release());
-    qInfo() << "QML clipboard copy: structured selection blocks=" << fragment.blocks.size()
-            << "formats=" << QGuiApplication::clipboard()->mimeData()->formats();
-    return true;
-}
-
-bool NoteEditor::copyBlockToClipboard(int row)
-{
-    if (row < 0 || row >= model_->rowCount())
-        return false;
-    const NoteFragment fragment = withMedia(model_->extractBlockFragment(row, row));
-    if (fragment.blocks.isEmpty())
-        return false;
-    QString       error;
-    const QString fallback = NoteTransferController::plainTextForFragment(fragment, &error);
-    return error.isEmpty() && setFragmentClipboard(fragment, QClipboard::Clipboard, fallback);
-}
-
-bool NoteEditor::copySelectionAsMarkdownToClipboard(const QVariantList &encodedRanges)
-{
-    NoteFragment fragment = withMedia(model_->extractSelectionFragment(decodeSelectionRanges(encodedRanges)));
-    if (fragment.blocks.isEmpty())
-        return false;
-    QString       error;
-    const QString fallback = NoteTransferController::markdownForFragment(fragment, &error);
-    return error.isEmpty() && setFragmentClipboard(fragment, QClipboard::Clipboard, fallback, true);
-}
-
-bool NoteEditor::copyTextToPrimarySelection(const QString &text)
-{
-    return setFragmentClipboard(plainTextFragment(text), QClipboard::Selection, text);
-}
-
-bool NoteEditor::copyMarkdownToPrimarySelection(const QString &markdown)
-{
-    return setFragmentClipboard(markdownFragment(markdown), QClipboard::Selection, markdown);
-}
-
-bool NoteEditor::copySelectionToPrimarySelection(const QVariantList &encodedRanges)
-{
-    NoteFragment fragment = withMedia(model_->extractSelectionFragment(decodeSelectionRanges(encodedRanges)));
-    if (fragment.blocks.isEmpty())
-        return false;
-    QString       error;
-    const QString fallback = NoteTransferController::plainTextForFragment(fragment, &error);
-    return error.isEmpty() && setFragmentClipboard(fragment, QClipboard::Selection, fallback);
-}
-
-QVariantMap NoteEditor::deleteSelection(const QVariantList &encodedRanges)
-{
-    const QList<NoteBlockSelectionRange> ranges   = decodeSelectionRanges(encodedRanges);
-    const int                            focusRow = model_->removeSelectionRanges(ranges);
-    if (focusRow < 0)
-        return {};
-    QVariantMap result { { QStringLiteral("handled"), true }, { QStringLiteral("focusRow"), focusRow } };
-    // If the selection started inside an editor, its prefix survived at the
-    // same structural address. Preserve the exact QTextDocument position of
-    // that boundary instead of merely focusing the beginning of the block.
-    if (!ranges.isEmpty() && !ranges.constFirst().before.isEmpty() && !encodedRanges.isEmpty()) {
-        const QVariantMap first = encodedRanges.constFirst().toMap();
-        result.insert(QStringLiteral("focusPosition"), first.value(QStringLiteral("selectionStart"), 0));
-    }
-    return result;
-}
-
-QVariantMap NoteEditor::convertSelectionToCodeBlock(const QVariantList &encodedRanges, const QString &plainText,
-                                                    const QString &language)
-{
-    QVariantMap result;
-    const int   row
-        = model_->replaceTextSelectionWithCodeBlock(decodeSelectionRanges(encodedRanges), plainText, language);
-    if (row < 0)
-        return result;
-    result.insert(QStringLiteral("handled"), true);
-    result.insert(QStringLiteral("focusRow"), row);
-    return result;
-}
-
-int NoteEditor::insertDroppedCodeBlock(int row, const QString &before, const QString &after, const QString &value,
-                                       const QString &language)
-{
-    if (!model_->markdown())
-        return -1;
-    NoteFragment fragment;
-    fragment.kind         = NoteFragmentKind::BlockSequence;
-    fragment.sourceFormat = NoteFragmentSourceFormat::Markdown;
-    NoteFragmentBlock code;
-    code.type     = NoteFragmentBlockType::CodeBlock;
-    code.markdown = value;
-    code.markdown.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
-    code.markdown.replace(QLatin1Char('\r'), QLatin1Char('\n'));
-    code.language = language.trimmed().toLower();
-    fragment.blocks.append(code);
-    QString error;
-    return model_->replaceTextBlockRangeWithFragment(row, before, after, fragment, &error);
-}
-
-int NoteEditor::insertPlainText(QQuickTextDocument *quickDocument, int start, int end, const QString &value)
-{
-    if (!quickDocument || !quickDocument->textDocument())
-        return -1;
-
-    QString text = value;
-    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
-    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
-
-    QTextDocument *document = quickDocument->textDocument();
-    const int      limit    = documentEnd(document);
-    start                   = qBound(0, start, limit);
-    end                     = qBound(start, end, limit);
-
-    QTextCursor cursor(document);
-    cursor.setPosition(start);
-    cursor.setPosition(end, QTextCursor::KeepAnchor);
-    // Passing an empty format explicitly prevents HTML/RTF clipboard styles
-    // and the surrounding QTextDocument character format from leaking into
-    // the title line.
-    cursor.insertText(text, QTextCharFormat());
-    return cursor.position();
-}
-
-int NoteEditor::pastePlainText(QQuickTextDocument *quickDocument, int start, int end)
-{
-    const QClipboard *clipboard = QGuiApplication::clipboard();
-    const QMimeData  *mimeData  = clipboard ? clipboard->mimeData() : nullptr;
-    if (!mimeData || !mimeData->hasText())
-        return -1;
-    return insertPlainText(quickDocument, start, end, mimeData->text());
-}
-
-int NoteEditor::pastePrimarySelection(QQuickTextDocument *quickDocument, int start, int end)
-{
-    if (!quickDocument || !quickDocument->textDocument())
-        return -1;
-    const QClipboard *clipboard = QGuiApplication::clipboard();
-    const QMimeData  *mimeData
-        = clipboard && clipboard->supportsSelection() ? clipboard->mimeData(QClipboard::Selection) : nullptr;
-    if (!mimeData || !mimeData->hasText())
-        return -1;
-
-    QString text = mimeData->text();
-    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
-    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
-
-    QTextDocument *document = quickDocument->textDocument();
-    const int      limit    = documentEnd(document);
-    start                   = qBound(0, start, limit);
-    end                     = qBound(start, end, limit);
-    QTextCursor cursor(document);
-    cursor.setPosition(start);
-    cursor.setPosition(end, QTextCursor::KeepAnchor);
-    cursor.insertText(text, QTextCharFormat());
-    return cursor.position();
-}
-
-QVariantMap NoteEditor::pasteStructuredFromClipboard(QQuickTextDocument *quickDocument, int row, int start, int end)
-{
-    QVariantMap result;
-    if (!model_->markdown() || !quickDocument || !quickDocument->textDocument())
-        return result;
-
-    const QMimeData *mimeData           = QGuiApplication::clipboard()->mimeData();
-    const bool       hasNativeStructure = mimeData
-        && (mimeData->hasFormat(QString::fromLatin1(NoteTransferController::FragmentMimeType))
-            || mimeData->hasFormat(QString::fromLatin1(NoteTransferController::MarkdownMimeType))
-            || mimeData->hasFormat(QString::fromLatin1(NoteTransferController::TsvMimeType)));
-    const QString codeLanguage = hasNativeStructure ? QString() : TextDropUtils::codeLanguage(mimeData);
-    // Source editors often put both text/plain and presentation-oriented HTML
-    // on the clipboard. The HTML can turn one selection into many paragraphs.
-    // For strongly recognized source, the plain representation is canonical.
-    if (row > 0 && !codeLanguage.isEmpty()) {
-        QTextDocument *document = quickDocument->textDocument();
-        const int      limit    = documentEnd(document);
-        const int      insertedRow
-            = insertDroppedCodeBlock(row, markdownRange(document, 0, start), markdownRange(document, end, limit),
-                                     TextDropUtils::plainText(mimeData), codeLanguage);
-        if (insertedRow >= 0) {
-            result.insert(QStringLiteral("handled"), true);
-            result.insert(QStringLiteral("focusRow"), insertedRow);
-        }
-        return result;
-    }
-
-    NoteTransferController controller;
-    const auto             imported = controller.importMimeData(mimeData);
-    if (!imported || imported.sourceMimeType == QStringLiteral("text/plain") || imported.hasImage()
-        || imported.fragment.blocks.isEmpty()) {
-        return result;
-    }
-
-    // The title is a plain first-line field, but pasting a whole AnyKeep
-    // document into an empty/new note must retain its following structural
-    // blocks. A one-block inline fragment still uses the plain-text title path
-    // so bold/link formatting cannot leak into the title.
-    const int targetDocumentEnd = documentEnd(quickDocument->textDocument());
-    if (row == 0
-        && (start != 0 || end != targetDocumentEnd || imported.fragment.blocks.size() < 2
-            || imported.fragment.blocks.constFirst().type != NoteFragmentBlockType::Text)) {
-        return result;
-    }
-
-    NoteFragment          fragment = imported.fragment;
-    QList<MediaReference> insertedMedia;
-    if (!fragment.media.isEmpty()) {
-        const auto cloned = NoteFragmentMediaTransfer::cloneForDestination(fragment, *LocalMediaStore::instance(),
-                                                                           LocalMediaStore::instance());
-        if (!cloned) {
-            result.insert(QStringLiteral("error"), cloned.error);
-            return result;
-        }
-        fragment      = cloned.fragment;
-        insertedMedia = cloned.importedMedia;
-    }
-
-    QTextDocument *document = quickDocument->textDocument();
-    const int      limit    = documentEnd(document);
-
-    QString   error;
-    const int insertedRow = model_->replaceTextBlockRangeWithFragment(
-        row, markdownRange(document, 0, start), markdownRange(document, end, limit), fragment, &error);
-    if (insertedRow < 0) {
-        result.insert(QStringLiteral("error"), error);
-        return result;
-    }
-    result.insert(QStringLiteral("handled"), true);
-    result.insert(QStringLiteral("focusRow"), insertedRow);
-    if (!insertedMedia.isEmpty()) {
-        auto manifest = media();
-        manifest.append(insertedMedia);
-        setMedia(manifest);
-        emit mediaInserted(insertedMedia);
-    }
-    return result;
-}
-
-QVariantMap NoteEditor::pasteTableFromClipboard(int row, int cell)
-{
-    QVariantMap result;
-    if (!model_->markdown())
-        return result;
-    NoteTransferController controller;
-    const auto             imported = controller.importMimeData(QGuiApplication::clipboard()->mimeData());
-    if (!imported || imported.sourceMimeType == QStringLiteral("text/plain") || imported.hasImage()
-        || !imported.fragment.media.isEmpty() || imported.fragment.blocks.size() != 1
-        || imported.fragment.blocks.constFirst().type != NoteFragmentBlockType::Table) {
-        return result;
-    }
-
-    QString error;
-    if (!model_->replaceTableCellsWithFragment(row, cell, imported.fragment, &error)) {
-        result.insert(QStringLiteral("error"), error);
-        return result;
-    }
-    result.insert(QStringLiteral("handled"), true);
-    return result;
-}
-
-QVariantMap NoteEditor::pasteListFromClipboard(QQuickTextDocument *quickDocument, int row, int item, int start, int end)
-{
-    QVariantMap result;
-    if (!model_->markdown() || !quickDocument || !quickDocument->textDocument())
-        return result;
-    NoteTransferController controller;
-    const auto             imported = controller.importMimeData(QGuiApplication::clipboard()->mimeData());
-    if (!imported || imported.sourceMimeType == QStringLiteral("text/plain") || imported.hasImage()
-        || !imported.fragment.media.isEmpty() || imported.fragment.blocks.size() != 1
-        || imported.fragment.blocks.constFirst().type != NoteFragmentBlockType::List) {
-        return result;
-    }
-
-    QTextDocument *document = quickDocument->textDocument();
-    const int      limit    = documentEnd(document);
-    QString        error;
-    const int      focusItem = model_->replaceListItemRangeWithFragment(
-        row, item, markdownRange(document, 0, start), markdownRange(document, end, limit), imported.fragment, &error);
-    if (focusItem < 0) {
-        result.insert(QStringLiteral("error"), error);
-        return result;
-    }
-    result.insert(QStringLiteral("handled"), true);
-    result.insert(QStringLiteral("focusItem"), focusItem);
-    return result;
 }
 
 } // namespace AnyKeep

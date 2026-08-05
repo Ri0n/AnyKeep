@@ -83,7 +83,9 @@ set(anykeep_CORE_SRCS
     notedocumenthistory.cpp
     notehighlighter.cpp
     noteeditor.cpp
-    noteeditoroperations.cpp
+    editor/clipboard.cpp
+    editor/fragment_transfer.cpp
+    editor/inline_formatting.cpp
     notefragment.cpp
     notefragmentmediatransfer.cpp
     notemanager.cpp

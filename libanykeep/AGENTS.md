@@ -9,7 +9,7 @@ without moving those headers.
 | Domain | Primary owners | Focused tests |
 | --- | --- | --- |
 | Structured document/model | `noteblockmodel.h`, `noteblockmodel/`, `notefragment.*` | `noteblockmodel_test`, `notefragment_test` |
-| Editor operations/history | `noteeditor*`, `notedocumenthistory.*`, `editorcursorcontroller.*` | `noteeditor_test`, CTest label `editor` |
+| Editor operations/history | `noteeditor*`, `editor/`, `notedocumenthistory.*`, `editorcursorcontroller.*` | `noteeditor_test`, CTest label `editor` |
 | Editor QML | `qml/editor/`; read its scoped `AGENTS.md` | `editorqml_test`, `desktopnoteeditorhost_test` |
 | Note lifecycle/drafts | `note.*`, `draftmanager.*`, `draftstore.h`, `filedraftstore.*`, `conflictresolver.*` | `filedraftstore_test`, `draftmanagertransfer_test` |
 | Workspace/transfer | `notesworkspacecontroller.h`, `workspace/`, `notetransfercontroller.*` | `notesworkspacefolders_test`, `notetransfercontroller_test` |
@@ -43,6 +43,17 @@ without moving those headers.
 
 `noteblockmodel/private.h` contains only helpers shared by multiple model
 translation units. Keep domain-local helpers in their owning `.cpp`.
+
+### `NoteEditor` operations implementation
+
+| Change | Implementation owner |
+| --- | --- |
+| QTextDocument links, inline formatting and Markdown serialization | `editor/inline_formatting.cpp` |
+| Clipboard export and selection ownership | `editor/clipboard.cpp` |
+| Structured delete, paste and fragment/media import | `editor/fragment_transfer.cpp` |
+
+`editor/private.h` exposes only the range helpers shared by these translation
+units. Keep clipboard- or formatting-only helpers in their owning `.cpp`.
 
 ### `NotesWorkspaceController` implementation
 
