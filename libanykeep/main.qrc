@@ -53,6 +53,9 @@
         <file alias="editor/support/ListBlockBehavior.js">qml/editor/support/ListBlockBehavior.js</file>
         <file alias="editor/components/ListBlockEditor.qml">qml/editor/components/ListBlockEditor.qml</file>
         <file alias="editor/NoteBlockEditorImpl.qml">qml/editor/NoteBlockEditorImpl.qml</file>
+        <file alias="editor/controllers/EditorFocusController.qml">qml/editor/controllers/EditorFocusController.qml</file>
+        <file alias="editor/controllers/EditorMediaNavigationController.qml">qml/editor/controllers/EditorMediaNavigationController.qml</file>
+        <file alias="editor/controllers/EditorSelectionController.qml">qml/editor/controllers/EditorSelectionController.qml</file>
         <file alias="editor/components/NoteBlockTextArea.qml">qml/editor/components/NoteBlockTextArea.qml</file>
         <file alias="editor/NoteEditorPaneImpl.qml">qml/editor/NoteEditorPaneImpl.qml</file>
         <file alias="editor/NoteFindBar.qml">qml/editor/NoteFindBar.qml</file>

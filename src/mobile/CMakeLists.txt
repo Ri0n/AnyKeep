@@ -59,6 +59,11 @@ set(anykeep_mobile_editor_component_qml
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/components/NoteBlockTextArea.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/components/TagLineEditor.qml"
 )
+set(anykeep_mobile_editor_controller_qml
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/controllers/EditorFocusController.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/controllers/EditorMediaNavigationController.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/controllers/EditorSelectionController.qml"
+)
 set(anykeep_mobile_editor_support_qml
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/support/ListBlockBehavior.js"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/support/TableBlockBehavior.js"
@@ -111,6 +116,13 @@ foreach(anykeep_mobile_qml_file IN LISTS anykeep_mobile_editor_component_qml)
         PROPERTIES QT_RESOURCE_ALIAS "editor/components/${anykeep_mobile_qml_alias}"
     )
 endforeach()
+foreach(anykeep_mobile_qml_file IN LISTS anykeep_mobile_editor_controller_qml)
+    get_filename_component(anykeep_mobile_qml_alias "${anykeep_mobile_qml_file}" NAME)
+    set_source_files_properties(
+        "${anykeep_mobile_qml_file}"
+        PROPERTIES QT_RESOURCE_ALIAS "editor/controllers/${anykeep_mobile_qml_alias}"
+    )
+endforeach()
 foreach(anykeep_mobile_qml_file IN LISTS anykeep_mobile_editor_support_qml)
     get_filename_component(anykeep_mobile_qml_alias "${anykeep_mobile_qml_file}" NAME)
     set_source_files_properties(
@@ -158,6 +170,7 @@ qt_add_qml_module(anykeep_mobile
         ${anykeep_mobile_shared_impl_qml}
         ${anykeep_mobile_editor_qml}
         ${anykeep_mobile_editor_component_qml}
+        ${anykeep_mobile_editor_controller_qml}
         ${anykeep_mobile_editor_support_qml}
         ${anykeep_mobile_editor_block_qml}
         ${anykeep_mobile_reorder_qml}

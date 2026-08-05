@@ -5,9 +5,14 @@
 - `NoteEditorPaneImpl.qml`: composes toolbar, find bar, and document editor.
 - `EditorToolbarImpl.qml` / `EditorActionControllerImpl.qml`: user commands and
   toolbar presentation. Commands remain shared between desktop and mobile.
-- `NoteBlockEditorImpl.qml`: document-wide coordination only: selection across
-  blocks, clipboard/history transactions, focus restoration, navigation, and
-  block factory registration.
+- `NoteBlockEditorImpl.qml`: composition, visual editor infrastructure, and the
+  stable forwarding API used by delegates, toolbar, backend, and tests.
+- `controllers/EditorSelectionController.qml`: document selection,
+  clipboard/history transactions, structured paste, cut, and deletion.
+- `controllers/EditorFocusController.qml`: editor registry/addressing,
+  focus/state restoration, viewport preservation, and text insertion targets.
+- `controllers/EditorMediaNavigationController.qml`: image/audio/attachment
+  selection, removal, and navigation across structural boundaries.
 - `components/NoteBlockTextArea.qml`: the common editable text surface, including source
   synchronization, formatting, spell checking, link interaction, and local
   pointer/keyboard handling.
@@ -41,10 +46,22 @@
 - Root-level facade files remain intentionally tiny and preserve compatibility
   for desktop resource URLs and the mobile QML module.
 
+## `NoteBlockEditorImpl` public API owners
+
+| API group | Implementation owner |
+| --- | --- |
+| `registerEditor`, addresses, capture/restore, `focus*`, speech target | `EditorFocusController.qml` |
+| selection ranges, transactions, copy/cut/paste, structured delete | `EditorSelectionController.qml` |
+| `select*Block`, `remove*Block`, adjacent/boundary navigation | `EditorMediaNavigationController.qml` |
+| insert/convert/inline formatting, menus, block factories and layout | `NoteBlockEditorImpl.qml` |
+
+Keep existing public properties as aliases and public methods as short
+forwarders when implementation moves. Controllers receive the editor view,
+model, and backend explicitly; they must not reach into private visual ids.
+
 ## Focused verification
 
 ```sh
-cmake --build build/qt6_Debug --target noteblockmodel_test noteeditor_test -j4
-QT_QPA_PLATFORM=offscreen ./build/qt6_Debug/tests/noteblockmodel_test -v1
-QT_QPA_PLATFORM=offscreen ./build/qt6_Debug/tests/noteeditor_test -v1
+cmake --build build/Desktop-Debug --target editor_tests -j4
+ctest --test-dir build/Desktop-Debug -L editor --output-on-failure
 ```
