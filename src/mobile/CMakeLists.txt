@@ -37,6 +37,11 @@ set(anykeep_mobile_shared_impl_qml
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/shared/ThemedIconImpl.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/shared/FolderPickerMenuImpl.qml"
 )
+set(anykeep_mobile_notesmanager_qml
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/notesmanager/NotesManagerActionController.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/notesmanager/NotesManagerDragController.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/notesmanager/NotesManagerPageImpl.qml"
+)
 set(anykeep_mobile_editor_qml
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/EditorContextMenu.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/EditorReorderController.qml"
@@ -100,6 +105,13 @@ foreach(anykeep_mobile_qml_file IN LISTS anykeep_mobile_shared_impl_qml)
     set_source_files_properties(
         "${anykeep_mobile_qml_file}"
         PROPERTIES QT_RESOURCE_ALIAS "shared/${anykeep_mobile_qml_alias}"
+    )
+endforeach()
+foreach(anykeep_mobile_qml_file IN LISTS anykeep_mobile_notesmanager_qml)
+    get_filename_component(anykeep_mobile_qml_alias "${anykeep_mobile_qml_file}" NAME)
+    set_source_files_properties(
+        "${anykeep_mobile_qml_file}"
+        PROPERTIES QT_RESOURCE_ALIAS "notesmanager/${anykeep_mobile_qml_alias}"
     )
 endforeach()
 foreach(anykeep_mobile_qml_file IN LISTS anykeep_mobile_editor_qml)
@@ -168,6 +180,7 @@ qt_add_qml_module(anykeep_mobile
         StoragesPage.qml
         ${anykeep_mobile_shared_qml}
         ${anykeep_mobile_shared_impl_qml}
+        ${anykeep_mobile_notesmanager_qml}
         ${anykeep_mobile_editor_qml}
         ${anykeep_mobile_editor_component_qml}
         ${anykeep_mobile_editor_controller_qml}

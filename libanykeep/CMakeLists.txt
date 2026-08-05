@@ -93,7 +93,10 @@ set(anykeep_CORE_SRCS
     notesindex.cpp
     notesmodel.cpp
     notessearchmodel.cpp
-    notesworkspacecontroller.cpp
+    workspace/core.cpp
+    workspace/folders.cpp
+    workspace/notes.cpp
+    workspace/transfer.cpp
     pluginhost.cpp
     pluginiconimageprovider.cpp
     pluginlistmodel.cpp

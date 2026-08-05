@@ -12,7 +12,7 @@ without moving those headers.
 | Editor operations/history | `noteeditor*`, `notedocumenthistory.*`, `editorcursorcontroller.*` | `noteeditor_test`, CTest label `editor` |
 | Editor QML | `qml/editor/`; read its scoped `AGENTS.md` | `editorqml_test`, `desktopnoteeditorhost_test` |
 | Note lifecycle/drafts | `note.*`, `draftmanager.*`, `draftstore.h`, `filedraftstore.*`, `conflictresolver.*` | `filedraftstore_test`, `draftmanagertransfer_test` |
-| Workspace/transfer | `notesworkspacecontroller.*`, `notetransfercontroller.*` | `notesworkspacefolders_test`, `notetransfercontroller_test` |
+| Workspace/transfer | `notesworkspacecontroller.h`, `workspace/`, `notetransfercontroller.*` | `notesworkspacefolders_test`, `notetransfercontroller_test` |
 | Folders/rules | `foldercatalog*`, `foldernotesmodel.*`, `folderoperationscontroller.*`, `noterule*`, `rulescontroller.*` | matching `folder*`, `noterule*`, and `rules*` targets |
 | Storage/cache/media | `notestorage.*`, `ptfstorage.*`, `filestorage.*`, `fileremotecachestore.*`, `localmediastore.*` | `ptfstorage_test`, `fileremotecachestore_test`, `localmediastore_test` |
 | Plugin hosting | `pluginhost*`, `pluginmanager.*`, `pluginmetadata.*`, `bundledpluginregistry.*` | `pluginmetadata_test` plus plugin-specific tests |
@@ -43,6 +43,15 @@ without moving those headers.
 
 `noteblockmodel/private.h` contains only helpers shared by multiple model
 translation units. Keep domain-local helpers in their owning `.cpp`.
+
+### `NotesWorkspaceController` implementation
+
+| Change | Implementation owner |
+| --- | --- |
+| Construction, models, properties, editor session and operation state | `workspace/core.cpp` |
+| Open/create/save/close/delete/recycle and standalone notes | `workspace/notes.cpp` |
+| Move/copy/batch/reorder and staged transfer | `workspace/transfer.cpp` |
+| Folder CRUD, flags, trash/undo and note assignments | `workspace/folders.cpp` |
 
 ## Architecture references
 

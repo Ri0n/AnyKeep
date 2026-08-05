@@ -85,6 +85,9 @@
         <file alias="DesktopNoteEditor.qml">qml/DesktopNoteEditor.qml</file>
         <file alias="StandaloneNoteWindow.qml">qml/StandaloneNoteWindow.qml</file>
         <file alias="NotesManagerPage.qml">qml/NotesManagerPage.qml</file>
+        <file alias="notesmanager/NotesManagerActionController.qml">qml/notesmanager/NotesManagerActionController.qml</file>
+        <file alias="notesmanager/NotesManagerDragController.qml">qml/notesmanager/NotesManagerDragController.qml</file>
+        <file alias="notesmanager/NotesManagerPageImpl.qml">qml/notesmanager/NotesManagerPageImpl.qml</file>
         <file alias="FoldersPage.qml">qml/FoldersPage.qml</file>
         <file alias="NotesManagerWindow.qml">qml/NotesManagerWindow.qml</file>
         <file alias="SettingsWindow.qml">qml/SettingsWindow.qml</file>

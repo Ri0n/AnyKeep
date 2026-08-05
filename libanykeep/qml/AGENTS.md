@@ -10,12 +10,15 @@ module instantiate them directly.
 - `NoteBlockEditor.qml` -> `editor/NoteBlockEditorImpl.qml`
 - `EditorToolbar.qml` -> `editor/EditorToolbarImpl.qml`
 - `EditorActionController.qml` -> `editor/EditorActionControllerImpl.qml`
+- `NotesManagerPage.qml` -> `notesmanager/NotesManagerPageImpl.qml`
 
 Read `editor/AGENTS.md` before changing editor internals.
 
 ## Other shared areas
 
 - `notelist/`: note-list rows, selection, and collection views.
+- `notesmanager/`: manager page implementation and action/drag controllers;
+  read its scoped `AGENTS.md`.
 - `reorder/`: generic reorder primitives shared by the editor, folders,
   settings, rules, and note lists. Do not move these under `editor/`.
 - `ThemedIcon.qml`, `DialogHost.qml`, and `FolderPickerMenu.qml` are shared UI
