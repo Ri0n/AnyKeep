@@ -8,7 +8,7 @@ without moving those headers.
 
 | Domain | Primary owners | Focused tests |
 | --- | --- | --- |
-| Structured document/model | `noteblockmodel.*`, `notefragment.*` | `noteblockmodel_test`, `notefragment_test` |
+| Structured document/model | `noteblockmodel.h`, `noteblockmodel/`, `notefragment.*` | `noteblockmodel_test`, `notefragment_test` |
 | Editor operations/history | `noteeditor*`, `notedocumenthistory.*`, `editorcursorcontroller.*` | `noteeditor_test`, CTest label `editor` |
 | Editor QML | `qml/editor/`; read its scoped `AGENTS.md` | `editorqml_test`, `desktopnoteeditorhost_test` |
 | Note lifecycle/drafts | `note.*`, `draftmanager.*`, `draftstore.h`, `filedraftstore.*`, `conflictresolver.*` | `filedraftstore_test`, `draftmanagertransfer_test` |
@@ -28,6 +28,21 @@ without moving those headers.
 - Storage implementations own persistence; workspace/draft controllers own
   lifecycle and orchestration, not backend wire formats.
 - Plugin-specific protocol and configuration code belongs under `plugins/`.
+
+### `NoteBlockModel` implementation
+
+| Change | Implementation owner |
+| --- | --- |
+| Qt model API, state/load, common normalization | `noteblockmodel/core.cpp` |
+| Find results and match addressing | `noteblockmodel/search.cpp` |
+| List items, subtree moves, indentation and list coalescing | `noteblockmodel/lists.cpp` |
+| Tables, images, audio and attachments | `noteblockmodel/tables_media.cpp` |
+| Text/heading/quote/code/tag-line and structural block moves | `noteblockmodel/structure.cpp` |
+| `NoteFragment` extraction, removal, insertion and replacement | `noteblockmodel/fragments.cpp` |
+| Markdown parser/writer and storage codec helpers | `noteblockmodel/markdown.cpp` |
+
+`noteblockmodel/private.h` contains only helpers shared by multiple model
+translation units. Keep domain-local helpers in their owning `.cpp`.
 
 ## Architecture references
 

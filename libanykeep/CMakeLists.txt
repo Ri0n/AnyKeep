@@ -71,7 +71,14 @@ set(anykeep_CORE_SRCS
     localmediastore.cpp
     mediareference.cpp
     note.cpp
-    noteblockmodel.cpp
+    noteblockmodel/core.cpp
+    noteblockmodel/fragments.cpp
+    noteblockmodel/lists.cpp
+    noteblockmodel/markdown.cpp
+    noteblockmodel/private.h
+    noteblockmodel/search.cpp
+    noteblockmodel/structure.cpp
+    noteblockmodel/tables_media.cpp
     notedata.cpp
     notedocumenthistory.cpp
     notehighlighter.cpp
