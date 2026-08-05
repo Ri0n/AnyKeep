@@ -222,6 +222,9 @@ ListView {
     function selectionAnchorAtBoundary(boundary, direction) { return selectionController.selectionAnchorAtBoundary(boundary, direction) }
     function beginBlankAreaSelection(boundary, x, y) { return selectionController.beginBlankAreaSelection(boundary, x, y) }
     function updateBlankAreaSelection(x, y) { return selectionController.updateBlankAreaSelection(x, y) }
+    function applyMouseDocumentSelection(anchorEditor, anchorPosition, x, y) {
+        return selectionController.applyMouseDocumentSelection(anchorEditor, anchorPosition, x, y)
+    }
     function finishBlankAreaSelection() { return selectionController.finishBlankAreaSelection() }
     function cancelBlankAreaSelection() { return selectionController.cancelBlankAreaSelection() }
     function insertParagraphAtBoundary(row) { return selectionController.insertParagraphAtBoundary(row) }

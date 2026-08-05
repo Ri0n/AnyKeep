@@ -104,13 +104,14 @@ FocusScope {
 
         Rectangle {
             id: audioCard
+            objectName: "audioCard-" + audioRoot.block.index
             Layout.fillWidth: true
             implicitHeight: audioRoot.editorView.touchMode ? 68 : 58
             radius: 6
             color: audioRoot.selected
                    ? Qt.rgba(playButton.palette.highlight.r,
                              playButton.palette.highlight.g,
-                             playButton.palette.highlight.b, 0.10)
+                             playButton.palette.highlight.b, 0.18)
                    : playButton.palette.alternateBase
             border.width: audioRoot.selected ? 2 : 1
             border.color: audioRoot.selected
@@ -146,6 +147,8 @@ FocusScope {
                     spacing: audioRoot.editorView.touchMode ? 4 : 3
 
                     Label {
+                        id: audioTitle
+                        objectName: "audioTitle-" + audioRoot.block.index
                         Layout.fillWidth: true
                         visible: !audioRoot.renaming
                         text: audioRoot.block.alt.length > 0

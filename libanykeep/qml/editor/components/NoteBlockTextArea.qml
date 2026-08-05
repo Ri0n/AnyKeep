@@ -727,10 +727,9 @@ TextArea {
                 return
             }
             const globalPosition = blockArea.mapToItem(editorView, mouse.x, mouse.y)
-            const hit = editorView.editorAtPoint(globalPosition.x, globalPosition.y)
-            if (hit)
-                editorView.applyDocumentSelection(editorView.selectionAnchorEditor, editorView.selectionAnchorPosition,
-                                            hit.editor, hit.position)
+            editorView.applyMouseDocumentSelection(editorView.selectionAnchorEditor,
+                                                   editorView.selectionAnchorPosition,
+                                                   globalPosition.x, globalPosition.y)
             const elapsed = Date.now() - started
             if (elapsed >= 8)
                 console.info("QML selection move slow: path=cross-editor duration=" + elapsed

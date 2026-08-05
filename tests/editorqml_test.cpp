@@ -5,6 +5,7 @@
 #include <QPalette>
 #include <QQmlComponent>
 #include <QQmlContext>
+#include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QtTest>
@@ -444,6 +445,118 @@ private:
                  QStringLiteral("cpp"));
         QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::LanguageRole).toString(),
                  QStringLiteral("python"));
+    }
+
+    void draggingTextSelectionAcrossTrailingAudioHighlightsPlayer()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("Select this text"), Note::Markdown);
+        DraftManager  drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor    editor(note, drafts);
+        const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
+        editor.model()->insertAudio(editor.model()->rowCount(), source, QStringLiteral("Voice memo"), 2500);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(620, 440);
+        host.show();
+        auto *quick = host.quickWidget();
+        auto *root  = qobject_cast<QQuickItem *>(quick->rootObject());
+        QVERIFY(root);
+        QQuickItem *body  = nullptr;
+        QQuickItem *audio = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("audioBlockEditor-2"))));
+        QVERIFY(!audio->property("selected").toBool());
+
+        const QPoint start = body->mapToScene(QPointF(body->width() * 0.25, body->height() * 0.5)).toPoint();
+        const QPoint end   = audio->mapToScene(QPointF(audio->width() * 0.5, audio->height() + 10)).toPoint();
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, start);
+        QTest::mouseMove(quick, end, 50);
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, end);
+
+        QTRY_VERIFY(audio->property("selected").toBool());
+    }
+
+    void draggingUpFromTrailingAreaKeepsTemporarySelectionAnchor()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("Select this text"), Note::Markdown);
+        DraftManager  drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor    editor(note, drafts);
+        const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
+        editor.model()->insertAudio(editor.model()->rowCount(), source, QStringLiteral("Voice memo"), 2500);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(620, 440);
+        host.show();
+        auto *quick = host.quickWidget();
+        auto *root  = qobject_cast<QQuickItem *>(quick->rootObject());
+        QVERIFY(root);
+        QQuickItem *body  = nullptr;
+        QQuickItem *audio = nullptr;
+        QQuickItem *card  = nullptr;
+        QQuickItem *title = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("audioBlockEditor-2"))));
+        QTRY_VERIFY((card = quickItemByName(root, QStringLiteral("audioCard-2"))));
+        QTRY_VERIFY((title = quickItemByName(root, QStringLiteral("audioTitle-2"))));
+        auto *blockEditor = ancestorWithProperty(body, "currentFindText");
+        QVERIFY(blockEditor);
+
+        const QColor unselectedFill = card->property("color").value<QColor>();
+        QCOMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 1);
+        QVERIFY(!QQmlProperty(title, QStringLiteral("font.bold")).read().toBool());
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "selectAllDocument"));
+        QTRY_VERIFY(audio->property("selected").toBool());
+        QTRY_COMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 2);
+        QTRY_VERIFY(QQmlProperty(title, QStringLiteral("font.bold")).read().toBool());
+        QTRY_VERIFY(card->property("color").value<QColor>() != unselectedFill);
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "clearDocumentSelection"));
+        QTRY_COMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 1);
+
+        const QPoint trailingPoint = audio->mapToScene(QPointF(audio->width() * 0.5, audio->height() + 20)).toPoint();
+        QTest::mouseClick(quick, Qt::LeftButton, Qt::NoModifier, trailingPoint);
+        QTRY_COMPARE(editor.model()->rowCount(), 4);
+        QQuickItem *temporaryParagraph = nullptr;
+        QTRY_VERIFY((temporaryParagraph = textEditorForBlock(root, 3)));
+        QTRY_VERIFY(temporaryParagraph->hasActiveFocus());
+
+        const QPoint selectionStart
+            = temporaryParagraph
+                  ->mapToScene(QPointF(temporaryParagraph->width() * 0.5, temporaryParagraph->height() + 20))
+                  .toPoint();
+        const QPoint audioPoint = audio->mapToScene(QPointF(audio->width() * 0.5, audio->height() - 2)).toPoint();
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, selectionStart);
+        QTRY_COMPARE(blockEditor->property("blankSelectionBoundary").toInt(), 4);
+        QVERIFY(!blockEditor->property("mouseSelectionActive").toBool());
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(!temporaryParagraph->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(
+            blockEditor, "scheduleDiscardEmptyInsertedParagraph",
+            Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(temporaryParagraph)))));
+        QTest::qWait(50);
+        QCOMPARE(editor.model()->rowCount(), 4);
+        QTest::mouseMove(quick, audioPoint, 50);
+        QTRY_VERIFY(audio->property("selected").toBool());
+        QTRY_COMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 2);
+        QTRY_VERIFY(QQmlProperty(title, QStringLiteral("font.bold")).read().toBool());
+        QTRY_VERIFY(card->property("color").value<QColor>() != unselectedFill);
+        QTest::qWait(100);
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, audioPoint);
+
+        QTRY_VERIFY(audio->property("selected").toBool());
+        QTest::qWait(200);
+        QVERIFY(audio->property("selected").toBool());
+        QCOMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 2);
+        QVERIFY(QQmlProperty(title, QStringLiteral("font.bold")).read().toBool());
+        QVERIFY(card->property("color").value<QColor>() != unselectedFill);
+        QCOMPARE(editor.model()->rowCount(), 4);
+
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "clearDocumentSelection"));
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_COMPARE(editor.model()->rowCount(), 3);
     }
 
     void externalTextInsertionUsesDropPosition()
@@ -1339,6 +1452,16 @@ private slots:
     void regressionDeletingAcrossAdjacentCodeBlocksKeepsLiteralLineBreaks()
     {
         deletingAcrossAdjacentCodeBlocksKeepsLiteralLineBreaks();
+    }
+
+    void regressionDraggingTextSelectionAcrossTrailingAudioHighlightsPlayer()
+    {
+        draggingTextSelectionAcrossTrailingAudioHighlightsPlayer();
+    }
+
+    void regressionDraggingUpFromTrailingAreaKeepsTemporarySelectionAnchor()
+    {
+        draggingUpFromTrailingAreaKeepsTemporarySelectionAnchor();
     }
 
     void regressionExternalTextInsertionUsesDropPosition() { externalTextInsertionUsesDropPosition(); }

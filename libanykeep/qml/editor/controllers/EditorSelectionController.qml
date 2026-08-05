@@ -29,6 +29,7 @@ QtObject {
     property int documentSelectionBlankDirection: 0
     property var keyboardSelectionAnchorEditor: null
     property int keyboardSelectionAnchorPosition: 0
+    property var retainedEmptySelectionEditor: null
     property int editTransactionDepth: 0
 
     function refreshSelectionState() {
@@ -105,10 +106,80 @@ QtObject {
             mouseSelectionActive = true
             blankSelectionMoved = true
         }
+        const structuralBoundary = structuralBoundaryAtPoint(blankSelectionAnchorEditor, y)
+        if (structuralBoundary) {
+            const structuralFocus = selectionAnchorAtBoundary(structuralBoundary.boundary,
+                                                              structuralBoundary.direction)
+            if (structuralFocus) {
+                documentSelectionBlankBoundary = structuralBoundary.boundary
+                documentSelectionBlankDirection = structuralBoundary.direction
+                applyDocumentSelection(blankSelectionAnchorEditor, blankSelectionAnchorPosition,
+                                       structuralFocus.editor, structuralFocus.position, true)
+                return
+            }
+        }
+        documentSelectionBlankBoundary = blankSelectionBoundary
+        documentSelectionBlankDirection = y <= blankSelectionPressY ? -1 : 1
         const hit = editorView.editorAtPoint(x, y)
         if (hit)
             applyDocumentSelection(blankSelectionAnchorEditor, blankSelectionAnchorPosition,
                                    hit.editor, hit.position, true)
+    }
+
+    function structuralBoundaryAtPoint(anchorEditor, y) {
+        if (!anchorEditor || !blockModel)
+            return null
+        const anchorRow = Number(anchorEditor.blockIndex)
+        for (let row = 0; row < editorView.count; ++row) {
+            const type = blockModel.blockTypeAt(row)
+            if (type !== 4 && type !== 9 && type !== 10 && type !== 11)
+                continue
+            const block = editorView.itemAtIndex(row)
+            if (!block)
+                continue
+            const topLeft = block.mapToItem(editorView, 0, 0)
+            if (y < topLeft.y || y > topLeft.y + block.height)
+                continue
+            const forward = row > anchorRow
+            return {
+                boundary: forward ? row + 1 : row,
+                direction: forward ? -1 : 1
+            }
+        }
+
+        // A TextArea keeps the mouse grab while the pointer leaves it. When
+        // the final row is structural, dragging below the player/image/card
+        // must still end at the document boundary rather than at the nearest
+        // preceding text editor.
+        const lastRow = editorView.count - 1
+        if (lastRow > anchorRow) {
+            const type = blockModel.blockTypeAt(lastRow)
+            const lastBlock = editorView.itemAtIndex(lastRow)
+            if ((type === 4 || type === 9 || type === 10 || type === 11) && lastBlock) {
+                const bottom = lastBlock.mapToItem(editorView, 0, lastBlock.height).y
+                if (y > bottom)
+                    return { boundary: editorView.count, direction: -1 }
+            }
+        }
+        return null
+    }
+
+    function applyMouseDocumentSelection(anchorEditor, anchorPosition, x, y) {
+        const boundary = structuralBoundaryAtPoint(anchorEditor, y)
+        if (boundary) {
+            const focus = selectionAnchorAtBoundary(boundary.boundary, boundary.direction)
+            if (!focus)
+                return false
+            documentSelectionBlankBoundary = boundary.boundary
+            documentSelectionBlankDirection = boundary.direction
+            applyDocumentSelection(anchorEditor, anchorPosition, focus.editor, focus.position, true)
+            return true
+        }
+        const hit = editorView.editorAtPoint(x, y)
+        if (!hit)
+            return false
+        applyDocumentSelection(anchorEditor, anchorPosition, hit.editor, hit.position)
+        return true
     }
 
     function finishBlankAreaSelection() {
@@ -120,6 +191,7 @@ QtObject {
         if (!moved) {
             documentSelectionBlankBoundary = -1
             documentSelectionBlankDirection = 0
+            releaseRetainedEmptySelectionEditor()
         }
         if (moved)
             copyDocumentSelectionToPrimary()
@@ -135,6 +207,7 @@ QtObject {
         mouseSelectionActive = false
         documentSelectionBlankBoundary = -1
         documentSelectionBlankDirection = 0
+        releaseRetainedEmptySelectionEditor()
         selectionStateRefresh.restart()
     }
 
@@ -151,6 +224,21 @@ QtObject {
     }
 
     function scheduleDiscardEmptyInsertedParagraph(editor) {
+        // A temporary paragraph created below a final structural block is a
+        // real endpoint while a drag selection is in progress. Its focus
+        // moves to the editor under the pointer, but removing it on that blur
+        // destroys the anchor and collapses the structural selection.
+        let pendingBlankAnchor = false
+        if (blankSelectionBoundary >= 0) {
+            const preceding = selectionAnchorAtBoundary(blankSelectionBoundary, -1)
+            const following = selectionAnchorAtBoundary(blankSelectionBoundary, 1)
+            pendingBlankAnchor = (preceding && preceding.editor === editor)
+                    || (following && following.editor === editor)
+        }
+        if ((mouseSelectionActive && selectionAnchorEditor === editor) || pendingBlankAnchor) {
+            retainedEmptySelectionEditor = editor
+            return true
+        }
         Qt.callLater(function() {
             if (!editor || typeof editor.currentPlainText !== "function"
                     || editor.activeFocus || !blockModel || editorView.count <= 1)
@@ -178,6 +266,14 @@ QtObject {
                 return true
             })
         })
+        return true
+    }
+
+    function releaseRetainedEmptySelectionEditor() {
+        const editor = retainedEmptySelectionEditor
+        retainedEmptySelectionEditor = null
+        if (editor)
+            scheduleDiscardEmptyInsertedParagraph(editor)
     }
 
     function handleEmptyTextBlockDeletion(event, editor) {
@@ -238,6 +334,7 @@ QtObject {
             if (editor.selectionStart !== editor.selectionEnd)
                 editor.select(editor.cursorPosition, editor.cursorPosition)
         }
+        releaseRetainedEmptySelectionEditor()
     }
 
     function flushPendingEditorChanges() {
@@ -408,19 +505,23 @@ QtObject {
         }
         wholeDocumentSelected = false
         if (anchorEditor === focusEditor) {
+            const crossesStructuralBoundary = Boolean(preserveBlankBoundary)
+                    && documentSelectionBlankBoundary >= 0
             if (selectionSpansEditors) {
                 for (const editor of editorView.editors) {
                     if (editor && editor !== focusEditor && editor.selectionStart !== editor.selectionEnd)
                         editor.select(editor.cursorPosition, editor.cursorPosition)
                 }
             }
-            selectionSpansEditors = false
-            documentSelectionStartEditor = null
-            documentSelectionStartPosition = 0
-            documentSelectionEndEditor = null
-            documentSelectionEndPosition = 0
+            selectionSpansEditors = crossesStructuralBoundary
+            documentSelectionStartEditor = crossesStructuralBoundary ? focusEditor : null
+            documentSelectionStartPosition = crossesStructuralBoundary
+                    ? Math.min(anchorPosition, focusPosition) : 0
+            documentSelectionEndEditor = crossesStructuralBoundary ? focusEditor : null
+            documentSelectionEndPosition = crossesStructuralBoundary
+                    ? Math.max(anchorPosition, focusPosition) : 0
             setEditorSelection(focusEditor, anchorPosition, focusPosition)
-            documentSelectionAvailable = anchorPosition !== focusPosition
+            documentSelectionAvailable = crossesStructuralBoundary || anchorPosition !== focusPosition
             if (editorView.activeEditor !== focusEditor) {
                 focusEditor.forceActiveFocus()
                 editorView.activeEditor = focusEditor
@@ -541,7 +642,8 @@ QtObject {
         const ordered = editorView.orderedEditors()
         let first = -1
         let last = -1
-        const useDocumentBoundaries = Boolean(includeBoundaryEditors) && selectionSpansEditors
+        const useDocumentBoundaries = (Boolean(includeBoundaryEditors)
+                || documentSelectionBlankBoundary >= 0) && selectionSpansEditors
                 && documentSelectionStartEditor && documentSelectionEndEditor
         if (useDocumentBoundaries) {
             first = ordered.indexOf(documentSelectionStartEditor)
