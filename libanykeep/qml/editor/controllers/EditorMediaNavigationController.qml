@@ -5,6 +5,7 @@ QtObject {
     required property var editorView
     required property var blockModel
     required property var editorBackend
+    required property var focusCoordinator
     property int selectedImageIndex: -1
     property int selectedAudioIndex: -1
     property int selectedAttachmentIndex: -1
@@ -14,7 +15,7 @@ QtObject {
             return false
         editorView.activeTagLineIndex = -1
         ++editorView.focusRequestGeneration
-        pendingFocusRetry.stop()
+        focusCoordinator.stopPendingFocusRetry()
         editorView.pendingFocusAddress = null
         editorView.pendingEditorState = null
         editorView.flushPendingEditorChanges()
@@ -51,7 +52,7 @@ QtObject {
             return false
         editorView.activeTagLineIndex = -1
         ++editorView.focusRequestGeneration
-        pendingFocusRetry.stop()
+        focusCoordinator.stopPendingFocusRetry()
         editorView.pendingFocusAddress = null
         editorView.pendingEditorState = null
         editorView.flushPendingEditorChanges()
@@ -87,7 +88,7 @@ QtObject {
             return false
         editorView.activeTagLineIndex = -1
         ++editorView.focusRequestGeneration
-        pendingFocusRetry.stop()
+        focusCoordinator.stopPendingFocusRetry()
         editorView.pendingFocusAddress = null
         editorView.pendingEditorState = null
         editorView.flushPendingEditorChanges()

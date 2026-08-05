@@ -69,6 +69,10 @@ QtObject {
         onTriggered: if (editorView.tryPendingEditorFocus()) stop()
     }
 
+    function stopPendingFocusRetry() {
+        pendingFocusRetry.stop()
+    }
+
     function orderedEditors() {
         return editors.filter(editor => editor !== null && editor.visible).sort((left, right) => {
             const lp = left.mapToItem(editorView, 0, 0)

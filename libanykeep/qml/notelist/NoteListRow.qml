@@ -105,6 +105,18 @@ SwipeDelegate {
     Component.onCompleted: collection.registerRow(row)
     TableView.onPooled: row.inReusePool = true
     TableView.onReused: row.inReusePool = false
+    onEditingChanged: {
+        if (editing) {
+            // TreeView can recycle the initially focused rename delegate
+            // after the page-level focus retry has already succeeded. The
+            // replacement delegate owns the same editing identity and must
+            // reclaim focus once its updated roles and visibility settle.
+            Qt.callLater(function() {
+                if (row.editing)
+                    row.focusRenameField()
+            })
+        }
+    }
     onNoteIdChanged: closeDeleteSwipe()
     onSwipeDeleteAvailableChanged: {
         if (!swipeDeleteAvailable)

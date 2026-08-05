@@ -6,6 +6,7 @@ QtObject {
     required property var blockModel
     required property var editorBackend
     required property var platformBackend
+    required property var focusCoordinator
     property var selectionAnchorEditor: null
     property int selectionAnchorPosition: 0
     property bool wholeDocumentSelected: false
@@ -298,7 +299,7 @@ QtObject {
         // callback to write through a stale delegate.
         flushPendingEditorChanges()
         ++editorView.focusRequestGeneration
-        pendingFocusRetry.stop()
+        focusCoordinator.stopPendingFocusRetry()
         editorView.pendingFocusAddress = null
         editorView.pendingEditorState = null
         clearDocumentSelection()

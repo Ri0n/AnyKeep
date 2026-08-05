@@ -325,15 +325,27 @@ void NotesManagerQmlTest::folderInlineRenameSurvivesDelegateReuseInQuickWindow()
     QVERIFY(foldersModel.removeFolder(QStringLiteral("created-folder")));
     QVERIFY(QMetaObject::invokeMethod(page, "beginFolderRename", Q_ARG(QVariant, QStringLiteral("inbox"))));
 
-    QTRY_VERIFY(quick.activeFocusItem());
-    QTRY_COMPARE(quick.activeFocusItem()->objectName(), QStringLiteral("folderRenameField-inbox"));
-    QQuickItem *rename = quick.activeFocusItem();
-    QVERIFY(rename->hasActiveFocus());
+    QQuickItem *rename                      = nullptr;
+    QObject    *renameRow                   = nullptr;
+    const auto  currentRenameFieldIsEditing = [&]() {
+        auto *candidate = quick.activeFocusItem();
+        if (!candidate || candidate->objectName() != QStringLiteral("folderRenameField-inbox"))
+            return false;
+        auto *candidateRow = ancestorWithProperty(candidate, "editing");
+        if (!candidateRow || candidateRow->property("groupId").toString() != QStringLiteral("inbox")
+            || !candidateRow->property("editing").toBool()) {
+            return false;
+        }
+        rename    = candidate;
+        renameRow = candidateRow;
+        return rename->hasActiveFocus();
+    };
+    QTRY_VERIFY(currentRenameFieldIsEditing());
     QTest::qWait(80);
+    QTRY_VERIFY(currentRenameFieldIsEditing());
     QCOMPARE(page->property("editingFolderId").toString(), QStringLiteral("inbox"));
 
     rename->setProperty("text", QStringLiteral("Reusable Inbox"));
-    auto *renameRow = ancestorWithProperty(rename, "editing");
     QVERIFY(renameRow);
     QCOMPARE(renameRow->property("groupId").toString(), QStringLiteral("inbox"));
     QVERIFY(renameRow->property("editing").toBool());

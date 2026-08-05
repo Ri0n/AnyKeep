@@ -238,12 +238,14 @@ private slots:
         note.close();
         QFile legacyIndex(directory.filePath(QStringLiteral(".qtnote-folders.json")));
         QVERIFY(legacyIndex.open(QIODevice::WriteOnly));
-        QVERIFY(legacyIndex.write("[]") > 0);
+        QVERIFY(legacyIndex.write(R"JSON({"version":1,"folders":[],"assignments":[]})JSON") > 0);
         legacyIndex.close();
 
         settings.setValue(QStringLiteral("storage.ptf.path"), directory.path());
         PTFStorage storage;
         QVERIFY(storage.init());
+        QVERIFY(storage.folderCatalogAvailable());
+        QVERIFY(storage.folderCatalogErrorString().isEmpty());
 
         QVERIFY(!QFileInfo::exists(directory.filePath(QStringLiteral(".qtnote-folders.json"))));
         QVERIFY(QFileInfo::exists(directory.filePath(QStringLiteral(".anykeep-folders.json"))));

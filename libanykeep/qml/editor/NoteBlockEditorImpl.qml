@@ -167,6 +167,7 @@ ListView {
         blockModel: root.blockModel
         editorBackend: root.editorBackend
         platformBackend: root.platformBackend
+        focusCoordinator: focusController
     }
 
     Controllers.EditorMediaNavigationController {
@@ -174,6 +175,7 @@ ListView {
         editorView: root
         blockModel: root.blockModel
         editorBackend: root.editorBackend
+        focusCoordinator: focusController
     }
 
     EditorContextMenu {
