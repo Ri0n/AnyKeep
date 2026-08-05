@@ -12,7 +12,7 @@ FocusScope {
     readonly property bool individuallySelected:
         audioRoot.editorView.selectedAudioIndex === block.index
     readonly property bool selected: individuallySelected
-                                     || audioRoot.editorView.structuralBlockSelected(block.index)
+                                     || block.structurallySelected
     property bool transcriptExpanded: false
     property bool renaming: false
     readonly property bool current: playback && playback.currentSourceUri === block.url

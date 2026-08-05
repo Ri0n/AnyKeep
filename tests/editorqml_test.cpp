@@ -559,6 +559,86 @@ private:
         QTRY_COMPARE(editor.model()->rowCount(), 3);
     }
 
+    void draggingUpFromTrailingAreaVisuallySelectsFinalImage()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("Select this text"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        editor.model()->insertImage(editor.model()->rowCount(), QStringLiteral("qrc:/svg/anykeep"),
+                                    QStringLiteral("Diagram"));
+        editor.model()->setImageWidth(2, 240);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(620, 440);
+        host.show();
+        auto *quick = host.quickWidget();
+        auto *root  = qobject_cast<QQuickItem *>(quick->rootObject());
+        QVERIFY(root);
+        QQuickItem *body    = nullptr;
+        QQuickItem *image   = nullptr;
+        QQuickItem *outline = nullptr;
+        QQuickItem *alt     = nullptr;
+        QQuickItem *actions = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QTRY_VERIFY((image = quickItemByName(root, QStringLiteral("imageBlockEditor-2"))));
+        QTRY_VERIFY((outline = quickItemByName(root, QStringLiteral("imageSelectionOutline-2"))));
+        QTRY_VERIFY((alt = quickItemByName(root, QStringLiteral("imageAltEditor-2"))));
+        QTRY_VERIFY((actions = quickItemByName(root, QStringLiteral("imageActions-2"))));
+        auto *blockEditor = ancestorWithProperty(body, "currentFindText");
+        QVERIFY(blockEditor);
+
+        QVERIFY(!image->property("selected").toBool());
+        QVERIFY(!outline->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "selectAllDocument"));
+        QTRY_VERIFY(image->property("selected").toBool());
+        QTRY_VERIFY(outline->isVisible());
+        QVERIFY(!alt->isVisible());
+        QVERIFY(!actions->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "clearDocumentSelection"));
+        QTRY_VERIFY(!outline->isVisible());
+
+        const QPoint trailingPoint = image->mapToScene(QPointF(image->width() * 0.5, image->height() + 20)).toPoint();
+        QTest::mouseClick(quick, Qt::LeftButton, Qt::NoModifier, trailingPoint);
+        QTRY_COMPARE(editor.model()->rowCount(), 4);
+        QQuickItem *temporaryParagraph = nullptr;
+        QTRY_VERIFY((temporaryParagraph = textEditorForBlock(root, 3)));
+        QTRY_VERIFY(temporaryParagraph->hasActiveFocus());
+
+        const QPoint selectionStart
+            = temporaryParagraph
+                  ->mapToScene(QPointF(temporaryParagraph->width() * 0.5, temporaryParagraph->height() + 20))
+                  .toPoint();
+        const QPoint imagePoint = image->mapToScene(QPointF(image->width() * 0.5, image->height() - 2)).toPoint();
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, selectionStart);
+        QTRY_COMPARE(blockEditor->property("blankSelectionBoundary").toInt(), 4);
+        QVERIFY(!blockEditor->property("mouseSelectionActive").toBool());
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(!temporaryParagraph->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(
+            blockEditor, "scheduleDiscardEmptyInsertedParagraph",
+            Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(temporaryParagraph)))));
+        QTest::qWait(50);
+        QCOMPARE(editor.model()->rowCount(), 4);
+        QTest::mouseMove(quick, imagePoint, 50);
+        QTRY_VERIFY(image->property("selected").toBool());
+        QTRY_VERIFY(outline->isVisible());
+        QVERIFY(!alt->isVisible());
+        QVERIFY(!actions->isVisible());
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, imagePoint);
+
+        QTest::qWait(200);
+        QVERIFY(image->property("selected").toBool());
+        QVERIFY(outline->isVisible());
+        QVERIFY(!alt->isVisible());
+        QVERIFY(!actions->isVisible());
+
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "clearDocumentSelection"));
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_COMPARE(editor.model()->rowCount(), 3);
+    }
+
     void externalTextInsertionUsesDropPosition()
     {
         Note note(new NoteData(nullptr));
@@ -1462,6 +1542,11 @@ private slots:
     void regressionDraggingUpFromTrailingAreaKeepsTemporarySelectionAnchor()
     {
         draggingUpFromTrailingAreaKeepsTemporarySelectionAnchor();
+    }
+
+    void regressionDraggingUpFromTrailingAreaVisuallySelectsFinalImage()
+    {
+        draggingUpFromTrailingAreaVisuallySelectsFinalImage();
     }
 
     void regressionExternalTextInsertionUsesDropPosition() { externalTextInsertionUsesDropPosition(); }

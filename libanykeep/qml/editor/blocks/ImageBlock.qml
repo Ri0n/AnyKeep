@@ -9,7 +9,9 @@ FocusScope {
     required property var reorderController
     objectName: "imageBlockEditor-" + block.index
     required property var block
-    property bool selected: imageRoot.editorView.selectedImageIndex === block.index
+    readonly property bool individuallySelected:
+        imageRoot.editorView.selectedImageIndex === block.index
+    readonly property bool selected: individuallySelected || block.structurallySelected
     property real transientWidth: -1
     property real transientX: -1
     property real resizeStartWidth: 0
@@ -28,7 +30,7 @@ FocusScope {
         sourceImage.implicitWidth > 0 && sourceImage.implicitHeight > 0
         ? sourceImage.implicitHeight / sourceImage.implicitWidth : 0.75
     readonly property real displayHeight: Math.max(40, displayWidth * imageAspect)
-    readonly property real imageY: selected ? altEditor.implicitHeight + 6 : 0
+    readonly property real imageY: individuallySelected ? altEditor.implicitHeight + 6 : 0
     readonly property real actionGap: imageRoot.editorView.touchMode ? 12 : 8
     readonly property real alignedX:
         normalizedAlignment === "left" ? 0
@@ -38,7 +40,7 @@ FocusScope {
 
     width: block.width
     implicitHeight: imageY + displayHeight
-                    + (selected ? actionGap + imageActions.height + 4 : 0)
+                    + (individuallySelected ? actionGap + imageActions.height + 4 : 0)
     activeFocusOnTab: true
 
     function selectAndFocus() {
@@ -135,7 +137,7 @@ FocusScope {
     TextField {
         id: altEditor
         objectName: "imageAltEditor-" + imageRoot.block.index
-        visible: imageRoot.selected
+        visible: imageRoot.individuallySelected
         opacity: visible ? 1 : 0
         width: Math.min(imageRoot.width, Math.max(180, sourceImage.width))
         x: Math.max(0, Math.min(imageRoot.width - width,
@@ -250,6 +252,8 @@ FocusScope {
     }
 
     Rectangle {
+        id: selectionOutline
+        objectName: "imageSelectionOutline-" + imageRoot.block.index
         x: sourceImage.x - 2
         y: sourceImage.y - 2
         width: sourceImage.width + 4
@@ -263,7 +267,7 @@ FocusScope {
     }
 
     ImageResizeHandle {
-        visible: imageRoot.selected
+        visible: imageRoot.individuallySelected
         imageEditor: imageRoot
         direction: -1
         fillColor: altEditor.palette.base
@@ -273,7 +277,7 @@ FocusScope {
     }
 
     ImageResizeHandle {
-        visible: imageRoot.selected
+        visible: imageRoot.individuallySelected
         imageEditor: imageRoot
         direction: 1
         fillColor: altEditor.palette.base
@@ -285,7 +289,8 @@ FocusScope {
 
     Row {
         id: imageActions
-        visible: imageRoot.selected
+        objectName: "imageActions-" + imageRoot.block.index
+        visible: imageRoot.individuallySelected
         spacing: 3
         height: imageRoot.editorView.touchMode ? 36 : 28
         y: sourceImage.y + sourceImage.height + imageRoot.actionGap

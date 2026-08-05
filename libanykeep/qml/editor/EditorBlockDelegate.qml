@@ -108,6 +108,8 @@ FocusScope {
         property string audioTranscript: blockDelegate.audioTranscript
         property string attachmentMediaType: blockDelegate.attachmentMediaType
         property real attachmentSize: blockDelegate.attachmentSize
+        readonly property bool structurallySelected:
+            blockDelegate.editorView.structuralBlockSelected(index)
         x: editorView.editorInset
         width: Math.max(0, blockDelegate.width - 2 * editorView.editorInset)
         height: item ? item.implicitHeight : 0
