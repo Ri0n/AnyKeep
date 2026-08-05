@@ -11,7 +11,7 @@ without moving those headers.
 | Structured document/model | `noteblockmodel.h`, `noteblockmodel/`, `notefragment.*` | `noteblockmodel_test`, `notefragment_test` |
 | Editor operations/history | `noteeditor*`, `editor/`, `notedocumenthistory.*`, `editorcursorcontroller.*` | `noteeditor_test`, CTest label `editor` |
 | Editor QML | `qml/editor/`; read its scoped `AGENTS.md` | `editorqml_test`, `desktopnoteeditorhost_test` |
-| Note lifecycle/drafts | `note.*`, `draftmanager.*`, `draftstore.h`, `filedraftstore.*`, `conflictresolver.*` | `filedraftstore_test`, `draftmanagertransfer_test` |
+| Note lifecycle/drafts | `note.*`, `draftmanager.h`, `drafts/`, `draftstore.h`, `filedraftstore.*`, `conflictresolver.*` | `filedraftstore_test`, `draftmanagertransfer_test` |
 | Workspace/transfer | `notesworkspacecontroller.h`, `workspace/`, `notetransfercontroller.*` | `notesworkspacefolders_test`, `notetransfercontroller_test` |
 | Folders/rules | `foldercatalog*`, `foldernotesmodel.*`, `folderoperationscontroller.*`, `noterule*`, `rulescontroller.*` | matching `folder*`, `noterule*`, and `rules*` targets |
 | Storage/cache/media | `notestorage.*`, `ptfstorage.*`, `filestorage.*`, `fileremotecachestore.*`, `localmediastore.*` | `ptfstorage_test`, `fileremotecachestore_test`, `localmediastore_test` |
@@ -63,6 +63,18 @@ units. Keep clipboard- or formatting-only helpers in their owning `.cpp`.
 | Open/create/save/close/delete/recycle and standalone notes | `workspace/notes.cpp` |
 | Move/copy/batch/reorder and staged transfer | `workspace/transfer.cpp` |
 | Folder CRUD, flags, trash/undo and note assignments | `workspace/folders.cpp` |
+
+### `DraftManager` implementation
+
+| Change | Implementation owner |
+| --- | --- |
+| Store initialization, construction and recovery | `drafts/core.cpp` |
+| Editing sessions, ready/discard state and queued removals | `drafts/sessions.cpp` |
+| Cross-storage staging and publication retargeting | `drafts/transfer.cpp` |
+| Publish/retry/conflict pipeline and storage lifetime | `drafts/publication.cpp` |
+
+`drafts/private.h` contains only logging and diagnostic helpers shared by
+multiple draft-manager translation units.
 
 ## Architecture references
 

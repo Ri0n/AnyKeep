@@ -55,7 +55,10 @@ set(anykeep_CORE_SRCS
     dialogservice.cpp
     editorcursorcontroller.cpp
     editorplatformbackend.cpp
-    draftmanager.cpp
+    drafts/core.cpp
+    drafts/publication.cpp
+    drafts/sessions.cpp
+    drafts/transfer.cpp
     filedraftstore.cpp
     filefoldercatalogstore.cpp
     filenoterulestore.cpp
