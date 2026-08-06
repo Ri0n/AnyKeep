@@ -11,6 +11,48 @@
         </BootstrapperApplication>
 
         <util:RegistrySearch
+            Id="LegacyAnyKeep32Search"
+            Variable="LegacyAnyKeep32"
+            Root="HKLM"
+            Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AnyKeep"
+            Value="UninstallString"
+            Result="exists"
+            Bitness="always32"
+        />
+        <util:RegistrySearch
+            Id="LegacyAnyKeep64Search"
+            Variable="LegacyAnyKeep64"
+            Root="HKLM"
+            Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AnyKeep"
+            Value="UninstallString"
+            Result="exists"
+            Bitness="always64"
+        />
+        <util:RegistrySearch
+            Id="LegacyQtNote32Search"
+            Variable="LegacyQtNote32"
+            Root="HKLM"
+            Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QtNote"
+            Value="UninstallString"
+            Result="exists"
+            Bitness="always32"
+        />
+        <util:RegistrySearch
+            Id="LegacyQtNote64Search"
+            Variable="LegacyQtNote64"
+            Root="HKLM"
+            Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QtNote"
+            Value="UninstallString"
+            Result="exists"
+            Bitness="always64"
+        />
+
+        <bal:Condition
+            Condition="WixBundleInstalled OR (NOT LegacyAnyKeep32 AND NOT LegacyAnyKeep64 AND NOT LegacyQtNote32 AND NOT LegacyQtNote64)"
+            Message="A previous system-wide AnyKeep or QtNote installation was found. Uninstall it from Windows Settings, then run this installer again. Your notes and settings will not be removed."
+        />
+
+        <util:RegistrySearch
             Id="VCRedistInstalledSearch"
             Variable="VCRedistInstalled"
             Root="HKLM"

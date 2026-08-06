@@ -457,6 +457,8 @@ void Main::showOptions()
     activateWidget(d);
 }
 
+UpdateController *Main::updateController() const { return d->updates; }
+
 StickyNotesManager *Main::stickyNotesManager() const { return d->stickyNotes; }
 
 void Main::setStickyNotesImpl(StickyNotesIntegrationInterface *stickyNotes) { d->stickyNotes->setBackend(stickyNotes); }
