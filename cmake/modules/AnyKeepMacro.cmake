@@ -179,6 +179,7 @@ macro(add_anykeep_plugin name description buildable)
         "${_plugin_metadata_output}"
         "${_plugin_metadata_include}"
         )
+    set_property(GLOBAL APPEND PROPERTY ANYKEEP_ENABLED_PLUGIN_TARGETS ${name})
     target_include_directories(${name} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 endmacro()
 

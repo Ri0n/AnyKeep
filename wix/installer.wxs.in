@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
     <Package
         Name="AnyKeep"
         Manufacturer="R-Soft"
@@ -7,14 +8,43 @@
         UpgradeCode="@UPGRADE_CODE@"
         InstallerVersion="500"
         Compressed="yes"
-        Scope="perMachine">
+        Scope="perUser">
 
         <Media Id="1" Cabinet="product.cab" EmbedCab="yes" />
 
-        <StandardDirectory Id="TARGETDIR" />
-        <StandardDirectory Id="ProgramFiles64Folder">
-            <Directory Id="APPLICATIONROOTDIRECTORY" Name="AnyKeep">
-                @COMPONENTS@
+        <Property Id="ANYKEEP_INSTALL_ROOT">
+            <RegistrySearch Id="AnyKeepInstallRootSearch"
+                            Root="HKCU"
+                            Key="Software\R-Soft\AnyKeep"
+                            Name="InstallRoot"
+                            Type="directory" />
+        </Property>
+
+        <StandardDirectory Id="LocalAppDataFolder">
+            <Directory Id="ProgramsDirectory" Name="Programs">
+                <Directory Id="APPLICATIONROOTDIRECTORY" Name="AnyKeep">
+                    <Component Id="AnyKeepLauncherComponent" Guid="*" Bitness="always64">
+                        <File Id="AnyKeepLauncherFile"
+                              Name="AnyKeepLauncher.exe"
+                              Source="@LAUNCHER_FILE@" />
+                        <RegistryValue Root="HKCU"
+                                       Key="Software\R-Soft\AnyKeep"
+                                       Name="InstallRoot"
+                                       Type="string"
+                                       Value="[APPLICATIONROOTDIRECTORY]"
+                                       KeyPath="yes" />
+                        <util:RemoveFolderEx Id="RemoveAnyKeepInstallRoot"
+                                             Property="ANYKEEP_INSTALL_ROOT"
+                                             On="uninstall" />
+                    </Component>
+                    <Directory Id="VersionsDirectory" Name="versions">
+                        <Directory Id="CurrentVersionDirectory" Name="@ANYKEEP_VERSION@">
+                            @COMPONENTS@
+                        </Directory>
+                    </Directory>
+                    <Directory Id="StagingDirectory" Name="staging" />
+                    <Directory Id="UpdateLogsDirectory" Name="update-logs" />
+                </Directory>
             </Directory>
         </StandardDirectory>
 
@@ -22,23 +52,30 @@
             <Directory Id="ProgramMenuDir" Name="AnyKeep">
                 <Component Id="StartMenuShortcuts" Guid="*" Bitness="always64">
                     <RemoveFolder Id="ProgramMenuDir" On="uninstall" />
-                    <RegistryValue Root="HKCU" Key="Software\[Manufacturer]\[ProductName]" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+                    <RegistryValue Root="HKCU"
+                                   Key="Software\R-Soft\AnyKeep"
+                                   Name="StartMenuShortcut"
+                                   Type="integer"
+                                   Value="1"
+                                   KeyPath="yes" />
                     <Shortcut Id="ExeShortcut"
                               Name="AnyKeep"
                               Description="Launch AnyKeep"
-                              Target="[APPLICATIONROOTDIRECTORY]AnyKeep.exe"
-                              WorkingDirectory="APPLICATIONROOTDIRECTORY" />
+                              Target="[APPLICATIONROOTDIRECTORY]AnyKeepLauncher.exe"
+                              WorkingDirectory="APPLICATIONROOTDIRECTORY">
+                        <ShortcutProperty Key="System.AppUserModel.ID"
+                                          Value="com.github.ri0n.AnyKeep" />
+                    </Shortcut>
                 </Component>
             </Directory>
         </StandardDirectory>
 
         <Feature Id="DefaultFeature" Title="Main Feature" Level="1">
+            <ComponentRef Id="AnyKeepLauncherComponent" />
             @COMPONENT_REFS@
             <ComponentRef Id="StartMenuShortcuts" />
         </Feature>
 
-        <Icon Id="DesktopIcon.exe" SourceFile="@CMAKE_INSTALL_PREFIX@/anykeep.exe" />
-        <Icon Id="StartMenuIcon.exe" SourceFile="@CMAKE_INSTALL_PREFIX@/anykeep.exe" />
         <Icon Id="icon.ico" SourceFile="@LOGO_FILE@" />
         <Property Id="ARPPRODUCTICON" Value="icon.ico" />
         <MajorUpgrade

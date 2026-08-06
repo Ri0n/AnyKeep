@@ -11,6 +11,7 @@
 #include "speechrecognitioncontroller.h"
 #include "storageiconimageprovider.h"
 #include "themediconimageprovider.h"
+#include "updatecontroller.h"
 
 #include <QDebug>
 #include <QDragEnterEvent>
@@ -25,7 +26,9 @@
 
 namespace AnyKeep {
 
-NotesManagerWindow::NotesManagerWindow(QObject *parent) : QObject(parent)
+NotesManagerWindow::NotesManagerWindow(QObject *parent) : NotesManagerWindow(nullptr, parent) { }
+
+NotesManagerWindow::NotesManagerWindow(UpdateController *updates, QObject *parent) : QObject(parent), updates_(updates)
 {
     workspace_        = new NotesWorkspaceController(this);
     platformBackend_  = new DesktopEditorPlatformBackend(workspace_->editor(), this);
@@ -71,6 +74,7 @@ NotesManagerWindow::NotesManagerWindow(QObject *parent) : QObject(parent)
     engine_->rootContext()->setContextProperty(QStringLiteral("desktopEditorPlatform"), platformBackend_);
     engine_->rootContext()->setContextProperty(QStringLiteral("desktopNoteActions"), desktopActions_);
     engine_->rootContext()->setContextProperty(QStringLiteral("desktopSpeech"), speechController_);
+    engine_->rootContext()->setContextProperty(QStringLiteral("anykeepUpdates"), updates_);
     engine_->load(QUrl(QStringLiteral("qrc:/qml/NotesManagerWindow.qml")));
 
     if (!engine_->rootObjects().isEmpty())

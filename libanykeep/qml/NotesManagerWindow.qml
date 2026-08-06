@@ -23,6 +23,7 @@ ApplicationWindow {
         platformBackend: desktopEditorPlatform
         desktopActions: desktopNoteActions
         speechController: desktopSpeech
+        updateController: anykeepUpdates
         embeddedEditor: true
     }
 

@@ -17,12 +17,14 @@ class DesktopNoteActions;
 class SpeechRecognitionController;
 class SpeechRecognitionProviderInterface;
 class NotesWorkspaceController;
+class UpdateController;
 
 class ANYKEEP_EXPORT NotesManagerWindow final : public QObject {
     Q_OBJECT
 
 public:
     explicit NotesManagerWindow(QObject *parent = nullptr);
+    NotesManagerWindow(UpdateController *updates, QObject *parent);
     ~NotesManagerWindow() override;
 
     bool                          isReady() const;
@@ -51,6 +53,7 @@ private:
     DesktopEditorPlatformBackend *platformBackend_ { nullptr };
     DesktopNoteActions           *desktopActions_ { nullptr };
     SpeechRecognitionController  *speechController_ { nullptr };
+    UpdateController             *updates_ { nullptr };
     QPointer<QQuickWindow>        window_;
     bool                          imageDragAccepted_ { false };
 };

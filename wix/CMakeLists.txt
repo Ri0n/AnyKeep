@@ -7,9 +7,26 @@ if(NOT WINDEPLOYQT_EXECUTABLE)
     message(WARNING "windeployqt not found! Dependencies for standalone deployment will not be gathered.")
 endif()
 
+if(WINDEPLOYQT_EXECUTABLE)
+    get_property(ANYKEEP_UPDATE_PLUGIN_TARGETS GLOBAL PROPERTY ANYKEEP_ENABLED_PLUGIN_TARGETS)
+    configure_file(make-update-package.cmake.in make-update-package.cmake @ONLY)
+    add_custom_target(windows_update_package
+        COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_INSTALL_PREFIX}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_INSTALL_PREFIX}
+        COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --config $<CONFIG>
+        COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/make-update-package.cmake
+        DEPENDS anykeepexe anykeep_launcher anykeep_updater anykeep ${ANYKEEP_UPDATE_PLUGIN_TARGETS}
+        COMMENT "Building versioned AnyKeep Windows update archive and manifest"
+    )
+    if(TARGET build_translations)
+        add_dependencies(windows_update_package build_translations)
+    endif()
+    set_target_properties(windows_update_package PROPERTIES EXCLUDE_FROM_ALL TRUE)
+endif()
+
 find_program(WIX_EXECUTABLE wix.exe)
 if(NOT WIX_EXECUTABLE)
-    message(WARNING "WiX not found! Installer won't be built.")
+    message(WARNING "WiX not found! Installer targets won't be built.")
 endif()
 if(NOT WIX_EXECUTABLE OR NOT WINDEPLOYQT_EXECUTABLE)
     return()
@@ -35,6 +52,7 @@ add_custom_command(
     OUTPUT ${WIX_BUNDLE_OUTPUT} ${WIX_OUTPUT} ${LICENSE_RTF}
     COMMAND ${CMAKE_COMMAND}
         -DVERSION_FOR_WIX=${VERSION_FOR_WIX}
+        -DANYKEEP_VERSION=${ANYKEEP_VERSION}
         -DUPGRADE_CODE=${UPGRADE_CODE}
         -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
         -DWIX_TEMPLATE=${WIX_TEMPLATE}
@@ -57,7 +75,7 @@ set_target_properties(prepare_install PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 add_custom_command(
     OUTPUT ${ANYKEEP_MSI}
-    COMMAND ${WIX_EXECUTABLE} build ${WIX_OUTPUT} -platform x64 -o ${ANYKEEP_MSI}
+    COMMAND ${WIX_EXECUTABLE} build ${WIX_OUTPUT} -platform x64 -ext WixToolset.Util.wixext -o ${ANYKEEP_MSI}
     COMMENT "Building MSI package with WiX"
     DEPENDS ${WIX_OUTPUT}
 )

@@ -285,6 +285,10 @@ and to other contributors whose names have been lost or not yet added.
         <source>Error</source>
         <translation>Ошибка</translation>
     </message>
+    <message>
+        <source>Click the notification to %1.</source>
+        <translation>Нажмите на уведомление, чтобы %1.</translation>
+    </message>
 </context>
 <context>
     <name>AnyKeep::BaseIntegrationTray</name>
@@ -627,6 +631,26 @@ Notes will be automatically saved to special storage, so you should not worry ab
         <location filename="../libanykeep/anykeep.cpp" line="418"/>
         <source>Failed to load note</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>AnyKeep update ready</source>
+        <translation>Обновление AnyKeep готово</translation>
+    </message>
+    <message>
+        <source>AnyKeep %1 has been downloaded and prepared. Click to update and restart.</source>
+        <translation>AnyKeep %1 уже загружен и подготовлен. Нажмите, чтобы обновиться и перезапустить приложение.</translation>
+    </message>
+    <message>
+        <source>Update</source>
+        <translation>Обновить</translation>
+    </message>
+    <message>
+        <source>The update is ready, but the note manager could not checkpoint the current note.</source>
+        <translation>Обновление готово, но менеджеру заметок не удалось сохранить контрольную точку текущей заметки.</translation>
+    </message>
+    <message>
+        <source>The update is ready, but an open note could not be checkpointed.</source>
+        <translation>Обновление готово, но для одной из открытых заметок не удалось сохранить контрольную точку.</translation>
     </message>
 </context>
 <context>
@@ -1323,6 +1347,169 @@ Notes will be automatically saved to special storage, so you should not worry ab
         <location filename="../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="330"/>
         <source>Folders</source>
         <translation>Папки</translation>
+    </message>
+    <message>
+        <source>AnyKeep %1 is ready. The update is already downloaded and prepared.</source>
+        <translation>AnyKeep %1 готов. Обновление уже загружено и подготовлено.</translation>
+    </message>
+    <message>
+        <source>Update and restart</source>
+        <translation>Обновить и перезапустить</translation>
+    </message>
+</context>
+<context>
+    <name>AnyKeep::UpdateController</name>
+    <message>
+        <source>Updates are managed by Microsoft Store</source>
+        <translation>Обновления устанавливаются через Microsoft Store</translation>
+    </message>
+    <message>
+        <source>Automatic updates are unavailable</source>
+        <translation>Автоматические обновления недоступны</translation>
+    </message>
+    <message>
+        <source>Up to date</source>
+        <translation>Установлена актуальная версия</translation>
+    </message>
+    <message>
+        <source>Checking for updates…</source>
+        <translation>Проверка обновлений…</translation>
+    </message>
+    <message>
+        <source>Downloading AnyKeep %1…</source>
+        <translation>Загрузка AnyKeep %1…</translation>
+    </message>
+    <message>
+        <source>Preparing AnyKeep %1…</source>
+        <translation>Подготовка AnyKeep %1…</translation>
+    </message>
+    <message>
+        <source>AnyKeep %1 is ready to install</source>
+        <translation>AnyKeep %1 готов к установке</translation>
+    </message>
+    <message>
+        <source>Restarting into AnyKeep %1…</source>
+        <translation>Перезапуск в AnyKeep %1…</translation>
+    </message>
+    <message>
+        <source>Update failed</source>
+        <translation>Не удалось обновить AnyKeep</translation>
+    </message>
+    <message>
+        <source>No prepared update is available</source>
+        <translation>Подготовленное обновление отсутствует</translation>
+    </message>
+    <message>
+        <source>The prepared update does not contain AnyKeepUpdater.exe</source>
+        <translation>В подготовленном обновлении отсутствует AnyKeepUpdater.exe</translation>
+    </message>
+    <message>
+        <source>Could not start the AnyKeep updater</source>
+        <translation>Не удалось запустить модуль обновления AnyKeep</translation>
+    </message>
+    <message>
+        <source>Automatic updates are available only on Windows</source>
+        <translation>Автоматические обновления доступны только в Windows</translation>
+    </message>
+    <message>
+        <source>The update manifest URL is invalid</source>
+        <translation>Некорректный адрес манифеста обновлений</translation>
+    </message>
+    <message>
+        <source>Could not check for updates: %1</source>
+        <translation>Не удалось проверить обновления: %1</translation>
+    </message>
+    <message>
+        <source>The update manifest is not valid JSON: %1</source>
+        <translation>Манифест обновлений содержит некорректный JSON: %1</translation>
+    </message>
+    <message>
+        <source>The update manifest schema is not supported</source>
+        <translation>Схема манифеста обновлений не поддерживается</translation>
+    </message>
+    <message>
+        <source>This update requires a newer AnyKeep installer</source>
+        <translation>Для этого обновления требуется более новый установщик AnyKeep</translation>
+    </message>
+    <message>
+        <source>The update manifest contains an invalid version</source>
+        <translation>Манифест обновлений содержит некорректную версию</translation>
+    </message>
+    <message>
+        <source>The Windows update package description is incomplete</source>
+        <translation>Описание пакета обновления Windows неполно</translation>
+    </message>
+    <message>
+        <source>The update package URL is invalid</source>
+        <translation>Некорректный адрес пакета обновления</translation>
+    </message>
+    <message>
+        <source>Could not create the update download file</source>
+        <translation>Не удалось создать файл для загрузки обновления</translation>
+    </message>
+    <message>
+        <source>Could not write the downloaded update</source>
+        <translation>Не удалось записать загружаемое обновление</translation>
+    </message>
+    <message>
+        <source>Could not download the update: %1</source>
+        <translation>Не удалось загрузить обновление: %1</translation>
+    </message>
+    <message>
+        <source>Could not finalize the downloaded update</source>
+        <translation>Не удалось завершить загрузку обновления</translation>
+    </message>
+    <message>
+        <source>Could not read the downloaded update</source>
+        <translation>Не удалось прочитать загруженное обновление</translation>
+    </message>
+    <message>
+        <source>The downloaded update has an unexpected size</source>
+        <translation>Размер загруженного обновления не совпадает с ожидаемым</translation>
+    </message>
+    <message>
+        <source>Could not verify the downloaded update</source>
+        <translation>Не удалось проверить загруженное обновление</translation>
+    </message>
+    <message>
+        <source>The downloaded update failed its SHA-256 check</source>
+        <translation>Контрольная сумма SHA-256 загруженного обновления не совпадает</translation>
+    </message>
+    <message>
+        <source>Could not create the temporary update directory</source>
+        <translation>Не удалось создать временный каталог обновления</translation>
+    </message>
+    <message>
+        <source>Windows PowerShell is required to unpack the update</source>
+        <translation>Для распаковки обновления требуется Windows PowerShell</translation>
+    </message>
+    <message>
+        <source>Could not start Windows PowerShell to unpack the update</source>
+        <translation>Не удалось запустить Windows PowerShell для распаковки обновления</translation>
+    </message>
+    <message>
+        <source>Could not unpack the downloaded update</source>
+        <translation>Не удалось распаковать загруженное обновление</translation>
+    </message>
+    <message>
+        <source>The update package does not contain the required executables</source>
+        <translation>В пакете обновления отсутствуют необходимые исполняемые файлы</translation>
+    </message>
+    <message>
+        <source>Could not replace an incomplete prepared update</source>
+        <translation>Не удалось заменить незавершённое подготовленное обновление</translation>
+    </message>
+    <message>
+        <source>Could not create the versions directory</source>
+        <translation>Не удалось создать каталог версий</translation>
+    </message>
+    <message>
+        <source>Could not finalize the prepared update directory</source>
+        <translation>Не удалось завершить подготовку каталога обновления</translation>
+    </message>
+    <message>
+        <source>Could not save the prepared update state</source>
+        <translation>Не удалось сохранить состояние подготовленного обновления</translation>
     </message>
 </context>
 </TS>

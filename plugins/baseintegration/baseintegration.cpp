@@ -6,6 +6,7 @@
 #include <QWidget>
 #include <QWindow>
 #include <QtPlugin>
+#include <utility>
 
 #include "baseintegration.h"
 #include "baseintegrationtray.h"
@@ -210,9 +211,20 @@ QUuid BaseIntegration::stickyNoteIdForPresentation(const QString &presentationId
 
 void BaseIntegration::notifyError(const QString &message)
 {
-    if (tray) {
-        ((BaseIntegrationTray *)tray)->tray->showMessage(tr("Error"), message, QSystemTrayIcon::Warning, 5000);
-    }
+    if (tray)
+        static_cast<BaseIntegrationTray *>(tray)->showNotification(tr("Error"), message, {}, {}, true);
+}
+
+void BaseIntegration::notify(const QString &title, const QString &message, const QString &actionText,
+                             std::function<void()> action)
+{
+    if (!tray)
+        return;
+    QString displayedMessage = message;
+    if (!actionText.isEmpty())
+        displayedMessage += QStringLiteral("\n") + tr("Click the notification to %1.").arg(actionText.toLower());
+    static_cast<BaseIntegrationTray *>(tray)->showNotification(title, displayedMessage, actionText, std::move(action),
+                                                               false);
 }
 
 } // namespace AnyKeep

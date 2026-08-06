@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QPointer>
 
+#include "actionnotificationinterface.h"
 #include "anykeepplugininterface.h"
 #include "deintegrationinterface.h"
 #include "globalshortcutsinterface.h"
@@ -27,14 +28,16 @@ class BaseIntegration : public QObject,
                         public DEIntegrationInterface,
                         public TrayInterface,
                         public NotificationInterface,
+                        public ActionNotificationInterface,
                         public GlobalShortcutsInterface,
                         public StickyNotesIntegrationInterface,
                         public StickyNotesHostInterface {
     Q_OBJECT
 #include "baseintegration_plugin_metadata.inc"
-    Q_INTERFACES(AnyKeep::PluginInterface AnyKeep::DEIntegrationInterface AnyKeep::TrayInterface
-                     AnyKeep::GlobalShortcutsInterface AnyKeep::NotificationInterface
-                         AnyKeep::StickyNotesIntegrationInterface AnyKeep::StickyNotesHostInterface)
+    Q_INTERFACES(
+        AnyKeep::PluginInterface AnyKeep::DEIntegrationInterface AnyKeep::TrayInterface
+            AnyKeep::GlobalShortcutsInterface AnyKeep::NotificationInterface AnyKeep::ActionNotificationInterface
+                AnyKeep::StickyNotesIntegrationInterface AnyKeep::StickyNotesHostInterface)
 public:
     explicit BaseIntegration(QObject *parent = 0);
     ~BaseIntegration() override;
@@ -43,6 +46,8 @@ public:
     void      activateWindow(QWindow *window) override;
     TrayImpl *initTray(Main *anykeep) override;
     void      notifyError(const QString &message) override;
+    void      notify(const QString &title, const QString &message, const QString &actionText,
+                     std::function<void()> action) override;
 
     bool registerGlobalShortcut(const QString &id, const QKeySequence &key, QAction *action) override;
     bool updateGlobalShortcut(const QString &id, const QKeySequence &key) override;

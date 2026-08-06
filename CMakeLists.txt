@@ -36,6 +36,10 @@ include(CTest)
 
 option(ANYKEEP_DEVEL "Enable development mode (adjusts some paths and output)" OFF)
 option(ANYKEEP_ENABLE_X11 "Build AnyKeep components that use X11 directly" ON)
+set(ANYKEEP_UPDATE_MANIFEST_URL "https://anykeep.net/updates/stable/windows-x86_64.json" CACHE STRING
+    "HTTPS manifest used by the unpackaged Windows self-updater")
+set(ANYKEEP_UPDATE_BASE_URL "https://anykeep.net/updates/stable" CACHE STRING
+    "Base HTTPS URL written to generated Windows update manifests")
 
 if(ANDROID)
     set(_anykeep_mobile_default ON)
@@ -79,7 +83,7 @@ endif()
 if(ANYKEEP_BUILD_MOBILE)
     find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Quick Qml QuickControls2 Network Xml Svg)
 else()
-    find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Core Gui PrintSupport Quick QuickWidgets Qml QuickControls2 Svg)
+    find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Core Gui Network PrintSupport Quick QuickWidgets Qml QuickControls2 Svg)
 endif()
 set(QT_VERSION_MAJOR 6)
 set(QT_DEFAULT_MAJOR_VERSION ${QT_VERSION_MAJOR} CACHE STRING "Default Qt major version" FORCE)

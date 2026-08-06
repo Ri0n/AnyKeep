@@ -53,6 +53,7 @@
 #include "shortcutsmanager.h"
 #include "stickynotesmanager.h"
 #include "trayimpl.h"
+#include "updatecontroller.h"
 #include "utils.h"
 
 // #define MAIN_DEBUG
@@ -80,13 +81,14 @@ public:
     StickyNotesManager          *stickyNotes;
     QSet<QUuid>                  recoveredDraftIds;
     QPointer<NotesManagerWindow> notesManagerWindow;
+    UpdateController            *updates;
 #ifdef ANYKEEP_DBUS_AVAILABLE
     AnyKeepDBus *dbus;
 #endif
 
     Private(Main *parent) :
         QObject(parent), q(parent), de(0), tray(0), externalTrayAvailable(false), globalShortcuts(0), notifier(0),
-        actionNotifier(0), stickyNotes(new StickyNotesManager(parent))
+        actionNotifier(0), stickyNotes(new StickyNotesManager(parent)), updates(nullptr)
 #ifdef ANYKEEP_DBUS_AVAILABLE
         ,
         dbus(0)
@@ -301,6 +303,19 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     connect(actNoteFromSel, SIGNAL(triggered(bool)), SLOT(createNewNoteFromSelection()));
     _shortcutsManager->registerGlobal(ShortcutsManager::SKNoteFromSelection, actNoteFromSel);
 
+    d->updates = new UpdateController(this);
+    d->updates->confirmStartupProbe(qApp->arguments());
+    connect(d->updates, &UpdateController::applyRequested, this, &Main::applyPreparedUpdate);
+    const auto notifyPreparedUpdate = [this](const QString &version) {
+        notify(tr("AnyKeep update ready"),
+               tr("AnyKeep %1 has been downloaded and prepared. Click to update and restart.").arg(version),
+               tr("Update"), [this] { applyPreparedUpdate(); });
+    };
+    connect(d->updates, &UpdateController::updatePrepared, this, notifyPreparedUpdate);
+    if (d->updates->updateReady())
+        notifyPreparedUpdate(d->updates->availableVersion());
+    d->updates->startAutomaticChecks();
+
     connect(qApp, &QCoreApplication::aboutToQuit, this, [this]() {
         // Covers SIGTERM/session shutdown paths which bypass Main::exitAnyKeep().
         // Each shell performs its final synchronous checkpoint before closing.
@@ -371,9 +386,38 @@ void Main::exitAnyKeep()
     drafts->publishPending();
 }
 
+void Main::applyPreparedUpdate()
+{
+    if (!d->updates || !d->updates->updateReady())
+        return;
+
+    if (d->notesManagerWindow && !d->notesManagerWindow->close()) {
+        notifyError(tr("The update is ready, but the note manager could not checkpoint the current note."));
+        return;
+    }
+    for (auto *dialog : NoteDialog::openDialogs())
+        dialog->close();
+    for (auto *dialog : NoteDialog::openDialogs()) {
+        if (dialog->isVisible()) {
+            notifyError(tr("The update is ready, but an open note could not be checkpointed."));
+            return;
+        }
+    }
+
+    QString error;
+    if (!d->updates->launchPreparedUpdater(QCoreApplication::applicationPid(), &error)) {
+        notifyError(error);
+        return;
+    }
+    QCoreApplication::quit();
+}
+
 void Main::appMessageReceived(const QString &message)
 {
-    parseAppArguments(message.split(QLatin1String("!anykeep_argdelim!")));
+    const QStringList arguments = message.split(QLatin1String("!anykeep_argdelim!"));
+    if (d->updates)
+        d->updates->confirmStartupProbe(arguments);
+    parseAppArguments(arguments);
 }
 
 void Main::showAbout()
@@ -387,7 +431,7 @@ void Main::showAbout()
 void Main::showNoteManager()
 {
     if (!d->notesManagerWindow) {
-        d->notesManagerWindow = new NotesManagerWindow(this);
+        d->notesManagerWindow = new NotesManagerWindow(d->updates, this);
         _pluginManager->attachEditorPlatformBackend(d->notesManagerWindow->platformBackend());
         d->notesManagerWindow->setSpeechRecognitionProvider(_pluginManager->speechRecognitionProvider());
         connect(d->notesManagerWindow, &NotesManagerWindow::openNoteRequested, this, &Main::openNoteDialog);

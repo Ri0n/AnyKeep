@@ -36,6 +36,9 @@ if (WIN32)
 endif()
 
 target_link_libraries(${PROJECT_NAME} ${anykeep_lib} QtSingleApplication)
+if(WIN32)
+    target_link_libraries(${PROJECT_NAME} shell32)
+endif()
 
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} Qt${QT_VERSION_MAJOR}::QuickControls2)
@@ -59,4 +62,38 @@ else(WIN32)
     install(FILES ${CMAKE_CURRENT_BINARY_DIR}/com.github.ri0n.AnyKeep.service DESTINATION ${CMAKE_INSTALL_DATADIR}/dbus-1/services COMPONENT Executable)
     install(FILES ${CMAKE_SOURCE_DIR}/libanykeep/images/anykeep.svg DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/scalable/apps COMPONENT Executable)
     install(FILES ${CMAKE_SOURCE_DIR}/libanykeep/images/anykeep-symbolic.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/symbolic/apps COMPONENT Executable)
+endif()
+
+
+if(WIN32)
+    configure_file(win/launcher_config.h.in launcher_config.h @ONLY)
+
+    add_executable(anykeep_launcher WIN32
+        win/launcher.cpp
+        win/anykeep.rc
+        "${CMAKE_CURRENT_BINARY_DIR}/launcher_config.h"
+    )
+    set_target_properties(anykeep_launcher PROPERTIES
+        OUTPUT_NAME AnyKeepLauncher
+        RUNTIME_OUTPUT_DIRECTORY "${EXECUTABLE_OUTPUT_PATH}"
+    )
+    target_include_directories(anykeep_launcher PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    target_link_libraries(anykeep_launcher PRIVATE shell32)
+
+    add_executable(anykeep_updater WIN32
+        win/updater.cpp
+        win/anykeep.rc
+    )
+    set_target_properties(anykeep_updater PROPERTIES
+        OUTPUT_NAME AnyKeepUpdater
+        RUNTIME_OUTPUT_DIRECTORY "${EXECUTABLE_OUTPUT_PATH}"
+    )
+    target_link_libraries(anykeep_updater PRIVATE shell32)
+
+    install(TARGETS anykeep_launcher RUNTIME
+            DESTINATION "."
+            COMPONENT Launcher)
+    install(TARGETS anykeep_updater RUNTIME
+            DESTINATION "."
+            COMPONENT Executable)
 endif()

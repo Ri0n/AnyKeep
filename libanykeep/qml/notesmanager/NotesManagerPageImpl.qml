@@ -18,6 +18,7 @@ Item {
     property var platformBackend: null
     property var desktopActions: null
     property var speechController: null
+    property var updateController: null
     property bool embeddedEditor: true
     property bool showCreateButton: true
     property bool showViewModeSelector: true
@@ -156,8 +157,52 @@ Item {
         searchField.focus = false
     }
 
+    Rectangle {
+        id: updateBanner
+        objectName: "updateReadyBanner"
+        visible: Boolean(root.updateController && root.updateController.updateReady)
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: visible ? Math.max(54, updateBannerLayout.implicitHeight + 16) : 0
+        color: "#1f7a4d"
+        border.color: "#46b97a"
+        border.width: 1
+        z: 20
+
+        RowLayout {
+            id: updateBannerLayout
+            anchors.fill: parent
+            anchors.leftMargin: 16
+            anchors.rightMargin: 10
+            anchors.topMargin: 8
+            anchors.bottomMargin: 8
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                color: "white"
+                elide: Text.ElideRight
+                text: root.updateController
+                      ? qsTr("AnyKeep %1 is ready. The update is already downloaded and prepared.")
+                            .arg(root.updateController.availableVersion)
+                      : ""
+            }
+
+            Button {
+                objectName: "applyPreparedUpdateButton"
+                text: qsTr("Update and restart")
+                focusPolicy: Qt.NoFocus
+                onClicked: root.updateController.applyUpdate()
+            }
+        }
+    }
+
     SplitView {
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: updateBanner.visible ? updateBanner.top : parent.bottom
         orientation: Qt.Horizontal
 
         Pane {
