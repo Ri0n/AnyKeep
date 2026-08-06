@@ -34,7 +34,7 @@ include(CTest)
 option(ANYKEEP_DEVEL "Enable development mode (adjusts some paths and output)" OFF)
 option(ANYKEEP_ENABLE_X11 "Build AnyKeep components that use X11 directly" ON)
 
-if(ANDROID)
+if(ANDROID OR WIN32)
     set(_anykeep_mobile_default ON)
     set(_anykeep_bundled_qca_default ON)
     set(_anykeep_bundled_qcoro_default ON)

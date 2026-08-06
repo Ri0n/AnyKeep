@@ -4,28 +4,33 @@ include(ProcessorCount)
 if(NOT QT_VERSION_MAJOR EQUAL 6)
     message(FATAL_ERROR "Bundled QXmpp is supported only with Qt 6")
 endif()
-if(NOT UNIX)
-    message(FATAL_ERROR "Bundled QXmpp currently supports Unix-like targets only")
-endif()
-
 find_package(Qt6 6.4 REQUIRED COMPONENTS Core Network Xml)
 if(ANDROID)
     include(AndroidOpenSSL)
 else()
-    find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)
+    # Conan's CMakeDeps version file uses same-major compatibility by default,
+    # so asking find_package() for 3.0 rejects a perfectly usable OpenSSL 4.x
+    # config and falls back to CMake's system FindOpenSSL module. Prefer an
+    # available config package first, then enforce our actual minimum below.
+    find_package(OpenSSL QUIET CONFIG COMPONENTS Crypto)
+    if(NOT TARGET OpenSSL::Crypto)
+        find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+    endif()
+    if(OPENSSL_VERSION VERSION_LESS 3.0)
+        message(FATAL_ERROR "Bundled QXmpp requires OpenSSL 3.0 or newer (found ${OPENSSL_VERSION})")
+    endif()
 endif()
-if(ANDROID)
-    # Never query the host pkg-config database for an Android dependency. A
+if(ANDROID OR WIN32)
+    # Never query the host pkg-config database for a bundled target. A
     # host libomemo-c target contributes a raw -lomemo-c flag and headers for
     # the wrong platform, while also preventing the bundled ExternalProject
     # from being built.
     if(NOT ANYKEEP_BUILD_BUNDLED_OMEMO_C)
         message(FATAL_ERROR
-            "Android bundled QXmpp requires bundled libomemo-c. Enable "
+            "For this build target bundled QXmpp requires bundled libomemo-c. Enable "
             "ANYKEEP_BUILD_BUNDLED_OMEMO_C.")
     endif()
-    message(STATUS
-        "Android cross-build: using bundled libomemo-c and protobuf-c runtime")
+    message(STATUS "using bundled libomemo-c and protobuf-c runtime")
     include(BundledOmemoC)
 else()
     include(FindPkgConfig)
@@ -106,6 +111,7 @@ set(_qxmpp_cmake_args
     "-DBUILD_DOCBOOK=OFF"
     "-DBUILD_EXAMPLES=OFF"
     "-DBUILD_OMEMO=ON"
+    "-DANYKEEP_OMEMO_C_ROOT=${ANYKEEP_OMEMO_C_INSTALL_DIR}"
     "-DWITH_GSTREAMER=OFF"
     "-DWITH_ENCRYPTION=ON"
 )
@@ -117,7 +123,12 @@ foreach(_openssl_var IN ITEMS
     OPENSSL_USE_STATIC_LIBS
 )
     if(DEFINED ${_openssl_var} AND NOT "${${_openssl_var}}" STREQUAL "")
-        list(APPEND _qxmpp_cmake_args "-D${_openssl_var}=${${_openssl_var}}")
+        # Conan exposes *_LIBRARY as imported target names. Those targets do
+        # not exist in the separate ExternalProject configure; its own
+        # find_package(OpenSSL) recreates them from CMAKE_PREFIX_PATH.
+        if(NOT TARGET "${${_openssl_var}}")
+            list(APPEND _qxmpp_cmake_args "-D${_openssl_var}=${${_openssl_var}}")
+        endif()
     endif()
 endforeach()
 set(_qxmpp_cxx_compiler "${CMAKE_CXX_COMPILER}")

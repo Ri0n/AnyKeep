@@ -26,15 +26,24 @@ endif()
 if(ANDROID)
     include(AndroidOpenSSL)
 else()
-    find_package(OpenSSL REQUIRED)
+    if(NOT TARGET OpenSSL::Crypto OR NOT TARGET OpenSSL::SSL)
+        find_package(OpenSSL QUIET CONFIG)
+    endif()
+    if(NOT TARGET OpenSSL::Crypto OR NOT TARGET OpenSSL::SSL)
+        find_package(OpenSSL REQUIRED)
+    endif()
 endif()
 
 set(_qca_prefix "${CMAKE_BINARY_DIR}/_deps/qca")
 set(_qca_install_dir "${_qca_prefix}/install")
 set(_qca_include_dir "${_qca_install_dir}/${CMAKE_INSTALL_INCLUDEDIR}/Qca-qt6/QtCrypto")
 set(_qca_library_dir "${_qca_install_dir}/${CMAKE_INSTALL_LIBDIR}")
-set(_qca_library "${_qca_library_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}qca-qt6${CMAKE_STATIC_LIBRARY_SUFFIX}")
-set(_qca_ossl_plugin "${_qca_library_dir}/qca-qt6/crypto/${CMAKE_STATIC_LIBRARY_PREFIX}qca-ossl${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(_qca_debug_postfix "")
+if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(_qca_debug_postfix "d")
+endif()
+set(_qca_library "${_qca_library_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}qca-qt6${_qca_debug_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(_qca_ossl_plugin "${_qca_library_dir}/qca-qt6/crypto/${CMAKE_STATIC_LIBRARY_PREFIX}qca-ossl${_qca_debug_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}")
 
 if(ANYKEEP_QCA_SOURCE_DIR)
     if(NOT EXISTS "${ANYKEEP_QCA_SOURCE_DIR}/CMakeLists.txt")
@@ -53,6 +62,7 @@ else()
     )
 endif()
 
+string(REPLACE ";" "|" _qca_prefix_path_arg "${CMAKE_PREFIX_PATH}")
 set(_qca_cmake_args
     "-DBUILD_SHARED_LIBS=OFF"
     "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
@@ -65,17 +75,12 @@ set(_qca_cmake_args
     "-DCMAKE_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
     "-DCMAKE_INSTALL_INCLUDEDIR=${CMAKE_INSTALL_INCLUDEDIR}"
     "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-    "-DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
+    "-DCMAKE_PREFIX_PATH=${_qca_prefix_path_arg}"
     "-DQt6_DIR=${Qt6_DIR}"
     "-DQt6Core_DIR=${Qt6Core_DIR}"
     "-DQt6Test_DIR=${Qt6Test_DIR}"
     "-DQT_HOST_PATH=${QT_HOST_PATH}"
     "-DQT_HOST_PATH_CMAKE_DIR=${QT_HOST_PATH_CMAKE_DIR}"
-    "-DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR}"
-    "-DOPENSSL_INCLUDE_DIR=${OPENSSL_INCLUDE_DIR}"
-    "-DOPENSSL_SSL_LIBRARY=${OPENSSL_SSL_LIBRARY}"
-    "-DOPENSSL_CRYPTO_LIBRARY=${OPENSSL_CRYPTO_LIBRARY}"
-    "-DOPENSSL_USE_STATIC_LIBS=${OPENSSL_USE_STATIC_LIBS}"
     "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
     "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
     "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
@@ -87,10 +92,45 @@ set(_qca_cmake_args
     "-DOSX_FRAMEWORK=OFF"
 )
 
+foreach(_openssl_var IN ITEMS
+    OPENSSL_ROOT_DIR
+    OPENSSL_INCLUDE_DIR
+    OPENSSL_SSL_LIBRARY
+    OPENSSL_CRYPTO_LIBRARY
+    OPENSSL_USE_STATIC_LIBS
+)
+    if(DEFINED ${_openssl_var} AND NOT "${${_openssl_var}}" STREQUAL ""
+       AND NOT TARGET "${${_openssl_var}}")
+        list(APPEND _qca_cmake_args "-D${_openssl_var}=${${_openssl_var}}")
+    endif()
+endforeach()
+
+# Conan's config package represents these variables as target names. QCA's
+# configure performs try_compile() checks using CMake's FindOpenSSL module, so
+# give that separate project concrete library files instead.
+if(WIN32 AND OPENSSL_INCLUDE_DIR
+   AND (TARGET "${OPENSSL_SSL_LIBRARY}" OR TARGET "${OPENSSL_CRYPTO_LIBRARY}"))
+    get_filename_component(_qca_openssl_root "${OPENSSL_INCLUDE_DIR}" DIRECTORY)
+    find_library(_qca_openssl_ssl_library
+        NAMES libssl ssl
+        PATHS "${_qca_openssl_root}/lib"
+        NO_DEFAULT_PATH REQUIRED)
+    find_library(_qca_openssl_crypto_library
+        NAMES libcrypto crypto
+        PATHS "${_qca_openssl_root}/lib"
+        NO_DEFAULT_PATH REQUIRED)
+    list(APPEND _qca_cmake_args
+        "-DOPENSSL_ROOT_DIR=${_qca_openssl_root}"
+        "-DOPENSSL_SSL_LIBRARY=${_qca_openssl_ssl_library}"
+        "-DOPENSSL_CRYPTO_LIBRARY=${_qca_openssl_crypto_library}"
+    )
+endif()
+
 ExternalProject_Add(anykeep_bundled_qca
     ${_qca_source_args}
     PREFIX "${_qca_prefix}"
     INSTALL_DIR "${_qca_install_dir}"
+    LIST_SEPARATOR "|"
     CMAKE_ARGS ${_qca_cmake_args}
     BUILD_COMMAND
         "${CMAKE_COMMAND}" --build <BINARY_DIR>

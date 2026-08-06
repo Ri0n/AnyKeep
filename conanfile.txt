@@ -1,5 +1,6 @@
 [requires]
 hunspell/1.7.2
+openssl/4.0.1
 
 [generators]
 CMakeDeps

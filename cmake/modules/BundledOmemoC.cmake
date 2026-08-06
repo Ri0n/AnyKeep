@@ -1,10 +1,6 @@
 include(ExternalProject)
 include(ProcessorCount)
 
-if(NOT UNIX)
-    message(FATAL_ERROR "Bundled libomemo-c currently supports Unix-like targets only")
-endif()
-
 set(ANYKEEP_BUNDLED_OMEMO_C_VERSION "0.5.1" CACHE STRING "Bundled libomemo-c version")
 set(ANYKEEP_BUNDLED_PROTOBUF_C_VERSION "1.5.1" CACHE STRING "Bundled protobuf-c runtime version")
 set(ANYKEEP_OMEMO_C_SOURCE_DIR "" CACHE PATH "Local libomemo-c source directory")
@@ -110,7 +106,7 @@ ExternalProject_Add(anykeep_bundled_protobuf_c
         "${CMAKE_COMMAND}" --build <BINARY_DIR>
         --parallel "${ANYKEEP_BUNDLED_OMEMO_C_JOBS}"
     INSTALL_COMMAND
-        "${CMAKE_COMMAND}" --install <BINARY_DIR>
+        "${CMAKE_COMMAND}" --install <BINARY_DIR> --config "${CMAKE_BUILD_TYPE}"
     BUILD_BYPRODUCTS "${_protobuf_c_library}"
 )
 
