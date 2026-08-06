@@ -13,6 +13,7 @@
 #include <QVBoxLayout>
 
 #include <memory>
+#include <utility>
 
 #include "anykeep.h"
 #include "baseintegrationtray.h"
@@ -74,6 +75,12 @@ BaseIntegrationTray::BaseIntegrationTray(Main *anykeep, PluginHostInterface *hos
 
     connect(tray, SIGNAL(activated(QSystemTrayIcon::ActivationReason)),
             SLOT(showNoteList(QSystemTrayIcon::ActivationReason)));
+    connect(tray, &QSystemTrayIcon::messageClicked, this, [this]() {
+        auto action        = std::move(notificationAction);
+        notificationAction = {};
+        if (action)
+            action();
+    });
 
     connect(actQuit, SIGNAL(triggered()), SIGNAL(exitTriggered()));
     connect(actNew, SIGNAL(triggered()), SIGNAL(newNoteTriggered()));
@@ -87,6 +94,14 @@ BaseIntegrationTray::~BaseIntegrationTray()
     // ensure proper order of delition and don't forget to delete contextMenu
     delete tray;
     delete contextMenu;
+}
+
+void BaseIntegrationTray::showNotification(const QString &title, const QString &message, const QString &actionText,
+                                           std::function<void()> action, bool error)
+{
+    Q_UNUSED(actionText)
+    notificationAction = std::move(action);
+    tray->showMessage(title, message, error ? QSystemTrayIcon::Warning : QSystemTrayIcon::Information, 10000);
 }
 
 void BaseIntegrationTray::showNoteList(QSystemTrayIcon::ActivationReason reason)

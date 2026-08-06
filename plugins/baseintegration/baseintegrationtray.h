@@ -2,7 +2,9 @@
 #define BASEINTEGRATIONTRAY_H
 
 #include <QPointer>
+
 #include <QSystemTrayIcon>
+#include <functional>
 
 #include "anykeep.h"
 #include "trayimpl.h"
@@ -20,17 +22,19 @@ class BaseIntegrationTray : public TrayImpl {
 
     friend class BaseIntegration;
 
-    Main                *anykeep;
-    PluginHostInterface *host;
-    QSystemTrayIcon     *tray;
-    QMenu               *contextMenu;
-    QAction             *actQuit, *actNew, *actAbout, *actOptions, *actManager;
-    QPointer<QWidget>    currentPopup;
+    Main                 *anykeep;
+    PluginHostInterface  *host;
+    QSystemTrayIcon      *tray;
+    QMenu                *contextMenu;
+    QAction              *actQuit, *actNew, *actAbout, *actOptions, *actManager;
+    QPointer<QWidget>     currentPopup;
+    std::function<void()> notificationAction;
 
 public:
     explicit BaseIntegrationTray(Main *anykeep, PluginHostInterface *host, QObject *parent = 0);
     ~BaseIntegrationTray();
-    void notifyError(const QString &message);
+    void showNotification(const QString &title, const QString &message, const QString &actionText,
+                          std::function<void()> action, bool error);
 
 signals:
 

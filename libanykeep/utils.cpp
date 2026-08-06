@@ -39,6 +39,31 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 namespace AnyKeep {
 
+namespace {
+#ifdef Q_OS_WIN
+    QString windowsLaunchExecutable()
+    {
+        QDir applicationDirectory(QCoreApplication::applicationDirPath());
+        QDir versionsDirectory = applicationDirectory;
+        if (versionsDirectory.cdUp()
+            && versionsDirectory.dirName().compare(QStringLiteral("versions"), Qt::CaseInsensitive) == 0) {
+            QDir installRoot = versionsDirectory;
+            if (installRoot.cdUp()) {
+                const QString launcher = installRoot.filePath(QStringLiteral("AnyKeepLauncher.exe"));
+                if (QFileInfo::exists(launcher))
+                    return launcher;
+            }
+        }
+        return QCoreApplication::applicationFilePath();
+    }
+
+    QString windowsAutostartCommand()
+    {
+        return QLatin1Char('"') + QDir::toNativeSeparators(windowsLaunchExecutable()) + QLatin1Char('"');
+    }
+#endif
+} // namespace
+
 Q_LOGGING_CATEGORY(logDataPaths, "anykeep.persistence.paths")
 
 QString Utils::cuttedDots(const QString &src, int length)
@@ -85,9 +110,15 @@ bool Utils::isAutostartEnabled()
                                                    QRegularExpression::CaseInsensitiveOption);
     return desktop.open(QIODevice::ReadOnly) && QString::fromUtf8(desktop.readAll()).contains(enabledPattern);
 #elif defined(Q_OS_WIN)
-    QSettings registry(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
-                       QSettings::NativeFormat);
-    return registry.contains(QCoreApplication::applicationName());
+    QSettings     registry(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+                           QSettings::NativeFormat);
+    const QString key = QCoreApplication::applicationName();
+    if (!registry.contains(key))
+        return false;
+    const QString expected = windowsAutostartCommand();
+    if (registry.value(key).toString() != expected)
+        registry.setValue(key, expected);
+    return true;
 #elif defined(Q_OS_MACOS) || defined(Q_OS_MAC)
     return QFile::exists(QDir::homePath() + QStringLiteral("/Library/LaunchAgents/com.github.ri0n.AnyKeep.plist"));
 #else
@@ -135,9 +166,7 @@ bool Utils::setAutostartEnabled(bool enabled)
     QSettings registry(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
                        QSettings::NativeFormat);
     if (enabled)
-        registry.setValue(QCoreApplication::applicationName(),
-                          QLatin1Char('"') + QDir::toNativeSeparators(QCoreApplication::applicationFilePath())
-                              + QLatin1Char('"'));
+        registry.setValue(QCoreApplication::applicationName(), windowsAutostartCommand());
     else
         registry.remove(QCoreApplication::applicationName());
     return registry.status() == QSettings::NoError;

@@ -31,6 +31,7 @@
 #define ANYKEEP_VERSION_MINOR @anykeep_VERSION_MINOR@
 #define ANYKEEP_VERSION_PATCH @anykeep_VERSION_PATCH@
 #define ANYKEEP_VERSION_STR "@ANYKEEP_VERSION@"
+#define ANYKEEP_UPDATE_MANIFEST_URL "@ANYKEEP_UPDATE_MANIFEST_URL@"
 #define ANYKEEP_VERSION_W                                                                                             \
     stringify(ANYKEEP_VERSION_MAJOR) "," stringify(ANYKEEP_VERSION_MINOR) "," stringify(ANYKEEP_VERSION_PATCH)
 

@@ -51,6 +51,7 @@ class AnyKeepDBus;
 class Note;
 class StickyNotesManager;
 class StickyNotesIntegrationInterface;
+class UpdateController;
 
 class ANYKEEP_EXPORT Main : public QObject {
     Q_OBJECT
@@ -106,6 +107,7 @@ private slots:
     void createNewNote();
     void createNewNoteFromSelection();
     void note_removed(const Note &noteItem);
+    void applyPreparedUpdate();
 
 private:
     class Private;

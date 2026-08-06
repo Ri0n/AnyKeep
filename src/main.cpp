@@ -31,6 +31,10 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <cstring>
 #include <iostream>
 
+#ifdef Q_OS_WIN
+#include <shobjidl_core.h>
+#endif
+
 #ifdef Q_OS_UNIX
 #include <fcntl.h>
 #include <unistd.h>
@@ -101,6 +105,10 @@ int main(int argc, char *argv[])
     // Prefix every Qt log message, including messages from plugins and Qt
     // itself, with monotonic seconds elapsed since this process started.
     qSetMessagePattern(QStringLiteral("[%{time process}] %{message}"));
+
+#ifdef Q_OS_WIN
+    SetCurrentProcessExplicitAppUserModelID(L"com.github.ri0n.AnyKeep");
+#endif
 
     for (int i = 1; i < argc; i++) {
         QLatin1String v(argv[i]);

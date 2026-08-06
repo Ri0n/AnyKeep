@@ -1,0 +1,63 @@
+cmake_minimum_required(VERSION 3.25)
+
+set(source_root "@CMAKE_INSTALL_PREFIX@")
+set(output_root "@CMAKE_BINARY_DIR@/updates/stable")
+set(version "@ANYKEEP_VERSION@")
+set(base_url "@ANYKEEP_UPDATE_BASE_URL@")
+set(stage "${output_root}/stage-${version}")
+set(package_name "AnyKeep-${version}-windows-x86_64.zip")
+set(package_path "${output_root}/${package_name}")
+
+file(REMOVE_RECURSE "${stage}")
+file(MAKE_DIRECTORY "${stage}" "${output_root}")
+file(GLOB entries LIST_DIRECTORIES true "${source_root}/*")
+foreach(entry IN LISTS entries)
+    get_filename_component(name "${entry}" NAME)
+    if(name STREQUAL "AnyKeepLauncher.exe" OR name STREQUAL "current.version"
+       OR name STREQUAL "vc_redist.x64.exe")
+        continue()
+    endif()
+    file(COPY "${entry}" DESTINATION "${stage}")
+endforeach()
+
+if(NOT EXISTS "${stage}/anykeep.exe")
+    message(FATAL_ERROR "The staged update does not contain anykeep.exe")
+endif()
+if(NOT EXISTS "${stage}/AnyKeepUpdater.exe")
+    message(FATAL_ERROR "The staged update does not contain AnyKeepUpdater.exe")
+endif()
+
+file(REMOVE "${package_path}")
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E tar cf "${package_path}" --format=zip .
+    WORKING_DIRECTORY "${stage}"
+    RESULT_VARIABLE archive_result
+)
+if(NOT archive_result EQUAL 0)
+    message(FATAL_ERROR "Failed to create ${package_path}")
+endif()
+
+file(SHA256 "${package_path}" package_sha256)
+file(SIZE "${package_path}" package_size)
+set(package_url "${base_url}/${package_name}")
+set(manifest [=[{
+  "schema": 1,
+  "version": "@ANYKEEP_VERSION@",
+  "minimumLauncherProtocol": 1,
+  "releaseNotesUrl": "https://anykeep.net/releases/@ANYKEEP_VERSION@",
+  "package": {
+    "format": "zip",
+    "url": "${package_url}",
+    "size": ${package_size},
+    "sha256": "${package_sha256}"
+  }
+}
+]=])
+string(CONFIGURE "${manifest}" manifest)
+file(WRITE "${output_root}/windows-x86_64.json" "${manifest}")
+file(WRITE "${output_root}/AnyKeep-${version}-windows-x86_64.json" "${manifest}")
+file(REMOVE_RECURSE "${stage}")
+
+message(STATUS "Windows update package: ${package_path}")
+message(STATUS "Windows update manifest: ${output_root}/windows-x86_64.json")
+message(STATUS "SHA-256: ${package_sha256}")
