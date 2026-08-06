@@ -213,6 +213,13 @@ void restartThroughLauncher(const std::wstring &root)
     CloseHandle(process.hProcess);
 }
 
+void clearPreparedState(const std::wstring &root, const std::wstring &version)
+{
+    const std::wstring staging = joinPath(root, L"staging");
+    DeleteFileW(joinPath(staging, L"prepared.json").c_str());
+    RemoveDirectoryW(joinPath(staging, version).c_str());
+}
+
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
@@ -286,6 +293,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     const ULONGLONG deadline  = GetTickCount64() + StartupProbeTimeoutMs;
     bool            confirmed = false;
     bool            exited    = false;
+    DWORD           exitCode  = STILL_ACTIVE;
     while (GetTickCount64() < deadline) {
         if (GetFileAttributesW(marker.c_str()) != INVALID_FILE_ATTRIBUTES) {
             confirmed = true;
@@ -294,25 +302,41 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         const DWORD wait = WaitForSingleObject(newProcess.hProcess, 250);
         if (wait == WAIT_OBJECT_0) {
             exited = true;
+            GetExitCodeProcess(newProcess.hProcess, &exitCode);
             break;
         }
     }
-    CloseHandle(newProcess.hProcess);
-    DeleteFileW(marker.c_str());
+
+    if (!confirmed && GetFileAttributesW(marker.c_str()) != INVALID_FILE_ATTRIBUTES)
+        confirmed = true;
 
     if (confirmed) {
-        appendLog(root, L"The new version confirmed a healthy startup");
+        clearPreparedState(root, version);
+        CloseHandle(newProcess.hProcess);
+        DeleteFileW(marker.c_str());
+        appendLog(root, L"The new version completed the 60-second healthy-startup probe");
+        return 0;
+    }
+
+    if (exited && exitCode == 0) {
+        clearPreparedState(root, version);
+        CloseHandle(newProcess.hProcess);
+        DeleteFileW(marker.c_str());
+        appendLog(root, L"The new version closed normally before the health timer elapsed; keeping it current");
         return 0;
     }
 
     if (!exited) {
-        appendLog(
-            root,
-            L"The new version is still running but did not confirm startup before the timeout; keeping it current");
-        return 0;
+        appendLog(root, L"The new version did not confirm startup before the timeout; terminating it for rollback");
+        TerminateProcess(newProcess.hProcess, 18);
+        WaitForSingleObject(newProcess.hProcess, 10000);
+    } else {
+        appendLog(root, L"The new version exited abnormally with code " + std::to_wstring(exitCode));
     }
+    CloseHandle(newProcess.hProcess);
+    DeleteFileW(marker.c_str());
 
-    appendLog(root, L"The new version exited before confirming startup; rolling back to " + previousVersion);
+    appendLog(root, L"Rolling back to " + previousVersion);
     if (!atomicWriteText(pointerPath, previousVersion)) {
         appendLog(root, L"Could not restore current.version; starting the previous executable directly");
         const std::wstring  previousDirectory   = joinPath(joinPath(root, L"versions"), previousVersion);

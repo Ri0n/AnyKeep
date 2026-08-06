@@ -47,6 +47,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "storageprioritymodel.h"
 #include "themediconimageprovider.h"
 #include "ui_optionsdlg.h"
+#include "updatecontroller.h"
 #include "utils.h"
 
 namespace AnyKeep {
@@ -59,6 +60,28 @@ OptionsDlg::OptionsDlg(Main *anykeep) : QDialog(0), ui(new Ui::OptionsDlg), anyk
     ui->ckAutostart->setChecked(Utils::isAutostartEnabled());
 #else
     ui->ckAutostart->setVisible(false);
+#endif
+
+#ifdef Q_OS_WIN
+    auto      *updates               = anykeep->updateController();
+    const auto refreshUpdateControls = [this, updates] {
+        const bool supported = updates && updates->supported();
+        ui->ckAutomaticUpdates->setEnabled(supported);
+        ui->pbCheckUpdates->setEnabled(supported && !updates->busy() && !updates->updateReady());
+        ui->lblUpdateStatus->setText(updates ? updates->statusText() : QString());
+    };
+    ui->ckAutomaticUpdates->setChecked(updates ? updates->automaticChecksEnabled() : true);
+    connect(ui->pbCheckUpdates, &QPushButton::clicked, this, [updates] {
+        if (updates)
+            updates->checkNow();
+    });
+    if (updates) {
+        connect(updates, &UpdateController::stateChanged, this, refreshUpdateControls);
+        connect(updates, &UpdateController::updateChanged, this, refreshUpdateControls);
+    }
+    refreshUpdateControls();
+#else
+    ui->updatesGroup->hide();
 #endif
     priorityModel = new StoragePriorityModel(this);
     priorityView  = new QQuickWidget(this);
@@ -223,6 +246,11 @@ void OptionsDlg::accept()
     s.setValue("ui.menu-notes-amount", ui->spMenuNotesAmount->value());
     s.setValue("ui.title-color", ui->wTitleColor->color());
     s.setValue("ui.default-font", defaultFont.toString());
+
+#ifdef Q_OS_WIN
+    if (auto *updates = anykeep->updateController())
+        updates->setAutomaticChecksEnabled(ui->ckAutomaticUpdates->isChecked());
+#endif
 
 #if defined(Q_OS_LINUX) || defined(Q_OS_WIN) || defined(Q_OS_MACOS) || defined(Q_OS_MAC)
     Utils::setAutostartEnabled(ui->ckAutostart->isChecked());

@@ -36,6 +36,7 @@ namespace {
     constexpr int  UpdateSchemaVersion        = 1;
     constexpr int  LauncherProtocolVersion    = 1;
     constexpr int  AutomaticCheckDelayMs      = 20 * 1000;
+    constexpr int  StartupProbeHealthyMs      = 60 * 1000;
     constexpr int  AutomaticCheckIntervalSecs = 6 * 60 * 60;
     constexpr int  AutomaticCheckIntervalMs   = AutomaticCheckIntervalSecs * 1000;
     constexpr auto UpdateSettingsGroup        = "updates";
@@ -80,14 +81,22 @@ UpdateController::UpdateController(QObject *parent) : QObject(parent)
     installRoot_    = detectInstallRoot();
     supported_      = !managedByStore_ && !installRoot_.isEmpty() && !manifestUrlString().isEmpty();
 
+    QSettings settings;
+    settings.beginGroup(QLatin1String(UpdateSettingsGroup));
+    automaticChecksEnabled_ = settings.value(QStringLiteral("enabled"), true).toBool();
+
     network_        = new QNetworkAccessManager(this);
     automaticTimer_ = new QTimer(this);
     automaticTimer_->setSingleShot(true);
     automaticTimer_->setInterval(AutomaticCheckDelayMs);
     connect(automaticTimer_, &QTimer::timeout, this, [this] {
+        if (!automaticChecksEnabled_)
+            return;
         checkForUpdate(true);
-        automaticTimer_->setInterval(AutomaticCheckIntervalMs);
-        automaticTimer_->start();
+        if (automaticChecksEnabled_ && state_ != Applying && state_ != Ready) {
+            automaticTimer_->setInterval(AutomaticCheckIntervalMs);
+            automaticTimer_->start();
+        }
     });
 
     state_ = supported_ ? Idle : Unsupported;
@@ -132,14 +141,33 @@ QString UpdateController::statusText() const
 void UpdateController::startAutomaticChecks()
 {
 #ifdef Q_OS_WIN
-    if (!supported_ || state_ == Applying || automaticTimer_->isActive())
+    if (!supported_ || !automaticChecksEnabled_ || state_ == Applying || state_ == Ready
+        || automaticTimer_->isActive()) {
         return;
-    QSettings settings;
-    settings.beginGroup(QLatin1String(UpdateSettingsGroup));
-    if (!settings.value(QStringLiteral("enabled"), true).toBool())
-        return;
+    }
+    automaticTimer_->setInterval(AutomaticCheckDelayMs);
     automaticTimer_->start();
 #endif
+}
+
+void UpdateController::setAutomaticChecksEnabled(bool enabled)
+{
+    if (automaticChecksEnabled_ == enabled)
+        return;
+    automaticChecksEnabled_ = enabled;
+
+    QSettings settings;
+    settings.beginGroup(QLatin1String(UpdateSettingsGroup));
+    settings.setValue(QStringLiteral("enabled"), enabled);
+
+#ifdef Q_OS_WIN
+    if (!enabled) {
+        automaticTimer_->stop();
+    } else {
+        startAutomaticChecks();
+    }
+#endif
+    emit automaticChecksEnabledChanged();
 }
 
 void UpdateController::confirmStartupProbe(const QStringList &arguments)
@@ -160,17 +188,40 @@ void UpdateController::confirmStartupProbe(const QStringList &arguments)
         return;
     }
 
-    QDir().mkpath(QFileInfo(candidate).absolutePath());
-    QSaveFile marker(candidate);
-    if (!marker.open(QIODevice::WriteOnly) || marker.write("ok\n") != 3 || !marker.commit()) {
-        qCWarning(logUpdates) << "Failed to confirm updated application startup:" << candidate;
+    if (!startupProbePath_.isEmpty()) {
+        if (candidate != startupProbePath_)
+            qCWarning(logUpdates) << "Ignoring a second update startup probe:" << candidate;
         return;
     }
 
+    startupProbePath_ = candidate;
+    connect(qApp, &QCoreApplication::aboutToQuit, this, &UpdateController::writeStartupProbe, Qt::UniqueConnection);
+    QTimer::singleShot(StartupProbeHealthyMs, this, &UpdateController::writeStartupProbe);
+    qCInfo(logUpdates) << "Started the 60-second update startup probe:" << candidate;
+#else
+    Q_UNUSED(arguments)
+#endif
+}
+
+void UpdateController::writeStartupProbe()
+{
+#ifdef Q_OS_WIN
+    if (startupProbeWritten_ || startupProbePath_.isEmpty())
+        return;
+
+    QDir().mkpath(QFileInfo(startupProbePath_).absolutePath());
+    QSaveFile marker(startupProbePath_);
+    if (!marker.open(QIODevice::WriteOnly) || marker.write("ok\n") != 3 || !marker.commit()) {
+        qCWarning(logUpdates) << "Failed to confirm updated application startup:" << startupProbePath_;
+        return;
+    }
+
+    startupProbeWritten_ = true;
     QFile::remove(preparedStatePath());
     QDir completedStage(QDir(installRoot_).filePath(QStringLiteral("staging/%1").arg(currentVersion())));
     if (completedStage.exists())
         completedStage.removeRecursively();
+    qCInfo(logUpdates) << "Confirmed a healthy updated application startup";
 #endif
 }
 
@@ -233,7 +284,7 @@ void UpdateController::setState(State state, const QString &error)
 void UpdateController::checkForUpdate(bool automatic)
 {
 #ifdef Q_OS_WIN
-    if (!supported_ || busy() || state_ == Ready)
+    if (!supported_ || busy() || state_ == Ready || (automatic && !automaticChecksEnabled_))
         return;
 
     QSettings settings;
@@ -379,7 +430,6 @@ bool UpdateController::parseManifest(const QByteArray &data, QString *error)
     packageUrl_       = packageUrl.toString();
     expectedSha256_   = hash;
     expectedSize_     = size;
-    releaseNotesUrl_  = root.value(QStringLiteral("releaseNotesUrl")).toString();
     emit updateChanged();
     return true;
 }
@@ -647,7 +697,6 @@ bool UpdateController::savePreparedState(QString *error)
     QJsonObject prepared;
     prepared.insert(QStringLiteral("schema"), UpdateSchemaVersion);
     prepared.insert(QStringLiteral("version"), availableVersion_);
-    prepared.insert(QStringLiteral("releaseNotesUrl"), releaseNotesUrl_);
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly) || file.write(QJsonDocument(prepared).toJson(QJsonDocument::Compact)) < 0
         || !file.commit()) {
@@ -677,7 +726,6 @@ void UpdateController::restorePreparedUpdate()
         return;
     }
     availableVersion_ = version;
-    releaseNotesUrl_  = object.value(QStringLiteral("releaseNotesUrl")).toString();
     state_            = Ready;
 #endif
 }
@@ -714,10 +762,10 @@ void UpdateController::resetTransientFiles()
 QString UpdateController::detectInstallRoot() const
 {
 #ifdef Q_OS_WIN
+#ifdef ANYKEEP_DEVEL
     const QString overrideRoot = qEnvironmentVariable("ANYKEEP_UPDATE_ROOT").trimmed();
-    if (!overrideRoot.isEmpty())
-        return QFileInfo(overrideRoot).absoluteFilePath();
-
+    return overrideRoot.isEmpty() ? QString() : QFileInfo(overrideRoot).absoluteFilePath();
+#else
     QDir applicationDir(QCoreApplication::applicationDirPath());
     QDir versionsDir = applicationDir;
     if (!versionsDir.cdUp() || versionsDir.dirName().compare(QStringLiteral("versions"), Qt::CaseInsensitive) != 0)
@@ -730,6 +778,7 @@ QString UpdateController::detectInstallRoot() const
         return {};
     }
     return root.absolutePath();
+#endif // ANYKEEP_DEVEL
 #else
     return {};
 #endif
@@ -738,9 +787,11 @@ QString UpdateController::detectInstallRoot() const
 QString UpdateController::manifestUrlString() const
 {
 #ifdef Q_OS_WIN
+#ifdef ANYKEEP_DEVEL
     const QString environment = qEnvironmentVariable("ANYKEEP_UPDATE_MANIFEST_URL").trimmed();
     if (!environment.isEmpty())
         return environment;
+#endif
     QSettings settings;
     settings.beginGroup(QLatin1String(UpdateSettingsGroup));
     return settings.value(QStringLiteral("manifestUrl"), QStringLiteral(ANYKEEP_UPDATE_MANIFEST_URL))

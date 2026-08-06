@@ -9,7 +9,8 @@ The unpackaged Windows build should behave like Telegram-style desktop updates:
 3. Unpack the package into a new version directory while the current version keeps running.
 4. Show a system notification and a green banner in the note manager only after the new version is ready.
 5. Switch versions quickly after **Update and restart**.
-6. Roll back automatically if the new executable exits before it confirms a healthy startup.
+6. Confirm the new version after it remains alive for 60 seconds, or when it exits normally before that timer elapses.
+7. Roll back automatically if the new executable cannot start, exits abnormally, or never reaches the startup probe.
 
 Microsoft Store / MSIX builds do not use this updater. `UpdateController` detects package identity and reports that updates are store-managed.
 
@@ -54,7 +55,8 @@ A very small native Win32 executable with no Qt dependency. It:
 Owned by `AnyKeep::Main` and exposed to the notes-manager QML window. It:
 
 - disables itself for package-identity / Microsoft Store builds;
-- checks the configured manifest shortly after startup and then every six hours;
+- checks the configured manifest shortly after startup and then every six hours when automatic checks are enabled;
+- exposes an automatic-check checkbox and an independent **Check for updates** button in Options;
 - downloads to `staging/<version>/package.zip.part`;
 - verifies package size and SHA-256;
 - validates every ZIP entry against the destination path and extracts through Windows PowerShell / .NET;
@@ -65,7 +67,7 @@ Owned by `AnyKeep::Main` and exposed to the notes-manager QML window. It:
 - exposes the green **Update and restart** banner;
 - launches the updater from the prepared version.
 
-The default manifest is configured by `ANYKEEP_UPDATE_MANIFEST_URL`. Development builds can override it with the `ANYKEEP_UPDATE_MANIFEST_URL` environment variable. `ANYKEEP_UPDATE_ROOT` can point a development build at a test installation tree.
+The default manifest is configured by `ANYKEEP_UPDATE_MANIFEST_URL`. In an `ANYKEEP_DEVEL` build, the updater is disabled unless the `ANYKEEP_UPDATE_ROOT` environment variable contains a test installation root. Development builds may also override the manifest with `ANYKEEP_UPDATE_MANIFEST_URL`. Release builds ignore both environment overrides and derive the installation root from the versioned launcher layout.
 
 ### `AnyKeepUpdater.exe`
 
@@ -75,9 +77,11 @@ A native Win32 helper shipped inside every version directory. It:
 2. writes `previous.version`;
 3. atomically replaces `current.version` using a write-through temporary file and `MoveFileEx`;
 4. starts the new `anykeep.exe` directly with a one-time startup marker;
-5. keeps the new version if it confirms a healthy startup;
-6. switches back and starts the previous version if the new process exits before confirmation;
-7. restarts through the stable launcher if switching or startup fails.
+5. waits for the application to create that marker after 60 seconds of healthy operation;
+6. also accepts a normal application exit before the timer elapses;
+7. terminates and rolls back a process that never reaches the startup probe within two minutes;
+8. switches back and starts the previous version after an abnormal early exit;
+9. restarts through the stable launcher if switching or startup fails.
 
 A version may therefore ship newer switch and migration logic without first replacing a permanently installed updater. Future migration operations should remain narrow: Windows integration and launcher protocol changes belong here, while note/database migrations belong in AnyKeep with a backup and explicit compatibility policy.
 
@@ -102,7 +106,7 @@ start updater from the new version and quit
     ↓
 atomic current.version switch
     ↓
-start new AnyKeep and confirm startup
+start new AnyKeep and observe it for 60 seconds
 ```
 
 The slow work is finished before the banner appears. The button path only checkpoints notes, closes the old process, replaces a tiny pointer file, and starts the prepared application.
@@ -114,7 +118,6 @@ The slow work is finished before the banner appears. The button path only checkp
   "schema": 1,
   "version": "4.0.1",
   "minimumLauncherProtocol": 1,
-  "releaseNotesUrl": "https://anykeep.net/releases/4.0.1",
   "package": {
     "format": "zip",
     "url": "https://anykeep.net/updates/stable/AnyKeep-4.0.1-windows-x86_64.zip",
@@ -132,7 +135,7 @@ WiX remains responsible for the first installation, Start menu registration, App
 
 The WiX package owns the stable launcher and the initial version directory. `RemoveFolderEx` removes updater-created versions, pointer files, staging data, and update logs during uninstall.
 
-Changing an already released per-machine MSI to a per-user MSI is a separate migration problem: Windows Installer does not treat products in different installation contexts as a normal in-place major upgrade. If an old Program Files build has been distributed, the 4.0 installer should detect it and ask for a one-time uninstall or perform an explicit migration.
+Changing an already released per-machine installer to a per-user MSI is a separate migration problem: Windows Installer does not treat products in different installation contexts as a normal in-place major upgrade. The per-user MSI checks the 32-bit and 64-bit HKLM uninstall entries used by previous AnyKeep and QtNote installers. If one is present, installation stops with instructions to uninstall the old Program Files build manually; user notes and settings are not removed.
 
 ## Microsoft Store path
 
@@ -142,9 +145,9 @@ The green banner may later be reused for Store-managed release notes, but it mus
 
 ## Security before public rollout
 
-The implemented first stage verifies HTTPS, expected archive size, and SHA-256 from the manifest. Before publishing an update manifest for real users, add a detached signature over a canonical manifest and pin the release public key in AnyKeep. SHA-256 alone protects against a damaged package but does not protect against compromise of both the manifest and package host.
+The implemented first stage verifies HTTPS, expected archive size, and SHA-256 from the manifest. Manifest signatures and Authenticode signing are intentionally deferred until the unsigned update path is stable. Before public rollout, add a detached signature over a canonical manifest with a rotation-capable trust policy, and code-sign the installer, launcher, updater, application, and project-owned executable modules. SHA-256 alone protects against a damaged package but does not protect against compromise of both the manifest and package host.
 
-Code signing of `anykeep.exe`, `AnyKeepUpdater.exe`, and `AnyKeepLauncher.exe` should also be part of the release pipeline. Archive extraction rejects entries that resolve outside the temporary version directory. It must still only be enabled for manifests trusted by the release-signature policy.
+Archive extraction rejects entries that resolve outside the temporary version directory. Public update delivery must remain disabled until the release-signature policy is implemented. A client that is too old to understand a future trust-key rotation may direct the user to download a fresh installer manually.
 
 ## Retention and cleanup still to add
 

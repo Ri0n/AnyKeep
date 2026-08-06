@@ -44,7 +44,6 @@ set(manifest [=[{
   "schema": 1,
   "version": "@ANYKEEP_VERSION@",
   "minimumLauncherProtocol": 1,
-  "releaseNotesUrl": "https://anykeep.net/releases/@ANYKEEP_VERSION@",
   "package": {
     "format": "zip",
     "url": "${package_url}",

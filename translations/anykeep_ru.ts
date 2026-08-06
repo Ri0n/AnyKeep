@@ -181,6 +181,18 @@ and to other contributors whose names have been lost or not yet added.
         <translation>Запускать вместе с системой</translation>
     </message>
     <message>
+        <source>Updates</source>
+        <translation>Обновления</translation>
+    </message>
+    <message>
+        <source>Automatically check for updates</source>
+        <translation>Автоматически проверять наличие обновлений</translation>
+    </message>
+    <message>
+        <source>Check for updates</source>
+        <translation>Проверить обновления</translation>
+    </message>
+    <message>
         <location filename="../libanykeep/optionsdlg.ui" line="75"/>
         <source>Title highlight color</source>
         <translation>Цвет подсветки заголовка</translation>

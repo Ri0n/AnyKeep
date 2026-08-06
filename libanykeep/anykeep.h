@@ -72,6 +72,7 @@ public:
     void                        windowGeometryBridgeReady() const;
     ShortcutsManager           *shortcutsManager() const { return _shortcutsManager; }
     PluginManager              *pluginManager() const { return _pluginManager; }
+    UpdateController           *updateController() const;
     StickyNotesManager         *stickyNotesManager() const;
 
     void setTrayImpl(TrayImpl *tray);

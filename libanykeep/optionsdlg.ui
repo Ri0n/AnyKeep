@@ -74,6 +74,56 @@
         </widget>
        </item>
        <item>
+        <widget class="QGroupBox" name="updatesGroup">
+         <property name="title">
+          <string>Updates</string>
+         </property>
+         <layout class="QVBoxLayout" name="updatesGroupLayout">
+          <item>
+           <layout class="QHBoxLayout" name="updatesControlsLayout">
+            <item>
+             <widget class="QCheckBox" name="ckAutomaticUpdates">
+              <property name="text">
+               <string>Automatically check for updates</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="updatesHorizontalSpacer">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="pbCheckUpdates">
+              <property name="text">
+               <string>Check for updates</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="lblUpdateStatus">
+            <property name="text">
+             <string/>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
         <layout class="QHBoxLayout" name="horizontalLayout_2">
          <item>
           <widget class="QLabel" name="label_2">
