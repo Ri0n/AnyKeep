@@ -101,9 +101,9 @@ SpeechRecognitionUsageStats YandexPlugin::speechRecognitionUsageStats() const
     stats.audioMsUsed             = trackedAudioMs;
     stats.bytesSent               = trackedBytesSent;
     stats.humanSummary            = tr("<b>Tracked audio sessions:</b> %1<br/><b>Actual audio:</b> %2<br/>"
-                                                  "<b>Estimated billable audio:</b> %3<br/><b>Uploaded:</b> %4")
-                             .arg(QLocale().toString(sessionCount), formatUsageDuration(stats.audioMsUsed),
-                                  formatUsageDuration(billableAudioMs), formatUsageBytes(stats.bytesSent));
+                                       "<b>Estimated billable audio:</b> %3<br/><b>Uploaded:</b> %4")
+                                        .arg(QLocale().toString(sessionCount), formatUsageDuration(stats.audioMsUsed),
+                                             formatUsageDuration(billableAudioMs), formatUsageBytes(stats.bytesSent));
     return stats;
 }
 
@@ -150,6 +150,14 @@ void YandexPlugin::addUsage(qint64 audioMs, int channels, qint64 bytesSent)
                s.value(QLatin1String("speechkit/stats/v2/billableAudioMs"), 0).toLongLong() + billableAudioMs);
     s.setValue(QLatin1String("speechkit/stats/v2/bytesSent"),
                s.value(QLatin1String("speechkit/stats/v2/bytesSent"), 0).toLongLong() + qMax<qint64>(0, bytesSent));
+}
+
+void YandexPlugin::resetUsage()
+{
+    QSettings s;
+    s.beginGroup(SettingsGroup);
+    s.remove(QLatin1String("speechkit/stats/v2"));
+    emit usageChanged();
 }
 
 } // namespace AnyKeep

@@ -24,6 +24,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QDataStream>
 #include <QGuiApplication>
 #include <QLoggingCategory>
+#include <QQuickStyle>
 #include <QSocketNotifier>
 #include <QStringList>
 #include <QtSingleApplication>
@@ -91,6 +92,13 @@ QSocketNotifier *installUnixSignalHandlers(QObject *parent)
 
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_WIN
+    // The legacy Qt Quick Controls Windows style does not connect its palette
+    // to the Windows dark colour scheme. FluentWinUI3 does and tracks the
+    // system appearance for all Quick Controls, including popups and menus.
+    QQuickStyle::setStyle(QStringLiteral("FluentWinUI3"));
+#endif
+
     bool safeMode = false;
     for (int i = 1; i < argc; ++i) {
         const QLatin1String argument(argv[i]);

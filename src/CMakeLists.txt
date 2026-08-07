@@ -38,6 +38,10 @@ endif()
 target_link_libraries(${PROJECT_NAME} ${anykeep_lib} QtSingleApplication)
 
 if(WIN32)
+    target_link_libraries(${PROJECT_NAME} Qt${QT_VERSION_MAJOR}::QuickControls2)
+endif()
+
+if(WIN32)
     install(TARGETS ${PROJECT_NAME} RUNTIME
             DESTINATION "."
             COMPONENT Executable)

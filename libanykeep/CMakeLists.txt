@@ -244,6 +244,11 @@ if(ANYKEEP_CORE_ONLY)
     return()
 endif()
 
+# Sources compiled in the OBJECT library become part of the anykeep shared
+# library, so they must see the same export define as sources compiled directly
+# by that final target.
+target_compile_definitions(anykeep_core PRIVATE anykeep_EXPORTS)
+
 add_library(anykeep SHARED
     ${libanykeep_HDRS}
     ${libanykeep_PRIVATE_HDRS}

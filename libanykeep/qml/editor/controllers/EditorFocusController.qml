@@ -26,6 +26,12 @@ QtObject {
 
     function unregisterEditor(editor) {
         editors = editors.filter(candidate => candidate !== editor)
+        if (activeEditor === editor)
+            activeEditor = null
+        if (cursorVisibilityRefresh.editor === editor) {
+            cursorVisibilityRefresh.stop()
+            cursorVisibilityRefresh.editor = null
+        }
         editorView.scheduleSelectionStateRefresh()
     }
 
@@ -528,10 +534,14 @@ QtObject {
     }
 
     function focusInitialEditor() {
-        if (activeEditor) {
+        // A ListView delegate may have been replaced since a focus request was
+        // queued. QML `var` properties retain a wrapper for a destroyed item,
+        // which is truthy but no longer has callable methods.
+        if (activeEditor && editors.indexOf(activeEditor) >= 0) {
             activeEditor.forceActiveFocus()
             return true
         }
+        activeEditor = null
         const loader = editorView.itemAtIndex(0)
         if (!loader || !loader.item)
             return false

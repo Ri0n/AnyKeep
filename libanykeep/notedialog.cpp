@@ -66,8 +66,8 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
     windowGeometryKey_ = geometryKey();
     alwaysOnTopKey_    = windowGeometryKey_ + QStringLiteral(".always-on-top");
 
-    Qt::WindowFlags flags
-        = Qt::Window | Qt::WindowSystemMenuHint | Qt::WindowMinMaxButtonsHint | Qt::WindowCloseButtonHint;
+    Qt::WindowFlags flags = Qt::Window | Qt::WindowTitleHint | Qt::WindowSystemMenuHint | Qt::WindowMinMaxButtonsHint
+        | Qt::WindowCloseButtonHint;
     if (QSettings().value(alwaysOnTopKey_, false).toBool())
         flags |= Qt::WindowStaysOnTopHint;
     setFlags(flags);
