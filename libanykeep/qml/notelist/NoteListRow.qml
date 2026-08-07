@@ -72,6 +72,19 @@ SwipeDelegate {
     readonly property bool swipeDeleteAvailable: collection.touchActions
                                                   && collection.swipeDeleteEnabled
                                                   && noteRow
+    // Windows reports the legacy accent colour through QPalette.highlight.
+    // The manager uses a quiet neutral selection instead, matching the rest
+    // of the monochrome interface and remaining legible in either scheme.
+    readonly property color neutralHighlight: Qt.rgba(
+        row.palette.base.r * 0.80 + row.palette.text.r * 0.20,
+        row.palette.base.g * 0.80 + row.palette.text.g * 0.20,
+        row.palette.base.b * 0.80 + row.palette.text.b * 0.20,
+        1.0)
+    readonly property color neutralSelection: Qt.rgba(
+        row.palette.base.r * 0.88 + row.palette.text.r * 0.12,
+        row.palette.base.g * 0.88 + row.palette.text.g * 0.12,
+        row.palette.base.b * 0.88 + row.palette.text.b * 0.12,
+        1.0)
     readonly property bool partOfActiveDrag: sourceActive
     // TreeView keeps pooled delegates alive with their last model roles. Only
     // the presented delegate may participate in inline editing; otherwise a
@@ -145,10 +158,9 @@ SwipeDelegate {
         color: row.directTarget
                ? Qt.rgba(0.30, 0.76, 0.38, 0.32)
                : row.highlighted
-               ? row.palette.highlight
+               ? row.neutralHighlight
                : row.noteSelected
-               ? Qt.rgba(row.palette.highlight.r, row.palette.highlight.g,
-                         row.palette.highlight.b, 0.38)
+               ? row.neutralSelection
                : row.hovered
                ? Qt.rgba(row.palette.button.r, row.palette.button.g,
                          row.palette.button.b, 0.45)
@@ -162,7 +174,7 @@ SwipeDelegate {
             y: 0
             height: 3
             visible: row.dropBefore && !row.hierarchyGroupDrop
-            color: row.palette.highlight
+            color: row.neutralHighlight
         }
 
         Rectangle {
@@ -171,7 +183,7 @@ SwipeDelegate {
             y: parent.height - height
             height: 3
             visible: row.dropAfter && !row.hierarchyGroupDrop
-            color: row.palette.highlight
+            color: row.neutralHighlight
         }
 
         // Folders resolve their destination depth from horizontal movement.
@@ -185,7 +197,7 @@ SwipeDelegate {
             height: 3
             radius: 1.5
             visible: row.dropBefore && row.hierarchyGroupDrop
-            color: row.palette.highlight
+            color: row.neutralHighlight
         }
 
         Rectangle {
@@ -195,7 +207,7 @@ SwipeDelegate {
             height: 3
             radius: 1.5
             visible: row.dropAfter && row.hierarchyGroupDrop
-            color: row.palette.highlight
+            color: row.neutralHighlight
         }
     }
 
@@ -205,37 +217,6 @@ SwipeDelegate {
         Item {
             Layout.preferredWidth: row.leadingInset
             Layout.fillHeight: true
-        }
-
-        ToolButton {
-            visible: row.groupRow && collection.groupCanCollapse(row)
-            enabled: visible && !row.editing
-            Layout.preferredWidth: visible ? 20 : 0
-            Layout.preferredHeight: 20
-            padding: 2
-            display: AbstractButton.IconOnly
-            Accessible.name: row.groupExpanded
-                             ? qsTr("Collapse %1").arg(row.title)
-                             : qsTr("Expand %1").arg(row.title)
-            onClicked: collection.toggleGroup(row)
-
-            contentItem: App.ThemedIcon {
-                themeName: "go-next-symbolic"
-                fallbackName: "go-next-symbolic"
-                recolorFallback: true
-                fallbackTintMode: String(row.highlighted
-                                         ? row.palette.highlightedText
-                                         : row.palette.text)
-                pixelSize: 15
-                rotation: row.groupExpanded ? 90 : 0
-            }
-        }
-
-        Item {
-            visible: !row.compactFlatNoteRow
-                     && !(row.groupRow && collection.groupCanCollapse(row))
-            Layout.preferredWidth: visible ? 20 : 0
-            Layout.preferredHeight: 20
         }
 
         Item {
@@ -265,6 +246,35 @@ SwipeDelegate {
                                          ? row.palette.highlightedText
                                          : row.palette.text)
                 pixelSize: 20
+            }
+
+            // Keep the tree control discoverable without reserving a whole
+            // extra column before every folder icon.
+            ToolButton {
+                visible: row.groupRow && collection.groupCanCollapse(row)
+                enabled: visible && !row.editing
+                width: 13
+                height: 13
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                padding: 1
+                z: 1
+                display: AbstractButton.IconOnly
+                Accessible.name: row.groupExpanded
+                                 ? qsTr("Collapse %1").arg(row.title)
+                                 : qsTr("Expand %1").arg(row.title)
+                onClicked: collection.toggleGroup(row)
+
+                contentItem: App.ThemedIcon {
+                    themeName: "go-next-symbolic"
+                    fallbackName: "go-next-symbolic"
+                    recolorFallback: true
+                    fallbackTintMode: String(row.highlighted
+                                             ? row.palette.highlightedText
+                                             : row.palette.text)
+                    pixelSize: 11
+                    rotation: row.groupExpanded ? 90 : 0
+                }
             }
         }
 
@@ -308,7 +318,7 @@ SwipeDelegate {
             recolorFallback: true
             fallbackTintMode: String(row.highlighted
                                      ? row.palette.highlightedText
-                                     : row.palette.highlight)
+                                     : row.palette.text)
             pixelSize: 16
             Accessible.name: qsTr("Favorite group")
         }

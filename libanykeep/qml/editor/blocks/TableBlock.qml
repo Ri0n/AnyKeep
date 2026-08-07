@@ -27,6 +27,14 @@ Item {
     implicitHeight: tableGrid.implicitHeight
     height: implicitHeight
 
+    // The inactive group of the Windows palette can expose a light Base even
+    // while the application is dark. These are document surfaces, so keep
+    // them stable when the note window loses focus.
+    SystemPalette {
+        id: activePalette
+        colorGroup: SystemPalette.Active
+    }
+
     onTableDataChanged: syncCells()
     Component.onCompleted: syncCells()
 
@@ -385,9 +393,17 @@ Item {
                 readonly property bool drawsRightGridBorder: columnIndex === tableRoot.columns - 1
                 readonly property bool drawsBottomGridBorder: index >= cellModel.count
                                                                - tableRoot.columns
-                readonly property color gridBorderColor: Qt.rgba(tableCell.palette.text.r,
-                                                                 tableCell.palette.text.g,
-                                                                 tableCell.palette.text.b, 0.28)
+                readonly property color gridBorderColor: Qt.rgba(activePalette.text.r,
+                                                                 activePalette.text.g,
+                                                                 activePalette.text.b, 0.28)
+                // Qt's Windows dark palette uses AlternateBase as a darkened
+                // system accent. Zebra rows should remain neutral instead of
+                // inheriting the user's accent colour.
+                readonly property color neutralAlternateBase: Qt.rgba(
+                    activePalette.base.r * 0.92 + activePalette.text.r * 0.08,
+                    activePalette.base.g * 0.92 + activePalette.text.g * 0.08,
+                    activePalette.base.b * 0.92 + activePalette.text.b * 0.08,
+                    1.0)
                 property real columnReorderOffsetX: tableColumnLayout.translationByOrder(
                                                         tableCell,
                                                         tableColumnReorder.targetBoundary,
@@ -493,7 +509,7 @@ Item {
                 bottomPadding: tableRoot.editorView.touchMode ? 8 : 3
                 background: Rectangle {
                     color: Math.floor(tableCell.index / tableRoot.columns) % 2
-                           ? tableCell.palette.alternateBase : tableCell.palette.base
+                           ? tableCell.neutralAlternateBase : activePalette.base
                     border.width: 0
 
                     Rectangle {

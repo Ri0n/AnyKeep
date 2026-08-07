@@ -126,8 +126,7 @@ void BaseIntegrationTray::showNoteList(QSystemTrayIcon::ActivationReason reason)
     list->setSelectionMode(QAbstractItemView::SingleSelection);
     list->setUniformItemSizes(true);
     list->setMinimumWidth(280);
-    list->setMinimumHeight(160);
-    list->setMaximumHeight(360);
+    list->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     layout->addWidget(list);
 
     auto *newButton = new QPushButton(QIcon(":/icons/new"), tr("&New"), popup);
@@ -140,6 +139,22 @@ void BaseIntegrationTray::showNoteList(QSystemTrayIcon::ActivationReason reason)
                       filter->text().trimmed().isEmpty() ? tr("No notes yet") : tr("No notes match the search"));
     };
     reloadNotes();
+
+    // The setting controls the number of rows visible in the tray popup, not
+    // merely the number of rows fetched. Keep the popup within the available
+    // screen area; QListWidget then exposes the remaining configured rows via
+    // its normal scrollbar.
+    const int   rowHeight   = qMax(list->sizeHintForRow(0), list->fontMetrics().height() + 10);
+    const int   visibleRows = qMax(1, qMin(maxNotes, list->count()));
+    const auto *screen      = QGuiApplication::screenAt(QCursor::pos());
+    const QRect availableGeometry
+        = screen ? screen->availableGeometry() : QGuiApplication::primaryScreen()->availableGeometry();
+    const QMargins margins     = layout->contentsMargins();
+    const int      popupChrome = margins.top() + margins.bottom() + filter->sizeHint().height()
+        + newButton->sizeHint().height() + layout->spacing() * 2 + popup->frameWidth() * 2;
+    const int maximumListHeight = qMax(rowHeight, availableGeometry.height() - popupChrome - 16);
+    const int desiredListHeight = visibleRows * rowHeight + list->frameWidth() * 2;
+    list->setFixedHeight(qMin(desiredListHeight, maximumListHeight));
 
     auto openItem = [=, this](QListWidgetItem *item) {
         if (!item) {

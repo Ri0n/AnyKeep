@@ -69,8 +69,10 @@ public:
         if (!cacheFile.open(QIODevice::ReadOnly)) {
             if (cacheFile.exists()) {
                 qWarning("Failed to load cached directory list: %s", qUtf8Printable(cacheFile.errorString()));
-                return {};
             }
+            // A missing cache is normal on first run. In either case the
+            // closed QFile must not be read; start() will fetch a fresh list.
+            return { };
         }
 
         QJsonDocument doc         = QJsonDocument::fromJson(cacheFile.readAll());
@@ -79,7 +81,7 @@ public:
         QDateTime     lastUpdated = QDateTime::fromString(doc[QLatin1String("last_updated")].toString(), Qt::ISODate);
 
         if (!lastUpdated.isValid() || lastUpdated.daysTo(QDateTime::currentDateTime()) > 1) {
-            return {};
+            return { };
         }
         return ret;
     }
@@ -90,7 +92,7 @@ public:
 
         if (reply->error() != QNetworkReply::NoError) {
             lastError_ = QLatin1String("Failed to fetch a list of dictioneries: ") + reply->errorString();
-            emit finished({});
+            emit finished({ });
             deleteLater();
             return;
         }
@@ -307,7 +309,7 @@ QString HunspellDownloader::findBestMatchingDirectory() const
         }
     }
 
-    return {};
+    return { };
 }
 
 void HunspellDownloader::findAndDownloadDictionary()

@@ -107,7 +107,11 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
         = Utils::anykeepDataDir() + QLatin1String("/translations"); // where translaations could be downloaded
 
 #if defined(ANYKEEP_DEVEL) || defined(Q_OS_UNIX)
-    langDirs << TRANSLATIONSDIR << dlTrDir; // in devel mode TRANSLATIONSDIR will refer to source/translations
+    // Qt's translation target puts development .qm files beside the
+    // executable, while TRANSLATIONSDIR contains only the source .ts files.
+    // Prefer the generated files but retain the source/download locations as
+    // fallbacks for Unix development and manually installed translations.
+    langDirs << qApp->applicationDirPath() + QLatin1String("/translations") << TRANSLATIONSDIR << dlTrDir;
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     qtLangDirs << QLibraryInfo::location(QLibraryInfo::TranslationsPath);
 #else
@@ -124,11 +128,27 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
 
     QLocale locale = autoLang ? QLocale::system() : QLocale(forcedLangName);
     // qDebug() << forcedLangName;
-    foreach (const QString &langDir, langDirs) {
-        if (translator->load(locale, langFile, "_", langDir)) {
-            qApp->installTranslator(translator);
-            break;
+    qDebug() << "Requested locale:" << locale.name() << "language:" << locale.language();
+    // Resolve the application catalogue explicitly. Besides making the
+    // development output directory unambiguous, this avoids QTranslator's
+    // implicit locale fallback selecting an unexpected catalogue variant.
+    QStringList   languageCandidates { locale.name() };
+    const QString languageOnly = locale.name().section(QLatin1Char('_'), 0, 0);
+    if (!languageOnly.isEmpty() && !languageCandidates.contains(languageOnly))
+        languageCandidates << languageOnly;
+    for (const QString &langDir : langDirs) {
+        const QDir directory(langDir);
+        for (const QString &language : languageCandidates) {
+            const QString translationFile
+                = directory.filePath(langFile + QLatin1Char('_') + language + QLatin1String(".qm"));
+            if (translator->load(translationFile)) {
+                qDebug() << "Translator installed: " << qApp->installTranslator(translator)
+                         << ", translator empty: " << translator->isEmpty();
+                break;
+            }
         }
+        if (!translator->isEmpty())
+            break;
     }
 
     foreach (const QString &langDir, qtLangDirs) {

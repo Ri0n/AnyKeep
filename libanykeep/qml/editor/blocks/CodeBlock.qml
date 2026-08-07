@@ -14,13 +14,31 @@ Rectangle {
     implicitHeight: Math.max(codeCell.implicitHeight + 12, codeRoot.editorView.editorFontMetricsHeight * 3)
     radius: 4
     clip: true
-    color: Qt.rgba(codeCell.palette.base.r, codeCell.palette.base.g,
-                   codeCell.palette.base.b, 0.82)
+    color: Qt.rgba(activePalette.base.r, activePalette.base.g,
+                   activePalette.base.b, 0.82)
     border.width: 1
-    readonly property color codeTextColor: codeCell.palette.text
+    readonly property color codeTextColor: activePalette.text
     readonly property color codeBorderColor: Qt.rgba(codeTextColor.r, codeTextColor.g,
                                                      codeTextColor.b, 0.28)
+    // AlternateBase on Windows follows the user's accent colour. Code block
+    // controls need a neutral surface rather than an accent-coloured one.
+    readonly property color controlSurface: Qt.rgba(
+        activePalette.base.r * 0.92 + activePalette.text.r * 0.08,
+        activePalette.base.g * 0.92 + activePalette.text.g * 0.08,
+        activePalette.base.b * 0.92 + activePalette.text.b * 0.08,
+        1.0)
+    readonly property color controlHoverSurface: Qt.rgba(
+        activePalette.base.r * 0.86 + activePalette.text.r * 0.14,
+        activePalette.base.g * 0.86 + activePalette.text.g * 0.14,
+        activePalette.base.b * 0.86 + activePalette.text.b * 0.14,
+        1.0)
     border.color: codeBorderColor
+
+    // Do not inherit the Windows inactive control palette for document UI.
+    SystemPalette {
+        id: activePalette
+        colorGroup: SystemPalette.Active
+    }
 
     function forceActiveFocus() { codeCell.forceActiveFocus() }
 
@@ -80,10 +98,10 @@ Rectangle {
 
                 background: Rectangle {
                     radius: codeRoot.radius
-                    color: copyCodeButton.pressed ? copyCodeButton.palette.mid
-                                                  : copyCodeButton.palette.alternateBase
+                    color: copyCodeButton.pressed ? codeRoot.controlHoverSurface
+                                                  : codeRoot.controlSurface
                     border.width: 1
-                    border.color: codeCell.palette.midlight
+                    border.color: codeRoot.codeBorderColor
                 }
             }
         }
@@ -98,9 +116,9 @@ Rectangle {
             implicitHeight: Math.max(24, codeRoot.editorView.editorFontMetricsHeight + 8)
             minimumControlWidth: 48
             minimumPopupWidth: 180
-            backgroundColor: palette.alternateBase
-            hoverColor: palette.alternateBase
-            borderColor: codeCell.palette.midlight
+            backgroundColor: codeRoot.controlSurface
+            hoverColor: codeRoot.controlHoverSurface
+            borderColor: codeRoot.codeBorderColor
 
             function synchronizeLanguage() {
                 const language = codeRoot.editorView.platformBackend

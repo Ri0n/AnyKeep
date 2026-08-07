@@ -391,10 +391,16 @@ ToolBar {
             visible: !root.compact && root.optionalSlotCount >= root.styleSlot + 4
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
-            text: qsTr("</>")
-            font.family: "monospace"
             padding: 0
+            display: AbstractButton.IconOnly
             enabled: root.editorBackend && root.editorBackend.markdown
+            contentItem: Shared.ThemedIconImpl {
+                themeName: "code-context"
+                fallbackName: "code-symbolic.svg"
+                recolorFallback: true
+                fallbackTintMode: root.fallbackIconTintMode
+                pixelSize: root.iconSize
+            }
             Accessible.name: qsTr("Code")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
@@ -404,9 +410,16 @@ ToolBar {
             visible: !root.compact && root.optionalSlotCount >= root.styleSlot + 5
             Layout.preferredWidth: root.controlSize
             Layout.preferredHeight: root.controlSize
-            text: qsTr("🔗")
             padding: 0
+            display: AbstractButton.IconOnly
             enabled: root.editorBackend && root.editorBackend.markdown
+            contentItem: Shared.ThemedIconImpl {
+                themeName: "insert-link-symbolic"
+                fallbackName: "insert-link-symbolic.svg"
+                recolorFallback: true
+                fallbackTintMode: root.fallbackIconTintMode
+                pixelSize: root.iconSize
+            }
             Accessible.name: qsTr("Edit link")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name

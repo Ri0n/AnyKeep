@@ -1307,4 +1307,22 @@ Notes will be automatically saved to special storage, so you should not worry ab
         <translation>Применяется после перезапуска AnyKeep.</translation>
     </message>
 </context>
+<context>
+    <name>NotesManagerPageImpl</name>
+    <message>
+        <location filename="../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="300"/>
+        <source>Recent</source>
+        <translation>Недавние</translation>
+    </message>
+    <message>
+        <location filename="../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="315"/>
+        <source>By storage</source>
+        <translation>По хранилищу</translation>
+    </message>
+    <message>
+        <location filename="../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="330"/>
+        <source>Folders</source>
+        <translation>Папки</translation>
+    </message>
+</context>
 </TS>

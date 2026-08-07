@@ -212,14 +212,17 @@ Item {
                             ToolButton {
                                 objectName: "newNoteButton"
                                 visible: root.showCreateButton
-                                Layout.preferredWidth: 27
-                                Layout.preferredHeight: 27
-                                padding: 3
+                                // Keep a conventional desktop hit target. The
+                                // Fluent style otherwise compresses this icon
+                                // beside the search field to a tiny button.
+                                Layout.preferredWidth: 36
+                                Layout.preferredHeight: 36
+                                padding: 6
                                 display: AbstractButton.IconOnly
                                 contentItem: Image {
                                     source: "qrc:/icons/new"
-                                    sourceSize.width: 24
-                                    sourceSize.height: 24
+                                    sourceSize.width: 22
+                                    sourceSize.height: 22
                                     fillMode: Image.PreserveAspectFit
                                 }
                                 Accessible.name: qsTr("New note")
@@ -291,9 +294,50 @@ Item {
                                 root.viewMode = currentIndex
                         }
 
-                        TabButton { text: qsTr("Recent") }
-                        TabButton { text: qsTr("By storage") }
-                        TabButton { text: qsTr("Folders") }
+                        TabButton {
+                            text: ""
+                            display: AbstractButton.IconOnly
+                            Accessible.name: qsTr("Recent")
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            contentItem: Shared.ThemedIcon {
+                                themeName: "document-open-recent-symbolic"
+                                fallbackName: "document-open-recent-symbolic.svg"
+                                recolorFallback: true
+                                fallbackTintMode: "auto"
+                                pixelSize: 20
+                            }
+                        }
+
+                        TabButton {
+                            text: ""
+                            display: AbstractButton.IconOnly
+                            Accessible.name: qsTr("By storage")
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            contentItem: Shared.ThemedIcon {
+                                themeName: "drive-harddisk-symbolic"
+                                fallbackName: "drive-harddisk-symbolic.svg"
+                                recolorFallback: true
+                                fallbackTintMode: "auto"
+                                pixelSize: 20
+                            }
+                        }
+
+                        TabButton {
+                            text: ""
+                            display: AbstractButton.IconOnly
+                            Accessible.name: qsTr("Folders")
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            contentItem: Shared.ThemedIcon {
+                                themeName: "folder-symbolic"
+                                fallbackName: "folder-symbolic.svg"
+                                recolorFallback: true
+                                fallbackTintMode: "auto"
+                                pixelSize: 20
+                            }
+                        }
                     }
 
                     RowLayout {
