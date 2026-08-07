@@ -43,7 +43,7 @@
 &lt;li&gt;Vitaly Tonkacheyev &lt;/li&gt;&lt;/ul&gt;
 and to other contributors whose names have been lost or not yet added.
 </source>
-        <translation>Alle vertalingen worden gedaan en beheerd op &lt;a href=&quot;https://app.transifex.com/rion/anykeep&quot;&gt;Transifex, en zijn afkomstig van diverse bijdragers. &lt;br /&gt;&lt;br /&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Veel dank aan:&lt;/span&gt;
+        <translation>Alle vertalingen worden gedaan en beheerd op &lt;a href=&quot;https://app.transifex.com/rion/anykeep&quot;&gt;Transifex&lt;/a&gt;, en zijn afkomstig van diverse bijdragers. &lt;br /&gt;&lt;br /&gt;&lt;span style=&quot; font-weight:700;&quot;&gt;Veel dank aan:&lt;/span&gt;
 &lt;ul&gt;
 &lt;li&gt;Eduardo Delmoral&lt;/li&gt;
 &lt;li&gt;Heimen Stoffels&lt;/li&gt;
