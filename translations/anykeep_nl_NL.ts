@@ -869,7 +869,7 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libanykeep/stickynotesmanager.cpp" line="94"/>
         <source>AnyKeep must be running to restore sticky notes after sign-in. Start it automatically with the system?</source>
-        <translation>AnyKeep dient actief te zijn om plaknotities na het aanmelden te kunnen bewaren. Wil je QtNote automatisch opstarten?</translation>
+        <translation>AnyKeep dient actief te zijn om plaknotities na het aanmelden te kunnen bewaren. Wil je AnyKeep automatisch opstarten?</translation>
     </message>
     <message>
         <location filename="../libanykeep/stickynotesmanager.cpp" line="97"/>
