@@ -67,7 +67,7 @@ Owned by `AnyKeep::Main` and exposed to the notes-manager QML window. It:
 - exposes the green **Update and restart** banner;
 - launches the updater from the prepared version.
 
-The default manifest is configured by `ANYKEEP_UPDATE_MANIFEST_URL`. In an `ANYKEEP_DEVEL` build, the updater is disabled unless the `ANYKEEP_UPDATE_ROOT` environment variable contains a test installation root. The development launcher honours the same variable, so it may be started from Qt Creator while exercising that test root. Development builds may also override the manifest with `ANYKEEP_UPDATE_MANIFEST_URL`; it accepts HTTPS and, for local-network test servers, HTTP. Release builds ignore both environment overrides, accept HTTPS only, and derive the installation root from the versioned launcher layout.
+The default manifest is derived from `ANYKEEP_UPDATE_SERVER_ROOT` and `ANYKEEP_UPDATE_CHANNEL` (stable by default); `ANYKEEP_UPDATE_MANIFEST_URL` is an explicit configure-time override. In an `ANYKEEP_DEVEL` build, the updater is disabled unless the `ANYKEEP_UPDATE_ROOT` environment variable contains a test installation root. The development launcher honours the same variable, so it may be started from Qt Creator while exercising that test root. Development builds may also override the manifest at runtime with the `ANYKEEP_UPDATE_MANIFEST_URL` environment variable; it accepts HTTPS and, for local-network test servers, HTTP. Release builds ignore runtime environment overrides, accept HTTPS only, and derive the installation root from the versioned launcher layout.
 
 ### `AnyKeepUpdater.exe`
 
@@ -120,14 +120,57 @@ The slow work is finished before the banner appears. The button path only checkp
   "minimumLauncherProtocol": 1,
   "package": {
     "format": "zip",
-    "url": "https://anykeep.net/updates/stable/AnyKeep-4.0.1-windows-x86_64.zip",
+    "url": "AnyKeep-4.0.1-windows-x86_64.zip",
     "size": 12345678,
     "sha256": "..."
   }
 }
 ```
 
-The CMake target `windows_update_package` creates a clean install tree, runs `windeployqt`, and writes both the ZIP and `windows-x86_64.json` under `build/updates/stable`.
+### Generating update artifacts
+
+`windows_update_package` is the single packaging entry point for both local Visual Studio builds and CI. It never stages through the normal installation prefix. Instead it creates an isolated install tree under `build/update-work/<channel>/install`, lets the normal CMake install rules run `windeployqt` there, and then creates the update artifacts.
+
+Configure a stable Visual Studio build in the usual way and build:
+
+```powershell
+cmake --build build --config Release --target windows_update_package
+```
+
+The default output is:
+
+```text
+build/updates/stable/
+├── AnyKeep-<version>-windows-x86_64.zip
+├── AnyKeep-<version>-windows-x86_64.json
+├── windows-x86_64.json
+└── SHA256SUMS.txt
+```
+
+The ZIP contains one version directory payload: `anykeep.exe`, `AnyKeepUpdater.exe`, project DLLs/plugins, Qt runtime files and translations. It deliberately excludes the stable launcher and installation state (`AnyKeepLauncher.exe`, `current.version`, `previous.version`, `versions`, `staging`, and update logs).
+
+For a nightly build, configure a separate build tree with:
+
+```powershell
+cmake -S . -B build-nightly -G "Visual Studio 17 2022" -A x64 `
+    -DANYKEEP_UPDATE_CHANNEL=nightly
+cmake --build build-nightly --config Release --target windows_update_package
+```
+
+That build is compiled to check `https://anykeep.net/updates/nightly/windows-x86_64.json` and writes artifacts under `build-nightly/updates/nightly`. `ANYKEEP_UPDATE_SERVER_ROOT` changes the common server root. `ANYKEEP_UPDATE_MANIFEST_URL` may override the compiled manifest URL explicitly.
+
+Package URLs in generated manifests are relative by default, so the whole channel directory can be served locally or uploaded unchanged. For example, a development HTTP server may expose `updates/nightly/windows-x86_64.json` next to its ZIP. `ANYKEEP_UPDATE_BASE_URL` is an optional escape hatch when manifests and packages later need different hosts.
+
+`ANYKEEP_UPDATE_OUTPUT_DIR` can redirect artifacts to a caller-selected directory. This is useful in GitHub Actions, where the same target can write directly to an artifact/publish directory:
+
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+    -DANYKEEP_UPDATE_CHANNEL=nightly `
+    -DANYKEEP_UPDATE_OUTPUT_DIR="$env:RUNNER_TEMP\anykeep-update"
+cmake --build build --config Release --target windows_update_package
+```
+
+Publishing order matters: upload the versioned ZIP and versioned manifest first, then replace `windows-x86_64.json` last. The latest manifest is the only mutable channel pointer. This prevents clients from observing a manifest before its referenced package is available.
 
 ## Initial installation and uninstall
 

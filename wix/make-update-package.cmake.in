@@ -1,24 +1,54 @@
 cmake_minimum_required(VERSION 3.25)
 
-set(source_root "@CMAKE_INSTALL_PREFIX@")
-set(output_root "@CMAKE_BINARY_DIR@/updates/stable")
-set(version "@ANYKEEP_VERSION@")
-set(base_url "@ANYKEEP_UPDATE_BASE_URL@")
-set(stage "${output_root}/stage-${version}")
-set(package_name "AnyKeep-${version}-windows-x86_64.zip")
-set(package_path "${output_root}/${package_name}")
-
-file(REMOVE_RECURSE "${stage}")
-file(MAKE_DIRECTORY "${stage}" "${output_root}")
-file(GLOB entries LIST_DIRECTORIES true "${source_root}/*")
-foreach(entry IN LISTS entries)
-    get_filename_component(name "${entry}" NAME)
-    if(name STREQUAL "AnyKeepLauncher.exe" OR name STREQUAL "current.version"
-       OR name STREQUAL "vc_redist.x64.exe")
-        continue()
+foreach(required_var SOURCE_ROOT OUTPUT_ROOT WORK_ROOT VERSION CHANNEL)
+    if(NOT DEFINED ${required_var} OR "${${required_var}}" STREQUAL "")
+        message(FATAL_ERROR "${required_var} must be provided with -D")
     endif()
-    file(COPY "${entry}" DESTINATION "${stage}")
 endforeach()
+
+if(NOT VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION must be a numeric x.y.z version, got: ${VERSION}")
+endif()
+if(NOT CHANNEL MATCHES "^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    message(FATAL_ERROR "CHANNEL contains unsafe path characters: ${CHANNEL}")
+endif()
+
+cmake_path(ABSOLUTE_PATH SOURCE_ROOT NORMALIZE)
+cmake_path(ABSOLUTE_PATH OUTPUT_ROOT NORMALIZE)
+cmake_path(ABSOLUTE_PATH WORK_ROOT NORMALIZE)
+
+if(NOT IS_DIRECTORY "${SOURCE_ROOT}")
+    message(FATAL_ERROR "Installed update source tree does not exist: ${SOURCE_ROOT}")
+endif()
+if(NOT EXISTS "${SOURCE_ROOT}/anykeep.exe")
+    message(FATAL_ERROR "Installed update source tree does not contain anykeep.exe: ${SOURCE_ROOT}")
+endif()
+if(NOT EXISTS "${SOURCE_ROOT}/AnyKeepUpdater.exe")
+    message(FATAL_ERROR "Installed update source tree does not contain AnyKeepUpdater.exe: ${SOURCE_ROOT}")
+endif()
+
+set(package_name "AnyKeep-${VERSION}-windows-x86_64.zip")
+set(package_path "${OUTPUT_ROOT}/${package_name}")
+set(version_manifest_name "AnyKeep-${VERSION}-windows-x86_64.json")
+set(version_manifest_path "${OUTPUT_ROOT}/${version_manifest_name}")
+set(latest_manifest_path "${OUTPUT_ROOT}/windows-x86_64.json")
+set(stage "${WORK_ROOT}/stage")
+
+file(REMOVE_RECURSE "${WORK_ROOT}")
+file(MAKE_DIRECTORY "${stage}" "${OUTPUT_ROOT}")
+
+# The install tree is also used by the MSI and contains stable/bootstrap files
+# that are deliberately not version-owned.  Only the contents of one
+# versions/<version> directory belong in an update ZIP.
+file(COPY "${SOURCE_ROOT}/" DESTINATION "${stage}"
+    PATTERN "AnyKeepLauncher.exe" EXCLUDE
+    PATTERN "current.version" EXCLUDE
+    PATTERN "previous.version" EXCLUDE
+    PATTERN "vc_redist.x64.exe" EXCLUDE
+    PATTERN "staging" EXCLUDE
+    PATTERN "update-logs" EXCLUDE
+    PATTERN "versions" EXCLUDE
+)
 
 if(NOT EXISTS "${stage}/anykeep.exe")
     message(FATAL_ERROR "The staged update does not contain anykeep.exe")
@@ -39,10 +69,31 @@ endif()
 
 file(SHA256 "${package_path}" package_sha256)
 file(SIZE "${package_path}" package_size)
-set(package_url "${base_url}/${package_name}")
+
+# Prefer a relative URL.  This makes the artifact directory self-contained:
+# it can be served by a local HTTP server during development and uploaded
+# unchanged to stable/nightly channel directories in CI.  An explicit base URL
+# remains available for a future split manifest/package CDN.
+if(DEFINED PACKAGE_BASE_URL AND NOT PACKAGE_BASE_URL STREQUAL "")
+    string(REGEX REPLACE "/+$" "" package_base_url "${PACKAGE_BASE_URL}")
+    set(package_url "${package_base_url}/${package_name}")
+else()
+    set(package_url "${package_name}")
+endif()
+
+# Values interpolated below are either validated tokens or generated hashes and
+# decimal sizes.  Reject the only unsafe JSON delimiters allowed through the
+# optional URL override instead of trying to invent a JSON-escaping layer here.
+string(FIND "${package_url}" "\"" _quote_pos)
+string(FIND "${package_url}" "\n" _lf_pos)
+string(FIND "${package_url}" "\r" _cr_pos)
+if(NOT _quote_pos EQUAL -1 OR NOT _lf_pos EQUAL -1 OR NOT _cr_pos EQUAL -1)
+    message(FATAL_ERROR "PACKAGE_BASE_URL cannot contain quotes or newlines")
+endif()
+
 set(manifest [=[{
   "schema": 1,
-  "version": "@ANYKEEP_VERSION@",
+  "version": "${VERSION}",
   "minimumLauncherProtocol": 1,
   "package": {
     "format": "zip",
@@ -53,10 +104,19 @@ set(manifest [=[{
 }
 ]=])
 string(CONFIGURE "${manifest}" manifest)
-file(WRITE "${output_root}/windows-x86_64.json" "${manifest}")
-file(WRITE "${output_root}/AnyKeep-${version}-windows-x86_64.json" "${manifest}")
-file(REMOVE_RECURSE "${stage}")
 
+# Write an immutable per-version manifest first.  Deployment should upload the
+# ZIP and this file before replacing windows-x86_64.json, so clients never see
+# a latest manifest whose package has not arrived yet.
+file(WRITE "${version_manifest_path}" "${manifest}")
+file(WRITE "${latest_manifest_path}.tmp" "${manifest}")
+file(RENAME "${latest_manifest_path}.tmp" "${latest_manifest_path}")
+file(WRITE "${OUTPUT_ROOT}/SHA256SUMS.txt" "${package_sha256}  ${package_name}\n")
+
+file(REMOVE_RECURSE "${WORK_ROOT}")
+
+message(STATUS "Windows update channel: ${CHANNEL}")
 message(STATUS "Windows update package: ${package_path}")
-message(STATUS "Windows update manifest: ${output_root}/windows-x86_64.json")
+message(STATUS "Version manifest: ${version_manifest_path}")
+message(STATUS "Latest manifest: ${latest_manifest_path}")
 message(STATUS "SHA-256: ${package_sha256}")

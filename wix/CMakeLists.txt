@@ -2,21 +2,53 @@ cmake_minimum_required(VERSION 3.14.0)
 include(AnyKeepMacro)
 project(installer VERSION ${ANYKEEP_VERSION})
 
-find_program(WINDEPLOYQT_EXECUTABLE windeployqt)
+# windeployqt() is normally called while configuring src/plugins and discovers
+# the tool next to qmake.  Keep this fallback for unusual toolchain layouts.
 if(NOT WINDEPLOYQT_EXECUTABLE)
-    message(WARNING "windeployqt not found! Dependencies for standalone deployment will not be gathered.")
+    find_program(WINDEPLOYQT_EXECUTABLE NAMES windeployqt.exe windeployqt)
+endif()
+if(NOT WINDEPLOYQT_EXECUTABLE)
+    message(WARNING "windeployqt not found! Windows update and installer deployment targets won't be available.")
+endif()
+
+set(ANYKEEP_UPDATE_OUTPUT_DIR "" CACHE PATH
+    "Optional output directory for generated Windows update artifacts")
+if(ANYKEEP_UPDATE_OUTPUT_DIR STREQUAL "")
+    set(_anykeep_update_output_dir "${CMAKE_BINARY_DIR}/updates/${ANYKEEP_UPDATE_CHANNEL}")
+else()
+    set(_anykeep_update_output_dir "${ANYKEEP_UPDATE_OUTPUT_DIR}")
+endif()
+
+set(_anykeep_update_work_dir "${CMAKE_BINARY_DIR}/update-work/${ANYKEEP_UPDATE_CHANNEL}")
+set(_anykeep_update_install_dir "${_anykeep_update_work_dir}/install")
+set(_anykeep_update_pack_script "${CMAKE_CURRENT_SOURCE_DIR}/make-update-package.cmake.in")
+
+set(_anykeep_install_config_args)
+if(CMAKE_CONFIGURATION_TYPES)
+    list(APPEND _anykeep_install_config_args --config "$<CONFIG>")
+elseif(CMAKE_BUILD_TYPE)
+    list(APPEND _anykeep_install_config_args --config "${CMAKE_BUILD_TYPE}")
 endif()
 
 if(WINDEPLOYQT_EXECUTABLE)
     get_property(ANYKEEP_UPDATE_PLUGIN_TARGETS GLOBAL PROPERTY ANYKEEP_ENABLED_PLUGIN_TARGETS)
-    configure_file(make-update-package.cmake.in make-update-package.cmake @ONLY)
     add_custom_target(windows_update_package
-        COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_INSTALL_PREFIX}
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_INSTALL_PREFIX}
-        COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --config $<CONFIG>
-        COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/make-update-package.cmake
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "${_anykeep_update_work_dir}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_anykeep_update_install_dir}"
+        COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}"
+            ${_anykeep_install_config_args}
+            --prefix "${_anykeep_update_install_dir}"
+        COMMAND ${CMAKE_COMMAND}
+            "-DSOURCE_ROOT=${_anykeep_update_install_dir}"
+            "-DOUTPUT_ROOT=${_anykeep_update_output_dir}"
+            "-DWORK_ROOT=${_anykeep_update_work_dir}/package"
+            "-DVERSION=${ANYKEEP_VERSION}"
+            "-DCHANNEL=${ANYKEEP_UPDATE_CHANNEL}"
+            "-DPACKAGE_BASE_URL=${ANYKEEP_UPDATE_BASE_URL}"
+            -P "${_anykeep_update_pack_script}"
         DEPENDS anykeepexe anykeep_launcher anykeep_updater anykeep ${ANYKEEP_UPDATE_PLUGIN_TARGETS}
-        COMMENT "Building versioned AnyKeep Windows update archive and manifest"
+        COMMENT "Building ${ANYKEEP_UPDATE_CHANNEL} AnyKeep Windows update archive and manifest"
+        VERBATIM
     )
     if(TARGET build_translations)
         add_dependencies(windows_update_package build_translations)

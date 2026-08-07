@@ -212,7 +212,29 @@ macro(anykeep_optional_pkgconfig)
 endmacro()
 
 macro(windeployqt name)
+    if(WIN32 AND NOT WINDEPLOYQT_EXECUTABLE)
+        set(_anykeep_windeployqt_hints)
+        if(TARGET Qt${QT_VERSION_MAJOR}::qmake)
+            get_target_property(_anykeep_qmake_location Qt${QT_VERSION_MAJOR}::qmake IMPORTED_LOCATION)
+            if(_anykeep_qmake_location)
+                get_filename_component(_anykeep_qt_bin_dir "${_anykeep_qmake_location}" DIRECTORY)
+                list(APPEND _anykeep_windeployqt_hints "${_anykeep_qt_bin_dir}")
+            endif()
+        endif()
+        find_program(WINDEPLOYQT_EXECUTABLE
+            NAMES windeployqt.exe windeployqt
+            HINTS ${_anykeep_windeployqt_hints}
+        )
+        unset(_anykeep_windeployqt_hints)
+        unset(_anykeep_qmake_location)
+        unset(_anykeep_qt_bin_dir)
+    endif()
+
     if(WINDEPLOYQT_EXECUTABLE)
+        # Keep CMAKE_INSTALL_PREFIX as an install-time variable.  The update
+        # target installs into an isolated staging prefix with `cmake --install
+        # --prefix`; baking the configure-time prefix here would make
+        # windeployqt copy Qt into the normal install tree instead.
         install(CODE "
             execute_process(
                 COMMAND \"${WINDEPLOYQT_EXECUTABLE}\"
@@ -220,14 +242,22 @@ macro(windeployqt name)
                     --no-system-dxc-compiler
                     --no-system-d3d-compiler
                     --no-opengl-sw
-                    --dir ${CMAKE_INSTALL_PREFIX}
-                    $<TARGET_FILE:${name}>
+                    --dir \"\${CMAKE_INSTALL_PREFIX}\"
+                    \"$<TARGET_FILE:${name}>\"
+                RESULT_VARIABLE _anykeep_windeployqt_result
             )
+            if(NOT _anykeep_windeployqt_result EQUAL 0)
+                message(FATAL_ERROR \"windeployqt failed for ${name}: \${_anykeep_windeployqt_result}\")
+            endif()
         ")
     endif()
 endmacro()
 
 macro(install_anykeep_plugin name)
-    install(TARGETS ${name} LIBRARY DESTINATION ${PLUGINSDIR} COMPONENT Libraries NAMELINK_COMPONENT Development)
+    install(TARGETS ${name}
+        LIBRARY DESTINATION ${PLUGINSDIR}
+        RUNTIME DESTINATION ${PLUGINSDIR}
+        COMPONENT Libraries
+        NAMELINK_COMPONENT Development)
     windeployqt(${name})
 endmacro()

@@ -36,10 +36,38 @@ include(CTest)
 
 option(ANYKEEP_DEVEL "Enable development mode (adjusts some paths and output)" OFF)
 option(ANYKEEP_ENABLE_X11 "Build AnyKeep components that use X11 directly" ON)
-set(ANYKEEP_UPDATE_MANIFEST_URL "https://anykeep.net/updates/stable/windows-x86_64.json" CACHE STRING
-    "HTTPS manifest used by the unpackaged Windows self-updater")
-set(ANYKEEP_UPDATE_BASE_URL "https://anykeep.net/updates/stable" CACHE STRING
-    "Base HTTPS URL written to generated Windows update manifests")
+set(ANYKEEP_UPDATE_CHANNEL "stable" CACHE STRING
+    "Windows self-update channel compiled into unpackaged builds")
+set_property(CACHE ANYKEEP_UPDATE_CHANNEL PROPERTY STRINGS stable nightly)
+if(NOT ANYKEEP_UPDATE_CHANNEL MATCHES "^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    message(FATAL_ERROR "ANYKEEP_UPDATE_CHANNEL contains characters that are unsafe in URLs or paths")
+endif()
+
+set(ANYKEEP_UPDATE_SERVER_ROOT "https://anykeep.net/updates" CACHE STRING
+    "Root URL containing Windows self-update channels")
+set(ANYKEEP_UPDATE_MANIFEST_URL "" CACHE STRING
+    "Optional explicit Windows self-update manifest URL; empty derives it from server root and channel")
+set(ANYKEEP_UPDATE_BASE_URL "" CACHE STRING
+    "Optional absolute package URL prefix; empty writes package URLs relative to the manifest")
+
+# Migrate the stage-1 cache defaults.  Without this, changing only
+# ANYKEEP_UPDATE_CHANNEL in an existing Visual Studio/CMake build tree would
+# silently keep pointing at the stable channel.
+if(ANYKEEP_UPDATE_MANIFEST_URL STREQUAL "https://anykeep.net/updates/stable/windows-x86_64.json")
+    set(ANYKEEP_UPDATE_MANIFEST_URL "" CACHE STRING
+        "Optional explicit Windows self-update manifest URL; empty derives it from server root and channel" FORCE)
+endif()
+if(ANYKEEP_UPDATE_BASE_URL STREQUAL "https://anykeep.net/updates/stable")
+    set(ANYKEEP_UPDATE_BASE_URL "" CACHE STRING
+        "Optional absolute package URL prefix; empty writes package URLs relative to the manifest" FORCE)
+endif()
+
+if(ANYKEEP_UPDATE_MANIFEST_URL STREQUAL "")
+    string(REGEX REPLACE "/+$" "" _anykeep_update_server_root "${ANYKEEP_UPDATE_SERVER_ROOT}")
+    set(ANYKEEP_UPDATE_MANIFEST_URL
+        "${_anykeep_update_server_root}/${ANYKEEP_UPDATE_CHANNEL}/windows-x86_64.json")
+    unset(_anykeep_update_server_root)
+endif()
 
 if(ANDROID)
     set(_anykeep_mobile_default ON)
