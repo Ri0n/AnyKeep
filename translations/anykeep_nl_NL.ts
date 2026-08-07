@@ -465,7 +465,7 @@ You can quit and investigate the problem, or start with a new empty draft store.
 %1</source>
         <translation>AnyKeep kan geen concepten uit de beveiligde crashomgeving lezen. Bestaande concepten zijn echter niet verwijderd.
 
-Sluit AnyKeep af en onderzoek het probleem, of start zonder conceptopslag. Door deze opnieuw aan te maken, worden onleesbare concepten in een reservekopiemap geplaatst, maar zijn ze niet beschikbaar binnen QtNote.
+Sluit AnyKeep af en onderzoek het probleem, of start zonder conceptopslag. Door deze opnieuw aan te maken, worden onleesbare concepten in een reservekopiemap geplaatst, maar zijn ze niet beschikbaar binnen AnyKeep.
 
 %1</translation>
     </message>
