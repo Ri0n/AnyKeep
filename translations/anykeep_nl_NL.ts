@@ -507,7 +507,7 @@ Sluit AnyKeep af en onderzoek het probleem, of start zonder conceptopslag. Door 
     <message>
         <location filename="../libanykeep/anykeep.cpp" line="320"/>
         <source>First Start</source>
-        <translation>Welkom bij QtNote</translation>
+        <translation>Welkom bij AnyKeep</translation>
     </message>
     <message>
         <location filename="../libanykeep/anykeep.cpp" line="321"/>
