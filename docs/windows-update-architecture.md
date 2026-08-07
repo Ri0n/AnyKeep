@@ -67,7 +67,7 @@ Owned by `AnyKeep::Main` and exposed to the notes-manager QML window. It:
 - exposes the green **Update and restart** banner;
 - launches the updater from the prepared version.
 
-The default manifest is configured by `ANYKEEP_UPDATE_MANIFEST_URL`. In an `ANYKEEP_DEVEL` build, the updater is disabled unless the `ANYKEEP_UPDATE_ROOT` environment variable contains a test installation root. Development builds may also override the manifest with `ANYKEEP_UPDATE_MANIFEST_URL`. Release builds ignore both environment overrides and derive the installation root from the versioned launcher layout.
+The default manifest is configured by `ANYKEEP_UPDATE_MANIFEST_URL`. In an `ANYKEEP_DEVEL` build, the updater is disabled unless the `ANYKEEP_UPDATE_ROOT` environment variable contains a test installation root. The development launcher honours the same variable, so it may be started from Qt Creator while exercising that test root. Development builds may also override the manifest with `ANYKEEP_UPDATE_MANIFEST_URL`; it accepts HTTPS and, for local-network test servers, HTTP. Release builds ignore both environment overrides, accept HTTPS only, and derive the installation root from the versioned launcher layout.
 
 ### `AnyKeepUpdater.exe`
 

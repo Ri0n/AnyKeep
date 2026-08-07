@@ -1,5 +1,8 @@
 #ifdef _WIN32
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <shellapi.h>
 #include <windows.h>
 
@@ -19,6 +22,18 @@ std::wstring executablePath()
     const DWORD          length = GetModuleFileNameW(nullptr, buffer.data(), DWORD(buffer.size()));
     return length > 0 && length < buffer.size() ? std::wstring(buffer.data(), length) : std::wstring();
 }
+
+#ifdef ANYKEEP_DEVEL
+std::wstring environmentValue(const wchar_t *name)
+{
+    const DWORD required = GetEnvironmentVariableW(name, nullptr, 0);
+    if (required == 0)
+        return { };
+    std::vector<wchar_t> buffer(required);
+    const DWORD          copied = GetEnvironmentVariableW(name, buffer.data(), DWORD(buffer.size()));
+    return copied > 0 && copied < buffer.size() ? std::wstring(buffer.data(), copied) : std::wstring();
+}
+#endif
 
 std::wstring parentDirectory(const std::wstring &path)
 {
@@ -102,7 +117,7 @@ bool readSmallTextFile(const std::wstring &path, std::wstring *value)
     if (file == INVALID_HANDLE_VALUE)
         return false;
 
-    char       buffer[512] {};
+    char       buffer[512] { };
     DWORD      read = 0;
     const BOOL ok   = ReadFile(file, buffer, DWORD(sizeof(buffer) - 1), &read, nullptr);
     CloseHandle(file);
@@ -174,7 +189,14 @@ void showLaunchError(const std::wstring &detail)
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
     const std::wstring launcher = executablePath();
-    const std::wstring root     = parentDirectory(launcher);
+#ifdef ANYKEEP_DEVEL
+    // Qt Creator runs the launcher from the build tree. Let it exercise a
+    // disposable versioned installation without copying the launcher there.
+    const std::wstring updateRoot = environmentValue(L"ANYKEEP_UPDATE_ROOT");
+    const std::wstring root       = updateRoot.empty() ? parentDirectory(launcher) : updateRoot;
+#else
+    const std::wstring root = parentDirectory(launcher);
+#endif
     if (root.empty()) {
         showLaunchError(L"The launcher location could not be determined.");
         return 1;
@@ -212,9 +234,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         LocalFree(argv);
     }
 
-    STARTUPINFOW startup {};
+    STARTUPINFOW startup { };
     startup.cb = sizeof(startup);
-    PROCESS_INFORMATION  process {};
+    PROCESS_INFORMATION  process { };
     std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
     mutableCommand.push_back(L'\0');
     if (!CreateProcessW(application.c_str(), mutableCommand.data(), nullptr, nullptr, FALSE, 0, nullptr,

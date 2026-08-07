@@ -1,5 +1,8 @@
 #ifdef _WIN32
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <shellapi.h>
 #include <windows.h>
 
@@ -79,7 +82,7 @@ bool readSmallTextFile(const std::wstring &path, std::wstring *value)
                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE)
         return false;
-    char       buffer[512] {};
+    char       buffer[512] { };
     DWORD      read = 0;
     const BOOL ok   = ReadFile(file, buffer, DWORD(sizeof(buffer) - 1), &read, nullptr);
     CloseHandle(file);
@@ -143,9 +146,9 @@ void appendLog(const std::wstring &root, const std::wstring &message)
                               OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE)
         return;
-    SYSTEMTIME time {};
+    SYSTEMTIME time { };
     GetLocalTime(&time);
-    wchar_t prefix[64] {};
+    wchar_t prefix[64] { };
     swprintf_s(prefix, L"%04u-%02u-%02u %02u:%02u:%02u ", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute,
                time.wSecond);
     const std::wstring line = std::wstring(prefix) + message + L"\r\n";
@@ -180,7 +183,7 @@ bool launchProcess(const std::wstring &application, const std::vector<std::wstri
     }
     std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
     mutableCommand.push_back(L'\0');
-    STARTUPINFOW startup {};
+    STARTUPINFOW startup { };
     startup.cb = sizeof(startup);
     return CreateProcessW(application.c_str(), mutableCommand.data(), nullptr, nullptr, FALSE, 0, nullptr,
                           workingDirectory.c_str(), &startup, process);
@@ -192,7 +195,7 @@ std::wstring argumentValue(const std::vector<std::wstring> &arguments, const std
         if (arguments[i] == name)
             return arguments[i + 1];
     }
-    return {};
+    return { };
 }
 
 bool hasArgument(const std::vector<std::wstring> &arguments, const std::wstring &name)
@@ -203,8 +206,8 @@ bool hasArgument(const std::vector<std::wstring> &arguments, const std::wstring 
 void restartThroughLauncher(const std::wstring &root)
 {
     const std::wstring  launcher = joinPath(root, L"AnyKeepLauncher.exe");
-    PROCESS_INFORMATION process {};
-    if (!launchProcess(launcher, {}, root, &process)) {
+    PROCESS_INFORMATION process { };
+    if (!launchProcess(launcher, { }, root, &process)) {
         appendLog(root,
                   L"Could not restart AnyKeep through the launcher; Windows error " + std::to_wstring(GetLastError()));
         return;
@@ -281,7 +284,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
                                              + std::to_wstring(GetTickCount64()) + L".ok");
     DeleteFileW(marker.c_str());
 
-    PROCESS_INFORMATION newProcess {};
+    PROCESS_INFORMATION newProcess { };
     if (!launchProcess(newApplication, { L"--update-probe-file", marker }, newDirectory, &newProcess)) {
         appendLog(root, L"Could not launch the new application; rolling back");
         atomicWriteText(pointerPath, previousVersion);
@@ -341,8 +344,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         appendLog(root, L"Could not restore current.version; starting the previous executable directly");
         const std::wstring  previousDirectory   = joinPath(joinPath(root, L"versions"), previousVersion);
         const std::wstring  previousApplication = joinPath(previousDirectory, L"anykeep.exe");
-        PROCESS_INFORMATION previousProcess {};
-        if (launchProcess(previousApplication, {}, previousDirectory, &previousProcess)) {
+        PROCESS_INFORMATION previousProcess { };
+        if (launchProcess(previousApplication, { }, previousDirectory, &previousProcess)) {
             CloseHandle(previousProcess.hThread);
             CloseHandle(previousProcess.hProcess);
         }

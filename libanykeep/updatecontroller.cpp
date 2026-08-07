@@ -71,6 +71,20 @@ namespace {
         const LONG result = GetCurrentPackageFamilyName(&length, nullptr);
         return result == ERROR_INSUFFICIENT_BUFFER;
     }
+
+    bool isAllowedUpdateUrl(const QUrl &url)
+    {
+        if (!url.isValid())
+            return false;
+        if (url.scheme().compare(QLatin1String("https"), Qt::CaseInsensitive) == 0)
+            return true;
+
+#ifdef ANYKEEP_DEVEL
+        return url.scheme().compare(QLatin1String("http"), Qt::CaseInsensitive) == 0;
+#else
+        return false;
+#endif
+    }
 #endif
 } // namespace
 
@@ -135,7 +149,7 @@ QString UpdateController::statusText() const
     case Failed:
         return errorString_.isEmpty() ? tr("Update failed") : errorString_;
     }
-    return {};
+    return { };
 }
 
 void UpdateController::startAutomaticChecks()
@@ -296,7 +310,7 @@ void UpdateController::checkForUpdate(bool automatic)
     }
 
     QUrl manifestUrl(manifestUrlString());
-    if (!manifestUrl.isValid() || manifestUrl.scheme() != QLatin1String("https")) {
+    if (!isAllowedUpdateUrl(manifestUrl)) {
         setState(Failed, tr("The update manifest URL is invalid"));
         return;
     }
@@ -420,7 +434,7 @@ bool UpdateController::parseManifest(const QByteArray &data, QString *error)
 
     const QUrl baseUrl(manifestUrlString());
     const QUrl packageUrl = baseUrl.resolved(QUrl(urlText));
-    if (!packageUrl.isValid() || packageUrl.scheme() != QLatin1String("https")) {
+    if (!isAllowedUpdateUrl(packageUrl)) {
         if (error)
             *error = tr("The update package URL is invalid");
         return false;
@@ -450,7 +464,7 @@ void UpdateController::beginDownload()
         return;
     }
 
-    QNetworkRequest request(QUrl(packageUrl_));
+    QNetworkRequest request { QUrl(packageUrl_) };
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
     request.setAttribute(QNetworkRequest::CacheSaveControlAttribute, false);
@@ -769,18 +783,18 @@ QString UpdateController::detectInstallRoot() const
     QDir applicationDir(QCoreApplication::applicationDirPath());
     QDir versionsDir = applicationDir;
     if (!versionsDir.cdUp() || versionsDir.dirName().compare(QStringLiteral("versions"), Qt::CaseInsensitive) != 0)
-        return {};
+        return { };
     QDir root = versionsDir;
     if (!root.cdUp())
-        return {};
+        return { };
     if (!QFileInfo::exists(root.filePath(QStringLiteral("AnyKeepLauncher.exe")))
         || !QFileInfo::exists(root.filePath(QStringLiteral("current.version")))) {
-        return {};
+        return { };
     }
     return root.absolutePath();
 #endif // ANYKEEP_DEVEL
 #else
-    return {};
+    return { };
 #endif
 }
 
@@ -798,7 +812,7 @@ QString UpdateController::manifestUrlString() const
         .toString()
         .trimmed();
 #else
-    return {};
+    return { };
 #endif
 }
 
