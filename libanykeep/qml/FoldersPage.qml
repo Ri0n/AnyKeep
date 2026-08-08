@@ -351,11 +351,11 @@ Item {
                     display: AbstractButton.IconOnly
                     enabled: root.workspace.folderCatalogAvailable
                     contentItem: ThemedIcon {
-                        themeName: "folder-new-symbolic"
+                        themeName: "__bundled__"
                         fallbackName: "folder-symbolic"
                         recolorFallback: true
                         fallbackTintMode: "auto"
-                        pixelSize: 21
+                        pixelSize: 24
                     }
                     Accessible.name: qsTr("New folder")
                     ToolTip.visible: hovered
@@ -367,11 +367,11 @@ Item {
                     display: AbstractButton.IconOnly
                     enabled: root.workspace.folderCatalogAvailable
                     contentItem: ThemedIcon {
-                        themeName: "view-collapse-symbolic"
+                        themeName: "__bundled__"
                         fallbackName: "go-next-symbolic"
                         recolorFallback: true
                         fallbackTintMode: "auto"
-                        pixelSize: 18
+                        pixelSize: 24
                         rotation: -90
                     }
                     Accessible.name: qsTr("Collapse all folders")

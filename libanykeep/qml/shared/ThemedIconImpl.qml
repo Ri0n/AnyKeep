@@ -10,6 +10,9 @@ Item {
     property bool recolorFallback: false
     property string fallbackTintMode: "auto"
     property int pixelSize: 20
+    readonly property real effectiveDevicePixelRatio: Math.max(1, Screen.devicePixelRatio)
+    readonly property int rasterSize: Math.max(pixelSize,
+                                                Math.ceil(pixelSize * effectiveDevicePixelRatio))
     readonly property string fallbackMode:
         recolorFallback
         ? (fallbackTintMode.length > 0 ? fallbackTintMode : "auto")
@@ -30,7 +33,7 @@ Item {
         "image://anykeepicons/" + encodeURIComponent(themeName)
         + "/" + encodeURIComponent(fallbackName)
         + "/" + encodeURIComponent(fallbackMode)
-        + "/" + encodeURIComponent(paletteCacheKey)
+        + "/" + encodeURIComponent(paletteCacheKey + "-" + rasterSize)
 
     implicitWidth: pixelSize
     implicitHeight: pixelSize
@@ -40,8 +43,12 @@ Item {
         width: root.pixelSize
         height: root.pixelSize
         source: root.iconSource
-        sourceSize.width: root.pixelSize
-        sourceSize.height: root.pixelSize
+        // The image provider returns a rasterized QIcon. Request enough
+        // physical pixels for the screen while retaining pixelSize as the
+        // logical layout size, otherwise fractional/high-DPI scaling blurs
+        // even SVG-backed icons.
+        sourceSize.width: root.rasterSize
+        sourceSize.height: root.rasterSize
         fillMode: Image.PreserveAspectFit
         smooth: true
         opacity: root.enabled ? 1.0 : 0.38

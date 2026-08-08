@@ -1,10 +1,12 @@
 #include "themediconimageprovider.h"
 
-#include "iconutils.h"
-
 #include <QColor>
+#include <QGuiApplication>
 #include <QIcon>
 #include <QImage>
+#include <QPainter>
+#include <QPalette>
+#include <QPixmap>
 #include <QQmlEngine>
 #include <QQuickImageProvider>
 #include <QStringList>
@@ -45,25 +47,32 @@ namespace {
             const bool recolorFallback = fallbackMode != QStringLiteral("original");
             const auto tint            = requestedTint(fallbackMode);
 
-            QIcon icon;
-            if (themeName != QStringLiteral("__bundled__"))
-                icon = QIcon::fromTheme(themeName);
-
-            if (icon.isNull()) {
-                if (!recolorFallback)
-                    icon = QIcon(fallbackPath);
-                else
-                    icon = tint.isValid() ? IconUtils::tintedSymbolicIcon(fallbackPath, tint)
-                                          : IconUtils::symbolicIcon(fallbackPath);
-            }
-            if (icon.isNull())
-                return {};
-
             QSize target = requestedSize.isValid() ? requestedSize : QSize(20, 20);
             target.setWidth(qMax(1, target.width()));
             target.setHeight(qMax(1, target.height()));
 
-            const QImage image = icon.pixmap(target, QIcon::Normal, QIcon::Off).toImage();
+            QIcon icon;
+            if (themeName != QStringLiteral("__bundled__"))
+                icon = QIcon::fromTheme(themeName);
+
+            const bool usingFallback = icon.isNull();
+            if (usingFallback)
+                icon = QIcon(fallbackPath);
+            if (icon.isNull())
+                return {};
+
+            // Render the SVG fallback directly at the final requested size.
+            // Building a tinted QIcon first would turn it into a small set of
+            // raster pixmaps; fractional display scaling could then select a
+            // neighbouring size and resample it a second time.
+            QImage image = icon.pixmap(target, QIcon::Normal, QIcon::Off).toImage();
+            if (usingFallback && recolorFallback && !image.isNull()) {
+                const QColor effectiveTint
+                    = tint.isValid() ? tint : QGuiApplication::palette().color(QPalette::WindowText);
+                QPainter painter(&image);
+                painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+                painter.fillRect(image.rect(), effectiveTint);
+            }
             if (size)
                 *size = image.size();
             return image;

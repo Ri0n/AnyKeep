@@ -97,7 +97,7 @@ ToolBar {
     }
 
     readonly property int controlSize: 36
-    readonly property int iconSize: 20
+    readonly property int iconSize: 24
     readonly property string fallbackIconTintMode: showMobileActions ? "light" : "auto"
     readonly property bool folderPickerAvailable: root.folderWorkspace !== null
                                                && root.folderWorkspace !== undefined
@@ -113,14 +113,14 @@ ToolBar {
                                           - Math.max(0, mandatoryButtonCount - 1) * 2
     readonly property int optionalSlotCount: Math.max(0, Math.floor(optionalWidth / (controlSize + 2)))
     readonly property int styleSlot: platformBackend !== null ? 4 : 3
-    implicitHeight: controlSize + 12
+    implicitHeight: controlSize + 10
 
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 4
         anchors.rightMargin: 4
         anchors.topMargin: 2
-        anchors.bottomMargin: 10
+        anchors.bottomMargin: 8
         spacing: 2
 
         ToolButton {
@@ -159,11 +159,11 @@ ToolBar {
                     Shared.ThemedIconImpl {
                         anchors.centerIn: parent
                         visible: !root.microphoneBusy
-                        themeName: "audio-input-microphone-symbolic"
+                        themeName: "__bundled__"
                         fallbackName: "microphone.svg"
                         recolorFallback: true
                         fallbackTintMode: root.fallbackIconTintMode
-                        pixelSize: root.iconSize
+                        pixelSize: 22
                     }
 
                     Rectangle {
@@ -272,7 +272,7 @@ ToolBar {
             Layout.preferredHeight: root.controlSize
             display: AbstractButton.IconOnly
             contentItem: Shared.ThemedIconImpl {
-                themeName: "format-list-unordered-symbolic"
+                themeName: "__bundled__"
                 fallbackName: "format-list-unordered-symbolic.svg"
                 recolorFallback: true
                 fallbackTintMode: root.fallbackIconTintMode
@@ -298,7 +298,7 @@ ToolBar {
             Layout.preferredHeight: root.controlSize
             display: AbstractButton.IconOnly
             contentItem: Shared.ThemedIconImpl {
-                themeName: "table-symbolic"
+                themeName: "__bundled__"
                 fallbackName: "table-symbolic.svg"
                 recolorFallback: true
                 fallbackTintMode: root.fallbackIconTintMode
@@ -317,7 +317,7 @@ ToolBar {
             Layout.preferredHeight: root.controlSize
             display: AbstractButton.IconOnly
             contentItem: Shared.ThemedIconImpl {
-                themeName: "insert-image-symbolic"
+                themeName: "__bundled__"
                 fallbackName: "insert-image-symbolic.svg"
                 recolorFallback: true
                 fallbackTintMode: root.fallbackIconTintMode
@@ -404,7 +404,7 @@ ToolBar {
             display: AbstractButton.IconOnly
             enabled: root.editorBackend && root.editorBackend.markdown
             contentItem: Shared.ThemedIconImpl {
-                themeName: "code-context"
+                themeName: "__bundled__"
                 fallbackName: "code-symbolic.svg"
                 recolorFallback: true
                 fallbackTintMode: root.fallbackIconTintMode
@@ -423,7 +423,7 @@ ToolBar {
             display: AbstractButton.IconOnly
             enabled: root.editorBackend && root.editorBackend.markdown
             contentItem: Shared.ThemedIconImpl {
-                themeName: "insert-link-symbolic"
+                themeName: "__bundled__"
                 fallbackName: "insert-link-symbolic.svg"
                 recolorFallback: true
                 fallbackTintMode: root.fallbackIconTintMode
@@ -450,7 +450,7 @@ ToolBar {
             Layout.preferredHeight: root.controlSize
             display: AbstractButton.IconOnly
             contentItem: Shared.ThemedIconImpl {
-                themeName: "folder-symbolic"
+                themeName: "__bundled__"
                 fallbackName: "folder-symbolic.svg"
                 recolorFallback: true
                 fallbackTintMode: root.fallbackIconTintMode
@@ -476,7 +476,7 @@ ToolBar {
             Layout.preferredHeight: root.controlSize
             display: AbstractButton.IconOnly
             contentItem: Shared.ThemedIconImpl {
-                themeName: "edit-find-symbolic"
+                themeName: "__bundled__"
                 fallbackName: "edit-find-symbolic.svg"
                 recolorFallback: true
                 fallbackTintMode: root.fallbackIconTintMode
@@ -494,11 +494,11 @@ ToolBar {
             Layout.preferredHeight: root.controlSize
             display: AbstractButton.IconOnly
             contentItem: Shared.ThemedIconImpl {
-                themeName: "user-trash-full-symbolic"
+                themeName: "__bundled__"
                 fallbackName: "user-trash-full-symbolic.svg"
                 recolorFallback: true
                 fallbackTintMode: root.fallbackIconTintMode
-                pixelSize: root.iconSize
+                pixelSize: 22
             }
             Accessible.name: qsTr("Delete note")
             ToolTip.visible: hovered

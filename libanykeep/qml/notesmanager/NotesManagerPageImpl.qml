@@ -276,8 +276,8 @@ Item {
                                 display: AbstractButton.IconOnly
                                 contentItem: Image {
                                     source: "qrc:/icons/new"
-                                    sourceSize.width: 22
-                                    sourceSize.height: 22
+                                    sourceSize.width: 24
+                                    sourceSize.height: 24
                                     fillMode: Image.PreserveAspectFit
                                 }
                                 Accessible.name: qsTr("New note")
@@ -288,18 +288,18 @@ Item {
 
                             ToolButton {
                                 objectName: "undoTrashButton"
-                                Layout.preferredWidth: 27
-                                Layout.preferredHeight: 27
-                                padding: 3
+                                Layout.preferredWidth: 36
+                                Layout.preferredHeight: 36
+                                padding: 6
                                 enabled: Boolean(root.workspace["canUndoTrash"]
                                                  || root.workspace["canUndoFolderTrash"])
                                 display: AbstractButton.IconOnly
                                 contentItem: Shared.ThemedIcon {
-                                    themeName: "edit-undo-symbolic"
+                                    themeName: "__bundled__"
                                     fallbackName: "edit-undo-symbolic.svg"
                                     recolorFallback: true
                                     fallbackTintMode: "auto"
-                                    pixelSize: 18
+                                    pixelSize: 24
                                 }
                                 Accessible.name: String(root.workspace["lastTrashedItemName"]
                                                         || root.workspace["lastTrashedFolderName"] || "").length > 0
@@ -356,11 +356,11 @@ Item {
                             ToolTip.visible: hovered
                             ToolTip.text: Accessible.name
                             contentItem: Shared.ThemedIcon {
-                                themeName: "document-open-recent-symbolic"
+                                themeName: "__bundled__"
                                 fallbackName: "document-open-recent-symbolic.svg"
                                 recolorFallback: true
                                 fallbackTintMode: "auto"
-                                pixelSize: 20
+                                pixelSize: 24
                             }
                         }
 
@@ -371,11 +371,11 @@ Item {
                             ToolTip.visible: hovered
                             ToolTip.text: Accessible.name
                             contentItem: Shared.ThemedIcon {
-                                themeName: "drive-harddisk-symbolic"
+                                themeName: "__bundled__"
                                 fallbackName: "drive-harddisk-symbolic.svg"
                                 recolorFallback: true
                                 fallbackTintMode: "auto"
-                                pixelSize: 20
+                                pixelSize: 24
                             }
                         }
 
@@ -386,11 +386,11 @@ Item {
                             ToolTip.visible: hovered
                             ToolTip.text: Accessible.name
                             contentItem: Shared.ThemedIcon {
-                                themeName: "folder-symbolic"
+                                themeName: "__bundled__"
                                 fallbackName: "folder-symbolic.svg"
                                 recolorFallback: true
                                 fallbackTintMode: "auto"
-                                pixelSize: 20
+                                pixelSize: 24
                             }
                         }
                     }
@@ -407,10 +407,11 @@ Item {
                             id: searchButton
                             display: AbstractButton.IconOnly
                             contentItem: Shared.ThemedIcon {
-                                themeName: "edit-find-symbolic"
+                                themeName: "__bundled__"
                                 fallbackName: "edit-find-symbolic.svg"
                                 recolorFallback: true
                                 fallbackTintMode: "light"
+                                pixelSize: 24
                             }
                             Accessible.name: root.searchExpanded ? qsTr("Close search") : qsTr("Search notes")
                             onClicked: root.searchExpanded ? root.closeSearch() : root.openSearch()

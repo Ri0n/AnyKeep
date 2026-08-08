@@ -1,4 +1,5 @@
 #include <QIcon>
+#include <QPainter>
 #include <QPalette>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -55,9 +56,9 @@ private slots:
         auto *provider = dynamic_cast<QQuickImageProvider *>(engine.imageProvider(QStringLiteral("anykeepicons")));
         QVERIFY(provider);
 
-        const auto request = [provider](const QString &id) {
+        const auto request = [provider](const QString &id, const QSize &requestedSize = QSize(20, 20)) {
             QSize  actualSize;
-            QImage image = provider->requestImage(id, &actualSize, QSize(20, 20));
+            QImage image = provider->requestImage(id, &actualSize, requestedSize);
             return image;
         };
 
@@ -88,6 +89,17 @@ private slots:
             }
         }
         QVERIFY(foundRedPixel);
+
+        QImage expectedAtFractionalScale
+            = QIcon(QStringLiteral(":/svg/preferences-system-symbolic.svg")).pixmap(QSize(25, 25)).toImage();
+        {
+            QPainter painter(&expectedAtFractionalScale);
+            painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+            painter.fillRect(expectedAtFractionalScale.rect(), QColor(Qt::red));
+        }
+        const QImage recoloredAtFractionalScale
+            = request(missingTheme + QStringLiteral("preferences-system-symbolic.svg/%23ff0000"), QSize(25, 25));
+        QCOMPARE(recoloredAtFractionalScale, expectedAtFractionalScale);
     }
 
     void themedIconSourceTracksApplicationPalette()

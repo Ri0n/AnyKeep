@@ -26,7 +26,9 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QGuiApplication>
 #include <QLoggingCategory>
 #include <QPalette>
+#ifdef Q_OS_WIN
 #include <QQuickStyle>
+#endif
 #include <QSocketNotifier>
 #include <QStringList>
 #include <QtSingleApplication>
