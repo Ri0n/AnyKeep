@@ -53,7 +53,9 @@
 #include "shortcutsmanager.h"
 #include "stickynotesmanager.h"
 #include "trayimpl.h"
+#ifdef Q_OS_WIN
 #include "updatecontroller.h"
+#endif
 #include "utils.h"
 
 // #define MAIN_DEBUG
@@ -303,6 +305,10 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     connect(actNoteFromSel, SIGNAL(triggered(bool)), SLOT(createNewNoteFromSelection()));
     _shortcutsManager->registerGlobal(ShortcutsManager::SKNoteFromSelection, actNoteFromSel);
 
+#ifdef Q_OS_WIN
+    // Windows updates use our versioned-installation protocol. Linux packages
+    // are owned by their distribution's package manager, so do not start or
+    // expose the Windows update controller there.
     d->updates = new UpdateController(this);
     d->updates->confirmStartupProbe(qApp->arguments());
     connect(d->updates, &UpdateController::applyRequested, this, &Main::applyPreparedUpdate);
@@ -318,6 +324,7 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     if (d->updates->updateReady())
         notifyPreparedUpdate(d->updates->availableVersion());
     d->updates->startAutomaticChecks();
+#endif
 
     connect(qApp, &QCoreApplication::aboutToQuit, this, [this]() {
         // Covers SIGTERM/session shutdown paths which bypass Main::exitAnyKeep().
@@ -391,6 +398,7 @@ void Main::exitAnyKeep()
 
 void Main::applyPreparedUpdate()
 {
+#ifdef Q_OS_WIN
     if (!d->updates || !d->updates->updateReady())
         return;
 
@@ -413,13 +421,16 @@ void Main::applyPreparedUpdate()
         return;
     }
     QCoreApplication::quit();
+#endif
 }
 
 void Main::appMessageReceived(const QString &message)
 {
     const QStringList arguments = message.split(QLatin1String("!anykeep_argdelim!"));
+#ifdef Q_OS_WIN
     if (d->updates)
         d->updates->confirmStartupProbe(arguments);
+#endif
     parseAppArguments(arguments);
 }
 

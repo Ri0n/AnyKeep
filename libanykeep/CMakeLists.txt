@@ -30,6 +30,17 @@ list(REMOVE_ITEM libanykeep_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/freedesktopnotifie
 list(REMOVE_ITEM libanykeep_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/anykeepdbus.cpp")
 list(REMOVE_ITEM libanykeep_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/anykeepdbus.h")
 
+# Self-updating is a Windows versioned-installation feature. Linux builds are
+# updated by the distribution package manager and must not link its client.
+if(NOT WIN32)
+    list(REMOVE_ITEM libanykeep_SRCS
+        "${CMAKE_CURRENT_SOURCE_DIR}/updatecontroller.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/./updatecontroller.cpp"
+        "./updatecontroller.cpp"
+        "updatecontroller.cpp")
+    list(REMOVE_ITEM libanykeep_PRIVATE_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/updatecontroller.h")
+endif()
+
 if(UNIXLIKE)
     list(APPEND libanykeep_SRCS freedesktopnotifier.cpp)
     list(APPEND libanykeep_HDRS freedesktopnotifier.h)
