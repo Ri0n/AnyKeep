@@ -21,9 +21,11 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include <QApplication>
 #include <QBuffer>
+#include <QColor>
 #include <QDataStream>
 #include <QGuiApplication>
 #include <QLoggingCategory>
+#include <QPalette>
 #include <QQuickStyle>
 #include <QSocketNotifier>
 #include <QStringList>
@@ -94,12 +96,45 @@ QSocketNotifier *installUnixSignalHandlers(QObject *parent)
 }
 #endif
 
+#ifdef Q_OS_WIN
+namespace {
+
+QColor blendColors(const QColor &first, const QColor &second, qreal secondWeight)
+{
+    return QColor::fromRgbF(first.redF() * (1.0 - secondWeight) + second.redF() * secondWeight,
+                            first.greenF() * (1.0 - secondWeight) + second.greenF() * secondWeight,
+                            first.blueF() * (1.0 - secondWeight) + second.blueF() * secondWeight);
+}
+
+void applyNeutralWindowsPalette()
+{
+    QPalette                       palette  = QGuiApplication::palette();
+    constexpr QPalette::ColorGroup groups[] = { QPalette::Active, QPalette::Inactive, QPalette::Disabled };
+
+    for (const auto group : groups) {
+        const QColor base = palette.color(group, QPalette::Base);
+        const QColor text = palette.color(group, QPalette::Text);
+        const bool   dark = base.lightnessF() < 0.5;
+
+        // FluentWinUI3 otherwise takes the Windows accent colour for these
+        // roles. A neutral selection is consistent with AnyKeep's monochrome
+        // UI, while deriving it from Base/Text preserves light and dark modes.
+        palette.setColor(group, QPalette::Highlight, blendColors(base, text, dark ? 0.20 : 0.14));
+        palette.setColor(group, QPalette::HighlightedText, text);
+        palette.setColor(group, QPalette::AlternateBase, blendColors(base, text, dark ? 0.06 : 0.035));
+    }
+
+    QApplication::setPalette(palette);
+}
+
+}
+#endif
+
 int main(int argc, char *argv[])
 {
 #ifdef Q_OS_WIN
-    // The legacy Qt Quick Controls Windows style does not connect its palette
-    // to the Windows dark colour scheme. FluentWinUI3 does and tracks the
-    // system appearance for all Quick Controls, including popups and menus.
+    // FluentWinUI3 follows Windows' light/dark appearance. Its unsupported
+    // controls automatically fall back to Fusion.
     QQuickStyle::setStyle(QStringLiteral("FluentWinUI3"));
 #endif
 
@@ -131,6 +166,9 @@ int main(int argc, char *argv[])
     }
 
     QtSingleApplication a(argc, argv); //, true, SingleApplication::Mode::User, 1000, "xxx");
+#ifdef Q_OS_WIN
+    applyNeutralWindowsPalette();
+#endif
     if (a.isRunning()) {
         if (safeMode) {
             std::cerr << "AnyKeep is already running. Stop it before starting with --safe-mode.\n";

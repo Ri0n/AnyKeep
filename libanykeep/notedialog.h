@@ -3,6 +3,7 @@
 
 #include "note.h"
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QPointer>
 #include <QQuickView>
@@ -25,7 +26,7 @@ class NoteDialog final : public QQuickView {
     Q_PROPERTY(bool pinAvailable READ pinAvailable CONSTANT)
 
 public:
-    explicit NoteDialog(const Note &note, Main *main, const QUuid &draftId = {});
+    explicit NoteDialog(const Note &note, Main *main, const QUuid &draftId = { });
     ~NoteDialog() override;
 
     static NoteDialog         *findDialog(const QString &storageId, const QString &noteId);
@@ -34,6 +35,7 @@ public:
     NoteEditor *editor() const { return editor_; }
     void        setText(const QString &text);
     void        registerWindowGeometry();
+    void        show();
 
     bool alwaysOnTop() const;
     bool pinAvailable() const;
@@ -58,6 +60,7 @@ protected:
 private:
     QString geometryKey() const;
     void    updateBackgroundColor();
+    void    revealAfterInitialFrame();
     void    updateWindowTitle();
     void    saveGeometryState(bool remove = false);
     void    removeFromRegistry();
@@ -77,6 +80,9 @@ private:
     bool                          pinning_ { false };
     bool                          closing_ { false };
     bool                          closeQueued_ { false };
+    bool                          initialRevealPending_ { false };
+    bool                          initialRevealDone_ { false };
+    QElapsedTimer                 initialFrameTimer_;
     bool                          imageDragAccepted_ { false };
     bool                          textDragAccepted_ { false };
 

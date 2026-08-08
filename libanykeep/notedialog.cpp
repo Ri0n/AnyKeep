@@ -168,6 +168,38 @@ void NoteDialog::setText(const QString &text)
         QMetaObject::invokeMethod(rootObject(), "focusInitialEditor", Qt::QueuedConnection);
 }
 
+void NoteDialog::show()
+{
+#ifdef Q_OS_WIN
+    if (!isVisible() && !initialRevealDone_ && !initialRevealPending_) {
+        // A new native QQuickView can be composed by Windows before its scene
+        // graph has submitted a frame. Keep it transparent until that frame
+        // is actually swapped instead of relying on an arbitrary delay.
+        initialRevealPending_ = true;
+        initialFrameTimer_.start();
+        setOpacity(0.0);
+        connect(this, &QQuickWindow::frameSwapped, this, &NoteDialog::revealAfterInitialFrame,
+                Qt::SingleShotConnection);
+        QQuickView::show();
+        QTimer::singleShot(1000, this, &NoteDialog::revealAfterInitialFrame);
+        return;
+    }
+#endif
+    QQuickView::show();
+}
+
+void NoteDialog::revealAfterInitialFrame()
+{
+    if (!initialRevealPending_)
+        return;
+
+    initialRevealPending_ = false;
+    initialRevealDone_    = true;
+    qDebug() << "Standalone note first frame ready in" << initialFrameTimer_.elapsed() << "ms";
+    if (isVisible())
+        setOpacity(1.0);
+}
+
 void NoteDialog::registerWindowGeometry()
 {
     const auto restore = main_->restoreWindowGeometry(this, windowGeometryKey_);

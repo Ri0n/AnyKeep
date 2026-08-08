@@ -3,6 +3,7 @@
 
 #include "anykeep_export.h"
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QPointer>
 
@@ -45,6 +46,7 @@ private:
     int  insertionRowAt(const QPointF &position) const;
     bool requestWorkspaceClose();
     void flushEditorChanges();
+    void revealAfterInitialFrame();
     void restoreWindowState();
     void saveWindowState() const;
 
@@ -56,6 +58,9 @@ private:
     UpdateController             *updates_ { nullptr };
     QPointer<QQuickWindow>        window_;
     bool                          imageDragAccepted_ { false };
+    bool                          initialRevealPending_ { false };
+    bool                          initialRevealDone_ { false };
+    QElapsedTimer                 initialFrameTimer_;
 };
 
 } // namespace AnyKeep

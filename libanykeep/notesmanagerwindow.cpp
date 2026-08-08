@@ -21,6 +21,7 @@
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QSettings>
+#include <QTimer>
 #include <QUrl>
 #include <QVariant>
 
@@ -117,9 +118,38 @@ void NotesManagerWindow::show()
 {
     if (!window_)
         return;
+
+#ifdef Q_OS_WIN
+    if (!window_->isVisible() && !initialRevealDone_ && !initialRevealPending_) {
+        // Match standalone notes and reveal this native window only after its
+        // first scene-graph frame has actually reached the swap chain.
+        initialRevealPending_ = true;
+        initialFrameTimer_.start();
+        window_->setOpacity(0.0);
+        connect(window_.data(), &QQuickWindow::frameSwapped, this, &NotesManagerWindow::revealAfterInitialFrame,
+                Qt::SingleShotConnection);
+        window_->show();
+        window_->raise();
+        window_->requestActivate();
+        QTimer::singleShot(1000, this, &NotesManagerWindow::revealAfterInitialFrame);
+        return;
+    }
+#endif
     window_->show();
     window_->raise();
     window_->requestActivate();
+}
+
+void NotesManagerWindow::revealAfterInitialFrame()
+{
+    if (!initialRevealPending_)
+        return;
+
+    initialRevealPending_ = false;
+    initialRevealDone_    = true;
+    qDebug() << "Note manager first frame ready in" << initialFrameTimer_.elapsed() << "ms";
+    if (window_ && window_->isVisible())
+        window_->setOpacity(1.0);
 }
 
 bool NotesManagerWindow::close()

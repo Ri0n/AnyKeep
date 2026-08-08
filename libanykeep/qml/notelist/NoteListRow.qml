@@ -72,19 +72,6 @@ SwipeDelegate {
     readonly property bool swipeDeleteAvailable: collection.touchActions
                                                   && collection.swipeDeleteEnabled
                                                   && noteRow
-    // Windows reports the legacy accent colour through QPalette.highlight.
-    // The manager uses a quiet neutral selection instead, matching the rest
-    // of the monochrome interface and remaining legible in either scheme.
-    readonly property color neutralHighlight: Qt.rgba(
-        row.palette.base.r * 0.80 + row.palette.text.r * 0.20,
-        row.palette.base.g * 0.80 + row.palette.text.g * 0.20,
-        row.palette.base.b * 0.80 + row.palette.text.b * 0.20,
-        1.0)
-    readonly property color neutralSelection: Qt.rgba(
-        row.palette.base.r * 0.88 + row.palette.text.r * 0.12,
-        row.palette.base.g * 0.88 + row.palette.text.g * 0.12,
-        row.palette.base.b * 0.88 + row.palette.text.b * 0.12,
-        1.0)
     readonly property bool partOfActiveDrag: sourceActive
     // TreeView keeps pooled delegates alive with their last model roles. Only
     // the presented delegate may participate in inline editing; otherwise a
@@ -158,9 +145,9 @@ SwipeDelegate {
         color: row.directTarget
                ? Qt.rgba(0.30, 0.76, 0.38, 0.32)
                : row.highlighted
-               ? row.neutralHighlight
+               ? row.palette.highlight
                : row.noteSelected
-               ? row.neutralSelection
+               ? row.palette.highlight
                : row.hovered
                ? Qt.rgba(row.palette.button.r, row.palette.button.g,
                          row.palette.button.b, 0.45)
@@ -174,7 +161,7 @@ SwipeDelegate {
             y: 0
             height: 3
             visible: row.dropBefore && !row.hierarchyGroupDrop
-            color: row.neutralHighlight
+            color: row.palette.highlight
         }
 
         Rectangle {
@@ -183,7 +170,7 @@ SwipeDelegate {
             y: parent.height - height
             height: 3
             visible: row.dropAfter && !row.hierarchyGroupDrop
-            color: row.neutralHighlight
+            color: row.palette.highlight
         }
 
         // Folders resolve their destination depth from horizontal movement.
@@ -197,7 +184,7 @@ SwipeDelegate {
             height: 3
             radius: 1.5
             visible: row.dropBefore && row.hierarchyGroupDrop
-            color: row.neutralHighlight
+            color: row.palette.highlight
         }
 
         Rectangle {
@@ -207,7 +194,7 @@ SwipeDelegate {
             height: 3
             radius: 1.5
             visible: row.dropAfter && row.hierarchyGroupDrop
-            color: row.neutralHighlight
+            color: row.palette.highlight
         }
     }
 

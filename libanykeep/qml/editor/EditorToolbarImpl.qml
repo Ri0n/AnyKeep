@@ -6,6 +6,12 @@ import "../shared" as Shared
 ToolBar {
     id: root
 
+    // Keep the command surface visually separate from the document (Base)
+    // and aligned with the surrounding window chrome.
+    background: Rectangle {
+        color: root.palette.window
+    }
+
     required property var editorBackend
     required property var blockEditor
     property var platformBackend: null
@@ -107,11 +113,14 @@ ToolBar {
                                           - Math.max(0, mandatoryButtonCount - 1) * 2
     readonly property int optionalSlotCount: Math.max(0, Math.floor(optionalWidth / (controlSize + 2)))
     readonly property int styleSlot: platformBackend !== null ? 4 : 3
-    implicitHeight: controlSize + 8
+    implicitHeight: controlSize + 12
 
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 4
+        anchors.leftMargin: 4
+        anchors.rightMargin: 4
+        anchors.topMargin: 2
+        anchors.bottomMargin: 10
         spacing: 2
 
         ToolButton {

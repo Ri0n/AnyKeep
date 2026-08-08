@@ -204,13 +204,23 @@ Item {
         anchors.right: parent.right
         anchors.bottom: updateBanner.visible ? updateBanner.top : parent.bottom
         orientation: Qt.Horizontal
+        handle: Rectangle {
+            // The default Fluent handle is a broad Base-coloured gap. Keep a
+            // narrow divider which visually continues the navigation and
+            // toolbar surface instead.
+            implicitWidth: 2
+            color: root.palette.window
+        }
 
         Pane {
             id: navigationPane
             SplitView.preferredWidth: root.embeddedEditor ? root.navigationWidth : root.width
             SplitView.minimumWidth: root.embeddedEditor ? 230 : 0
             SplitView.maximumWidth: root.embeddedEditor ? Math.max(520, root.width * 0.65) : root.width
-            padding: 8
+            leftPadding: 8
+            rightPadding: 8
+            topPadding: 4
+            bottomPadding: 8
             onWidthChanged: {
                 if (root.embeddedEditor && width >= SplitView.minimumWidth)
                     root.navigationWidth = width
