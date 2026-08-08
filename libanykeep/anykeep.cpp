@@ -312,6 +312,9 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
                tr("Update"), [this] { applyPreparedUpdate(); });
     };
     connect(d->updates, &UpdateController::updatePrepared, this, notifyPreparedUpdate);
+    if (d->updates->state() == UpdateController::Failed && !d->updates->errorString().isEmpty()) {
+        notify(tr("AnyKeep update rolled back"), d->updates->errorString(), { }, { });
+    }
     if (d->updates->updateReady())
         notifyPreparedUpdate(d->updates->availableVersion());
     d->updates->startAutomaticChecks();

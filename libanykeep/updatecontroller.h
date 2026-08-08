@@ -64,7 +64,7 @@ signals:
     void applyRequested();
 
 private:
-    void setState(State state, const QString &error = {});
+    void setState(State state, const QString &error = { });
     void writeStartupProbe();
     void checkForUpdate(bool automatic);
     void handleManifestReply();
@@ -78,6 +78,7 @@ private:
     bool validatePreparedDirectory(QString *error) const;
     bool finishPreparedDirectory(QString *error);
     bool savePreparedState(QString *error);
+    void restoreRollbackResult();
     void restorePreparedUpdate();
     void clearDownloadObjects();
     void resetTransientFiles();
@@ -86,6 +87,7 @@ private:
     QString manifestUrlString() const;
     QString stagingDirectory() const;
     QString preparedStatePath() const;
+    QString rollbackStatePath() const;
     QString finalVersionDirectory() const;
     QString archivePath() const;
     QString temporaryArchivePath() const;

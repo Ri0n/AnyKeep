@@ -41,6 +41,8 @@ namespace {
     constexpr int  AutomaticCheckIntervalMs   = AutomaticCheckIntervalSecs * 1000;
     constexpr auto UpdateSettingsGroup        = "updates";
     constexpr auto PreparedFileName           = "prepared.json";
+    constexpr auto RollbackFileName           = "rollback.json";
+    constexpr auto RollbackVersionKey         = "rollbackVersion";
 
     bool safeVersionName(const QString &version)
     {
@@ -133,6 +135,7 @@ UpdateController::UpdateController(QObject *parent) : QObject(parent)
     });
 
     state_ = supported_ ? Idle : Unsupported;
+    restoreRollbackResult();
     restorePreparedUpdate();
 #else
     state_ = Unsupported;
@@ -388,6 +391,13 @@ void UpdateController::handleManifestReply()
 
     if (!isVersionNewer(availableVersion_)) {
         setState(Idle);
+        return;
+    }
+
+    if (availableVersion_ == settings.value(QLatin1String(RollbackVersionKey)).toString()) {
+        setState(Failed,
+                 tr("AnyKeep %1 was rolled back because it did not start correctly. The previous version is running.")
+                     .arg(availableVersion_));
         return;
     }
 
@@ -763,6 +773,39 @@ void UpdateController::restorePreparedUpdate()
 #endif
 }
 
+void UpdateController::restoreRollbackResult()
+{
+#ifdef Q_OS_WIN
+    if (!supported_)
+        return;
+
+    QFile file(rollbackStatePath());
+    if (!file.open(QIODevice::ReadOnly))
+        return;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+    file.close();
+    QFile::remove(rollbackStatePath());
+
+    const QJsonObject object  = document.object();
+    const QString     version = object.value(QStringLiteral("version")).toString();
+    if (object.value(QStringLiteral("schema")).toInt() != UpdateSchemaVersion || !safeVersionName(version)) {
+        qCWarning(logUpdates) << "Ignoring an invalid update rollback result";
+        return;
+    }
+
+    QFile::remove(preparedStatePath());
+    QSettings settings;
+    settings.beginGroup(QLatin1String(UpdateSettingsGroup));
+    settings.setValue(QLatin1String(RollbackVersionKey), version);
+
+    availableVersion_ = version;
+    setState(Failed,
+             tr("AnyKeep %1 was rolled back because it did not start correctly. The previous version is running.")
+                 .arg(version));
+    qCWarning(logUpdates) << "The update to" << version << "was rolled back";
+#endif
+}
+
 void UpdateController::clearDownloadObjects()
 {
 #ifdef Q_OS_WIN
@@ -843,6 +886,11 @@ QString UpdateController::stagingDirectory() const
 QString UpdateController::preparedStatePath() const
 {
     return QDir(installRoot_).filePath(QStringLiteral("staging/") + QLatin1String(PreparedFileName));
+}
+
+QString UpdateController::rollbackStatePath() const
+{
+    return QDir(installRoot_).filePath(QStringLiteral("staging/") + QLatin1String(RollbackFileName));
 }
 
 QString UpdateController::finalVersionDirectory() const

@@ -19,7 +19,8 @@
 
 namespace {
 
-constexpr DWORD StartupProbeTimeoutMs = 120000;
+constexpr DWORD   StartupProbeTimeoutMs = 120000;
+constexpr wchar_t RollbackFileName[]    = L"rollback.json";
 
 std::wstring joinPath(const std::wstring &left, const std::wstring &right)
 {
@@ -138,6 +139,16 @@ bool atomicWriteText(const std::wstring &path, const std::wstring &value)
         return false;
     }
     return true;
+}
+
+void writeRollbackResult(const std::wstring &root, const std::wstring &version, const std::wstring &previousVersion,
+                         const std::wstring &reason)
+{
+    const std::wstring staging = joinPath(root, L"staging");
+    CreateDirectoryW(staging.c_str(), nullptr);
+    const std::wstring result = L"{\"schema\":1,\"version\":\"" + version + L"\",\"previousVersion\":\""
+        + previousVersion + L"\",\"reason\":\"" + reason + L"\"}\n";
+    atomicWriteText(joinPath(staging, RollbackFileName), result);
 }
 
 void appendLog(const std::wstring &root, const std::wstring &message)
@@ -342,6 +353,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     CloseHandle(newProcess.hProcess);
     DeleteFileW(marker.c_str());
 
+    const std::wstring rollbackReason = !exited ? L"startup-timeout" : L"abnormal-exit";
+    writeRollbackResult(root, version, previousVersion, rollbackReason);
     appendLog(root, L"Rolling back to " + previousVersion);
     if (!atomicWriteText(pointerPath, previousVersion)) {
         appendLog(root, L"Could not restore current.version; starting the previous executable directly");
