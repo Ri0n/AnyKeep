@@ -58,6 +58,24 @@ namespace {
         return sharedEngine;
     }
 
+    void scheduleStandaloneNoteGarbageCollection()
+    {
+        static QPointer<QTimer> timer;
+        if (!timer) {
+            timer = new QTimer(QCoreApplication::instance());
+            timer->setSingleShot(true);
+            QObject::connect(timer, &QTimer::timeout, sharedStandaloneNoteEngine(), [] {
+                if (!NoteDialog::openDialogs().isEmpty())
+                    return;
+
+                sharedStandaloneNoteEngine()->collectGarbage();
+                qDebug() << "Collected shared standalone note QML garbage";
+            });
+        }
+
+        timer->start(1500);
+    }
+
     bool invokeQmlTextDrop(QObject *object, const QString &text, const QPointF &position, const QString &codeLanguage)
     {
         if (!object || text.isEmpty())
@@ -173,6 +191,8 @@ NoteDialog::~NoteDialog()
     removeFromRegistry();
     platformBackend_->setDragSource(nullptr);
     setSource(QUrl());
+    if (allDialogs_.isEmpty())
+        scheduleStandaloneNoteGarbageCollection();
 }
 
 NoteDialog *NoteDialog::findDialog(const QString &storageId, const QString &noteId)
