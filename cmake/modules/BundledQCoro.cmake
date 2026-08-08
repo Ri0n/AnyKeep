@@ -11,7 +11,7 @@ endif()
 set(ANYKEEP_BUNDLED_QCORO_VERSION "0.13.0" CACHE STRING "Bundled QCoro version")
 set(ANYKEEP_QCORO_SOURCE_DIR "" CACHE PATH "Local QCoro source directory (avoids cloning the release tag)")
 
-function(anykeep_add_bundled_qcoro)
+macro(anykeep_add_bundled_qcoro)
     # AnyKeep only uses QCoro::Core. Keep the bundled dependency small and let
     # the Android toolchain selected by the parent project build it for the
     # same ABI as anykeep_mobile.
@@ -48,7 +48,7 @@ function(anykeep_add_bundled_qcoro)
     endif()
 
     FetchContent_MakeAvailable(anykeep_bundled_qcoro)
-endfunction()
+endmacro()
 
 anykeep_add_bundled_qcoro()
 

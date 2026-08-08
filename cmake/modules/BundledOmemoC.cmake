@@ -91,6 +91,16 @@ if(CMAKE_C_COMPILER_LAUNCHER)
 endif()
 _anykeep_append_cross_compile_args(_protobuf_c_cmake_args)
 
+# Single-config generators use CMAKE_BUILD_TYPE. Multi-config generators need
+# the active configuration selected explicitly for both build and install.
+# The wrapper project may use Visual Studio even if the top-level project uses
+# Ninja, so omitting --config would otherwise build Debug and install Release.
+if(CMAKE_CONFIGURATION_TYPES)
+    set(_omemoc_build_config "$<CONFIG>")
+else()
+    set(_omemoc_build_config "${CMAKE_BUILD_TYPE}")
+endif()
+
 ExternalProject_Add(anykeep_bundled_protobuf_c
     ${_protobuf_c_source_args}
     PREFIX "${_omemoc_prefix}/protobuf-c"
@@ -104,9 +114,10 @@ ExternalProject_Add(anykeep_bundled_protobuf_c
         ${_protobuf_c_cmake_args}
     BUILD_COMMAND
         "${CMAKE_COMMAND}" --build <BINARY_DIR>
+        --config "${_omemoc_build_config}"
         --parallel "${ANYKEEP_BUNDLED_OMEMO_C_JOBS}"
     INSTALL_COMMAND
-        "${CMAKE_COMMAND}" --install <BINARY_DIR> --config "${CMAKE_BUILD_TYPE}"
+        "${CMAKE_COMMAND}" --install <BINARY_DIR> --config "${_omemoc_build_config}"
     BUILD_BYPRODUCTS "${_protobuf_c_library}"
 )
 
@@ -169,7 +180,10 @@ ExternalProject_Add(anykeep_bundled_omemoc
     CMAKE_ARGS ${_omemoc_cmake_args}
     BUILD_COMMAND
         "${CMAKE_COMMAND}" --build <BINARY_DIR>
+        --config "${_omemoc_build_config}"
         --parallel "${ANYKEEP_BUNDLED_OMEMO_C_JOBS}"
+    INSTALL_COMMAND
+        "${CMAKE_COMMAND}" --install <BINARY_DIR> --config "${_omemoc_build_config}"
     BUILD_BYPRODUCTS "${_omemoc_library}"
     DEPENDS anykeep_bundled_protobuf_c
 )

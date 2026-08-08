@@ -1,3 +1,5 @@
+include_guard(GLOBAL)
+
 set(ANYKEEP_DEFAULT_VERSION 1.0.0)
 
 macro(sanitize_version VERSION PREFIX OUT_VAR)
@@ -242,6 +244,7 @@ macro(windeployqt name)
                     --no-system-dxc-compiler
                     --no-system-d3d-compiler
                     --no-opengl-sw
+                    --qmldir \"${CMAKE_SOURCE_DIR}/libanykeep/qml\"
                     --dir \"\${CMAKE_INSTALL_PREFIX}\"
                     \"$<TARGET_FILE:${name}>\"
                 RESULT_VARIABLE _anykeep_windeployqt_result
@@ -249,15 +252,16 @@ macro(windeployqt name)
             if(NOT _anykeep_windeployqt_result EQUAL 0)
                 message(FATAL_ERROR \"windeployqt failed for ${name}: \${_anykeep_windeployqt_result}\")
             endif()
-        ")
+        " COMPONENT Runtime)
     endif()
 endmacro()
 
 macro(install_anykeep_plugin name)
     install(TARGETS ${name}
         LIBRARY DESTINATION ${PLUGINSDIR}
+                COMPONENT Libraries
+                NAMELINK_COMPONENT Development
         RUNTIME DESTINATION ${PLUGINSDIR}
-        COMPONENT Libraries
-        NAMELINK_COMPONENT Development)
+                COMPONENT Libraries)
     windeployqt(${name})
 endmacro()

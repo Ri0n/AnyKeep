@@ -104,9 +104,9 @@ Follow next steps after installing dependencies and configuring PATH:
 
 1. select release build in qt creator
 2. build it (ctrl + b)
-3. then update deployment configuration and 2 steps in exact order
-   * cmake install
-   * cmake build of `burn_installer` target
+3. then update deployment configuration and build the `burn_installer` target.
+   It creates a runtime-only install tree itself; do not use the generic
+   `cmake install` deployment step for the Windows installer.
 4. try to run and this will execute the deployment.
 5. deployment creates AnyKeep installer, so check terminal for logs.
 

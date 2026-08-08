@@ -65,6 +65,25 @@ namespace {
     }
 
 #ifdef Q_OS_WIN
+    QString windowsPowerShellExecutable()
+    {
+        QString executable = QStandardPaths::findExecutable(QStringLiteral("powershell.exe"));
+        if (!executable.isEmpty())
+            return executable;
+
+        // The launcher and Qt Creator may use a deliberately reduced PATH.
+        // Windows PowerShell ships in the system directory on supported
+        // desktop Windows versions, so do not make update extraction depend
+        // on that inherited PATH.
+        wchar_t    systemDirectory[MAX_PATH] { };
+        const UINT length = GetSystemDirectoryW(systemDirectory, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH)
+            return { };
+        const QString candidate = QDir(QString::fromWCharArray(systemDirectory, int(length)))
+                                      .filePath(QStringLiteral("WindowsPowerShell/v1.0/powershell.exe"));
+        return QFileInfo(candidate).isExecutable() ? candidate : QString();
+    }
+
     bool currentProcessHasPackageIdentity()
     {
         UINT32     length = 0;
@@ -585,9 +604,9 @@ void UpdateController::beginExtraction()
         return;
     }
 
-    QString powerShell = QStandardPaths::findExecutable(QStringLiteral("powershell.exe"));
+    const QString powerShell = windowsPowerShellExecutable();
     if (powerShell.isEmpty()) {
-        setState(Failed, tr("Windows PowerShell is required to unpack the update"));
+        setState(Failed, tr("Could not locate Windows PowerShell to unpack the update"));
         return;
     }
 

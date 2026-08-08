@@ -442,6 +442,10 @@ Item {
         Frame {
             id: editorPane
 
+            // SplitView owns this pane's width. Deriving an implicit width
+            // from the ScrollView would feed its availableWidth back into the
+            // Frame's implicitWidth calculation.
+            implicitWidth: 0
             SplitView.fillWidth: true
             SplitView.fillHeight: true
             padding: 0

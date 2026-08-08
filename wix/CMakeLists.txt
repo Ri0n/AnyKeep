@@ -32,12 +32,54 @@ endif()
 
 if(WINDEPLOYQT_EXECUTABLE)
     get_property(ANYKEEP_UPDATE_PLUGIN_TARGETS GLOBAL PROPERTY ANYKEEP_ENABLED_PLUGIN_TARGETS)
+    # Third-party FetchContent projects may expose development-only install
+    # rules without assigning a component (QCoro is one such dependency).
+    # End-user packages must install only our runtime components.
+    add_custom_target(windows_runtime_install
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "${CMAKE_INSTALL_PREFIX}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_INSTALL_PREFIX}"
+        COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}"
+            ${_anykeep_install_config_args}
+            --component Executable
+        COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}"
+            ${_anykeep_install_config_args}
+            --component Launcher
+        COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}"
+            ${_anykeep_install_config_args}
+            --component Libraries
+        COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}"
+            ${_anykeep_install_config_args}
+            --component Runtime
+        # windeployqt adds QML debugger/profiler plugins when QML debugging is
+        # enabled in the build. They are useful to Qt Creator only and are not
+        # part of an end-user installation.
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "${CMAKE_INSTALL_PREFIX}/qmltooling"
+        DEPENDS anykeepexe anykeep_launcher anykeep_updater anykeep ${ANYKEEP_UPDATE_PLUGIN_TARGETS}
+        COMMENT "Installing the AnyKeep Windows runtime tree"
+        VERBATIM
+    )
+    set_target_properties(windows_runtime_install PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
     add_custom_target(windows_update_package
         COMMAND ${CMAKE_COMMAND} -E remove_directory "${_anykeep_update_work_dir}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${_anykeep_update_install_dir}"
         COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}"
             ${_anykeep_install_config_args}
+            --component Executable
             --prefix "${_anykeep_update_install_dir}"
+        COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}"
+            ${_anykeep_install_config_args}
+            --component Launcher
+            --prefix "${_anykeep_update_install_dir}"
+        COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}"
+            ${_anykeep_install_config_args}
+            --component Libraries
+            --prefix "${_anykeep_update_install_dir}"
+        COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}"
+            ${_anykeep_install_config_args}
+            --component Runtime
+            --prefix "${_anykeep_update_install_dir}"
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "${_anykeep_update_install_dir}/qmltooling"
         COMMAND ${CMAKE_COMMAND}
             "-DSOURCE_ROOT=${_anykeep_update_install_dir}"
             "-DOUTPUT_ROOT=${_anykeep_update_output_dir}"
@@ -50,7 +92,16 @@ if(WINDEPLOYQT_EXECUTABLE)
         COMMENT "Building ${ANYKEEP_UPDATE_CHANNEL} AnyKeep Windows update archive and manifest"
         VERBATIM
     )
-    if(TARGET build_translations)
+    # Qt 6.7 introduced qt_add_translations(), which exposes
+    # translations_lrelease instead of this project's legacy
+    # build_translations target. The update archive installs the generated
+    # .qm files, so both end-user installation paths must depend on either
+    # spelling.
+    if(TARGET translations_lrelease)
+        add_dependencies(windows_runtime_install translations_lrelease)
+        add_dependencies(windows_update_package translations_lrelease)
+    elseif(TARGET build_translations)
+        add_dependencies(windows_runtime_install build_translations)
         add_dependencies(windows_update_package build_translations)
     endif()
     set_target_properties(windows_update_package PROPERTIES EXCLUDE_FROM_ALL TRUE)
@@ -98,10 +149,10 @@ add_custom_command(
         -DANYKEEP_MSI=${ANYKEEP_MSI}
         -P ${CMAKE_CURRENT_BINARY_DIR}/gen-wix.cmake
     COMMENT "Prepare installer files"
-    DEPENDS gen-wix.cmake
+    DEPENDS gen-wix.cmake ${WIX_TEMPLATE} ${WIX_BUNDLE_TEMPLATE} windows_runtime_install
 )
 add_custom_target(prepare_install
-    DEPENDS ${WIX_OUTPUT} ${WIX_BUNDLE_OUTPUT} ${LICENSE_RTF}
+    DEPENDS windows_runtime_install ${WIX_OUTPUT} ${WIX_BUNDLE_OUTPUT} ${LICENSE_RTF}
 )
 set_target_properties(prepare_install PROPERTIES EXCLUDE_FROM_ALL TRUE)
 

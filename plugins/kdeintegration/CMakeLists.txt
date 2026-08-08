@@ -1,5 +1,27 @@
 include(AnyKeepMacro)
 
+set(kdeintegration_sources
+    kdeintegration.cpp
+    kdeintegration.h
+    kdeintegration.qrc
+    kdeintegrationtray.cpp
+    kdeintegrationtray.h
+    sonnetspellcheckprovider.cpp
+    sonnetspellcheckprovider.h
+    kwinscript/metadata.json
+    kwinscript/contents/code/main.js
+)
+
+# Avoid probing Linux-only KDE and Plasma packages on other platforms.  Still
+# register the disabled placeholder target so configuration output stays
+# consistent with the other platform-specific plugins.
+anykeep_platform_has_plugin(kdeintegration_platform_enabled unix)
+if(NOT kdeintegration_platform_enabled)
+    add_anykeep_plugin(kdeintegration "Integration with KDE Plasma" ON unix
+        METADATA plugin-metadata.json ICON logo.png SOURCES ${kdeintegration_sources})
+    return()
+endif()
+
 set(QT_DEFAULT_MAJOR_VERSION ${QT_VERSION_MAJOR})
 
 function(anykeep_kde_adopt_cmake_install_dirs)
@@ -169,17 +191,8 @@ elseif(${kdeintegration_auto_disabled_cache_key} OR (DEFINED CACHE{ANYKEEP_PLUGI
     unset(${kdeintegration_auto_disabled_cache_key} CACHE)
 endif()
 
-add_anykeep_plugin(kdeintegration "Integration with KDE Plasma" ${kdeintegration_buildable} unix METADATA plugin-metadata.json ICON logo.png SOURCES
-    kdeintegration.cpp
-    kdeintegration.h
-    kdeintegration.qrc
-    kdeintegrationtray.cpp
-    kdeintegrationtray.h
-    sonnetspellcheckprovider.cpp
-    sonnetspellcheckprovider.h
-    kwinscript/metadata.json
-    kwinscript/contents/code/main.js
-)
+add_anykeep_plugin(kdeintegration "Integration with KDE Plasma" ${kdeintegration_buildable} unix
+    METADATA plugin-metadata.json ICON logo.png SOURCES ${kdeintegration_sources})
 
 target_link_libraries(kdeintegration anykeep Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
     Qt${QT_VERSION_MAJOR}::DBus

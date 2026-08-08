@@ -12,11 +12,13 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include <limits>
 #include <memory>
 #include <utility>
 
 #include "anykeep.h"
 #include "baseintegrationtray.h"
+#include "foldercatalogmanager.h"
 #include "pluginhostinterface.h"
 #include "trayiconutils.h"
 #include "utils.h"
@@ -25,6 +27,22 @@ namespace AnyKeep {
 
 namespace {
     constexpr int NoteTitleLimit = 48;
+
+    QList<Note> activeNotes(PluginHostInterface *host, int limit, const QString &filter)
+    {
+        // NoteManager deliberately exposes every storage note. Recycle Bin is
+        // a folder-catalog overlay, so exclude those entries explicitly from
+        // this quick-access view.
+        auto        notes          = host->noteManager()->noteList(0, std::numeric_limits<int>::max(), filter);
+        const auto *catalogManager = FolderCatalogManager::instance();
+        if (catalogManager->isAvailable()) {
+            const auto &catalog = catalogManager->catalog();
+            notes.removeIf([&catalog](const Note &note) { return catalog.isRecycled(note.storageId(), note.id()); });
+        }
+        if (notes.size() > limit)
+            notes.resize(limit);
+        return notes;
+    }
 
     void fillNotesList(QListWidget *list, const QList<Note> &notes, PluginHostInterface *host, const QString &emptyText)
     {
@@ -77,7 +95,7 @@ BaseIntegrationTray::BaseIntegrationTray(Main *anykeep, PluginHostInterface *hos
             SLOT(showNoteList(QSystemTrayIcon::ActivationReason)));
     connect(tray, &QSystemTrayIcon::messageClicked, this, [this]() {
         auto action        = std::move(notificationAction);
-        notificationAction = {};
+        notificationAction = { };
         if (action)
             action();
     });
@@ -149,7 +167,7 @@ void BaseIntegrationTray::showNoteList(QSystemTrayIcon::ActivationReason reason)
 
     auto notes       = std::make_shared<QList<Note>>();
     auto reloadNotes = [=, this]() {
-        *notes = host->noteManager()->noteList(0, maxNotes, filter->text());
+        *notes = activeNotes(host, maxNotes, filter->text());
         fillNotesList(list, *notes, host,
                       filter->text().trimmed().isEmpty() ? tr("No notes yet") : tr("No notes match the search"));
     };

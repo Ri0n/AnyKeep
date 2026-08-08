@@ -1,10 +1,13 @@
 #ifdef _WIN32
 
+// shellapi.h relies on declarations from windows.h; keep this order.
+// clang-format off
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <shellapi.h>
 #include <windows.h>
+#include <shellapi.h>
+// clang-format on
 
 #include "launcher_config.h"
 

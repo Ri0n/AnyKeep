@@ -129,7 +129,7 @@ The slow work is finished before the banner appears. The button path only checkp
 
 ### Generating update artifacts
 
-`windows_update_package` is the single packaging entry point for both local Visual Studio builds and CI. It never stages through the normal installation prefix. Instead it creates an isolated install tree under `build/update-work/<channel>/install`, lets the normal CMake install rules run `windeployqt` there, and then creates the update artifacts.
+`windows_update_package` is the single packaging entry point for both local Visual Studio builds and CI. It never stages through the normal installation prefix. Instead it creates an isolated install tree under `build/update-work/<channel>/install`, installs only the `Executable`, `Launcher`, `Libraries`, and `Runtime` components (which run `windeployqt` there), removes QML debugging tooling, and then creates the update artifacts. This intentionally excludes headers, CMake package metadata, `mkspecs`, and other development files from bundled dependencies.
 
 Configure a stable Visual Studio build in the usual way and build:
 
