@@ -4,6 +4,16 @@ function(wix_id_for_path path prefix output)
     file(RELATIVE_PATH relative_path "${CMAKE_INSTALL_PREFIX}" "${path}")
     string(MAKE_C_IDENTIFIER "${prefix}_${relative_path}" wix_id)
     string(TOUPPER "${wix_id}" wix_id)
+    string(LENGTH "${wix_id}" wix_id_length)
+    if(wix_id_length GREATER 72)
+        # WiX standard identifiers are limited to 72 characters. Keep a
+        # readable prefix and suffix it with a deterministic path hash, so
+        # long Qt Quick asset names remain unique and stable across builds.
+        string(SHA256 wix_id_hash "${relative_path}")
+        string(SUBSTRING "${wix_id_hash}" 0 16 wix_id_hash)
+        string(SUBSTRING "${wix_id}" 0 55 wix_id_prefix)
+        set(wix_id "${wix_id_prefix}_${wix_id_hash}")
+    endif()
     set(${output} "${wix_id}" PARENT_SCOPE)
 endfunction()
 
