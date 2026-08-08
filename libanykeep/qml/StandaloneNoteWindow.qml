@@ -6,6 +6,12 @@ import QtQuick.Controls
 Item {
     id: root
 
+    required property var noteEditor
+    required property var desktopEditorPlatform
+    required property var desktopNoteActions
+    required property var desktopSpeech
+    required property var standaloneHost
+
     function flushPendingEditorChanges() { editorPane.flushPendingEditorChanges() }
     function insertTextAtCursor(text) { return editorPane.insertTextAtCursor(text) }
     function insertDroppedTextAtPoint(text, x, y, codeLanguage) {

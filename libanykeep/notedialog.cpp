@@ -23,6 +23,7 @@
 #include "windowgeometryutils.h"
 
 #include <QCloseEvent>
+#include <QCoreApplication>
 #include <QDebug>
 #include <QDragEnterEvent>
 #include <QDragLeaveEvent>
@@ -32,15 +33,31 @@
 #include <QMimeData>
 #include <QPalette>
 #include <QQmlContext>
+#include <QQmlEngine>
 #include <QQuickItem>
 #include <QRandomGenerator>
 #include <QScreen>
 #include <QSettings>
 #include <QTimer>
+#include <QVariantMap>
 
 namespace AnyKeep {
 
 namespace {
+    QQmlEngine *sharedStandaloneNoteEngine()
+    {
+        static QPointer<QQmlEngine> sharedEngine;
+        if (sharedEngine)
+            return sharedEngine;
+
+        sharedEngine = new QQmlEngine(QCoreApplication::instance());
+        installLocalMediaImageProvider(sharedEngine);
+        installStorageIconImageProvider(sharedEngine);
+        installThemedIconImageProvider(sharedEngine);
+        installEditorCursorController(sharedEngine->rootContext());
+        return sharedEngine;
+    }
+
     bool invokeQmlTextDrop(QObject *object, const QString &text, const QPointF &position, const QString &codeLanguage)
     {
         if (!object || text.isEmpty())
@@ -57,7 +74,7 @@ QHash<QPair<QString, QString>, NoteDialog *> NoteDialog::dialogs_;
 QSet<NoteDialog *>                           NoteDialog::allDialogs_;
 
 NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
-    QQuickView(), main_(main), editor_(new NoteEditor(note, draftId, this)),
+    QQuickView(sharedStandaloneNoteEngine(), nullptr), main_(main), editor_(new NoteEditor(note, draftId, this)),
     platformBackend_(new DesktopEditorPlatformBackend(editor_, this)), desktopActions_(new DesktopNoteActions(this)),
     speechController_(new SpeechRecognitionController(this))
 {
@@ -76,16 +93,6 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
     resize(560, 520);
     updateBackgroundColor();
 
-    installLocalMediaImageProvider(engine());
-    installStorageIconImageProvider(engine());
-    installThemedIconImageProvider(engine());
-    installEditorCursorController(rootContext());
-    rootContext()->setContextProperty(QStringLiteral("noteEditor"), editor_);
-    rootContext()->setContextProperty(QStringLiteral("desktopEditorPlatform"), platformBackend_);
-    rootContext()->setContextProperty(QStringLiteral("desktopNoteActions"), desktopActions_);
-    rootContext()->setContextProperty(QStringLiteral("desktopSpeech"), speechController_);
-    rootContext()->setContextProperty(QStringLiteral("standaloneHost"), this);
-
     desktopActions_->setEditor(editor_);
     speechController_->setEditor(editor_);
     speechController_->setProvider(main_->pluginManager()->speechRecognitionProvider());
@@ -102,7 +109,21 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
     connect(speechController_, &SpeechRecognitionController::operationFailed, this, &NoteDialog::operationFailed);
     connect(this, SIGNAL(operationFailed(QString)), main_, SLOT(notifyError(QString)));
 
+    QVariantMap initialProperties;
+    initialProperties.insert(QStringLiteral("noteEditor"), QVariant::fromValue(static_cast<QObject *>(editor_)));
+    initialProperties.insert(QStringLiteral("desktopEditorPlatform"),
+                             QVariant::fromValue(static_cast<QObject *>(platformBackend_)));
+    initialProperties.insert(QStringLiteral("desktopNoteActions"),
+                             QVariant::fromValue(static_cast<QObject *>(desktopActions_)));
+    initialProperties.insert(QStringLiteral("desktopSpeech"),
+                             QVariant::fromValue(static_cast<QObject *>(speechController_)));
+    initialProperties.insert(QStringLiteral("standaloneHost"), QVariant::fromValue(static_cast<QObject *>(this)));
+    setInitialProperties(initialProperties);
+
+    QElapsedTimer qmlLoadTimer;
+    qmlLoadTimer.start();
     setSource(QUrl(QStringLiteral("qrc:/qml/StandaloneNoteWindow.qml")));
+    qDebug() << "Standalone note QML instantiated in" << qmlLoadTimer.elapsed() << "ms";
     if (status() == QQuickView::Error)
         qWarning() << "Failed to create standalone note QML window" << errors();
     if (rootObject())
