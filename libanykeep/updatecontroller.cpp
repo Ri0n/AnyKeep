@@ -216,9 +216,13 @@ void UpdateController::confirmStartupProbe(const QStringList &arguments)
     const QString markerPath = QDir::cleanPath(arguments.at(index + 1));
     if (installRoot_.isEmpty())
         return;
+    // Qt commonly returns absolute Windows paths with '/', while
+    // QDir::separator() is '\\'. Normalize both paths before the prefix
+    // check; otherwise a valid updater marker is rejected as outside staging.
     const QString allowedRoot
-        = QDir::cleanPath(QDir(installRoot_).filePath(QStringLiteral("staging"))) + QDir::separator();
-    const QString candidate = QFileInfo(markerPath).absoluteFilePath();
+        = QDir::fromNativeSeparators(QDir::cleanPath(QDir(installRoot_).filePath(QStringLiteral("staging"))))
+        + QLatin1Char('/');
+    const QString candidate = QDir::fromNativeSeparators(QFileInfo(markerPath).absoluteFilePath());
     if (!candidate.startsWith(allowedRoot, Qt::CaseInsensitive)) {
         qCWarning(logUpdates) << "Rejected startup probe outside staging directory:" << candidate;
         return;

@@ -305,6 +305,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         restartThroughLauncher(root);
         return 15;
     }
+    appendLog(root, L"Started the new version; waiting for startup marker " + marker);
     CloseHandle(newProcess.hThread);
 
     const ULONGLONG deadline  = GetTickCount64() + StartupProbeTimeoutMs;
