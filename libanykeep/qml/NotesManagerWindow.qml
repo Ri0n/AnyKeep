@@ -10,7 +10,6 @@ ApplicationWindow {
     minimumHeight: 440
     visible: false
     title: qsTr("Note Manager (%1)").arg(notesWorkspace.noteCount)
-    topPadding: 0
     property alias navigationWidth: managerPage.navigationWidth
 
     function insertionRowAtPoint(x, y) { return managerPage.insertionRowAtPoint(x, y) }

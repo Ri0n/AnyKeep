@@ -24,6 +24,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVariant>
+#include <QtGlobal>
 
 namespace AnyKeep {
 
@@ -83,6 +84,12 @@ NotesManagerWindow::NotesManagerWindow(UpdateController *updates, QObject *paren
     if (!window_)
         qWarning() << "Failed to create the QML note manager window";
     else {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+        // ApplicationWindow padding was introduced in Qt 6.9. Keep the
+        // desktop manager flush with the top edge on newer Qt versions
+        // without making the shared QML fail to load on Qt 6.4.
+        window_->setProperty("topPadding", 0.0);
+#endif
         window_->installEventFilter(this);
         restoreWindowState();
     }
