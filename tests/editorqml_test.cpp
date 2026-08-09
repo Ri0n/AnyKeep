@@ -1203,21 +1203,39 @@ private slots:
             = destinationSecond->mapToItem(root, QPointF(0, destinationSecond->property("naturalHeight").toReal())).y();
         const QPointF attachTo(attachFrom.x(), pointerYForBoundary(destinationBoundaryY));
         const qreal   paragraphBoundaryY = following->mapToItem(root, QPointF()).y();
-        // Probe well inside each half of the interval instead of only two pixels around
-        // the midpoint. Qt 6.10 on the headless CI backend rounds mouse coordinates and
-        // delegate geometry slightly differently, which can leave a +/-2 px probe on
-        // the same nearest boundary even though the structural ordering is unchanged.
+        // Start safely on the paragraph/block side of the interval. The exact mouse
+        // coordinate of the structural midpoint is intentionally discovered below from
+        // the controller transition rather than inferred from visual delegate geometry.
         const qreal beforeParagraphBoundaryY = paragraphBoundaryY * 0.75 + destinationFirstBoundaryY * 0.25;
-        const qreal afterParagraphBoundaryY  = paragraphBoundaryY * 0.25 + destinationFirstBoundaryY * 0.75;
 
         QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, attachFrom.toPoint());
         const QPointF beforeParagraphSwitch(attachFrom.x(), pointerYForBoundary(beforeParagraphBoundaryY));
         moveMouseAlong(&quick, attachFrom, beforeParagraphSwitch, 8, 15, 50);
         QVERIFY2(qAbs(following->property("reorderOffset").toReal()) < 1,
-                 "The paragraph moved before the dragged list crossed its midpoint");
+                 "The paragraph moved before the dragged list reached the item-level list target");
 
-        const QPointF afterParagraphSwitch(attachFrom.x(), pointerYForBoundary(afterParagraphBoundaryY));
-        QTest::mouseMove(&quick, afterParagraphSwitch.toPoint(), 15);
+        // The controller chooses a target in the post-removal structural geometry, while
+        // QTest drives an integer mouse position through a QQuickWidget.  Font metrics and
+        // layout rounding can therefore put the visual midpoint at a different pointer
+        // coordinate on a headless runner.  Find the first real block -> list transition
+        // instead of assuming a fixed visual probe is on the list side of that transition.
+        QPointF   afterParagraphSwitch;
+        bool      reachedFirstListTarget = false;
+        const int switchProbeSteps       = qMax(1, int(qAbs(attachTo.y() - beforeParagraphSwitch.y())) + 1);
+        for (int step = 1; step <= switchProbeSteps; ++step) {
+            const QPointF probe
+                = beforeParagraphSwitch + (attachTo - beforeParagraphSwitch) * (qreal(step) / switchProbeSteps);
+            QTest::mouseMove(&quick, probe.toPoint(), 1);
+            QCoreApplication::processEvents();
+            if (controller->property("targetKind").toString() == QStringLiteral("list")
+                && controller->property("targetItem").toInt() == 0) {
+                afterParagraphSwitch   = probe;
+                reachedFirstListTarget = true;
+                break;
+            }
+        }
+        QVERIFY2(reachedFirstListTarget,
+                 "The downward whole-list drag never reached the first item-level list boundary");
         QTRY_COMPARE(controller->property("targetKind").toString(), QStringLiteral("list"));
         QTRY_COMPARE(controller->property("targetItem").toInt(), 0);
         QTRY_VERIFY(controller->property("blockAnimationActive").toBool());

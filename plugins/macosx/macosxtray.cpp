@@ -21,7 +21,6 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include <QAction>
 #include <QApplication>
-#include <QDesktopWidget>
 #include <QMenu>
 #include <QMetaType>
 #include <QSettings>
