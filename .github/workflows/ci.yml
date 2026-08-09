@@ -94,6 +94,7 @@ jobs:
             libx11-dev \
             ninja-build \
             pkg-config \
+            qml6-module-qtqml-workerscript \
             qml6-module-qtquick \
             qml6-module-qtquick-controls \
             qml6-module-qtquick-layouts \
@@ -105,6 +106,12 @@ jobs:
             qt6-svg-dev \
             qt6-tools-dev \
             qt6-tools-dev-tools
+
+          # Starting with Ubuntu 26.04, the SVG icon/image plugins are split out
+          # of libqt6svg6. Noble still ships them in libqt6svg6 itself.
+          if apt-cache show qt6-svg-plugins >/dev/null 2>&1; then
+            sudo apt-get install -y --no-install-recommends qt6-svg-plugins
+          fi
 
       - name: Report system Qt and compilers
         run: |

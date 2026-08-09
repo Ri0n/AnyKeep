@@ -358,7 +358,7 @@ void PluginManager::loadPlugins()
      * time to load the plugins. start from required unique features
      * like tray integration, global shortcuts integrtion etc.
      */
-#ifdef Q_OS_OSX
+#ifdef Q_OS_MACOS
     QStringList sessionCandidates { QStringLiteral("macosx") };
 #else
     const QString xdgCurrentDesktop = QString::fromLocal8Bit(qgetenv("XDG_CURRENT_DESKTOP"));

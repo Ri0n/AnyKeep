@@ -10,7 +10,7 @@ Vcs-Browser: https://github.com/Ri0n/anykeep
 
 Package: libanykeep3
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: qt6-svg-plugins ${shlibs:Depends}, ${misc:Depends}
 Description: AnyKeep library to work with various notes storages
  Also works with AnyKeep plugins and able to provide some GUI
 

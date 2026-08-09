@@ -1203,15 +1203,20 @@ private slots:
             = destinationSecond->mapToItem(root, QPointF(0, destinationSecond->property("naturalHeight").toReal())).y();
         const QPointF attachTo(attachFrom.x(), pointerYForBoundary(destinationBoundaryY));
         const qreal   paragraphBoundaryY = following->mapToItem(root, QPointF()).y();
-        const qreal   paragraphSwitchY   = pointerYForBoundary((paragraphBoundaryY + destinationFirstBoundaryY) / 2);
+        // Probe well inside each half of the interval instead of only two pixels around
+        // the midpoint. Qt 6.10 on the headless CI backend rounds mouse coordinates and
+        // delegate geometry slightly differently, which can leave a +/-2 px probe on
+        // the same nearest boundary even though the structural ordering is unchanged.
+        const qreal beforeParagraphBoundaryY = paragraphBoundaryY * 0.75 + destinationFirstBoundaryY * 0.25;
+        const qreal afterParagraphBoundaryY  = paragraphBoundaryY * 0.25 + destinationFirstBoundaryY * 0.75;
 
         QTest::mousePress(&quick, Qt::LeftButton, Qt::NoModifier, attachFrom.toPoint());
-        const QPointF beforeParagraphSwitch(attachFrom.x(), paragraphSwitchY - 2);
+        const QPointF beforeParagraphSwitch(attachFrom.x(), pointerYForBoundary(beforeParagraphBoundaryY));
         moveMouseAlong(&quick, attachFrom, beforeParagraphSwitch, 8, 15, 50);
         QVERIFY2(qAbs(following->property("reorderOffset").toReal()) < 1,
                  "The paragraph moved before the dragged list crossed its midpoint");
 
-        const QPointF afterParagraphSwitch(attachFrom.x(), paragraphSwitchY + 2);
+        const QPointF afterParagraphSwitch(attachFrom.x(), pointerYForBoundary(afterParagraphBoundaryY));
         QTest::mouseMove(&quick, afterParagraphSwitch.toPoint(), 15);
         QTRY_COMPARE(controller->property("targetKind").toString(), QStringLiteral("list"));
         QTRY_COMPARE(controller->property("targetItem").toInt(), 0);

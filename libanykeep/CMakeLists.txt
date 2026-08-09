@@ -271,6 +271,14 @@ target_include_directories(
 )
 
 set_target_properties(anykeep PROPERTIES VERSION ${ANYKEEP_VERSION} SOVERSION ${ANYKEEP_ABI_VERSION})
+if(APPLE)
+  # Mach-O encodes the minor and patch components of LC_ID_DYLIB versions in 8 bits each. ANYKEEP_VERSION uses an
+  # ever-increasing build number as its patch component, so values such as 3.2.346 are truncated by ld. Keep the
+  # package/file version unchanged and use a representable dylib implementation version; ABI compatibility is still
+  # governed by SOVERSION.
+  set_target_properties(anykeep PROPERTIES MACHO_COMPATIBILITY_VERSION "${ANYKEEP_ABI_VERSION}.0.0"
+                                           MACHO_CURRENT_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.0")
+endif()
 if(WIN32)
   set_target_properties(anykeep PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${EXECUTABLE_OUTPUT_PATH}")
 else()

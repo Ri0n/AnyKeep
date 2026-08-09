@@ -88,4 +88,9 @@ set_target_properties(
   Qt6Keychain::Qt6Keychain
   PROPERTIES IMPORTED_LOCATION "${_qtkeychain_library}" INTERFACE_INCLUDE_DIRECTORIES "${_qtkeychain_include_dir}"
              INTERFACE_LINK_LIBRARIES "Qt6::Core")
+if(APPLE)
+  # The static Apple keychain backend calls SecItem* from Security.framework. Model that requirement on QtKeychain
+  # itself rather than on libanykeep.
+  target_link_libraries(Qt6Keychain::Qt6Keychain INTERFACE "-framework Security")
+endif()
 add_dependencies(Qt6Keychain::Qt6Keychain anykeep_bundled_qtkeychain)

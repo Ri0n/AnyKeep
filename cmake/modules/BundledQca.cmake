@@ -143,4 +143,9 @@ set_target_properties(
   PROPERTIES IMPORTED_LOCATION "${_qca_library}" INTERFACE_INCLUDE_DIRECTORIES "${_qca_include_dir}"
              INTERFACE_LINK_LIBRARIES "${_qca_ossl_plugin};OpenSSL::SSL;OpenSSL::Crypto;Qt6::Core"
              INTERFACE_COMPILE_DEFINITIONS QCA_STATIC)
+if(APPLE)
+  # QCA's static macOS system-store implementation calls Security.framework. Keep this on the imported QCA target so
+  # every consumer gets it transitively.
+  target_link_libraries(qca-qt6 INTERFACE "-framework Security")
+endif()
 add_dependencies(qca-qt6 anykeep_bundled_qca)
