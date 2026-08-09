@@ -64,7 +64,9 @@ preview.
 `NotesModel` is only a hierarchical, paginated presentation of `NotesIndex` and
 keeps the rows currently exposed to a view. It does not maintain another full
 copy of each storage's note list. Tray, DBus and other non-QML consumers obtain
-the same snapshot through `NoteManager::noteList()`.
+the same snapshot through `NoteManager::noteList()`. The shared QML collection
+requests the next storage page when its currently exposed tail approaches the
+visible viewport.
 
 Local `FileStorage` implementations do not cache note objects. Their
 `noteList()` scans the selected directory and returns a fresh list whenever the

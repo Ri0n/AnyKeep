@@ -7,10 +7,29 @@ add_library(anykeep_headless_test_init OBJECT headlesstestinit.cpp)
 target_link_libraries(anykeep_headless_test_init PRIVATE Qt6::Core)
 set_target_properties(anykeep_headless_test_init PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 
+set(anykeep_test_results_dir "${CMAKE_BINARY_DIR}/test-results")
+file(MAKE_DIRECTORY "${anykeep_test_results_dir}")
+
+function(register_anykeep_test target)
+  if(WIN32)
+    # On Windows QtTest's console logger bypasses the stdout pipe captured by CTest. The wrapper reads the incremental
+    # text report back into CTest's output and also retains JUnit XML for CI artifacts.
+    add_test(
+      NAME ${target}
+      COMMAND
+        ${CMAKE_COMMAND} "-DANYKEEP_TEST_EXECUTABLE=$<TARGET_FILE:${target}>"
+        "-DANYKEEP_TEST_TEXT_REPORT=${anykeep_test_results_dir}/${target}.txt"
+        "-DANYKEEP_TEST_JUNIT_REPORT=${anykeep_test_results_dir}/${target}.xml" -P
+        "${CMAKE_CURRENT_LIST_DIR}/runqttest.cmake")
+  else()
+    add_test(NAME ${target} COMMAND ${target})
+  endif()
+endfunction()
+
 function(add_anykeep_test target)
   add_executable(${target} ${ARGN})
   target_link_libraries(${target} PRIVATE anykeep Qt6::Test)
-  add_test(NAME ${target} COMMAND ${target})
+  register_anykeep_test(${target})
 endfunction()
 
 add_anykeep_test(
@@ -134,46 +153,46 @@ if(TARGET QXmpp::QXmpp)
   target_include_directories(privatenotespubsubitem_test PRIVATE ../plugins/xmpppubsub)
   target_link_libraries(privatenotespubsubitem_test PRIVATE anykeep Qt6::Test Qt6::Xml QXmpp::QXmpp)
   anykeep_configure_qxmpp_target(privatenotespubsubitem_test)
-  add_test(NAME privatenotespubsubitem_test COMMAND privatenotespubsubitem_test)
+  register_anykeep_test(privatenotespubsubitem_test)
 
   add_executable(xmppkeyresolutioncontroller_test xmppkeyresolutioncontroller_test.cpp
                                                   ../plugins/xmpppubsub/xmppkeyresolutioncontroller.cpp)
   target_include_directories(xmppkeyresolutioncontroller_test PRIVATE ../plugins/xmpppubsub)
   target_link_libraries(xmppkeyresolutioncontroller_test PRIVATE Qt6::Test QXmpp::QXmpp)
   anykeep_configure_qxmpp_target(xmppkeyresolutioncontroller_test)
-  add_test(NAME xmppkeyresolutioncontroller_test COMMAND xmppkeyresolutioncontroller_test)
+  register_anykeep_test(xmppkeyresolutioncontroller_test)
 
   add_executable(xmppkeysyncextension_test xmppkeysyncextension_test.cpp ../plugins/xmpppubsub/xmppkeysyncextension.cpp)
   target_include_directories(xmppkeysyncextension_test PRIVATE ../plugins/xmpppubsub)
   target_link_libraries(xmppkeysyncextension_test PRIVATE Qt6::Test QXmpp::QXmpp)
   anykeep_configure_qxmpp_target(xmppkeysyncextension_test)
-  add_test(NAME xmppkeysyncextension_test COMMAND xmppkeysyncextension_test)
+  register_anykeep_test(xmppkeysyncextension_test)
 
   add_executable(xmppomemopubsubitems_test xmppomemopubsubitems_test.cpp ../plugins/xmpppubsub/xmppomemopubsubitems.cpp)
   target_include_directories(xmppomemopubsubitems_test PRIVATE ../plugins/xmpppubsub)
   target_link_libraries(xmppomemopubsubitems_test PRIVATE Qt6::Test QXmpp::QXmpp)
   anykeep_configure_qxmpp_target(xmppomemopubsubitems_test)
-  add_test(NAME xmppomemopubsubitems_test COMMAND xmppomemopubsubitems_test)
+  register_anykeep_test(xmppomemopubsubitems_test)
 
   add_executable(xmpperror_test xmpperror_test.cpp ../plugins/xmpppubsub/xmpperror.cpp)
   target_include_directories(xmpperror_test PRIVATE ../plugins/xmpppubsub)
   target_link_libraries(xmpperror_test PRIVATE Qt6::Test Qt6::Network QXmpp::QXmpp)
   anykeep_configure_qxmpp_target(xmpperror_test)
-  add_test(NAME xmpperror_test COMMAND xmpperror_test)
+  register_anykeep_test(xmpperror_test)
 
   add_executable(xmpppersistenttruststorage_test xmpppersistenttruststorage_test.cpp
                                                  ../plugins/xmpppubsub/xmpppersistenttruststorage.cpp)
   target_include_directories(xmpppersistenttruststorage_test PRIVATE ../plugins/xmpppubsub)
   target_link_libraries(xmpppersistenttruststorage_test PRIVATE anykeep Qt6::Test QXmpp::QXmpp)
   anykeep_configure_qxmpp_target(xmpppersistenttruststorage_test)
-  add_test(NAME xmpppersistenttruststorage_test COMMAND xmpppersistenttruststorage_test)
+  register_anykeep_test(xmpppersistenttruststorage_test)
 
   if(TARGET QXmpp::Omemo)
     add_executable(xmppomemostorage_test xmppomemostorage_test.cpp ../plugins/xmpppubsub/xmppomemostorage.cpp)
     target_include_directories(xmppomemostorage_test PRIVATE ../plugins/xmpppubsub)
     target_link_libraries(xmppomemostorage_test PRIVATE anykeep Qt6::Test QXmpp::Omemo)
     anykeep_configure_qxmpp_target(xmppomemostorage_test)
-    add_test(NAME xmppomemostorage_test COMMAND xmppomemostorage_test)
+    register_anykeep_test(xmppomemostorage_test)
   endif()
 endif()
 
@@ -183,7 +202,7 @@ if(TARGET Qt6::Multimedia)
   add_executable(yandexspeechutils_test yandexspeechutils_test.cpp ../plugins/yandex/yandexspeechutils.cpp)
   target_include_directories(yandexspeechutils_test PRIVATE ../plugins/yandex)
   target_link_libraries(yandexspeechutils_test PRIVATE Qt6::Test Qt6::Multimedia)
-  add_test(NAME yandexspeechutils_test COMMAND yandexspeechutils_test)
+  register_anykeep_test(yandexspeechutils_test)
 endif()
 
 set_tests_properties(notesmanagerqml_test PROPERTIES LABELS "folders;notesmanager;qml")

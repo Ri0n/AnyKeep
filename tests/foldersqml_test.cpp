@@ -439,6 +439,16 @@ void NotesManagerQmlTest::foldersPageOffersEmptyRecycleBinAction()
     QVERIFY(empty->property("visible").toBool());
     QVERIFY(empty->property("enabled").toBool());
     QCOMPARE(empty->property("text").toString(), QStringLiteral("Empty Recycle Bin"));
+
+    auto *emptyDialog  = root->findChild<QObject *>(QStringLiteral("emptyRecycleBinDialog"));
+    auto *emptyMessage = root->findChild<QObject *>(QStringLiteral("emptyRecycleBinMessage"));
+    QVERIFY(emptyDialog);
+    QVERIFY(emptyMessage);
+    QVERIFY(QMetaObject::invokeMethod(emptyDialog, "open"));
+    QTRY_VERIFY(emptyDialog->property("visible").toBool());
+    QVERIFY(emptyDialog->property("height").toReal() >= 190.0);
+    QVERIFY(emptyMessage->property("height").toReal() >= emptyMessage->property("contentHeight").toReal());
+
     QVERIFY(QMetaObject::invokeMethod(page, "emptyRecycleBin"));
     auto *workspace = root->findChild<QObject *>(QStringLiteral("recycleWorkspace"));
     QVERIFY(workspace);

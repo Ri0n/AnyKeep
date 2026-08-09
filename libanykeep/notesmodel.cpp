@@ -96,25 +96,25 @@ NotesModel::~NotesModel() { qDeleteAll(storages_); }
 QModelIndex NotesModel::index(int row, int column, const QModelIndex &parentIndex) const
 {
     if (column != 0 || row < 0)
-        return {};
+        return { };
     if (!parentIndex.isValid()) {
         if (row >= storages_.size())
-            return {};
+            return { };
         return createIndex(row, column, storages_.at(row));
     }
     auto *parentItem = static_cast<NMMItem *>(parentIndex.internalPointer());
     if (!parentItem || parentItem->type != ItemStorage || row >= parentItem->children.size())
-        return {};
+        return { };
     return createIndex(row, column, parentItem->children.at(row));
 }
 
 QModelIndex NotesModel::parent(const QModelIndex &child) const
 {
     if (!child.isValid())
-        return {};
+        return { };
     auto *item = static_cast<NMMItem *>(child.internalPointer());
     if (!item || !item->parent)
-        return {};
+        return { };
     const int row = storages_.indexOf(item->parent);
     return row < 0 ? QModelIndex() : createIndex(row, 0, item->parent);
 }
@@ -132,10 +132,10 @@ int NotesModel::columnCount(const QModelIndex &) const { return 1; }
 QVariant NotesModel::data(const QModelIndex &modelIndex, int role) const
 {
     if (!modelIndex.isValid())
-        return {};
+        return { };
     auto *item = static_cast<NMMItem *>(modelIndex.internalPointer());
     if (!item)
-        return {};
+        return { };
 
     const bool storage = item->type == ItemStorage;
     switch (role) {
@@ -174,7 +174,7 @@ QVariant NotesModel::data(const QModelIndex &modelIndex, int role) const
     case IconSourceRole:
         return storageIconSource(storage ? item->id : item->parent->id, !storage);
     default:
-        return {};
+        return { };
     }
 }
 
@@ -229,6 +229,32 @@ void NotesModel::fetchMore(const QModelIndex &parentIndex)
         item->children.append(new NMMItem(notes.at(first + i), item));
     endInsertRows();
     emit dataChanged(parentIndex, parentIndex, { HasMoreRole });
+}
+
+bool NotesModel::fetchMoreNear(const QString &storageId, const QString &lastVisibleNoteId)
+{
+    auto *item = storageItem(storageId);
+    if (!item || lastVisibleNoteId.isEmpty())
+        return false;
+
+    const auto parentIndex = storageIndex(storageId);
+    if (!canFetchMore(parentIndex))
+        return false;
+
+    const auto visible
+        = std::find_if(item->children.cbegin(), item->children.cend(),
+                       [&lastVisibleNoteId](NMMItem *note) { return note && note->id == lastVisibleNoteId; });
+    if (visible == item->children.cend())
+        return false;
+
+    constexpr int PrefetchDistance = 5;
+    const int     visibleRow       = int(std::distance(item->children.cbegin(), visible));
+    if (visibleRow < item->children.size() - PrefetchDistance)
+        return false;
+
+    const int previousCount = item->children.size();
+    fetchMore(parentIndex);
+    return item->children.size() > previousCount;
 }
 
 Qt::DropActions NotesModel::supportedDropActions() const { return Qt::MoveAction; }
@@ -359,7 +385,7 @@ void NotesModel::storageAdded(const NoteStorage::Ptr &storage)
         if (candidate && storageItem(candidate->systemName()))
             ++row;
     }
-    beginInsertRows({}, row, row);
+    beginInsertRows({ }, row, row);
     auto *item                    = new NMMItem(storage);
     item->indexedCount            = indexedNotes(item->id).size();
     item->indexedCountInitialized = NoteManager::instance()->notesIndex()->hasSnapshot(item->id);
@@ -376,7 +402,7 @@ void NotesModel::storageAboutToBeRemoved(const NoteStorage::Ptr &storage)
     const int row = storages_.indexOf(storageItem(storage->systemName()));
     if (row < 0)
         return;
-    beginRemoveRows({}, row, row);
+    beginRemoveRows({ }, row, row);
     delete storages_.takeAt(row);
     endRemoveRows();
     emit statsChanged();
@@ -479,12 +505,12 @@ QModelIndex NotesModel::noteIndex(const QString &storageId, const QString &noteI
 {
     auto *storage = storageItem(storageId);
     if (!storage)
-        return {};
+        return { };
     for (int i = 0; i < storage->children.size(); ++i) {
         if (storage->children.at(i)->id == noteId)
             return createIndex(i, 0, storage->children.at(i));
     }
-    return {};
+    return { };
 }
 
 NMMItem *NotesModel::storageItem(const QString &storageId) const

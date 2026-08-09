@@ -24,8 +24,8 @@ public:
     bool                init() override { return true; }
     const QString       systemName() const override { return storageId_; }
     const QString       name() const override { return QStringLiteral("Fake"); }
-    QIcon               storageIcon() const override { return {}; }
-    QIcon               noteIcon() const override { return {}; }
+    QIcon               storageIcon() const override { return { }; }
+    QIcon               noteIcon() const override { return { }; }
     bool                isAccessible() const override { return accessible; }
     QList<Note::Format> availableFormats() const override { return { Note::Markdown }; }
     qint64              requestedModificationTimeResolutionMs() const override { return reorderResolutionMs; }
@@ -64,7 +64,7 @@ public:
             if (item.id() == id)
                 return item;
         }
-        return {};
+        return { };
     }
 
     Note createNote() override { return makeNote(QString(), QString()); }
@@ -350,7 +350,7 @@ private slots:
     void defaultStorageReorderFallbackUsesTheCapability()
     {
         FakeStorage storage;
-        auto       *unsupported = storage.reorderNoteAsync(QStringLiteral("one"), {});
+        auto       *unsupported = storage.reorderNoteAsync(QStringLiteral("one"), { });
         QVERIFY(unsupported->isFinished());
         QCOMPARE(unsupported->state(), StorageJob::Failed);
         delete unsupported;
@@ -365,7 +365,7 @@ private slots:
         third.setLastChangeUTC(baseTime.addSecs(-2));
         storage.sourceNotes = { first, second, third };
 
-        auto *job = storage.reorderNoteAsync(third.id(), {});
+        auto *job = storage.reorderNoteAsync(third.id(), { });
         QTRY_VERIFY(job->isFinished());
         QCOMPARE(job->state(), StorageJob::Succeeded);
         QCOMPARE(storage.saveCalls, 1);
@@ -406,6 +406,8 @@ private slots:
         QVERIFY(storageIndex.isValid());
         QCOMPARE(model.rowCount(storageIndex), model.pageSize());
         QCOMPARE(model.index(29, 0, storageIndex).data(NotesModel::NoteIdRole).toString(), QStringLiteral("note-29"));
+        QVERIFY(!model.fetchMoreNear(raw->systemName(), QStringLiteral("note-0")));
+        QCOMPARE(model.rowCount(storageIndex), model.pageSize());
 
         auto inserted = raw->makeNote(QStringLiteral("inserted"), QStringLiteral("Inserted"));
         inserted.setLastChangeUTC(baseTime.addSecs(-28).addMSecs(-500));
@@ -417,6 +419,9 @@ private slots:
         QTRY_COMPARE(model.rowCount(storageIndex), model.pageSize() + 1);
         QCOMPARE(model.index(29, 0, storageIndex).data(NotesModel::NoteIdRole).toString(), QStringLiteral("inserted"));
         QCOMPARE(model.index(30, 0, storageIndex).data(NotesModel::NoteIdRole).toString(), QStringLiteral("note-29"));
+        QVERIFY(model.fetchMoreNear(raw->systemName(), QStringLiteral("note-29")));
+        QCOMPARE(model.rowCount(storageIndex), 36);
+        QVERIFY(!model.fetchMoreNear(raw->systemName(), QStringLiteral("note-34")));
     }
 };
 

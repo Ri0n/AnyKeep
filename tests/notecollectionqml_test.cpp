@@ -249,6 +249,8 @@ void NotesManagerQmlTest::flatNoteCollectionUsesSharedTreeDragAnimation()
             id: harness
             property int commitCount: 0
             property string draggedNoteId: ""
+            property int incrementalFetchRequests: 0
+            property string incrementalFetchNoteId: ""
 
             NoteList.NoteCollectionView {
                 id: notes
@@ -262,6 +264,11 @@ void NotesManagerQmlTest::flatNoteCollectionUsesSharedTreeDragAnimation()
                 previewObjectNamePrefix: "flatTreePreviewItem-"
                 rowObjectNameProvider: function(item) {
                     return "flatTreeRow-" + item.noteId
+                }
+                incrementalFetchHandler: function(storageId, noteId) {
+                    ++harness.incrementalFetchRequests
+                    harness.incrementalFetchNoteId = noteId
+                    return false
                 }
                 boundaryProvider: function(view, payload, items) {
                     return view.boundaries(items, function(item, after) {
@@ -318,7 +325,10 @@ void NotesManagerQmlTest::flatNoteCollectionUsesSharedTreeDragAnimation()
     QTRY_COMPARE(root->property("commitCount").toInt(), 1);
     QCOMPARE(root->property("draggedNoteId").toString(), QStringLiteral("first"));
 
+    const int fetchRequestsBeforeScroll = root->property("incrementalFetchRequests").toInt();
     tree->setProperty("contentY", 600);
+    QTRY_VERIFY(root->property("incrementalFetchRequests").toInt() > fetchRequestsBeforeScroll);
+    QVERIFY(!root->property("incrementalFetchNoteId").toString().isEmpty());
     QQuickItem *beforeScrolledSource = nullptr;
     QQuickItem *scrolledSource       = nullptr;
     QQuickItem *scrolledTarget       = nullptr;

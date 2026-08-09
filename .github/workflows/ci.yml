@@ -61,6 +61,34 @@ jobs:
       - name: Test
         run: ctest --test-dir build/windows -C Release --output-on-failure --timeout 180
 
+      - name: Print failed or incomplete QtTest reports
+        if: failure()
+        run: |
+          $reportDirectory = "build/windows/test-results"
+          if (-not (Test-Path -LiteralPath $reportDirectory)) {
+            Write-Host "No QtTest reports were produced."
+            exit 0
+          }
+          Get-ChildItem -LiteralPath $reportDirectory -Filter *.txt | ForEach-Object {
+            $report = Get-Content -LiteralPath $_.FullName -Raw
+            if ($report -match "(?m)^(FAIL!|QFATAL)" `
+                -or $report -match "Totals:.*[1-9][0-9]* failed" `
+                -or $report -notmatch "Finished testing") {
+              Write-Host "::group::$($_.BaseName)"
+              Write-Host $report
+              Write-Host "::endgroup::"
+            }
+          }
+
+      - name: Upload Windows QtTest reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-qtest-reports
+          path: build/windows/test-results/*
+          if-no-files-found: ignore
+          retention-days: 14
+
   linux:
     name: Linux / ${{ matrix.label }} / system Qt
     runs-on: ${{ matrix.runner }}

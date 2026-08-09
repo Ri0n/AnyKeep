@@ -59,6 +59,8 @@ Item {
     property var fallbackIconProvider: null
     property var dragEnabledProvider: null
     property var diagnosticHandler: null
+    // Optional paginated-model callback: (storageId, lastVisibleNoteId) -> fetchedMore.
+    property var incrementalFetchHandler: null
 
     readonly property real rowHeight: touchActions ? 44 : 34
     property real rowContentRightPadding: 8
@@ -86,6 +88,12 @@ Item {
     property int pendingFinishGeneration: 0
     property var liveRows: []
     property bool dragCursorOverridden: false
+    onVisibleChanged: scheduleIncrementalFetch()
+    onHeightChanged: scheduleIncrementalFetch()
+    onDraggingChanged: {
+        if (!dragging)
+            scheduleIncrementalFetch()
+    }
 
     NoteSelectionController {
         id: localSelection
@@ -155,6 +163,13 @@ Item {
         }
     }
 
+    Timer {
+        id: incrementalFetchTimer
+
+        interval: 0
+        onTriggered: collection.requestIncrementalFetch()
+    }
+
     Connections {
         target: collection.model
         enabled: collection.dragging
@@ -203,9 +218,12 @@ Item {
         columnWidthProvider: function(column) { return Math.floor(collection.viewWidth) }
         rowHeightProvider: function(row) { return collection.rowHeight }
         onWidthChanged: Qt.callLater(function() { treeView.forceLayout() })
+        onContentYChanged: collection.scheduleIncrementalFetch()
+        onContentHeightChanged: collection.scheduleIncrementalFetch()
         Component.onCompleted: Qt.callLater(function() {
             if (collection.nativeModelHierarchy && treeView.model)
                 expandRecursively(-1, 1)
+            collection.scheduleIncrementalFetch()
         })
         delegate: TreeNoteListRow {
             collection: treeView.collectionOwner
@@ -273,6 +291,42 @@ Item {
         }
         result.sort(function(left, right) { return Number(left.rowIndex) - Number(right.rowIndex) })
         return result
+    }
+
+    function scheduleIncrementalFetch() {
+        if (!visible || dragging || typeof incrementalFetchHandler !== "function")
+            return
+        incrementalFetchTimer.restart()
+    }
+
+    function requestIncrementalFetch() {
+        if (!visible || dragging || typeof incrementalFetchHandler !== "function")
+            return
+
+        // Ask once for the furthest visible note in each storage. The C++ model decides whether that note is close
+        // enough to its currently exposed tail to warrant another page. This also handles several expanded storages
+        // without letting a later storage hide the unfinished page of an earlier one.
+        const requests = []
+        for (const item of visibleItems()) {
+            if (!item.noteRow || item.storageId.length === 0 || item.noteId.length === 0)
+                continue
+            let request = null
+            for (const candidate of requests) {
+                if (candidate.storageId === item.storageId) {
+                    request = candidate
+                    break
+                }
+            }
+            if (!request) {
+                request = { storageId: item.storageId, noteId: item.noteId, row: Number(item.rowIndex) }
+                requests.push(request)
+            } else if (Number(item.rowIndex) > request.row) {
+                request.noteId = item.noteId
+                request.row = Number(item.rowIndex)
+            }
+        }
+        for (const request of requests)
+            incrementalFetchHandler(request.storageId, request.noteId)
     }
 
     function registerRow(item) {

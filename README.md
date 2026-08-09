@@ -1,6 +1,9 @@
 AnyKeep
 ======
-It's just very small Qt app which usually lives in your system tray and allows you to make notes quick way.
+
+[![CI](https://github.com/Ri0n/QtNote/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/Ri0n/QtNote/actions/workflows/ci.yml)
+
+It's a Qt app which usually lives in your system tray and allows you to make notes quick way.
 
 AnyKeep was written as a clone of Tomboy with use of Qt.
 It's not so feature rich as Tomboy but light and fast and usually suits all common needs.

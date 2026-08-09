@@ -584,18 +584,23 @@ Item {
 
     Dialog {
         id: emptyRecycleBinDialog
+        objectName: "emptyRecycleBinDialog"
 
         parent: root
         x: (root.width - width) / 2
         y: (root.height - height) / 2
         modal: true
         width: Math.min(420, root.width - 32)
-        height: 150
+        height: Math.min(210, root.height - 32)
         title: qsTr("Empty Recycle Bin")
         standardButtons: Dialog.Yes | Dialog.No
 
         contentItem: Label {
+            id: emptyRecycleBinMessage
+            objectName: "emptyRecycleBinMessage"
+
             wrapMode: Text.WordWrap
+            verticalAlignment: Text.AlignTop
             text: qsTr("Permanently delete all notes in the Recycle Bin? This cannot be undone.")
         }
 

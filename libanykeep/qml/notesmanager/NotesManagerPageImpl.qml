@@ -486,6 +486,11 @@ Item {
                         rowObjectNameProvider: function(item) {
                             return "groupedDelegate-" + item.storageId + "-" + item.noteId
                         }
+                        incrementalFetchHandler: function(storageId, lastVisibleNoteId) {
+                            if (typeof root.workspace.fetchMoreGroupedNotes !== "function")
+                                return false
+                            return root.workspace.fetchMoreGroupedNotes(storageId, lastVisibleNoteId)
+                        }
                         groupActivateHandler: function(item) {
                             root.selectedStorageId = item.storageId
                             root.selectedNoteId = ""
