@@ -61,6 +61,13 @@ else()
     FILES ${CMAKE_SOURCE_DIR}/libanykeep/images/anykeep.svg
     DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/scalable/apps
     COMPONENT Executable)
+  foreach(icon_size 16 22 24 32 48 64)
+    install(
+      FILES ${CMAKE_SOURCE_DIR}/libanykeep/images/anykeep${icon_size}.png
+      DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/${icon_size}x${icon_size}/apps
+      RENAME anykeep.png
+      COMPONENT Executable)
+  endforeach()
   install(
     FILES ${CMAKE_SOURCE_DIR}/libanykeep/images/anykeep-symbolic.svg
     DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/symbolic/apps
