@@ -147,6 +147,15 @@ Item {
         dirty = true
     }
 
+    function editConditionValue(index, value) {
+        if (index < 0 || index >= editedConditions.length)
+            return
+        // Replacing editedConditions here would make the Repeater recreate
+        // its delegate after every keystroke and discard the field's focus.
+        editedConditions[index].value = String(value)
+        dirty = true
+    }
+
     function replaceAction(index, changes) {
         const entries = cloneEntries(editedActions)
         if (index < 0 || index >= entries.length)
@@ -538,6 +547,8 @@ Item {
                                     model: root.editedConditions
 
                                     delegate: RowLayout {
+                                        id: conditionRow
+
                                         required property int index
                                         required property var modelData
                                         readonly property var condition: modelData
@@ -557,10 +568,11 @@ Item {
                                             }
                                         }
                                         TextField {
+                                            objectName: "ruleConditionValue-" + conditionRow.index
                                             Layout.fillWidth: true
                                             text: String(condition.value || "")
                                             placeholderText: qsTr("Value")
-                                            onTextEdited: root.replaceCondition(parent.index, { value: text })
+                                            onTextEdited: root.editConditionValue(conditionRow.index, text)
                                         }
                                         CheckBox {
                                             text: qsTr("Not")

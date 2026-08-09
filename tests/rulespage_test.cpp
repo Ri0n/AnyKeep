@@ -22,6 +22,7 @@ private slots:
     void loadsWithAnEmptyRuleStore();
     void loadsWithAnEditableRule();
     void savesPendingEditsThroughPublicMethod();
+    void conditionValueEditorKeepsFocusWhileTyping();
     void reordersRulesWithSharedAnimation();
 };
 
@@ -141,6 +142,54 @@ void RulesPageTest::savesPendingEditsThroughPublicMethod()
     QCOMPARE(rule->name, QStringLiteral("Secret notes"));
     QCOMPARE(rule->conditions.constFirst().value, QStringLiteral("*secret*"));
     QCOMPARE(rule->actions.constFirst().folderId, addedFolder.value);
+}
+
+void RulesPageTest::conditionValueEditorKeepsFocusWhileTyping()
+{
+    RuleEnvironment environment;
+    RulesController controller(&environment.rules, &environment.folders);
+    const auto      ruleId = controller.createRule();
+    QVERIFY(!ruleId.isEmpty());
+
+    QQuickWidget view;
+    view.resize(760, 520);
+    view.setResizeMode(QQuickWidget::SizeRootObjectToView);
+    view.rootContext()->setContextProperty(QStringLiteral("rulesController"), &controller);
+    view.setSource(QUrl(QStringLiteral("qrc:/qml/RulesPage.qml")));
+    QCOMPARE(view.status(), QQuickWidget::Ready);
+    view.show();
+
+    auto *root = qobject_cast<QQuickItem *>(view.rootObject());
+    QVERIFY(root);
+    QTRY_COMPARE(root->property("selectedRuleId").toString(), ruleId);
+    root->setProperty("editedConditions",
+                      QVariantList {
+                          QVariantMap {
+                              { QStringLiteral("kind"), int(NoteRuleConditionKind::HasTag) },
+                              { QStringLiteral("value"), QStringLiteral("old") },
+                              { QStringLiteral("negated"), false },
+                          },
+                      });
+
+    QQuickItem *valueField = nullptr;
+    QTRY_VERIFY(valueField = quickItemByName(root, QStringLiteral("ruleConditionValue-0")));
+    valueField->forceActiveFocus(Qt::MouseFocusReason);
+    QTRY_VERIFY(valueField->hasActiveFocus());
+    QTest::keyClick(&view, Qt::Key_A, Qt::ControlModifier);
+    for (const QChar character : QStringLiteral("tag")) {
+        QTest::keyClicks(&view, QString(character));
+        QCoreApplication::processEvents();
+        QVERIFY(valueField->hasActiveFocus());
+    }
+    QCOMPARE(valueField->property("text").toString(), QStringLiteral("tag"));
+
+    QVariant saved;
+    QVERIFY(QMetaObject::invokeMethod(root, "saveCurrent", Q_RETURN_ARG(QVariant, saved)));
+    QVERIFY(saved.toBool());
+    const auto *rule = environment.rules.rule(QUuid(ruleId));
+    QVERIFY(rule);
+    QCOMPARE(rule->conditions.constFirst().kind, NoteRuleConditionKind::HasTag);
+    QCOMPARE(rule->conditions.constFirst().value, QStringLiteral("tag"));
 }
 
 void RulesPageTest::reordersRulesWithSharedAnimation()
