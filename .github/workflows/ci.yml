@@ -21,7 +21,7 @@ env:
 jobs:
   windows:
     name: Windows / Visual Studio 2022 / current Qt
-    runs-on: windows-2025
+    runs-on: windows-2022
     timeout-minutes: 90
     defaults:
       run:

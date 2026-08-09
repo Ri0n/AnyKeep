@@ -1213,9 +1213,9 @@ private slots:
 
         const QPointF afterParagraphSwitch(attachFrom.x(), paragraphSwitchY + 2);
         QTest::mouseMove(&quick, afterParagraphSwitch.toPoint(), 15);
-        QCOMPARE(controller->property("targetKind").toString(), QStringLiteral("list"));
-        QCOMPARE(controller->property("targetItem").toInt(), 0);
-        QVERIFY(controller->property("blockAnimationActive").toBool());
+        QTRY_COMPARE(controller->property("targetKind").toString(), QStringLiteral("list"));
+        QTRY_COMPARE(controller->property("targetItem").toInt(), 0);
+        QTRY_VERIFY(controller->property("blockAnimationActive").toBool());
         QTRY_VERIFY_WITH_TIMEOUT(following->property("reorderOffset").toReal() < -1
                                      && following->property("reorderOffset").toReal() >= -structuralExtent - 1,
                                  200);

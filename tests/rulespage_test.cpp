@@ -37,8 +37,12 @@ struct RuleEnvironment {
     RuleEnvironment()
     {
         Q_ASSERT(directory.isValid());
-        Q_ASSERT(folders.initialize());
-        Q_ASSERT(rules.initialize());
+        const bool foldersInitialized = folders.initialize();
+        const bool rulesInitialized   = rules.initialize();
+        Q_ASSERT(foldersInitialized);
+        Q_ASSERT(rulesInitialized);
+        Q_UNUSED(foldersInitialized);
+        Q_UNUSED(rulesInitialized);
     }
 };
 
