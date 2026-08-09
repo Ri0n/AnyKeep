@@ -340,9 +340,20 @@ void NotesManagerQmlTest::folderInlineRenameSurvivesDelegateReuseInQuickWindow()
         renameRow = candidateRow;
         return rename->hasActiveFocus();
     };
-    QTRY_VERIFY(currentRenameFieldIsEditing());
+    const auto renameState = [&]() {
+        auto *candidate = quick.activeFocusItem();
+        auto *inboxRow  = quickVisibleItemByName(page, QStringLiteral("foldersRow-folder-inbox"));
+        return QStringLiteral("active=%1 row=%2 editing=%3 pooled=%4 visible=%5 pageEditing=%6")
+            .arg(candidate ? candidate->objectName() : QStringLiteral("<none>"),
+                 inboxRow ? inboxRow->property("groupId").toString() : QStringLiteral("<none>"),
+                 inboxRow ? inboxRow->property("editing").toString() : QStringLiteral("<none>"),
+                 inboxRow ? inboxRow->property("inReusePool").toString() : QStringLiteral("<none>"),
+                 inboxRow ? inboxRow->property("visible").toString() : QStringLiteral("<none>"),
+                 page->property("editingFolderId").toString());
+    };
+    QTRY_VERIFY2(currentRenameFieldIsEditing(), qPrintable(renameState()));
     QTest::qWait(80);
-    QTRY_VERIFY(currentRenameFieldIsEditing());
+    QTRY_VERIFY2(currentRenameFieldIsEditing(), qPrintable(renameState()));
     QCOMPARE(page->property("editingFolderId").toString(), QStringLiteral("inbox"));
 
     rename->setProperty("text", QStringLiteral("Reusable Inbox"));

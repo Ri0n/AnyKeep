@@ -76,6 +76,7 @@ void FileDraftStoreTest::roundTrip()
     const auto encrypted = file.readAll();
     QVERIFY(!encrypted.contains(record.title.toUtf8()));
     QVERIFY(!encrypted.contains(record.body.toUtf8()));
+    file.close();
 
     auto loaded = store.load(record.id);
     QVERIFY2(loaded, qPrintable(loaded.error.message));
@@ -176,7 +177,7 @@ void FileDraftStoreTest::copyConflictResolution()
     auto                 record = sampleRecord();
     CopyConflictResolver resolver;
     bool                 invoked = false;
-    resolver.resolve({ record, {}, QStringLiteral("conflict") }, [&](ConflictResolution resolution) {
+    resolver.resolve({ record, { }, QStringLiteral("conflict") }, [&](ConflictResolution resolution) {
         invoked = true;
         QCOMPARE(resolution.action, ConflictResolution::CreateCopy);
         QVERIFY(resolution.copyTitle.startsWith(record.title + QStringLiteral(" (conflict ")));

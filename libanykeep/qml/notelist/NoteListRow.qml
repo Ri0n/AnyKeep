@@ -105,17 +105,18 @@ SwipeDelegate {
     Component.onCompleted: collection.registerRow(row)
     TableView.onPooled: row.inReusePool = true
     TableView.onReused: row.inReusePool = false
-    onEditingChanged: {
-        if (editing) {
-            // TreeView can recycle the initially focused rename delegate
-            // after the page-level focus retry has already succeeded. The
-            // replacement delegate owns the same editing identity and must
-            // reclaim focus once its updated roles and visibility settle.
-            Qt.callLater(function() {
-                if (row.editing)
-                    row.focusRenameField()
-            })
-        }
+    onGroupIdChanged: scheduleRenameFocusAfterReuse()
+    onInReusePoolChanged: scheduleRenameFocusAfterReuse()
+
+    function scheduleRenameFocusAfterReuse() {
+        if (!editing)
+            return
+        // TreeView can recycle the initially focused rename delegate after the page-level focus retry has already
+        // succeeded. Wait until its identity, pool state, and visibility bindings settle before reclaiming focus.
+        Qt.callLater(function() {
+            if (row.editing && !renameField.activeFocus)
+                row.focusRenameField()
+        })
     }
     onNoteIdChanged: closeDeleteSwipe()
     onSwipeDeleteAvailableChanged: {
@@ -123,21 +124,24 @@ SwipeDelegate {
             closeDeleteSwipe()
     }
     Component.onDestruction: {
-        if (internalDragActive)
+        if (internalDragActive && collection)
             collection.cancelDrag("source-destroyed")
-        collection.unregisterRow(row)
+        if (collection)
+            collection.unregisterRow(row)
     }
 
     Reorder.ReorderDisplacement {
         id: displacement
 
-        animationEnabled: collection.dragging && !collection.committingDrop
+        animationEnabled: Boolean(row.collection)
+                          && row.collection.dragging
+                          && !row.collection.committingDrop
         sourceActive: row.sourceActive
         targetBefore: row.dropBefore
         targetAfter: row.dropAfter
         naturalExtent: row.baseHeight
-        draggedExtent: collection.draggedExtent
-        displacement: collection.rowTranslation(row)
+        draggedExtent: row.collection ? row.collection.draggedExtent : row.baseHeight
+        displacement: row.collection ? row.collection.rowTranslation(row) : 0
     }
 
     background: Rectangle {
@@ -276,10 +280,23 @@ SwipeDelegate {
             selectByMouse: true
             verticalAlignment: TextInput.AlignVCenter
             onAccepted: row.commitRename()
-            onEditingFinished: row.commitRename()
+            onEditingFinished: renameCommitTimer.restart()
             Keys.onEscapePressed: function(event) {
+                renameCommitTimer.stop()
                 collection.cancelGroupRename(row)
                 event.accepted = true
+            }
+        }
+
+        Timer {
+            id: renameCommitTimer
+
+            interval: 50
+            onTriggered: {
+                // TreeView pooling briefly removes focus from an otherwise active editor. Give a reused delegate time
+                // to reclaim it; a real click outside leaves the field unfocused and still commits normally.
+                if (row.editing && !renameField.activeFocus)
+                    row.commitRename()
             }
         }
 
@@ -340,6 +357,7 @@ SwipeDelegate {
     function focusRenameField() {
         if (!row.editing || !renameField.visible || !row.visible)
             return false
+        renameCommitTimer.stop()
         renameField.forceActiveFocus()
         renameField.selectAll()
         return renameField.activeFocus
@@ -417,8 +435,9 @@ SwipeDelegate {
 
         acceptedButtons: Qt.LeftButton
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-        enabled: row.noteRow && !collection.touchActions
-                 && !collection.dragSelectionSuppressed && !row.editing
+        enabled: Boolean(row.collection) && row.noteRow
+                 && !row.collection.touchActions
+                 && !row.collection.dragSelectionSuppressed && !row.editing
         gesturePolicy: TapHandler.DragThreshold
         onTapped: function(eventPoint, button) {
             row.claimInteractionFocus()
@@ -430,8 +449,9 @@ SwipeDelegate {
     TapHandler {
         acceptedButtons: Qt.LeftButton
         acceptedDevices: PointerDevice.Mouse
-        enabled: row.noteRow && collection.embeddedEditor
-                 && !collection.dragSelectionSuppressed
+        enabled: Boolean(row.collection) && row.noteRow
+                 && row.collection.embeddedEditor
+                 && !row.collection.dragSelectionSuppressed
         onDoubleTapped: collection.openStandalone(row)
     }
 

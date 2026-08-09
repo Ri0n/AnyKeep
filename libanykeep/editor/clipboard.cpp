@@ -72,6 +72,9 @@ namespace {
                 const QString markdown = NoteTransferController::markdownForFragment(fragment, &error);
                 if (!error.isEmpty())
                     return false;
+                // The Windows clipboard can synthesize CF_UNICODETEXT from HTML and prefer it over an explicitly
+                // replaced text/plain payload. Plain-text Markdown copies must not advertise HTML there.
+                exported.mimeData->removeFormat(QStringLiteral("text/html"));
                 exported.mimeData->setText(markdown);
             }
             clipboard->setMimeData(exported.mimeData.release(), mode);

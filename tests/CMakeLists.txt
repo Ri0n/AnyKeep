@@ -236,6 +236,14 @@ foreach(anykeep_test_target IN LISTS anykeep_test_targets)
     list(APPEND anykeep_test_executable_targets ${anykeep_test_target})
   endif()
 endforeach()
+
+# Windows resolves DLL dependencies from the executable directory before PATH. Keep test executables beside anykeep.dll
+# so CTest, Qt Creator, and direct runs all use the same runtime tree.
+if(WIN32)
+  set_target_properties(${anykeep_test_executable_targets} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                                      "${EXECUTABLE_OUTPUT_PATH}")
+endif()
+
 add_custom_target(anykeep_all_tests DEPENDS ${anykeep_test_executable_targets})
 
 # Keep every test independent of the developer's active display server.  This also covers new QTEST_MAIN-based tests
