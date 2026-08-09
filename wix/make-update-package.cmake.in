@@ -34,14 +34,33 @@ set(latest_manifest_path "${OUTPUT_ROOT}/windows-x86_64.json")
 set(admin_root "${WORK_ROOT}/admin-image")
 set(msi_log "${WORK_ROOT}/administrative-install.log")
 
+# Windows Installer still fails administrative installations at the classic
+# path-length limit. A build directory may itself have a long Qt Creator kit
+# name, and the extracted FluentWinUI3 paths are deep. Use TEMP only for the
+# disposable administrative image; artifacts and its diagnostic log remain in
+# the caller-selected build tree.
+if(DEFINED ENV{TEMP} AND NOT "$ENV{TEMP}" STREQUAL "")
+    set(admin_root "$ENV{TEMP}/anykeep-msi-admin-${CHANNEL}-${VERSION}")
+endif()
+
+# msiexec treats a source package path containing forward slashes as an
+# invalid installer on some Windows versions, even though the same path is
+# valid to CMake and the filesystem APIs. Keep the CMake paths portable for
+# file operations, but pass native Windows paths to Windows Installer.
+cmake_path(CONVERT "${PACKAGE_PATH}" TO_NATIVE_PATH_LIST package_path_native NORMALIZE)
+cmake_path(CONVERT "${admin_root}" TO_NATIVE_PATH_LIST admin_root_native NORMALIZE)
+cmake_path(CONVERT "${msi_log}" TO_NATIVE_PATH_LIST msi_log_native NORMALIZE)
+
 file(REMOVE_RECURSE "${WORK_ROOT}")
-file(MAKE_DIRECTORY "${admin_root}" "${OUTPUT_ROOT}")
+file(REMOVE_RECURSE "${admin_root}")
+file(MAKE_DIRECTORY "${WORK_ROOT}" "${admin_root}" "${OUTPUT_ROOT}")
 
 # The updater uses the same Windows Installer administrative-image path on the
 # client. Exercise it before publishing so a malformed WiX layout cannot
 # produce a manifest for an unusable update payload.
 execute_process(
-    COMMAND "${MSIEXEC_EXECUTABLE}" /a "${PACKAGE_PATH}" /qn /norestart "TARGETDIR=${admin_root}" /L*V "${msi_log}"
+    COMMAND "${MSIEXEC_EXECUTABLE}" /a "${package_path_native}" /qn /norestart
+            "TARGETDIR=${admin_root_native}" /L*V "${msi_log_native}"
     RESULT_VARIABLE admin_result
 )
 if(NOT admin_result EQUAL 0)
@@ -120,7 +139,7 @@ file(WRITE "${latest_manifest_path}.tmp" "${manifest}")
 file(RENAME "${latest_manifest_path}.tmp" "${latest_manifest_path}")
 file(WRITE "${OUTPUT_ROOT}/SHA256SUMS.txt" "${package_sha256}  ${package_name}\n")
 
-file(REMOVE_RECURSE "${WORK_ROOT}")
+file(REMOVE_RECURSE "${admin_root}" "${WORK_ROOT}")
 
 message(STATUS "Windows update channel: ${CHANNEL}")
 message(STATUS "Windows update MSI: ${published_package_path}")
