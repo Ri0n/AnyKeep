@@ -13,11 +13,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  QT_VERSION: 6.10.2
+  QT_CURRENT_SERIES: "6.11.*"
 
 jobs:
   windows:
-    name: Windows / Visual Studio 2022
+    name: Windows / Visual Studio 2022 / current Qt
     runs-on: windows-2025
     timeout-minutes: 90
     defaults:
@@ -33,9 +33,9 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: ${{ env.QT_VERSION }}
+          version: ${{ env.QT_CURRENT_SERIES }}
           arch: win64_msvc2022_64
-          modules: qtmultimedia qttools
+          modules: qtmultimedia
           cache: true
 
       - name: Install Conan
@@ -58,7 +58,7 @@ jobs:
         run: ctest --test-dir build/windows -C Release --output-on-failure --timeout 180
 
   linux:
-    name: Linux / GCC
+    name: Linux / Ubuntu 24.04 system Qt
     runs-on: ubuntu-24.04
     timeout-minutes: 75
 
@@ -78,14 +78,23 @@ jobs:
             libssl-dev \
             libx11-dev \
             ninja-build \
-            pkg-config
+            pkg-config \
+            qml6-module-qtquick \
+            qml6-module-qtquick-controls \
+            qml6-module-qtquick-layouts \
+            qml6-module-qtquick-window \
+            qt6-base-dev \
+            qt6-declarative-dev \
+            qt6-l10n-tools \
+            qt6-multimedia-dev \
+            qt6-svg-dev \
+            qt6-tools-dev \
+            qt6-tools-dev-tools
 
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          modules: qtmultimedia qttools
-          cache: true
+      - name: Report system Qt
+        run: |
+          qmake6 -query QT_VERSION
+          cmake --version
 
       - name: Configure
         run: |
@@ -104,7 +113,7 @@ jobs:
         run: ctest --test-dir build/linux --output-on-failure --timeout 180
 
   macos:
-    name: macOS / Intel compile check
+    name: macOS / Intel / current Qt compile check
     runs-on: macos-15-intel
     timeout-minutes: 75
 
@@ -117,8 +126,8 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: ${{ env.QT_VERSION }}
-          modules: qtmultimedia qttools
+          version: ${{ env.QT_CURRENT_SERIES }}
+          modules: qtmultimedia
           cache: true
 
       - name: Ensure OpenSSL 3 is available
