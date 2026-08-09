@@ -41,7 +41,11 @@ endif()
 if(WIN32)
   install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "." COMPONENT Executable)
   windeployqt(${PROJECT_NAME})
-else(WIN32)
+elseif(APPLE)
+  # MACOSX_BUNDLE targets require an explicit BUNDLE destination. Keep Linux desktop integration files out of the .app
+  # installation. Packaging/notarizing the bundle is handled separately from this basic install rule.
+  install(TARGETS ${PROJECT_NAME} BUNDLE DESTINATION "." COMPONENT Executable)
+else()
   install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT Executable)
   configure_file(${CMAKE_CURRENT_SOURCE_DIR}/com.github.ri0n.AnyKeep.service.in
                  ${CMAKE_CURRENT_BINARY_DIR}/com.github.ri0n.AnyKeep.service @ONLY)

@@ -14,6 +14,9 @@ concurrency:
 
 env:
   QT_CURRENT_SERIES: "6.11.*"
+  # aqtinstall 3.3.0 cannot read the new Windows Qt 6.11 repository layout.
+  # PR #1000 contains the upstream fix; remove this override after aqt releases it.
+  AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
 
 jobs:
   windows:
@@ -35,7 +38,8 @@ jobs:
         with:
           version: ${{ env.QT_CURRENT_SERIES }}
           arch: win64_msvc2022_64
-          modules: qtmultimedia
+          modules: qtmultimedia qttasktree
+          aqtsource: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
           cache: true
 
       - name: Install Conan
@@ -58,9 +62,19 @@ jobs:
         run: ctest --test-dir build/windows -C Release --output-on-failure --timeout 180
 
   linux:
-    name: Linux / Ubuntu 24.04 system Qt
-    runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    name: Linux / ${{ matrix.label }} / system Qt
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            label: Ubuntu 24.04
+            build_dir: build/linux-24.04
+          - runner: ubuntu-26.04
+            label: Ubuntu 26.04
+            build_dir: build/linux-26.04
 
     steps:
       - name: Checkout
@@ -72,6 +86,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            build-essential \
             gettext \
             libgl1-mesa-dev \
             libhunspell-dev \
@@ -91,14 +106,16 @@ jobs:
             qt6-tools-dev \
             qt6-tools-dev-tools
 
-      - name: Report system Qt
+      - name: Report system Qt and compilers
         run: |
           qmake6 -query QT_VERSION
+          cc --version
+          c++ --version
           cmake --version
 
       - name: Configure
         run: |
-          cmake -S . -B build/linux -G Ninja \
+          cmake -S . -B "${{ matrix.build_dir }}" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DANYKEEP_BUILD_BUNDLED_QCA=ON \
             -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON \
@@ -107,10 +124,10 @@ jobs:
             -DBUILD_TESTING=ON
 
       - name: Build
-        run: cmake --build build/linux --parallel 4
+        run: cmake --build "${{ matrix.build_dir }}" --parallel 4
 
       - name: Test
-        run: ctest --test-dir build/linux --output-on-failure --timeout 180
+        run: ctest --test-dir "${{ matrix.build_dir }}" --output-on-failure --timeout 180
 
   macos:
     name: macOS / Intel / current Qt compile check
@@ -127,7 +144,9 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_CURRENT_SERIES }}
-          modules: qtmultimedia
+          # Qt 6.11's QmlAssetDownloaderPrivate plugin depends on the new
+          # TaskTree addon even though AnyKeep does not use TaskTree directly.
+          modules: qtmultimedia qttasktree
           cache: true
 
       - name: Ensure OpenSSL 3 is available

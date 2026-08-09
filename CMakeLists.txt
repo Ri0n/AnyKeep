@@ -24,7 +24,7 @@ message(STATUS "libanykeep ABI version: ${ANYKEEP_ABI_VERSION}")
 project(
   ${APP_NAME}
   VERSION ${ANYKEEP_VERSION}
-  LANGUAGES CXX)
+  LANGUAGES C CXX)
 
 include(ConanDependencies)
 anykeep_setup_conan_dependencies()

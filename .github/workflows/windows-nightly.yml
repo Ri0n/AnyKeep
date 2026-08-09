@@ -15,6 +15,8 @@ concurrency:
 env:
   QT_CURRENT_SERIES: "6.11.*"
   WIX_VERSION: 6.0.2
+  # Temporary until aqtinstall releases Qt 6.11+ Windows repository support.
+  AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
 
 jobs:
   package:
@@ -36,7 +38,8 @@ jobs:
         with:
           version: ${{ env.QT_CURRENT_SERIES }}
           arch: win64_msvc2022_64
-          modules: qtmultimedia
+          modules: qtmultimedia qttasktree
+          aqtsource: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
           cache: true
 
       - name: Install Conan
