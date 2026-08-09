@@ -128,15 +128,17 @@ void XmppSettingsController::setOmemoDevices(const XmppDeviceInfo &ownDevice, bo
     repairAvailable_ = ownDevice.deviceId && !ownBundleValid;
     omemoDeviceLabels_.clear();
     omemoDeviceKeys_.clear();
+    omemoDeviceIds_.clear();
     for (const auto &device : devices) {
-        if (device.keyId.isEmpty())
-            continue;
-        const auto label = device.label.isEmpty() ? tr("Unnamed device") : device.label;
-        omemoDeviceLabels_.append(QStringLiteral("OMEMO %1 — %2 — %3 — trust %4")
+        const auto label       = device.label.isEmpty() ? tr("Unnamed device") : device.label;
+        const auto fingerprint = device.keyId.isEmpty() ? tr("fingerprint unavailable")
+                                                        : QString::fromLatin1(device.keyId.left(8).toHex());
+        omemoDeviceLabels_.append(tr("OMEMO ID %1 — client label/resource: %2 — %3 — trust %4")
                                       .arg(device.deviceId)
-                                      .arg(label, QString::fromLatin1(device.keyId.left(8).toHex()))
+                                      .arg(label, fingerprint)
                                       .arg(device.trustLevel));
         omemoDeviceKeys_.append(device.keyId);
+        omemoDeviceIds_.append(device.deviceId);
     }
     setOmemoStatus(message);
     emit omemoDevicesChanged();
@@ -151,9 +153,16 @@ void XmppSettingsController::requestRepairOmemoDevice() { emit repairOmemoDevice
 
 void XmppSettingsController::requestTrustOmemoDevice(int index)
 {
-    if (index < 0 || index >= omemoDeviceKeys_.size())
+    if (index < 0 || index >= omemoDeviceKeys_.size() || omemoDeviceKeys_.at(index).isEmpty())
         return;
     emit trustOmemoDeviceRequested(jid(), omemoDeviceKeys_.at(index));
+}
+
+void XmppSettingsController::requestRemoveOmemoDevice(int index)
+{
+    if (index < 0 || index >= omemoDeviceIds_.size() || !omemoDeviceIds_.at(index))
+        return;
+    emit removeOmemoDeviceRequested(jid(), omemoDeviceIds_.at(index));
 }
 
 void XmppSettingsController::setCleanupScanResult(XmppCleanupResult result)

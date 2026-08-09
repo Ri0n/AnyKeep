@@ -111,7 +111,7 @@ NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderC
         if (!pendingMoves_.contains(draftId))
             return;
         const auto move = pendingMoves_.take(draftId);
-        completePendingReorderMove(move.reorderBatchId, move.reorderIndex, { });
+        completePendingReorderMove(move.reorderBatchId, move.reorderIndex, {});
         setError(message);
         endOperation();
     });
@@ -137,7 +137,7 @@ QString NotesWorkspaceController::currentNoteId() const
 QString NotesWorkspaceController::currentTitle() const
 {
     if (!currentEditor_)
-        return { };
+        return {};
     return Utils::splitTitle(currentEditor_->text()).first.trimmed();
 }
 QString NotesWorkspaceController::currentFolderId() const
@@ -179,7 +179,7 @@ QString NotesWorkspaceController::lastTrashedFolderName() const
                 return folder.name;
         }
     }
-    return { };
+    return {};
 }
 
 bool NotesWorkspaceController::canUndoFolderTrash() const
@@ -191,7 +191,7 @@ bool NotesWorkspaceController::canUndoFolderTrash() const
 QString NotesWorkspaceController::lastTrashedItemName() const
 {
     if (trashUndoEntries_.isEmpty())
-        return { };
+        return {};
     const auto &entry = trashUndoEntries_.constLast();
     if (entry.kind == TrashUndoEntry::NoteTrash)
         return entry.title;
@@ -199,7 +199,7 @@ QString NotesWorkspaceController::lastTrashedItemName() const
         if (folder.id == entry.folderBranch.rootId)
             return folder.name;
     }
-    return { };
+    return {};
 }
 
 QVariantList NotesWorkspaceController::storages() const

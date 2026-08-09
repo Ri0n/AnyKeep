@@ -211,6 +211,27 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController 
                                         });
                                 });
                         },
+                        [this, epoch](quint32 deviceId, XmppKeyResolutionController::StatusCompletion completion) {
+                            QMetaObject::invokeMethod(
+                                backend_, [this, epoch, deviceId, completion = std::move(completion)]() mutable {
+                                    if (shuttingDown_ || epoch != configEpoch_)
+                                        return;
+                                    backend_->removeOwnOmemoDeviceAsync(
+                                        deviceId,
+                                        [this, epoch,
+                                         completion = std::move(completion)](XmppStatusResult result) mutable {
+                                            QMetaObject::invokeMethod(
+                                                this,
+                                                [this, epoch, completion = std::move(completion),
+                                                 result = std::move(result)]() mutable {
+                                                    if (shuttingDown_ || epoch != configEpoch_)
+                                                        return;
+                                                    completion(std::move(result));
+                                                },
+                                                Qt::QueuedConnection);
+                                        });
+                                });
+                        },
                         [this, epoch](XmppKeyResolutionController::AuditCompletion completion) {
                             QMetaObject::invokeMethod(
                                 backend_, [this, epoch, completion = std::move(completion)]() mutable {
@@ -252,13 +273,22 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController 
                                         });
                                 });
                         },
+                        qBound(15000, readConfig().timeoutMs * 3, 120000),
+                        [](XmppKeyResolutionController::KeyCompletion completion) {
+                            XmppStatusResult result;
+                            result.ok      = true;
+                            const auto key = SecureEnvelope::generateMasterKey();
+                            completion(std::move(result), key,
+                                                 SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes));
+                        },
                         this);
 
                     keyResolutionController_ = controller;
                     connect(controller, &XmppKeyResolutionController::finished, this,
                             [this, controller, jid, settingsGuard, epoch](bool accepted) {
-                                const auto rekeyed   = controller->rekeyResult();
-                                const auto canonical = controller->canonicalKey();
+                                const auto rekeyed    = controller->rekeyResult();
+                                const auto canonical  = controller->canonicalKey();
+                                const auto freshStart = controller->freshStart();
                                 if (keyResolutionController_ == controller)
                                     keyResolutionController_.clear();
                                 keyResolutionInProgress_ = false;
@@ -277,7 +307,10 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController 
                                 if (settingsGuard) {
                                     settingsGuard->setKeyState(
                                         SecureEnvelope::keyId(canonical, KeyDerivationProfile::PrivateNotes),
-                                        tr("Recovery complete: %1 notes use the canonical key").arg(rekeyed.migrated));
+                                        freshStart
+                                            ? tr("New empty storage created; old encrypted notes were left unchanged")
+                                            : tr("Recovery complete: %1 notes use the canonical key")
+                                                  .arg(rekeyed.migrated));
                                 }
                             });
                     dialogPresenter_->presentKeyResolution(controller);

@@ -46,10 +46,10 @@ public:
     NotesModel(FolderCatalogManager *folderCatalogManager, QObject *parent);
     ~NotesModel() override;
 
-    QModelIndex            index(int row, int column, const QModelIndex &parent = { }) const override;
+    QModelIndex            index(int row, int column, const QModelIndex &parent = {}) const override;
     QModelIndex            parent(const QModelIndex &index) const override;
-    int                    rowCount(const QModelIndex &parent = { }) const override;
-    int                    columnCount(const QModelIndex &parent = { }) const override;
+    int                    rowCount(const QModelIndex &parent = {}) const override;
+    int                    columnCount(const QModelIndex &parent = {}) const override;
     QVariant               data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     Qt::ItemFlags          flags(const QModelIndex &index) const override;
     QHash<int, QByteArray> roleNames() const override;
@@ -69,7 +69,7 @@ public:
     Q_INVOKABLE void        refresh();
     Q_INVOKABLE void        refreshStorage(const QString &storageId);
     Q_INVOKABLE bool        fetchMoreNear(const QString &storageId, const QString &lastVisibleNoteId);
-    Q_INVOKABLE QVariantMap itemData(int row, const QModelIndex &parent = { }) const;
+    Q_INVOKABLE QVariantMap itemData(int row, const QModelIndex &parent = {}) const;
     void                    setSearchActive(bool active);
 
 public slots:

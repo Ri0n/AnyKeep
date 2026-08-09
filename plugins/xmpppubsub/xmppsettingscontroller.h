@@ -56,6 +56,7 @@ public:
     Q_INVOKABLE void requestOmemoDevices();
     Q_INVOKABLE void requestRepairOmemoDevice();
     Q_INVOKABLE void requestTrustOmemoDevice(int index);
+    Q_INVOKABLE void requestRemoveOmemoDevice(int index);
     Q_INVOKABLE void requestScanObsoleteItems();
     Q_INVOKABLE void requestDeleteObsoleteItems();
 
@@ -72,6 +73,7 @@ signals:
     void omemoSyncRequested(const QString &jid);
     void omemoDevicesRequested(const QString &jid);
     void trustOmemoDeviceRequested(const QString &jid, const QByteArray &keyId);
+    void removeOmemoDeviceRequested(const QString &jid, quint32 deviceId);
     void repairOmemoDeviceRequested(const QString &jid);
     void scanObsoleteItemsRequested(const QString &jid);
     void deleteObsoleteItemsRequested(const QString &jid, const QStringList &indexItemIds,
@@ -90,6 +92,7 @@ private:
     QString               omemoStatus_;
     QStringList           omemoDeviceLabels_;
     QList<QByteArray>     omemoDeviceKeys_;
+    QList<quint32>        omemoDeviceIds_;
     bool                  repairAvailable_ { false };
     QString               cleanupStatus_;
     bool                  cleanupBusy_ { false };

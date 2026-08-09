@@ -452,6 +452,40 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
                     });
                 });
             });
+    connect(
+        widget, &XmppSettingsController::removeOmemoDeviceRequested, this,
+        [this, widget](const QString &jid, quint32 deviceId) {
+            if (jid != config_.jid) {
+                widget->setOmemoStatus(tr("Apply the account settings before removing an OMEMO device"));
+                return;
+            }
+            const auto                       config = config_;
+            const auto                       epoch  = configEpoch_;
+            QPointer<XmppSettingsController> guard(widget);
+            QMetaObject::invokeMethod(backend_, [this, guard, config, deviceId, epoch]() {
+                if (shuttingDown_ || epoch != configEpoch_)
+                    return;
+                backend_->setConfig(config);
+                backend_->removeOwnOmemoDeviceAsync(deviceId, [this, guard, deviceId, epoch](XmppStatusResult result) {
+                    if (shuttingDown_ || epoch != configEpoch_)
+                        return;
+                    QMetaObject::invokeMethod(
+                        this,
+                        [guard, deviceId, result]() {
+                            if (!guard)
+                                return;
+                            guard->setOmemoStatus(
+                                result.ok ? (result.error.isEmpty()
+                                                 ? XmppSettingsController::tr("OMEMO device %1 removed").arg(deviceId)
+                                                 : result.error)
+                                          : result.error);
+                            if (result.ok || result.notFound)
+                                emit guard->omemoDevicesRequested(guard->config().jid);
+                        },
+                        Qt::QueuedConnection);
+                });
+            });
+        });
     connect(widget, &XmppSettingsController::scanObsoleteItemsRequested, this, [this, widget](const QString &jid) {
         if (jid != config_.jid) {
             XmppCleanupResult result;

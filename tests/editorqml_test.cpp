@@ -1075,21 +1075,21 @@ private slots:
     void wholeListDragUsesItemLevelStructuralBoundaries()
     {
         const QString  document = QStringLiteral("title\n\n"
-                                                 "- sdfsdf\n"
-                                                 "- 4354\n"
-                                                 "- fdsf\n\n"
-                                                 "Another list\n\n"
-                                                 "1. 1111\n"
-                                                 "2. 2222\n\n"
-                                                 "### Later\n\n"
-                                                 "- [ ] review backlog\n"
-                                                 "- [ ] update documentation\n\n"
-                                                 "### Long term\n\n"
-                                                 "- recurring review\n"
-                                                 "- metrics review\n\n"
-                                                 "Reference work\n\n"
-                                                 "- add adapter\n"
-                                                 "- stream logs");
+                                                  "- sdfsdf\n"
+                                                  "- 4354\n"
+                                                  "- fdsf\n\n"
+                                                  "Another list\n\n"
+                                                  "1. 1111\n"
+                                                  "2. 2222\n\n"
+                                                  "### Later\n\n"
+                                                  "- [ ] review backlog\n"
+                                                  "- [ ] update documentation\n\n"
+                                                  "### Long term\n\n"
+                                                  "- recurring review\n"
+                                                  "- metrics review\n\n"
+                                                  "Reference work\n\n"
+                                                  "- add adapter\n"
+                                                  "- stream logs");
         NoteBlockModel model;
         model.load(document, true);
         QCOMPARE(model.rowCount(), 10);
@@ -1335,12 +1335,12 @@ private slots:
     void nestedListItemDragKeepsExactGapAndAnimatesParagraph()
     {
         const QString  document = QStringLiteral("list\n\n"
-                                                 "test\n\n"
-                                                 "- 1\n"
-                                                 "    - 2\n"
-                                                 "    - 3\n"
-                                                 "    - 4\n"
-                                                 "    - 5");
+                                                  "test\n\n"
+                                                  "- 1\n"
+                                                  "    - 2\n"
+                                                  "    - 3\n"
+                                                  "    - 4\n"
+                                                  "    - 5");
         NoteBlockModel model;
         model.load(document, true);
         QCOMPARE(model.rowCount(), 3);

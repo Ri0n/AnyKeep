@@ -88,6 +88,11 @@ void XmppWorker::repairOwnOmemoDeviceAsync(StatusCallback callback)
     repairOwnOmemoDeviceTask().then(std::move(callback));
 }
 
+void XmppWorker::removeOwnOmemoDeviceAsync(quint32 deviceId, StatusCallback callback)
+{
+    removeOwnOmemoDeviceTask(deviceId).then(std::move(callback));
+}
+
 void XmppWorker::trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback callback)
 {
     trustOwnOmemoDeviceTask(std::move(keyId)).then(std::move(callback));

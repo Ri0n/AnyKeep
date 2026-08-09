@@ -60,6 +60,7 @@ public:
     void           ownOmemoDevicesAsync(DevicesCallback callback) override;
     void           ownOmemoBundleValidAsync(StatusCallback callback) override;
     void           repairOwnOmemoDeviceAsync(StatusCallback callback) override;
+    void           removeOwnOmemoDeviceAsync(quint32 deviceId, StatusCallback callback) override;
     void           trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback callback) override;
     void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback) override;
     void           auditStorageKeysAsync(AuditCallback callback) override;
@@ -102,6 +103,7 @@ private:
     QCoro::Task<std::pair<QList<XmppDeviceInfo>, QString>> ownOmemoDevicesTask();
     QCoro::Task<XmppStatusResult>                          ownOmemoBundleValidTask();
     QCoro::Task<XmppStatusResult>                          repairOwnOmemoDeviceTask();
+    QCoro::Task<XmppStatusResult>                          removeOwnOmemoDeviceTask(quint32 deviceId);
     QCoro::Task<XmppStatusResult>                          trustOwnOmemoDeviceTask(QByteArray keyId);
     QCoro::Task<XmppStatusResult>                          trustOwnOmemoDevicesTask(QList<QByteArray> keyIds);
     QCoro::Task<std::pair<QStringList, QString>>           onlinePrivateNotesResourcesTask();

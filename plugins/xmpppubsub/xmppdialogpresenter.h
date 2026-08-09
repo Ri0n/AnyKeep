@@ -72,7 +72,7 @@ private:
 
     void          tryPresent();
     QObject      *createHost(const QUrl &componentUrl, QObject *controller);
-    QQuickWindow *presentationWindow();
+    QQuickWindow *presentationWindow(bool preferStandalone);
     QQmlEngine   *presentationEngine(QQuickWindow *window) const;
     void          releaseStandaloneWindowIfIdle();
     void          scheduleRetry();

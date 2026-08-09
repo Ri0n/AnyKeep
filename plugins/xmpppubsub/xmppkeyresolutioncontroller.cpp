@@ -40,6 +40,7 @@ public:
         SelectedRole,
         SelectableRole,
         TrustedRole,
+        DeviceIdRole,
     };
 
     explicit XmppDeviceSelectionModel(QList<XmppDeviceInfo> devices, QObject *parent = nullptr) :
@@ -71,6 +72,8 @@ public:
             return !trusted && !device.keyId.isEmpty();
         case TrustedRole:
             return trusted;
+        case DeviceIdRole:
+            return device.deviceId;
         default:
             return {};
         }
@@ -79,7 +82,8 @@ public:
     QHash<int, QByteArray> roleNames() const override
     {
         return { { LabelRole, "label" },       { FingerprintRole, "fingerprint" }, { TrustTextRole, "trustText" },
-                 { SelectedRole, "selected" }, { SelectableRole, "selectable" },   { TrustedRole, "trusted" } };
+                 { SelectedRole, "selected" }, { SelectableRole, "selectable" },   { TrustedRole, "trusted" },
+                 { DeviceIdRole, "deviceId" } };
     }
 
     void setSelected(int row, bool selected)
@@ -111,6 +115,18 @@ public:
                 return true;
         }
         return false;
+    }
+
+    quint32 deviceId(int row) const { return row >= 0 && row < devices_.size() ? devices_.at(row).deviceId : 0; }
+
+    void removeDevice(int row)
+    {
+        if (row < 0 || row >= devices_.size())
+            return;
+        beginRemoveRows({}, row, row);
+        devices_.removeAt(row);
+        selected_.removeAt(row);
+        endRemoveRows();
     }
 
 private:
@@ -184,12 +200,23 @@ private:
 
 XmppKeyResolutionController::XmppKeyResolutionController(bool localKeyMissing, const QList<XmppDeviceInfo> &devices,
                                                          const QString &deviceError, TrustDevices trustDevices,
-                                                         AuditKeys auditKeys, RekeyStorage rekeyStorage,
-                                                         QObject *parent) :
+                                                         RemoveDevice removeDevice, AuditKeys auditKeys,
+                                                         RekeyStorage rekeyStorage, int operationTimeoutMs,
+                                                         CreateStorageKey createStorageKey, QObject *parent) :
     QObject(parent), devicesModel_(new XmppDeviceSelectionModel(devices, this)),
-    keysModel_(new XmppStorageKeyModel(this)), trustDevices_(std::move(trustDevices)), auditKeys_(std::move(auditKeys)),
-    rekeyStorage_(std::move(rekeyStorage)), localKeyMissing_(localKeyMissing)
+    keysModel_(new XmppStorageKeyModel(this)), trustDevices_(std::move(trustDevices)),
+    removeDevice_(std::move(removeDevice)), auditKeys_(std::move(auditKeys)), rekeyStorage_(std::move(rekeyStorage)),
+    createStorageKey_(std::move(createStorageKey)), localKeyMissing_(localKeyMissing),
+    operationTimeoutMs_(qMax(1, operationTimeoutMs))
 {
+    operationTimer_.setSingleShot(true);
+    connect(&operationTimer_, &QTimer::timeout, this, [this]() {
+        if (!busy_ || completed_)
+            return;
+        ++operationToken_;
+        setBusy(false);
+        setDeviceStatus(operationTimeoutMessage_);
+    });
     setDeviceStatus(deviceError.isEmpty() ? tr("Found %1 OMEMO device(s) for this account.").arg(devices.size())
                                           : tr("Found %1 OMEMO device(s). %2").arg(devices.size()).arg(deviceError));
 }
@@ -211,6 +238,14 @@ bool XmppKeyResolutionController::canGoNext() const
     return true;
 }
 
+bool XmppKeyResolutionController::canCreateNewKey() const { return canStartFresh() && audit_.totalIndexItems == 0; }
+
+bool XmppKeyResolutionController::canStartFresh() const
+{
+    return !busy_ && !completed_ && currentPage_ == KeysPage && localKeyMissing_ && audit_.ok
+        && keysModel_->rowCount() == 0 && bool(createStorageKey_);
+}
+
 QString XmppKeyResolutionController::nextText() const
 {
     if (currentPage_ == ReviewPage)
@@ -226,6 +261,34 @@ void XmppKeyResolutionController::setDeviceSelected(int row, bool selected)
     emit navigationChanged();
 }
 
+void XmppKeyResolutionController::removeDevice(int row)
+{
+    if (busy_ || completed_ || !removeDevice_)
+        return;
+    const auto deviceId = devicesModel_->deviceId(row);
+    if (!deviceId)
+        return;
+
+    setDeviceStatus(tr("Removing OMEMO device %1…").arg(deviceId));
+    setBusy(true);
+    const auto token = beginDeviceOperation(
+        tr("Timed out while removing OMEMO device %1. Check the connection and retry.").arg(deviceId));
+    QPointer<XmppKeyResolutionController> guard(this);
+    removeDevice_(deviceId, [guard, token, row, deviceId](XmppStatusResult result) {
+        if (!guard || !guard->deviceOperationIsCurrent(token))
+            return;
+        guard->finishDeviceOperation(token);
+        if (!result.ok && !result.notFound) {
+            guard->setDeviceStatus(tr("Could not remove OMEMO device %1: %2").arg(deviceId).arg(result.error));
+            return;
+        }
+        guard->devicesModel_->removeDevice(row);
+        guard->setDeviceStatus(result.error.isEmpty() ? tr("OMEMO device %1 was removed.").arg(deviceId)
+                                                      : result.error);
+        emit guard->navigationChanged();
+    });
+}
+
 void XmppKeyResolutionController::selectKey(int row)
 {
     const auto *candidate = keysModel_->candidate(row);
@@ -235,6 +298,79 @@ void XmppKeyResolutionController::selectKey(int row)
     emit selectedKeyIndexChanged();
     updateSummary();
     emit navigationChanged();
+}
+
+void XmppKeyResolutionController::retryKeySearch()
+{
+    if (busy_ || completed_ || currentPage_ != KeysPage)
+        return;
+    devicesComplete_ = false;
+    keysModel_->setCandidates({});
+    audit_            = {};
+    selectedKeyIndex_ = -1;
+    emit selectedKeyIndexChanged();
+    setKeyStatus({});
+    setDeviceStatus(tr("Select a known device and request storage keys again."));
+    setCurrentPage(DevicesPage);
+}
+
+void XmppKeyResolutionController::createNewKey()
+{
+    if (!canCreateNewKey())
+        return;
+    freshStart_ = false;
+
+    setKeyStatus(tr("Creating a new storage key…"));
+    setBusy(true);
+    QPointer<XmppKeyResolutionController> guard(this);
+    createStorageKey_([guard](XmppStatusResult result, QByteArray key, QByteArray keyId) {
+        if (!guard || guard->completed_)
+            return;
+        guard->setBusy(false);
+        if (!result.ok || key.isEmpty() || keyId.isEmpty()) {
+            guard->setKeyStatus(result.error.isEmpty() ? guard->tr("Could not create a new storage key.")
+                                                       : result.error);
+            return;
+        }
+        guard->audit_.candidates.append({ guard->tr("This device (new key)"), key, keyId, 0, true });
+        guard->keysModel_->setCandidates(guard->audit_.candidates);
+        guard->selectedKeyIndex_ = 0;
+        emit guard->selectedKeyIndexChanged();
+        guard->setKeyStatus(
+            guard->freshStart_
+                ? guard->tr("A new storage key is ready. Existing encrypted notes will be left unchanged.")
+                : guard->tr("No published notes were found. A new storage key is ready to use."));
+        guard->updateSummary();
+        emit guard->navigationChanged();
+    });
+}
+
+void XmppKeyResolutionController::startFresh()
+{
+    if (!canStartFresh())
+        return;
+    freshStart_ = true;
+
+    setKeyStatus(tr("Creating a new storage key…"));
+    setBusy(true);
+    QPointer<XmppKeyResolutionController> guard(this);
+    createStorageKey_([guard](XmppStatusResult result, QByteArray key, QByteArray keyId) {
+        if (!guard || guard->completed_)
+            return;
+        guard->setBusy(false);
+        if (!result.ok || key.isEmpty() || keyId.isEmpty()) {
+            guard->setKeyStatus(result.error.isEmpty() ? guard->tr("Could not create a new storage key.")
+                                                       : result.error);
+            return;
+        }
+        guard->audit_.candidates.append({ guard->tr("This device (new key)"), key, keyId, 0, true });
+        guard->keysModel_->setCandidates(guard->audit_.candidates);
+        guard->selectedKeyIndex_ = 0;
+        emit guard->selectedKeyIndexChanged();
+        guard->setKeyStatus(guard->tr("A new storage key is ready. Existing encrypted notes will be left unchanged."));
+        guard->updateSummary();
+        emit guard->navigationChanged();
+    });
 }
 
 QByteArray XmppKeyResolutionController::canonicalKey() const
@@ -278,22 +414,30 @@ void XmppKeyResolutionController::next()
             return;
         }
 
-        setDeviceStatus(tr("Establishing trusted OMEMO sessions and requesting storage keys…"));
+        setDeviceStatus(tr("Establishing trusted OMEMO sessions…"));
         setBusy(true);
-        const auto                            selected = devicesModel_->selectedDeviceKeys();
+        const auto selected   = devicesModel_->selectedDeviceKeys();
+        const auto trustToken = beginDeviceOperation(
+            tr("Timed out while establishing OMEMO trust. Check the XMPP connection and retry."));
         QPointer<XmppKeyResolutionController> guard(this);
-        trustDevices_(selected, [guard](XmppStatusResult trusted) {
-            if (!guard || guard->completed_)
+        trustDevices_(selected, [guard, trustToken](XmppStatusResult trusted) {
+            if (!guard || !guard->deviceOperationIsCurrent(trustToken))
                 return;
+            guard->finishDeviceOperation(trustToken);
             if (!trusted.ok) {
-                guard->setBusy(false);
                 guard->setDeviceStatus(tr("Could not trust the selected device: %1").arg(trusted.error));
                 return;
             }
-            guard->auditKeys_([guard](XmppKeyAuditResult audit) {
-                if (!guard || guard->completed_)
+            guard->setDeviceStatus(tr("Requesting storage keys from online AnyKeep resources…"));
+            guard->setBusy(true);
+            const auto auditToken = guard->beginDeviceOperation(
+                tr("Timed out while requesting storage keys. XMPP does not provide a reliable mapping from an "
+                   "unresponsive resource to an OMEMO device ID, so no fingerprint can be identified. Start "
+                   "AnyKeep on another device and retry."));
+            guard->auditKeys_([guard, auditToken](XmppKeyAuditResult audit) {
+                if (!guard || !guard->deviceOperationIsCurrent(auditToken))
                     return;
-                guard->setBusy(false);
+                guard->finishDeviceOperation(auditToken);
                 if (!audit.ok) {
                     guard->setDeviceStatus(tr("Could not collect storage keys: %1").arg(audit.error));
                     return;
@@ -314,6 +458,18 @@ void XmppKeyResolutionController::next()
         setCurrentPage(ReviewPage);
         return;
     case ReviewPage: {
+        if (freshStart_) {
+            rekeyResult_.ok       = true;
+            rekeyResult_.total    = audit_.totalIndexItems;
+            rekeyResult_.migrated = 0;
+            resultText_ = tr("A new empty storage was created. %1 existing encrypted note(s) were left unchanged "
+                             "in XMPP because their old key is unavailable.")
+                              .arg(audit_.totalIndexItems);
+            emit resultTextChanged();
+            rekeyComplete_ = true;
+            setCurrentPage(ResultPage);
+            return;
+        }
         if (rekeyComplete_) {
             setCurrentPage(ResultPage);
             return;
@@ -394,6 +550,27 @@ void XmppKeyResolutionController::setBusy(bool busy)
     emit navigationChanged();
 }
 
+quint64 XmppKeyResolutionController::beginDeviceOperation(const QString &timeoutMessage)
+{
+    operationTimeoutMessage_ = timeoutMessage;
+    const auto token         = ++operationToken_;
+    operationTimer_.start(operationTimeoutMs_);
+    return token;
+}
+
+bool XmppKeyResolutionController::deviceOperationIsCurrent(quint64 token) const
+{
+    return !completed_ && token == operationToken_;
+}
+
+void XmppKeyResolutionController::finishDeviceOperation(quint64 token)
+{
+    if (token != operationToken_)
+        return;
+    operationTimer_.stop();
+    setBusy(false);
+}
+
 void XmppKeyResolutionController::setDeviceStatus(const QString &status)
 {
     if (deviceStatus_ == status)
@@ -429,8 +606,14 @@ void XmppKeyResolutionController::populateKeys(const XmppKeyAuditResult &audit)
         selectedKeyIndex_ = preferredRow;
         emit selectedKeyIndexChanged();
     }
-    setKeyStatus(audit.error.isEmpty() ? tr("All responding AnyKeep devices were queried successfully.")
-                                       : tr("Some devices could not provide a key:\n%1").arg(audit.error));
+    if (audit.candidates.isEmpty() && audit.totalIndexItems == 0) {
+        setKeyStatus(tr("No storage key and no published notes were found."));
+    } else if (audit.candidates.isEmpty()) {
+        setKeyStatus(tr("No storage key was received from the responding AnyKeep devices."));
+    } else {
+        setKeyStatus(audit.error.isEmpty() ? tr("All responding AnyKeep devices were queried successfully.")
+                                           : tr("Some devices could not provide a key:\n%1").arg(audit.error));
+    }
     updateSummary();
     emit navigationChanged();
 }
@@ -441,6 +624,12 @@ void XmppKeyResolutionController::updateSummary()
     QString     nextSummary;
     if (!canonical || canonical->key.isEmpty()) {
         nextSummary = tr("No available canonical key is selected.");
+    } else if (freshStart_) {
+        nextSummary = tr("New key: %1\nEncrypted notes left unchanged: %2\n\n"
+                         "The old key is unavailable. AnyKeep will start with an empty storage and will not "
+                         "overwrite or delete the encrypted notes already in XMPP.")
+                          .arg(QString::fromLatin1(canonical->keyId.left(8).toHex()))
+                          .arg(audit_.totalIndexItems);
     } else {
         int inaccessible = 0;
         for (const auto &candidate : audit_.candidates) {
@@ -467,7 +656,9 @@ void XmppKeyResolutionController::finish(bool accepted)
     if (completed_)
         return;
     completed_ = true;
-    busy_      = false;
+    operationTimer_.stop();
+    ++operationToken_;
+    busy_ = false;
     emit busyChanged();
     emit completedChanged();
     emit navigationChanged();

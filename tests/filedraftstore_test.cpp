@@ -177,7 +177,7 @@ void FileDraftStoreTest::copyConflictResolution()
     auto                 record = sampleRecord();
     CopyConflictResolver resolver;
     bool                 invoked = false;
-    resolver.resolve({ record, { }, QStringLiteral("conflict") }, [&](ConflictResolution resolution) {
+    resolver.resolve({ record, {}, QStringLiteral("conflict") }, [&](ConflictResolution resolution) {
         invoked = true;
         QCOMPARE(resolution.action, ConflictResolution::CreateCopy);
         QVERIFY(resolution.copyTitle.startsWith(record.title + QStringLiteral(" (conflict ")));

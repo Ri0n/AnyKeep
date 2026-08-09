@@ -80,6 +80,8 @@ void XmppDialogPresenter::presentKeyResolution(XmppKeyResolutionController *cont
 
     resolutionController_ = controller;
     connect(controller, &XmppKeyResolutionController::finished, this, [this](bool) {
+        if (resolutionHost_)
+            resolutionHost_->deleteLater();
         resolutionController_.clear();
         releaseStandaloneWindowIfIdle();
     });
@@ -183,9 +185,10 @@ void XmppDialogPresenter::tryPresent()
 
 QObject *XmppDialogPresenter::createHost(const QUrl &componentUrl, QObject *controller)
 {
-    hostCreationDeferred_ = false;
-    auto *window          = presentationWindow();
-    auto *engine          = presentationEngine(window);
+    hostCreationDeferred_       = false;
+    const bool preferStandalone = componentUrl.fileName() == QStringLiteral("XmppKeyResolutionHost.qml");
+    auto      *window           = presentationWindow(preferStandalone);
+    auto      *engine           = presentationEngine(window);
     if (!window || !engine || !window->contentItem()) {
         hostCreationDeferred_ = true;
         return nullptr;
@@ -200,6 +203,8 @@ QObject *XmppDialogPresenter::createHost(const QUrl &componentUrl, QObject *cont
     QVariantMap initialProperties;
     initialProperties.insert(QStringLiteral("controller"), QVariant::fromValue(controller));
     initialProperties.insert(QStringLiteral("hostItem"), QVariant::fromValue(window->contentItem()));
+    if (preferStandalone)
+        initialProperties.insert(QStringLiteral("standalone"), window == standaloneWindow_);
     auto *host = component.createWithInitialProperties(initialProperties, engine->rootContext());
     if (!host) {
         qWarning().noquote() << "Could not create" << componentUrl.toString() << component.errorString();
@@ -214,19 +219,24 @@ QObject *XmppDialogPresenter::createHost(const QUrl &componentUrl, QObject *cont
     return host;
 }
 
-QQuickWindow *XmppDialogPresenter::presentationWindow()
+QQuickWindow *XmppDialogPresenter::presentationWindow(bool preferStandalone)
 {
+#ifdef Q_OS_ANDROID
     if (auto *window = activeQuickWindow(); window && windowEngine(window))
         return window;
-
-#ifdef Q_OS_ANDROID
     return nullptr;
 #else
+    if (!preferStandalone) {
+        if (auto *window = activeQuickWindow(); window && windowEngine(window))
+            return window;
+    }
+
     if (!standaloneWindow_) {
         standaloneEngine_ = new QQmlEngine(this);
         auto *window      = new QQuickWindow;
         standaloneWindow_ = window;
-        window->setTitle(tr("AnyKeep — XMPP"));
+        window->setTitle(tr("Repair XMPP note synchronization — AnyKeep"));
+        window->setFlags(Qt::Dialog);
         window->setModality(Qt::ApplicationModal);
         if (auto *focusWindow = QGuiApplication::focusWindow())
             window->setTransientParent(focusWindow);

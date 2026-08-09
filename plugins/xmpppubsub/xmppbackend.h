@@ -53,6 +53,7 @@ public:
     virtual void           ownOmemoDevicesAsync(DevicesCallback callback)                                   = 0;
     virtual void           ownOmemoBundleValidAsync(StatusCallback callback)                                = 0;
     virtual void           repairOwnOmemoDeviceAsync(StatusCallback callback)                               = 0;
+    virtual void           removeOwnOmemoDeviceAsync(quint32 deviceId, StatusCallback callback)             = 0;
     virtual void           trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback callback)              = 0;
     virtual void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback)     = 0;
     virtual void           auditStorageKeysAsync(AuditCallback callback)                                    = 0;

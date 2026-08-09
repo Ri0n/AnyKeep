@@ -13,6 +13,7 @@
 #include <QXmppOmemoManager.h>
 #include <QXmppPubSubManager.h>
 #include <QXmppRosterManager.h>
+#include <QXmppTrustStorage.h>
 #include <QXmppUtils.h>
 
 #include <algorithm>
@@ -56,8 +57,9 @@ QCoro::Task<std::pair<QList<XmppDeviceInfo>, QString>> XmppWorker::ownOmemoDevic
         }
         if (!keyId.isEmpty() && keyId == ownKey)
             continue;
-        const auto label = listed.label.isEmpty() ? QStringLiteral("OMEMO device %1").arg(listed.id)
-                                                  : QStringLiteral("%1 (OMEMO %2)").arg(listed.label, listed.id);
+        // Keep the client-published label separate from the numeric OMEMO ID.
+        // AnyKeep uses its XMPP resource as the label, but that is not a protocol guarantee.
+        const auto label = listed.label.isEmpty() ? QStringLiteral("Unnamed device") : listed.label;
         if (keyId.isEmpty()) {
             ++missingFingerprints;
             devices.append({ label, listed.id.toUInt(), {}, int(QXmpp::TrustLevel::Undecided) });
@@ -199,6 +201,65 @@ QCoro::Task<XmppStatusResult> XmppWorker::repairOwnOmemoDeviceTask()
                   .toFuture(this);
         if (const auto *error = std::get_if<QXmppError>(&retracted))
             qWarning().noquote() << "Could not retract old OMEMO bundle" << oldDeviceId << errorText(*error);
+    }
+    co_return XmppStatusResult { true };
+}
+
+QCoro::Task<XmppStatusResult> XmppWorker::removeOwnOmemoDeviceTask(quint32 deviceId)
+{
+    if (!deviceId)
+        co_return XmppStatusResult { false, false, false, QStringLiteral("Invalid OMEMO device ID") };
+
+    auto ready = co_await ensureOmemoReadyTask();
+    if (!ready.ok)
+        co_return ready;
+    if (deviceId == omemoStorage_->ownDeviceId())
+        co_return XmppStatusResult { false, false, false,
+                                     QStringLiteral("The current OMEMO device cannot be removed") };
+
+    const auto bareJid = QXmppUtils::jidToBareJid(config_.jid);
+    auto       list    = co_await pubSub_
+                    ->requestItem<XmppOmemoDeviceListItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:devices"),
+                                                           QStringLiteral("current"))
+                    .toFuture(this);
+    if (const auto *error = std::get_if<QXmppError>(&list))
+        co_return XmppStatusResult { false, false, false, errorText(*error), {}, classifyXmppError(*error) };
+
+    auto       item    = std::get<XmppOmemoDeviceListItem>(list);
+    auto       devices = item.devices();
+    const auto oldSize = devices.size();
+    devices.removeIf([deviceId](const auto &device) { return device.id.toUInt() == deviceId; });
+    if (devices.size() == oldSize)
+        co_return XmppStatusResult { false, false, true, QStringLiteral("The OMEMO device is no longer published") };
+
+    QByteArray removedKey;
+    auto       bundle = co_await pubSub_
+                      ->requestItem<XmppOmemoBundleItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:bundles"),
+                                                         QString::number(deviceId))
+                      .toFuture(this);
+    if (const auto *publishedBundle = std::get_if<XmppOmemoBundleItem>(&bundle))
+        removedKey = publishedBundle->identityKey();
+
+    item.setDevices(std::move(devices));
+    auto published
+        = co_await pubSub_->publishItem(bareJid, QStringLiteral("urn:xmpp:omemo:2:devices"), item).toFuture(this);
+    if (const auto *error = std::get_if<QXmppError>(&published))
+        co_return XmppStatusResult { false, false, false, errorText(*error), {}, classifyXmppError(*error) };
+
+    co_await omemoStorage_->removeDevice(bareJid, deviceId).toFuture(this);
+    if (trustStorage_ && !removedKey.isEmpty()) {
+        co_await trustStorage_->removeKeys(QStringLiteral("urn:xmpp:omemo:2"), QList<QByteArray> { removedKey })
+            .toFuture(this);
+    }
+    auto retracted
+        = co_await pubSub_->retractItem(bareJid, QStringLiteral("urn:xmpp:omemo:2:bundles"), QString::number(deviceId))
+              .toFuture(this);
+    if (const auto *error = std::get_if<QXmppError>(&retracted)) {
+        co_return XmppStatusResult {
+            true, false, false,
+            QStringLiteral("Device removed from the OMEMO list, but its unreferenced bundle could not be deleted: %1")
+                .arg(errorText(*error))
+        };
     }
     co_return XmppStatusResult { true };
 }

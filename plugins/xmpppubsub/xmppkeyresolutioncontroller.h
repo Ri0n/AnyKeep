@@ -6,6 +6,7 @@
 #include <QAbstractItemModel>
 #include <QByteArray>
 #include <QObject>
+#include <QTimer>
 
 #include <functional>
 
@@ -37,6 +38,9 @@ class XmppKeyResolutionController final : public QObject {
     Q_PROPERTY(bool canGoBack READ canGoBack NOTIFY navigationChanged)
     Q_PROPERTY(bool canGoNext READ canGoNext NOTIFY navigationChanged)
     Q_PROPERTY(bool canCancel READ canCancel NOTIFY navigationChanged)
+    Q_PROPERTY(bool canCreateNewKey READ canCreateNewKey NOTIFY navigationChanged)
+    Q_PROPERTY(bool canStartFresh READ canStartFresh NOTIFY navigationChanged)
+    Q_PROPERTY(bool freshStart READ freshStart NOTIFY navigationChanged)
     Q_PROPERTY(QString nextText READ nextText NOTIFY navigationChanged)
     Q_PROPERTY(bool completed READ completed NOTIFY completedChanged)
 
@@ -47,13 +51,18 @@ public:
     using StatusCompletion = std::function<void(XmppStatusResult)>;
     using AuditCompletion  = std::function<void(XmppKeyAuditResult)>;
     using RekeyCompletion  = std::function<void(XmppRekeyResult)>;
+    using KeyCompletion    = std::function<void(XmppStatusResult, QByteArray, QByteArray)>;
     using TrustDevices     = std::function<void(const QList<QByteArray> &, StatusCompletion)>;
+    using RemoveDevice     = std::function<void(quint32, StatusCompletion)>;
     using AuditKeys        = std::function<void(AuditCompletion)>;
     using RekeyStorage     = std::function<void(const QList<QByteArray> &, const QByteArray &, RekeyCompletion)>;
+    using CreateStorageKey = std::function<void(KeyCompletion)>;
 
     explicit XmppKeyResolutionController(bool localKeyMissing, const QList<XmppDeviceInfo> &devices,
-                                         const QString &deviceError, TrustDevices trustDevices, AuditKeys auditKeys,
-                                         RekeyStorage rekeyStorage, QObject *parent = nullptr);
+                                         const QString &deviceError, TrustDevices trustDevices,
+                                         RemoveDevice removeDevice, AuditKeys auditKeys, RekeyStorage rekeyStorage,
+                                         int operationTimeoutMs = 45000, CreateStorageKey createStorageKey = {},
+                                         QObject *parent = nullptr);
 
     int  currentPage() const { return currentPage_; }
     int  pageCount() const { return 5; }
@@ -71,6 +80,9 @@ public:
     bool    canGoBack() const;
     bool    canGoNext() const;
     bool    canCancel() const { return !busy_ && !completed_ && currentPage_ != ResultPage; }
+    bool    canCreateNewKey() const;
+    bool    canStartFresh() const;
+    bool    freshStart() const { return freshStart_; }
     QString nextText() const;
     bool    completed() const { return completed_; }
 
@@ -78,7 +90,11 @@ public:
     XmppRekeyResult rekeyResult() const { return rekeyResult_; }
 
     Q_INVOKABLE void setDeviceSelected(int row, bool selected);
+    Q_INVOKABLE void removeDevice(int row);
     Q_INVOKABLE void selectKey(int row);
+    Q_INVOKABLE void retryKeySearch();
+    Q_INVOKABLE void createNewKey();
+    Q_INVOKABLE void startFresh();
     Q_INVOKABLE void next();
     Q_INVOKABLE void back();
     Q_INVOKABLE void cancel();
@@ -106,6 +122,9 @@ private:
     void              populateKeys(const XmppKeyAuditResult &audit);
     void              updateSummary();
     void              finish(bool accepted);
+    quint64           beginDeviceOperation(const QString &timeoutMessage);
+    bool              deviceOperationIsCurrent(quint64 token) const;
+    void              finishDeviceOperation(quint64 token);
     QList<QByteArray> availableKeys() const;
 
     XmppDeviceSelectionModel *devicesModel_ { nullptr };
@@ -113,8 +132,10 @@ private:
     XmppKeyAuditResult        audit_;
     XmppRekeyResult           rekeyResult_;
     TrustDevices              trustDevices_;
+    RemoveDevice              removeDevice_;
     AuditKeys                 auditKeys_;
     RekeyStorage              rekeyStorage_;
+    CreateStorageKey          createStorageKey_;
     QString                   deviceStatus_;
     QString                   keyStatus_;
     QString                   summary_;
@@ -126,6 +147,11 @@ private:
     bool                      rekeyComplete_ { false };
     bool                      busy_ { false };
     bool                      completed_ { false };
+    bool                      freshStart_ { false };
+    QTimer                    operationTimer_;
+    QString                   operationTimeoutMessage_;
+    quint64                   operationToken_ { 0 };
+    int                       operationTimeoutMs_ { 45000 };
 };
 
 } // namespace AnyKeep

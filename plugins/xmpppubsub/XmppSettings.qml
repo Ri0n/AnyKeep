@@ -105,6 +105,14 @@ Flickable {
                     model: root.controller.omemoDevices
                 }
 
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("The client label is published by the OMEMO client; AnyKeep normally uses its XMPP resource. OMEMO does not publish a reliable last-used time or guarantee that the label equals the resource.")
+                    wrapMode: Text.WordWrap
+                    color: palette.mid
+                    font.pixelSize: 12
+                }
+
                 Flow {
                     Layout.fillWidth: true
                     spacing: 6
@@ -113,6 +121,11 @@ Flickable {
                         text: qsTr("Trust selected device")
                         enabled: devices.currentIndex >= 0
                         onClicked: root.controller.requestTrustOmemoDevice(devices.currentIndex)
+                    }
+                    Button {
+                        text: qsTr("Remove selected device")
+                        enabled: devices.currentIndex >= 0
+                        onClicked: removeDeviceDialog.open()
                     }
                     Button {
                         visible: root.controller.repairAvailable
@@ -197,6 +210,22 @@ Flickable {
         }
 
         onReset: root.controller.requestRepairOmemoDevice()
+    }
+
+    Dialog {
+        id: removeDeviceDialog
+        title: qsTr("Remove OMEMO device")
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        anchors.centerIn: Overlay.overlay
+
+        Label {
+            width: Math.min(460, root.width - 40)
+            text: qsTr("Remove the selected OMEMO device from the account and delete its published bundle? Do this only for an old or lost client. This does not delete notes or rotate the private-notes storage key.")
+            wrapMode: Text.WordWrap
+        }
+
+        onAccepted: root.controller.requestRemoveOmemoDevice(devices.currentIndex)
     }
 
     Dialog {
