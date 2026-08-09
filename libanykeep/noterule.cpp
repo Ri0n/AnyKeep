@@ -21,7 +21,7 @@ namespace {
     QString normalizedTagCondition(QString value)
     {
         value = value.trimmed();
-        if (value.startsWith(QLatin1Char('*')))
+        if (value.startsWith(QLatin1Char('#')))
             value = value.mid(1).trimmed();
         return value;
     }

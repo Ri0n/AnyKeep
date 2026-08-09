@@ -132,7 +132,7 @@ void NoteRuleTest::supportsAnyAndNegatedConditions()
 void NoteRuleTest::acceptsOptionalTagMarkerInCondition()
 {
     auto rule       = makeRule(10);
-    rule.conditions = { { NoteRuleConditionKind::HasTag, QStringLiteral("*tb"), false } };
+    rule.conditions = { { NoteRuleConditionKind::HasTag, QStringLiteral("#tb"), false } };
     rule.actions    = { storageAction(QStringLiteral("tomboy")) };
 
     NoteRuleEvaluationInput input;

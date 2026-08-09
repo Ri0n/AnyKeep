@@ -64,24 +64,25 @@ signals:
     void applyRequested();
 
 private:
-    void setState(State state, const QString &error = {});
-    void writeStartupProbe();
-    void checkForUpdate(bool automatic);
-    void handleManifestReply();
-    bool parseManifest(const QByteArray &data, QString *error);
-    void beginDownload();
-    void handleDownloadReadyRead();
-    void handleDownloadFinished();
-    bool verifyDownloadedArchive(QString *error) const;
-    void beginExtraction();
-    void handleExtractionFinished(int exitCode, int exitStatus);
-    bool validatePreparedDirectory(QString *error) const;
-    bool finishPreparedDirectory(QString *error);
-    bool savePreparedState(QString *error);
-    void restoreRollbackResult();
-    void restorePreparedUpdate();
-    void clearDownloadObjects();
-    void resetTransientFiles();
+    void    setState(State state, const QString &error = {});
+    void    writeStartupProbe();
+    void    checkForUpdate(bool automatic);
+    void    handleManifestReply();
+    bool    parseManifest(const QByteArray &data, QString *error);
+    void    beginDownload();
+    void    handleDownloadReadyRead();
+    void    handleDownloadFinished();
+    bool    verifyDownloadedPackage(QString *error) const;
+    void    beginPreparation();
+    void    handlePreparationFinished(int exitCode, int exitStatus);
+    bool    validateVersionDirectory(const QString &path, QString *error) const;
+    QString locateAdministrativeVersionDirectory() const;
+    bool    finishPreparedDirectory(QString *error);
+    bool    savePreparedState(QString *error);
+    void    restoreRollbackResult();
+    void    restorePreparedUpdate();
+    void    clearDownloadObjects();
+    void    resetTransientFiles();
 
     QString detectInstallRoot() const;
     QString manifestUrlString() const;
@@ -89,8 +90,10 @@ private:
     QString preparedStatePath() const;
     QString rollbackStatePath() const;
     QString finalVersionDirectory() const;
-    QString archivePath() const;
-    QString temporaryArchivePath() const;
+    QString packagePath() const;
+    QString temporaryPackagePath() const;
+    QString administrativeImageDirectory() const;
+    QString msiLogPath() const;
     QString temporaryVersionDirectory() const;
     bool    isVersionNewer(const QString &candidate) const;
 
@@ -113,7 +116,7 @@ private:
     QNetworkAccessManager *network_ { nullptr };
     QNetworkReply         *reply_ { nullptr };
     QFile                 *downloadFile_ { nullptr };
-    QProcess              *extractProcess_ { nullptr };
+    QProcess              *prepareProcess_ { nullptr };
     QTimer                *automaticTimer_ { nullptr };
 #endif
 };

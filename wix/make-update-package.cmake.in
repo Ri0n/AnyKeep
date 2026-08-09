@@ -1,11 +1,14 @@
 cmake_minimum_required(VERSION 3.25)
 
-foreach(required_var SOURCE_ROOT OUTPUT_ROOT WORK_ROOT VERSION CHANNEL)
+foreach(required_var PACKAGE_PATH OUTPUT_ROOT WORK_ROOT VERSION CHANNEL)
     if(NOT DEFINED ${required_var} OR "${${required_var}}" STREQUAL "")
         message(FATAL_ERROR "${required_var} must be provided with -D")
     endif()
 endforeach()
 
+if(NOT WIN32)
+    message(FATAL_ERROR "Windows MSI update packaging must run on Windows")
+endif()
 if(NOT VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
     message(FATAL_ERROR "VERSION must be a numeric x.y.z version, got: ${VERSION}")
 endif()
@@ -13,67 +16,74 @@ if(NOT CHANNEL MATCHES "^[A-Za-z0-9][A-Za-z0-9._-]*$")
     message(FATAL_ERROR "CHANNEL contains unsafe path characters: ${CHANNEL}")
 endif()
 
-cmake_path(ABSOLUTE_PATH SOURCE_ROOT NORMALIZE)
+cmake_path(ABSOLUTE_PATH PACKAGE_PATH NORMALIZE)
 cmake_path(ABSOLUTE_PATH OUTPUT_ROOT NORMALIZE)
 cmake_path(ABSOLUTE_PATH WORK_ROOT NORMALIZE)
 
-if(NOT IS_DIRECTORY "${SOURCE_ROOT}")
-    message(FATAL_ERROR "Installed update source tree does not exist: ${SOURCE_ROOT}")
-endif()
-if(NOT EXISTS "${SOURCE_ROOT}/anykeep.exe")
-    message(FATAL_ERROR "Installed update source tree does not contain anykeep.exe: ${SOURCE_ROOT}")
-endif()
-if(NOT EXISTS "${SOURCE_ROOT}/AnyKeepUpdater.exe")
-    message(FATAL_ERROR "Installed update source tree does not contain AnyKeepUpdater.exe: ${SOURCE_ROOT}")
+if(NOT EXISTS "${PACKAGE_PATH}")
+    message(FATAL_ERROR "Windows update MSI does not exist: ${PACKAGE_PATH}")
 endif()
 
-set(package_name "AnyKeep-${VERSION}-windows-x86_64.zip")
-set(package_path "${OUTPUT_ROOT}/${package_name}")
+find_program(MSIEXEC_EXECUTABLE NAMES msiexec.exe msiexec REQUIRED)
+
+set(package_name "AnyKeep-${VERSION}-windows-x86_64.msi")
+set(published_package_path "${OUTPUT_ROOT}/${package_name}")
 set(version_manifest_name "AnyKeep-${VERSION}-windows-x86_64.json")
 set(version_manifest_path "${OUTPUT_ROOT}/${version_manifest_name}")
 set(latest_manifest_path "${OUTPUT_ROOT}/windows-x86_64.json")
-set(stage "${WORK_ROOT}/stage")
+set(admin_root "${WORK_ROOT}/admin-image")
+set(msi_log "${WORK_ROOT}/administrative-install.log")
 
 file(REMOVE_RECURSE "${WORK_ROOT}")
-file(MAKE_DIRECTORY "${stage}" "${OUTPUT_ROOT}")
+file(MAKE_DIRECTORY "${admin_root}" "${OUTPUT_ROOT}")
 
-# The install tree is also used by the MSI and contains stable/bootstrap files
-# that are deliberately not version-owned.  Only the contents of one
-# versions/<version> directory belong in an update ZIP.
-file(COPY "${SOURCE_ROOT}/" DESTINATION "${stage}"
-    PATTERN "AnyKeepLauncher.exe" EXCLUDE
-    PATTERN "current.version" EXCLUDE
-    PATTERN "previous.version" EXCLUDE
-    PATTERN "vc_redist.x64.exe" EXCLUDE
-    PATTERN "staging" EXCLUDE
-    PATTERN "update-logs" EXCLUDE
-    PATTERN "versions" EXCLUDE
-)
-
-if(NOT EXISTS "${stage}/anykeep.exe")
-    message(FATAL_ERROR "The staged update does not contain anykeep.exe")
-endif()
-if(NOT EXISTS "${stage}/AnyKeepUpdater.exe")
-    message(FATAL_ERROR "The staged update does not contain AnyKeepUpdater.exe")
-endif()
-
-file(REMOVE "${package_path}")
+# The updater uses the same Windows Installer administrative-image path on the
+# client. Exercise it before publishing so a malformed WiX layout cannot
+# produce a manifest for an unusable update payload.
 execute_process(
-    COMMAND "${CMAKE_COMMAND}" -E tar cf "${package_path}" --format=zip .
-    WORKING_DIRECTORY "${stage}"
-    RESULT_VARIABLE archive_result
+    COMMAND "${MSIEXEC_EXECUTABLE}" /a "${PACKAGE_PATH}" /qn /norestart "TARGETDIR=${admin_root}" /L*V "${msi_log}"
+    RESULT_VARIABLE admin_result
 )
-if(NOT archive_result EQUAL 0)
-    message(FATAL_ERROR "Failed to create ${package_path}")
+if(NOT admin_result EQUAL 0)
+    message(FATAL_ERROR "Failed to create an administrative image from ${PACKAGE_PATH}; msiexec exit code ${admin_result}. See ${msi_log}")
 endif()
 
-file(SHA256 "${package_path}" package_sha256)
-file(SIZE "${package_path}" package_size)
+set(version_payload "")
+file(GLOB_RECURSE payload_candidates LIST_DIRECTORIES false "${admin_root}/*")
+foreach(candidate IN LISTS payload_candidates)
+    get_filename_component(candidate_name "${candidate}" NAME)
+    if(NOT candidate_name STREQUAL "anykeep.exe")
+        continue()
+    endif()
+    get_filename_component(candidate_dir "${candidate}" DIRECTORY)
+    get_filename_component(candidate_version "${candidate_dir}" NAME)
+    get_filename_component(versions_dir "${candidate_dir}" DIRECTORY)
+    get_filename_component(versions_name "${versions_dir}" NAME)
+    if(candidate_version STREQUAL VERSION AND versions_name STREQUAL "versions"
+       AND EXISTS "${candidate_dir}/AnyKeepUpdater.exe")
+        if(NOT version_payload STREQUAL "")
+            message(FATAL_ERROR "Administrative image contains more than one versions/${VERSION} runtime payload")
+        endif()
+        set(version_payload "${candidate_dir}")
+    endif()
+endforeach()
 
-# Prefer a relative URL.  This makes the artifact directory self-contained:
-# it can be served by a local HTTP server during development and uploaded
-# unchanged to stable/nightly channel directories in CI.  An explicit base URL
-# remains available for a future split manifest/package CDN.
+if(version_payload STREQUAL "")
+    message(FATAL_ERROR "Administrative image does not contain versions/${VERSION}/anykeep.exe and AnyKeepUpdater.exe")
+endif()
+
+# Publish the MSI bytes themselves. SignPath can deep-sign this MSI first and
+# then rerun this same script; the manifest/hash will therefore describe the
+# signed artifact rather than a pre-signing copy.
+if(NOT "${PACKAGE_PATH}" STREQUAL "${published_package_path}")
+    file(COPY_FILE "${PACKAGE_PATH}" "${published_package_path}" ONLY_IF_DIFFERENT)
+endif()
+file(SHA256 "${published_package_path}" package_sha256)
+file(SIZE "${published_package_path}" package_size)
+
+# Prefer a relative URL. This makes the channel directory self-contained and
+# keeps local/development HTTP serving simple. An explicit base URL remains
+# available for a future split manifest/package CDN.
 if(DEFINED PACKAGE_BASE_URL AND NOT PACKAGE_BASE_URL STREQUAL "")
     string(REGEX REPLACE "/+$" "" package_base_url "${PACKAGE_BASE_URL}")
     set(package_url "${package_base_url}/${package_name}")
@@ -81,9 +91,6 @@ else()
     set(package_url "${package_name}")
 endif()
 
-# Values interpolated below are either validated tokens or generated hashes and
-# decimal sizes.  Reject the only unsafe JSON delimiters allowed through the
-# optional URL override instead of trying to invent a JSON-escaping layer here.
 string(FIND "${package_url}" "\"" _quote_pos)
 string(FIND "${package_url}" "\n" _lf_pos)
 string(FIND "${package_url}" "\r" _cr_pos)
@@ -92,11 +99,11 @@ if(NOT _quote_pos EQUAL -1 OR NOT _lf_pos EQUAL -1 OR NOT _cr_pos EQUAL -1)
 endif()
 
 set(manifest [=[{
-  "schema": 1,
+  "schema": 2,
   "version": "${VERSION}",
   "minimumLauncherProtocol": 1,
   "package": {
-    "format": "zip",
+    "format": "msi",
     "url": "${package_url}",
     "size": ${package_size},
     "sha256": "${package_sha256}"
@@ -105,9 +112,9 @@ set(manifest [=[{
 ]=])
 string(CONFIGURE "${manifest}" manifest)
 
-# Write an immutable per-version manifest first.  Deployment should upload the
-# ZIP and this file before replacing windows-x86_64.json, so clients never see
-# a latest manifest whose package has not arrived yet.
+# Upload the versioned MSI and immutable manifest before replacing the latest
+# channel pointer, so clients cannot observe a manifest whose package is not
+# available yet.
 file(WRITE "${version_manifest_path}" "${manifest}")
 file(WRITE "${latest_manifest_path}.tmp" "${manifest}")
 file(RENAME "${latest_manifest_path}.tmp" "${latest_manifest_path}")
@@ -116,7 +123,8 @@ file(WRITE "${OUTPUT_ROOT}/SHA256SUMS.txt" "${package_sha256}  ${package_name}\n
 file(REMOVE_RECURSE "${WORK_ROOT}")
 
 message(STATUS "Windows update channel: ${CHANNEL}")
-message(STATUS "Windows update package: ${package_path}")
+message(STATUS "Windows update MSI: ${published_package_path}")
+message(STATUS "Verified administrative payload: ${version_payload}")
 message(STATUS "Version manifest: ${version_manifest_path}")
 message(STATUS "Latest manifest: ${latest_manifest_path}")
 message(STATUS "SHA-256: ${package_sha256}")

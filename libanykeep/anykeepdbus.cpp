@@ -65,7 +65,7 @@ namespace {
             return true;
 
         QString tagQuery = query;
-        if (tagQuery.startsWith(QLatin1Char('*')))
+        if (tagQuery.startsWith(QLatin1Char('#')))
             tagQuery.remove(0, 1);
         if (tagQuery.isEmpty())
             return false;

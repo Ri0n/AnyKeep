@@ -45,7 +45,7 @@
                             Bitness="always64" />
         </Property>
 
-        <Launch Condition="Installed OR (NOT LEGACY_ANYKEEP_32 AND NOT LEGACY_ANYKEEP_64 AND NOT LEGACY_QTNOTE_32 AND NOT LEGACY_QTNOTE_64)"
+        <Launch Condition="ACTION = &quot;ADMIN&quot; OR Installed OR (NOT LEGACY_ANYKEEP_32 AND NOT LEGACY_ANYKEEP_64 AND NOT LEGACY_QTNOTE_32 AND NOT LEGACY_QTNOTE_64)"
                 Message="A previous system-wide AnyKeep or QtNote installation was found. Uninstall it from Windows Settings, then run this installer again. Your notes and settings will not be removed." />
 
         <Property Id="ANYKEEP_INSTALL_ROOT">

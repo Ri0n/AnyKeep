@@ -152,10 +152,10 @@ private slots:
         DraftManager drafts(std::move(store));
         NoteEditor   editor(note, drafts);
 
-        editor.setText(QStringLiteral("Title\n\n*tb *interview\n\nhello"));
+        editor.setText(QStringLiteral("Title\n\n#tb #interview\n\nhello"));
         QVERIFY(editor.save());
         const auto record = data->drafts.value(editor.draftId());
-        QCOMPARE(record.body, QStringLiteral("*tb *interview\n\nhello"));
+        QCOMPARE(record.body, QStringLiteral("#tb #interview\n\nhello"));
         QCOMPARE(record.tags, QStringList({ QStringLiteral("tb"), QStringLiteral("interview") }));
 
         NoteRule rule;
@@ -163,7 +163,7 @@ private slots:
         rule.name       = QStringLiteral("Tomboy");
         rule.revision   = 1;
         rule.modifiedAt = QDateTime::currentDateTimeUtc();
-        rule.conditions = { { NoteRuleConditionKind::HasTag, QStringLiteral("*tb"), false } };
+        rule.conditions = { { NoteRuleConditionKind::HasTag, QStringLiteral("#tb"), false } };
         NoteRuleAction action;
         action.kind      = NoteRuleActionKind::SelectStorage;
         action.storageId = QStringLiteral("tomboy");
@@ -189,10 +189,10 @@ private slots:
         DraftManager drafts(std::move(store));
         NoteEditor   editor(plainNote(QStringLiteral("Title"), QString()), drafts);
 
-        editor.setText(QStringLiteral("Title\n*tb *interview\nhello"));
+        editor.setText(QStringLiteral("Title\n#tb #interview\nhello"));
         QVERIFY(editor.save());
         const auto record = data->drafts.value(editor.draftId());
-        QCOMPARE(record.body, QStringLiteral("*tb *interview\nhello"));
+        QCOMPARE(record.body, QStringLiteral("#tb #interview\nhello"));
         QCOMPARE(record.tags, QStringList({ QStringLiteral("tb"), QStringLiteral("interview") }));
     }
 

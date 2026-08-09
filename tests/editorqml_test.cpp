@@ -813,6 +813,40 @@ private:
         QVERIFY2(!markdown.contains(QStringLiteral("example\nplain](")), qPrintable(markdown));
     }
 
+    void enterAfterTypedTagPromotesTagLineAndFocusesFollowingText()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("placeholder"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(520, 360);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(body->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(body, "select", Q_ARG(int, 0), Q_ARG(int, body->property("length").toInt())));
+        QTest::keyClicks(host.quickWidget(), QStringLiteral("#work"));
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_Return);
+
+        QTRY_COMPARE(editor.model()->rowCount(), 3);
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::TagLine));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TagsRole).toStringList(),
+                 QStringList({ QStringLiteral("work") }));
+        QCOMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::Text));
+        QQuickItem *following = nullptr;
+        QTRY_VERIFY((following = textEditorForBlock(root, 2)));
+        QTRY_VERIFY(following->hasActiveFocus());
+        QCOMPARE(following->property("cursorPosition").toInt(), 0);
+    }
+
     void plainTextDropKeepsLiteralNewlines()
     {
         Note note(new NoteData(nullptr));
@@ -1587,6 +1621,11 @@ private slots:
     void regressionLineSelectionHelperSelectsOnlyTheClickedLine() { lineSelectionHelperSelectsOnlyTheClickedLine(); }
 
     void regressionEnterAfterLinkLeavesLinkFormatting() { enterAfterLinkLeavesLinkFormatting(); }
+
+    void regressionEnterAfterTypedTagPromotesTagLineAndFocusesFollowingText()
+    {
+        enterAfterTypedTagPromotesTagLineAndFocusesFollowingText();
+    }
 
     void regressionPlainTextDropKeepsLiteralNewlines() { plainTextDropKeepsLiteralNewlines(); }
 

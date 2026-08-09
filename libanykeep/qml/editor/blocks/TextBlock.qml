@@ -11,9 +11,20 @@ Editor.NoteBlockTextArea {
     sourceText: editorView.blockModel && editorView.blockModel.markdown
                 ? editorView.markdownForRendering(block.blockText) : block.blockText
     keyHandler: function(event) {
+        const inputModifiers = event.modifiers
+                & (Qt.ShiftModifier | Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
+        if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                && !inputModifiers && selectionStart === selectionEnd
+                && tagLineCandidate(true)) {
+            // Complete the structural conversion before TextArea can insert a
+            // newline. Enter finishes the tag line and continues in the next
+            // ordinary text block; Shift+Enter keeps its normal line-break
+            // behavior.
+            return tryPromoteTagLine(true, true)
+        }
         // Keys.BeforeItem runs before TextArea inserts the space.  Arm
         // a zero-delay retry while the unspaced token is still intact;
-        // the timer then sees the final "*tag " document after the
+        // the timer then sees the final "#tag " document after the
         // built-in key handler has completed.
         if (event.key === Qt.Key_Space
                 && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
@@ -56,7 +67,7 @@ Editor.NoteBlockTextArea {
                 break
             }
         }
-        if (candidate.length === 0 || candidate.trim().charAt(0) !== "*"
+        if (candidate.length === 0 || candidate.trim().charAt(0) !== "#"
                 || (!force && !/\s$/.test(candidate)))
             return null
         return { plainText: plainText, candidate: candidate }
@@ -67,7 +78,7 @@ Editor.NoteBlockTextArea {
         tagLinePromotionTimer.restart()
     }
 
-    function tryPromoteTagLine(force) {
+    function tryPromoteTagLine(force, focusFollowing) {
         const probe = tagLineCandidate(force)
         if (!probe)
             return false
@@ -82,8 +93,15 @@ Editor.NoteBlockTextArea {
         if (!result || !result.handled)
             return false
 
+        tagLinePromotionTimer.stop()
+        deferredTagLineForce = false
         editorView.activeEditor = null
-        if (result.focusTagLine) {
+        if (focusFollowing) {
+            editorView.activeTagLineIndex = -1
+            Qt.callLater(function() {
+                editorView.focusFollowingBlock(Number(result.tagRow), true)
+            })
+        } else if (result.focusTagLine) {
             editorView.activeTagLineIndex = Number(result.tagRow)
             Qt.callLater(function() {
                 editorView.focusTagLineBlock(Number(result.tagRow), true, true)
@@ -119,7 +137,7 @@ Editor.NoteBlockTextArea {
         // QTextDocument may still be normalizing the just-inserted
         // character while TextArea emits textChanged.  Replacing the
         // delegate/model synchronously from that signal can therefore
-        // observe the pre-space document and miss "*tag ".  Defer only
+        // observe the pre-space document and miss "#tag ".  Defer only
         // plausible tag-line candidates to the next event-loop turn;
         // ordinary text keeps its existing immediate commit path.
         if (tagLineCandidate(false))

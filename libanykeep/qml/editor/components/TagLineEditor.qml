@@ -404,7 +404,7 @@ FocusScope {
                     anchors.fill: parent
                     anchors.leftMargin: 4
                     anchors.rightMargin: 5
-                    text: visible ? "*" + chip.modelData : ""
+                    text: visible ? "#" + chip.modelData : ""
                     font: root.editorFont
                     selectByMouse: true
                     background: null
@@ -461,7 +461,7 @@ FocusScope {
             height: root.chipHeight
             width: visible ? Math.max(34, Math.min(180, implicitWidth + 10)) : 0
             text: ""
-            placeholderText: activeFocus ? qsTr("*tag") : "+"
+            placeholderText: activeFocus ? qsTr("#tag") : "+"
             font: root.editorFont
             selectByMouse: true
             background: null

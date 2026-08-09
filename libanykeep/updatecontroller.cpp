@@ -5,6 +5,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -16,6 +17,8 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVersionNumber>
+
+#include <string>
 
 #ifdef Q_OS_WIN
 #include <QCryptographicHash>
@@ -33,16 +36,17 @@ namespace AnyKeep {
 Q_LOGGING_CATEGORY(logUpdates, "anykeep.updates")
 
 namespace {
-    constexpr int  UpdateSchemaVersion        = 1;
-    constexpr int  LauncherProtocolVersion    = 1;
-    constexpr int  AutomaticCheckDelayMs      = 20 * 1000;
-    constexpr int  StartupProbeHealthyMs      = 60 * 1000;
-    constexpr int  AutomaticCheckIntervalSecs = 6 * 60 * 60;
-    constexpr int  AutomaticCheckIntervalMs   = AutomaticCheckIntervalSecs * 1000;
-    constexpr auto UpdateSettingsGroup        = "updates";
-    constexpr auto PreparedFileName           = "prepared.json";
-    constexpr auto RollbackFileName           = "rollback.json";
-    constexpr auto RollbackVersionKey         = "rollbackVersion";
+    constexpr int  UpdateManifestSchemaVersion = 2;
+    constexpr int  UpdateStateSchemaVersion    = 1;
+    constexpr int  LauncherProtocolVersion     = 1;
+    constexpr int  AutomaticCheckDelayMs       = 20 * 1000;
+    constexpr int  StartupProbeHealthyMs       = 60 * 1000;
+    constexpr int  AutomaticCheckIntervalSecs  = 6 * 60 * 60;
+    constexpr int  AutomaticCheckIntervalMs    = AutomaticCheckIntervalSecs * 1000;
+    constexpr auto UpdateSettingsGroup         = "updates";
+    constexpr auto PreparedFileName            = "prepared.json";
+    constexpr auto RollbackFileName            = "rollback.json";
+    constexpr auto RollbackVersionKey          = "rollbackVersion";
 
     bool safeVersionName(const QString &version)
     {
@@ -60,29 +64,19 @@ namespace {
         return true;
     }
 
-    QString quotePowerShellLiteral(QString value)
-    {
-        value.replace(QLatin1Char('\''), QStringLiteral("''"));
-        return QLatin1Char('\'') + value + QLatin1Char('\'');
-    }
-
 #ifdef Q_OS_WIN
-    QString windowsPowerShellExecutable()
+    QString windowsInstallerExecutable()
     {
-        QString executable = QStandardPaths::findExecutable(QStringLiteral("powershell.exe"));
+        QString executable = QStandardPaths::findExecutable(QStringLiteral("msiexec.exe"));
         if (!executable.isEmpty())
             return executable;
 
-        // The launcher and Qt Creator may use a deliberately reduced PATH.
-        // Windows PowerShell ships in the system directory on supported
-        // desktop Windows versions, so do not make update extraction depend
-        // on that inherited PATH.
         wchar_t    systemDirectory[MAX_PATH] {};
         const UINT length = GetSystemDirectoryW(systemDirectory, MAX_PATH);
         if (length == 0 || length >= MAX_PATH)
             return {};
-        const QString candidate = QDir(QString::fromWCharArray(systemDirectory, int(length)))
-                                      .filePath(QStringLiteral("WindowsPowerShell/v1.0/powershell.exe"));
+        const QString candidate
+            = QDir(QString::fromWCharArray(systemDirectory, int(length))).filePath(QStringLiteral("msiexec.exe"));
         return QFileInfo(candidate).isExecutable() ? candidate : QString();
     }
 
@@ -432,7 +426,7 @@ bool UpdateController::parseManifest(const QByteArray &data, QString *error)
     }
 
     const QJsonObject root = document.object();
-    if (root.value(QStringLiteral("schema")).toInt() != UpdateSchemaVersion) {
+    if (root.value(QStringLiteral("schema")).toInt() != UpdateManifestSchemaVersion) {
         if (error)
             *error = tr("The update manifest schema is not supported");
         return false;
@@ -458,8 +452,8 @@ bool UpdateController::parseManifest(const QByteArray &data, QString *error)
     const QString urlText = package.value(QStringLiteral("url")).toString();
     const QString hash    = package.value(QStringLiteral("sha256")).toString().trimmed().toLower();
     const qint64  size    = package.value(QStringLiteral("size")).toVariant().toLongLong();
-    const QString format  = package.value(QStringLiteral("format")).toString(QStringLiteral("zip"));
-    if (urlText.isEmpty() || hash.size() != 64 || size <= 0 || format != QLatin1String("zip")) {
+    const QString format  = package.value(QStringLiteral("format")).toString();
+    if (urlText.isEmpty() || hash.size() != 64 || size <= 0 || format != QLatin1String("msi")) {
         if (error)
             *error = tr("The Windows update package description is incomplete");
         return false;
@@ -490,7 +484,7 @@ void UpdateController::beginDownload()
         emit downloadProgressChanged();
     }
     QDir().mkpath(stagingDirectory());
-    downloadFile_ = new QFile(temporaryArchivePath(), this);
+    downloadFile_ = new QFile(temporaryPackagePath(), this);
     if (!downloadFile_->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         setState(Failed, tr("Could not create the update download file"));
         clearDownloadObjects();
@@ -554,31 +548,31 @@ void UpdateController::handleDownloadFinished()
     }
 
     if (networkError != QNetworkReply::NoError) {
-        QFile::remove(temporaryArchivePath());
+        QFile::remove(temporaryPackagePath());
         if (state_ != Failed)
             setState(Failed, tr("Could not download the update: %1").arg(networkErrorText));
         return;
     }
 
     QString verificationError;
-    if (!verifyDownloadedArchive(&verificationError)) {
-        QFile::remove(temporaryArchivePath());
+    if (!verifyDownloadedPackage(&verificationError)) {
+        QFile::remove(temporaryPackagePath());
         setState(Failed, verificationError);
         return;
     }
-    QFile::remove(archivePath());
-    if (!QFile::rename(temporaryArchivePath(), archivePath())) {
+    QFile::remove(packagePath());
+    if (!QFile::rename(temporaryPackagePath(), packagePath())) {
         setState(Failed, tr("Could not finalize the downloaded update"));
         return;
     }
-    beginExtraction();
+    beginPreparation();
 #endif
 }
 
-bool UpdateController::verifyDownloadedArchive(QString *error) const
+bool UpdateController::verifyDownloadedPackage(QString *error) const
 {
 #ifdef Q_OS_WIN
-    QFile file(temporaryArchivePath());
+    QFile file(temporaryPackagePath());
     if (!file.open(QIODevice::ReadOnly)) {
         if (error)
             *error = tr("Could not read the downloaded update");
@@ -607,82 +601,110 @@ bool UpdateController::verifyDownloadedArchive(QString *error) const
 #endif
 }
 
-void UpdateController::beginExtraction()
+void UpdateController::beginPreparation()
 {
 #ifdef Q_OS_WIN
     QDir temp(temporaryVersionDirectory());
     if (temp.exists())
         temp.removeRecursively();
-    if (!QDir().mkpath(temporaryVersionDirectory())) {
-        setState(Failed, tr("Could not create the temporary update directory"));
+    QDir admin(administrativeImageDirectory());
+    if (admin.exists())
+        admin.removeRecursively();
+    if (!QDir().mkpath(administrativeImageDirectory())) {
+        setState(Failed, tr("Could not create the temporary MSI extraction directory"));
         return;
     }
 
-    const QString powerShell = windowsPowerShellExecutable();
-    if (powerShell.isEmpty()) {
-        setState(Failed, tr("Could not locate Windows PowerShell to unpack the update"));
+    const QString installer = windowsInstallerExecutable();
+    if (installer.isEmpty()) {
+        setState(Failed, tr("Could not locate Windows Installer to prepare the update"));
         return;
     }
 
-    const QString archive     = quotePowerShellLiteral(QDir::toNativeSeparators(archivePath()));
-    const QString destination = quotePowerShellLiteral(QDir::toNativeSeparators(temporaryVersionDirectory()));
-    const QString command
-        = QStringLiteral("$ErrorActionPreference='Stop';"
-                         "Add-Type -AssemblyName System.IO.Compression.FileSystem;"
-                         "$archive=%1;$destination=%2;"
-                         "$root=[IO.Path]::GetFullPath($destination+[IO.Path]::DirectorySeparatorChar);"
-                         "$zip=[IO.Compression.ZipFile]::OpenRead($archive);"
-                         "try { foreach($entry in $zip.Entries) {"
-                         "if([string]::IsNullOrEmpty($entry.FullName)){continue};"
-                         "$target=[IO.Path]::GetFullPath([IO.Path]::Combine($destination,$entry.FullName));"
-                         "if(-not $target.StartsWith($root,[StringComparison]::OrdinalIgnoreCase)){"
-                         "throw 'Unsafe archive entry: '+$entry.FullName}"
-                         "} } finally { $zip.Dispose() };"
-                         "[IO.Compression.ZipFile]::ExtractToDirectory($archive,$destination)")
-              .arg(archive, destination);
+    QFile::remove(msiLogPath());
+    const QStringList arguments {
+        QStringLiteral("/a"),
+        QDir::toNativeSeparators(packagePath()),
+        QStringLiteral("/qn"),
+        QStringLiteral("/norestart"),
+        QStringLiteral("TARGETDIR=%1").arg(QDir::toNativeSeparators(administrativeImageDirectory())),
+        QStringLiteral("/L*V"),
+        QDir::toNativeSeparators(msiLogPath()),
+    };
 
-    extractProcess_ = new QProcess(this);
-    connect(extractProcess_, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
-            [this](int code, QProcess::ExitStatus status) { handleExtractionFinished(code, int(status)); });
-    connect(extractProcess_, &QProcess::errorOccurred, this, [this](QProcess::ProcessError processError) {
+    prepareProcess_ = new QProcess(this);
+    connect(prepareProcess_, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+            [this](int code, QProcess::ExitStatus status) { handlePreparationFinished(code, int(status)); });
+    connect(prepareProcess_, &QProcess::errorOccurred, this, [this](QProcess::ProcessError processError) {
         if (processError != QProcess::FailedToStart)
             return;
-        if (extractProcess_) {
-            qCWarning(logUpdates) << "PowerShell update extraction failed to start:" << extractProcess_->errorString();
-            extractProcess_->deleteLater();
-            extractProcess_ = nullptr;
+        if (prepareProcess_) {
+            qCWarning(logUpdates) << "Windows Installer update preparation failed to start:"
+                                  << prepareProcess_->errorString();
+            prepareProcess_->deleteLater();
+            prepareProcess_ = nullptr;
         }
-        setState(Failed, tr("Could not start Windows PowerShell to unpack the update"));
+        setState(Failed, tr("Could not start Windows Installer to prepare the update"));
     });
-    extractProcess_->start(powerShell,
-                           { QStringLiteral("-NoLogo"), QStringLiteral("-NoProfile"), QStringLiteral("-NonInteractive"),
-                             QStringLiteral("-Command"), command });
+    prepareProcess_->start(installer, arguments);
     setState(Preparing);
 #endif
 }
 
-void UpdateController::handleExtractionFinished(int exitCode, int exitStatus)
+void UpdateController::handlePreparationFinished(int exitCode, int exitStatus)
 {
 #ifdef Q_OS_WIN
-    QByteArray extractionError;
-    if (extractProcess_) {
-        extractionError = extractProcess_->readAllStandardError().trimmed();
-        extractProcess_->deleteLater();
-        extractProcess_ = nullptr;
+    QByteArray processError;
+    if (prepareProcess_) {
+        processError = prepareProcess_->readAllStandardError().trimmed();
+        prepareProcess_->deleteLater();
+        prepareProcess_ = nullptr;
     }
     if (exitStatus != int(QProcess::NormalExit) || exitCode != 0) {
-        qCWarning(logUpdates).noquote() << "PowerShell update extraction failed:" << extractionError;
-        setState(Failed, tr("Could not unpack the downloaded update"));
+        qCWarning(logUpdates).noquote() << "Windows Installer administrative extraction failed with exit code"
+                                        << exitCode << ':' << processError << "Log:" << msiLogPath();
+        setState(Failed, tr("Could not extract the downloaded MSI update"));
         return;
     }
 
-    QString validationError;
-    if (!validatePreparedDirectory(&validationError) || !finishPreparedDirectory(&validationError)) {
+    const QString extractedVersion = locateAdministrativeVersionDirectory();
+    QString       validationError;
+    if (extractedVersion.isEmpty()) {
+        setState(Failed, tr("The MSI update does not contain the expected version payload"));
+        return;
+    }
+    if (!validateVersionDirectory(extractedVersion, &validationError)) {
         setState(Failed, validationError);
         return;
     }
 
-    QFile::remove(archivePath());
+    QDir temporary(temporaryVersionDirectory());
+    if (temporary.exists() && !temporary.removeRecursively()) {
+        setState(Failed, tr("Could not replace an incomplete temporary update"));
+        return;
+    }
+    if (!QDir().mkpath(QFileInfo(temporaryVersionDirectory()).absolutePath())) {
+        setState(Failed, tr("Could not create the versions directory"));
+        return;
+    }
+
+    const std::wstring source      = QDir::toNativeSeparators(extractedVersion).toStdWString();
+    const std::wstring destination = QDir::toNativeSeparators(temporaryVersionDirectory()).toStdWString();
+    if (!MoveFileExW(source.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        qCWarning(logUpdates) << "Could not move the MSI administrative payload into the prepared version directory:"
+                              << GetLastError();
+        setState(Failed, tr("Could not prepare the extracted MSI update"));
+        return;
+    }
+
+    QDir(administrativeImageDirectory()).removeRecursively();
+    if (!validateVersionDirectory(temporaryVersionDirectory(), &validationError)
+        || !finishPreparedDirectory(&validationError)) {
+        setState(Failed, validationError);
+        return;
+    }
+
+    QFile::remove(packagePath());
     downloadProgress_ = 1.0;
     emit downloadProgressChanged();
     setState(Ready);
@@ -693,9 +715,29 @@ void UpdateController::handleExtractionFinished(int exitCode, int exitStatus)
 #endif
 }
 
-bool UpdateController::validatePreparedDirectory(QString *error) const
+QString UpdateController::locateAdministrativeVersionDirectory() const
 {
-    const QDir    dir(temporaryVersionDirectory());
+#ifdef Q_OS_WIN
+    QDirIterator iterator(administrativeImageDirectory(), QDir::Dirs | QDir::NoDotAndDotDot,
+                          QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+        const QString   path = iterator.next();
+        const QFileInfo info(path);
+        if (info.fileName().compare(availableVersion_, Qt::CaseInsensitive) != 0)
+            continue;
+        const QDir parent = info.dir();
+        if (parent.dirName().compare(QStringLiteral("versions"), Qt::CaseInsensitive) != 0)
+            continue;
+        if (validateVersionDirectory(path, nullptr))
+            return path;
+    }
+#endif
+    return {};
+}
+
+bool UpdateController::validateVersionDirectory(const QString &path, QString *error) const
+{
+    const QDir    dir(path);
     const QString app     = dir.filePath(QStringLiteral("anykeep.exe"));
     const QString updater = dir.filePath(QStringLiteral("AnyKeepUpdater.exe"));
     if (!QFileInfo(app).isFile() || !QFileInfo(updater).isFile()) {
@@ -742,7 +784,7 @@ bool UpdateController::savePreparedState(QString *error)
     }
 
     QJsonObject prepared;
-    prepared.insert(QStringLiteral("schema"), UpdateSchemaVersion);
+    prepared.insert(QStringLiteral("schema"), UpdateStateSchemaVersion);
     prepared.insert(QStringLiteral("version"), availableVersion_);
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly) || file.write(QJsonDocument(prepared).toJson(QJsonDocument::Compact)) < 0
@@ -765,8 +807,10 @@ void UpdateController::restorePreparedUpdate()
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
     const QJsonObject   object   = document.object();
     const QString       version  = object.value(QStringLiteral("version")).toString();
-    if (!safeVersionName(version) || !isVersionNewer(version))
+    if (object.value(QStringLiteral("schema")).toInt() != UpdateStateSchemaVersion || !safeVersionName(version)
+        || !isVersionNewer(version)) {
         return;
+    }
     const QDir dir(QDir(installRoot_).filePath(QStringLiteral("versions/%1").arg(version)));
     if (!QFileInfo::exists(dir.filePath(QStringLiteral("anykeep.exe")))
         || !QFileInfo::exists(dir.filePath(QStringLiteral("AnyKeepUpdater.exe")))) {
@@ -792,7 +836,7 @@ void UpdateController::restoreRollbackResult()
 
     const QJsonObject object  = document.object();
     const QString     version = object.value(QStringLiteral("version")).toString();
-    if (object.value(QStringLiteral("schema")).toInt() != UpdateSchemaVersion || !safeVersionName(version)) {
+    if (object.value(QStringLiteral("schema")).toInt() != UpdateStateSchemaVersion || !safeVersionName(version)) {
         qCWarning(logUpdates) << "Ignoring an invalid update rollback result";
         return;
     }
@@ -823,10 +867,10 @@ void UpdateController::clearDownloadObjects()
         downloadFile_->deleteLater();
         downloadFile_ = nullptr;
     }
-    if (extractProcess_) {
-        extractProcess_->kill();
-        extractProcess_->deleteLater();
-        extractProcess_ = nullptr;
+    if (prepareProcess_) {
+        prepareProcess_->kill();
+        prepareProcess_->deleteLater();
+        prepareProcess_ = nullptr;
     }
 #endif
 }
@@ -836,7 +880,11 @@ void UpdateController::resetTransientFiles()
     QDir temporary(temporaryVersionDirectory());
     if (temporary.exists())
         temporary.removeRecursively();
-    QFile::remove(temporaryArchivePath());
+    QDir administrative(administrativeImageDirectory());
+    if (administrative.exists())
+        administrative.removeRecursively();
+    QFile::remove(temporaryPackagePath());
+    QFile::remove(msiLogPath());
 }
 
 QString UpdateController::detectInstallRoot() const
@@ -902,11 +950,19 @@ QString UpdateController::finalVersionDirectory() const
     return QDir(installRoot_).filePath(QStringLiteral("versions/%1").arg(availableVersion_));
 }
 
-QString UpdateController::archivePath() const
+QString UpdateController::packagePath() const
 {
-    return QDir(stagingDirectory()).filePath(QStringLiteral("package.zip"));
+    return QDir(stagingDirectory()).filePath(QStringLiteral("package.msi"));
 }
-QString UpdateController::temporaryArchivePath() const { return archivePath() + QStringLiteral(".part"); }
+QString UpdateController::temporaryPackagePath() const { return packagePath() + QStringLiteral(".part"); }
+QString UpdateController::administrativeImageDirectory() const
+{
+    return QDir(stagingDirectory()).filePath(QStringLiteral("admin-image"));
+}
+QString UpdateController::msiLogPath() const
+{
+    return QDir(stagingDirectory()).filePath(QStringLiteral("msiexec.log"));
+}
 QString UpdateController::temporaryVersionDirectory() const
 {
     return QDir(installRoot_).filePath(QStringLiteral("versions/.%1.tmp").arg(availableVersion_));

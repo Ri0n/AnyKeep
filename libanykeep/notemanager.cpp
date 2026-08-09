@@ -41,7 +41,7 @@ namespace {
         }
 
         auto tagFilter = filter;
-        if (tagFilter.startsWith(QLatin1Char('*'))) {
+        if (tagFilter.startsWith(QLatin1Char('#'))) {
             tagFilter.remove(0, 1);
         }
         if (tagFilter.isEmpty()) {

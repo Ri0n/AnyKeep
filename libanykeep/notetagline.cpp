@@ -67,8 +67,8 @@ namespace {
             if (match->rawLine.trimmed().isEmpty()) {
                 separatorObserved = true;
             } else {
-                // "Title\n*tag" is still the title paragraph in Markdown source.
-                // Only "Title\n\n*tag" starts the first body paragraph.
+                // "Title\n#tag" is still the title paragraph in Markdown source.
+                // Only "Title\n\n#tag" starts the first body paragraph.
                 return separatorObserved ? match : std::nullopt;
             }
 
@@ -110,7 +110,7 @@ QStringList NoteTagLine::parseLine(const QString &line)
     QStringList       tags;
     tags.reserve(tokens.size());
     for (const QString &token : tokens) {
-        if (!token.startsWith(QLatin1Char('*')) || token.size() == 1)
+        if (!token.startsWith(QLatin1Char('#')) || token.size() == 1)
             return {};
         const QString tag = token.mid(1);
         if (!isValidTagName(tag))
@@ -127,7 +127,7 @@ QString NoteTagLine::serialize(const QStringList &tags)
     tokens.reserve(tags.size());
     for (const QString &tag : tags) {
         if (isValidTagName(tag))
-            tokens.append(QLatin1Char('*') + tag);
+            tokens.append(QLatin1Char('#') + tag);
     }
     return tokens.join(QLatin1Char(' '));
 }

@@ -21,7 +21,6 @@ else()
 endif()
 
 set(_anykeep_update_work_dir "${CMAKE_BINARY_DIR}/update-work/${ANYKEEP_UPDATE_CHANNEL}")
-set(_anykeep_update_install_dir "${_anykeep_update_work_dir}/install")
 set(_anykeep_update_pack_script "${CMAKE_CURRENT_SOURCE_DIR}/make-update-package.cmake.in")
 
 set(_anykeep_install_config_args)
@@ -52,38 +51,14 @@ if(WINDEPLOYQT_EXECUTABLE)
     VERBATIM)
   set_target_properties(windows_runtime_install PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
-  add_custom_target(
-    windows_update_package
-    COMMAND ${CMAKE_COMMAND} -E remove_directory "${_anykeep_update_work_dir}"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${_anykeep_update_install_dir}"
-    COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}" ${_anykeep_install_config_args} --component Executable
-            --prefix "${_anykeep_update_install_dir}"
-    COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}" ${_anykeep_install_config_args} --component Launcher
-            --prefix "${_anykeep_update_install_dir}"
-    COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}" ${_anykeep_install_config_args} --component Libraries
-            --prefix "${_anykeep_update_install_dir}"
-    COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}" ${_anykeep_install_config_args} --component Runtime
-            --prefix "${_anykeep_update_install_dir}"
-    COMMAND ${CMAKE_COMMAND} -E remove_directory "${_anykeep_update_install_dir}/qmltooling"
-    COMMAND
-      ${CMAKE_COMMAND} "-DSOURCE_ROOT=${_anykeep_update_install_dir}" "-DOUTPUT_ROOT=${_anykeep_update_output_dir}"
-      "-DWORK_ROOT=${_anykeep_update_work_dir}/package" "-DVERSION=${ANYKEEP_VERSION}"
-      "-DCHANNEL=${ANYKEEP_UPDATE_CHANNEL}" "-DPACKAGE_BASE_URL=${ANYKEEP_UPDATE_BASE_URL}" -P
-      "${_anykeep_update_pack_script}"
-    DEPENDS anykeepexe anykeep_launcher anykeep_updater anykeep ${ANYKEEP_UPDATE_PLUGIN_TARGETS}
-    COMMENT "Building ${ANYKEEP_UPDATE_CHANNEL} AnyKeep Windows update archive and manifest"
-    VERBATIM)
   # Qt 6.7 introduced qt_add_translations(), which exposes translations_lrelease instead of this project's legacy
-  # build_translations target. The update archive installs the generated .qm files, so both end-user installation paths
-  # must depend on either spelling.
+  # build_translations target. The MSI packages the generated .qm files, so the runtime install must wait for either
+  # spelling.
   if(TARGET translations_lrelease)
     add_dependencies(windows_runtime_install translations_lrelease)
-    add_dependencies(windows_update_package translations_lrelease)
   elseif(TARGET build_translations)
     add_dependencies(windows_runtime_install build_translations)
-    add_dependencies(windows_update_package build_translations)
   endif()
-  set_target_properties(windows_update_package PROPERTIES EXCLUDE_FROM_ALL TRUE)
 endif()
 
 find_program(WIX_EXECUTABLE wix.exe)
@@ -130,6 +105,20 @@ add_custom_command(
   DEPENDS ${WIX_OUTPUT})
 add_custom_target(package DEPENDS ${ANYKEEP_MSI})
 set_target_properties(package PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
+# The MSI is also the self-update payload. Verify that Windows Installer can create an administrative image containing
+# the version-owned runtime, then publish that exact MSI next to the immutable/latest manifests. The same script can be
+# rerun against a SignPath-produced MSI so hashes are always calculated after signing.
+add_custom_target(
+  windows_update_package
+  COMMAND
+    ${CMAKE_COMMAND} "-DPACKAGE_PATH=${ANYKEEP_MSI}" "-DOUTPUT_ROOT=${_anykeep_update_output_dir}"
+    "-DWORK_ROOT=${_anykeep_update_work_dir}" "-DVERSION=${ANYKEEP_VERSION}" "-DCHANNEL=${ANYKEEP_UPDATE_CHANNEL}"
+    "-DPACKAGE_BASE_URL=${ANYKEEP_UPDATE_BASE_URL}" -P "${_anykeep_update_pack_script}"
+  DEPENDS ${ANYKEEP_MSI}
+  COMMENT "Verifying and publishing the ${ANYKEEP_UPDATE_CHANNEL} AnyKeep Windows MSI update payload"
+  VERBATIM)
+set_target_properties(windows_update_package PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # don't forget `wix extension add -g WixToolset.BootstrapperApplications.wixext`
 add_custom_command(

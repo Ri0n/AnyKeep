@@ -78,7 +78,7 @@ void NoteBlockModelTest::structuredPasteIntoTitleKeepsFollowingBlocks()
 void NoteBlockModelTest::movingWholeListBlockRestoresTagLineAtBodyBoundary()
 {
     NoteBlockModel model;
-    model.load(QStringLiteral("Title\n\n*tb\n\n- [ ] item"), true);
+    model.load(QStringLiteral("Title\n\n#tb\n\n- [ ] item"), true);
     QCOMPARE(model.rowCount(), 3);
     QCOMPARE(model.blockTypeAt(1), int(NoteBlockModel::TagLine));
     QCOMPARE(model.blockTypeAt(2), int(NoteBlockModel::CheckList));
@@ -93,7 +93,7 @@ void NoteBlockModelTest::movingWholeListBlockRestoresTagLineAtBodyBoundary()
     QCOMPARE(model.blockTypeAt(0), int(NoteBlockModel::Text));
     QCOMPARE(model.blockTypeAt(1), int(NoteBlockModel::TagLine));
     QCOMPARE(model.blockTypeAt(2), int(NoteBlockModel::CheckList));
-    QCOMPARE(model.contents(), QStringLiteral("Title\n\n*tb\n\n- [ ] item"));
+    QCOMPARE(model.contents(), QStringLiteral("Title\n\n#tb\n\n- [ ] item"));
 }
 
 void NoteBlockModelTest::inlineCodeListItemKeepsLeadingDashes()
@@ -106,7 +106,7 @@ void NoteBlockModelTest::inlineCodeListItemKeepsLeadingDashes()
 
 void NoteBlockModelTest::parsesPromotesAndSerializesTagLine()
 {
-    const QString  markdown = QStringLiteral("Title\n\n*tb *interview\n\nhello tom boy");
+    const QString  markdown = QStringLiteral("Title\n\n#tb #interview\n\nhello tom boy");
     NoteBlockModel model;
     model.load(markdown, true);
 
@@ -115,7 +115,7 @@ void NoteBlockModelTest::parsesPromotesAndSerializesTagLine()
     QCOMPARE(model.data(model.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::TagLine));
     QCOMPARE(model.data(model.index(1), NoteBlockModel::TagsRole).toStringList(),
              QStringList({ QStringLiteral("tb"), QStringLiteral("interview") }));
-    QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("*tb *interview"));
+    QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("#tb #interview"));
     QCOMPARE(model.contents(), markdown);
 
     const QString body = model.contents().section(QStringLiteral("\n\n"), 1);
@@ -123,84 +123,95 @@ void NoteBlockModelTest::parsesPromotesAndSerializesTagLine()
 
     NoteBlockModel promoted;
     promoted.load(QStringLiteral("Title"), true);
-    const QVariantMap result = promoted.promoteTagLineFromText(0, QStringLiteral("Title\n\n*tb *work "),
-                                                               QStringLiteral("Title\n\n\\*tb \\*work"), 18, false);
+    const QVariantMap result = promoted.promoteTagLineFromText(0, QStringLiteral("Title\n\n#tb #work "),
+                                                               QStringLiteral("Title\n\n#tb #work"), 18, false);
     QVERIFY(result.value(QStringLiteral("handled")).toBool());
     QCOMPARE(promoted.rowCount(), 2);
     QCOMPARE(promoted.data(promoted.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::TagLine));
-    QCOMPARE(promoted.contents(), QStringLiteral("Title\n\n*tb *work"));
+    QCOMPARE(promoted.contents(), QStringLiteral("Title\n\n#tb #work"));
 
     NoteBlockModel separate;
     separate.load(QStringLiteral("Title"), true);
     separate.insertTextBlock(1);
     const QVariantMap separateResult
-        = separate.promoteTagLineFromText(1, QStringLiteral("*tb "), QStringLiteral("\\*tb"), 4, false);
+        = separate.promoteTagLineFromText(1, QStringLiteral("#tb "), QStringLiteral("#tb"), 4, false);
     QVERIFY(separateResult.value(QStringLiteral("handled")).toBool());
     QCOMPARE(separate.data(separate.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::TagLine));
-    QCOMPARE(separate.contents(), QStringLiteral("Title\n\n*tb"));
+    QCOMPARE(separate.contents(), QStringLiteral("Title\n\n#tb"));
 }
 
 void NoteBlockModelTest::tagLineUsesFormatSpecificBodyBoundary()
 {
-    const auto plain = NoteTagLine::findPlainTextDocumentTagLine(QStringLiteral("Title\n*tb *work"));
+    const auto plain = NoteTagLine::findPlainTextDocumentTagLine(QStringLiteral("Title\n#tb #work"));
     QVERIFY(plain);
     QCOMPARE(plain->tags, QStringList({ QStringLiteral("tb"), QStringLiteral("work") }));
-    QVERIFY(!NoteTagLine::findPlainTextDocumentTagLine(QStringLiteral("Title\n\n*tb")));
+    QVERIFY(!NoteTagLine::findPlainTextDocumentTagLine(QStringLiteral("Title\n\n#tb")));
 
-    const auto markdown = NoteTagLine::findMarkdownDocumentTagLine(QStringLiteral("Title\n\n*tb *work\n\nBody"));
+    const auto markdown = NoteTagLine::findMarkdownDocumentTagLine(QStringLiteral("Title\n\n#tb #work\n\nBody"));
     QVERIFY(markdown);
     QCOMPARE(markdown->tags, QStringList({ QStringLiteral("tb"), QStringLiteral("work") }));
-    QVERIFY(!NoteTagLine::findMarkdownDocumentTagLine(QStringLiteral("Title\n*tb")));
+    QVERIFY(!NoteTagLine::findMarkdownDocumentTagLine(QStringLiteral("Title\n#tb")));
 
     const QChar    paragraphSeparator(QChar::ParagraphSeparator);
     NoteBlockModel projected;
     projected.load(QStringLiteral("Title"), true);
     const QVariantMap result
-        = projected.promoteTagLineFromText(0, QStringLiteral("Title") + paragraphSeparator + QStringLiteral("*tb "),
-                                           QStringLiteral("Title\n\n\\*tb"), 10, false);
+        = projected.promoteTagLineFromText(0, QStringLiteral("Title") + paragraphSeparator + QStringLiteral("#tb "),
+                                           QStringLiteral("Title\n\n#tb"), 10, false);
     QVERIFY(result.value(QStringLiteral("handled")).toBool());
     QCOMPARE(projected.data(projected.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::TagLine));
-    QCOMPARE(projected.contents(), QStringLiteral("Title\n\n*tb"));
+    QCOMPARE(projected.contents(), QStringLiteral("Title\n\n#tb"));
 
-    QCOMPARE(NoteData::tagsFromText(QStringLiteral("*plain *second\nbody")),
+    QCOMPARE(NoteData::tagsFromText(QStringLiteral("#plain #second\nbody")),
              QStringList({ QStringLiteral("plain"), QStringLiteral("second") }));
-    QCOMPARE(NoteData::tagsFromText(QStringLiteral("*plain") + paragraphSeparator + QStringLiteral("body")),
+    QCOMPARE(NoteData::tagsFromText(QStringLiteral("#plain") + paragraphSeparator + QStringLiteral("body")),
              QStringList({ QStringLiteral("plain") }));
 }
 
 void NoteBlockModelTest::escapedOrMixedTagLinesRemainOrdinaryText()
 {
     NoteBlockModel escaped;
-    escaped.load(QStringLiteral("Title\n\n\\*tb\n\nhello"), true);
+    escaped.load(QStringLiteral("Title\n\n\\#tb\n\nhello"), true);
     QCOMPARE(escaped.rowCount(), 2);
     QCOMPARE(escaped.data(escaped.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
     QCOMPARE(escaped.data(escaped.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
-    QVERIFY(NoteData::tagsFromText(QStringLiteral("\\*tb\nhello")).isEmpty());
+    QVERIFY(NoteData::tagsFromText(QStringLiteral("\\#tb\nhello")).isEmpty());
 
     NoteBlockModel mixed;
-    mixed.load(QStringLiteral("Title\n\n*tb extra\n\nhello"), true);
+    mixed.load(QStringLiteral("Title\n\n#tb extra\n\nhello"), true);
     QCOMPARE(mixed.rowCount(), 2);
     QCOMPARE(mixed.data(mixed.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
     QCOMPARE(mixed.data(mixed.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
-    QVERIFY(NoteData::tagsFromText(QStringLiteral("*tb extra\nhello")).isEmpty());
+    QVERIFY(NoteData::tagsFromText(QStringLiteral("#tb extra\nhello")).isEmpty());
+
+    NoteBlockModel legacy;
+    legacy.load(QStringLiteral("Title\n\n*tb *work\n\nhello"), true);
+    QCOMPARE(legacy.data(legacy.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
+    QVERIFY(NoteData::tagsFromText(QStringLiteral("*tb *work\nhello")).isEmpty());
+
+    NoteBlockModel headings;
+    headings.load(QStringLiteral("Title\n\n# Heading\n\n## Subheading"), true);
+    for (int row = 0; row < headings.rowCount(); ++row)
+        QVERIFY(headings.data(headings.index(row), NoteBlockModel::TypeRole).toInt() != int(NoteBlockModel::TagLine));
+    QVERIFY(NoteData::tagsFromText(QStringLiteral("# Heading\n\n## Subheading")).isEmpty());
 }
 
 void NoteBlockModelTest::invalidTagEditRestoresOrdinaryTextAndCursor()
 {
     NoteBlockModel model;
-    model.load(QStringLiteral("Title\n\n*tb *work\n\nhello"), true);
+    model.load(QStringLiteral("Title\n\n#tb #work\n\nhello"), true);
 
-    const QVariantMap result = model.setTagLineTag(1, 0, QStringLiteral("*tb?"), 3);
+    const QVariantMap result = model.setTagLineTag(1, 0, QStringLiteral("#tb?"), 3);
     QVERIFY(result.value(QStringLiteral("handled")).toBool());
     QCOMPARE(model.data(model.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
-    QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("*tb? *work"));
+    QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("#tb? #work"));
     QCOMPARE(result.value(QStringLiteral("cursorPosition")).toInt(), 3);
 }
 
 void NoteBlockModelTest::tagLineRoundTripsThroughBlockFragment()
 {
     NoteBlockModel source;
-    source.load(QStringLiteral("Title\n\n*tb *work\n\nbody"), true);
+    source.load(QStringLiteral("Title\n\n#tb #work\n\nbody"), true);
     const NoteFragment fragment = source.extractBlockFragment(1, 1);
     QCOMPARE(fragment.blocks.size(), 1);
     QCOMPARE(fragment.blocks.constFirst().type, NoteFragmentBlockType::TagLine);
@@ -210,7 +221,7 @@ void NoteBlockModelTest::tagLineRoundTripsThroughBlockFragment()
     destination.load(QStringLiteral("Other"), true);
     QString error;
     QVERIFY2(destination.insertBlockFragment(1, fragment, &error), qPrintable(error));
-    QCOMPARE(destination.contents(), QStringLiteral("Other\n\n*tb *work"));
+    QCOMPARE(destination.contents(), QStringLiteral("Other\n\n#tb #work"));
 }
 
 void NoteBlockModelTest::structuredPastePromotesOnlyTheFirstBodyTagLine()
@@ -218,7 +229,7 @@ void NoteBlockModelTest::structuredPastePromotesOnlyTheFirstBodyTagLine()
     NoteFragment      textFragment;
     NoteFragmentBlock text;
     text.type     = NoteFragmentBlockType::Text;
-    text.markdown = QStringLiteral("*tb *work");
+    text.markdown = QStringLiteral("#tb #work");
     textFragment.blocks.append(text);
 
     NoteBlockModel firstBody;
@@ -226,7 +237,7 @@ void NoteBlockModelTest::structuredPastePromotesOnlyTheFirstBodyTagLine()
     QString error;
     QVERIFY2(firstBody.insertBlockFragment(1, textFragment, &error), qPrintable(error));
     QCOMPARE(firstBody.data(firstBody.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::TagLine));
-    QCOMPARE(firstBody.contents(), QStringLiteral("Title\n\n*tb *work"));
+    QCOMPARE(firstBody.contents(), QStringLiteral("Title\n\n#tb #work"));
 
     NoteFragment      tagFragment;
     NoteFragmentBlock tags;
@@ -238,18 +249,18 @@ void NoteBlockModelTest::structuredPastePromotesOnlyTheFirstBodyTagLine()
     afterBody.load(QStringLiteral("Title\n\nbody"), true);
     QVERIFY2(afterBody.insertBlockFragment(2, tagFragment, &error), qPrintable(error));
     QCOMPARE(afterBody.data(afterBody.index(2), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
-    QCOMPARE(afterBody.data(afterBody.index(2), NoteBlockModel::TextRole).toString(), QStringLiteral("*tb"));
+    QCOMPARE(afterBody.data(afterBody.index(2), NoteBlockModel::TextRole).toString(), QStringLiteral("#tb"));
     QVERIFY(NoteData::tagsFromText(afterBody.contents().section(QStringLiteral("\n\n"), 1)).isEmpty());
 }
 
 void NoteBlockModelTest::tagLineBecomesOrdinaryTextWhenContentMovesBeforeIt()
 {
     NoteBlockModel model;
-    model.load(QStringLiteral("Title\n\n*tb\n\nbody"), true);
+    model.load(QStringLiteral("Title\n\n#tb\n\nbody"), true);
 
     model.insertImage(1, QStringLiteral("media://image"), QStringLiteral("image"));
     QCOMPARE(model.data(model.index(2), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
-    QCOMPARE(model.data(model.index(2), NoteBlockModel::TextRole).toString(), QStringLiteral("*tb"));
+    QCOMPARE(model.data(model.index(2), NoteBlockModel::TextRole).toString(), QStringLiteral("#tb"));
     QVERIFY(NoteData::tagsFromText(model.contents().section(QStringLiteral("\n\n"), 1)).isEmpty());
 }
 

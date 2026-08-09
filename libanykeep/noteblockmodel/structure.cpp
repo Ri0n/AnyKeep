@@ -329,7 +329,7 @@ QVariantMap NoteBlockModel::setTagLineTag(int row, int tagIndex, const QString &
     }
 
     const QString tokenText = value.trimmed();
-    if (tokenText.isEmpty() || tokenText == QLatin1String("*"))
+    if (tokenText.isEmpty() || tokenText == QLatin1String("#"))
         return removeTagLineTag(row, tagIndex);
 
     const QStringList parsed = NoteTagLine::parseLine(tokenText);
@@ -338,7 +338,7 @@ QVariantMap NoteBlockModel::setTagLineTag(int row, int tagIndex, const QString &
         const auto &tags       = blocks_.at(row).tags;
         int         tokenStart = 0;
         for (int index = 0; index < tags.size(); ++index) {
-            const QString token = index == tagIndex ? tokenText : QLatin1Char('*') + tags.at(index);
+            const QString token = index == tagIndex ? tokenText : QLatin1Char('#') + tags.at(index);
             if (index == tagIndex)
                 tokenStart = tokens.join(QLatin1Char(' ')).size() + (tokens.isEmpty() ? 0 : 1);
             tokens.append(token);
@@ -378,7 +378,7 @@ QVariantMap NoteBlockModel::appendTagLineTag(int row, const QString &value, int 
         return result;
 
     const QString tokenText = value.trimmed();
-    if (tokenText.isEmpty() || tokenText == QLatin1String("*")) {
+    if (tokenText.isEmpty() || tokenText == QLatin1String("#")) {
         result.insert(QStringLiteral("handled"), true);
         result.insert(QStringLiteral("tagLine"), true);
         result.insert(QStringLiteral("focusDraft"), true);

@@ -5,8 +5,8 @@
 The unpackaged Windows build should behave like Telegram-style desktop updates:
 
 1. Check a small HTTPS manifest in the background.
-2. Download and verify a ZIP package without interrupting the user.
-3. Unpack the package into a new version directory while the current version keeps running.
+2. Download and verify the release MSI without interrupting the user.
+3. Use Windows Installer administrative extraction to prepare the MSI's version directory while the current version keeps running.
 4. Show a system notification and a green banner in the note manager only after the new version is ready.
 5. Switch versions quickly after **Update and restart**.
 6. Confirm the new version after it remains alive for 60 seconds, or when it exits normally before that timer elapses.
@@ -57,10 +57,10 @@ Owned by `AnyKeep::Main` and exposed to the notes-manager QML window. It:
 - disables itself for package-identity / Microsoft Store builds;
 - checks the configured manifest shortly after startup and then every six hours when automatic checks are enabled;
 - exposes an automatic-check checkbox and an independent **Check for updates** button in Options;
-- downloads to `staging/<version>/package.zip.part`;
+- downloads to `staging/<version>/package.msi.part`;
 - verifies package size and SHA-256;
-- validates every ZIP entry against the destination path and extracts through Windows PowerShell / .NET;
-- validates `anykeep.exe` and `AnyKeepUpdater.exe`;
+- runs `msiexec /a ... /qn TARGETDIR=<staging admin image>` to create an administrative image without installing the product;
+- locates and validates the MSI-owned `versions/<version>` payload containing `anykeep.exe` and `AnyKeepUpdater.exe`;
 - renames `versions/.<version>.tmp` to `versions/<version>`;
 - records the prepared version in `staging/prepared.json`;
 - restores a prepared update after an application restart;
@@ -90,11 +90,13 @@ A version may therefore ship newer switch and migration logic without first repl
 ```text
 manifest check
     ↓
-background ZIP download
+background MSI download
     ↓
 size + SHA-256 verification
     ↓
-extract to versions/.<version>.tmp
+msiexec /a into a staging administrative image
+    ↓
+move its versions/<version> payload to versions/.<version>.tmp
     ↓
 validate + rename to versions/<version>
     ↓
@@ -115,12 +117,12 @@ The slow work is finished before the banner appears. The button path only checkp
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "version": "4.0.1",
   "minimumLauncherProtocol": 1,
   "package": {
-    "format": "zip",
-    "url": "AnyKeep-4.0.1-windows-x86_64.zip",
+    "format": "msi",
+    "url": "AnyKeep-4.0.1-windows-x86_64.msi",
     "size": 12345678,
     "sha256": "..."
   }
@@ -129,7 +131,9 @@ The slow work is finished before the banner appears. The button path only checkp
 
 ### Generating update artifacts
 
-`windows_update_package` is the single packaging entry point for both local Visual Studio builds and CI. It never stages through the normal installation prefix. Instead it creates an isolated install tree under `build/update-work/<channel>/install`, installs only the `Executable`, `Launcher`, `Libraries`, and `Runtime` components (which run `windeployqt` there), removes QML debugging tooling, and then creates the update artifacts. This intentionally excludes headers, CMake package metadata, `mkspecs`, and other development files from bundled dependencies.
+`windows_update_package` remains the single Windows update-publishing entry point for local Visual Studio builds and CI, but the update payload is now the **same MSI used for installation**. There is no separate update ZIP.
+
+The target first builds the normal WiX MSI from `windows_runtime_install`. It then performs a quiet Windows Installer administrative extraction (`msiexec /a`) into `build/update-work/<channel>/admin-image` and verifies that the image contains exactly the expected version-owned runtime (`versions/<version>/anykeep.exe` and `AnyKeepUpdater.exe`). Only after that check succeeds does it copy the MSI into the update channel directory and calculate the final manifest/hash.
 
 Configure a stable Visual Studio build in the usual way and build:
 
@@ -141,13 +145,13 @@ The default output is:
 
 ```text
 build/updates/stable/
-├── AnyKeep-<version>-windows-x86_64.zip
+├── AnyKeep-<version>-windows-x86_64.msi
 ├── AnyKeep-<version>-windows-x86_64.json
 ├── windows-x86_64.json
 └── SHA256SUMS.txt
 ```
 
-The ZIP contains one version directory payload: `anykeep.exe`, `AnyKeepUpdater.exe`, project DLLs/plugins, Qt runtime files and translations. It deliberately excludes the stable launcher and installation state (`AnyKeepLauncher.exe`, `current.version`, `previous.version`, `versions`, `staging`, and update logs).
+The MSI owns both the stable launcher and `versions/<version>` runtime. Initial installation uses the MSI normally (through Burn when the Visual C++ redistributable is needed); self-update downloads the same MSI and uses only its administrative-image `versions/<version>` payload. Thus one Windows release artifact is the canonical source for both installation and self-update.
 
 For a nightly build, configure a separate build tree with:
 
@@ -157,11 +161,11 @@ cmake -S . -B build-nightly -G "Visual Studio 17 2022" -A x64 `
 cmake --build build-nightly --config Release --target windows_update_package
 ```
 
-That build is compiled to check `https://anykeep.net/updates/nightly/windows-x86_64.json` and writes artifacts under `build-nightly/updates/nightly`. `ANYKEEP_UPDATE_SERVER_ROOT` changes the common server root. `ANYKEEP_UPDATE_MANIFEST_URL` may override the compiled manifest URL explicitly.
+That build checks `https://anykeep.net/updates/nightly/windows-x86_64.json` and writes artifacts under `build-nightly/updates/nightly`. `ANYKEEP_UPDATE_SERVER_ROOT` changes the common server root. `ANYKEEP_UPDATE_MANIFEST_URL` may override the compiled manifest URL explicitly.
 
-Package URLs in generated manifests are relative by default, so the whole channel directory can be served locally or uploaded unchanged. For example, a development HTTP server may expose `updates/nightly/windows-x86_64.json` next to its ZIP. `ANYKEEP_UPDATE_BASE_URL` is an optional escape hatch when manifests and packages later need different hosts.
+Package URLs in generated manifests are relative by default, so the whole channel directory can be served locally or uploaded unchanged. `ANYKEEP_UPDATE_BASE_URL` remains available if manifests and packages later need different hosts.
 
-`ANYKEEP_UPDATE_OUTPUT_DIR` can redirect artifacts to a caller-selected directory. This is useful in GitHub Actions, where the same target can write directly to an artifact/publish directory:
+`ANYKEEP_UPDATE_OUTPUT_DIR` can redirect artifacts to a caller-selected directory:
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
@@ -170,7 +174,9 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
 cmake --build build --config Release --target windows_update_package
 ```
 
-Publishing order matters: upload the versioned ZIP and versioned manifest first, then replace `windows-x86_64.json` last. The latest manifest is the only mutable channel pointer. This prevents clients from observing a manifest before its referenced package is available.
+For signed releases, deep-sign the MSI first and then rerun `wix/make-update-package.cmake.in` against that signed MSI. The script deliberately hashes and publishes the supplied MSI bytes, so the manifest never describes the unsigned pre-SignPath artifact.
+
+Publishing order still matters: upload the versioned MSI and immutable version manifest first, then replace `windows-x86_64.json` last. The latest manifest is the only mutable channel pointer.
 
 ## Initial installation and uninstall
 
@@ -188,9 +194,9 @@ The green banner may later be reused for Store-managed release notes, but it mus
 
 ## Security before public rollout
 
-The implemented first stage verifies HTTPS, expected archive size, and SHA-256 from the manifest. Manifest signatures and Authenticode signing are intentionally deferred until the unsigned update path is stable. Before public rollout, add a detached signature over a canonical manifest with a rotation-capable trust policy, and code-sign the installer, launcher, updater, application, and project-owned executable modules. SHA-256 alone protects against a damaged package but does not protect against compromise of both the manifest and package host.
+The implemented first stage verifies HTTPS, expected MSI size, and SHA-256 from the manifest. Manifest signatures and Authenticode signing are intentionally deferred until the unsigned update path is stable. Before public rollout, add a detached signature over a canonical manifest with a rotation-capable trust policy, and code-sign the installer, launcher, updater, application, and project-owned executable modules. SHA-256 alone protects against a damaged package but does not protect against compromise of both the manifest and package host.
 
-Archive extraction rejects entries that resolve outside the temporary version directory. Public update delivery must remain disabled until the release-signature policy is implemented. A client that is too old to understand a future trust-key rotation may direct the user to download a fresh installer manually.
+MSI extraction is delegated to Windows Installer administrative mode, and AnyKeep accepts only the expected `versions/<version>` payload. Public update delivery must remain disabled until the release-signature policy is implemented. A client that is too old to understand a future trust-key rotation may direct the user to download a fresh installer manually.
 
 ## Retention and cleanup still to add
 

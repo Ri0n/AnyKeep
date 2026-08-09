@@ -35,15 +35,12 @@ burn_installer
 
 The workflow uploads two GitHub Actions artifacts:
 
-- the `nightly` update directory containing the ZIP, immutable version manifest,
+- the `nightly` update directory containing the versioned MSI, immutable version manifest,
   channel manifest, and SHA256SUMS;
 - the MSI and Burn installer executable.
 
 These artifacts are intentionally unsigned and are not copied to
-`anykeep.net`. A later signing/publishing workflow should consume the build
-output, sign the AnyKeep-owned PE files and installers, regenerate any archive
-whose contents changed, and only then generate/publish final hashes and the
-channel manifest.
+`anykeep.net`. A later signing/publishing workflow should deep-sign the MSI (including AnyKeep-owned PE files), rerun the update-manifest script against the signed MSI, build/sign the Burn bootstrapper, and only then publish the final channel artifacts.
 
 ## Local equivalent
 
