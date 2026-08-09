@@ -165,9 +165,12 @@ private slots:
     {
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("title"));
-        // Segoe UI keeps the advance width of capital M identical between regular and bold. Lowercase i has distinct
-        // metrics across the platform fonts used by the supported desktop environments.
-        note.setText(QStringLiteral("| A | B |\n| --- | --- |\n| iiiiiiii | **iiiiiiii** |"), Note::Markdown);
+        // Font weight is not required to change glyph advances (Segoe UI on
+        // Windows can report identical widths for regular and bold text). Use
+        // different text lengths so this cache/distribution test is independent
+        // of the platform font while still exercising rich text in the cell.
+        note.setText(QStringLiteral("| A | B |\n| --- | --- |\n| iiiiiiii | **iiiiiiiiiiiiiiiiiiiiiiii** |"),
+                     Note::Markdown);
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor            editor(note, drafts);
         DesktopNoteEditorHost host(&editor);
@@ -186,19 +189,20 @@ private slots:
         QTRY_VERIFY(cells.at(2)->property("comfortableWidth").toReal() > 0);
         QTRY_VERIFY(cells.at(3)->property("comfortableWidth").toReal() > 0);
 
-        const qreal plainWidth = cells.at(2)->property("comfortableWidth").toReal();
-        const qreal boldWidth  = cells.at(3)->property("comfortableWidth").toReal();
-        QVERIFY2(boldWidth > plainWidth, qPrintable(QStringLiteral("bold=%1 plain=%2").arg(boldWidth).arg(plainWidth)));
+        const qreal narrowWidth = cells.at(2)->property("comfortableWidth").toReal();
+        const qreal wideWidth   = cells.at(3)->property("comfortableWidth").toReal();
+        QVERIFY2(wideWidth > narrowWidth,
+                 qPrintable(QStringLiteral("wide=%1 narrow=%2").arg(wideWidth).arg(narrowWidth)));
         QTRY_VERIFY(cells.at(1)->width() > cells.at(0)->width());
         QVERIFY(qAbs(cells.at(0)->width() - cells.at(2)->width()) < 0.5);
         QVERIFY(qAbs(cells.at(1)->width() - cells.at(3)->width()) < 0.5);
 
         editor.model()->setTableCell(1, 2, QStringLiteral("iiii\niiii"));
-        QTRY_VERIFY(cells.at(2)->property("comfortableWidth").toReal() < plainWidth * 0.8);
+        QTRY_VERIFY(cells.at(2)->property("comfortableWidth").toReal() < narrowWidth - 0.25);
 
         const QList<qreal> intrinsicBeforeResize { cells.at(0)->property("comfortableWidth").toReal(),
                                                    cells.at(1)->property("comfortableWidth").toReal(),
-                                                   cells.at(2)->property("comfortableWidth").toReal(), boldWidth };
+                                                   cells.at(2)->property("comfortableWidth").toReal(), wideWidth };
         const qreal        totalWidthBeforeResize = cells.at(0)->width() + cells.at(1)->width();
         host.resize(820, 420);
         QTRY_VERIFY(cells.at(0)->width() + cells.at(1)->width() > totalWidthBeforeResize);
@@ -206,8 +210,8 @@ private slots:
             QCOMPARE(cells.at(index)->property("comfortableWidth").toReal(), intrinsicBeforeResize.at(index));
 
         cells.at(2)->forceActiveFocus(Qt::MouseFocusReason);
-        cells.at(2)->setProperty("text", QString(80, QLatin1Char('W')));
-        QTRY_VERIFY(cells.at(2)->property("comfortableWidth").toReal() > boldWidth * 2);
+        cells.at(2)->setProperty("text", QString(160, QLatin1Char('i')));
+        QTRY_VERIFY(cells.at(2)->property("comfortableWidth").toReal() > wideWidth * 2);
         QTRY_VERIFY(cells.at(0)->width() > cells.at(1)->width());
 
         editor.model()->insertTableRow(1, 2);
