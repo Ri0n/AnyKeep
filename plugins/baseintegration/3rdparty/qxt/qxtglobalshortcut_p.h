@@ -61,11 +61,7 @@ public:
 
 #ifndef Q_OS_MAC
     static int ref;
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    virtual bool nativeEventFilter(const QByteArray &eventType, void *message, long *result);
-#else
     virtual bool nativeEventFilter(const QByteArray &eventType, void *message, qintptr *result);
-#endif
 #endif // Q_OS_MAC
 
     static void activateShortcut(quint32 nativeKey, quint32 nativeMods);

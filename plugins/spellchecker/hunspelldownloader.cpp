@@ -72,7 +72,7 @@ public:
             }
             // A missing cache is normal on first run. In either case the
             // closed QFile must not be read; start() will fetch a fresh list.
-            return { };
+            return {};
         }
 
         QJsonDocument doc         = QJsonDocument::fromJson(cacheFile.readAll());
@@ -81,7 +81,7 @@ public:
         QDateTime     lastUpdated = QDateTime::fromString(doc[QLatin1String("last_updated")].toString(), Qt::ISODate);
 
         if (!lastUpdated.isValid() || lastUpdated.daysTo(QDateTime::currentDateTime()) > 1) {
-            return { };
+            return {};
         }
         return ret;
     }
@@ -92,7 +92,7 @@ public:
 
         if (reply->error() != QNetworkReply::NoError) {
             lastError_ = QLatin1String("Failed to fetch a list of dictioneries: ") + reply->errorString();
-            emit finished({ });
+            emit finished({});
             deleteLater();
             return;
         }
@@ -309,7 +309,7 @@ QString HunspellDownloader::findBestMatchingDirectory() const
         }
     }
 
-    return { };
+    return {};
 }
 
 void HunspellDownloader::findAndDownloadDictionary()

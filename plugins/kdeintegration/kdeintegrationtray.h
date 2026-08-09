@@ -3,12 +3,6 @@
 
 #include "trayimpl.h"
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-class QAction;
-class QMenu;
-class KStatusNotifierItem;
-#endif
-
 namespace AnyKeep {
 
 class Main;
@@ -20,7 +14,6 @@ public:
     explicit KDEIntegrationTray(Main *anykeep, QObject *parent);
     ~KDEIntegrationTray() override;
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 private:
     void ensurePlasmoidInSystemTray();
     void addPlasmoidToPanel();
@@ -39,16 +32,6 @@ private:
     bool updateDevelopmentQmlBackend(const QString &sourcePath, const QString &backendPath);
     bool updateDevelopmentFileContent(const QString &filePath, const QByteArray &content);
     bool updateDevelopmentLink(const QString &sourcePath, const QString &linkPath);
-#endif
-#else
-private slots:
-    void showNotes(bool active, const QPoint &pos);
-
-private:
-    Main                *anykeep;
-    KStatusNotifierItem *sni;
-    QAction             *actNew;
-    QMenu               *currentMenu = nullptr;
 #endif
 };
 

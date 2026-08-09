@@ -11,11 +11,7 @@
 
 #ifdef ANYKEEP_MULTIMEDIA_AVAILABLE
 #include <QAudioFormat>
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #include <QAudioSource>
-#else
-#include <QAudioInput>
-#endif
 #endif
 
 namespace AnyKeep {
@@ -45,12 +41,8 @@ private:
     void setError(const QString &error);
 
 #ifdef ANYKEEP_MULTIMEDIA_AVAILABLE
-    QAudioFormat format() const;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    QAudioFormat  format() const;
     QAudioSource *audioInput = nullptr;
-#else
-    QAudioInput *audioInput = nullptr;
-#endif
 #endif
 
     QBuffer       buffer;

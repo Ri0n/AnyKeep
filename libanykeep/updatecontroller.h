@@ -64,7 +64,7 @@ signals:
     void applyRequested();
 
 private:
-    void setState(State state, const QString &error = { });
+    void setState(State state, const QString &error = {});
     void writeStartupProbe();
     void checkForUpdate(bool automatic);
     void handleManifestReply();

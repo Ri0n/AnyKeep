@@ -1,0 +1,19 @@
+# CMake names intentionally follow the names exposed by Qt, KDE, and the
+# project's existing public CMake API.  They are not restricted by scope.
+lint:
+  disabled_codes:
+    - C0111 # CMake does not have a docstring convention for functions/macros.
+    - C0113 # INSTALL() comments add no useful build metadata.
+    - C0307 # Layout is checked by cmake-format.
+    - E1122 # Repeated INSTALL(DIRECTORY PATTERN ...) clauses are valid CMake.
+    - W0106 # Escaped install-time variables in INSTALL(CODE) are intentional.
+  function_pattern: '[A-Za-z_][A-Za-z0-9_]*'
+  macro_pattern: '[A-Za-z_][A-Za-z0-9_]*'
+  global_var_pattern: '[A-Za-z_][A-Za-z0-9_]*'
+  internal_var_pattern: '[A-Za-z_][A-Za-z0-9_]*'
+  local_var_pattern: '[A-Za-z_][A-Za-z0-9_]*'
+  private_var_pattern: '[A-Za-z_][A-Za-z0-9_]*'
+  public_var_pattern: '[A-Za-z_][A-Za-z0-9_]*'
+  argument_var_pattern: '[A-Za-z_][A-Za-z0-9_]*'
+  max_branches: 20
+  max_statements: 80

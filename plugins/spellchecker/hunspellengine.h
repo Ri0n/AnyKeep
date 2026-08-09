@@ -20,14 +20,10 @@ class HunspellEngine : public SpellEngineInterface {
     Q_OBJECT
 public:
     struct LangItem {
-        DictInfo  info;
-        Hunspell *hunspell;
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-        QTextCodec *codec;
-#else
+        DictInfo        info;
+        Hunspell       *hunspell;
         QStringEncoder *encoder = nullptr;
         QStringDecoder *decoder = nullptr;
-#endif
         // TODO write destructor + move constructor
     };
 

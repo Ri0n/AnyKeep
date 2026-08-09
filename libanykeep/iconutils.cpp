@@ -23,11 +23,7 @@ bool IconUtils::isDarkColorScheme()
         return false;
 #endif
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     return QGuiApplication::palette().color(QPalette::Window).lightness() < 128;
-#else
-    return false;
-#endif
 }
 
 QIcon IconUtils::tintedIcon(const QIcon &source, const QColor &color)

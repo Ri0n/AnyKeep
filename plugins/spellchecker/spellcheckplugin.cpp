@@ -92,12 +92,8 @@ public:
         case LocaleCodeRole:
             return row.dict.locale.bcp47Name();
         case DisplayNameRole: {
-            const QString language = row.dict.locale.nativeLanguageName();
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            const QString language  = row.dict.locale.nativeLanguageName();
             const QString territory = row.dict.locale.nativeTerritoryName();
-#else
-            const QString territory = row.dict.locale.nativeCountryName();
-#endif
             return territory.isEmpty() ? language : QStringLiteral("%1 (%2)").arg(language, territory);
         }
         case SelectedRole:
@@ -383,11 +379,7 @@ QString SpellCheckPlugin::tooltip() const
     foreach (auto &d, dicts) {
         QLocale locale(d.language, d.country);
         QString l = QLatin1String("<i>") + locale.nativeLanguageName() + QLatin1String(" (")
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
             + locale.nativeTerritoryName() + QLatin1Char(')');
-#else
-            + locale.nativeCountryName() + QLatin1Char(')');
-#endif
         if (!d.filename.isEmpty()) {
             l += QLatin1String(":</i> ");
             l += d.filename;

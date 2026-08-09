@@ -1,6 +1,5 @@
 #include <QtGlobal>
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #include <QDBusConnection>
 #include <QDBusError>
 #include <QDBusInterface>
@@ -10,30 +9,19 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
 #include <utility>
-#else
-#include <KStatusNotifierItem>
-#include <QApplication>
-#include <QMenu>
-#include <QScreen>
-#include <QStyle>
-#endif
-#include <QSettings>
 
 #include "anykeep.h"
 #include "kdeintegrationtray.h"
 #include "notemanager.h"
 #include "trayiconutils.h"
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-#include "utils.h"
-#endif
 
 namespace AnyKeep {
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 namespace {
     constexpr auto PlasmoidId = "com.github.ri0n.anykeep";
 #ifdef ANYKEEP_DEVEL
@@ -566,83 +554,6 @@ bool KDEIntegrationTray::updateDevelopmentPackage(const QString &sourcePath, con
 
     return updateDevelopmentQmlBackend(qmlSourcePath, targetUi.absoluteFilePath(QLatin1String("AnyKeep")));
 }
-#endif
-
-#else
-
-KDEIntegrationTray::KDEIntegrationTray(Main *anykeep, QObject *parent) : TrayImpl(parent), anykeep(anykeep)
-{
-    sni = new KStatusNotifierItem("anykeep", this);
-    sni->setIconByName(TrayIconUtils::themedTrayIconName());
-    sni->setStatus(KStatusNotifierItem::Active);
-    sni->setTitle("Notes");
-
-    auto *contextMenu = new QMenu;
-    sni->setContextMenu(contextMenu);
-
-    actNew = new QAction(QIcon(":/icons/new"), tr("&New"), this);
-    contextMenu->addAction(actNew);
-    contextMenu->addSeparator();
-    contextMenu->addAction(QIcon(":/icons/manager"), tr("&Note Manager"), this, SIGNAL(noteManagerTriggered()));
-    contextMenu->addAction(QIcon(":/icons/options"), tr("&Options"), this, SIGNAL(optionsTriggered()));
-    contextMenu->addAction(QIcon(":/icons/trayicon"), tr("&About"), this, SIGNAL(aboutTriggered()));
-
-    connect(actNew, SIGNAL(triggered()), SIGNAL(newNoteTriggered()));
-    connect(sni, SIGNAL(activateRequested(bool, QPoint)), SLOT(showNotes(bool, QPoint)));
-    connect(sni, SIGNAL(secondaryActivateRequested(QPoint)), SIGNAL(newNoteTriggered()));
-}
-
-KDEIntegrationTray::~KDEIntegrationTray() = default;
-
-void KDEIntegrationTray::showNotes(bool active, const QPoint &pos)
-{
-    Q_UNUSED(active)
-    if (currentMenu) {
-        currentMenu->close();
-        return;
-    }
-
-    QMenu menu;
-    menu.addAction(actNew);
-    menu.addSeparator();
-    QSettings settings;
-    auto      notes = NoteManager::instance()->noteList(settings.value("ui.menu-notes-amount", 15).toInt());
-    for (int i = 0; i < notes.count(); ++i) {
-        menu.addAction(notes[i].storage()->noteIcon(),
-                       Utils::cuttedDots(notes[i].displayTitle(), 48).replace('&', "&&"))
-            ->setData(i);
-    }
-
-    menu.show();
-    anykeep->activateWidget(&menu);
-    QRect desktopRect = QGuiApplication::screenAt(QCursor::pos())->geometry();
-    QRect menuRect    = menu.geometry();
-    menuRect.setSize(menu.sizeHint());
-    const QPoint menuPosition = pos - QPoint(menuRect.width() / 2, 0);
-    if (pos.y() < desktopRect.height() / 2)
-        menuRect.moveTopLeft(menuPosition);
-    else
-        menuRect.moveBottomLeft(menuPosition);
-
-    if (menuRect.right() > desktopRect.right())
-        menuRect.moveRight(desktopRect.right());
-    if (menuRect.bottom() > desktopRect.bottom())
-        menuRect.moveBottom(desktopRect.bottom());
-    if (menuRect.left() < desktopRect.left())
-        menuRect.moveLeft(desktopRect.left());
-    if (menuRect.top() < desktopRect.top())
-        menuRect.moveTop(desktopRect.top());
-
-    currentMenu     = &menu;
-    QAction *action = menu.exec(menuRect.topLeft());
-    currentMenu     = nullptr;
-
-    if (action && action != actNew) {
-        const auto &note = notes[action->data().toInt()];
-        emit        showNoteTriggered(note.storageId(), note.id());
-    }
-}
-
-#endif
+#endif // ANYKEEP_DEVEL
 
 } // namespace AnyKeep

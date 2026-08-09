@@ -116,11 +116,7 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     // Prefer the generated files but retain the source/download locations as
     // fallbacks for Unix development and manually installed translations.
     langDirs << qApp->applicationDirPath() + QLatin1String("/translations") << TRANSLATIONSDIR << dlTrDir;
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    qtLangDirs << QLibraryInfo::location(QLibraryInfo::TranslationsPath);
-#else
     qtLangDirs << QLibraryInfo::path(QLibraryInfo::TranslationsPath);
-#endif
 #else
     langDirs << qApp->applicationDirPath() + QLatin1String("/translations") << dlTrDir;
     qtLangDirs << langDirs;
@@ -319,7 +315,7 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     };
     connect(d->updates, &UpdateController::updatePrepared, this, notifyPreparedUpdate);
     if (d->updates->state() == UpdateController::Failed && !d->updates->errorString().isEmpty()) {
-        notify(tr("AnyKeep update rolled back"), d->updates->errorString(), { }, { });
+        notify(tr("AnyKeep update rolled back"), d->updates->errorString(), {}, {});
     }
     if (d->updates->updateReady())
         notifyPreparedUpdate(d->updates->availableVersion());

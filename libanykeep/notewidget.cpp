@@ -184,9 +184,6 @@ NoteWidget::NoteWidget(const Note &note, const QUuid &draftId) : ui(new Ui::Note
     if (!firstLineHighlighter)
         firstLineHighlighter = std::make_shared<FirstLineHighlighter>();
     addHighlightExtension(firstLineHighlighter, NoteHighlighter::Title);
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    connect(qGuiApp, &QGuiApplication::paletteChanged, this, [this](const QPalette &) { updateFirstLineColor(); });
-#endif
     initFromNote();
 }
 
@@ -549,7 +546,6 @@ void NoteWidget::onTrashClicked()
     emit trashRequested();
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 bool NoteWidget::event(QEvent *event)
 {
     if (event->type() == QEvent::ApplicationPaletteChange) {
@@ -557,7 +553,6 @@ bool NoteWidget::event(QEvent *event)
     }
     return QWidget::event(event);
 }
-#endif
 
 void NoteWidget::updateFirstLineColor()
 {

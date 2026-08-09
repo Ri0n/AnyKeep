@@ -30,11 +30,7 @@
 *****************************************************************************/
 
 #include <QVector>
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-#include <QX11Info>
-#else
 #include <QGuiApplication>
-#endif
 #include <X11/Xlib.h>
 #include <xcb/xcb.h>
 
@@ -83,12 +79,8 @@ class QxtX11Data {
 public:
     QxtX11Data()
     {
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-        m_display = QX11Info::display();
-#else
         auto x11app = qApp->nativeInterface<QNativeInterface::QX11Application>();
         m_display   = x11app->display();
-#endif
     }
 
     bool isValid() { return m_display != 0; }
@@ -135,11 +127,7 @@ private:
 } // namespace
 
 bool QxtGlobalShortcutPrivate::nativeEventFilter(const QByteArray &eventType, void *message,
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-                                                 long *result)
-#else
                                                  qintptr *result)
-#endif
 {
     Q_UNUSED(result);
 

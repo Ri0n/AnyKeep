@@ -31,7 +31,7 @@ std::wstring environmentValue(const wchar_t *name)
 {
     const DWORD required = GetEnvironmentVariableW(name, nullptr, 0);
     if (required == 0)
-        return { };
+        return {};
     std::vector<wchar_t> buffer(required);
     const DWORD          copied = GetEnvironmentVariableW(name, buffer.data(), DWORD(buffer.size()));
     return copied > 0 && copied < buffer.size() ? std::wstring(buffer.data(), copied) : std::wstring();
@@ -120,7 +120,7 @@ bool readSmallTextFile(const std::wstring &path, std::wstring *value)
     if (file == INVALID_HANDLE_VALUE)
         return false;
 
-    char       buffer[512] { };
+    char       buffer[512] {};
     DWORD      read = 0;
     const BOOL ok   = ReadFile(file, buffer, DWORD(sizeof(buffer) - 1), &read, nullptr);
     CloseHandle(file);
@@ -237,9 +237,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         LocalFree(argv);
     }
 
-    STARTUPINFOW startup { };
+    STARTUPINFOW startup {};
     startup.cb = sizeof(startup);
-    PROCESS_INFORMATION  process { };
+    PROCESS_INFORMATION  process {};
     std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
     mutableCommand.push_back(L'\0');
     if (!CreateProcessW(application.c_str(), mutableCommand.data(), nullptr, nullptr, FALSE, 0, nullptr,

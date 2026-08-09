@@ -438,15 +438,11 @@ bool NoteDialog::event(QEvent *event)
         imageDragAccepted_ = false;
         textDragAccepted_  = false;
     } else if (event->type() == QEvent::Drop && (imageDragAccepted_ || textDragAccepted_)) {
-        auto      *drop      = static_cast<QDropEvent *>(event);
-        const bool imageDrop = imageDragAccepted_;
-        imageDragAccepted_   = false;
-        textDragAccepted_    = false;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        auto      *drop            = static_cast<QDropEvent *>(event);
+        const bool imageDrop       = imageDragAccepted_;
+        imageDragAccepted_         = false;
+        textDragAccepted_          = false;
         const QPointF dropPosition = drop->position();
-#else
-        const QPointF dropPosition = drop->posF();
-#endif
         if (imageDrop)
             flushEditorChanges();
         const bool handled = imageDrop

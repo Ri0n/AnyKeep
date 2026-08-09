@@ -65,6 +65,9 @@ cmake --install build
 For the experimental Qt Quick Android application and Qt Creator kit setup,
 see [Android build](docs/android-build.md).
 
+For automated desktop builds, tests, and the unsigned Windows nightly packaging pipeline,
+see [Continuous integration](docs/continuous-integration.md).
+
 The install step is optional. Its default prefix is normally `/usr/local`; set
 another one during configuration with, for example,
 `-DCMAKE_INSTALL_PREFIX=/usr`.
@@ -87,7 +90,11 @@ The principal options are:
 
 ## Build DEB/RPM
 
-Check ./admin/{deb,rpm}build.sh scripts. You can start them w/o arguments.
+Check ./admin/{deb,rpm}build.sh scripts.
+
+```bash
+./admin/debbuild.sh qt6
+```
 
 ## Build on Microsoft Windows
 
@@ -112,7 +119,7 @@ Follow next steps after installing dependencies and configuring PATH:
 
 ## Internationalization
 
-https://anykeep.net
+https://app.transifex.com/rion/anykeep
 
 ## Architecture documentation
 

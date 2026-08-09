@@ -68,9 +68,7 @@ signals:
 
 protected:
     void changeEvent(QEvent *event) override;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     bool event(QEvent *event) override;
-#endif
 
 private:
     enum class ContentLoadPolicy { ResetHistory, RecordFormatConversion };

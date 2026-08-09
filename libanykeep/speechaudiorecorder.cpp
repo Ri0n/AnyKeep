@@ -3,11 +3,7 @@
 #include <QDebug>
 
 #ifdef ANYKEEP_MULTIMEDIA_AVAILABLE
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #include <QMediaDevices>
-#else
-#include <QAudioDeviceInfo>
-#endif
 #endif
 
 namespace AnyKeep {
@@ -29,15 +25,9 @@ SpeechAudioRecorder::~SpeechAudioRecorder() { cleanup(); }
 bool SpeechAudioRecorder::isAvailable() const
 {
 #ifdef ANYKEEP_MULTIMEDIA_AVAILABLE
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     auto device    = QMediaDevices::defaultAudioInput();
     auto available = !device.isNull();
     return available;
-#else
-    auto device    = QAudioDeviceInfo::defaultInputDevice();
-    auto available = !device.isNull();
-    return available;
-#endif
 #else
     return false;
 #endif
@@ -78,8 +68,7 @@ bool SpeechAudioRecorder::start(int maxDurationMs)
     }
 
     auto requestedFormat = format();
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    auto device = QMediaDevices::defaultAudioInput();
+    auto device          = QMediaDevices::defaultAudioInput();
     if (!device.isFormatSupported(requestedFormat)) {
         requestedFormat = device.preferredFormat();
     }
@@ -89,27 +78,11 @@ bool SpeechAudioRecorder::start(int maxDurationMs)
             setError(tr("Audio recording failed."));
         }
     });
-#else
-    auto device = QAudioDeviceInfo::defaultInputDevice();
-    if (!device.isFormatSupported(requestedFormat)) {
-        requestedFormat = device.nearestFormat(requestedFormat);
-    }
-    audioInput = new QAudioInput(device, requestedFormat, this);
-    connect(audioInput, &QAudioInput::stateChanged, this, [this](QAudio::State state) {
-        if (state == QAudio::StoppedState && audioInput && audioInput->error() != QAudio::NoError) {
-            setError(tr("Audio recording failed."));
-        }
-    });
-#endif
 
     audioInput->start(&buffer);
-    activeSampleRate = requestedFormat.sampleRate();
-    activeChannels   = requestedFormat.channelCount();
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    activeSampleRate    = requestedFormat.sampleRate();
+    activeChannels      = requestedFormat.channelCount();
     activeBitsPerSample = requestedFormat.bytesPerSample() * 8;
-#else
-    activeBitsPerSample = requestedFormat.sampleSize();
-#endif
     elapsed.start();
     progressTimer.start();
     return true;
@@ -172,14 +145,7 @@ QAudioFormat SpeechAudioRecorder::format() const
     QAudioFormat format;
     format.setSampleRate(16000);
     format.setChannelCount(1);
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     format.setSampleFormat(QAudioFormat::Int16);
-#else
-    format.setSampleSize(16);
-    format.setCodec(QLatin1String("audio/pcm"));
-    format.setByteOrder(QAudioFormat::LittleEndian);
-    format.setSampleType(QAudioFormat::SignedInt);
-#endif
     return format;
 }
 #endif

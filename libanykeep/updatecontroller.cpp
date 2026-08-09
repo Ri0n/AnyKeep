@@ -77,10 +77,10 @@ namespace {
         // Windows PowerShell ships in the system directory on supported
         // desktop Windows versions, so do not make update extraction depend
         // on that inherited PATH.
-        wchar_t    systemDirectory[MAX_PATH] { };
+        wchar_t    systemDirectory[MAX_PATH] {};
         const UINT length = GetSystemDirectoryW(systemDirectory, MAX_PATH);
         if (length == 0 || length >= MAX_PATH)
-            return { };
+            return {};
         const QString candidate = QDir(QString::fromWCharArray(systemDirectory, int(length)))
                                       .filePath(QStringLiteral("WindowsPowerShell/v1.0/powershell.exe"));
         return QFileInfo(candidate).isExecutable() ? candidate : QString();
@@ -171,7 +171,7 @@ QString UpdateController::statusText() const
     case Failed:
         return errorString_.isEmpty() ? tr("Update failed") : errorString_;
     }
-    return { };
+    return {};
 }
 
 void UpdateController::startAutomaticChecks()
@@ -849,18 +849,18 @@ QString UpdateController::detectInstallRoot() const
     QDir applicationDir(QCoreApplication::applicationDirPath());
     QDir versionsDir = applicationDir;
     if (!versionsDir.cdUp() || versionsDir.dirName().compare(QStringLiteral("versions"), Qt::CaseInsensitive) != 0)
-        return { };
+        return {};
     QDir root = versionsDir;
     if (!root.cdUp())
-        return { };
+        return {};
     if (!QFileInfo::exists(root.filePath(QStringLiteral("AnyKeepLauncher.exe")))
         || !QFileInfo::exists(root.filePath(QStringLiteral("current.version")))) {
-        return { };
+        return {};
     }
     return root.absolutePath();
 #endif // ANYKEEP_DEVEL
 #else
-    return { };
+    return {};
 #endif
 }
 
@@ -878,7 +878,7 @@ QString UpdateController::manifestUrlString() const
         .toString()
         .trimmed();
 #else
-    return { };
+    return {};
 #endif
 }
 

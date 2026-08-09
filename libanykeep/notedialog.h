@@ -26,7 +26,7 @@ class NoteDialog final : public QQuickView {
     Q_PROPERTY(bool pinAvailable READ pinAvailable CONSTANT)
 
 public:
-    explicit NoteDialog(const Note &note, Main *main, const QUuid &draftId = { });
+    explicit NoteDialog(const Note &note, Main *main, const QUuid &draftId = {});
     ~NoteDialog() override;
 
     static NoteDialog         *findDialog(const QString &storageId, const QString &noteId);

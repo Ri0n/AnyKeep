@@ -1,10 +1,6 @@
 #include <QtGlobal>
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-#include <QX11Info>
-#else
 #include <QGuiApplication>
-#endif
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 
@@ -12,15 +8,11 @@
 
 void X11Util::forceActivateWindow(unsigned long winId)
 {
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    Display *display = QX11Info::display();
-#else
     auto x11app = qApp->nativeInterface<QNativeInterface::QX11Application>();
     if (!x11app) {
         return;
     }
     Display *display = x11app->display();
-#endif
     if (!display) {
         return;
     }

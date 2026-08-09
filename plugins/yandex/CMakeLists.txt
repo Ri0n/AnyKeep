@@ -1,14 +1,17 @@
 include(AnyKeepMacro)
 
-find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Network REQUIRED)
+find_package(
+  Qt6
+  COMPONENTS Network
+  REQUIRED)
 if(ANYKEEP_BUILD_MOBILE)
-    find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Multimedia REQUIRED)
+  find_package(Qt6 COMPONENTS Multimedia REQUIRED)
 else()
-    find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Multimedia QUIET)
-    if(NOT TARGET Qt${QT_VERSION_MAJOR}::Multimedia)
-        message(STATUS "Skipping Yandex plugin: Qt Multimedia is unavailable")
-        return()
-    endif()
+  find_package(Qt6 COMPONENTS Multimedia QUIET)
+  if(NOT TARGET Qt6::Multimedia)
+    message(STATUS "Skipping Yandex plugin: Qt Multimedia is unavailable")
+    return()
+  endif()
 endif()
 
 set(yandex_sources
@@ -22,29 +25,29 @@ set(yandex_sources
     yandexspeechjob.h
     yandexspeechutils.cpp
     yandexspeechutils.h
-    yandex.qrc
-)
+    yandex.qrc)
 
 if(ANYKEEP_BUILD_MOBILE)
-    add_anykeep_bundled_plugin(yandex SOURCES ${yandex_sources})
-    target_link_libraries(anykeep_bundled_yandex PUBLIC
-        Qt${QT_VERSION_MAJOR}::Core
-        Qt${QT_VERSION_MAJOR}::Gui
-        Qt${QT_VERSION_MAJOR}::Network
-        Qt${QT_VERSION_MAJOR}::Multimedia
-    )
-    return()
+  add_anykeep_bundled_plugin(yandex SOURCES ${yandex_sources})
+  target_link_libraries(anykeep_bundled_yandex PUBLIC Qt6::Core Qt6::Gui Qt6::Network Qt6::Multimedia)
+  return()
 endif()
 
-add_anykeep_plugin(yandex "Yandex cloud services" ON unix macosx windows android
-    METADATA plugin-metadata.json ICON yandex-logo.svg SOURCES ${yandex_sources})
+add_anykeep_plugin(
+  yandex
+  "Yandex cloud services"
+  ON
+  unix
+  macosx
+  windows
+  android
+  METADATA
+  plugin-metadata.json
+  ICON
+  yandex-logo.svg
+  SOURCES
+  ${yandex_sources})
 
-target_link_libraries(yandex
-    ${EXTRA_LINK_TARGET}
-    Qt${QT_VERSION_MAJOR}::Core
-    Qt${QT_VERSION_MAJOR}::Gui
-    Qt${QT_VERSION_MAJOR}::Network
-    Qt${QT_VERSION_MAJOR}::Multimedia
-)
+target_link_libraries(yandex ${EXTRA_LINK_TARGET} Qt6::Core Qt6::Gui Qt6::Network Qt6::Multimedia)
 
 install_anykeep_plugin(yandex)

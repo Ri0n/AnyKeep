@@ -95,7 +95,7 @@ BaseIntegrationTray::BaseIntegrationTray(Main *anykeep, PluginHostInterface *hos
             SLOT(showNoteList(QSystemTrayIcon::ActivationReason)));
     connect(tray, &QSystemTrayIcon::messageClicked, this, [this]() {
         auto action        = std::move(notificationAction);
-        notificationAction = { };
+        notificationAction = {};
         if (action)
             action();
     });

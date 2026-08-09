@@ -8,12 +8,8 @@
 #include <QSet>
 #include <QStandardPaths>
 #include <QString>
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-#include <QTextCodec>
-#else
 #include <QStringDecoder>
 #include <QStringEncoder>
-#endif
 #ifdef Q_OS_WIN
 #include <hunspell/hunspell.hxx>
 #else
@@ -129,10 +125,8 @@ HunspellEngine::~HunspellEngine()
     delete qnam;
     foreach (const LangItem &li, languages) {
         delete li.hunspell;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         delete li.encoder;
         delete li.decoder;
-#endif
     }
     QFile f(customDictionaryPath_);
     if (f.open(QIODevice::WriteOnly)) {
@@ -159,15 +153,10 @@ QList<HunspellEngine::DictInfo> HunspellEngine::supportedLanguages() const
             QLocale locale(fi.baseName());
             if (locale != QLocale::c()) {
                 DictInfo info;
-                info.filename = fi.filePath();
-                info.language = locale.language();
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-                info.country = locale.country();
-                QString key  = locale.nativeLanguageName() + locale.nativeCountryName();
-#else
-                info.country = locale.territory();
-                QString key  = locale.nativeLanguageName() + locale.nativeTerritoryName();
-#endif
+                info.filename   = fi.filePath();
+                info.language   = locale.language();
+                info.country    = locale.territory();
+                QString key     = locale.nativeLanguageName() + locale.nativeTerritoryName();
                 info.isLoaded   = std::ranges::any_of(languages, [&info](auto const &l) {
                     return l.info.country == info.country && l.info.language == info.language;
                 });
@@ -199,28 +188,17 @@ HunspellEngine::Error HunspellEngine::addLanguage(const QLocale &locale)
         } else if (codecName.startsWith("TIS620-2533")) {
             codecName.resize(sizeof("TIS620") - 1);
         }
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-        li.codec = QTextCodec::codecForName(codecName);
-        if (li.codec) {
-#else
         li.encoder = new QStringEncoder(codecName.data());
         li.decoder = new QStringDecoder(codecName.data());
         if (li.encoder->isValid()) {
-#endif
             li.info.language = locale.language();
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-            li.info.country = locale.country();
-#else
-            li.info.country = locale.territory();
-#endif
+            li.info.country  = locale.territory();
             li.info.filename = dic.filePath();
             languages.append(li);
             return NoError;
         }
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         delete li.encoder;
         delete li.decoder;
-#endif
         delete li.hunspell;
         lastError_ = QString("Unsupported myspell dict encoding: \"%1\" for %2").arg(codecName, dic.fileName());
         qWarning("%s", qUtf8Printable(lastError_));
@@ -234,10 +212,8 @@ void HunspellEngine::removeLanguage(const QLocale &locale)
     int index = findLangItem(locale);
     if (index != -1) {
         delete languages[index].hunspell;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         delete languages[index].encoder;
         delete languages[index].decoder;
-#endif
         languages.removeAt(index);
     }
 }
@@ -279,11 +255,7 @@ bool HunspellEngine::spell(const QString &word) const
         return true;
     }
     foreach (const LangItem &li, languages) {
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-        auto ba = li.codec->fromUnicode(word); // byte array in dict's encoding
-#else
         QByteArray ba = li.encoder->encode(word);
-#endif
         if (li.hunspell->spell(std::string(ba.data(), size_t(ba.size()))) != 0) {
             return true;
         }
@@ -297,18 +269,10 @@ QList<QString> HunspellEngine::suggestions(const QString &word) const
 {
     QStringList qtResult;
     foreach (const LangItem &li, languages) {
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-        auto result = li.hunspell->suggest(std::string(li.codec->fromUnicode(word)));
-#else
         auto result = li.hunspell->suggest(std::string(QByteArray(li.encoder->encode(word))));
-#endif
         for (auto &s : result) {
             QByteArray ba(s.data(), int(s.size()));
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-            qtResult << li.codec->toUnicode(ba);
-#else
             qtResult << QString(li.decoder->decode(ba));
-#endif
         }
     }
     return std::move(qtResult);
@@ -328,13 +292,7 @@ QStringList HunspellEngine::diagnostics() const { return AnyKeep::diagnostics; }
 int HunspellEngine::findLangItem(const QLocale &locale)
 {
     for (int i = 0; i < languages.count(); i++) {
-        if (
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-            languages[i].info.country == locale.country()
-#else
-            languages[i].info.country == locale.territory()
-#endif
-            && languages[i].info.language == locale.language())
+        if (languages[i].info.country == locale.territory() && languages[i].info.language == locale.language())
             return i;
     }
     return -1;

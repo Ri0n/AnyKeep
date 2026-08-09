@@ -5,9 +5,6 @@
 #include <KSharedConfig>
 #include <KWindowConfig>
 #include <KWindowSystem>
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0) && !defined(OLD_K_FORCE_ACTIVATE)
-#include <KX11Extras>
-#endif
 
 #include <QAction>
 #include <QDBusInterface>

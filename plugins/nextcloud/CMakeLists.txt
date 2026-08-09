@@ -10,37 +10,34 @@ set(nextcloud_sources
     nextcloudstorage.h
     nextcloudplugin.cpp
     nextcloudplugin.h
-    nextcloudresources.qrc
-)
+    nextcloudresources.qrc)
 
-find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Network REQUIRED)
+find_package(
+  Qt6
+  COMPONENTS Network
+  REQUIRED)
 
 if(ANYKEEP_BUILD_MOBILE)
-    add_anykeep_bundled_plugin(nextcloud SOURCES ${nextcloud_sources})
-    target_link_libraries(anykeep_bundled_nextcloud PUBLIC
-        Qt${QT_VERSION_MAJOR}::Core
-        Qt${QT_VERSION_MAJOR}::Gui
-        Qt${QT_VERSION_MAJOR}::Network
-    )
-    return()
+  add_anykeep_bundled_plugin(nextcloud SOURCES ${nextcloud_sources})
+  target_link_libraries(anykeep_bundled_nextcloud PUBLIC Qt6::Core Qt6::Gui Qt6::Network)
+  return()
 endif()
 
 add_anykeep_plugin(
-    nextcloud
-    "Allows to load and save notes using Nextcloud Notes"
-    ON
-    unix macosx windows android
-    METADATA plugin-metadata.json
-    ICON nextcloud-notes.svg
-    SOURCES ${nextcloud_sources}
-)
+  nextcloud
+  "Allows to load and save notes using Nextcloud Notes"
+  ON
+  unix
+  macosx
+  windows
+  android
+  METADATA
+  plugin-metadata.json
+  ICON
+  nextcloud-notes.svg
+  SOURCES
+  ${nextcloud_sources})
 
-target_link_libraries(
-    nextcloud
-    ${EXTRA_LINK_TARGET}
-    Qt${QT_VERSION_MAJOR}::Core
-    Qt${QT_VERSION_MAJOR}::Gui
-    Qt${QT_VERSION_MAJOR}::Network
-)
+target_link_libraries(nextcloud ${EXTRA_LINK_TARGET} Qt6::Core Qt6::Gui Qt6::Network)
 
 install_anykeep_plugin(nextcloud)

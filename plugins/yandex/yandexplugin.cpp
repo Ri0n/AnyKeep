@@ -101,9 +101,9 @@ SpeechRecognitionUsageStats YandexPlugin::speechRecognitionUsageStats() const
     stats.audioMsUsed             = trackedAudioMs;
     stats.bytesSent               = trackedBytesSent;
     stats.humanSummary            = tr("<b>Tracked audio sessions:</b> %1<br/><b>Actual audio:</b> %2<br/>"
-                                       "<b>Estimated billable audio:</b> %3<br/><b>Uploaded:</b> %4")
-                                        .arg(QLocale().toString(sessionCount), formatUsageDuration(stats.audioMsUsed),
-                                             formatUsageDuration(billableAudioMs), formatUsageBytes(stats.bytesSent));
+                                                  "<b>Estimated billable audio:</b> %3<br/><b>Uploaded:</b> %4")
+                             .arg(QLocale().toString(sessionCount), formatUsageDuration(stats.audioMsUsed),
+                                  formatUsageDuration(billableAudioMs), formatUsageBytes(stats.bytesSent));
     return stats;
 }
 

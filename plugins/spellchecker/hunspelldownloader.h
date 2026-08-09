@@ -30,13 +30,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 class QNetworkAccessManager;
 class QNetworkReply;
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #define COUNTRY_FN territory
 #define COUNTRY_STR territoryToString
-#else
-#define COUNTRY_FN country
-#define COUNTRY_STR countryToString
-#endif
 
 namespace AnyKeep {
 

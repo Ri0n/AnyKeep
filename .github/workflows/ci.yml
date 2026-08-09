@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  QT_VERSION: 6.10.2
+
+jobs:
+  windows:
+    name: Windows / Visual Studio 2022
+    runs-on: windows-2025
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          modules: qtmultimedia qttools
+          cache: true
+
+      - name: Install Conan
+        run: |
+          python -m pip install --upgrade "conan>=2,<3"
+          conan profile detect --force
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/windows `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_CONFIGURATION_TYPES=Release `
+            -DANYKEEP_UPDATE_CHANNEL=nightly `
+            -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build/windows --config Release --parallel 4
+
+      - name: Test
+        run: ctest --test-dir build/windows -C Release --output-on-failure --timeout 180
+
+  linux:
+    name: Linux / GCC
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gettext \
+            libgl1-mesa-dev \
+            libhunspell-dev \
+            libssl-dev \
+            libx11-dev \
+            ninja-build \
+            pkg-config
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          modules: qtmultimedia qttools
+          cache: true
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DANYKEEP_BUILD_BUNDLED_QCA=ON \
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON \
+            -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
+            -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
+            -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build/linux --parallel 4
+
+      - name: Test
+        run: ctest --test-dir build/linux --output-on-failure --timeout 180
+
+  macos:
+    name: macOS / Intel compile check
+    runs-on: macos-15-intel
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          modules: qtmultimedia qttools
+          cache: true
+
+      - name: Ensure OpenSSL 3 is available
+        run: |
+          brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/macos -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR" \
+            -DANYKEEP_BUILD_BUNDLED_QCA=ON \
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON \
+            -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
+            -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
+            -DBUILD_TESTING=OFF
+
+      - name: Build
+        run: cmake --build build/macos --parallel 4

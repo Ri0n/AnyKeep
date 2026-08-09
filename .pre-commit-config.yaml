@@ -24,6 +24,14 @@ repos:
     -   id: remove-crlf
     -   id: forbid-tabs
     -   id: remove-tabs
+-   repo: https://github.com/cheshirekow/cmake-format-precommit
+    rev: v0.6.10
+    hooks:
+    - id: cmake-format
+      additional_dependencies: [PyYAML]
+    - id: cmake-lint
+      additional_dependencies: [PyYAML]
+      args: [--config-files, .cmake-lint.yaml]
 #-   repo: https://github.com/openstack-dev/bashate
 #    rev: 2.0.0
 #    hooks:
