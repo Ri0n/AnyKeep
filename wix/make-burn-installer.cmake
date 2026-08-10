@@ -129,6 +129,9 @@ configure_file("${BUNDLE_TEMPLATE}" "${bundle_source}" @ONLY)
 execute_process(
   COMMAND "${wix_executable}" build "${bundle_source}" -arch x64 -ext WixToolset.BootstrapperApplications.wixext -ext
           WixToolset.Util.wixext -o "${OUTPUT_PATH}"
+  # WixStdBA resolves LicenseFile by its bundle payload name (GPLv3.rtf). The previous in-tree Burn target happened to
+  # run WiX from the directory containing that generated file; keep the standalone script equally deterministic.
+  WORKING_DIRECTORY "${WORK_ROOT}"
   RESULT_VARIABLE build_result
   OUTPUT_VARIABLE build_stdout
   ERROR_VARIABLE build_stderr)

@@ -257,6 +257,7 @@ macro(windeployqt name)
       CODE "
             execute_process(
                 COMMAND \"${WINDEPLOYQT_EXECUTABLE}\"
+                    --verbose 0
                     --no-compiler-runtime
                     --no-system-dxc-compiler
                     --no-system-d3d-compiler
@@ -265,9 +266,13 @@ macro(windeployqt name)
                     --dir \"\${CMAKE_INSTALL_PREFIX}\"
                     \"$<TARGET_FILE:${name}>\"
                 RESULT_VARIABLE _anykeep_windeployqt_result
+                OUTPUT_VARIABLE _anykeep_windeployqt_stdout
+                ERROR_VARIABLE _anykeep_windeployqt_stderr
             )
             if(NOT _anykeep_windeployqt_result EQUAL 0)
-                message(FATAL_ERROR \"windeployqt failed for ${name}: \${_anykeep_windeployqt_result}\")
+                message(FATAL_ERROR
+                    \"windeployqt failed for ${name}: \${_anykeep_windeployqt_result}\n\"
+                    \"\${_anykeep_windeployqt_stdout}\n\${_anykeep_windeployqt_stderr}\")
             endif()
         "
       COMPONENT Runtime)
