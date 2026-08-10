@@ -26,21 +26,25 @@ application version from Git tags and the distance from the last tag.
 
 `.github/workflows/windows-nightly.yml` runs every day at 03:00 UTC and can also
 be started manually from the Actions tab. It uses the same Visual Studio 2022
-Release configuration as the Windows CI job, runs CTest, then builds both:
+Release configuration as the Windows CI job and runs CTest. The persistent
+artifact is deliberately only the canonical unsigned `AnyKeep.msi`, which is
+the future SignPath input. Update manifests and release installers must not be
+published from bytes that will later be changed by Authenticode signing.
 
-```text
-windows_update_package
-burn_installer
-```
+The workflow also builds an unsigned Burn bootstrapper as a smoke test but does
+not upload it. That test follows Microsoft's rolling `vc14` redirect, pins the
+resolved `download.visualstudio.microsoft.com` object and asks WiX to generate
+the remote payload hash/size/version. It therefore catches redirect or WiX
+authoring changes without creating another release-looking artifact.
 
-The workflow uploads two GitHub Actions artifacts:
-
-- the `nightly` update directory containing the versioned MSI, immutable version manifest,
-  channel manifest, and SHA256SUMS;
-- the MSI and Burn installer executable.
-
-These artifacts are intentionally unsigned and are not copied to
-`anykeep.net`. A later signing/publishing workflow should deep-sign the MSI (including AnyKeep-owned PE files), rerun the update-manifest script against the signed MSI, build/sign the Burn bootstrapper, and only then publish the final channel artifacts.
+The intended signed publishing pipeline is sequential: deep-sign the MSI, run
+`windows_update_package` against those signed bytes, build Burn around the
+signed MSI with `wix/make-burn-installer.cmake`, complete WiX's bundle-signing
+flow, and only then upload public artifacts. The Burn script accepts an
+external MSI and therefore works in a fresh post-signing Windows job without
+the original Qt build tree. SignPath Foundation requires manual approval for
+each signing request, so the actual signing workflow is kept separate until
+the SignPath project, policies and artifact configurations exist.
 
 ## Local equivalent
 
@@ -56,8 +60,8 @@ cmake -S . -B build/windows `
 
 cmake --build build/windows --config Release --parallel 4
 ctest --test-dir build/windows -C Release --output-on-failure
-cmake --build build/windows --config Release `
-  --target windows_update_package burn_installer --parallel 4
+cmake --build build/windows --config Release --target package --parallel 4
+cmake --build build/windows --config Release --target burn_installer --parallel 4
 ```
 
 Qt, Conan, and WiX still need to be available exactly as they do for a manual

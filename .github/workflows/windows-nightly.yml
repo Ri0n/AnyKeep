@@ -76,28 +76,26 @@ jobs:
           cmake --build build/windows-nightly --config Release --parallel 4
           ctest --test-dir build/windows-nightly -C Release --output-on-failure --timeout 180
 
-      - name: Build update package and installers
+      - name: Build unsigned MSI
         run: |
           cmake --build build/windows-nightly --config Release `
-            --target windows_update_package burn_installer `
+            --target package `
             --parallel 4
 
-      - name: Upload update package
-        uses: actions/upload-artifact@v7
-        with:
-          name: anykeep-windows-nightly-update-${{ github.run_number }}
-          path: build/windows-nightly/updates/nightly/
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
+      # Keep exercising the Burn authoring path so changes to Microsoft's vc14 redirect chain or WiX remote-payload
+      # generation fail visibly in CI. This EXE contains the unsigned MSI and is deliberately not published.
+      - name: Smoke-test unsigned Burn bootstrapper
+        run: |
+          cmake --build build/windows-nightly --config Release `
+            --target burn_installer `
+            --parallel 4
 
-      - name: Upload installers
+      - name: Upload unsigned MSI signing input
+        id: upload-unsigned-msi
         uses: actions/upload-artifact@v7
         with:
-          name: anykeep-windows-nightly-installer-${{ github.run_number }}
-          path: |
-            build/windows-nightly/AnyKeep.msi
-            build/windows-nightly/AnyKeep.Installer-*.exe
+          name: anykeep-windows-nightly-unsigned-msi-${{ github.run_number }}
+          path: build/windows-nightly/AnyKeep.msi
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

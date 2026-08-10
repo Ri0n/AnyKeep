@@ -69,33 +69,70 @@ if(NOT WIX_EXECUTABLE OR NOT WINDEPLOYQT_EXECUTABLE)
   return()
 endif()
 
+# A direct MSI cannot bootstrap the MSVC runtime itself, so it must reject a fresh install when the machine runtime is
+# older than the toolset used to build AnyKeep. Microsoft defines that as the compatibility floor for the v14
+# Redistributable. Prefer an explicit cache override, otherwise derive the three-component toolset version from cl.exe.
+set(ANYKEEP_REQUIRED_VC_RUNTIME_VERSION
+    ""
+    CACHE STRING "Minimum x64 Visual C++ v14 Redistributable version required by the Windows MSI")
+if(ANYKEEP_REQUIRED_VC_RUNTIME_VERSION STREQUAL "")
+  file(TO_CMAKE_PATH "${CMAKE_CXX_COMPILER}" _anykeep_msvc_compiler)
+  string(REGEX MATCH "/VC/Tools/MSVC/([0-9]+[.][0-9]+[.][0-9]+)([.][0-9]+)?/" _anykeep_msvc_toolset_match
+               "${_anykeep_msvc_compiler}")
+  if(CMAKE_MATCH_1)
+    set(ANYKEEP_REQUIRED_VC_RUNTIME_VERSION "${CMAKE_MATCH_1}.0")
+  elseif(CMAKE_VS_PLATFORM_TOOLSET_VERSION MATCHES "^[0-9]+[.][0-9]+[.][0-9]+$")
+    set(ANYKEEP_REQUIRED_VC_RUNTIME_VERSION "${CMAKE_VS_PLATFORM_TOOLSET_VERSION}.0")
+  else()
+    message(FATAL_ERROR "Cannot derive the MSVC toolset version from '${CMAKE_CXX_COMPILER}'. "
+                        "Set ANYKEEP_REQUIRED_VC_RUNTIME_VERSION explicitly, for example 14.44.35207.0.")
+  endif()
+endif()
+
+if(NOT ANYKEEP_REQUIRED_VC_RUNTIME_VERSION MATCHES "^([0-9]+)[.]([0-9]+)[.]([0-9]+)[.]([0-9]+)$")
+  message(FATAL_ERROR "ANYKEEP_REQUIRED_VC_RUNTIME_VERSION must have four numeric components, got "
+                      "'${ANYKEEP_REQUIRED_VC_RUNTIME_VERSION}'")
+endif()
+set(_anykeep_vc_runtime_major "${CMAKE_MATCH_1}")
+set(_anykeep_vc_runtime_minor "${CMAKE_MATCH_2}")
+set(_anykeep_vc_runtime_build "${CMAKE_MATCH_3}")
+if(_anykeep_vc_runtime_build LESS 1)
+  message(FATAL_ERROR "Unsupported MSVC runtime version '${ANYKEEP_REQUIRED_VC_RUNTIME_VERSION}'")
+endif()
+math(EXPR _anykeep_vc_runtime_previous_build "${_anykeep_vc_runtime_build} - 1")
+# Windows Installer also compares file language when FileSearch finds exactly MinVersion. Search one file-version tick
+# below the real floor so every acceptable vcruntime140.dll is strictly newer and the language field is irrelevant.
+set(ANYKEEP_VC_RUNTIME_FILE_SEARCH_MIN_VERSION
+    "${_anykeep_vc_runtime_major}.${_anykeep_vc_runtime_minor}.${_anykeep_vc_runtime_previous_build}.65535")
+message(STATUS "AnyKeep minimum Visual C++ v14 runtime: ${ANYKEEP_REQUIRED_VC_RUNTIME_VERSION}")
+
+set(UPGRADE_CODE "E12D6C7A-8F57-479B-8AE9-49C411B82843")
+
 set(WIX_TEMPLATE "${CMAKE_SOURCE_DIR}/wix/installer.wxs.in")
 set(WIX_BUNDLE_TEMPLATE "${CMAKE_SOURCE_DIR}/wix/AnyKeepInstaller.wixbundle.in")
 set(WIX_OUTPUT "${CMAKE_BINARY_DIR}/installer.wxs")
-set(WIX_BUNDLE_OUTPUT "${CMAKE_BINARY_DIR}/AnyKeepInstaller.wixbundle")
 set(ANYKEEP_MSI ${CMAKE_BINARY_DIR}/AnyKeep.msi)
 
 set(ANYKEEP_INSTALLER_EXE AnyKeep.Installer-${ANYKEEP_VERSION}.exe)
 set(ANYKEEP_INSTALLER_EXE_PATH ${CMAKE_BINARY_DIR}/${ANYKEEP_INSTALLER_EXE})
 
 set(LICENSE_TXT "${CMAKE_SOURCE_DIR}/license.txt")
-set(LICENSE_RTF "GPLv3.rtf")
 set(LOGO_FILE "${CMAKE_SOURCE_DIR}/src/win/pen64.ico")
 
 configure_file(gen-wix.cmake.in gen-wix.cmake @ONLY)
 
 add_custom_command(
-  OUTPUT ${WIX_BUNDLE_OUTPUT} ${WIX_OUTPUT} ${LICENSE_RTF}
+  OUTPUT ${WIX_OUTPUT}
   COMMAND
     ${CMAKE_COMMAND} -DVERSION_FOR_WIX=${VERSION_FOR_WIX} -DANYKEEP_VERSION=${ANYKEEP_VERSION}
     -DUPGRADE_CODE=${UPGRADE_CODE} -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX} -DWIX_TEMPLATE=${WIX_TEMPLATE}
-    -DWIX_BUNDLE_TEMPLATE=${WIX_BUNDLE_TEMPLATE} -DWIX_OUTPUT=${WIX_OUTPUT} -DWIX_BUNDLE_OUTPUT=${WIX_BUNDLE_OUTPUT}
-    -DLICENSE_TEMPLATE=${CMAKE_CURRENT_SOURCE_DIR}/GPLv3.rtf.in -DLICENSE_TXT=${LICENSE_TXT}
-    -DLICENSE_RTF=${LICENSE_RTF} -DLOGO_FILE=${LOGO_FILE} -DANYKEEP_MSI=${ANYKEEP_MSI} -P
+    -DWIX_OUTPUT=${WIX_OUTPUT} -DLOGO_FILE=${LOGO_FILE} -DANYKEEP_MSI=${ANYKEEP_MSI}
+    -DANYKEEP_REQUIRED_VC_RUNTIME_VERSION=${ANYKEEP_REQUIRED_VC_RUNTIME_VERSION}
+    -DANYKEEP_VC_RUNTIME_FILE_SEARCH_MIN_VERSION=${ANYKEEP_VC_RUNTIME_FILE_SEARCH_MIN_VERSION} -P
     ${CMAKE_CURRENT_BINARY_DIR}/gen-wix.cmake
   COMMENT "Prepare installer files"
-  DEPENDS gen-wix.cmake ${WIX_TEMPLATE} ${WIX_BUNDLE_TEMPLATE} windows_runtime_install)
-add_custom_target(prepare_install DEPENDS windows_runtime_install ${WIX_OUTPUT} ${WIX_BUNDLE_OUTPUT} ${LICENSE_RTF})
+  DEPENDS gen-wix.cmake ${WIX_TEMPLATE} windows_runtime_install)
+add_custom_target(prepare_install DEPENDS windows_runtime_install ${WIX_OUTPUT})
 set_target_properties(prepare_install PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 add_custom_command(
@@ -120,14 +157,20 @@ add_custom_target(
   VERBATIM)
 set_target_properties(windows_update_package PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
-# don't forget `wix extension add -g WixToolset.BootstrapperApplications.wixext`
-add_custom_command(
-  OUTPUT ${ANYKEEP_INSTALLER_EXE_PATH}
-  COMMAND ${WIX_EXECUTABLE} build ${WIX_BUNDLE_OUTPUT} -ext WixToolset.BootstrapperApplications.wixext -ext
-          WixToolset.Util.wixext -o ${ANYKEEP_INSTALLER_EXE_PATH}
-  DEPENDS ${WIX_BUNDLE_OUTPUT} ${ANYKEEP_MSI} ${LICENSE_RTF}
-  COMMENT "Building Burn Bootstrapper")
-
-add_custom_target(burn_installer DEPENDS ${ANYKEEP_INSTALLER_EXE_PATH} ${LICENSE_TXT} ${WIX_TEMPLATE}
-                                         ${WIX_BUNDLE_TEMPLATE})
+# Burn is intentionally generated only after the MSI exists. The standalone packaging script also accepts an external
+# (for example SignPath-produced) MSI, so the post-signing job does not need a Qt build tree. It follows Microsoft's
+# rolling vc14 permalink to the concrete HTTPS CDN object and asks WiX to generate SHA-512/size/version metadata from
+# those exact downloaded bytes.
+add_custom_target(
+  burn_installer
+  COMMAND
+    ${CMAKE_COMMAND} "-DPACKAGE_PATH=${ANYKEEP_MSI}" "-DOUTPUT_PATH=${ANYKEEP_INSTALLER_EXE_PATH}"
+    "-DVERSION=${ANYKEEP_VERSION}" "-DREQUIRED_VC_RUNTIME_VERSION=${ANYKEEP_REQUIRED_VC_RUNTIME_VERSION}"
+    "-DUPGRADE_CODE=${UPGRADE_CODE}" "-DBUNDLE_TEMPLATE=${WIX_BUNDLE_TEMPLATE}" "-DLICENSE_TXT=${LICENSE_TXT}"
+    "-DLICENSE_TEMPLATE=${CMAKE_CURRENT_SOURCE_DIR}/GPLv3.rtf.in" "-DLOGO_FILE=${LOGO_FILE}"
+    "-DWORK_ROOT=${CMAKE_BINARY_DIR}/burn-work" -P "${CMAKE_CURRENT_SOURCE_DIR}/make-burn-installer.cmake"
+  DEPENDS package ${CMAKE_CURRENT_SOURCE_DIR}/make-burn-installer.cmake ${WIX_BUNDLE_TEMPLATE}
+          ${CMAKE_CURRENT_SOURCE_DIR}/GPLv3.rtf.in ${LICENSE_TXT} ${LOGO_FILE}
+  COMMENT "Resolving Visual C++ runtime payload and building Burn Bootstrapper"
+  VERBATIM)
 set_target_properties(burn_installer PROPERTIES EXCLUDE_FROM_ALL TRUE)

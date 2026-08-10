@@ -71,20 +71,12 @@
 
         <Chain>
             <ExePackage
-                DetectCondition="VCRedistInstalled AND VCRedistVersion >= v14.42.34438"
-                InstallCondition="NOT VCRedistInstalled OR VCRedistVersion &lt; v14.42.34438"
+                DetectCondition="VCRedistInstalled AND VCRedistVersion >= v@ANYKEEP_REQUIRED_VC_RUNTIME_VERSION@"
+                InstallCondition="NOT VCRedistInstalled OR VCRedistVersion &lt; v@ANYKEEP_REQUIRED_VC_RUNTIME_VERSION@"
                 InstallArguments="/quiet /norestart"
                 Permanent="yes"
                 Vital="yes">
-                <ExePackagePayload
-                    Compressed="no"
-                    Description="Microsoft Visual C++ 2015-2022 Redistributable (x64) - 14.42.34438"
-                    ProductName="Microsoft Visual C++ 2015-2022 Redistributable (x64) - 14.42.34438"
-                    Name="vc_redist.x64.exe"
-                    DownloadUrl="https://aka.ms/vs/17/release/vc_redist.x64.exe"
-                    Size="25641968"
-                    Version="14.42.34438.0"
-                    Hash="C021453F6DBC8E79C5B97CA1F5D717868E9124E503391CC133A76F10643E2B41043E47D98836F524938D581C610D5F887C710CD5E6C036DC8F868074E3759C8F"/>
+                @ANYKEEP_VC_REDIST_PAYLOAD_XML@
                 <ExitCode Behavior="success" Value="3010"/>  <!-- ignore reboot -->
                 <ExitCode Behavior="success" Value="0"/>     <!-- success -->
                 <ExitCode Behavior="success" Value="1638"/>  <!-- a newer version is already installed -->

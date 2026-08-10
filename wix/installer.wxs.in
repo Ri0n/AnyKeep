@@ -48,6 +48,32 @@
         <Launch Condition="ACTION = &quot;ADMIN&quot; OR Installed OR (NOT LEGACY_ANYKEEP_32 AND NOT LEGACY_ANYKEEP_64 AND NOT LEGACY_QTNOTE_32 AND NOT LEGACY_QTNOTE_64)"
                 Message="A previous system-wide AnyKeep or QtNote installation was found. Uninstall it from Windows Settings, then run this installer again. Your notes and settings will not be removed." />
 
+        <!--
+            Burn normally installs the Visual C++ runtime before invoking this MSI, but the MSI is also distributed as
+            the canonical self-update/direct-install package. Keep it safe to launch on its own: administrative images,
+            repairs and removals do not need the runtime, while a fresh direct installation must have a sufficiently new
+            x64 v14 redistributable. RegistrySearch returns REG_DWORD values with a '#' prefix in MSI properties.
+        -->
+        <Property Id="ANYKEEP_VC_RUNTIME_X64_INSTALLED">
+            <RegistrySearch Id="AnyKeepVCRuntimeX64InstalledSearch"
+                            Root="HKLM"
+                            Key="Software\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+                            Name="Installed"
+                            Type="raw"
+                            Bitness="always64" />
+        </Property>
+        <Property Id="ANYKEEP_VC_RUNTIME_X64_VERSION_OK">
+            <DirectorySearch Id="AnyKeepVCRuntimeX64DirectorySearch"
+                             Path="[System64Folder]"
+                             Depth="0">
+                <FileSearch Id="AnyKeepVCRuntimeX64FileSearch"
+                            Name="vcruntime140.dll"
+                            MinVersion="@ANYKEEP_VC_RUNTIME_FILE_SEARCH_MIN_VERSION@" />
+            </DirectorySearch>
+        </Property>
+        <Launch Condition="ACTION = &quot;ADMIN&quot; OR Installed OR (ANYKEEP_VC_RUNTIME_X64_INSTALLED = &quot;#1&quot; AND ANYKEEP_VC_RUNTIME_X64_VERSION_OK)"
+                Message="AnyKeep requires Microsoft Visual C++ Redistributable (x64) @ANYKEEP_REQUIRED_VC_RUNTIME_VERSION@ or later. Install the current supported Visual C++ v14 Redistributable and run this MSI again." />
+
         <Property Id="ANYKEEP_INSTALL_ROOT">
             <RegistrySearch Id="AnyKeepInstallRootSearch"
                             Root="HKCU"
