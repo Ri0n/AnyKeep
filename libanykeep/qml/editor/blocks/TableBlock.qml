@@ -17,6 +17,8 @@ Item {
     property var comfortableColumnWidths: []
     property var columnMaxCells: []
     property var distributedColumnWidths: []
+    readonly property real editorPointSize: editorView.editorPointSize
+    readonly property string editorFontFamily: editorView.editorFont.family
     readonly property real minimumColumnWidth: editorView.touchMode ? 56 : 42
     readonly property bool tableFocused: {
         const editor = tableRoot.editorView.activeEditor
@@ -36,6 +38,8 @@ Item {
     }
 
     onTableDataChanged: syncCells()
+    onEditorPointSizeChanged: resetComfortableWidths()
+    onEditorFontFamilyChanged: resetComfortableWidths()
     Component.onCompleted: syncCells()
 
     function syncCells() {
@@ -417,6 +421,8 @@ Item {
                 Layout.preferredWidth: assignedColumnWidth
                 Layout.minimumWidth: assignedColumnWidth
                 Layout.maximumWidth: assignedColumnWidth
+                font.family: tableRoot.editorFontFamily
+                font.pointSize: tableRoot.editorPointSize
                 font.bold: headerCell
                 sourceText: tableRoot.editorView.markdownTableCellForRendering(cellText)
                 textFormat: TextEdit.MarkdownText

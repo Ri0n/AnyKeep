@@ -57,6 +57,7 @@ Rectangle {
         textFormat: TextEdit.PlainText
         wrapMode: TextEdit.NoWrap
         font.family: Qt.platform.os === "windows" ? "Consolas" : "monospace"
+        font.pointSize: codeRoot.editorView.editorPointSize
         commitText: function() { codeRoot.editorView.blockModel.setBlockText(block.index, text) }
         onTextChanged: commitChangedText(activeFocus)
     }

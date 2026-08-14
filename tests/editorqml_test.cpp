@@ -143,6 +143,43 @@ private slots:
         QTRY_VERIFY(readTitleFormat() && titleFormat.foreground().color() == previewTitleColor);
     }
 
+    void editorFontPreviewUpdatesTableAndCode()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("| first | second |\n| --- | --- |\n| value | value |\n\n"
+                                    "```cpp\nint value = 1;\n```"),
+                     Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(620, 420);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::Table));
+        QCOMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::CodeBlock));
+        QList<QQuickItem *> cells;
+        QQuickItem         *code = nullptr;
+        QTRY_VERIFY(([&]() {
+            cells = tableCellEditors(root, 1);
+            code  = textEditorForBlock(root, 2);
+            return cells.size() == 4 && code;
+        })());
+
+        QFont preview = QGuiApplication::font();
+        preview.setPointSizeF(12.0);
+        host.platformBackend()->setEditorFont(preview);
+        QTRY_VERIFY(qAbs(cells.constFirst()->property("font").value<QFont>().pointSizeF() - 12.0) < 0.01);
+        QTRY_VERIFY(qAbs(code->property("font").value<QFont>().pointSizeF() - 12.0) < 0.01);
+
+        preview.setPointSizeF(18.0);
+        host.platformBackend()->setEditorFont(preview);
+        QTRY_VERIFY(qAbs(cells.constFirst()->property("font").value<QFont>().pointSizeF() - 18.0) < 0.01);
+        QTRY_VERIFY(qAbs(code->property("font").value<QFont>().pointSizeF() - 18.0) < 0.01);
+    }
+
     void removingHeadingKeepsCursorInsideCoalescedText()
     {
         Note note(new NoteData(nullptr));
