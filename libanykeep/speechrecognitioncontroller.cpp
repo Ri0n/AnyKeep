@@ -11,6 +11,7 @@
 #include <QLocale>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QTimer>
 
 #include <algorithm>
 #include <utility>
@@ -36,16 +37,28 @@ SpeechRecognitionController::SpeechRecognitionController(QObject *parent) :
 
     connect(audioRecorder_, &AudioAttachmentRecorder::stateChanged, this, [this] {
         if (audioRecorder_->recording()) {
-            const qint64 seconds = audioRecorder_->duration() / 1000;
-            statusText_          = tr("Recording %1:%2").arg(seconds / 60).arg(seconds % 60, 2, 10, QLatin1Char('0'));
+            starting_ = false;
+            if (!busy_) {
+                const qint64 seconds = audioRecorder_->duration() / 1000;
+                statusText_ = tr("Recording %1:%2").arg(seconds / 60).arg(seconds % 60, 2, 10, QLatin1Char('0'));
+            }
+            if (stopAfterStart_) {
+                stopAfterStart_ = false;
+                scheduleAudioStop();
+            }
+        } else if (audioRecorder_->starting()) {
+            statusText_ = tr("Initializing microphone…");
         } else if (!audioRecorder_->finalizing() && !busy_) {
+            starting_ = false;
             statusText_.clear();
         }
         emit stateChanged();
     });
     connect(audioRecorder_, &AudioAttachmentRecorder::failed, this, [this](const QString &message) {
         audioEditor_.clear();
-        pendingAudioRow_ = -1;
+        pendingAudioRow_  = -1;
+        starting_         = false;
+        audioStopPending_ = false;
         setBusy(false);
         emit operationFailed(message);
     });
@@ -54,7 +67,9 @@ SpeechRecognitionController::SpeechRecognitionController(QObject *parent) :
                 const QPointer<NoteEditor> destination = audioEditor_;
                 const int                  row         = pendingAudioRow_;
                 audioEditor_.clear();
-                pendingAudioRow_ = -1;
+                pendingAudioRow_  = -1;
+                starting_         = false;
+                audioStopPending_ = false;
                 setBusy(false);
                 if (!destination || !destination->insertAudio(reference, durationMs, row, tr("Audio recording")))
                     emit operationFailed(tr("Could not insert the audio recording into this note."));
@@ -122,6 +137,8 @@ bool SpeechRecognitionController::recording() const
     return effectiveMode() == AudioRecording ? audioRecorder_->recording() : speechRecorder_->isRecording();
 }
 
+bool SpeechRecognitionController::busy() const { return busy_ || starting_; }
+
 void SpeechRecognitionController::setMode(InputMode mode)
 {
     if (mode != SpeechToText && mode != AudioRecording)
@@ -136,46 +153,84 @@ void SpeechRecognitionController::setMode(InputMode mode)
 
 bool SpeechRecognitionController::start(int insertionRow)
 {
-    if (busy_ || !available())
+    if (busy() || !available())
         return false;
-    if (effectiveMode() == AudioRecording) {
+    const InputMode requestedMode = effectiveMode();
+    if (requestedMode == AudioRecording) {
         if (!editor_ || !editor_->supportsMedia())
             return false;
         audioEditor_     = editor_;
         pendingAudioRow_ = insertionRow;
-        if (!audioRecorder_->start()) {
-            audioEditor_.clear();
-            pendingAudioRow_ = -1;
-            return false;
-        }
-        statusText_ = tr("Recording…");
-        emit stateChanged();
-        return true;
     }
+    starting_                = true;
+    stopAfterStart_          = false;
+    statusText_              = tr("Initializing microphone…");
+    const quint64 generation = ++startGeneration_;
+    emit          stateChanged();
 
-    if (job_) {
-        job_->cancel();
-        job_->deleteLater();
-        job_.clear();
-    }
-    const auto caps    = provider_->speechRecognitionCapabilities();
-    const int  maximum = caps.maxOneShotDurationMs > 0 ? caps.maxOneShotDurationMs : 60000;
-    if (!speechRecorder_->start(maximum)) {
-        emit operationFailed(speechRecorder_->errorString());
-        return false;
-    }
-    statusText_ = tr("Listening…");
-    emit stateChanged();
+    // Let QML render the busy indicator before Qt Multimedia loads its native
+    // backend and probes encoders. The audio recorder keeps `starting` true
+    // until QMediaRecorder reports the real RecordingState.
+    QTimer::singleShot(30, this, [this, generation, requestedMode] {
+        if (generation != startGeneration_ || !starting_)
+            return;
+        if (requestedMode == AudioRecording) {
+            if (!audioRecorder_->start()) {
+                audioEditor_.clear();
+                pendingAudioRow_ = -1;
+                starting_        = false;
+                statusText_.clear();
+                emit stateChanged();
+                return;
+            }
+            if (audioRecorder_->recording()) {
+                starting_   = false;
+                statusText_ = tr("Recording…");
+            }
+            emit stateChanged();
+        } else {
+            if (job_) {
+                job_->cancel();
+                job_->deleteLater();
+                job_.clear();
+            }
+            const auto caps    = provider_->speechRecognitionCapabilities();
+            const int  maximum = caps.maxOneShotDurationMs > 0 ? caps.maxOneShotDurationMs : 60000;
+            if (!speechRecorder_->start(maximum)) {
+                starting_ = false;
+                statusText_.clear();
+                emit stateChanged();
+                emit operationFailed(speechRecorder_->errorString());
+                return;
+            }
+            starting_   = false;
+            statusText_ = tr("Listening…");
+            emit stateChanged();
+        }
+
+        if (!stopAfterStart_)
+            return;
+        stopAfterStart_ = false;
+        if (requestedMode == AudioRecording) {
+            starting_ = false;
+            scheduleAudioStop();
+        } else {
+            finish();
+        }
+    });
     return true;
 }
 
 void SpeechRecognitionController::finish()
 {
+    if (starting_) {
+        stopAfterStart_ = true;
+        return;
+    }
     if (effectiveMode() == AudioRecording) {
-        if (!audioRecorder_->recording())
+        if (!audioRecorder_->starting() && !audioRecorder_->recording())
             return;
-        setBusy(true, tr("Saving audio recording…"));
-        audioRecorder_->stop();
+        scheduleAudioStop();
         return;
     }
 
@@ -224,6 +279,11 @@ void SpeechRecognitionController::finish()
 
 void SpeechRecognitionController::cancel()
 {
+    ++startGeneration_;
+    ++finishGeneration_;
+    starting_         = false;
+    stopAfterStart_   = false;
+    audioStopPending_ = false;
     if (speechRecorder_)
         speechRecorder_->cancel();
     if (audioRecorder_)
@@ -242,7 +302,7 @@ void SpeechRecognitionController::cancel()
 
 bool SpeechRecognitionController::transcribeAudio(int row, const QString &sourceUri, qint64 durationMs)
 {
-    if (busy_ || !audioTranscriptionAvailable() || !editor_ || row < 0 || sourceUri.isEmpty())
+    if (busy() || !audioTranscriptionAvailable() || !editor_ || row < 0 || sourceUri.isEmpty())
         return false;
 
     const QModelIndex modelIndex = editor_->model()->index(row, 0);
@@ -388,6 +448,30 @@ QString SpeechRecognitionController::contextId() const
         const_cast<SpeechRecognitionController *>(this)->localContextId_
             = QUuid::createUuid().toString(QUuid::WithoutBraces);
     return localContextId_;
+}
+
+void SpeechRecognitionController::scheduleAudioStop()
+{
+    if (audioStopPending_ || (!audioRecorder_->starting() && !audioRecorder_->recording()))
+        return;
+
+    // Native capture pipelines commonly deliver their final microphone
+    // buffers a little after the user releases the button. Keep recording for
+    // a short tail so the last syllable reaches QMediaRecorder before stop().
+    audioStopPending_        = true;
+    const quint64 generation = ++finishGeneration_;
+    setBusy(true, tr("Finishing audio recording…"));
+    QTimer::singleShot(300, this, [this, generation] {
+        if (generation != finishGeneration_ || !audioStopPending_)
+            return;
+        audioStopPending_ = false;
+        if (!audioRecorder_->starting() && !audioRecorder_->recording()) {
+            setBusy(false);
+            return;
+        }
+        setBusy(true, tr("Saving audio recording…"));
+        audioRecorder_->stop();
+    });
 }
 
 void SpeechRecognitionController::setBusy(bool busy, const QString &status)

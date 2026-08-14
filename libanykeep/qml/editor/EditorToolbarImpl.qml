@@ -154,7 +154,10 @@ ToolBar {
                 width: root.controlSize
                 height: root.controlSize
                 padding: 0
-                enabled: !root.microphoneBusy
+                // A hold-to-record press must retain its pointer grab while
+                // initialization is busy, otherwise disabling the button can
+                // swallow onReleased and leave the pending recording running.
+                enabled: !root.microphoneBusy || root.microphoneHoldToRecord
                 focusPolicy: Qt.NoFocus
                 display: AbstractButton.IconOnly
                 contentItem: Item {

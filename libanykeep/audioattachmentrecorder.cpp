@@ -120,7 +120,7 @@ public:
     {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
         QMediaFormat format;
-        if (recording() || finalizing)
+        if (starting() || recording() || finalizing)
             return false;
         if (!resolvePortableFormat(&format)) {
             fail(AudioAttachmentRecorder::tr(
@@ -217,11 +217,13 @@ public:
     {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
         return recorder && !finalizing && !cancelRequested
-            && (startRequested || recorder->recorderState() == QMediaRecorder::RecordingState);
+            && recorder->recorderState() == QMediaRecorder::RecordingState;
 #else
         return false;
 #endif
     }
+
+    bool starting() const { return startRequested && !finalizing && !cancelRequested; }
 
     void finalize()
     {
@@ -323,6 +325,7 @@ AudioAttachmentRecorder::AudioAttachmentRecorder(QObject *parent) : QObject(pare
 AudioAttachmentRecorder::~AudioAttachmentRecorder() = default;
 
 bool    AudioAttachmentRecorder::available() const { return impl_->portableFormatAvailable(); }
+bool    AudioAttachmentRecorder::starting() const { return impl_->starting(); }
 bool    AudioAttachmentRecorder::recording() const { return impl_->recording(); }
 bool    AudioAttachmentRecorder::finalizing() const { return impl_->finalizing; }
 qint64  AudioAttachmentRecorder::duration() const { return impl_->durationMs; }

@@ -48,7 +48,7 @@ public:
     bool      modeSwitchVisible() const;
     bool      audioTranscriptionAvailable() const;
     int       transcribingAudioRow() const { return transcriptionIndex_.isValid() ? transcriptionIndex_.row() : -1; }
-    bool      busy() const { return busy_; }
+    bool      busy() const;
     bool      recording() const;
     InputMode mode() const { return effectiveMode(); }
     QString   statusText() const { return statusText_; }
@@ -69,6 +69,7 @@ private:
     QString   language() const;
     QString   normalizeLanguage(const QString &value) const;
     QString   contextId() const;
+    void      scheduleAudioStop();
     void      setBusy(bool busy, const QString &status = {});
 
     QPointer<NoteEditor>                editor_;
@@ -84,6 +85,11 @@ private:
     QPersistentModelIndex               transcriptionIndex_;
     InputMode                           mode_ { SpeechToText };
     bool                                busy_ { false };
+    bool                                starting_ { false };
+    bool                                stopAfterStart_ { false };
+    bool                                audioStopPending_ { false };
+    quint64                             startGeneration_ { 0 };
+    quint64                             finishGeneration_ { 0 };
 };
 
 } // namespace AnyKeep
