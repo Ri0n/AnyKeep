@@ -1169,6 +1169,44 @@ private:
         QTRY_VERIFY(editor.model()->contents().contains(QStringLiteral("plain one\nplain two")));
     }
 
+    void multilineDropIntoEmptyNoteSplitsTitleAndBody()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QString());
+        note.setText(QString(), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(520, 360);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *title = nullptr;
+        QTRY_VERIFY((title = textEditorForBlock(root, 0)));
+
+        QMimeData mimeData;
+        mimeData.setText(QStringLiteral("Dropped title\nbody line one\nbody line two"));
+        const QPointF   point = title->mapToItem(root, QPointF(title->width() / 2, title->height() / 2));
+        QDragEnterEvent enterEvent(point.toPoint(), Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &enterEvent);
+        QVERIFY(enterEvent.isAccepted());
+        QDropEvent dropEvent(point, Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &dropEvent);
+        QVERIFY(dropEvent.isAccepted());
+
+        QTRY_COMPARE(editor.model()->rowCount(), 2);
+        QCOMPARE(editor.model()->data(editor.model()->index(0), NoteBlockModel::TextRole).toString(),
+                 QStringLiteral("Dropped title"));
+        QTRY_VERIFY((title = textEditorForBlock(root, 0)));
+        QVERIFY(!title->property("text").toString().contains(QStringLiteral("body line")));
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QTRY_VERIFY(body->hasActiveFocus());
+        QVERIFY(body->property("text").toString().contains(QStringLiteral("body line one")));
+        QVERIFY(body->property("text").toString().contains(QStringLiteral("body line two")));
+    }
+
     void codeMimeCreatesCodeBlockButCodeTargetKeepsItsBlock()
     {
         Note note(new NoteData(nullptr));
@@ -2022,6 +2060,8 @@ private slots:
     }
 
     void regressionPlainTextDropKeepsLiteralNewlines() { plainTextDropKeepsLiteralNewlines(); }
+
+    void regressionMultilineDropIntoEmptyNoteSplitsTitleAndBody() { multilineDropIntoEmptyNoteSplitsTitleAndBody(); }
 
     void regressionCodeMimeCreatesCodeBlockButCodeTargetKeepsItsBlock()
     {

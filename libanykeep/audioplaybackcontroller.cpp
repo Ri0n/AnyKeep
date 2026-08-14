@@ -135,8 +135,14 @@ public:
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
         if (sourceUri != uri && !load(uri))
             return false;
-        if (player->mediaStatus() == QMediaPlayer::EndOfMedia)
+        // Some multimedia backends leave EndOfMedia after the player loses
+        // focus, while retaining the final position.  Stopped playback with
+        // a non-zero position is still a completed/explicitly stopped run and
+        // must restart; PausedState intentionally resumes in place.
+        if (player->mediaStatus() == QMediaPlayer::EndOfMedia
+            || (player->playbackState() == QMediaPlayer::StoppedState && player->position() > 0)) {
             player->setPosition(0);
+        }
         player->play();
         return true;
 #else

@@ -250,6 +250,8 @@ TextArea {
         value = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n")
         if (value.length === 0)
             return false
+        const splitEmptyTitle = titleDocument && currentPlainText().length === 0
+                && value.indexOf("\n") >= 0
         // A source newline is only a soft wrap in Markdown.  Insert an
         // explicit QTextDocument line separator so the serializer writes a
         // real Markdown hard break and the rendered note keeps every line.
@@ -258,6 +260,21 @@ TextArea {
         const insertionPosition = Math.max(0, Math.min(length, Number(position)))
         return editorView.runEditTransaction("drop-text", function() {
             editorView.clearDocumentSelection()
+            if (splitEmptyTitle) {
+                // Preserve the title/body boundary explicitly. Depending on
+                // the text format, Qt Quick can expose inserted newlines as a
+                // single formatted document before commitText() serializes it.
+                let modelValue = value
+                if (editorView.blockModel && editorView.blockModel.markdown) {
+                    const firstBreak = modelValue.indexOf("\n")
+                    modelValue = modelValue.substring(0, firstBreak + 1)
+                            + modelValue.substring(firstBreak + 1).replace(/\n/g, "  \n")
+                }
+                editorView.blockModel.setBlockText(blockIndex, modelValue)
+                editorView.activeEditor = null
+                Qt.callLater(function() { editorView.focusBlock(1, true) })
+                return true
+            }
             forceActiveFocus()
             insert(insertionPosition, insertedValue)
             cursorPosition = insertionPosition + insertedValue.length
