@@ -122,11 +122,12 @@ public:
     Q_INVOKABLE QVariantMap deleteSelection(const QVariantList &ranges);
     Q_INVOKABLE QVariantMap convertSelectionToCodeBlock(const QVariantList &ranges, const QString &plainText,
                                                         const QString &language = QString());
-    Q_INVOKABLE int insertDroppedCodeBlock(int row, const QString &before, const QString &after, const QString &text,
-                                           const QString &language);
-    Q_INVOKABLE int insertPlainText(QQuickTextDocument *document, int start, int end, const QString &text);
-    Q_INVOKABLE int pastePlainText(QQuickTextDocument *document, int start, int end);
-    Q_INVOKABLE int pastePrimarySelection(QQuickTextDocument *document, int start, int end);
+    Q_INVOKABLE int  insertDroppedCodeBlock(int row, const QString &before, const QString &after, const QString &text,
+                                            const QString &language);
+    Q_INVOKABLE int  insertPlainText(QQuickTextDocument *document, int start, int end, const QString &text);
+    Q_INVOKABLE int  pastePlainText(QQuickTextDocument *document, int start, int end);
+    Q_INVOKABLE int  pastePrimarySelection(QQuickTextDocument *document, int start, int end);
+    Q_INVOKABLE void normalizePastedTextFormats(QQuickTextDocument *document, int start, int end) const;
     Q_INVOKABLE QVariantMap pasteStructuredFromClipboard(QQuickTextDocument *document, int row, int start, int end);
     Q_INVOKABLE QVariantMap pasteTableFromClipboard(int row, int cell);
     Q_INVOKABLE QVariantMap pasteListFromClipboard(QQuickTextDocument *document, int row, int item, int start, int end);

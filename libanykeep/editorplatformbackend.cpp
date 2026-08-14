@@ -257,6 +257,25 @@ bool EditorPlatformBackend::canInsertImages() const { return editor_ && editor_-
 
 bool EditorPlatformBackend::canInsertAttachments() const { return editor_ && editor_->canInsertAttachments(); }
 
+void EditorPlatformBackend::setEditorFont(const QFont &font)
+{
+    if (editorFont_ == font)
+        return;
+    editorFont_ = font;
+    emit editorFontChanged();
+}
+
+void EditorPlatformBackend::setTitleHighlightColor(const QColor &color)
+{
+    titleHighlightColor_ = color;
+    auto title           = std::dynamic_pointer_cast<FirstLineHighlighter>(titleExtension_);
+    if (!title)
+        return;
+    const QColor textColor = qGuiApp ? qGuiApp->palette().color(QPalette::Text) : QColor(Qt::black);
+    title->setColor(Utils::mergeColors(color, textColor));
+    rehighlight();
+}
+
 void EditorPlatformBackend::registerTextDocument(QQuickTextDocument *document, bool titleDocument)
 {
     if (!document || !document->textDocument())
@@ -706,13 +725,15 @@ void EditorPlatformBackend::rehighlight()
 
 void EditorPlatformBackend::reloadVisualSettings()
 {
-    auto title = std::dynamic_pointer_cast<FirstLineHighlighter>(titleExtension_);
-    if (!title)
-        return;
+    const QString serializedFont = QSettings().value(QStringLiteral("ui.default-font")).toString();
+    QFont         configuredFont;
+    if (serializedFont.isEmpty() || !configuredFont.fromString(serializedFont))
+        configuredFont = qGuiApp ? qGuiApp->font() : QFont();
+    setEditorFont(configuredFont);
+
     const QColor configured
         = QSettings().value(QStringLiteral("ui.title-color"), Defaults::firstLineHighlightColor()).value<QColor>();
-    title->setColor(Utils::mergeColors(configured, qGuiApp->palette().color(QPalette::Text)));
-    rehighlight();
+    setTitleHighlightColor(configured);
 }
 
 bool EditorPlatformBackend::insertImportedImages(const QList<MediaReference> &references, int row,

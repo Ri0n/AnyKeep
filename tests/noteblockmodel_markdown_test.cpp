@@ -455,6 +455,38 @@ void NoteBlockModelTest::convertsBetweenBlockQuotesAndHeadings()
     QCOMPARE(model.convertTextBlockToHeading(0, 0, 0), 0);
     QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
     QCOMPARE(model.contents(), QStringLiteral("quoted text"));
+
+    NoteBlockModel range;
+    range.load(QStringLiteral("before\n\nfirst\n\nsecond\n\nthird\n\nafter"), true);
+    const int first = range.data(range.index(1), NoteBlockModel::TextRole).toString().indexOf(QStringLiteral("first"));
+    const int end   = range.data(range.index(1), NoteBlockModel::TextRole).toString().indexOf(QStringLiteral("third"))
+        + QStringLiteral("third").size();
+    const QVariantMap converted = range.convertTextRangeToQuote(1, first, end);
+    QVERIFY(converted.value(QStringLiteral("handled")).toBool());
+    QCOMPARE(range.rowCount(), 3);
+    QCOMPARE(range.blockTypeAt(1), int(NoteBlockModel::BlockQuote));
+    QCOMPARE(range.data(range.index(1), NoteBlockModel::TextRole).toString(),
+             QStringLiteral("first\n\nsecond\n\nthird"));
+    QCOMPARE(range.contents(), QStringLiteral("before\n\n> first\n>\n> second\n>\n> third\n\nafter"));
+}
+
+void NoteBlockModelTest::coalescesTextAroundConvertedStructuredBlocks()
+{
+    NoteBlockModel heading;
+    heading.load(QStringLiteral("title\n\nbefore\n\n## heading\n\nafter"), true);
+    QCOMPARE(heading.convertTextBlockToHeading(2, 0, 0), 1);
+    QCOMPARE(heading.rowCount(), 2);
+    QCOMPARE(heading.data(heading.index(1), NoteBlockModel::TextRole).toString(),
+             QStringLiteral("before\n\nheading\n\nafter"));
+    QCOMPARE(heading.contents(), QStringLiteral("title\n\nbefore\n\nheading\n\nafter"));
+
+    NoteBlockModel quote;
+    quote.load(QStringLiteral("title\n\nbefore\n\n> quoted\n\nafter"), true);
+    QCOMPARE(quote.convertTextBlockToQuote(2, 0, false), 1);
+    QCOMPARE(quote.rowCount(), 2);
+    QCOMPARE(quote.data(quote.index(1), NoteBlockModel::TextRole).toString(),
+             QStringLiteral("before\n\nquoted\n\nafter"));
+    QCOMPARE(quote.contents(), QStringLiteral("title\n\nbefore\n\nquoted\n\nafter"));
 }
 
 void NoteBlockModelTest::splitsStructuredBlockIntoFollowingParagraph()

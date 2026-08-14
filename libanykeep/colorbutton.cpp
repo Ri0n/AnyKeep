@@ -13,16 +13,19 @@ ColorButton::ColorButton(QWidget *parent, Qt::WindowFlags f) : QWidget(parent, f
 
 void ColorButton::setColor(QPalette::ColorRole role, const QColor &color)
 {
-    _role           = role;
-    _color          = color;
-    QColor  merged  = Utils::mergeColors(color, parentWidget()->palette().color(role));
-    QString objName = objectName();
+    const bool changed = _color != color;
+    _role              = role;
+    _color             = color;
+    QColor  merged     = Utils::mergeColors(color, parentWidget()->palette().color(role));
+    QString objName    = objectName();
     QString w("QWidget");
     if (!objName.isEmpty()) {
         w += ("#" + objName);
     }
     QString style = QString("%1 { border:1px solid black;background-color:%2 }").arg(w, merged.name());
     setStyleSheet(style);
+    if (changed)
+        emit colorChanged(_color);
 }
 
 void ColorButton::mousePressEvent(QMouseEvent *ev)

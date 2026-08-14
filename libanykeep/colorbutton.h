@@ -13,6 +13,7 @@ public:
     void   setColor(QPalette::ColorRole role, const QColor &color);
     QColor color() const { return _color; }
 signals:
+    void colorChanged(const QColor &color);
 
 public slots:
 

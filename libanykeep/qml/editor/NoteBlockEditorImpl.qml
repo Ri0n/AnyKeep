@@ -51,12 +51,19 @@ ListView {
     signal findRequested()
     readonly property alias linkEditorPopup: linkEditor
     readonly property bool touchMode: Qt.platform.os === "android" || Qt.platform.os === "ios"
-    readonly property real editorPointSize: typeof mobileApp !== "undefined"
-                                            ? mobileApp.editorFontSize : Application.font.pointSize
-    readonly property font editorFont: Qt.font({
-        family: Application.font.family,
-        pointSize: editorPointSize
-    })
+    readonly property font editorFont: typeof mobileApp !== "undefined"
+                                       ? Qt.font({ family: Application.font.family,
+                                                   pointSize: mobileApp.editorFontSize })
+                                       : platformBackend && platformBackend.editorFont !== undefined
+                                         ? platformBackend.editorFont : Application.font
+    readonly property real editorPointSize: editorFont.pointSize > 0
+                                            ? editorFont.pointSize : Application.font.pointSize
+    onEditorFontChanged: {
+        Qt.callLater(function() {
+            if (root.platformBackend)
+                root.platformBackend.rehighlight()
+        })
+    }
     readonly property int blockSpacing: Math.max(touchMode ? 8 : 1,
                                                  Math.round(editorFontMetrics.height * (touchMode ? 0.8 : 0.6)))
     readonly property int baseEditorInset: Math.max(touchMode ? 14 : 8,
@@ -214,6 +221,9 @@ ListView {
     function focusInitialEditor() { return focusController.focusInitialEditor() }
     function focusTagLineBlock(blockIndex, atEnd, focusDraft) { return focusController.focusTagLineBlock(blockIndex, atEnd, focusDraft) }
     function focusBlock(blockIndex, atEnd, position) { return focusController.focusBlock(blockIndex, atEnd, position) }
+    function focusBlockAtMarkdownSourcePosition(blockIndex, sourcePosition) {
+        return focusController.focusBlockAtMarkdownSourcePosition(blockIndex, sourcePosition)
+    }
     function firstEditorIn(item) { return focusController.firstEditorIn(item) }
     function focusPendingBlock() { return focusController.focusPendingBlock() }
     function focusDocumentEnd() { return focusController.focusDocumentEnd() }
@@ -331,12 +341,17 @@ ListView {
     }
 
     function insertBlockQuoteBlock() {
+        if (hasDocumentSelection())
+            return convertActiveToQuote(true)
         return runEditTransaction("insert-or-convert-blockquote", function() {
             if (activeEditor && activeEditor.blockIndex >= 0 && !cursorTouchesTitle(activeEditor)) {
+                const sourcePosition = activeEditor.markdownSourcePosition()
+                const focusSourcePosition
+                        = blockModel.sourcePositionInParagraph(activeEditor.blockIndex, sourcePosition)
                 const converted = blockModel.convertTextBlockToQuote(activeEditor.blockIndex,
-                                                                     activeEditor.cursorPosition, true)
+                                                                     sourcePosition, true)
                 if (converted >= 0) {
-                    focusBlock(converted)
+                    focusBlockAtMarkdownSourcePosition(converted, focusSourcePosition)
                     return true
                 }
             }
@@ -395,11 +410,14 @@ ListView {
         if (level === 0 && activeEditor.editorField === "blockquote")
             return convertActiveToQuote(false)
         return runEditTransaction("convert-heading", function() {
-            const row = blockModel.convertTextBlockToHeading(activeEditor.blockIndex,
-                                                              activeEditor.cursorPosition, level)
+            const sourcePosition = activeEditor.markdownSourcePosition()
+            const focusSourcePosition = level === 0
+                    ? blockModel.sourcePositionAfterTextCoalesce(activeEditor.blockIndex, sourcePosition)
+                    : blockModel.sourcePositionInParagraph(activeEditor.blockIndex, sourcePosition)
+            const row = blockModel.convertTextBlockToHeading(activeEditor.blockIndex, sourcePosition, level)
             if (row < 0)
                 return false
-            focusBlock(row)
+            focusBlockAtMarkdownSourcePosition(row, focusSourcePosition)
             return true
         })
     }
@@ -409,12 +427,34 @@ ListView {
                 || cursorTouchesTitle(activeEditor))
             return false
         return runEditTransaction("convert-blockquote", function() {
-            const row = blockModel.convertTextBlockToQuote(activeEditor.blockIndex,
-                                                            activeEditor.cursorPosition,
-                                                            Boolean(quote))
+            if (quote && activeEditor.selectionStart !== activeEditor.selectionEnd
+                    && !selectionSpansEditors) {
+                const visualStart = activeEditor.selectionStart
+                const visualEnd = activeEditor.selectionEnd
+                const sourceStart = activeEditor.markdownRange(0, visualStart).length
+                const sourceEnd = activeEditor.markdownRange(0, visualEnd).length
+                const cursorAtStart = activeEditor.cursorPosition === visualStart
+                const result = blockModel.convertTextRangeToQuote(activeEditor.blockIndex,
+                                                                  sourceStart, sourceEnd)
+                if (!result.handled)
+                    return false
+                focusEditorAddress({
+                    blockIndex: Number(result.row),
+                    markdownSourcePosition: cursorAtStart ? Number(result.selectionStart)
+                                                          : Number(result.selectionEnd),
+                    markdownSelectionStart: Number(result.selectionStart),
+                    markdownSelectionEnd: Number(result.selectionEnd)
+                })
+                return true
+            }
+            const sourcePosition = activeEditor.markdownSourcePosition()
+            const focusSourcePosition = !quote
+                    ? blockModel.sourcePositionAfterTextCoalesce(activeEditor.blockIndex, sourcePosition)
+                    : blockModel.sourcePositionInParagraph(activeEditor.blockIndex, sourcePosition)
+            const row = blockModel.convertTextBlockToQuote(activeEditor.blockIndex, sourcePosition, Boolean(quote))
             if (row < 0)
                 return false
-            focusBlock(row)
+            focusBlockAtMarkdownSourcePosition(row, focusSourcePosition)
             return true
         })
     }
@@ -433,9 +473,33 @@ ListView {
                 return convertTextSelectionToCodeBlock(selectedText)
         }
         return runEditTransaction("inline-" + style, function() {
-            applyInlineStyle(activeEditor, style)
+            const editor = activeEditor
+            const selectionStart = editor.selectionStart
+            const selectionEnd = editor.selectionEnd
+            applyInlineStyle(editor, style)
+            if (selectionStart !== selectionEnd) {
+                Qt.callLater(function() {
+                    if (!editor)
+                        return
+                    editor.forceActiveFocus()
+                    editor.select(Math.min(selectionStart, editor.length),
+                                  Math.min(selectionEnd, editor.length))
+                    root.activeEditor = editor
+                    root.scheduleCursorVisibility(editor)
+                })
+            }
             return true
         })
+    }
+
+    function activeInlineStyleEnabled(style) {
+        if (!activeEditor || !editorBackend || activeEditor.codeDocument
+                || selectionTouchesTitle(activeEditor))
+            return false
+        const pending = activeEditor.pendingInlineValue(style)
+        return pending >= 0 ? pending === 1
+                            : editorBackend.inlineFormatEnabled(activeEditor.textDocument,
+                                                                activeEditor.cursorPosition, style)
     }
 
     function convertTextSelectionToCodeBlock(plainText) {
@@ -480,10 +544,14 @@ ListView {
             return true
         return runEditTransaction("convert-heading", function() {
             const level = event.key - Qt.Key_0
-            const row = blockModel.convertTextBlockToHeading(editor.blockIndex, editor.cursorPosition, level)
+            const sourcePosition = editor.markdownSourcePosition()
+            const focusSourcePosition = level === 0
+                    ? blockModel.sourcePositionAfterTextCoalesce(editor.blockIndex, sourcePosition)
+                    : blockModel.sourcePositionInParagraph(editor.blockIndex, sourcePosition)
+            const row = blockModel.convertTextBlockToHeading(editor.blockIndex, sourcePosition, level)
             if (row < 0)
                 return false
-            focusBlock(row)
+            focusBlockAtMarkdownSourcePosition(row, focusSourcePosition)
             return true
         })
     }

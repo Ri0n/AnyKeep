@@ -5,10 +5,13 @@
 #include <QClipboard>
 #include <QGuiApplication>
 #include <QMimeData>
+#include <QPalette>
 #include <QQuickTextDocument>
+#include <QTextBlock>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTextFragment>
 
 #include "localmediastore.h"
 #include "noteblockmodel.h"
@@ -127,6 +130,54 @@ int NoteEditor::pastePrimarySelection(QQuickTextDocument *quickDocument, int sta
     cursor.setPosition(end, QTextCursor::KeepAnchor);
     cursor.insertText(text, QTextCharFormat());
     return cursor.position();
+}
+
+void NoteEditor::normalizePastedTextFormats(QQuickTextDocument *quickDocument, int start, int end) const
+{
+    if (!quickDocument || !quickDocument->textDocument() || start >= end)
+        return;
+
+    QTextDocument *document = quickDocument->textDocument();
+    const int      limit    = documentEnd(document);
+    start                   = qBound(0, start, limit);
+    end                     = qBound(start, end, limit);
+
+    struct FormatRange {
+        int             start;
+        int             end;
+        QTextCharFormat format;
+    };
+    QList<FormatRange> ranges;
+    for (QTextBlock block = document->findBlock(start); block.isValid() && block.position() < end;
+         block            = block.next()) {
+        for (auto iterator = block.begin(); !iterator.atEnd(); ++iterator) {
+            const QTextFragment fragment = iterator.fragment();
+            if (!fragment.isValid() || fragment.charFormat().isImageFormat())
+                continue;
+            const int rangeStart = qMax(start, fragment.position());
+            const int rangeEnd   = qMin(end, fragment.position() + fragment.length());
+            if (rangeStart >= rangeEnd)
+                continue;
+
+            QTextCharFormat format = fragment.charFormat();
+            format.clearProperty(QTextFormat::BackgroundBrush);
+            format.clearProperty(QTextFormat::TextOutline);
+            format.clearProperty(QTextFormat::TextUnderlineColor);
+            format.clearProperty(QTextFormat::OldTextUnderlineColor);
+            if (format.isAnchor() && !format.anchorHref().isEmpty())
+                format.setForeground(QGuiApplication::palette().link());
+            else
+                format.clearProperty(QTextFormat::ForegroundBrush);
+            ranges.append({ rangeStart, rangeEnd, format });
+        }
+    }
+
+    for (const FormatRange &range : ranges) {
+        QTextCursor cursor(document);
+        cursor.setPosition(range.start);
+        cursor.setPosition(range.end, QTextCursor::KeepAnchor);
+        cursor.setCharFormat(range.format);
+    }
 }
 
 QVariantMap NoteEditor::pasteStructuredFromClipboard(QQuickTextDocument *quickDocument, int row, int start, int end)

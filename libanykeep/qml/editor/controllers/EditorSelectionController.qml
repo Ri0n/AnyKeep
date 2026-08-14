@@ -920,7 +920,10 @@ QtObject {
 
         return runEditTransaction("paste", function() {
             const editor = editorView.activeEditor
+            const insertionStart = Math.min(editor.selectionStart, editor.selectionEnd)
             editor.paste()
+            editorBackend.normalizePastedTextFormats(editor.textDocument, insertionStart,
+                                                     editor.cursorPosition)
             if (typeof editor.tryPromoteTagLine === "function")
                 editor.tryPromoteTagLine(true)
             return true

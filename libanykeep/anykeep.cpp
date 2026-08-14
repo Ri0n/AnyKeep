@@ -33,6 +33,7 @@
 #include "anykeep.h"
 #include "anykeep_config.h"
 #include "corestorageregistry.h"
+#include "defaults.h"
 #include "deintegrationinterface.h"
 #include "desktopeditorplatformbackend.h"
 #include "draftmanager.h"
@@ -83,6 +84,8 @@ public:
     StickyNotesManager          *stickyNotes;
     QSet<QUuid>                  recoveredDraftIds;
     QPointer<NotesManagerWindow> notesManagerWindow;
+    QFont                        editorFont;
+    QColor                       titleHighlightColor;
     UpdateController            *updates;
 #ifdef ANYKEEP_DBUS_AVAILABLE
     AnyKeepDBus *dbus;
@@ -122,9 +125,14 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     qtLangDirs << langDirs;
 #endif
 
-    QSettings settings;
-    QString   forcedLangName = settings.value(QLatin1String("language")).toString();
-    bool      autoLang       = (forcedLangName.isEmpty() || forcedLangName == "auto");
+    QSettings     settings;
+    const QString serializedEditorFont = settings.value(QStringLiteral("ui.default-font")).toString();
+    if (serializedEditorFont.isEmpty() || !d->editorFont.fromString(serializedEditorFont))
+        d->editorFont = qApp->font();
+    d->titleHighlightColor
+        = settings.value(QStringLiteral("ui.title-color"), Defaults::firstLineHighlightColor()).value<QColor>();
+    QString forcedLangName = settings.value(QLatin1String("language")).toString();
+    bool    autoLang       = (forcedLangName.isEmpty() || forcedLangName == "auto");
 
     QLocale locale = autoLang ? QLocale::system() : QLocale(forcedLangName);
     // qDebug() << forcedLangName;
@@ -442,6 +450,12 @@ void Main::showNoteManager()
 {
     if (!d->notesManagerWindow) {
         d->notesManagerWindow = new NotesManagerWindow(d->updates, this);
+        d->notesManagerWindow->platformBackend()->setEditorFont(editorFont());
+        d->notesManagerWindow->platformBackend()->setTitleHighlightColor(titleHighlightColor());
+        connect(this, &Main::editorFontChanged, d->notesManagerWindow->platformBackend(),
+                &EditorPlatformBackend::setEditorFont);
+        connect(this, &Main::titleHighlightColorChanged, d->notesManagerWindow->platformBackend(),
+                &EditorPlatformBackend::setTitleHighlightColor);
         _pluginManager->attachEditorPlatformBackend(d->notesManagerWindow->platformBackend());
         d->notesManagerWindow->setSpeechRecognitionProvider(_pluginManager->speechRecognitionProvider());
         connect(d->notesManagerWindow, &NotesManagerWindow::openNoteRequested, this, &Main::openNoteDialog);
@@ -468,6 +482,26 @@ void Main::showOptions()
 }
 
 UpdateController *Main::updateController() const { return d->updates; }
+
+QFont Main::editorFont() const { return d->editorFont; }
+
+void Main::setEditorFontPreview(const QFont &font)
+{
+    if (d->editorFont == font)
+        return;
+    d->editorFont = font;
+    emit editorFontChanged(font);
+}
+
+QColor Main::titleHighlightColor() const { return d->titleHighlightColor; }
+
+void Main::setTitleHighlightColorPreview(const QColor &color)
+{
+    if (d->titleHighlightColor == color)
+        return;
+    d->titleHighlightColor = color;
+    emit titleHighlightColorChanged(color);
+}
 
 StickyNotesManager *Main::stickyNotesManager() const { return d->stickyNotes; }
 

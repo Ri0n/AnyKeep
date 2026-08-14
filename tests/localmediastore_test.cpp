@@ -21,6 +21,8 @@ private slots:
     void concurrentReadsUseTheCachedKey();
     void portableNames();
     void markdownDisplayTitle();
+    void markdownHtmlImageDisplayTitle();
+    void markdownAudioDisplayTitle();
 };
 
 void LocalMediaStoreTest::encryptedRoundTripAndDeduplication()
@@ -96,6 +98,31 @@ void LocalMediaStoreTest::markdownDisplayTitle()
                        "180235.png_%29/Screenshot_20240724_180235.png \"Screenshot_20240724_180235.png\")"));
     QCOMPARE(note.displayTitle(), QStringLiteral("Screenshot_20240724_180235.png"));
     QVERIFY(note.title().startsWith(QStringLiteral("![")));
+}
+
+void LocalMediaStoreTest::markdownHtmlImageDisplayTitle()
+{
+    Note note(new NoteData(nullptr));
+    note.setFormat(Note::Markdown);
+    note.setTitle(
+        QStringLiteral("<p align=\"center\"><img src=\"anykeep-media:/11111111-1111-1111-1111-111111111111/photo.png\" "
+                       "alt=\"Holiday photo\" width=\"320\" /></p>"));
+    QCOMPARE(note.displayTitle(), QStringLiteral("Holiday photo"));
+}
+
+void LocalMediaStoreTest::markdownAudioDisplayTitle()
+{
+    Note note(new NoteData(nullptr));
+    note.setFormat(Note::Markdown);
+    note.setTitle(
+        QStringLiteral("<audio controls src=\"anykeep-media:/11111111-1111-1111-1111-111111111111/audio_20260814.m4a\" "
+                       "title=\"Voice &amp; memo\" data-anykeep-duration-ms=\"2500\"></audio>"));
+    QCOMPARE(note.displayTitle(), QStringLiteral("Voice & memo"));
+
+    note.setTitle(
+        QStringLiteral("<audio controls src=\"anykeep-media:/11111111-1111-1111-1111-111111111111/audio_20260814.m4a\" "
+                       "title=\"\" data-anykeep-duration-ms=\"2500\"></audio>"));
+    QCOMPARE(note.displayTitle(), QStringLiteral("audio_20260814.m4a"));
 }
 
 QTEST_MAIN(LocalMediaStoreTest)

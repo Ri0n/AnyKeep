@@ -197,15 +197,40 @@
           </widget>
          </item>
          <item>
+          <widget class="QSlider" name="slDefaultFontSize">
+           <property name="minimumSize">
+            <size>
+             <width>140</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="minimum">
+            <number>80</number>
+           </property>
+           <property name="maximum">
+            <number>300</number>
+           </property>
+           <property name="singleStep">
+            <number>5</number>
+           </property>
+           <property name="pageStep">
+            <number>10</number>
+           </property>
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+          </widget>
+         </item>
+         <item>
           <widget class="QDoubleSpinBox" name="fsbDefaultFontSize">
            <property name="decimals">
             <number>1</number>
            </property>
            <property name="minimum">
-            <double>7.000000000000000</double>
+            <double>8.000000000000000</double>
            </property>
            <property name="maximum">
-            <double>28.000000000000000</double>
+            <double>30.000000000000000</double>
            </property>
           </widget>
          </item>

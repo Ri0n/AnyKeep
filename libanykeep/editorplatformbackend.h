@@ -6,6 +6,8 @@
 #include "mediareference.h"
 
 #include <QByteArray>
+#include <QColor>
+#include <QFont>
 #include <QObject>
 #include <QPointer>
 #include <QStringList>
@@ -32,6 +34,7 @@ class ANYKEEP_EXPORT EditorPlatformBackend : public QObject {
     Q_PROPERTY(bool canInsertImages READ canInsertImages NOTIFY canInsertImagesChanged)
     Q_PROPERTY(bool canInsertAttachments READ canInsertAttachments NOTIFY canInsertAttachmentsChanged)
     Q_PROPERTY(QVariantList codeLanguages READ codeLanguages CONSTANT)
+    Q_PROPERTY(QFont editorFont READ editorFont WRITE setEditorFont NOTIFY editorFontChanged)
 
 public:
     explicit EditorPlatformBackend(QObject *parent = nullptr);
@@ -41,9 +44,10 @@ public:
     NoteEditor *editor() const;
     void        setEditor(NoteEditor *editor);
 
-    bool spellCheckEnabled() const { return spellCheckEnabled_; }
-    bool canInsertImages() const;
-    bool canInsertAttachments() const;
+    bool  spellCheckEnabled() const { return spellCheckEnabled_; }
+    bool  canInsertImages() const;
+    bool  canInsertAttachments() const;
+    QFont editorFont() const { return editorFont_; }
 
     Q_INVOKABLE void         registerTextDocument(QQuickTextDocument *document, bool titleDocument);
     Q_INVOKABLE void         registerCodeDocument(QQuickTextDocument *document, const QString &language);
@@ -71,16 +75,19 @@ public:
     bool canInsertImageFragment(const NoteFragment &fragment) const;
     bool insertImageFragment(const NoteFragment &fragment, int row = -1);
 
-    void setSpellCheckEnabled(bool enabled);
-    void addHighlightExtension(const std::shared_ptr<HighlighterExtension> &extension, int type);
-    void rehighlight();
-    void reloadVisualSettings();
+    void             setSpellCheckEnabled(bool enabled);
+    void             setEditorFont(const QFont &font);
+    void             setTitleHighlightColor(const QColor &color);
+    void             addHighlightExtension(const std::shared_ptr<HighlighterExtension> &extension, int type);
+    Q_INVOKABLE void rehighlight();
+    void             reloadVisualSettings();
 
 signals:
     void spellCheckEnabledChanged();
     void customSpellingDictionaryChanged();
     void canInsertImagesChanged();
     void canInsertAttachmentsChanged();
+    void editorFontChanged();
     void highlightingChanged();
     void mediaInserted(const QList<MediaReference> &references);
     void imageInsertionRequested(int row);
@@ -118,6 +125,8 @@ private:
     QList<RegisteredCodeHighlighter>      codeHighlighters_;
     std::shared_ptr<HighlighterExtension> titleExtension_;
     QStringList                           customSpellingDictionary_;
+    QFont                                 editorFont_;
+    QColor                                titleHighlightColor_;
     bool                                  spellCheckEnabled_ { true };
 };
 

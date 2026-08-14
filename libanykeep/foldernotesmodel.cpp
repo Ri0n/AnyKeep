@@ -450,7 +450,7 @@ void FolderNotesModel::appendNotes(QList<Row> *rows, const QList<Note> &notes, c
         row.folderId       = folderId;
         row.storageId      = note.storageId();
         row.noteId         = note.id();
-        row.title          = note.title();
+        row.title          = note.displayTitle();
         row.preview        = notePreview(note);
         row.depth          = depth;
         row.noteCount      = 1;

@@ -41,6 +41,9 @@ inline QString codeLanguageForMimeType(QString mimeType)
         return QStringLiteral("yaml");
     if (mimeType == QLatin1String("application/x-javascript") || mimeType == QLatin1String("text/x-javascript"))
         return QStringLiteral("javascript");
+    if (mimeType == QLatin1String("application/xml") || mimeType == QLatin1String("text/xml")
+        || mimeType == QLatin1String("application/xhtml+xml") || mimeType == QLatin1String("image/svg+xml"))
+        return QStringLiteral("xml");
     if (mimeType == QLatin1String("text/x-glsl") || mimeType.startsWith(QLatin1String("text/x-glsl-"))
         || mimeType == QLatin1String("application/x-glsl"))
         return QStringLiteral("glsl");
@@ -79,6 +82,12 @@ inline QString inferredCodeLanguage(QString text)
     int                             indentedLines = 0;
     static const QRegularExpression cppWord(QStringLiteral(
         R"(\b(?:auto|class|const|namespace|struct|void|bool|char|double|float|int|long|QString|QByteArray|QUuid)\b)"));
+    const QString                   trimmedText = text.trimmed();
+    static const QRegularExpression xmlStart(
+        QStringLiteral(R"(^(?:<\?xml\b|<!DOCTYPE\b|<[A-Za-z_][A-Za-z0-9_.:-]*(?:\s[^<>]*?)?/?>))"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression nestedOrClosingTag(
+        QStringLiteral(R"(<(?:/|[A-Za-z_][A-Za-z0-9_.:-]*(?:\s[^<>]*?)?/?>))"));
     for (const QString &line : lines) {
         const QString trimmed = line.trimmed();
         if (trimmed.isEmpty())
@@ -115,6 +124,16 @@ inline QString inferredCodeLanguage(QString text)
         return QStringLiteral("cpp");
     if (nonEmptyLines >= 2 && indentedLines >= 2 && pythonScore >= 6)
         return QStringLiteral("python");
+    if (xmlStart.match(trimmedText).hasMatch()) {
+        const int  firstTagEnd = trimmedText.indexOf(QLatin1Char('>'));
+        const bool explicitXml = trimmedText.startsWith(QLatin1String("<?xml"), Qt::CaseInsensitive)
+            || trimmedText.startsWith(QLatin1String("<!DOCTYPE"), Qt::CaseInsensitive)
+            || trimmedText.left(qMax(0, firstTagEnd)).contains(QLatin1String("xmlns"), Qt::CaseInsensitive);
+        const bool hasFollowingTag
+            = firstTagEnd >= 0 && nestedOrClosingTag.match(trimmedText, firstTagEnd + 1).hasMatch();
+        if (explicitXml || hasFollowingTag)
+            return QStringLiteral("xml");
+    }
     return {};
 }
 

@@ -29,6 +29,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QSettings>
+#include <QSlider>
 #include <QVBoxLayout>
 
 #include "anykeep.h"
@@ -120,11 +121,12 @@ OptionsDlg::OptionsDlg(Main *anykeep) : QDialog(0), ui(new Ui::OptionsDlg), anyk
     QSettings s;
     ui->ckAskDel->setChecked(s.value("ui.ask-on-delete", true).toBool());
     ui->spMenuNotesAmount->setValue(s.value("ui.menu-notes-amount", 15).toInt());
-    ui->wTitleColor->setColor(QPalette::Text,
-                              s.value("ui.title-color", Defaults::firstLineHighlightColor()).value<QColor>());
-    if (!defaultFont.fromString(s.value("ui.default-font").toString())) {
-        defaultFont = this->font();
-    }
+    originalTitleColor = anykeep->titleHighlightColor();
+    ui->wTitleColor->setColor(QPalette::Text, originalTitleColor);
+    connect(ui->wTitleColor, &ColorButton::colorChanged, this,
+            [this](const QColor &color) { this->anykeep->setTitleHighlightColorPreview(color); });
+    originalDefaultFont = anykeep->editorFont();
+    defaultFont         = originalDefaultFont;
     ui->fcbDefaultFont->setCurrentFont(defaultFont);
     auto dfPointSize = defaultFont.pointSizeF();
     if (dfPointSize == -1) {
@@ -136,14 +138,27 @@ OptionsDlg::OptionsDlg(Main *anykeep) : QDialog(0), ui(new Ui::OptionsDlg), anyk
         ui->fsbDefaultFontSize->setSuffix(QLatin1String(" pt"));
         ui->fsbDefaultFontSize->setValue(dfPointSize);
     }
-    connect(ui->fcbDefaultFont, &QFontComboBox::currentFontChanged, this,
-            [this](const QFont &font) { defaultFont = font; });
+    ui->slDefaultFontSize->setValue(qRound(ui->fsbDefaultFontSize->value() * 10.0));
+    connect(ui->slDefaultFontSize, &QSlider::valueChanged, this,
+            [this](int value) { ui->fsbDefaultFontSize->setValue(value / 10.0); });
+    connect(ui->fcbDefaultFont, &QFontComboBox::currentFontChanged, this, [this](const QFont &font) {
+        const qreal pointSize = defaultFont.pointSizeF();
+        const int   pixelSize = defaultFont.pixelSize();
+        defaultFont           = font;
+        if (pointSize > 0)
+            defaultFont.setPointSizeF(pointSize);
+        else if (pixelSize > 0)
+            defaultFont.setPixelSize(pixelSize);
+        this->anykeep->setEditorFontPreview(defaultFont);
+    });
     connect(ui->fsbDefaultFontSize, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double value) {
+        ui->slDefaultFontSize->setValue(qRound(value * 10.0));
         if (defaultFont.pixelSize() == -1) {
             defaultFont.setPointSizeF(value);
         } else {
             defaultFont.setPixelSize(value);
         }
+        this->anykeep->setEditorFontPreview(defaultFont);
     });
 
     foreach (const ShortcutsManager::ShortcutInfo &si, anykeep->shortcutsManager()->all()) {
@@ -181,7 +196,14 @@ OptionsDlg::OptionsDlg(Main *anykeep) : QDialog(0), ui(new Ui::OptionsDlg), anyk
     resize(width(), height() + 100);
 }
 
-OptionsDlg::~OptionsDlg() { delete ui; }
+OptionsDlg::~OptionsDlg()
+{
+    if (!keepVisualPreview)
+        anykeep->setEditorFontPreview(originalDefaultFont);
+    if (!keepVisualPreview)
+        anykeep->setTitleHighlightColorPreview(originalTitleColor);
+    delete ui;
+}
 
 void OptionsDlg::changeEvent(QEvent *e)
 {
@@ -246,6 +268,9 @@ void OptionsDlg::accept()
     s.setValue("ui.menu-notes-amount", ui->spMenuNotesAmount->value());
     s.setValue("ui.title-color", ui->wTitleColor->color());
     s.setValue("ui.default-font", defaultFont.toString());
+    anykeep->setEditorFontPreview(defaultFont);
+    anykeep->setTitleHighlightColorPreview(ui->wTitleColor->color());
+    keepVisualPreview = true;
 
 #ifdef Q_OS_WIN
     if (auto *updates = anykeep->updateController())
@@ -256,6 +281,13 @@ void OptionsDlg::accept()
     Utils::setAutostartEnabled(ui->ckAutostart->isChecked());
 #endif
     QDialog::accept();
+}
+
+void OptionsDlg::reject()
+{
+    anykeep->setEditorFontPreview(originalDefaultFont);
+    anykeep->setTitleHighlightColorPreview(originalTitleColor);
+    QDialog::reject();
 }
 
 void OptionsDlg::configureStorage(const QString &storageId)
@@ -284,6 +316,7 @@ void OptionsDlg::on_pbDefaultFontAdv_clicked()
         defaultFont = font;
         ui->fcbDefaultFont->setCurrentFont(font);
         ui->fsbDefaultFontSize->setValue(font.pixelSize() == -1 ? font.pointSizeF() : font.pixelSize());
+        anykeep->setEditorFontPreview(defaultFont);
     }
 }
 

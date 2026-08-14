@@ -171,6 +171,31 @@ TextArea {
         return editorView.editorBackend.markdownSelection(textDocument, start, end)
     }
 
+    // QTextDocument represents an empty Markdown paragraph with one block
+    // separator, while its source uses two newlines. Structural commands
+    // operate on source offsets, so convert the visual cursor position first.
+    function markdownSourcePosition() {
+        if (!renderedMarkdown || codeDocument)
+            return cursorPosition
+        return markdownRange(0, cursorPosition).length
+    }
+
+    function visualPositionForMarkdownSourcePosition(sourcePosition) {
+        const target = Math.max(0, Number(sourcePosition))
+        if (!renderedMarkdown || codeDocument)
+            return Math.min(length, target)
+        let low = 0
+        let high = length
+        while (low < high) {
+            const middle = Math.floor((low + high) / 2)
+            if (markdownRange(0, middle).length < target)
+                low = middle + 1
+            else
+                high = middle
+        }
+        return low
+    }
+
     function rememberPlainText() {
         observedPlainText = currentPlainText()
         observedPlainTextInitialized = true

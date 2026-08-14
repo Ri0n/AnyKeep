@@ -21,6 +21,8 @@ private slots:
     void importsHtmlTableAsTable();
     void exportsSingleTableCellAsCompactPlainText();
     void importsInlineHtmlLinkWithinParagraph();
+    void importsHtmlBoldAsBold();
+    void splitsInlineFormattingAtHtmlParagraphBoundaries();
     void importsHtmlUnderlineAsGithubIns();
     void exportsGithubUnderlineAsHtmlUnderline();
     void roundTripsSingleImageAsPng();
@@ -86,7 +88,7 @@ void NoteTransferControllerTest::preservesMarkdownHardBreaksInPlainText()
     QVERIFY2(exported, qPrintable(exported.error));
     QVERIFY(exported.mimeData->hasFormat(QString::fromLatin1(NoteTransferController::MarkdownMimeType)));
     QVERIFY(exported.mimeData->hasHtml());
-    QCOMPARE(exported.mimeData->text(), QStringLiteral("first line  \nsecond line\n\nthird paragraph"));
+    QCOMPARE(exported.mimeData->text(), QStringLiteral("first line  \nsecond line\nthird paragraph"));
 }
 
 void NoteTransferControllerTest::exportsSingleTableCellAsCompactPlainText()
@@ -221,6 +223,56 @@ void NoteTransferControllerTest::importsInlineHtmlLinkWithinParagraph()
     QCOMPARE(controller.markdownForFragment(imported.fragment, &error),
              QStringLiteral("before [link](https://example.org) after"));
     QVERIFY2(error.isEmpty(), qPrintable(error));
+}
+
+void NoteTransferControllerTest::importsHtmlBoldAsBold()
+{
+    const QStringList samples {
+        QStringLiteral("<p><b>bold</b></p>"),
+        QStringLiteral("<p><strong>bold</strong></p>"),
+        QStringLiteral("<p><span style=\"font-weight:bold\">bold</span></p>"),
+        QStringLiteral("<p><span style=\"font-weight:600\">bold</span></p>"),
+        QStringLiteral("<p><span style=\"font-weight:700\">bold</span></p>"),
+    };
+    NoteTransferController controller;
+    for (const QString &html : samples) {
+        QMimeData mime;
+        mime.setHtml(html);
+        const auto imported = controller.importMimeData(&mime);
+        QVERIFY2(imported, qPrintable(imported.error));
+        QString error;
+        QCOMPARE(controller.markdownForFragment(imported.fragment, &error), QStringLiteral("**bold**"));
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+    }
+}
+
+void NoteTransferControllerTest::splitsInlineFormattingAtHtmlParagraphBoundaries()
+{
+    QMimeData sourceMime;
+    sourceMime.setHtml(QStringLiteral(
+        "<p>Turn your text into bold cursive — <em>perfect for standout usernames, titles, and</em></p>"
+        "<p><em>short phrases</em>. Choose from Bold Script, Mathematical Bold, Bold Italic, and more.</p>"));
+
+    NoteTransferController controller;
+    const auto             imported = controller.importMimeData(&sourceMime);
+    QVERIFY2(imported, qPrintable(imported.error));
+    QCOMPARE(imported.fragment.blocks.size(), 2);
+    QCOMPARE(imported.fragment.blocks.at(0).markdown,
+             QStringLiteral("Turn your text into bold cursive — *perfect for standout usernames, titles, and*"));
+    QCOMPARE(imported.fragment.blocks.at(1).markdown,
+             QStringLiteral("*short phrases*. Choose from Bold Script, Mathematical Bold, Bold Italic, and more."));
+    const auto exported = controller.createMimeData(imported.fragment);
+    QVERIFY2(exported, qPrintable(exported.error));
+
+    const QString markdown
+        = QStringLiteral("Turn your text into bold cursive — *perfect for standout usernames, titles, and*\n\n"
+                         "*short phrases*. Choose from Bold Script, Mathematical Bold, Bold Italic, and more.");
+    QCOMPARE(QString::fromUtf8(exported.mimeData->data(QString::fromLatin1(NoteTransferController::MarkdownMimeType))),
+             markdown);
+    QCOMPARE(exported.mimeData->text(),
+             QStringLiteral("Turn your text into bold cursive — perfect for standout usernames, titles, and\n"
+                            "short phrases. Choose from Bold Script, Mathematical Bold, Bold Italic, and more."));
+    QVERIFY(exported.mimeData->hasHtml());
 }
 
 void NoteTransferControllerTest::importsHtmlUnderlineAsGithubIns()

@@ -23,6 +23,7 @@ private slots:
     void serializesParsesAndTransfersAttachments();
     void parsesSerializesAndTransfersBlockQuotes();
     void convertsBetweenBlockQuotesAndHeadings();
+    void coalescesTextAroundConvertedStructuredBlocks();
     void splitsStructuredBlockIntoFollowingParagraph();
     void leadingTablePipeDoesNotCreatePhantomColumn();
     void preservesGithubUnderlineMarkup();
@@ -71,6 +72,7 @@ private slots:
     void movesWholeListsThroughStandaloneBoundaries();
     void movesWholeBlocks();
     void movingMultilineTextToTitleSplitsAndRecombinesBody();
+    void movingBlockBeforeFormerTitleRecombinesText();
     void movingStructuredBlockAwayRecombinesTextNeighbors();
     void movingListBlockNextToListMergesAndAdoptsResidentType();
     void movingBlockAwayMergesAdjacentListsAtSourceGap();

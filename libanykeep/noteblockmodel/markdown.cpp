@@ -439,8 +439,13 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
     // indented list continuations. Do the same when Qt flattens a GFM table
     // following a task list or reinterprets an optional outer pipe as a
     // phantom empty column.
-    const bool tableShapeChanged   = tableColumnCounts(sourceLines) != tableColumnCounts(canonicalLines);
-    const bool preserveSourceLines = preserveInlineSourceLines || hasHtmlMedia || hasListContinuation(sourceLines)
+    const bool tableShapeChanged = tableColumnCounts(sourceLines) != tableColumnCounts(canonicalLines);
+    // A one-line source cannot contain a structural line boundary. Keep it
+    // authoritative instead of accepting soft wraps introduced by Qt's
+    // Markdown writer during canonicalization.
+    const bool preserveSingleParagraph = sourceLines.size() == 1 && sourceListIndents.isEmpty();
+    const bool preserveSourceLines     = preserveSingleParagraph || preserveInlineSourceLines || hasHtmlMedia
+        || hasListContinuation(sourceLines)
         || std::any_of(sourceLines.cbegin(), sourceLines.cend(),
                        [](const QString &line) { return quote.match(line).hasMatch(); })
         || (hasTable(sourceLines) && (!hasTable(canonicalLines) || tableShapeChanged));

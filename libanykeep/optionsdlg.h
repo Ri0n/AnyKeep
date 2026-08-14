@@ -49,6 +49,7 @@ protected:
 
 public slots:
     void accept();
+    void reject();
 
 private slots:
     void configureStorage(const QString &storageId);
@@ -62,6 +63,9 @@ private:
     RulesController      *rulesController;
     QQuickWidget         *rulesView;
     QFont                 defaultFont;
+    QFont                 originalDefaultFont;
+    QColor                originalTitleColor;
+    bool                  keepVisualPreview { false };
 };
 
 } // namespace AnyKeep

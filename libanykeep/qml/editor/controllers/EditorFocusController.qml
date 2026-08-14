@@ -188,11 +188,22 @@ QtObject {
                 && typeof editor.applyPendingSourceText === "function")
             editor.applyPendingSourceText()
         editor.forceActiveFocus()
-        const requested = Number(address.cursorPosition === undefined ? -1 : address.cursorPosition)
+        let requested = Number(address.cursorPosition === undefined ? -1 : address.cursorPosition)
+        if (address.markdownSourcePosition !== undefined
+                && typeof editor.visualPositionForMarkdownSourcePosition === "function")
+            requested = editor.visualPositionForMarkdownSourcePosition(Number(address.markdownSourcePosition))
         const position = requested >= 0 ? requested : (Boolean(address.atEnd) ? editor.length : 0)
         const cursor = Math.max(0, Math.min(editor.length, position))
-        const selectionStart = Number(address.selectionStart === undefined ? cursor : address.selectionStart)
-        const selectionEnd = Number(address.selectionEnd === undefined ? cursor : address.selectionEnd)
+        let selectionStart = Number(address.selectionStart === undefined ? cursor : address.selectionStart)
+        let selectionEnd = Number(address.selectionEnd === undefined ? cursor : address.selectionEnd)
+        if (address.markdownSelectionStart !== undefined
+                && typeof editor.visualPositionForMarkdownSourcePosition === "function")
+            selectionStart = editor.visualPositionForMarkdownSourcePosition(
+                        Number(address.markdownSelectionStart))
+        if (address.markdownSelectionEnd !== undefined
+                && typeof editor.visualPositionForMarkdownSourcePosition === "function")
+            selectionEnd = editor.visualPositionForMarkdownSourcePosition(
+                        Number(address.markdownSelectionEnd))
         if (selectionStart !== selectionEnd)
             editorView.setEditorSelection(editor, Math.max(0, Math.min(editor.length, selectionStart)),
                                           Math.max(0, Math.min(editor.length, selectionEnd)))
@@ -611,6 +622,19 @@ QtObject {
             selectionStart: position === undefined ? -1 : position,
             selectionEnd: position === undefined ? -1 : position,
             atEnd: Boolean(atEnd)
+        })
+    }
+
+    function focusBlockAtMarkdownSourcePosition(blockIndex, sourcePosition) {
+        return focusEditorAddress({
+            blockIndex: blockIndex,
+            listItemIndex: -1,
+            tableCellIndex: -1,
+            cursorPosition: -1,
+            selectionStart: -1,
+            selectionEnd: -1,
+            markdownSourcePosition: sourcePosition,
+            atEnd: false
         })
     }
 

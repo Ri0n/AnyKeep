@@ -443,22 +443,68 @@ bool NoteBlockModel::moveTagLineTag(int row, int from, int to)
     return true;
 }
 
+int NoteBlockModel::convertStructuredBlockToText(int row)
+{
+    if (row < 0 || row >= blocks_.size() || (blocks_.at(row).type != Heading && blocks_.at(row).type != BlockQuote))
+        return -1;
+
+    beginResetModel();
+    blocks_[row].type         = Text;
+    blocks_[row].headingLevel = 0;
+    int resolvedRow           = row;
+    coalesceTextNear(&blocks_, row, markdown_, &resolvedRow);
+    normalizeTagLinePositions(&blocks_, markdown_);
+    endResetModel();
+    emit contentsChanged();
+    return resolvedRow;
+}
+
+int NoteBlockModel::sourcePositionAfterTextCoalesce(int row, int position) const
+{
+    if (row < 0 || row >= blocks_.size())
+        return -1;
+
+    int result = qBound(0, position, blocks_.at(row).text.size());
+    // The title remains its own block. Every preceding ordinary block that
+    // coalesceTextNear can absorb contributes its text and one block
+    // separator before the converted block's original source position.
+    const int firstMergeableRow = blocks_.constFirst().type == Text ? 1 : 0;
+    const int separatorLength   = markdown_ ? 2 : 1;
+    for (int leftRow = row - 1; leftRow >= firstMergeableRow; --leftRow) {
+        const Block &left = blocks_.at(leftRow);
+        if (left.type != Text || left.explicitEmpty)
+            break;
+        result += left.text.size() + separatorLength;
+    }
+    return result;
+}
+
+int NoteBlockModel::sourcePositionInParagraph(int row, int position) const
+{
+    if (row < 0 || row >= blocks_.size())
+        return -1;
+    const QString &text = blocks_.at(row).text;
+    position            = qBound(0, position, text.size());
+    if (blocks_.at(row).type == Heading)
+        return position;
+    const int separatorBefore = text.lastIndexOf(QStringLiteral("\n\n"), qMax(0, position - 1));
+    const int paragraphStart  = separatorBefore < 0 ? 0 : separatorBefore + 2;
+    return position - paragraphStart;
+}
+
 int NoteBlockModel::convertTextBlockToHeading(int row, int position, int level)
 {
     if (row < 0 || row >= blocks_.size() || level < 0 || level > 6)
         return -1;
     if (blocks_[row].type == Heading) {
-        blocks_[row].type         = level == 0 ? Text : Heading;
+        if (level == 0)
+            return convertStructuredBlockToText(row);
         blocks_[row].headingLevel = level;
         changed(row, { TypeRole, HeadingLevelRole });
         return row;
     }
-    if (blocks_[row].type == BlockQuote && level == 0) {
-        blocks_[row].type         = Text;
-        blocks_[row].headingLevel = 0;
-        changed(row, { TypeRole, HeadingLevelRole });
-        return row;
-    }
+    if (blocks_[row].type == BlockQuote && level == 0)
+        return convertStructuredBlockToText(row);
     if ((blocks_[row].type != Text && blocks_[row].type != BlockQuote) || level == 0)
         return -1;
 
@@ -507,10 +553,7 @@ int NoteBlockModel::convertTextBlockToQuote(int row, int position, bool quote)
     if (blocks_[row].type == BlockQuote) {
         if (quote)
             return row;
-        blocks_[row].type         = Text;
-        blocks_[row].headingLevel = 0;
-        changed(row, { TypeRole, HeadingLevelRole });
-        return row;
+        return convertStructuredBlockToText(row);
     }
     if (blocks_[row].type == Heading && quote) {
         blocks_[row].type         = BlockQuote;
@@ -553,6 +596,70 @@ int NoteBlockModel::convertTextBlockToQuote(int row, int position, bool quote)
     endResetModel();
     emit contentsChanged();
     return row + quoteOffset;
+}
+
+QVariantMap NoteBlockModel::convertTextRangeToQuote(int row, int start, int end)
+{
+    if (row < 0 || row >= blocks_.size() || blocks_.at(row).type != Text)
+        return {};
+
+    const QString text = blocks_.at(row).text;
+    start              = qBound(0, start, text.size());
+    end                = qBound(0, end, text.size());
+    if (start > end)
+        qSwap(start, end);
+    if (start == end)
+        return {};
+
+    // A Markdown prefix produced by QTextDocument can omit the trailing
+    // paragraph separator. In that case a visual selection beginning at the
+    // next paragraph maps to the first newline of the source separator.
+    const bool startsAtSeparator = text.mid(start, 2) == QStringLiteral("\n\n");
+    const int  separatorBefore
+        = startsAtSeparator ? start : text.lastIndexOf(QStringLiteral("\n\n"), qMax(0, start - 1));
+    const int paragraphStart = separatorBefore < 0 ? 0 : separatorBefore + 2;
+    if (startsAtSeparator)
+        start = paragraphStart;
+    // The selection end is exclusive. If it is exactly at the start of the
+    // following paragraph, that paragraph was not selected.
+    int endProbe = qMax(paragraphStart, end - 1);
+    // QTextDocument's Markdown projection may append the paragraph separator
+    // to a selection that visually ends at the last character. Do not let
+    // those trailing newlines pull the following unselected paragraph into
+    // the quote.
+    while (endProbe > paragraphStart && text.at(endProbe) == QLatin1Char('\n'))
+        --endProbe;
+    const int separatorAfter = text.indexOf(QStringLiteral("\n\n"), endProbe);
+    const int paragraphEnd   = separatorAfter < 0 ? text.size() : separatorAfter;
+
+    QList<Block> replacement;
+    if (paragraphStart > 0) {
+        Block before;
+        before.text = text.left(paragraphStart - 2);
+        replacement.append(before);
+    }
+    Block blockQuote;
+    blockQuote.type       = BlockQuote;
+    blockQuote.text       = text.mid(paragraphStart, paragraphEnd - paragraphStart);
+    const int quoteOffset = replacement.size();
+    replacement.append(blockQuote);
+    if (paragraphEnd < text.size()) {
+        Block after;
+        after.text = text.mid(paragraphEnd + 2);
+        replacement.append(after);
+    }
+
+    beginResetModel();
+    blocks_.removeAt(row);
+    for (int index = 0; index < replacement.size(); ++index)
+        blocks_.insert(row + index, replacement.at(index));
+    normalizeTagLinePositions(&blocks_, markdown_);
+    endResetModel();
+    emit contentsChanged();
+    return { { QStringLiteral("handled"), true },
+             { QStringLiteral("row"), row + quoteOffset },
+             { QStringLiteral("selectionStart"), start - paragraphStart },
+             { QStringLiteral("selectionEnd"), end - paragraphStart } };
 }
 
 bool NoteBlockModel::splitStructuredBlockToText(int row, const QString &before, const QString &after)
@@ -599,8 +706,13 @@ int NoteBlockModel::moveBlockResolved(int row, int targetRow)
     coalesceListAtBoundary(&blocks_, sourceGap, &movedRow);
     if (movedRow >= 0 && movedRow < blocks_.size() && blocks_.at(movedRow).type == Text)
         coalesceTextNear(&blocks_, movedRow == 0 ? 1 : movedRow, markdown_, &movedRow);
-    else
+    else {
         coalesceMovedList(&blocks_, &movedRow);
+        // A structured block moved to the top removes the special title
+        // position. Text that used to be split into title and body must then
+        // become one ordinary text block again.
+        coalesceTextNear(&blocks_, movedRow + 1, markdown_, &movedRow);
+    }
 
     normalizeTagLinePositions(&blocks_, markdown_);
     endResetModel();

@@ -76,6 +76,7 @@ public:
     QString               text() const;
     QString               title() const;
     QString               displayTitle() const;
+    static QString        displayTitleForText(const QString &title, Format format);
     QStringList           tags() const;
     QUuid                 folderId() const;
     NoteData             *data() const;

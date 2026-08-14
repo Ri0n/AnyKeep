@@ -242,6 +242,24 @@ void NoteBlockModelTest::movingMultilineTextToTitleSplitsAndRecombinesBody()
     QCOMPARE(model.contents(), QStringLiteral("New title\n\nrest\n\nOld title\n\n- item"));
 }
 
+void NoteBlockModelTest::movingBlockBeforeFormerTitleRecombinesText()
+{
+    NoteBlockModel model;
+    model.load(QStringLiteral("Old title\n\n- item\n\nNew title\n\nrest"), true);
+
+    // Moving multiline text to the top splits its first paragraph into the
+    // dedicated title block. Moving a list before it removes that special
+    // position, so the former title must rejoin its body text.
+    QCOMPARE(model.moveBlockResolved(2, 0), 0);
+    QCOMPARE(model.moveBlockResolved(2, 0), 0);
+
+    QCOMPARE(model.rowCount(), 2);
+    QCOMPARE(model.blockTypeAt(0), int(NoteBlockModel::BulletList));
+    QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(),
+             QStringLiteral("New title\n\nrest\n\nOld title"));
+    QCOMPARE(model.contents(), QStringLiteral("- item\n\nNew title\n\nrest\n\nOld title"));
+}
+
 void NoteBlockModelTest::movingStructuredBlockAwayRecombinesTextNeighbors()
 {
     NoteBlockModel model;

@@ -254,6 +254,38 @@ namespace {
         return markdown;
     }
 
+    QString unwrapSingleBlockMarkdown(QString markdown)
+    {
+        while (markdown.endsWith(QLatin1Char('\n')) || markdown.endsWith(QLatin1Char('\r')))
+            markdown.chop(1);
+        if (markdown.startsWith(QLatin1String("```")) || markdown.startsWith(QLatin1String("~~~")))
+            return markdown;
+
+        const QStringList lines = markdown.split(QLatin1Char('\n'), Qt::KeepEmptyParts);
+        QString           result;
+        for (const QString &line : lines) {
+            // This function only receives one QTextBlock, so an empty line
+            // cannot represent an HTML paragraph boundary. Qt 6.4 sometimes
+            // emits one here while wrapping a long paragraph.
+            if (line.isEmpty())
+                continue;
+
+            if (!result.isEmpty()) {
+                // QTextDocument::toMarkdown wraps long visual paragraphs.
+                // Two spaces before a newline are different: they encode a
+                // real HTML <br> and must remain a hard line break.
+                if (result.endsWith(QStringLiteral("  ")))
+                    result += QLatin1Char('\n');
+                else if (!result.endsWith(QLatin1Char('\n')))
+                    result += QLatin1Char(' ');
+                result += line.trimmed();
+            } else {
+                result += line;
+            }
+        }
+        return result;
+    }
+
     void appendMarkdownBlocks(NoteFragment *destination, const QString &markdown)
     {
         if (!destination || markdown.trimmed().isEmpty())
@@ -312,9 +344,22 @@ namespace {
             if (const QTextBlock block = iterator.currentBlock(); block.isValid()) {
                 if (block.text().trimmed().isEmpty())
                     continue;
-                if (textStart < 0)
-                    textStart = block.position();
-                textEnd = block.position() + block.length();
+                if (block.textList()) {
+                    if (textStart < 0)
+                        textStart = block.position();
+                    textEnd = block.position() + block.length();
+                } else {
+                    // Qt 6.4 may serialize one continuous <em>/<strong>
+                    // range across adjacent HTML paragraphs as a single pair
+                    // of Markdown markers around a blank line. Markdown does
+                    // not allow emphasis to cross that boundary, so serialize
+                    // ordinary paragraphs independently. Lists stay grouped
+                    // because their relative indentation is structural.
+                    flushText();
+                    appendMarkdownBlocks(&result.fragment,
+                                         unwrapSingleBlockMarkdown(markdownFromDocumentRange(
+                                             &document, block.position(), block.position() + block.length())));
+                }
                 continue;
             }
 
@@ -604,7 +649,10 @@ QString NoteTransferController::plainTextForFragment(const NoteFragment &fragmen
     QStringList paragraphs;
     for (QTextBlock block = document.begin(); block.isValid(); block = block.next())
         paragraphs.append(block.text());
-    QString plainText = normalizePlainText(paragraphs.join(QStringLiteral("\n\n")));
+    // text/plain represents rendered lines, not Markdown source. Paragraph
+    // separation therefore uses one newline; the text/markdown flavor keeps
+    // the blank lines required to reconstruct the same block structure.
+    QString plainText = normalizePlainText(paragraphs.join(QLatin1Char('\n')));
     plainText.replace(hardBreakMarker, QStringLiteral("  \n"));
     return plainText;
 }

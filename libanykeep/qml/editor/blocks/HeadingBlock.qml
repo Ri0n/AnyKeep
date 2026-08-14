@@ -10,6 +10,7 @@ Editor.NoteBlockTextArea {
     width: block.width
     sourceText: editorView.markdownForRendering(block.blockText)
     font.bold: true
+    font.family: editorView.editorFont.family
     font.pointSize: editorView.editorPointSize * (block.headingLevel === 1 ? 1.7
                     : block.headingLevel === 2 ? 1.5
                     : block.headingLevel === 3 ? 1.3

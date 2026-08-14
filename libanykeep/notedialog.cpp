@@ -116,6 +116,10 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
     speechController_->setProvider(main_->pluginManager()->speechRecognitionProvider());
     main_->pluginManager()->attachEditorPlatformBackend(platformBackend_);
     platformBackend_->setDragSource(this);
+    platformBackend_->setEditorFont(main_->editorFont());
+    platformBackend_->setTitleHighlightColor(main_->titleHighlightColor());
+    connect(main_, &Main::editorFontChanged, platformBackend_, &EditorPlatformBackend::setEditorFont);
+    connect(main_, &Main::titleHighlightColorChanged, platformBackend_, &EditorPlatformBackend::setTitleHighlightColor);
 
     connect(main_, &Main::settingsUpdated, this, [this] {
         platformBackend_->reloadVisualSettings();
@@ -146,6 +150,10 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
         qWarning() << "Failed to create standalone note QML window" << errors();
     if (rootObject())
         editor_->registerEditorView(rootObject());
+    // The editor starts with already-loaded text, so no textChanged signal is
+    // emitted while this view is being constructed. Set the native window
+    // decoration title explicitly instead of waiting for the first edit.
+    updateWindowTitle();
 
     if (!note.id().isEmpty()) {
         Q_ASSERT(!findDialog(note.storageId(), note.id()));
@@ -471,8 +479,9 @@ void NoteDialog::updateBackgroundColor() { setColor(QGuiApplication::palette().c
 
 void NoteDialog::updateWindowTitle()
 {
-    const QString firstLine = editor_->text().section(QLatin1Char('\n'), 0, 0).trimmed();
-    setTitle(Utils::cuttedDots(firstLine.isEmpty() ? tr("[No Title]") : firstLine, 256));
+    const QString firstLine    = editor_->text().section(QLatin1Char('\n'), 0, 0).trimmed();
+    const QString displayTitle = Note::displayTitleForText(firstLine, editor_->format()).trimmed();
+    setTitle(Utils::cuttedDots(displayTitle.isEmpty() ? tr("[No Title]") : displayTitle, 256));
 }
 
 void NoteDialog::ensureWindowGeometryVisible()

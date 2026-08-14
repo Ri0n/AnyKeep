@@ -1,17 +1,22 @@
 #include <QClipboard>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFont>
 #include <QMimeData>
 #include <QPalette>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlProperty>
 #include <QQuickItem>
+#include <QQuickTextDocument>
 #include <QQuickWidget>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QtTest>
 
 #include <algorithm>
 
+#include "desktopeditorplatformbackend.h"
 #include "desktopnoteeditorhost.h"
 #include "draftmanager.h"
 #include "noteblockmodel.h"
@@ -81,6 +86,195 @@ private slots:
             QMetaObject::invokeMethod(quick->rootObject(), "captureEditorState", Q_RETURN_ARG(QVariant, viewState)));
         QVERIFY(viewState.canConvert<QVariantMap>());
         QCOMPARE(host.model(), editor.model());
+    }
+
+    void editorFontPreviewUpdatesTextAndHeadings()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("# heading\n\nbody"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *title   = nullptr;
+        QQuickItem *heading = nullptr;
+        QTRY_VERIFY(([&]() {
+            title   = textEditorForBlock(root, 0);
+            heading = textEditorForBlock(root, 1);
+            return title && heading;
+        })());
+        const QVariant documentProperty = QQmlProperty(title, QStringLiteral("textDocument")).read();
+        auto          *quickDocument    = qobject_cast<QQuickTextDocument *>(documentProperty.value<QObject *>());
+        QVERIFY(quickDocument);
+        QTextCharFormat titleFormat;
+        const auto      readTitleFormat = [&]() {
+            const QTextBlock block = quickDocument->textDocument()->begin();
+            if (!block.isValid() || !block.layout())
+                return false;
+            for (const auto &range : block.layout()->formats()) {
+                if (range.format.foreground().style() == Qt::NoBrush)
+                    continue;
+                titleFormat = range.format;
+                return true;
+            }
+            return false;
+        };
+
+        QFont preview = QGuiApplication::font();
+        preview.setPointSizeF(12.0);
+        host.platformBackend()->setEditorFont(preview);
+        QTRY_VERIFY(qAbs(title->property("font").value<QFont>().pointSizeF() - 12.0) < 0.01);
+        QTRY_VERIFY(qAbs(heading->property("font").value<QFont>().pointSizeF() - 20.4) < 0.01);
+        QTRY_VERIFY(readTitleFormat() && qAbs(titleFormat.fontPointSize() - 18.0) < 0.01);
+
+        preview.setPointSizeF(18.0);
+        host.platformBackend()->setEditorFont(preview);
+        QTRY_VERIFY(qAbs(title->property("font").value<QFont>().pointSizeF() - 18.0) < 0.01);
+        QTRY_VERIFY(qAbs(heading->property("font").value<QFont>().pointSizeF() - 30.6) < 0.01);
+        QTRY_VERIFY(readTitleFormat() && qAbs(titleFormat.fontPointSize() - 27.0) < 0.01);
+
+        const QColor previewTitleColor(35, 145, 235);
+        host.platformBackend()->setTitleHighlightColor(previewTitleColor);
+        QTRY_VERIFY(readTitleFormat() && titleFormat.foreground().color() == previewTitleColor);
+    }
+
+    void removingHeadingKeepsCursorInsideCoalescedText()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("before **bold**\n\n## heading\n\nafter"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *heading = nullptr;
+        QTRY_VERIFY((heading = textEditorForBlock(root, 2)));
+        heading->forceActiveFocus();
+        heading->setProperty("cursorPosition", 3);
+        QTRY_VERIFY(heading->hasActiveFocus());
+        auto *blockEditor = ancestorWithProperty(heading, "currentFindText");
+        QVERIFY(blockEditor);
+
+        QVariant converted;
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "convertActiveToHeading", Q_RETURN_ARG(QVariant, converted),
+                                          Q_ARG(QVariant, 0)));
+        QVERIFY(converted.toBool());
+        QTRY_COMPARE(editor.model()->rowCount(), 2);
+
+        QQuickItem *text = nullptr;
+        QTRY_VERIFY((text = textEditorForBlock(root, 1)));
+        QVariant plain;
+        QVERIFY(QMetaObject::invokeMethod(text, "currentPlainText", Q_RETURN_ARG(QVariant, plain)));
+        const int expectedPosition = plain.toString().indexOf(QStringLiteral("heading")) + 3;
+        QVERIFY(expectedPosition >= 3);
+        QTRY_COMPARE(text->property("cursorPosition").toInt(), expectedPosition);
+    }
+
+    void applyingHeadingAndQuoteKeepsCursorInsideSelectedParagraph()
+    {
+        const auto verifyConversion = [](bool quote) {
+            Note note(new NoteData(nullptr));
+            note.setTitle(QStringLiteral("title"));
+            note.setText(QStringLiteral("before **bold**\n\ntarget text\n\nafter"), Note::Markdown);
+            DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+            NoteEditor            editor(note, drafts);
+            DesktopNoteEditorHost host(&editor);
+            host.resize(520, 360);
+            host.show();
+
+            auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+            QVERIFY(root);
+            QQuickItem *body = nullptr;
+            QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+            QVariant plain;
+            QVERIFY(QMetaObject::invokeMethod(body, "currentPlainText", Q_RETURN_ARG(QVariant, plain)));
+            const int targetPosition = plain.toString().indexOf(QStringLiteral("target")) + 3;
+            QVERIFY(targetPosition >= 3);
+            body->forceActiveFocus();
+            body->setProperty("cursorPosition", targetPosition);
+            QTRY_VERIFY(body->hasActiveFocus());
+            auto *blockEditor = ancestorWithProperty(body, "currentFindText");
+            QVERIFY(blockEditor);
+
+            QVariant converted;
+            if (quote) {
+                QVERIFY(QMetaObject::invokeMethod(blockEditor, "convertActiveToQuote",
+                                                  Q_RETURN_ARG(QVariant, converted), Q_ARG(QVariant, true)));
+            } else {
+                QVERIFY(QMetaObject::invokeMethod(blockEditor, "convertActiveToHeading",
+                                                  Q_RETURN_ARG(QVariant, converted), Q_ARG(QVariant, 2)));
+            }
+            QVERIFY(converted.toBool());
+            QTRY_COMPARE(editor.model()->rowCount(), 4);
+            QCOMPARE(editor.model()->blockTypeAt(2), int(quote ? NoteBlockModel::BlockQuote : NoteBlockModel::Heading));
+
+            QQuickItem *structured = nullptr;
+            QTRY_VERIFY((structured = textEditorForBlock(root, 2)));
+            QTRY_VERIFY(structured->hasActiveFocus());
+            QTRY_COMPARE(structured->property("cursorPosition").toInt(), 3);
+        };
+
+        verifyConversion(false);
+        verifyConversion(true);
+    }
+
+    void blockQuoteConvertsEveryParagraphInTopDownSelection()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("before\n\nfirst selected\n\nsecond selected\n\nthird selected\n\nafter"),
+                     Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QVariant plain;
+        QVERIFY(QMetaObject::invokeMethod(body, "currentPlainText", Q_RETURN_ARG(QVariant, plain)));
+        const int selectionStart = plain.toString().indexOf(QStringLiteral("first selected"));
+        const int selectionEnd
+            = plain.toString().indexOf(QStringLiteral("third selected")) + QStringLiteral("third selected").size();
+        QVERIFY(selectionStart >= 0);
+        QVERIFY(selectionEnd > selectionStart);
+        body->forceActiveFocus();
+        QVERIFY(QMetaObject::invokeMethod(body, "select", Q_ARG(int, selectionStart), Q_ARG(int, selectionEnd)));
+        QTRY_COMPARE(body->property("cursorPosition").toInt(), selectionEnd);
+        auto *blockEditor = ancestorWithProperty(body, "currentFindText");
+        QVERIFY(blockEditor);
+
+        auto *toolbarButton = root->findChild<QQuickItem *>(QStringLiteral("editorFolderPickerButton"));
+        QVERIFY(toolbarButton);
+        toolbarButton->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(!body->hasActiveFocus());
+
+        QVariant converted;
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "insertBlockQuoteBlock", Q_RETURN_ARG(QVariant, converted)));
+        QVERIFY(converted.toBool());
+        QTRY_COMPARE(editor.model()->rowCount(), 4);
+        QCOMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::BlockQuote));
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::TextRole).toString(),
+                 QStringLiteral("first selected\n\nsecond selected\n\nthird selected"));
+
+        QQuickItem *quote = nullptr;
+        QTRY_VERIFY((quote = textEditorForBlock(root, 2)));
+        QTRY_VERIFY(quote->hasActiveFocus());
+        QTRY_VERIFY(quote->property("selectedText").toString().contains(QStringLiteral("first selected")));
+        QTRY_VERIFY(quote->property("selectedText").toString().contains(QStringLiteral("second selected")));
+        QTRY_VERIFY(quote->property("selectedText").toString().contains(QStringLiteral("third selected")));
     }
 
     void interBlockInsertionIsMarkdownOnly()
@@ -309,11 +503,22 @@ private:
         QVERIFY(QMetaObject::invokeMethod(body, "applyPendingSourceText", Q_RETURN_ARG(QVariant, synchronized)));
         QVERIFY(synchronized.toBool());
 
+        // A real toolbar click takes active focus before its onClicked handler
+        // runs. The editor reference and native selection must survive that
+        // focus transfer and be restored by the formatting command.
+        auto *toolbarButton = root->findChild<QQuickItem *>(QStringLiteral("editorFolderPickerButton"));
+        QVERIFY(toolbarButton);
+        toolbarButton->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(!body->hasActiveFocus());
+
         QVariant formatted;
         QVERIFY(QMetaObject::invokeMethod(blockEditor, "applyActiveInlineStyle", Q_RETURN_ARG(QVariant, formatted),
                                           Q_ARG(QVariant, QStringLiteral("code"))));
         QVERIFY(formatted.toBool());
         QTRY_VERIFY(editor.model()->contents().contains(QStringLiteral("`selected`")));
+        QTRY_VERIFY(body->hasActiveFocus());
+        QTRY_COMPARE(body->property("selectionStart").toInt(), 7);
+        QTRY_COMPARE(body->property("selectionEnd").toInt(), 15);
     }
 
     void codeActionConvertsMultilineTextSelectionWithoutBlankParagraphs()
@@ -1105,6 +1310,107 @@ private:
         QVERIFY2(editor.text().contains(fencedSource), qPrintable(editor.text()));
     }
 
+    void pastedWebColorsAreRemovedImmediately()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("- item"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(620, 440);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *itemEditor = nullptr;
+        QTRY_VERIFY(([&] {
+            for (QQuickItem *candidate : textEditors(root)) {
+                if (candidate->property("listItemIndex").toInt() == 0) {
+                    itemEditor = candidate;
+                    return true;
+                }
+            }
+            return false;
+        })());
+        itemEditor->forceActiveFocus(Qt::MouseFocusReason);
+        QVERIFY(QMetaObject::invokeMethod(itemEditor, "select", Q_ARG(int, 0),
+                                          Q_ARG(int, itemEditor->property("length").toInt())));
+        QTRY_VERIFY(itemEditor->hasActiveFocus());
+
+        auto *mimeData = new QMimeData;
+        mimeData->setText(QStringLiteral("colored"));
+        mimeData->setHtml(
+            QStringLiteral("<span style=\"color:#ff0000;background-color:#0000ff\"><b>colored</b></span>"));
+        QGuiApplication::clipboard()->setMimeData(mimeData);
+
+        QVariant pasted;
+        QVERIFY(QMetaObject::invokeMethod(root, "pasteClipboard", Q_RETURN_ARG(QVariant, pasted)));
+        QVERIFY(pasted.toBool());
+
+        const QVariant documentProperty = QQmlProperty(itemEditor, QStringLiteral("textDocument")).read();
+        auto          *quickDocument    = qobject_cast<QQuickTextDocument *>(documentProperty.value<QObject *>());
+        QVERIFY(quickDocument);
+        QTextDocument *document = quickDocument->textDocument();
+        QTextCursor    cursor(document);
+        cursor = document->find(QStringLiteral("colored"));
+        QVERIFY(!cursor.isNull());
+        const QTextCharFormat format = cursor.charFormat();
+        QCOMPARE(format.foreground().style(), Qt::NoBrush);
+        QCOMPARE(format.background().style(), Qt::NoBrush);
+        QVERIFY(!format.hasProperty(QTextFormat::TextOutline));
+        QVERIFY(!format.hasProperty(QTextFormat::TextUnderlineColor));
+        QVERIFY(format.fontWeight() >= QFont::Bold);
+        QVERIFY(QMetaObject::invokeMethod(root, "flushPendingEditorChanges"));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ QStringLiteral("**colored**") }));
+    }
+
+    void plainTextXmlPasteSurvivesFormatRoundTrip()
+    {
+        const QString source = QStringLiteral("<svg width=\"24px\" height=\"24px\" viewBox=\"0 0 24 24\" role=\"img\" "
+                                              "xmlns=\"http://www.w3.org/2000/svg\"><title>OpenAI icon</title>"
+                                              "<path d=\"M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108\"");
+        Note          note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("replace me"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(620, 440);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QVERIFY(QMetaObject::invokeMethod(body, "select", Q_ARG(int, 0), Q_ARG(int, body->property("length").toInt())));
+        QTRY_VERIFY(body->hasActiveFocus());
+
+        auto *mimeData = new QMimeData;
+        mimeData->setText(source);
+        QGuiApplication::clipboard()->setMimeData(mimeData);
+        QVariant pasted;
+        QVERIFY(QMetaObject::invokeMethod(root, "pasteClipboard", Q_RETURN_ARG(QVariant, pasted)));
+        QVERIFY(pasted.toBool());
+
+        QTRY_COMPARE(editor.model()->rowCount(), 2);
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::CodeBlock));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::LanguageRole).toString(),
+                 QStringLiteral("xml"));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TextRole).toString(), source);
+
+        editor.setMarkdown(false);
+        QTRY_VERIFY(!editor.isMarkdown());
+        QVERIFY(editor.text().contains(QStringLiteral("```xml\n") + source + QStringLiteral("\n```")));
+        editor.setMarkdown(true);
+        QTRY_VERIFY(editor.isMarkdown());
+        QCOMPARE(editor.model()->rowCount(), 2);
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::CodeBlock));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TextRole).toString(), source);
+    }
+
 private slots:
     void wholeListDragUsesItemLevelStructuralBoundaries()
     {
@@ -1643,6 +1949,10 @@ private slots:
     {
         pythonClipboardUsesExactPlainTextInsteadOfRichHtmlFragments();
     }
+
+    void regressionPastedWebColorsAreRemovedImmediately() { pastedWebColorsAreRemovedImmediately(); }
+
+    void regressionPlainTextXmlPasteSurvivesFormatRoundTrip() { plainTextXmlPasteSurvivesFormatRoundTrip(); }
 };
 
 QTEST_MAIN(EditorQmlTest)

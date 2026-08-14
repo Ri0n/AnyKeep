@@ -7,7 +7,7 @@ namespace AnyKeep {
 
 class Defaults {
 public:
-    static QColor firstLineHighlightColor() { return QColor(255, 0, 0, 180); }
+    static QColor firstLineHighlightColor() { return QColor(66, 165, 245, 180); }
 };
 
 }

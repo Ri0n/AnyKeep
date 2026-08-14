@@ -140,6 +140,9 @@ public:
     Q_INVOKABLE bool        convertListLevel(int row, int item, BlockType type);
     Q_INVOKABLE int         convertTextBlockToHeading(int row, int position, int level);
     Q_INVOKABLE int         convertTextBlockToQuote(int row, int position, bool quote);
+    Q_INVOKABLE QVariantMap convertTextRangeToQuote(int row, int start, int end);
+    Q_INVOKABLE int         sourcePositionAfterTextCoalesce(int row, int position) const;
+    Q_INVOKABLE int         sourcePositionInParagraph(int row, int position) const;
     Q_INVOKABLE bool        splitTitleBlock(const QString &before, const QString &after);
     Q_INVOKABLE bool        splitStructuredBlockToText(int row, const QString &before, const QString &after);
     Q_INVOKABLE bool        moveBlock(int row, int targetRow);
@@ -225,6 +228,7 @@ private:
     static void         coalesceListAtBoundary(QList<Block> *blocks, int boundary, int *trackedRow);
     static void         coalesceMovedList(QList<Block> *blocks, int *movedRow);
     static void         coalesceTextNear(QList<Block> *blocks, int row, bool markdown, int *trackedRow);
+    int                 convertStructuredBlockToText(int row);
     static bool         blocksFromFragment(const NoteFragment &fragment, QList<Block> *blocks, QString *error);
     static QList<Block> cloneBlocks(const QList<Block> &blocks);
     static bool normalizeTagLinePositions(QList<Block> *blocks, bool markdown, bool promoteTextCandidate = false);

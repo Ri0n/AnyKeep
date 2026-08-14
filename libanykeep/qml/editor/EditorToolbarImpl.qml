@@ -96,6 +96,11 @@ ToolBar {
         return level > 0 ? qsTr("H%1").arg(level) : qsTr("P")
     }
 
+    function activeInlineStyleEnabled(style) {
+        return root.blockEditor && typeof root.blockEditor.activeInlineStyleEnabled === "function"
+                && root.blockEditor.activeInlineStyleEnabled(style)
+    }
+
     readonly property int controlSize: 36
     readonly property int iconSize: 24
     readonly property string fallbackIconTintMode: showMobileActions ? "light" : "auto"
@@ -361,6 +366,8 @@ ToolBar {
             text: qsTr("B")
             font.pixelSize: 18
             font.bold: true
+            checkable: true
+            checked: root.activeInlineStyleEnabled("bold")
             padding: 0
             enabled: root.editorBackend && root.editorBackend.markdown
             Accessible.name: qsTr("Bold")
@@ -375,6 +382,8 @@ ToolBar {
             text: qsTr("I")
             font.pixelSize: 18
             font.italic: true
+            checkable: true
+            checked: root.activeInlineStyleEnabled("italic")
             padding: 0
             enabled: root.editorBackend && root.editorBackend.markdown
             Accessible.name: qsTr("Italic")
@@ -389,6 +398,8 @@ ToolBar {
             text: qsTr("S")
             font.pixelSize: 18
             font.strikeout: true
+            checkable: true
+            checked: root.activeInlineStyleEnabled("strike")
             padding: 0
             enabled: root.editorBackend && root.editorBackend.markdown
             Accessible.name: qsTr("Strikethrough")

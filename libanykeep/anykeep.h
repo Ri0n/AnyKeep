@@ -22,6 +22,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #ifndef ANYKEEP_H
 #define ANYKEEP_H
 
+#include <QColor>
+#include <QFont>
 #include <QObject>
 #include <QUuid>
 #include <functional>
@@ -74,6 +76,10 @@ public:
     PluginManager              *pluginManager() const { return _pluginManager; }
     UpdateController           *updateController() const;
     StickyNotesManager         *stickyNotesManager() const;
+    QFont                       editorFont() const;
+    void                        setEditorFontPreview(const QFont &font);
+    QColor                      titleHighlightColor() const;
+    void                        setTitleHighlightColorPreview(const QColor &color);
 
     void setTrayImpl(TrayImpl *tray);
     void setExternalTrayAvailable(bool available);
@@ -93,6 +99,8 @@ private:
 
 signals:
     void settingsUpdated();
+    void editorFontChanged(const QFont &font);
+    void titleHighlightColorChanged(const QColor &color);
 
 public slots:
     void notifyError(const QString &);
