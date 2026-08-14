@@ -11,7 +11,7 @@ Rectangle {
     required property var block
     property alias blockIndex: codeCell.blockIndex
     width: block.width
-    implicitHeight: Math.max(codeCell.implicitHeight + 12, codeRoot.editorView.editorFontMetricsHeight * 3)
+    implicitHeight: Math.max(codeCell.implicitHeight + 12, codeRoot.editorView.editorFontMetricsHeight * 2)
     radius: 4
     clip: true
     color: Qt.rgba(activePalette.base.r, activePalette.base.g,

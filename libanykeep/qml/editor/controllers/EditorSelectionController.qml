@@ -30,6 +30,7 @@ QtObject {
     property var keyboardSelectionAnchorEditor: null
     property int keyboardSelectionAnchorPosition: 0
     property var retainedEmptySelectionEditor: null
+    property int pendingInsertionBoundary: -1
     property int editTransactionDepth: 0
 
     function refreshSelectionState() {
@@ -239,6 +240,11 @@ QtObject {
             retainedEmptySelectionEditor = editor
             return true
         }
+        const scheduledRow = Number(editor && editor.blockIndex)
+        if (editor && scheduledRow > 0 && typeof editor.currentPlainText === "function"
+                && editor.currentPlainText().length === 0
+                && blockModel && blockModel.isExplicitEmptyTextBlock(scheduledRow))
+            pendingInsertionBoundary = scheduledRow
         Qt.callLater(function() {
             if (!editor || typeof editor.currentPlainText !== "function"
                     || editor.activeFocus || !blockModel || editorView.count <= 1)
@@ -267,6 +273,10 @@ QtObject {
             })
         })
         return true
+    }
+
+    function clearPendingInsertionBoundary() {
+        pendingInsertionBoundary = -1
     }
 
     function releaseRetainedEmptySelectionEditor() {

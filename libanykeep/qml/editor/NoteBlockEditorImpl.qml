@@ -42,6 +42,7 @@ ListView {
     property alias documentSelectionBlankDirection: selectionController.documentSelectionBlankDirection
     property alias keyboardSelectionAnchorEditor: selectionController.keyboardSelectionAnchorEditor
     property alias keyboardSelectionAnchorPosition: selectionController.keyboardSelectionAnchorPosition
+    property alias pendingInsertionBoundary: selectionController.pendingInsertionBoundary
     property alias editTransactionDepth: selectionController.editTransactionDepth
     property alias suppressCursorVisibility: focusController.suppressCursorVisibility
     property alias viewportRestoreGeneration: focusController.viewportRestoreGeneration
@@ -239,6 +240,7 @@ ListView {
     function cancelBlankAreaSelection() { return selectionController.cancelBlankAreaSelection() }
     function insertParagraphAtBoundary(row) { return selectionController.insertParagraphAtBoundary(row) }
     function scheduleDiscardEmptyInsertedParagraph(editor) { return selectionController.scheduleDiscardEmptyInsertedParagraph(editor) }
+    function clearPendingInsertionBoundary() { return selectionController.clearPendingInsertionBoundary() }
     function handleEmptyTextBlockDeletion(event, editor) { return selectionController.handleEmptyTextBlockDeletion(event, editor) }
     function clearDocumentSelection() { return selectionController.clearDocumentSelection() }
     function flushPendingEditorChanges() { return selectionController.flushPendingEditorChanges() }
@@ -295,6 +297,8 @@ ListView {
     function handleBlockBoundaryNavigation(event, editor) { return mediaNavigationController.handleBlockBoundaryNavigation(event, editor) }
 
     function insertionBlockIndex() {
+        if (pendingInsertionBoundary >= 0)
+            return Math.max(0, Math.min(pendingInsertionBoundary, count))
         if (pendingFocusAddress && Number(pendingFocusAddress.blockIndex) >= 0)
             return Number(pendingFocusAddress.blockIndex) + 1
         if (activeTagLineIndex >= 0)
@@ -334,6 +338,10 @@ ListView {
     function insertCodeBlock(language) {
         return runEditTransaction("insert-code-block", function() {
             const row = insertionBlockIndex()
+            if (pendingInsertionBoundary >= 0 && row < blockModel.rowCount()
+                    && blockModel.isExplicitEmptyTextBlock(row))
+                blockModel.removeBlock(row)
+            pendingInsertionBoundary = -1
             blockModel.insertCodeBlock(row, language || "")
             focusBlock(row)
             return true
@@ -460,8 +468,14 @@ ListView {
     }
 
     function applyActiveInlineStyle(style) {
-        if (!activeEditor || !editorBackend || activeEditor.editorField === "code"
-                || selectionTouchesTitle(activeEditor))
+        if (!editorBackend)
+            return false
+        if (style === "code" && !hasDocumentSelection()
+                && (activeEditor || pendingInsertionBoundary >= 0))
+            return insertCodeBlock("")
+        if (!activeEditor || activeEditor.editorField === "code")
+            return false
+        if (selectionTouchesTitle(activeEditor))
             return false
         if (style === "code" && hasDocumentSelection()) {
             const selectedText = selectedDocumentText().replace(/\r\n/g, "\n")

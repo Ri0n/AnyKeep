@@ -277,6 +277,57 @@ private slots:
         QTRY_VERIFY(quote->property("selectedText").toString().contains(QStringLiteral("third selected")));
     }
 
+    void codeToolbarActionCreatesEmptyCodeBlockWithoutSelection()
+    {
+        const auto verifyBoundary = [](int boundary) {
+            Note note(new NoteData(nullptr));
+            note.setTitle(QStringLiteral("title"));
+            note.setText(QStringLiteral("## first\n\n## second"), Note::Markdown);
+            DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+            NoteEditor            editor(note, drafts);
+            DesktopNoteEditorHost host(&editor);
+            host.resize(520, 360);
+            host.show();
+
+            auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+            QVERIFY(root);
+            QCOMPARE(editor.model()->rowCount(), 3);
+            QQuickItem *existing = nullptr;
+            QTRY_VERIFY((existing = textEditorForBlock(root, 1)));
+            auto *blockEditor = ancestorWithProperty(existing, "currentFindText");
+            QVERIFY(blockEditor);
+            QVariant inserted;
+            QVERIFY(QMetaObject::invokeMethod(blockEditor, "insertParagraphAtBoundary",
+                                              Q_RETURN_ARG(QVariant, inserted), Q_ARG(QVariant, boundary)));
+            QVERIFY(inserted.toBool());
+            QTRY_COMPARE(editor.model()->rowCount(), 4);
+            QQuickItem *placeholder = nullptr;
+            QTRY_VERIFY((placeholder = textEditorForBlock(root, boundary)));
+            QTRY_VERIFY(placeholder->hasActiveFocus());
+            auto *toolbarButton = root->findChild<QQuickItem *>(QStringLiteral("editorFolderPickerButton"));
+            QVERIFY(toolbarButton);
+            toolbarButton->forceActiveFocus(Qt::MouseFocusReason);
+            QTRY_VERIFY(!placeholder->hasActiveFocus());
+            // Exercise both possible event-loop orders: the command can run
+            // before the deferred placeholder cleanup or after it.
+            if (boundary == 3 && editor.model()->rowCount() == 4)
+                editor.model()->removeBlock(boundary);
+
+            QVariant handled;
+            QVERIFY(QMetaObject::invokeMethod(blockEditor, "applyActiveInlineStyle", Q_RETURN_ARG(QVariant, handled),
+                                              Q_ARG(QVariant, QStringLiteral("code"))));
+            QVERIFY(handled.toBool());
+            QTRY_COMPARE(editor.model()->rowCount(), 4);
+            QCOMPARE(editor.model()->blockTypeAt(boundary), int(NoteBlockModel::CodeBlock));
+            QQuickItem *code = nullptr;
+            QTRY_VERIFY((code = textEditorForBlock(root, boundary)));
+            QTRY_VERIFY(code->hasActiveFocus());
+        };
+
+        verifyBoundary(2);
+        verifyBoundary(3);
+    }
+
     void interBlockInsertionIsMarkdownOnly()
     {
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());

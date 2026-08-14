@@ -368,6 +368,7 @@ TextArea {
     onSyntaxLanguageChanged: registerTextDocument()
     onActiveFocusChanged: {
         if (activeFocus) {
+            editorView.clearPendingInsertionBoundary()
             editorView.clearImageSelection()
             editorView.clearAudioSelection()
             editorView.clearAttachmentSelection()
