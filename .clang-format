@@ -7,3 +7,5 @@ AlignConsecutiveDeclarations: true
 AlignTrailingComments: true
 ColumnLimit: 120
 CompactNamespaces: true
+SpaceInEmptyBlock: false
+SpaceInEmptyBraces: Never

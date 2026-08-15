@@ -330,7 +330,7 @@ namespace {
 
 } // namespace
 
-PTFStorage::PTFStorage(QObject *parent) : PTFStorage(*LocalMediaStore::instance(), parent) { }
+PTFStorage::PTFStorage(QObject *parent) : PTFStorage(*LocalMediaStore::instance(), parent) {}
 
 PTFStorage::PTFStorage(LocalMediaStore &mediaStore, QObject *parent) :
     FileStorage(parent), icon(QLatin1String(":/icons/trayicon")), mediaStore_(mediaStore)
@@ -586,7 +586,7 @@ bool PTFStorage::saveNote(const Note &note)
 
     QSaveFile  file(fileName);
     const auto bytes = contents.toUtf8();
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    if (!file.open(QIODevice::WriteOnly)) {
         qCWarning(logPtfStorage) << "Failed to open PTF save target: idHash=" << diagnosticName(newNoteId)
                                  << "suffix=" << ext << file.errorString();
         handleFSError();
