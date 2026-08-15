@@ -60,8 +60,6 @@ public:
      * @return absolute path to the file
      */
     static QString fileNameForText(const QDir &dir, const QString &text, const QString &fileExt, QString &sameBaseName);
-
-    static std::pair<QString, QString> splitTitle(const QString &text);
 };
 
 } // namespace AnyKeep

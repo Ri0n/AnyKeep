@@ -105,6 +105,7 @@ set(anykeep_CORE_SRCS
     notedocumenthistory.cpp
     notehighlighter.cpp
     noteeditor.cpp
+    notetitleresolver.cpp
     editor/clipboard.cpp
     editor/fragment_transfer.cpp
     editor/inline_formatting.cpp
@@ -171,6 +172,7 @@ set(anykeep_CORE_HDRS
     noteblockmodel.h
     notedata.h
     noteeditor.h
+    notetitleresolver.h
     notehighlighter.h
     noterule.h
     noteruleapplicationcontroller.h

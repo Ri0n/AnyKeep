@@ -384,6 +384,15 @@ QtObject {
             return false
         const rectangle = editor.positionToRectangle(editor.cursorPosition)
         if (event.key === Qt.Key_Up) {
+            // A code-only Markdown note has no ordinary text editor above
+            // its first line, which made it impossible to add a title with
+            // the keyboard.  Use the very same temporary paragraph insertion
+            // as the inter-block gap: it is focused immediately and is
+            // discarded unchanged on focus loss.
+            if (editor.codeDocument && editor.blockIndex === 0
+                    && editorBackend && editorBackend.markdown
+                    && rectangle.y <= editor.positionToRectangle(0).y + 0.5)
+                return editorView.insertParagraphAtBoundary(0)
             if (editor.blockIndex <= 0 || rectangle.y > editor.positionToRectangle(0).y + 0.5)
                 return false
             focusPrecedingBlock(editor.blockIndex)

@@ -7,6 +7,11 @@
 
 namespace AnyKeep::TextDropUtils {
 
+struct CodeDetection {
+    bool    isCode { false };
+    QString language;
+};
+
 inline QString codeLanguageForMimeType(QString mimeType)
 {
     mimeType = mimeType.section(QLatin1Char(';'), 0, 0).trimmed().toLower();
@@ -137,17 +142,79 @@ inline QString inferredCodeLanguage(QString text)
     return {};
 }
 
-inline QString codeLanguage(const QMimeData *mimeData)
+inline bool looksLikeCode(QString text)
+{
+    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+    const QStringList               lines             = text.split(QLatin1Char('\n'));
+    int                             nonEmptyLines     = 0;
+    int                             signalLines       = 0;
+    int                             indentedLines     = 0;
+    int                             markdownListLines = 0;
+    int                             score             = 0;
+    static const QRegularExpression controlFlow(QStringLiteral(R"(^\s*(?:if|for|while|switch|catch)\s*\()"));
+    static const QRegularExpression substitution(QStringLiteral(R"(\$[({])"));
+    static const QRegularExpression operators(QStringLiteral(R"((?:==|!=|<=|>=|&&|\|\||=>|::|->))"));
+    static const QRegularExpression call(QStringLiteral(R"(^\s*[A-Za-z_][A-Za-z0-9_.:-]*\s*\()"));
+    static const QRegularExpression markdownList(QStringLiteral(R"(^\s*(?:[-+*]|\d+[.)])\s+)"));
+
+    for (const QString &line : lines) {
+        const QString trimmed = line.trimmed();
+        if (trimmed.isEmpty())
+            continue;
+        ++nonEmptyLines;
+        if (!line.isEmpty() && line.at(0).isSpace())
+            ++indentedLines;
+        if (markdownList.match(line).hasMatch())
+            ++markdownListLines;
+
+        int lineScore = 0;
+        if (controlFlow.match(line).hasMatch())
+            lineScore += 3;
+        if (substitution.match(line).hasMatch())
+            lineScore += 3;
+        if (operators.match(line).hasMatch())
+            lineScore += 2;
+        if (call.match(line).hasMatch())
+            ++lineScore;
+        if (trimmed == QLatin1String("{") || trimmed == QLatin1String("}") || trimmed.endsWith(QLatin1Char(';'))) {
+            ++lineScore;
+        }
+        if (lineScore > 0) {
+            ++signalLines;
+            score += lineScore;
+        }
+    }
+
+    // Inline quotations and short prose snippets are never promoted. Lists
+    // need especially strong evidence because indentation is part of their
+    // ordinary Markdown structure.
+    if (nonEmptyLines < 3 || signalLines < 2)
+        return false;
+    if (indentedLines * 2 >= nonEmptyLines)
+        score += 2;
+    if (markdownListLines * 2 >= nonEmptyLines)
+        score -= 5;
+    return score >= 6;
+}
+
+inline CodeDetection detectCode(const QMimeData *mimeData)
 {
     if (!mimeData)
         return {};
     for (const QString &format : mimeData->formats()) {
         const QString language = codeLanguageForMimeType(format);
         if (!language.isEmpty())
-            return language;
+            return { true, language };
     }
-    return inferredCodeLanguage(plainText(mimeData));
+    const QString text     = plainText(mimeData);
+    const QString language = inferredCodeLanguage(text);
+    if (!language.isEmpty())
+        return { true, language };
+    return { looksLikeCode(text), {} };
 }
+
+inline QString codeLanguage(const QMimeData *mimeData) { return detectCode(mimeData).language; }
 
 } // namespace AnyKeep::TextDropUtils
 

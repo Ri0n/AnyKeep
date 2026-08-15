@@ -41,6 +41,10 @@ TextArea {
     property string observedPlainText: ""
     property bool observedPlainTextInitialized: false
     property bool discardEmptyBlockOnFocusLoss: false
+    // A just-created delegate can report inactive while ListView is still
+    // replacing the displaced item.  It is not a focus loss until this editor
+    // has actually owned focus once.
+    property bool hasReceivedActiveFocus: false
     // -1 follows the format at the cursor, 0 forces the next input off,
     // and 1 forces it on.  Keeping this state in the editor avoids
     // inserting placeholder text when a format button is pressed without
@@ -171,6 +175,68 @@ TextArea {
         return editorView.editorBackend.markdownSelection(textDocument, start, end)
     }
 
+    function handleCodeIndent(event) {
+        const modifiers = event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier
+                                              | Qt.AltModifier | Qt.MetaModifier)
+        const outdent = event.key === Qt.Key_Backtab
+                || (event.key === Qt.Key_Tab && modifiers === Qt.ShiftModifier)
+        if (!codeDocument || (event.key !== Qt.Key_Tab && event.key !== Qt.Key_Backtab)
+                || (modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)))
+            return false
+
+        const plain = currentPlainText()
+        const selectionBegin = Math.min(selectionStart, selectionEnd)
+        const selectionFinish = Math.max(selectionStart, selectionEnd)
+        const firstLine = plain.lastIndexOf("\n", Math.max(0, selectionBegin - 1)) + 1
+        const finalCharacter = selectionFinish > selectionBegin ? selectionFinish - 1 : selectionFinish
+        const lastBreak = plain.indexOf("\n", finalCharacter)
+        const lastLineEnd = lastBreak < 0 ? plain.length : lastBreak
+        const lines = plain.substring(firstLine, lastLineEnd).split("\n")
+        let changed = false
+        let deltaBeforeStart = 0
+        let deltaBeforeEnd = 0
+        let lineStart = firstLine
+        const transformed = lines.map(function(line) {
+            let removed = 0
+            let prefix = ""
+            if (outdent) {
+                if (line.startsWith("\t"))
+                    removed = 1
+                else {
+                    const spaces = /^ {1,4}/.exec(line)
+                    removed = spaces ? spaces[0].length : 0
+                }
+            } else {
+                prefix = "    "
+            }
+            const delta = prefix.length - removed
+            if (delta !== 0)
+                changed = true
+            if (selectionBegin > lineStart)
+                deltaBeforeStart += selectionBegin < lineStart + removed
+                        ? lineStart - selectionBegin : delta
+            if (selectionFinish > lineStart)
+                deltaBeforeEnd += selectionFinish < lineStart + removed
+                        ? lineStart - selectionFinish : delta
+            lineStart += line.length + 1
+            return prefix + line.substring(removed)
+        })
+        if (!changed)
+            return true
+
+        const updated = plain.substring(0, firstLine) + transformed.join("\n")
+                + plain.substring(lastLineEnd)
+        return editorView.runEditTransaction("indent-code", function() {
+            text = updated
+            const start = Math.max(firstLine, selectionBegin + deltaBeforeStart)
+            const end = Math.max(firstLine, selectionFinish + deltaBeforeEnd)
+            select(start, end)
+            commitText(true)
+            rememberPlainText()
+            return true
+        })
+    }
+
     // QTextDocument represents an empty Markdown paragraph with one block
     // separator, while its source uses two newlines. Structural commands
     // operate on source offsets, so convert the visual cursor position first.
@@ -252,33 +318,24 @@ TextArea {
             return false
         const splitEmptyTitle = titleDocument && currentPlainText().length === 0
                 && value.indexOf("\n") >= 0
-        // A source newline is only a soft wrap in Markdown.  Insert an
-        // explicit QTextDocument line separator so the serializer writes a
-        // real Markdown hard break and the rendered note keeps every line.
-        const insertedValue = editorView.blockModel && editorView.blockModel.markdown && !codeDocument
-                ? value.replace(/\n/g, "\u2028") : value
         const insertionPosition = Math.max(0, Math.min(length, Number(position)))
         return editorView.runEditTransaction("drop-text", function() {
             editorView.clearDocumentSelection()
+            forceActiveFocus()
+            // Use the same plain-text insertion primitive as Ctrl+V. It owns
+            // newline normalization and creates QTextDocument paragraphs that
+            // survive Markdown/plain-text format round trips.
+            const end = editorView.editorBackend.insertPlainText(
+                            textDocument, insertionPosition, insertionPosition, value)
+            if (end < 0)
+                return false
+            cursorPosition = end
+            commitText(false)
             if (splitEmptyTitle) {
-                // Preserve the title/body boundary explicitly. Depending on
-                // the text format, Qt Quick can expose inserted newlines as a
-                // single formatted document before commitText() serializes it.
-                let modelValue = value
-                if (editorView.blockModel && editorView.blockModel.markdown) {
-                    const firstBreak = modelValue.indexOf("\n")
-                    modelValue = modelValue.substring(0, firstBreak + 1)
-                            + modelValue.substring(firstBreak + 1).replace(/\n/g, "  \n")
-                }
-                editorView.blockModel.setBlockText(blockIndex, modelValue)
+                applyPendingSourceText()
                 editorView.activeEditor = null
                 Qt.callLater(function() { editorView.focusBlock(1, true) })
-                return true
             }
-            forceActiveFocus()
-            insert(insertionPosition, insertedValue)
-            cursorPosition = insertionPosition + insertedValue.length
-            commitText(false)
             rememberPlainText()
             return true
         })
@@ -385,6 +442,7 @@ TextArea {
     onSyntaxLanguageChanged: registerTextDocument()
     onActiveFocusChanged: {
         if (activeFocus) {
+            hasReceivedActiveFocus = true
             editorView.clearPendingInsertionBoundary()
             editorView.clearImageSelection()
             editorView.clearAudioSelection()
@@ -395,7 +453,7 @@ TextArea {
             editorView.scheduleCursorVisibility(this)
         } else {
             clearPendingInlineStyles()
-            if (discardEmptyBlockOnFocusLoss)
+            if (discardEmptyBlockOnFocusLoss && hasReceivedActiveFocus)
                 editorView.scheduleDiscardEmptyInsertedParagraph(this)
             if (sourceTextPending)
                 synchronizeSourceText()
@@ -461,6 +519,8 @@ TextArea {
         } else if (event.matches(StandardKey.Undo) && editorView.editorBackend.undo()) {
             event.accepted = true
         } else if (event.matches(StandardKey.Redo) && editorView.editorBackend.redo()) {
+            event.accepted = true
+        } else if (blockArea.handleCodeIndent(event)) {
             event.accepted = true
         } else if (!blockArea.codeDocument && blockArea.handleLinkSpaceExit(event)) {
             event.accepted = true

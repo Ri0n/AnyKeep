@@ -430,14 +430,15 @@ QtObject {
         return { editor: nearest.editor, position: nearest.editor.positionAt(nearest.x, nearest.y) }
     }
 
-    function insertExternalTextAtPoint(value, x, y, codeLanguage) {
+    function insertExternalTextAtPoint(value, x, y, codeLanguage, detectedCode) {
         const target = editorAtPoint(x, y)
         if (!target || !target.editor
                 || typeof target.editor.insertExternalText !== "function") {
             return false
         }
         const language = String(codeLanguage || "")
-        if (language.length > 0 && blockModel && blockModel.markdown
+        const treatAsCode = Boolean(detectedCode) || language.length > 0
+        if (treatAsCode && blockModel && blockModel.markdown
                 && !target.editor.codeDocument) {
             value = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n")
             if (value.length === 0)

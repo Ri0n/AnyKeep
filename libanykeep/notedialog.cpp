@@ -76,14 +76,16 @@ namespace {
         timer->start(1500);
     }
 
-    bool invokeQmlTextDrop(QObject *object, const QString &text, const QPointF &position, const QString &codeLanguage)
+    bool invokeQmlTextDrop(QObject *object, const QString &text, const QPointF &position,
+                           const TextDropUtils::CodeDetection &code)
     {
         if (!object || text.isEmpty())
             return false;
         QVariant inserted;
         return QMetaObject::invokeMethod(object, "insertDroppedTextAtPoint", Q_RETURN_ARG(QVariant, inserted),
                                          Q_ARG(QVariant, text), Q_ARG(QVariant, position.x()),
-                                         Q_ARG(QVariant, position.y()), Q_ARG(QVariant, codeLanguage))
+                                         Q_ARG(QVariant, position.y()), Q_ARG(QVariant, code.language),
+                                         Q_ARG(QVariant, code.isCode))
             && inserted.toBool();
     }
 }
@@ -456,7 +458,7 @@ bool NoteDialog::event(QEvent *event)
         const bool handled = imageDrop
             ? platformBackend_->insertImageMimeData(drop->mimeData(), insertionRowAt(dropPosition))
             : invokeQmlTextDrop(rootObject(), TextDropUtils::plainText(drop->mimeData()), dropPosition,
-                                TextDropUtils::codeLanguage(drop->mimeData()));
+                                TextDropUtils::detectCode(drop->mimeData()));
         if (handled) {
             drop->setDropAction(Qt::CopyAction);
             drop->accept();
@@ -479,8 +481,7 @@ void NoteDialog::updateBackgroundColor() { setColor(QGuiApplication::palette().c
 
 void NoteDialog::updateWindowTitle()
 {
-    const QString firstLine    = editor_->text().section(QLatin1Char('\n'), 0, 0).trimmed();
-    const QString displayTitle = Note::displayTitleForText(firstLine, editor_->format()).trimmed();
+    const QString displayTitle = editor_->displayTitle().trimmed();
     setTitle(Utils::cuttedDots(displayTitle.isEmpty() ? tr("[No Title]") : displayTitle, 256));
 }
 

@@ -23,6 +23,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "draftmanager.h"
 #include "notedata.h"
 #include "notemanager.h"
+#include "notetitleresolver.h"
 
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -35,61 +36,6 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <QUrl>
 
 namespace AnyKeep {
-
-namespace {
-    QString htmlAttribute(const QString &attributes, const QString &name)
-    {
-        const QRegularExpression expression(
-            QStringLiteral(R"((?:^|\s)%1\s*=\s*(["'])(.*?)\1)").arg(QRegularExpression::escape(name)),
-            QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
-        const auto match = expression.match(attributes);
-        return match.hasMatch() ? QTextDocumentFragment::fromHtml(match.captured(2)).toPlainText() : QString();
-    }
-
-    QString audioDisplayTitle(const QString &source)
-    {
-        static const QRegularExpression audio(QStringLiteral(R"(^\s*<audio\b([^>]*)>.*?</audio>\s*$)"),
-                                              QRegularExpression::CaseInsensitiveOption
-                                                  | QRegularExpression::DotMatchesEverythingOption);
-        const auto                      match = audio.match(source);
-        if (!match.hasMatch())
-            return {};
-
-        QString result = htmlAttribute(match.captured(1), QStringLiteral("title")).trimmed();
-        if (result.isEmpty()) {
-            const QString mediaSource = htmlAttribute(match.captured(1), QStringLiteral("src")).trimmed();
-            result                    = QFileInfo(QUrl(mediaSource).path()).fileName();
-        }
-        return result.trimmed();
-    }
-
-    QString htmlImageDisplayTitle(const QString &source)
-    {
-        if (!source.contains(QStringLiteral("<img"), Qt::CaseInsensitive))
-            return {};
-
-        QTextDocument document;
-        document.setHtml(source);
-        QString result;
-        bool    foundImage = false;
-        for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
-            for (auto fragment = block.begin(); !fragment.atEnd(); ++fragment) {
-                const QTextFragment textFragment = fragment.fragment();
-                if (!textFragment.isValid() || !textFragment.charFormat().isImageFormat())
-                    continue;
-                foundImage             = true;
-                const auto imageFormat = textFragment.charFormat().toImageFormat();
-                QString    label       = imageFormat.property(QTextFormat::ImageAltText).toString();
-                if (label.isEmpty())
-                    label = imageFormat.property(QTextFormat::ImageTitle).toString();
-                if (label.isEmpty())
-                    label = QFileInfo(QUrl(imageFormat.name()).path()).fileName();
-                result += label;
-            }
-        }
-        return foundImage ? result.trimmed() : QString();
-    }
-} // namespace
 
 Note::Note() { }
 
@@ -226,43 +172,14 @@ QString Note::text() const { return d ? d->text_ : QString(); }
 
 QString Note::title() const { return d ? d->title_ : QString(); }
 
-QString Note::displayTitle() const { return d ? displayTitleForText(d->title_, d->format_) : QString(); }
-
-QString Note::displayTitleForText(const QString &title, Format format)
+QString Note::displayTitle() const
 {
-    if (format != Markdown)
-        return title;
-
-    const QString audioTitle = audioDisplayTitle(title);
-    if (!audioTitle.isNull())
-        return audioTitle;
-    const QString imageTitle = htmlImageDisplayTitle(title);
-    if (!imageTitle.isNull())
-        return imageTitle;
-    if (!title.contains(QLatin1Char('[')))
-        return title;
-
-    QTextDocument document;
-    document.setMarkdown(title);
-    QString result;
-    for (auto fragment = document.begin().begin(); !fragment.atEnd(); ++fragment) {
-        const auto textFragment = fragment.fragment();
-        if (!textFragment.isValid())
-            continue;
-        const auto charFormat = textFragment.charFormat();
-        if (!charFormat.isImageFormat()) {
-            result += textFragment.text();
-            continue;
-        }
-        const auto imageFormat = charFormat.toImageFormat();
-        auto       label       = imageFormat.property(QTextFormat::ImageAltText).toString();
-        if (label.isEmpty())
-            label = imageFormat.property(QTextFormat::ImageTitle).toString();
-        if (label.isEmpty())
-            label = QFileInfo(QUrl(imageFormat.name()).path()).fileName();
-        result += label;
-    }
-    return result.trimmed();
+    if (!d)
+        return {};
+    const QString resolved = NoteTitleResolver::displayTitle(d->title_, d->loaded_ ? d->text_ : QString(), d->format_);
+    return !resolved.isEmpty()
+        ? resolved
+        : d->backendValue(QString::fromLatin1(NoteTitleResolver::CachedDisplayTitleBackendKey)).toString();
 }
 
 QStringList Note::tags() const { return d ? d->tags() : QStringList(); }

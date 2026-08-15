@@ -14,7 +14,6 @@
 #include "recentnotesmodel.h"
 #include "storagejob.h"
 #include "storageprioritymodel.h"
-#include "utils.h"
 
 #include <QLoggingCategory>
 #include <QSet>
@@ -48,11 +47,7 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
         }
         if (!saveCurrentNote())
             return false;
-        Note       source = currentEditor_->note();
-        const auto split  = Utils::splitTitle(currentEditor_->text());
-        source.setTitle(split.first);
-        source.setText(split.second, currentEditor_->format());
-        source.setMedia(currentEditor_->media());
+        Note source = currentEditor_->note();
 
         QUuid destinationDraftId;
         if (!stageMove(source, destinationStorageId, &destinationDraftId, currentEditor_->folderUserOverride()))
@@ -123,11 +118,7 @@ bool NotesWorkspaceController::copyNote(const QString &sourceStorageId, const QS
     if (currentEditor_ && currentEditor_->storageId() == sourceStorageId && currentEditor_->noteId() == noteId) {
         if (!saveCurrentNote())
             return false;
-        Note       source = currentEditor_->note();
-        const auto split  = Utils::splitTitle(currentEditor_->text());
-        source.setTitle(split.first);
-        source.setText(split.second, currentEditor_->format());
-        source.setMedia(currentEditor_->media());
+        Note source = currentEditor_->note();
         return stageAndPublish(source, currentEditor_->folderUserOverride());
     }
 

@@ -14,8 +14,8 @@ Item {
 
     function flushPendingEditorChanges() { editorPane.flushPendingEditorChanges() }
     function insertTextAtCursor(text) { return editorPane.insertTextAtCursor(text) }
-    function insertDroppedTextAtPoint(text, x, y, codeLanguage) {
-        return editorPane.insertDroppedTextAtPoint(text, x, y, codeLanguage)
+    function insertDroppedTextAtPoint(text, x, y, codeLanguage, detectedCode) {
+        return editorPane.insertDroppedTextAtPoint(text, x, y, codeLanguage, detectedCode)
     }
     function focusInitialEditor() { editorPane.focusInitialEditor() }
     function insertionRowAtPoint(x, y) { return editorPane.insertionRowAtPoint(x, y) }

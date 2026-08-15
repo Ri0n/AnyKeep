@@ -10,6 +10,7 @@
 #include "notemanager.h"
 #include "notesmodel.h"
 #include "notesworkspacecontroller.h"
+#include "notetitleresolver.h"
 #include "pluginhost.h"
 #include "settingscontroller.h"
 #include "speechrecognitioncontroller.h"
@@ -200,10 +201,12 @@ QVariantList MobileApplication::recoverableDrafts() const
             storageName        = storage ? storage->name() : record.storageId;
         }
 
+        QString displayTitle = NoteTitleResolver::displayTitle(record.title, record.body, record.format);
+        if (displayTitle.isEmpty())
+            displayTitle = tr("Untitled note");
         result.append(QVariantMap {
             { QStringLiteral("draftId"), record.id.toString(QUuid::WithoutBraces) },
-            { QStringLiteral("title"),
-              record.title.trimmed().isEmpty() ? tr("Untitled note") : record.title.trimmed() },
+            { QStringLiteral("title"), displayTitle },
             { QStringLiteral("preview"), preview },
             { QStringLiteral("storageName"), storageName },
             { QStringLiteral("updated"), QLocale().toString(record.updatedAt.toLocalTime(), QLocale::ShortFormat) },

@@ -12,6 +12,7 @@
 #include <QVariantMap>
 
 #include <memory>
+#include <utility>
 
 class QQuickTextDocument;
 
@@ -56,7 +57,7 @@ public:
     NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draftId = {}, QObject *parent = nullptr);
     ~NoteEditor() override;
 
-    Note    note() const { return note_; }
+    Note    note() const;
     QUuid   draftId() const { return draftId_; }
     QString draftIdString() const { return draftId_.toString(QUuid::WithoutBraces); }
     QString storageId() const { return note_.storageId(); }
@@ -71,6 +72,7 @@ public:
     bool                  canInsertAudio() const;
     bool                  canInsertAttachments() const;
     QString               text() const { return text_; }
+    QString               displayTitle() const;
     bool                  isMarkdown() const { return format_ != Note::PlainText; }
     Note::Format          format() const { return format_; }
     bool                  isDirty() const { return dirty_; }
@@ -166,39 +168,40 @@ signals:
     void historyDocumentRestored(bool formatChanged);
 
 private:
-    void                     loadFromNote();
-    void                     adoptEditingDraft(const DraftRecord &draft);
-    QVariantMap              captureEditorViewState() const;
-    void                     prepareEditorViewForHistoryRestore();
-    void                     scheduleEditorViewRestore(const QVariantMap &viewState);
-    void                     restoreScalarField(int blockIndex, int role, int fieldIndex, const QString &value);
-    void                     updateMediaPreviewUrls();
-    NoteFragment             documentFragment() const;
-    NoteFragment             withMedia(NoteFragment fragment) const;
-    void                     setDirty(bool dirty);
-    void                     setMetadataDirty(bool dirty);
-    void                     updateDirty();
-    bool                     setError(const QString &error);
-    Note                     note_;
-    DraftManager            *drafts_ { nullptr };
-    NoteBlockModel          *model_ { nullptr };
-    AudioPlaybackController *audioPlayback_ { nullptr };
-    QUuid                    draftId_;
-    QString                  text_;
-    QString                  baselineText_;
-    Note::Format             format_ { Note::PlainText };
-    Note::Format             baselineFormat_ { Note::PlainText };
-    QUuid                    baselineFolderId_;
-    bool                     contentDirty_ { false };
-    bool                     metadataDirty_ { false };
-    bool                     dirty_ { false };
-    bool                     draftPersisted_ { false };
-    bool                     folderUserOverride_ { false };
-    bool                     sessionReleased_ { false };
-    int                      draftRevision_ { 0 };
-    QString                  errorString_;
-    QList<MediaReference>    media_;
-    QPointer<QObject>        editorView_;
+    void                        loadFromNote();
+    void                        adoptEditingDraft(const DraftRecord &draft);
+    QVariantMap                 captureEditorViewState() const;
+    void                        prepareEditorViewForHistoryRestore();
+    void                        scheduleEditorViewRestore(const QVariantMap &viewState);
+    void                        restoreScalarField(int blockIndex, int role, int fieldIndex, const QString &value);
+    void                        updateMediaPreviewUrls();
+    NoteFragment                documentFragment() const;
+    std::pair<QString, QString> titleAndBody() const;
+    NoteFragment                withMedia(NoteFragment fragment) const;
+    void                        setDirty(bool dirty);
+    void                        setMetadataDirty(bool dirty);
+    void                        updateDirty();
+    bool                        setError(const QString &error);
+    Note                        note_;
+    DraftManager               *drafts_ { nullptr };
+    NoteBlockModel             *model_ { nullptr };
+    AudioPlaybackController    *audioPlayback_ { nullptr };
+    QUuid                       draftId_;
+    QString                     text_;
+    QString                     baselineText_;
+    Note::Format                format_ { Note::PlainText };
+    Note::Format                baselineFormat_ { Note::PlainText };
+    QUuid                       baselineFolderId_;
+    bool                        contentDirty_ { false };
+    bool                        metadataDirty_ { false };
+    bool                        dirty_ { false };
+    bool                        draftPersisted_ { false };
+    bool                        folderUserOverride_ { false };
+    bool                        sessionReleased_ { false };
+    int                         draftRevision_ { 0 };
+    QString                     errorString_;
+    QList<MediaReference>       media_;
+    QPointer<QObject>           editorView_;
     std::unique_ptr<NoteDocumentHistory> history_;
     bool                                 scalarHistoryChangePending_ { false };
 };

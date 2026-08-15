@@ -202,6 +202,23 @@ private slots:
         QCOMPARE(index.noteCount(storage.systemName()), 1);
     }
 
+    void unloadedSummaryKeepsResolvedCodeTitle()
+    {
+        FakeStorage storage;
+        Note        code = storage.makeNote(QStringLiteral("code"), QString());
+        code.setText(QStringLiteral("```qml\nItem {\n}\n```"), Note::Markdown);
+        storage.sourceNotes = { code };
+
+        NotesIndex index;
+        index.addStorage(&storage);
+        index.markStorageReady(&storage);
+        QTRY_COMPARE(index.noteCount(storage.systemName()), 1);
+        const Note summary = index.notes(storage.systemName()).constFirst();
+        QVERIFY(!summary.isLoaded());
+        QCOMPARE(summary.title(), QString());
+        QCOMPARE(summary.displayTitle(), QStringLiteral("QML code"));
+    }
+
     void explicitRefreshReplacesSnapshot()
     {
         FakeStorage storage;

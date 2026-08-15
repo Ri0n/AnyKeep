@@ -40,6 +40,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include "localmediastore.h"
 #include "notedata.h"
+#include "notetitleresolver.h"
 #include "ptffolderindex.h"
 #include "ptfstorage.h"
 #include "utils.h"
@@ -53,6 +54,18 @@ namespace {
     const QString FolderIndexName         = QStringLiteral(".anykeep-folders.json");
     const QString LegacyMediaManifestName = QStringLiteral(".qtnote-media.json");
     const QString LegacyFolderIndexName   = QStringLiteral(".qtnote-folders.json");
+
+    std::pair<QString, QString> splitPtfContents(QString contents)
+    {
+        if (contents.startsWith(QChar::ByteOrderMark))
+            contents.remove(0, 1);
+        contents.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+        contents.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+        const qsizetype separator = contents.indexOf(QLatin1Char('\n'));
+        if (separator < 0)
+            return { contents, {} };
+        return { contents.left(separator), contents.mid(separator + 1) };
+    }
 
     bool copyDirectoryContents(const QDir &source, const QDir &destination)
     {
@@ -402,8 +415,11 @@ QList<Note> PTFStorage::noteListFromInfoList(const QFileInfoList &files)
         note.setFolderId(folderIdForNote(note.id()));
         note.setFormat(fi.suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0 ? Note::Markdown
                                                                                           : Note::PlainText);
-        note.setTitle(QString::fromUtf8(file.readLine()).trimmed());
-        note.setTags(NoteData::tagsFromLine(QString::fromUtf8(file.readLine())));
+        const auto [title, body] = splitPtfContents(QString::fromUtf8(file.readAll()));
+        note.setTitle(title);
+        note.setTags(NoteData::tagsFromText(body));
+        note.setBackendValue(QString::fromLatin1(NoteTitleResolver::CachedDisplayTitleBackendKey),
+                             NoteTitleResolver::displayTitle(title, body, note.format()));
         note.setLastChangeUTC(fi.lastModified());
         note.setBackendValue(QStringLiteral("fileName"), filePath);
         note.unload();
@@ -482,13 +498,15 @@ bool PTFStorage::loadNote(Note &note)
     QList<MediaReference> media;
     if (QFileInfo(fileName).suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0)
         contents = importSidecarMedia(contents, QFileInfo(fileName).completeBaseName(), notesDir, mediaStore_, media);
-    auto [title, body] = Utils::splitTitle(contents);
+    auto [title, body] = splitPtfContents(contents);
     note.setTitle(title);
     note.setText(body,
                  QFileInfo(fileName).suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0 ? Note::Markdown
                                                                                                      : Note::PlainText);
     note.setLastChangeUTC(QFileInfo(file).lastModified());
     note.setBackendValue(QStringLiteral("fileName"), fileName);
+    note.setBackendValue(QString::fromLatin1(NoteTitleResolver::CachedDisplayTitleBackendKey),
+                         NoteTitleResolver::displayTitle(title, body, note.format()));
     note.setMedia(media);
     note.setFolderId(folderIdForNote(note.id()));
     return true;
@@ -511,7 +529,10 @@ bool PTFStorage::saveNote(const Note &note)
     const bool existedBeforeSave = noteFileExists(oldNoteId);
     QString    newNoteId         = oldNoteId;
     auto       ext               = QString(QLatin1String(note.format() == Note::Markdown ? "md" : "txt"));
-    auto       fileName          = Utils::fileNameForText(notesDir, note.title(), ext, newNoteId);
+    QString    displayTitle      = NoteTitleResolver::displayTitle(note.title(), note.text(), note.format());
+    if (displayTitle.isEmpty())
+        displayTitle = tr("Untitled note");
+    auto fileName = Utils::fileNameForText(notesDir, displayTitle, ext, newNoteId);
     if (fileName.isEmpty()) {
         qCWarning(logPtfStorage) << "PTF filename generation failed: idHash=" << diagnosticName(oldNoteId)
                                  << "titleLength=" << note.title().size() << "extension=" << ext;
@@ -564,7 +585,7 @@ bool PTFStorage::saveNote(const Note &note)
     }
 
     QSaveFile  file(fileName);
-    const auto bytes = contents.trimmed().toUtf8();
+    const auto bytes = contents.toUtf8();
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         qCWarning(logPtfStorage) << "Failed to open PTF save target: idHash=" << diagnosticName(newNoteId)
                                  << "suffix=" << ext << file.errorString();

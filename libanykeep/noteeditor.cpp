@@ -1,11 +1,11 @@
 #include "noteeditor.h"
+#include "notetitleresolver.h"
 
 #include "audioplaybackcontroller.h"
 #include "draftmanager.h"
 #include "noteblockmodel.h"
 #include "notedocumenthistory.h"
 #include "notestorage.h"
-#include "utils.h"
 
 #include <QDebug>
 #include <QLoggingCategory>
@@ -150,6 +150,43 @@ void NoteEditor::setMarkdown(bool markdown)
     loadDocument(text_, target, LoadPolicy::RecordFormatConversion);
 }
 
+std::pair<QString, QString> NoteEditor::titleAndBody() const
+{
+    if (!model_ || model_->rowCount() == 0)
+        return {};
+
+    const QString contents = model_->contents();
+    if (model_->blockTypeAt(0) != NoteBlockModel::Text)
+        return { {}, contents };
+
+    const QString title = model_->data(model_->index(0), NoteBlockModel::TextRole).toString();
+    if (contents == title)
+        return { title, {} };
+    const QString separator = format_ == Note::PlainText ? QStringLiteral("\n") : QStringLiteral("\n\n");
+    const QString prefix    = title + separator;
+    if (contents.startsWith(prefix))
+        return { title, contents.mid(prefix.size()) };
+    return { title, contents.startsWith(title) ? contents.mid(title.size()) : contents };
+}
+
+QString NoteEditor::displayTitle() const
+{
+    const auto [title, body] = titleAndBody();
+    return NoteTitleResolver::displayTitle(title, body, format_);
+}
+
+Note NoteEditor::note() const
+{
+    Note result = note_;
+    if (result.isNull())
+        return result;
+    const auto [title, body] = titleAndBody();
+    result.setTitle(title);
+    result.setText(body, format_);
+    result.setMedia(media_);
+    return result;
+}
+
 bool NoteEditor::save()
 {
     qCInfo(logEditorPersistence) << "Editor checkpoint requested: draft=" << draftId_.toString(QUuid::WithoutBraces)
@@ -168,7 +205,7 @@ bool NoteEditor::save()
         return true;
     }
 
-    const auto split = Utils::splitTitle(text_);
+    const auto split = titleAndBody();
     note_.setTitle(split.first);
     note_.setText(split.second, format_);
     auto media = media_;

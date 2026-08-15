@@ -21,6 +21,7 @@
 #include "draftmanager.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
+#include "textdroputils.h"
 
 #include "editortestsupport.h"
 #include "quicktestsupport.h"
@@ -365,6 +366,38 @@ private slots:
         verifyBoundary(3);
     }
 
+    void upFromFirstCodeLineInsertsTemporaryTitleParagraph()
+    {
+        Note note(new NoteData(nullptr));
+        note.setText(QStringLiteral("```qml\nItem {}\n```"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QCOMPARE(editor.model()->rowCount(), 1);
+        QCOMPARE(editor.model()->blockTypeAt(0), int(NoteBlockModel::CodeBlock));
+        QQuickItem *code = nullptr;
+        QTRY_VERIFY((code = textEditorForBlock(root, 0)));
+        code->forceActiveFocus(Qt::MouseFocusReason);
+        code->setProperty("cursorPosition", 0);
+        QTRY_VERIFY(code->hasActiveFocus());
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_Up);
+
+        QTRY_COMPARE(editor.model()->rowCount(), 2);
+        QCOMPARE(editor.model()->blockTypeAt(0), int(NoteBlockModel::Text));
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::CodeBlock));
+        QQuickItem *title = nullptr;
+        QTRY_VERIFY((title = textEditorForBlock(root, 0)) && !title->property("codeDocument").toBool());
+        QTRY_VERIFY(title->property("focus").toBool());
+        QTest::qWait(50);
+        QCOMPARE(editor.model()->rowCount(), 2);
+    }
+
     void interBlockInsertionIsMarkdownOnly()
     {
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
@@ -541,6 +574,34 @@ private slots:
         QVERIFY(qAbs(border.greenF() - text.greenF()) < 0.01);
         QVERIFY(qAbs(border.blueF() - text.blueF()) < 0.01);
         QVERIFY(qAbs(border.alphaF() - 0.28) < 0.01);
+    }
+
+    void codeBlockTabAndShiftTabAdjustSelectedLineIndentation()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("```qml\n    Item {\n        width: 10\n    }\n```"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *code = nullptr;
+        QTRY_VERIFY((code = textEditorForBlock(root, 1)) && code->property("codeDocument").toBool());
+        code->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(code->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(code, "select", Q_ARG(int, 0), Q_ARG(int, code->property("length").toInt())));
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_Tab, Qt::ShiftModifier);
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TextRole).toString(),
+                     QStringLiteral("Item {\n    width: 10\n}"));
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_Tab);
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TextRole).toString(),
+                     QStringLiteral("    Item {\n        width: 10\n    }"));
     }
 
 private:
@@ -972,10 +1033,21 @@ private:
         QCOMPARE(dropEvent.dropAction(), Qt::CopyAction);
         QTRY_VERIFY(editor.model()->contents().contains(QStringLiteral("Qt Creator log one")));
         const QString droppedMarkdown = editor.model()->contents();
-        QVERIFY2(droppedMarkdown.contains(firstLogLine + QStringLiteral("  \n") + secondLogLine)
-                     || droppedMarkdown.contains(firstLogLine + QStringLiteral("<br>") + secondLogLine),
+        QVERIFY2(droppedMarkdown.contains(firstLogLine + QStringLiteral("\n\n") + secondLogLine),
                  qPrintable(droppedMarkdown));
         QVERIFY(!droppedMarkdown.contains(QStringLiteral("ANYKEEP")));
+
+        editor.setMarkdown(false);
+        const QString droppedPlainText = editor.model()->contents();
+        QVERIFY2(droppedPlainText.contains(firstLogLine + QStringLiteral("\n\n") + secondLogLine),
+                 qPrintable(droppedPlainText));
+        editor.setMarkdown(true);
+        const QString roundTrippedMarkdown = editor.model()->contents();
+        QVERIFY2(roundTrippedMarkdown.contains(QStringLiteral("Qt Creator log one:")),
+                 qPrintable(roundTrippedMarkdown));
+        QVERIFY2(roundTrippedMarkdown.contains(QStringLiteral("\n\n") + secondLogLine),
+                 qPrintable(roundTrippedMarkdown));
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
 
         QVariant inserted;
         QVERIFY(QMetaObject::invokeMethod(body, "insertExternalText", Q_RETURN_ARG(QVariant, inserted),
@@ -1282,6 +1354,87 @@ private:
                         .contains(QStringLiteral("first\nsecond")));
         QCOMPARE(editor.model()->data(editor.model()->index(codeRow), NoteBlockModel::LanguageRole).toString(),
                  QStringLiteral("cpp"));
+    }
+
+    void genericCodeSignalsCreatePlainCodeBlocksForDropAndPaste()
+    {
+        const QString source = QStringLiteral("if(CMAKE_GENERATOR_TOOLSET)\n"
+                                              "  list(APPEND _generator_args -T \"${CMAKE_GENERATOR_TOOLSET}\")\n"
+                                              "endif()\n\n"
+                                              "if(ANYKEEP_SOURCE_DIR)\n"
+                                              "  message(FATAL_ERROR \"${ANYKEEP_SOURCE_DIR}\")\n"
+                                              "endif()");
+        QVERIFY(TextDropUtils::looksLikeCode(source));
+        QVERIFY(
+            !TextDropUtils::looksLikeCode(QStringLiteral("A short introduction to the topic.\n"
+                                                         "If (you need more detail), read the following paragraph.\n"
+                                                         "It remains ordinary prose.")));
+        QVERIFY(!TextDropUtils::looksLikeCode(
+            QStringLiteral("- first item\n  - nested item\n  - another nested item\n- final item")));
+
+        const auto verifyCodeBlock = [&](NoteEditor &editor) {
+            int codeRow = -1;
+            QTRY_VERIFY(([&]() {
+                for (int row = 0; row < editor.model()->rowCount(); ++row) {
+                    if (editor.model()->blockTypeAt(row) == NoteBlockModel::CodeBlock) {
+                        codeRow = row;
+                        return true;
+                    }
+                }
+                return false;
+            })());
+            QCOMPARE(editor.model()->data(editor.model()->index(codeRow), NoteBlockModel::LanguageRole).toString(),
+                     QString());
+            QCOMPARE(editor.model()->data(editor.model()->index(codeRow), NoteBlockModel::TextRole).toString(), source);
+        };
+
+        {
+            Note note(new NoteData(nullptr));
+            note.setTitle(QStringLiteral("Title"));
+            note.setText(QStringLiteral("alpha omega"), Note::Markdown);
+            DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+            NoteEditor            editor(note, drafts);
+            DesktopNoteEditorHost host(&editor);
+            host.resize(560, 400);
+            host.show();
+            auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+            QVERIFY(root);
+            QQuickItem *body = nullptr;
+            QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+
+            QMimeData mimeData;
+            mimeData.setText(source);
+            const QPointF   point = body->mapToItem(root, QPointF(body->width() / 2, body->height() / 2));
+            QDragEnterEvent enterEvent(point.toPoint(), Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(host.quickWidget(), &enterEvent);
+            QVERIFY(enterEvent.isAccepted());
+            QDropEvent dropEvent(point, Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(host.quickWidget(), &dropEvent);
+            QVERIFY(dropEvent.isAccepted());
+            verifyCodeBlock(editor);
+        }
+
+        {
+            Note note(new NoteData(nullptr));
+            note.setTitle(QStringLiteral("Title"));
+            note.setText(QStringLiteral("alpha omega"), Note::Markdown);
+            DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+            NoteEditor            editor(note, drafts);
+            DesktopNoteEditorHost host(&editor);
+            host.resize(560, 400);
+            host.show();
+            auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+            QVERIFY(root);
+            QQuickItem *body = nullptr;
+            QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+            body->forceActiveFocus(Qt::OtherFocusReason);
+            QTRY_VERIFY(body->hasActiveFocus());
+            QGuiApplication::clipboard()->setText(source);
+            QVariant pasted;
+            QVERIFY(QMetaObject::invokeMethod(root, "pasteClipboard", Q_RETURN_ARG(QVariant, pasted)));
+            QVERIFY(pasted.toBool());
+            verifyCodeBlock(editor);
+        }
     }
 
     void qtCreatorPlainTextCodeSurvivesFocusFlushAndFormatChanges()
@@ -2024,6 +2177,16 @@ private slots:
         codeActionConvertsMultilineTextSelectionWithoutBlankParagraphs();
     }
 
+    void regressionCodeBlockTabAndShiftTabAdjustSelectedLineIndentation()
+    {
+        codeBlockTabAndShiftTabAdjustSelectedLineIndentation();
+    }
+
+    void regressionUpFromFirstCodeLineInsertsTemporaryTitleParagraph()
+    {
+        upFromFirstCodeLineInsertsTemporaryTitleParagraph();
+    }
+
     void regressionDeletingAcrossAdjacentCodeBlocksKeepsLiteralLineBreaks()
     {
         deletingAcrossAdjacentCodeBlocksKeepsLiteralLineBreaks();
@@ -2066,6 +2229,11 @@ private slots:
     void regressionCodeMimeCreatesCodeBlockButCodeTargetKeepsItsBlock()
     {
         codeMimeCreatesCodeBlockButCodeTargetKeepsItsBlock();
+    }
+
+    void regressionGenericCodeSignalsCreatePlainCodeBlocksForDropAndPaste()
+    {
+        genericCodeSignalsCreatePlainCodeBlocksForDropAndPaste();
     }
 
     void regressionQtCreatorPlainTextCodeSurvivesFocusFlushAndFormatChanges()

@@ -31,6 +31,7 @@ QtObject {
     property int keyboardSelectionAnchorPosition: 0
     property var retainedEmptySelectionEditor: null
     property int pendingInsertionBoundary: -1
+    property int pendingLeadingParagraphFocus: -1
     property int editTransactionDepth: 0
 
     function refreshSelectionState() {
@@ -219,9 +220,40 @@ QtObject {
         return runEditTransaction("insert-text-block", function() {
             prepareForStructuralMutation()
             blockModel.insertTextBlock(row)
-            editorView.focusBlock(row)
+            if (row > 0) {
+                editorView.focusBlock(row)
+            } else {
+                // At a leading boundary the old first delegate can still
+                // report row zero while ListView retires it.  Wait until the
+                // new paragraph is the real row-zero delegate before focus.
+                pendingLeadingParagraphFocus = row
+                editorView.forceLayout()
+                Qt.callLater(function() {
+                    Qt.callLater(function() {
+                        if (blockModel && row < blockModel.rowCount()
+                                && blockModel.blockTypeAt(row) === 0)
+                            editorView.focusBlock(row)
+                        // The focus hand-off may itself retire the old first
+                        // delegate.  Ignore its transient blur; later real
+                        // focus loss still uses the ordinary cleanup path.
+                        Qt.callLater(function() {
+                            if (pendingLeadingParagraphFocus === row)
+                                pendingLeadingParagraphFocus = -1
+                        })
+                    })
+                })
+            }
             return true
         })
+    }
+
+    function isEmptyInsertedParagraph(editor, row) {
+        if (!editor || !blockModel || !blockModel.isExplicitEmptyTextBlock(row))
+            return false
+        // An empty Markdown title is rendered as a paragraph separator by
+        // QTextDocument.  The model is the authoritative source at row zero.
+        return row === 0 || (typeof editor.currentPlainText === "function"
+                             && editor.currentPlainText().length === 0)
     }
 
     function scheduleDiscardEmptyInsertedParagraph(editor) {
@@ -241,24 +273,21 @@ QtObject {
             return true
         }
         const scheduledRow = Number(editor && editor.blockIndex)
-        if (editor && scheduledRow > 0 && typeof editor.currentPlainText === "function"
-                && editor.currentPlainText().length === 0
-                && blockModel && blockModel.isExplicitEmptyTextBlock(scheduledRow))
+        if (scheduledRow === pendingLeadingParagraphFocus)
+            return true
+        if (scheduledRow >= 0 && isEmptyInsertedParagraph(editor, scheduledRow))
             pendingInsertionBoundary = scheduledRow
         Qt.callLater(function() {
-            if (!editor || typeof editor.currentPlainText !== "function"
-                    || editor.activeFocus || !blockModel || editorView.count <= 1)
+            if (!editor || editor.activeFocus || !blockModel || editorView.count <= 1)
                 return
             const row = Number(editor.blockIndex)
-            if (row <= 0 || editor.currentPlainText().length !== 0
-                    || !blockModel.isExplicitEmptyTextBlock(row))
+            if (row < 0 || !isEmptyInsertedParagraph(editor, row))
                 return
             runEditTransaction("discard-empty-text-block", function() {
-                if (!editor || typeof editor.currentPlainText !== "function" || editor.activeFocus)
+                if (!editor || editor.activeFocus)
                     return false
                 const currentRow = Number(editor.blockIndex)
-                if (currentRow <= 0 || editor.currentPlainText().length !== 0
-                        || !blockModel.isExplicitEmptyTextBlock(currentRow))
+                if (currentRow < 0 || !isEmptyInsertedParagraph(editor, currentRow))
                     return false
                 if (editorView.activeEditor === editor)
                     editorView.activeEditor = null

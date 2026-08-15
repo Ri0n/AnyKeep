@@ -217,6 +217,26 @@ private slots:
         QCOMPARE(record.format, Note::Markdown);
     }
 
+    void codeOnlyDocumentCheckpointsWithAnEmptyTitle()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QString());
+        note.setText(QString(), Note::Markdown);
+
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(note, drafts);
+        editor.model()->insertCodeBlock(1, QStringLiteral("qml"));
+        editor.model()->setBlockText(1, QStringLiteral("Item {\n    property int value: 1\n}"));
+
+        QCOMPARE(editor.displayTitle(), QStringLiteral("QML code"));
+        QVERIFY(editor.save());
+        const auto record = data->drafts.value(editor.draftId());
+        QCOMPARE(record.title, QString());
+        QCOMPARE(record.body, QStringLiteral("```qml\nItem {\n    property int value: 1\n}\n```"));
+    }
+
     void copiesStructuredSelectionAsMarkdownPlainText()
     {
         Note note(new NoteData(nullptr));

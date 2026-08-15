@@ -45,14 +45,16 @@ namespace {
         return result.toMap();
     }
 
-    bool invokeQmlTextDrop(QObject *object, const QString &text, const QPointF &position, const QString &codeLanguage)
+    bool invokeQmlTextDrop(QObject *object, const QString &text, const QPointF &position,
+                           const TextDropUtils::CodeDetection &code)
     {
         if (!object || text.isEmpty())
             return false;
         QVariant inserted;
         return QMetaObject::invokeMethod(object, "insertDroppedTextAtPoint", Q_RETURN_ARG(QVariant, inserted),
                                          Q_ARG(QVariant, text), Q_ARG(QVariant, position.x()),
-                                         Q_ARG(QVariant, position.y()), Q_ARG(QVariant, codeLanguage))
+                                         Q_ARG(QVariant, position.y()), Q_ARG(QVariant, code.language),
+                                         Q_ARG(QVariant, code.isCode))
             && inserted.toBool();
     }
 
@@ -251,7 +253,7 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
             const bool handled      = imageDrop
                      ? handleImageDrop(dropEvent->mimeData(), insertionRowAt(position))
                      : invokeQmlTextDrop(quick_->rootObject(), TextDropUtils::plainText(dropEvent->mimeData()), position,
-                                         TextDropUtils::codeLanguage(dropEvent->mimeData()));
+                                         TextDropUtils::detectCode(dropEvent->mimeData()));
             if (handled) {
                 dropEvent->setDropAction(Qt::CopyAction);
                 dropEvent->accept();

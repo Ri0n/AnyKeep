@@ -191,16 +191,17 @@ QVariantMap NoteEditor::pasteStructuredFromClipboard(QQuickTextDocument *quickDo
         && (mimeData->hasFormat(QString::fromLatin1(NoteTransferController::FragmentMimeType))
             || mimeData->hasFormat(QString::fromLatin1(NoteTransferController::MarkdownMimeType))
             || mimeData->hasFormat(QString::fromLatin1(NoteTransferController::TsvMimeType)));
-    const QString codeLanguage = hasNativeStructure ? QString() : TextDropUtils::codeLanguage(mimeData);
+    const TextDropUtils::CodeDetection code
+        = hasNativeStructure ? TextDropUtils::CodeDetection {} : TextDropUtils::detectCode(mimeData);
     // Source editors often put both text/plain and presentation-oriented HTML
     // on the clipboard. The HTML can turn one selection into many paragraphs.
     // For strongly recognized source, the plain representation is canonical.
-    if (row > 0 && !codeLanguage.isEmpty()) {
+    if (row > 0 && code.isCode) {
         QTextDocument *document = quickDocument->textDocument();
         const int      limit    = documentEnd(document);
         const int      insertedRow
             = insertDroppedCodeBlock(row, markdownRange(document, 0, start), markdownRange(document, end, limit),
-                                     TextDropUtils::plainText(mimeData), codeLanguage);
+                                     TextDropUtils::plainText(mimeData), code.language);
         if (insertedRow >= 0) {
             result.insert(QStringLiteral("handled"), true);
             result.insert(QStringLiteral("focusRow"), insertedRow);

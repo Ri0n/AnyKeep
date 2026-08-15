@@ -1,4 +1,5 @@
 #include "notesindex.h"
+#include "notetitleresolver.h"
 
 #include <QSet>
 #include <QSharedPointer>
@@ -19,6 +20,8 @@ namespace {
 
         Note summary = note;
         if (summary.isLoaded()) {
+            summary.setBackendValue(QString::fromLatin1(NoteTitleResolver::CachedDisplayTitleBackendKey),
+                                    summary.displayTitle());
             QString preview = summary.text().simplified();
             if (preview.size() > 180)
                 preview = preview.left(177) + QStringLiteral("...");

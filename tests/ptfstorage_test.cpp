@@ -39,6 +39,36 @@ class PTFStorageTest : public QObject {
     }
 
 private slots:
+    void codeOnlyNoteKeepsEmptyTitleAndExactBody()
+    {
+        QTemporaryDir notesDirectory;
+        QVERIFY(notesDirectory.isValid());
+
+        const QString body = QStringLiteral("```qml\nItem {\n    property int value: 1\n}\n```");
+        PTFStorage    writer;
+        QVERIFY(writer.setStoragePath(notesDirectory.path()));
+        Note note = writer.createNote();
+        note.setTitle(QString());
+        note.setText(body, Note::Markdown);
+        QVERIFY(writer.saveNote(note));
+
+        const auto summaries = writer.noteList();
+        QCOMPARE(summaries.size(), 1);
+        QCOMPARE(summaries.constFirst().title(), QString());
+        QCOMPARE(summaries.constFirst().displayTitle(), QStringLiteral("QML code"));
+        const QString fileName = summaries.constFirst().backendValue(QStringLiteral("fileName")).toString();
+        QCOMPARE(QFileInfo(fileName).completeBaseName(), QStringLiteral("QML code"));
+        QFile file(fileName);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(QString::fromUtf8(file.readAll()), QLatin1Char('\n') + body);
+
+        Note loaded = summaries.constFirst();
+        QVERIFY(loaded.load());
+        QCOMPARE(loaded.title(), QString());
+        QCOMPARE(loaded.text(), body);
+        QCOMPARE(loaded.displayTitle(), QStringLiteral("QML code"));
+    }
+
     void styledAndMarkdownImagesSurviveFreshStorageInstance()
     {
         QTemporaryDir notesDirectory;

@@ -138,7 +138,7 @@ QString NotesWorkspaceController::currentTitle() const
 {
     if (!currentEditor_)
         return {};
-    return Utils::splitTitle(currentEditor_->text()).first.trimmed();
+    return currentEditor_->displayTitle().trimmed();
 }
 QString NotesWorkspaceController::currentFolderId() const
 {

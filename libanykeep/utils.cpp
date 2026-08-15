@@ -290,19 +290,4 @@ QString Utils::portableFileName(const QString &source, const QString &fallback, 
     return name;
 }
 
-std::pair<QString, QString> Utils::splitTitle(const QString &text)
-{
-    auto    trimmed = text.trimmed();
-    auto    idx     = trimmed.indexOf(QLatin1Char('\n'));
-    QString title;
-    QString body;
-    if (idx == -1) {
-        title = trimmed;
-    } else {
-        title = trimmed.left(idx);
-        body  = trimmed.mid(idx + 1).trimmed();
-    }
-    return { title, body };
-}
-
 } // namespace AnyKeep

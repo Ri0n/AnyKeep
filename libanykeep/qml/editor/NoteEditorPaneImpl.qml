@@ -91,9 +91,9 @@ Item {
         return inserted
     }
 
-    function insertDroppedTextAtPoint(text, x, y, codeLanguage) {
+    function insertDroppedTextAtPoint(text, x, y, codeLanguage, detectedCode) {
         const point = editorView.mapFromItem(root, x, y)
-        return editorView.insertExternalTextAtPoint(text, point.x, point.y, codeLanguage)
+        return editorView.insertExternalTextAtPoint(text, point.x, point.y, codeLanguage, detectedCode)
     }
 
     function captureSpeechInsertionTarget() {

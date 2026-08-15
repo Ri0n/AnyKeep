@@ -214,7 +214,7 @@ ListView {
     function editorIsBold(index) { return focusController.editorIsBold(index) }
     function selectedEditorCount() { return focusController.selectedEditorCount() }
     function editorAtPoint(x, y) { return focusController.editorAtPoint(x, y) }
-    function insertExternalTextAtPoint(value, x, y, codeLanguage) { return focusController.insertExternalTextAtPoint(value, x, y, codeLanguage) }
+    function insertExternalTextAtPoint(value, x, y, codeLanguage, detectedCode) { return focusController.insertExternalTextAtPoint(value, x, y, codeLanguage, detectedCode) }
     function captureSpeechInsertionTarget() { return focusController.captureSpeechInsertionTarget() }
     function insertTextIntoEditor(editor, value, address) { return focusController.insertTextIntoEditor(editor, value, address) }
     function insertTextAtTarget(value, target) { return focusController.insertTextAtTarget(value, target) }
