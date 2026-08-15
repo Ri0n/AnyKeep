@@ -18,6 +18,37 @@ void NoteBlockModel::normalizeListStorage(Block *block)
         block->checked.append(false);
 }
 
+void NoteBlockModel::recomputeTaskParentChecks(Block *block)
+{
+    if (!block || !isListType(block->type))
+        return;
+    normalizeListStorage(block);
+    for (int parent = block->items.size() - 1; parent >= 0; --parent) {
+        if (block->itemTypes.at(parent).toInt() != CheckList)
+            continue;
+        const int parentIndent      = block->indents.at(parent).toInt();
+        bool      hasTaskDescendant = false;
+        bool      allChecked        = true;
+        for (int child = parent + 1; child < block->items.size() && block->indents.at(child).toInt() > parentIndent;
+             ++child) {
+            if (block->itemTypes.at(child).toInt() != CheckList)
+                continue;
+            hasTaskDescendant = true;
+            allChecked        = allChecked && block->checked.at(child).toBool();
+        }
+        if (hasTaskDescendant)
+            block->checked[parent] = allChecked;
+    }
+}
+
+void NoteBlockModel::recomputeTaskParentChecks(QList<Block> *blocks)
+{
+    if (!blocks)
+        return;
+    for (Block &block : *blocks)
+        recomputeTaskParentChecks(&block);
+}
+
 void NoteBlockModel::normalizeMovedListTypes(Block *block, int firstItem, int itemCount)
 {
     if (!block || !isListType(block->type) || itemCount <= 0)
@@ -152,6 +183,7 @@ void NoteBlockModel::insertListItem(int row, int item, const QString &text)
     block.indents.insert(item, indent);
     block.itemTypes.insert(item, itemType);
     block.checked.insert(item, false);
+    recomputeTaskParentChecks(&block);
     changed(row, { ItemsRole, IndentsRole, ItemTypesRole, CheckedRole });
 }
 
@@ -176,6 +208,7 @@ void NoteBlockModel::mergeListItemWithNext(int row, int item)
         block.itemTypes.removeAt(item + 1);
     if (item + 1 < block.checked.size())
         block.checked.removeAt(item + 1);
+    recomputeTaskParentChecks(&block);
     changed(row, { ItemsRole, IndentsRole, ItemTypesRole, CheckedRole });
 }
 
@@ -247,6 +280,7 @@ void NoteBlockModel::removeListItems(int row, int firstItem, int lastItem)
         if (item < block.checked.size())
             block.checked.removeAt(item);
     }
+    recomputeTaskParentChecks(&block);
     changed(row, { ItemsRole, IndentsRole, ItemTypesRole, CheckedRole });
 }
 
@@ -314,6 +348,9 @@ int NoteBlockModel::moveListRangeResolved(int sourceRow, int sourceFirstItem, in
         target.checked.insert(targetItem + index, movedChecked.at(index));
     }
     normalizeMovedListTypes(&target, targetItem, movedCount);
+    if (!removeSourceBlock)
+        recomputeTaskParentChecks(&source);
+    recomputeTaskParentChecks(&target);
 
     if (removeSourceBlock) {
         int sourceGap         = sourceRow;
@@ -326,6 +363,7 @@ int NoteBlockModel::moveListRangeResolved(int sourceRow, int sourceFirstItem, in
         }
         coalesceTextNear(&blocks_, sourceGap, markdown_, &resolvedTargetRow);
         coalesceListAtBoundary(&blocks_, sourceGap, &resolvedTargetRow);
+        recomputeTaskParentChecks(&blocks_);
         normalizeTagLinePositions(&blocks_, markdown_, true);
         endResetModel();
         emit contentsChanged();
@@ -403,6 +441,7 @@ int NoteBlockModel::moveListRangeToBlock(int sourceRow, int sourceFirstItem, int
         coalesceListAtBoundary(&blocks_, sourceGap, &resolvedRow);
     }
     coalesceMovedList(&blocks_, &resolvedRow);
+    recomputeTaskParentChecks(&blocks_);
     normalizeTagLinePositions(&blocks_, markdown_, true);
     endResetModel();
     emit contentsChanged();
@@ -502,10 +541,13 @@ int NoteBlockModel::unlistListItem(int row, int item)
     blocks_.removeAt(row);
     for (int index = 0; index < replacement.size(); ++index)
         blocks_.insert(row + index, replacement.at(index));
+    int resolvedParagraphRow = paragraphRow;
+    coalesceTextNear(&blocks_, paragraphRow, markdown_, &resolvedParagraphRow);
+    recomputeTaskParentChecks(&blocks_);
     normalizeTagLinePositions(&blocks_, markdown_);
     endResetModel();
     emit contentsChanged();
-    return paragraphRow;
+    return resolvedParagraphRow;
 }
 
 void NoteBlockModel::indentListItems(int row, int firstItem, int lastItem, int delta)
@@ -562,7 +604,8 @@ void NoteBlockModel::indentListItems(int row, int firstItem, int lastItem, int d
             }
         }
     }
-    changed(row, { IndentsRole, ItemTypesRole });
+    recomputeTaskParentChecks(&block);
+    changed(row, { IndentsRole, ItemTypesRole, CheckedRole });
 }
 
 void NoteBlockModel::setChecked(int row, int item, bool checked)
@@ -665,6 +708,7 @@ bool NoteBlockModel::convertListLevel(int row, int item, BlockType type)
     for (int i = begin; i < end; ++i)
         if (block.indents.value(i).toInt() == level)
             block.itemTypes[i] = type;
+    recomputeTaskParentChecks(&block);
     changed(row, { ItemTypesRole, CheckedRole });
     return true;
 }

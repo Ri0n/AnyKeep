@@ -11,6 +11,8 @@ Editor.NoteBlockTextArea {
     sourceText: editorView.blockModel && editorView.blockModel.markdown
                 ? editorView.markdownForRendering(block.blockText) : block.blockText
     keyHandler: function(event) {
+        if (editorView.handleListShortcut(event, textCell))
+            return true
         const inputModifiers = event.modifiers
                 & (Qt.ShiftModifier | Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
         if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)

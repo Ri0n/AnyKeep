@@ -372,6 +372,12 @@ ListView {
 
     function insertListBlock(type) {
         return runEditTransaction("insert-or-convert-list", function() {
+            if (activeEditor && activeEditor.blockIndex >= 0 && !activeEditor.titleDocument
+                    && activeEditor.selectionStart !== activeEditor.selectionEnd
+                    && !selectionSpansEditors) {
+                if (convertTextEditorToList(activeEditor, type))
+                    return true
+            }
             if (activeEditor && activeEditor.blockIndex >= 0 && !activeEditor.titleDocument) {
                 const activeBlock = activeEditor.blockIndex
                 if (blockModel.convertListLevel(activeBlock, activeEditor.listItemIndex, type))
@@ -381,6 +387,51 @@ ListView {
             blockModel.insertList(row, type)
             focusBlock(row)
             return true
+        })
+    }
+
+    function convertTextEditorToList(editor, type) {
+        if (!editor || editor.blockIndex < 0 || editor.titleDocument || editor.codeDocument
+                || !editorBackend.markdown || blockModel.blockTypeAt(editor.blockIndex) !== 0)
+            return false
+        let sourceStart = editor.markdownRange(0, editor.selectionStart).length
+        let sourceEnd = editor.markdownRange(0, editor.selectionEnd).length
+        const sourceCursor = editor.markdownRange(0, editor.cursorPosition).length
+        if (sourceStart === sourceEnd) {
+            const text = blockModel.blockTextAt(editor.blockIndex)
+            if (text.length === 0)
+                return false
+            sourceStart = Math.min(sourceCursor, text.length - 1)
+            sourceEnd = sourceStart + 1
+        }
+        const converted = blockModel.convertTextRangeToList(editor.blockIndex, sourceStart, sourceEnd,
+                                                              type, sourceCursor)
+        if (!converted.handled)
+            return false
+        focusEditorAddress({
+            blockIndex: Number(converted.row),
+            listItemIndex: Number(converted.item),
+            tableCellIndex: -1,
+            field: "listItem",
+            cursorPosition: Number(converted.position),
+            selectionStart: Number(converted.position),
+            selectionEnd: Number(converted.position)
+        })
+        return true
+    }
+
+    function handleListShortcut(event, editor) {
+        const modifiers = event.modifiers
+        if (!(modifiers & Qt.ControlModifier) || !(modifiers & Qt.ShiftModifier)
+                || modifiers & (Qt.AltModifier | Qt.MetaModifier))
+            return false
+        const type = event.key === Qt.Key_7 || event.key === Qt.Key_Ampersand ? 5
+                   : event.key === Qt.Key_8 || event.key === Qt.Key_Asterisk ? 1
+                   : event.key === Qt.Key_9 || event.key === Qt.Key_ParenLeft ? 2 : -1
+        if (type < 0)
+            return false
+        return runEditTransaction("convert-text-to-list", function() {
+            return convertTextEditorToList(editor, type)
         })
     }
 

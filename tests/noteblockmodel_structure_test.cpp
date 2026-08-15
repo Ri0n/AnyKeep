@@ -99,6 +99,50 @@ void NoteBlockModelTest::insertingAndConvertingListsPreservesIndentation()
     QVERIFY(model.contents().contains(QStringLiteral("1. first")));
 }
 
+void NoteBlockModelTest::coalescesBlocksAfterListConversions()
+{
+    NoteBlockModel unlisted;
+    unlisted.load(QStringLiteral("title\n\n- one\n- two\n- three"), true);
+    QCOMPARE(unlisted.unlistListItem(1, 0), 1);
+    QCOMPARE(unlisted.unlistListItem(2, 0), 1);
+    QCOMPARE(unlisted.unlistListItem(2, 0), 1);
+    QCOMPARE(unlisted.rowCount(), 2);
+    QCOMPARE(unlisted.blockTypeAt(1), int(NoteBlockModel::Text));
+    QCOMPARE(unlisted.data(unlisted.index(1), NoteBlockModel::TextRole).toString(),
+             QStringLiteral("one\n\ntwo\n\nthree"));
+
+    NoteBlockModel adjacentLists;
+    adjacentLists.load(QStringLiteral("title\n\nfirst"), true);
+    adjacentLists.insertList(2, NoteBlockModel::BulletList);
+    adjacentLists.setListItem(2, 0, QStringLiteral("second"));
+    const QVariantMap converted = adjacentLists.convertTextRangeToList(1, 0, 5, NoteBlockModel::BulletList);
+    QVERIFY(converted.value(QStringLiteral("handled")).toBool());
+    QCOMPARE(adjacentLists.rowCount(), 2);
+    QCOMPARE(adjacentLists.blockTypeAt(1), int(NoteBlockModel::BulletList));
+    QCOMPARE(adjacentLists.data(adjacentLists.index(1), NoteBlockModel::ItemsRole).toStringList(),
+             QStringList({ "first", "second" }));
+}
+
+void NoteBlockModelTest::recalculatesTaskParentsAfterStructuralListChanges()
+{
+    NoteBlockModel inserted;
+    inserted.load(QStringLiteral("- [x] parent\n  - [x] child"), true);
+    inserted.insertListItem(0, 2, QStringLiteral("new child"));
+    QCOMPARE(inserted.data(inserted.index(0), NoteBlockModel::CheckedRole).toList(),
+             QVariantList({ false, true, false }));
+
+    NoteBlockModel indented;
+    indented.load(QStringLiteral("- [x] parent\n  - [x] child\n- [ ] sibling"), true);
+    indented.indentListItems(0, 2, 2, 1);
+    QCOMPARE(indented.data(indented.index(0), NoteBlockModel::CheckedRole).toList(),
+             QVariantList({ false, true, false }));
+
+    NoteBlockModel moved;
+    moved.load(QStringLiteral("- [x] parent\n  - [x] child\n- [ ] sibling"), true);
+    QVERIFY(moved.moveListRange(0, 2, 2, 0, 2, 1));
+    QCOMPARE(moved.data(moved.index(0), NoteBlockModel::CheckedRole).toList(), QVariantList({ false, true, false }));
+}
+
 void NoteBlockModelTest::removesStructuredRangesAtomically()
 {
     NoteBlockModel list;

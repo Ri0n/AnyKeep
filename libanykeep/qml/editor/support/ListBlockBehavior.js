@@ -5,8 +5,11 @@ function handleKey(host, controller, event, cell, itemIndex) {
     const primaryModifier = event.modifiers & (Qt.ControlModifier | Qt.MetaModifier)
     const listShortcut = primaryModifier && event.modifiers & Qt.ShiftModifier
                          && !(event.modifiers & Qt.AltModifier)
-    if (listShortcut && (event.key === Qt.Key_7 || event.key === Qt.Key_8 || event.key === Qt.Key_9)) {
-        const type = event.key === Qt.Key_7 ? 5 : event.key === Qt.Key_8 ? 1 : 2
+    if (listShortcut && (event.key === Qt.Key_7 || event.key === Qt.Key_Ampersand
+            || event.key === Qt.Key_8 || event.key === Qt.Key_Asterisk
+            || event.key === Qt.Key_9 || event.key === Qt.Key_ParenLeft)) {
+        const type = event.key === Qt.Key_7 || event.key === Qt.Key_Ampersand ? 5
+                   : event.key === Qt.Key_8 || event.key === Qt.Key_Asterisk ? 1 : 2
         return controller.runEditTransaction("convert-list-level", function() {
             controller.blockModel.convertListLevel(host.block.index, itemIndex, type)
             return true
@@ -125,6 +128,7 @@ function handleKey(host, controller, event, cell, itemIndex) {
         }
         return controller.runEditTransaction("unlist-list-item", function() {
             const viewportY = controller.contentY
+            const itemPlainText = cell.currentPlainText()
             controller.prepareForStructuralMutation()
             if (host.itemIndent(itemIndex) > 0) {
                 controller.blockModel.indentListItems(host.block.index, itemIndex,
@@ -142,6 +146,20 @@ function handleKey(host, controller, event, cell, itemIndex) {
                 cursorPosition: 0,
                 preserveViewport: true,
                 viewportY: viewportY
+            })
+            // The model keeps Markdown paragraph separators while TextArea
+            // renders them as one visual line break. Resolve the position in
+            // that final visual projection instead of treating a source
+            // offset as a TextArea cursor position.
+            Qt.callLater(function() {
+                Qt.callLater(function() {
+                    const delegate = controller.itemAtIndex(textRow)
+                    const editor = delegate ? delegate.item : null
+                    if (editor) {
+                        editor.cursorPosition = Math.max(0, editor.currentPlainText().lastIndexOf(itemPlainText))
+                        controller.activeEditor = editor
+                    }
+                })
             })
             return true
         })

@@ -604,6 +604,92 @@ private slots:
                      QStringLiteral("    Item {\n        width: 10\n    }"));
     }
 
+    void listToolbarConvertsMultilineTextSelection()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("before\n\nfirst selected\n\nsecond selected\n\nthird selected\n\nafter"),
+                     Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(560, 400);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QVariant plain;
+        QVERIFY(QMetaObject::invokeMethod(body, "currentPlainText", Q_RETURN_ARG(QVariant, plain)));
+        const int start = plain.toString().indexOf(QStringLiteral("first selected"));
+        const int end
+            = plain.toString().indexOf(QStringLiteral("third selected")) + QStringLiteral("third selected").size();
+        QVERIFY(start >= 0);
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QVERIFY(QMetaObject::invokeMethod(body, "select", Q_ARG(int, start), Q_ARG(int, end)));
+        QTest::keyClick(host.quickWidget(), Qt::Key_Asterisk, Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_COMPARE(editor.model()->rowCount(), 4);
+        QCOMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::BulletList));
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ "first selected", "second selected", "third selected" }));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TextRole).toString(),
+                 QStringLiteral("before"));
+        QCOMPARE(editor.model()->data(editor.model()->index(3), NoteBlockModel::TextRole).toString(),
+                 QStringLiteral("after"));
+        QQuickItem *thirdItem = nullptr;
+        QTRY_VERIFY(([&] {
+            for (QQuickItem *candidate : textEditors(root)) {
+                if (candidate->property("blockIndex").toInt() == 2
+                    && candidate->property("listItemIndex").toInt() == 2) {
+                    thirdItem = candidate;
+                    return true;
+                }
+            }
+            return false;
+        })());
+        QTRY_VERIFY(thirdItem->hasActiveFocus());
+        QCOMPARE(thirdItem->property("cursorPosition").toInt(), thirdItem->property("length").toInt());
+    }
+
+    void unlistingAtItemStartKeepsCursorAtFormerItemStart()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("before\n\n- item"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *item = nullptr;
+        QTRY_VERIFY(([&] {
+            for (QQuickItem *candidate : textEditors(root)) {
+                if (candidate->property("blockIndex").toInt() == 2
+                    && candidate->property("listItemIndex").toInt() == 0) {
+                    item = candidate;
+                    return true;
+                }
+            }
+            return false;
+        })());
+        item->forceActiveFocus(Qt::MouseFocusReason);
+        item->setProperty("cursorPosition", 0);
+        QTRY_VERIFY(item->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Backspace);
+
+        QTRY_COMPARE(editor.model()->rowCount(), 2);
+        QQuickItem *text = nullptr;
+        QTRY_VERIFY((text = textEditorForBlock(root, 1)));
+        QVariant plain;
+        QVERIFY(QMetaObject::invokeMethod(text, "currentPlainText", Q_RETURN_ARG(QVariant, plain)));
+        QTRY_VERIFY(text->hasActiveFocus());
+        QTRY_COMPARE(text->property("cursorPosition").toInt(), plain.toString().indexOf(QStringLiteral("item")));
+    }
+
 private:
     void pendingSourceSyncPreservesToolbarSelection()
     {
@@ -2180,6 +2266,13 @@ private slots:
     void regressionCodeBlockTabAndShiftTabAdjustSelectedLineIndentation()
     {
         codeBlockTabAndShiftTabAdjustSelectedLineIndentation();
+    }
+
+    void regressionListToolbarConvertsMultilineTextSelection() { listToolbarConvertsMultilineTextSelection(); }
+
+    void regressionUnlistingAtItemStartKeepsCursorAtFormerItemStart()
+    {
+        unlistingAtItemStartKeepsCursorAtFormerItemStart();
     }
 
     void regressionUpFromFirstCodeLineInsertsTemporaryTitleParagraph()

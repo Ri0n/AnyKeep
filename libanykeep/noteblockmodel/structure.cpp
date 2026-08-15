@@ -662,6 +662,85 @@ QVariantMap NoteBlockModel::convertTextRangeToQuote(int row, int start, int end)
              { QStringLiteral("selectionEnd"), end - paragraphStart } };
 }
 
+QVariantMap NoteBlockModel::convertTextRangeToList(int row, int start, int end, BlockType type, int cursorPosition)
+{
+    if (row < 0 || row >= blocks_.size() || blocks_.at(row).type != Text || !isListType(type))
+        return {};
+
+    const QString text = blocks_.at(row).text;
+    start              = qBound(0, start, text.size());
+    end                = qBound(0, end, text.size());
+    if (start > end)
+        qSwap(start, end);
+    if (start == end)
+        return {};
+
+    const bool startsAtSeparator = text.mid(start, 2) == QStringLiteral("\n\n");
+    const int  separatorBefore
+        = startsAtSeparator ? start : text.lastIndexOf(QStringLiteral("\n\n"), qMax(0, start - 1));
+    const int paragraphStart = separatorBefore < 0 ? 0 : separatorBefore + 2;
+    if (startsAtSeparator)
+        start = paragraphStart;
+    int endProbe = qMax(paragraphStart, end - 1);
+    while (endProbe > paragraphStart && text.at(endProbe) == QLatin1Char('\n'))
+        --endProbe;
+    const int separatorAfter = text.indexOf(QStringLiteral("\n\n"), endProbe);
+    const int paragraphEnd   = separatorAfter < 0 ? text.size() : separatorAfter;
+
+    QList<Block> replacement;
+    if (paragraphStart > 0) {
+        Block before;
+        before.text = text.left(paragraphStart - 2);
+        replacement.append(before);
+    }
+    Block list;
+    list.type           = type;
+    list.items          = text.mid(paragraphStart, paragraphEnd - paragraphStart).split(QStringLiteral("\n\n"));
+    list.indents        = QList<QVariant>(list.items.size(), 0);
+    list.itemTypes      = QList<QVariant>(list.items.size(), type);
+    list.checked        = QList<QVariant>(list.items.size(), false);
+    int focusedItem     = 0;
+    int focusedPosition = 0;
+    if (cursorPosition >= paragraphStart && cursorPosition <= paragraphEnd) {
+        int offset = cursorPosition - paragraphStart;
+        for (int index = 0; index < list.items.size(); ++index) {
+            const int length = list.items.at(index).size();
+            if (offset <= length) {
+                focusedItem     = index;
+                focusedPosition = offset;
+                break;
+            }
+            offset -= length + 2;
+            focusedItem     = index;
+            focusedPosition = length;
+        }
+    }
+    const int precedingListItems
+        = row > 0 && isListType(blocks_.at(row - 1).type) ? blocks_.at(row - 1).items.size() : 0;
+    const int listOffset = replacement.size();
+    replacement.append(list);
+    if (paragraphEnd < text.size()) {
+        Block after;
+        after.text = text.mid(paragraphEnd + 2);
+        replacement.append(after);
+    }
+
+    beginResetModel();
+    blocks_.removeAt(row);
+    for (int index = 0; index < replacement.size(); ++index)
+        blocks_.insert(row + index, replacement.at(index));
+    int resolvedListRow = row + listOffset;
+    coalesceListAtBoundary(&blocks_, resolvedListRow, &resolvedListRow);
+    coalesceListAtBoundary(&blocks_, resolvedListRow + 1, &resolvedListRow);
+    normalizeTagLinePositions(&blocks_, markdown_);
+    endResetModel();
+    emit contentsChanged();
+    return { { QStringLiteral("handled"), true },
+             { QStringLiteral("row"), resolvedListRow },
+             { QStringLiteral("item"), precedingListItems + focusedItem },
+             { QStringLiteral("position"), focusedPosition } };
+}
+
 bool NoteBlockModel::splitStructuredBlockToText(int row, const QString &before, const QString &after)
 {
     if (row < 0 || row >= blocks_.size() || (blocks_.at(row).type != Heading && blocks_.at(row).type != BlockQuote)) {

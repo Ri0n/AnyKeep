@@ -64,6 +64,8 @@ private slots:
     void insertsMinimalStructuredBlocks();
     void collapsesUneditedInsertedParagraphOnMarkdownRoundTrip();
     void insertingAndConvertingListsPreservesIndentation();
+    void coalescesBlocksAfterListConversions();
+    void recalculatesTaskParentsAfterStructuralListChanges();
     void removesStructuredRangesAtomically();
     void movesListSubtreesAcrossBlocks();
     void movesAndReindentsListSubtreesAtomically();

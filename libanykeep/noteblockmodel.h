@@ -133,6 +133,7 @@ public:
     Q_INVOKABLE bool        moveTagLineTag(int row, int from, int to);
     Q_INVOKABLE QVariantMap convertTagLineToText(int row, const QString &text = QString(), int cursorPosition = -1);
     Q_INVOKABLE int         blockTypeAt(int row) const;
+    Q_INVOKABLE QString     blockTextAt(int row) const;
     Q_INVOKABLE int         listItemCountAt(int row) const;
     Q_INVOKABLE bool        isExplicitEmptyTextBlock(int row) const;
     Q_INVOKABLE QVariantMap findText(const QString &text, const QVariantMap &after = {}, bool backwards = false,
@@ -141,6 +142,8 @@ public:
     Q_INVOKABLE int         convertTextBlockToHeading(int row, int position, int level);
     Q_INVOKABLE int         convertTextBlockToQuote(int row, int position, bool quote);
     Q_INVOKABLE QVariantMap convertTextRangeToQuote(int row, int start, int end);
+    Q_INVOKABLE QVariantMap convertTextRangeToList(int row, int start, int end, BlockType type,
+                                                   int cursorPosition = -1);
     Q_INVOKABLE int         sourcePositionAfterTextCoalesce(int row, int position) const;
     Q_INVOKABLE int         sourcePositionInParagraph(int row, int position) const;
     Q_INVOKABLE bool        splitTitleBlock(const QString &before, const QString &after);
@@ -223,6 +226,8 @@ private:
     static QString      writeMarkdown(const QList<Block> &blocks);
     static bool         normalizeTitleBlock(QList<Block> *blocks, bool markdown);
     static void         normalizeListStorage(Block *block);
+    static void         recomputeTaskParentChecks(Block *block);
+    static void         recomputeTaskParentChecks(QList<Block> *blocks);
     static void         normalizeMovedListTypes(Block *block, int firstItem, int itemCount);
     static void         mergeListPair(QList<Block> *blocks, int leftRow, bool residentIsLeft, int *trackedRow);
     static void         coalesceListAtBoundary(QList<Block> *blocks, int boundary, int *trackedRow);

@@ -363,6 +363,11 @@ int NoteBlockModel::blockTypeAt(int row) const
     return row >= 0 && row < blocks_.size() ? int(blocks_.at(row).type) : -1;
 }
 
+QString NoteBlockModel::blockTextAt(int row) const
+{
+    return row >= 0 && row < blocks_.size() ? blocks_.at(row).text : QString();
+}
+
 int NoteBlockModel::listItemCountAt(int row) const
 {
     return row >= 0 && row < blocks_.size() && isListType(blocks_.at(row).type) ? blocks_.at(row).items.size() : 0;
