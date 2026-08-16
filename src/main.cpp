@@ -37,6 +37,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <iostream>
 
 #ifdef Q_OS_WIN
+#include <Windows.h>
 #include <appmodel.h>
 #include <shobjidl_core.h>
 #endif
