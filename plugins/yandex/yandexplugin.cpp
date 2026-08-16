@@ -35,12 +35,12 @@ namespace {
 
 } // namespace
 
-YandexPlugin::YandexPlugin(QObject *parent) : QObject(parent), network_(new QNetworkAccessManager(this)) { }
+YandexPlugin::YandexPlugin(QObject *parent) : QObject(parent), network_(new QNetworkAccessManager(this)) {}
 YandexPlugin::~YandexPlugin() = default;
 
 void YandexPlugin::setHost(PluginHostInterface *host) { Q_UNUSED(host); }
 bool YandexPlugin::initialize() { return true; }
-void YandexPlugin::shutdown() { }
+void YandexPlugin::shutdown() {}
 
 QString YandexPlugin::tooltip() const
 {
@@ -101,9 +101,9 @@ SpeechRecognitionUsageStats YandexPlugin::speechRecognitionUsageStats() const
     stats.audioMsUsed             = trackedAudioMs;
     stats.bytesSent               = trackedBytesSent;
     stats.humanSummary            = tr("<b>Tracked audio sessions:</b> %1<br/><b>Actual audio:</b> %2<br/>"
-                                                  "<b>Estimated billable audio:</b> %3<br/><b>Uploaded:</b> %4")
-                             .arg(QLocale().toString(sessionCount), formatUsageDuration(stats.audioMsUsed),
-                                  formatUsageDuration(billableAudioMs), formatUsageBytes(stats.bytesSent));
+                                       "<b>Estimated billable audio:</b> %3<br/><b>Uploaded:</b> %4")
+                                        .arg(QLocale().toString(sessionCount), formatUsageDuration(stats.audioMsUsed),
+                                             formatUsageDuration(billableAudioMs), formatUsageBytes(stats.bytesSent));
     return stats;
 }
 

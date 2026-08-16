@@ -56,7 +56,7 @@ namespace {
 
 } // namespace
 
-NextcloudWorker::NextcloudWorker(QObject *parent) : QObject(parent) { }
+NextcloudWorker::NextcloudWorker(QObject *parent) : QObject(parent) {}
 
 void NextcloudWorker::setConfig(const NextcloudConfig &config)
 {

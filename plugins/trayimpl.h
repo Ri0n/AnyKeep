@@ -11,7 +11,7 @@ class TrayImpl : public QObject {
     Q_OBJECT
 
 public:
-    TrayImpl(QObject *parent = 0) : QObject(parent) { }
+    TrayImpl(QObject *parent = 0) : QObject(parent) {}
 
 signals:
     void exitTriggered();

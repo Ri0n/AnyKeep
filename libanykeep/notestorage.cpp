@@ -309,8 +309,8 @@ QList<NoteStorage::NoteReorderChange> NoteStorage::noteReorderChanges(const QStr
     const qint64 nowMs      = QDateTime::currentMSecsSinceEpoch();
     const qint64 alignedNow = nowMs - nowMs % timeStep;
     qint64       upperMs    = insertionIndex > 0 && remaining.at(insertionIndex - 1).lastChangeUTC().isValid()
-                 ? remaining.at(insertionIndex - 1).lastChangeUTC().toMSecsSinceEpoch()
-                 : alignedNow + timeStep;
+        ? remaining.at(insertionIndex - 1).lastChangeUTC().toMSecsSinceEpoch()
+        : alignedNow + timeStep;
     upperMs                 = qMin(upperMs, alignedNow + timeStep);
 
     // Work in storage-resolution ticks. maxTick is the newest representable

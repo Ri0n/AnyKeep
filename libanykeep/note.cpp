@@ -37,15 +37,15 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 namespace AnyKeep {
 
-Note::Note() { }
+Note::Note() {}
 
-Note::~Note() { }
+Note::~Note() {}
 
-Note::Note(NoteData *data) : d(QExplicitlySharedDataPointer<NoteData>(data)) { }
+Note::Note(NoteData *data) : d(QExplicitlySharedDataPointer<NoteData>(data)) {}
 
-Note::Note(const Note &note) : d(note.d) { }
+Note::Note(const Note &note) : d(note.d) {}
 
-Note::Note(Note &&note) : d(std::move(note.d)) { }
+Note::Note(Note &&note) : d(std::move(note.d)) {}
 
 Note &Note::operator=(const Note &note)
 {

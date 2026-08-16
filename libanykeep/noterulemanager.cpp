@@ -62,7 +62,7 @@ namespace {
 
 } // namespace
 
-NoteRuleManager::NoteRuleManager(QObject *parent) : QObject(parent) { }
+NoteRuleManager::NoteRuleManager(QObject *parent) : QObject(parent) {}
 
 NoteRuleManager::NoteRuleManager(std::unique_ptr<FileNoteRuleStore> store, QObject *parent) :
     QObject(parent), store_(std::move(store))

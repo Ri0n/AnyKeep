@@ -8,7 +8,7 @@
 
 namespace AnyKeep {
 
-NextcloudPlugin::NextcloudPlugin(QObject *parent) : QObject(parent) { }
+NextcloudPlugin::NextcloudPlugin(QObject *parent) : QObject(parent) {}
 
 NextcloudPlugin::~NextcloudPlugin() { shutdown(); }
 

@@ -251,9 +251,9 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
             imageDragAccepted_      = false;
             textDragAccepted_       = false;
             const bool handled      = imageDrop
-                     ? handleImageDrop(dropEvent->mimeData(), insertionRowAt(position))
-                     : invokeQmlTextDrop(quick_->rootObject(), TextDropUtils::plainText(dropEvent->mimeData()), position,
-                                         TextDropUtils::detectCode(dropEvent->mimeData()));
+                ? handleImageDrop(dropEvent->mimeData(), insertionRowAt(position))
+                : invokeQmlTextDrop(quick_->rootObject(), TextDropUtils::plainText(dropEvent->mimeData()), position,
+                                    TextDropUtils::detectCode(dropEvent->mimeData()));
             if (handled) {
                 dropEvent->setDropAction(Qt::CopyAction);
                 dropEvent->accept();

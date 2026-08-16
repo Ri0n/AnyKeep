@@ -55,7 +55,7 @@ struct SpeechRecognitionRequest {
 class ANYKEEP_EXPORT SpeechRecognitionJob : public QObject {
     Q_OBJECT
 public:
-    explicit SpeechRecognitionJob(QObject *parent = nullptr) : QObject(parent) { }
+    explicit SpeechRecognitionJob(QObject *parent = nullptr) : QObject(parent) {}
     ~SpeechRecognitionJob() override = default;
 
 public slots:
@@ -72,12 +72,11 @@ class SpeechRecognitionProviderInterface {
 public:
     virtual ~SpeechRecognitionProviderInterface() = default;
 
-    virtual bool                          isSpeechRecognitionReady() const      = 0;
-    virtual SpeechRecognitionCapabilities speechRecognitionCapabilities() const = 0;
-    virtual SpeechRecognitionUsageStats   speechRecognitionUsageStats() const   = 0;
+    virtual bool                          isSpeechRecognitionReady() const                         = 0;
+    virtual SpeechRecognitionCapabilities speechRecognitionCapabilities() const                    = 0;
+    virtual SpeechRecognitionUsageStats   speechRecognitionUsageStats() const                      = 0;
     virtual SpeechRecognitionJob         *recognizeSpeech(const SpeechRecognitionAudio   &audio,
-                                                          const SpeechRecognitionRequest &request)
-        = 0;
+                                                          const SpeechRecognitionRequest &request) = 0;
 };
 
 } // namespace AnyKeep

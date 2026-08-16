@@ -11,7 +11,7 @@
 
 namespace AnyKeep {
 
-PluginHost::PluginHost(QObject *parent) : QObject(parent) { }
+PluginHost::PluginHost(QObject *parent) : QObject(parent) {}
 
 QString PluginHost::utilsCuttedDots(const QString &str, int n) { return Utils::cuttedDots(str, n); }
 

@@ -519,6 +519,12 @@ void NoteDialog::flushEditorChanges()
         QMetaObject::invokeMethod(rootObject(), "flushPendingEditorChanges");
 }
 
+bool NoteDialog::checkpoint()
+{
+    flushEditorChanges();
+    return !editor_ || editor_->save();
+}
+
 int NoteDialog::insertionRowAt(const QPointF &position) const
 {
     if (!rootObject())

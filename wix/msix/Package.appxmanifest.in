@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="@MSIX_IDENTITY_NAME_XML@"
+    Publisher="@MSIX_PUBLISHER_XML@"
+    Version="@MSIX_VERSION_XML@"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>AnyKeep</DisplayName>
+    <PublisherDisplayName>@MSIX_PUBLISHER_DISPLAY_NAME_XML@</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily
+      Name="Windows.Desktop"
+      MinVersion="@MSIX_MIN_WINDOWS_VERSION_XML@"
+      MaxVersionTested="@MSIX_MAX_WINDOWS_VERSION_TESTED_XML@" />
+    <PackageDependency
+      Name="@MSIX_VCLIBS_NAME_XML@"
+      MinVersion="@MSIX_VCLIBS_MIN_VERSION_XML@"
+      Publisher="@MSIX_VCLIBS_PUBLISHER_XML@" />
+  </Dependencies>
+
+  <Applications>
+    <Application
+      Id="AnyKeep"
+      Executable="anykeep.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        AppListEntry="default"
+        BackgroundColor="transparent"
+        DisplayName="AnyKeep"
+        Description="Keep anything. Access it anywhere."
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

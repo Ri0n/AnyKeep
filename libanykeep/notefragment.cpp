@@ -155,9 +155,9 @@ namespace {
         const QCborMap map         = value.toMap();
         const qint64   type        = map.value(QStringLiteral("type")).toInteger(-1);
         const qint64   maximumType = version >= 6 ? static_cast<qint64>(NoteFragmentBlockType::Attachment)
-              : version >= 5                      ? static_cast<qint64>(NoteFragmentBlockType::Audio)
-              : version >= 4                      ? static_cast<qint64>(NoteFragmentBlockType::TagLine)
-              : version >= 2                      ? static_cast<qint64>(NoteFragmentBlockType::CodeBlock)
+            : version >= 5                        ? static_cast<qint64>(NoteFragmentBlockType::Audio)
+            : version >= 4                        ? static_cast<qint64>(NoteFragmentBlockType::TagLine)
+            : version >= 2                        ? static_cast<qint64>(NoteFragmentBlockType::CodeBlock)
                                                   : static_cast<qint64>(NoteFragmentBlockType::BlockQuote);
         if (type < static_cast<qint64>(NoteFragmentBlockType::Text) || type > maximumType) {
             *error = QStringLiteral("block has invalid type");

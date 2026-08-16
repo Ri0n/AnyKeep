@@ -37,6 +37,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <iostream>
 
 #ifdef Q_OS_WIN
+#include <appmodel.h>
 #include <shobjidl_core.h>
 #endif
 
@@ -89,7 +90,7 @@ QSocketNotifier *installUnixSignalHandlers(QObject *parent)
         notifier->setEnabled(false);
 
         char buffer[16];
-        while (::read(signalPipe[0], buffer, sizeof(buffer)) > 0) { }
+        while (::read(signalPipe[0], buffer, sizeof(buffer)) > 0) {}
 
         QApplication::quit();
     });
@@ -106,6 +107,13 @@ QColor blendColors(const QColor &first, const QColor &second, qreal secondWeight
     return QColor::fromRgbF(first.redF() * (1.0 - secondWeight) + second.redF() * secondWeight,
                             first.greenF() * (1.0 - secondWeight) + second.greenF() * secondWeight,
                             first.blueF() * (1.0 - secondWeight) + second.blueF() * secondWeight);
+}
+
+bool currentProcessHasPackageIdentity()
+{
+    UINT32     length = 0;
+    const LONG result = GetCurrentPackageFamilyName(&length, nullptr);
+    return result == ERROR_INSUFFICIENT_BUFFER;
 }
 
 void applyNeutralWindowsPalette()
@@ -152,7 +160,11 @@ int main(int argc, char *argv[])
     qSetMessagePattern(QStringLiteral("[%{time process}] %{message}"));
 
 #ifdef Q_OS_WIN
-    SetCurrentProcessExplicitAppUserModelID(L"com.github.ri0n.AnyKeep");
+    // Packaged desktop applications get their AUMID from AppxManifest.xml. Overriding it at runtime breaks package
+    // identity integrations such as taskbar grouping and jump lists. Keep the historical explicit AppID only for
+    // unpackaged MSI/portable launches.
+    if (!currentProcessHasPackageIdentity())
+        SetCurrentProcessExplicitAppUserModelID(L"com.github.ri0n.AnyKeep");
 #endif
 
     for (int i = 1; i < argc; i++) {

@@ -8,7 +8,7 @@
 
 namespace AnyKeep {
 
-EditorCursorController::EditorCursorController(QObject *parent) : QObject(parent) { }
+EditorCursorController::EditorCursorController(QObject *parent) : QObject(parent) {}
 
 EditorCursorController::~EditorCursorController() { restoreOverrideCursor(); }
 

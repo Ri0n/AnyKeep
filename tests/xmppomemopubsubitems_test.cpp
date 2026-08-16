@@ -19,9 +19,9 @@ private slots:
 void XmppOmemoPubSubItemsTest::parsesDeviceList()
 {
     QDomDocument document;
-    auto         xmlData = QStringLiteral("<item id='current'><devices xmlns='urn:xmpp:omemo:2'>"
-                                                  "<device id='9523' label='AnyKeep-one'/><device id='672' label='AnyKeep-two'/>"
-                                                  "</devices></item>");
+    auto xmlData = QStringLiteral("<item id='current'><devices xmlns='urn:xmpp:omemo:2'>"
+                                  "<device id='9523' label='AnyKeep-one'/><device id='672' label='AnyKeep-two'/>"
+                                  "</devices></item>");
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     QVERIFY(document.setContent(xmlData, QDomDocument::ParseOption::UseNamespaceProcessing));
 #else
@@ -55,7 +55,7 @@ void XmppOmemoPubSubItemsTest::parsesBundleIdentityKey()
     const auto   identity = QByteArray::fromHex("00112233445566778899aabbccddeeff");
     QDomDocument document;
     auto         xmlData = QStringLiteral("<item id='672'><bundle xmlns='urn:xmpp:omemo:2'><ik>%1</ik></bundle></item>")
-                       .arg(QString::fromLatin1(identity.toBase64()));
+                               .arg(QString::fromLatin1(identity.toBase64()));
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     QVERIFY(document.setContent(xmlData, QDomDocument::ParseOption::UseNamespaceProcessing));
 #else
@@ -87,7 +87,7 @@ void XmppOmemoPubSubItemsTest::repairsIncompleteBundle()
     };
     auto valid      = parse(QStringLiteral(
         "<item id='7'><bundle xmlns='urn:xmpp:omemo:2'><ik>aWs=</ik><spk id='4'>c3Br</spk>"
-             "<spks>c2ln</spks><prekeys><pk id='10'>b2xk</pk><pk id='11'>a2VlcA==</pk></prekeys></bundle></item>"));
+        "<spks>c2ln</spks><prekeys><pk id='10'>b2xk</pk><pk id='11'>a2VlcA==</pk></prekeys></bundle></item>"));
     auto incomplete = parse(QStringLiteral("<item id='7'><bundle xmlns='urn:xmpp:omemo:2'><ik/><spk id='0'/><spks/>"
                                            "<prekeys><pk id='12'>bmV3</pk></prekeys></bundle></item>"));
 

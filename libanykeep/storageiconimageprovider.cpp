@@ -16,7 +16,7 @@ namespace {
 
     class StorageIconImageProvider final : public QQuickImageProvider {
     public:
-        StorageIconImageProvider() : QQuickImageProvider(QQuickImageProvider::Image) { }
+        StorageIconImageProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
 
         QImage requestImage(const QString &id, QSize *size, const QSize &requestedSize) override
         {

@@ -11,12 +11,6 @@ repos:
     -   id: check-added-large-files
         args: ['--maxkb=1024']
     -   id: check-merge-conflict
--   repo: https://github.com/doublify/pre-commit-clang-format
-    # for clang-tidy we can take github.com/pocc/pre-commit-hooks
-    rev: f4c4ac5948aff384af2b439bfabb2bdd65d2b3ac
-    hooks:
-    -   id: clang-format
-        files: \.(cpp|h)$
 -   repo: https://github.com/Lucas-C/pre-commit-hooks
     rev: v1.1.7
     hooks:
@@ -24,11 +18,16 @@ repos:
     -   id: remove-crlf
     -   id: forbid-tabs
     -   id: remove-tabs
+-   repo: local
+    hooks:
+    - id: clang-format
+      name: clang-format
+      entry: python3 admin/run-clang-format.py
+      language: system
+      types_or: [c, c++, objective-c]
 -   repo: https://github.com/cheshirekow/cmake-format-precommit
     rev: v0.6.10
     hooks:
-    - id: cmake-format
-      additional_dependencies: [PyYAML]
     - id: cmake-lint
       additional_dependencies: [PyYAML]
       args: [--config-files, .cmake-lint.yaml]

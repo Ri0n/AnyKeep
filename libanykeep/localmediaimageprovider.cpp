@@ -9,7 +9,7 @@ namespace AnyKeep {
 
 Q_LOGGING_CATEGORY(logLocalMediaImageProvider, "anykeep.media.imageprovider")
 
-LocalMediaImageProvider::LocalMediaImageProvider() : QQuickImageProvider(QQuickImageProvider::Image) { }
+LocalMediaImageProvider::LocalMediaImageProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
 
 QImage LocalMediaImageProvider::requestImage(const QString &id, QSize *size, const QSize &requestedSize)
 {

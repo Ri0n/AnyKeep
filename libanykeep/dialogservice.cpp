@@ -4,7 +4,7 @@
 
 namespace AnyKeep {
 
-DialogService::DialogService(QObject *parent) : QObject(parent) { }
+DialogService::DialogService(QObject *parent) : QObject(parent) {}
 
 quint64 DialogService::requestId() const { return active_ ? current_.id : 0; }
 QString DialogService::title() const { return active_ ? current_.title : QString(); }

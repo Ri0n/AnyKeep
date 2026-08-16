@@ -265,7 +265,7 @@ private:
     OpenAIWhisperPlugin *plugin_;
 };
 
-OpenAIWhisperPlugin::OpenAIWhisperPlugin(QObject *parent) : QObject(parent) { }
+OpenAIWhisperPlugin::OpenAIWhisperPlugin(QObject *parent) : QObject(parent) {}
 
 OpenAIWhisperPlugin::~OpenAIWhisperPlugin() = default;
 
@@ -278,7 +278,7 @@ bool OpenAIWhisperPlugin::initialize()
     return true;
 }
 
-void OpenAIWhisperPlugin::shutdown() { }
+void OpenAIWhisperPlugin::shutdown() {}
 
 QString OpenAIWhisperPlugin::tooltip() const
 {

@@ -184,14 +184,21 @@ Item {
                 color: "white"
                 elide: Text.ElideRight
                 text: root.updateController
-                      ? qsTr("AnyKeep %1 is ready. The update is already downloaded and prepared.")
-                            .arg(root.updateController.availableVersion)
+                      ? (root.updateController.managedByStore && !root.updateController.storePackageDownloaded
+                         ? qsTr("AnyKeep %1 is available in Microsoft Store.")
+                               .arg(root.updateController.availableVersion)
+                         : qsTr("AnyKeep %1 is ready. The update is already downloaded and prepared.")
+                               .arg(root.updateController.availableVersion))
                       : ""
             }
 
             Button {
                 objectName: "applyPreparedUpdateButton"
-                text: qsTr("Update and restart")
+                text: root.updateController
+                      && root.updateController.managedByStore
+                      && !root.updateController.storePackageDownloaded
+                      ? qsTr("Download")
+                      : qsTr("Update and restart")
                 focusPolicy: Qt.NoFocus
                 onClicked: root.updateController.applyUpdate()
             }

@@ -105,7 +105,7 @@ MobileApplication::MobileApplication(QObject *parent) :
     androidSpeechEnabled_ = settings.value(QStringLiteral("mobile.android-speech-enabled"), false).toBool();
     microphoneMode_       = VoiceInputMode(
         qBound(int(AndroidSpeech), settings.value(QStringLiteral("mobile.microphone-mode"), int(AndroidSpeech)).toInt(),
-                     int(AudioRecording)));
+               int(AudioRecording)));
     workspace_->sourceModel()->setPageSize(notesPerPage_);
     editorFontSize_ = settings.value(QStringLiteral("mobile.editor-font-size"), 16.0).toReal();
 

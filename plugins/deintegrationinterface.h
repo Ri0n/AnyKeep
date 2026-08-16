@@ -22,7 +22,7 @@ public:
     virtual bool    saveWindowGeometry(QWindow *, const QString &) { return false; }
     virtual bool    removeWindowGeometry(const QString &) { return false; }
     virtual QString takePendingWindowGeometryKey() { return {}; }
-    virtual void    windowGeometryBridgeReady() { }
+    virtual void    windowGeometryBridgeReady() {}
 };
 
 } // namespace AnyKeep

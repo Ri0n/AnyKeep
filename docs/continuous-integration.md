@@ -22,29 +22,44 @@ local release builds.
 The checkout fetches full Git history because `AnyKeepMacro.cmake` derives the
 application version from Git tags and the distance from the last tag.
 
-## Unsigned Windows nightly
+## Windows nightly packages
 
 `.github/workflows/windows-nightly.yml` runs every day at 03:00 UTC and can also
 be started manually from the Actions tab. It uses the same Visual Studio 2022
-Release configuration as the Windows CI job and runs CTest. The persistent
-artifact is deliberately only the canonical unsigned `AnyKeep.msi`, which is
-the future SignPath input. Update manifests and release installers must not be
-published from bytes that will later be changed by Authenticode signing.
+Release configuration as the Windows CI job and runs CTest.
 
-The workflow also builds an unsigned Burn bootstrapper as a smoke test but does
-not upload it. That test follows Microsoft's rolling `vc14` redirect, pins the
-resolved `download.visualstudio.microsoft.com` object and asks WiX to generate
-the remote payload hash/size/version. It therefore catches redirect or WiX
-authoring changes without creating another release-looking artifact.
+The nightly keeps three Windows distribution paths separate:
 
-The intended signed publishing pipeline is sequential: deep-sign the MSI, run
-`windows_update_package` against those signed bytes, build Burn around the
-signed MSI with `wix/make-burn-installer.cmake`, complete WiX's bundle-signing
-flow, and only then upload public artifacts. The Burn script accepts an
-external MSI and therefore works in a fresh post-signing Windows job without
-the original Qt build tree. SignPath Foundation requires manual approval for
-each signing request, so the actual signing workflow is kept separate until
-the SignPath project, policies and artifact configurations exist.
+- `AnyKeep.msi` is the canonical Windows Installer package and remains the
+  payload used by AnyKeep's own restart-to-update path outside the Store.
+- `AnyKeep.Installer-<version>.exe` is the interactive Burn bootstrapper. It
+  resolves Microsoft's current x64 VC++ v14 Redistributable to a concrete CDN
+  object, pins that payload with WiX-generated metadata, and then installs the
+  MSI.
+- `AnyKeep-<version>-windows-x86_64.msix` is the Microsoft Store package. It
+  starts `anykeep.exe` directly, excludes `AnyKeepLauncher.exe` and
+  `AnyKeepUpdater.exe`, declares `runFullTrust`, and depends on the Store-managed
+  `Microsoft.VCLibs.140.00.UWPDesktop` framework package. Its retail framework identity is discovered from the installed Windows Extension SDK when available. AnyKeep detects package
+  identity at runtime and routes the existing update UI through Microsoft Store APIs instead of the direct MSI updater.
+
+The Store assigns the package identity after the product name is reserved in
+Partner Center. Until then, the MSIX step is skipped. Configure these GitHub
+repository variables with the exact case-sensitive values from Partner Center:
+
+- `ANYKEEP_MSIX_IDENTITY_NAME` (`Package/Identity/Name`);
+- `ANYKEEP_MSIX_PUBLISHER` (`Package/Identity/Publisher`);
+- `ANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME`
+  (`Package/Properties/PublisherDisplayName`).
+
+Once all three are present, nightly artifacts contain MSI, EXE and MSIX. The
+MSIX produced by CI is intentionally not CA-signed: Microsoft Store re-signs an
+MSIX after certification. Direct-download MSI/EXE files are a separate signing
+problem; Microsoft Store does not sign them for distribution outside the Store.
+
+`msix_package` uses `MakeAppx.exe` from the installed Windows SDK. The package
+minimum is Windows 10 version 1809, matching Qt 6.11's supported Windows floor.
+The MSIX is for Store submission; sideloading the CI artifact requires a
+separate signing/dependency setup and is not the release path.
 
 ## Local equivalent
 
@@ -56,12 +71,16 @@ cmake -S . -B build/windows `
   -G "Visual Studio 17 2022" -A x64 `
   -DCMAKE_CONFIGURATION_TYPES=Release `
   -DANYKEEP_UPDATE_CHANNEL=nightly `
+  -DANYKEEP_MSIX_IDENTITY_NAME="<Partner Center Identity Name>" `
+  -DANYKEEP_MSIX_PUBLISHER="<Partner Center Publisher>" `
+  -DANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME="<Partner Center PublisherDisplayName>" `
   -DBUILD_TESTING=ON
 
 cmake --build build/windows --config Release --parallel 4
 ctest --test-dir build/windows -C Release --output-on-failure
 cmake --build build/windows --config Release --target package --parallel 4
 cmake --build build/windows --config Release --target burn_installer --parallel 4
+cmake --build build/windows --config Release --target msix_package --parallel 4
 ```
 
 Qt, Conan, and WiX still need to be available exactly as they do for a manual

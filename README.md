@@ -106,19 +106,23 @@ Conan support in Qt Creator plugins. You need cmake and ninja in PATH too becaus
 Qt Creator doesn't pass their locations to Conan (just add those installed by
 Qt Maintenance tool). The remaining magic should work automatically.
 
-### Creating an installer
+### Creating Windows packages
 
-To build an installer wix.exe from WiX toolset also has to be in PATH.
+To build the MSI/interactive EXE installer, `wix.exe` from WiX Toolset must be
+available. The Microsoft Store MSIX target additionally uses `MakeAppx.exe`
+from the Windows SDK.
 
-Follow next steps after installing dependencies and configuring PATH:
+After a Release build:
 
-1. select release build in qt creator
-2. build it (ctrl + b)
-3. then update deployment configuration and build the `burn_installer` target.
-   It creates a runtime-only install tree itself; do not use the generic
-   `cmake install` deployment step for the Windows installer.
-4. try to run and this will execute the deployment.
-5. deployment creates AnyKeep installer, so check terminal for logs.
+1. build `package` for the canonical `AnyKeep.msi`;
+2. build `burn_installer` for `AnyKeep.Installer-<version>.exe`;
+3. after reserving the Store product name, configure the exact Partner Center
+   identity values `ANYKEEP_MSIX_IDENTITY_NAME`, `ANYKEEP_MSIX_PUBLISHER`, and
+   `ANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME`, then build `msix_package`.
+
+All three targets create the runtime-only install tree themselves; do not use
+the generic `cmake install` deployment step as an installer substitute. The
+MSIX launches `anykeep.exe` directly and lets Microsoft Store manage updates.
 
 ## Internationalization
 

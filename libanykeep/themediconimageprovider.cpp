@@ -31,7 +31,7 @@ namespace {
 
     class ThemedIconImageProvider final : public QQuickImageProvider {
     public:
-        ThemedIconImageProvider() : QQuickImageProvider(QQuickImageProvider::Image) { }
+        ThemedIconImageProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
 
         QImage requestImage(const QString &id, QSize *size, const QSize &requestedSize) override
         {

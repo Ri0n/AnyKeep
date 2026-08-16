@@ -58,7 +58,7 @@ public:
 
 class RuleStorage final : public NoteStorage {
 public:
-    explicit RuleStorage(QString id, QObject *parent = nullptr) : NoteStorage(parent), id_(std::move(id)) { }
+    explicit RuleStorage(QString id, QObject *parent = nullptr) : NoteStorage(parent), id_(std::move(id)) {}
 
     bool                init() override { return true; }
     const QString       systemName() const override { return id_; }

@@ -67,12 +67,12 @@ private:
     static bool statesEqual(const DocumentState &left, const DocumentState &right);
     void        pushSnapshot(const QString &kind, const DocumentState &before, const QVariantMap &beforeView,
                              const DocumentState &after, const QVariantMap &afterView);
-    void        pushScalar(const QString &kind, const ScalarAddress &address, const QString &before,
-                           const QVariantMap &beforeView, const QString &after, const QVariantMap &afterView, bool mergeable);
-    void        apply(const DocumentState &state, const QVariantMap &viewState);
-    void        applyScalar(const ScalarAddress &address, const QString &value, const QVariantMap &viewState);
-    void        setCurrentScalar(const ScalarAddress &address, const QString &value);
-    void        changed();
+    void pushScalar(const QString &kind, const ScalarAddress &address, const QString &before,
+                    const QVariantMap &beforeView, const QString &after, const QVariantMap &afterView, bool mergeable);
+    void apply(const DocumentState &state, const QVariantMap &viewState);
+    void applyScalar(const ScalarAddress &address, const QString &value, const QVariantMap &viewState);
+    void setCurrentScalar(const ScalarAddress &address, const QString &value);
+    void changed();
 
     QUndoStack           stack_;
     DocumentState        current_;

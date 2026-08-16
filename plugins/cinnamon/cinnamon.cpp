@@ -69,7 +69,7 @@ static QString serializeGSettingsStringList(const QStringList &values)
     return QLatin1Char('[') + quoted.join(QLatin1String(", ")) + QLatin1Char(']');
 }
 
-CinnamonPlugin::CinnamonPlugin(QObject *parent) : QObject(parent) { }
+CinnamonPlugin::CinnamonPlugin(QObject *parent) : QObject(parent) {}
 
 void CinnamonPlugin::setHost(PluginHostInterface *host)
 {

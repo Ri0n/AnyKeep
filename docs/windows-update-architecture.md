@@ -12,7 +12,7 @@ The unpackaged Windows build should behave like Telegram-style desktop updates:
 6. Confirm the new version after it remains alive for 60 seconds, or when it exits normally before that timer elapses.
 7. Roll back automatically if the new executable cannot start, exits abnormally, or never reaches the startup probe.
 
-Microsoft Store / MSIX builds do not use this updater. `UpdateController` detects package identity and reports that updates are store-managed.
+Microsoft Store / MSIX builds reuse the same update UI and scheduling policy, but not the MSI staging/switcher path. `UpdateController` detects package identity and delegates discovery, download, and installation to `Windows.Services.Store.StoreContext`.
 
 ## Installed layout
 
@@ -52,20 +52,16 @@ A very small native Win32 executable with no Qt dependency. It:
 
 ### `UpdateController`
 
-Owned by `AnyKeep::Main` and exposed to the notes-manager QML window. It:
+Owned by `AnyKeep::Main` and exposed to the notes-manager QML window. It keeps one update UI while selecting the delivery backend from process package identity. It:
 
-- disables itself for package-identity / Microsoft Store builds;
-- checks the configured manifest shortly after startup and then every six hours when automatic checks are enabled;
-- exposes an automatic-check checkbox and an independent **Check for updates** button in Options;
-- downloads to `staging/<version>/package.msi.part`;
-- verifies package size and SHA-256;
+- exposes an automatic-check checkbox and an independent **Check for updates** button in Options for both Windows distribution modes;
+- for unpackaged MSI installs, checks the configured HTTPS manifest shortly after startup and then every six hours when automatic checks are enabled;
+- downloads the direct-update MSI to `staging/<version>/package.msi.part` and verifies package size and SHA-256;
 - runs `msiexec /a ... /qn TARGETDIR=<staging admin image>` to create an administrative image without installing the product;
 - locates and validates the MSI-owned `versions/<version>` payload containing `anykeep.exe` and `AnyKeepUpdater.exe`;
-- renames `versions/.<version>.tmp` to `versions/<version>`;
-- records the prepared version in `staging/prepared.json`;
-- restores a prepared update after an application restart;
-- exposes the green **Update and restart** banner;
-- launches the updater from the prepared version.
+- renames `versions/.<version>.tmp` to `versions/<version>`, records the prepared version in `staging/prepared.json`, restores it after an application restart, and launches the prepared updater;
+- for package-identity / Microsoft Store builds, bypasses all MSI staging and uses `Windows.Services.Store.StoreContext` to discover, download, and install Store package updates;
+- exposes the same green update banner for both backends.
 
 The default manifest is derived from `ANYKEEP_UPDATE_SERVER_ROOT` and `ANYKEEP_UPDATE_CHANNEL` (stable by default); `ANYKEEP_UPDATE_MANIFEST_URL` is an explicit configure-time override. In an `ANYKEEP_DEVEL` build, the updater is disabled unless the `ANYKEEP_UPDATE_ROOT` environment variable contains a test installation root. The development launcher honours the same variable, so it may be started from Qt Creator while exercising that test root. Development builds may also override the manifest at runtime with the `ANYKEEP_UPDATE_MANIFEST_URL` environment variable; it accepts HTTPS and, for local-network test servers, HTTP. Release builds ignore runtime environment overrides, accept HTTPS only, and derive the installation root from the versioned launcher layout.
 
@@ -174,7 +170,7 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
 cmake --build build --config Release --target windows_update_package
 ```
 
-For signed releases, deep-sign the MSI first and then rerun `wix/make-update-package.cmake.in` against that signed MSI. The script deliberately hashes and publishes the supplied MSI bytes, so the manifest never describes the unsigned pre-SignPath artifact.
+For signed direct-download releases, sign the MSI first and then rerun `wix/make-update-package.cmake.in` against those final bytes. The script deliberately hashes and publishes the supplied MSI bytes, so the manifest never describes a pre-signing artifact.
 
 Publishing order still matters: upload the versioned MSI and immutable version manifest first, then replace `windows-x86_64.json` last. The latest manifest is the only mutable channel pointer.
 
@@ -185,7 +181,7 @@ WiX remains responsible for the first installation, Start menu registration, App
 The MSI may also be downloaded and launched directly, without the Burn bootstrapper. For a fresh direct installation it checks both the x64 Visual C++ v14 Redistributable registration and the installed `vcruntime140.dll` version. The minimum accepted version is derived from the MSVC toolset used for that build (or an explicit `ANYKEEP_REQUIRED_VC_RUNTIME_VERSION` override), so the prerequisite floor does not silently become stale when the CI image updates Visual Studio. Administrative extraction (`msiexec /a`), repair, and uninstall bypass that prerequisite check. Burn remains responsible for installing the prerequisite automatically before it invokes the MSI.
 
 Burn does not pin Microsoft's mutable `aka.ms` permalink directly. When `burn_installer` is built, CMake downloads the current x64 v14 Redistributable through `https://aka.ms/vc14/vc_redist.x64.exe`, records the final `https://download.visualstudio.microsoft.com/...` URL, and runs `wix burn remotepayload` on those exact bytes. WiX supplies the SHA-512, size, version and product metadata embedded in the bundle. An old AnyKeep bootstrapper therefore keeps requesting the exact Microsoft payload it was built and hashed against even after the rolling permalink advances. The final redirect host is allow-listed; a Microsoft CDN topology change intentionally breaks the build until it is reviewed.
-The actual post-package logic lives in `wix/make-burn-installer.cmake`. It takes an MSI path explicitly and has no Qt build-tree dependency, so a signing workflow can download a SignPath-produced MSI in a later Windows job and build Burn around those exact signed bytes. The normal `burn_installer` target is only a convenience wrapper around that script.
+The actual post-package logic lives in `wix/make-burn-installer.cmake`. It takes an MSI path explicitly and has no Qt build-tree dependency, so a future signing/publishing workflow can build Burn around the exact MSI bytes it intends to ship. The normal `burn_installer` target is only a convenience wrapper around that script.
 
 The WiX package owns the stable launcher and the initial version directory. `RemoveFolderEx` removes updater-created versions, pointer files, staging data, and update logs during uninstall.
 
@@ -193,9 +189,17 @@ Changing an already released per-machine installer to a per-user MSI is a separa
 
 ## Microsoft Store path
 
-A later MSIX / Microsoft Store package can reuse the application binaries and UI but should not use the folder switcher. A process with package identity is detected through `GetCurrentPackageFamilyName`; the self-updater remains disabled and Windows / Microsoft Store owns update delivery.
+The `msix_package` target packages the same deployed Qt application tree for Microsoft Store without the MSI-specific launcher/update helpers. `anykeep.exe` is the MSIX application entry point, and the manifest declares a full-trust packaged desktop application plus the Store-managed `Microsoft.VCLibs.140.00.UWPDesktop` dependency. The Store identity (`Name`, `Publisher`, and `PublisherDisplayName`) is supplied from Partner Center rather than invented in the source tree.
 
-The green banner may later be reused for Store-managed release notes, but it must not download or replace Store package files itself.
+A process with package identity is detected through `GetCurrentPackageFamilyName`. In that mode the direct MSI updater remains disabled, while `UpdateController` uses `StoreContext::GetAppAndOptionalStorePackageUpdatesAsync()` for the existing **Check for updates** UI. Store package bytes are never downloaded or replaced directly by AnyKeep.
+
+For automatic checks, AnyKeep first asks the Store whether silent package delivery is currently allowed. When it is, the update is downloaded with `TrySilentDownloadStorePackageUpdatesAsync()`. After download, the application decides whether it is a safe time to restart: if no visible note editor is open, all editor state is synchronously checkpointed and the Store installation starts immediately; if a note is visible, AnyKeep leaves it alone and shows the normal update notification/banner so the user chooses when to restart. This mirrors Microsoft's Store update sample, which deliberately leaves the "good time to restart" decision to the application.
+
+A user-triggered Store update uses the Store request APIs when silent delivery is unavailable, so Windows owns the consent dialogs. `StoreContext` is associated with an AnyKeep HWND through `IInitializeWithWindow` before invoking methods that can display those dialogs. Immediately before installation, AnyKeep checkpoints every open editor.
+
+Store builds register the process with `RegisterApplicationRestart()` as soon as the Store backend is created, using flags that disable crash, hang, and reboot relaunches while retaining restart after an application update. The registration is refreshed immediately before an AnyKeep-initiated installation and intentionally remains registered until process termination. This also covers Store-driven automatic updates that happen outside AnyKeep's own check cycle: Windows can close the old packaged process for deployment and relaunch the new version afterwards. Restart Manager only restarts a process that has been running for at least 60 seconds, so the first automatic Store check is delayed to 65 seconds instead of the unpackaged updater's 20-second startup delay. This restart path must still be validated with an actual Store flight because Store package discovery and installation require a Store-associated package identity.
+
+The packaged process also keeps the manifest-provided AUMID instead of overriding it with the unpackaged `com.github.ri0n.AnyKeep` AppUserModelID.
 
 ## Security before public rollout
 

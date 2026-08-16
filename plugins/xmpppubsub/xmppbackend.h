@@ -60,10 +60,9 @@ public:
     virtual void rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback) = 0;
     virtual void scanObsoleteItemsAsync(CleanupCallback callback)                                           = 0;
     virtual void deleteObsoleteItemsAsync(QStringList indexItemIds, QStringList contentItemIds,
-                                          CleanupCallback callback)
-        = 0;
-    virtual void approveKeySyncRequest(QString requestId) = 0;
-    virtual void rejectKeySyncRequest(QString requestId)  = 0;
+                                          CleanupCallback callback)                                         = 0;
+    virtual void approveKeySyncRequest(QString requestId)                                                   = 0;
+    virtual void rejectKeySyncRequest(QString requestId)                                                    = 0;
 
 signals:
     /// A complete remote note was published or changed.

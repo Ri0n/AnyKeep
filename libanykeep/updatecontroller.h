@@ -13,11 +13,14 @@ class QTimer;
 
 namespace AnyKeep {
 
+class StoreUpdateBackend;
+
 class UpdateController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
     Q_PROPERTY(bool supported READ supported CONSTANT)
     Q_PROPERTY(bool managedByStore READ managedByStore CONSTANT)
+    Q_PROPERTY(bool storePackageDownloaded READ storePackageDownloaded NOTIFY stateChanged)
     Q_PROPERTY(bool automaticChecksEnabled READ automaticChecksEnabled WRITE setAutomaticChecksEnabled NOTIFY
                    automaticChecksEnabledChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
@@ -38,6 +41,8 @@ public:
     State   state() const { return state_; }
     bool    supported() const { return supported_; }
     bool    managedByStore() const { return managedByStore_; }
+    bool    storePackageDownloaded() const { return storePackageDownloaded_; }
+    bool    canApplyStoreUpdateSilently() const { return storeSilentAvailable_; }
     bool    automaticChecksEnabled() const { return automaticChecksEnabled_; }
     bool    busy() const;
     bool    updateReady() const { return state_ == Ready; }
@@ -51,6 +56,7 @@ public:
     void confirmStartupProbe(const QStringList &arguments);
     void setAutomaticChecksEnabled(bool enabled);
     bool launchPreparedUpdater(qint64 waitPid, QString *error = nullptr);
+    bool installStoreUpdate(bool silentOnly, QString *error = nullptr);
 
     Q_INVOKABLE void checkNow();
     Q_INVOKABLE void applyUpdate();
@@ -61,6 +67,7 @@ signals:
     void updateChanged();
     void downloadProgressChanged();
     void updatePrepared(const QString &version);
+    void storeUpdatePrepared(const QString &version, bool automatic);
     void applyRequested();
 
 private:
@@ -83,6 +90,13 @@ private:
     void    restorePreparedUpdate();
     void    clearDownloadObjects();
     void    resetTransientFiles();
+#ifdef Q_OS_WIN
+    void handleStoreCheckFinished(bool updateAvailable, const QString &version, bool canSilentlyDownload,
+                                  const QString &error);
+    void handleStoreDownloadFinished(bool success, bool canceled, const QString &error);
+    void handleStoreInstallFinished(bool success, bool canceled, const QString &error);
+    void beginStoreDownload(bool silentOnly);
+#endif
 
     QString detectInstallRoot() const;
     QString manifestUrlString() const;
@@ -100,6 +114,10 @@ private:
     State   state_ { Unsupported };
     bool    supported_ { false };
     bool    managedByStore_ { false };
+    bool    storePackageDownloaded_ { false };
+    bool    storeSilentAvailable_ { false };
+    bool    storeSilentDownloadRequest_ { false };
+    bool    storeSilentInstallRequest_ { false };
     bool    automaticChecksEnabled_ { true };
     bool    automaticRequest_ { false };
     bool    startupProbeWritten_ { false };
@@ -118,6 +136,7 @@ private:
     QFile                 *downloadFile_ { nullptr };
     QProcess              *prepareProcess_ { nullptr };
     QTimer                *automaticTimer_ { nullptr };
+    StoreUpdateBackend    *storeBackend_ { nullptr };
 #endif
 };
 

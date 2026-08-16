@@ -74,7 +74,7 @@ protected:
     void         setErrorString(const QString &error);
     void         setDirty(bool dirty);
     virtual bool applyValues(const QVariantMap &values, QString *error) = 0;
-    virtual void afterReset() { }
+    virtual void afterReset() {}
 
 private:
     QVariantMap values() const;

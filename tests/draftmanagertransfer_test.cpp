@@ -52,7 +52,7 @@ public:
 class TransferStorage final : public NoteStorage {
     Q_OBJECT
 public:
-    explicit TransferStorage(QString id, QObject *parent = nullptr) : NoteStorage(parent), id_(std::move(id)) { }
+    explicit TransferStorage(QString id, QObject *parent = nullptr) : NoteStorage(parent), id_(std::move(id)) {}
 
     bool                init() override { return true; }
     const QString       systemName() const override { return id_; }

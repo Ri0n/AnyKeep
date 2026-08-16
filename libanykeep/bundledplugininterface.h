@@ -14,7 +14,7 @@ public:
     virtual ~BundledPluginInterface() = default;
 
     virtual bool initialize() = 0;
-    virtual void shutdown() { }
+    virtual void shutdown() {}
 };
 
 } // namespace AnyKeep

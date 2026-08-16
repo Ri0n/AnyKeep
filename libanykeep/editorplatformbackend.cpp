@@ -167,7 +167,7 @@ namespace {
     class FirstLineHighlighter final : public HighlighterExtension {
     public:
         void setColor(const QColor &color) { color_ = color; }
-        void reset() override { }
+        void reset() override {}
 
         void highlight(NoteHighlighter *highlighter, const QString &) override
         {
@@ -572,7 +572,7 @@ bool EditorPlatformBackend::insertAttachment(int row)
     return true;
 }
 
-void EditorPlatformBackend::saveImageAs(const QString &) { }
+void EditorPlatformBackend::saveImageAs(const QString &) {}
 bool EditorPlatformBackend::startImageDrag(int) { return false; }
 
 bool EditorPlatformBackend::insertRasterImage(const QImage &image, const QString &name, int row)

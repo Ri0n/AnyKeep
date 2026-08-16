@@ -18,7 +18,7 @@ class RegularPluginInterface {
 public:
     virtual ~RegularPluginInterface() = default;
     virtual bool initialize()         = 0;
-    virtual void shutdown() { }
+    virtual void shutdown() {}
 };
 
 class PluginOptionsTooltipInterface {

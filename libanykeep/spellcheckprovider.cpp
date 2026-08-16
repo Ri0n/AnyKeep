@@ -18,7 +18,7 @@ namespace {
                 = QRegularExpression(QStringLiteral("[[:alpha:]]{2,}"), QRegularExpression::UseUnicodePropertiesOption);
         }
 
-        void reset() override { }
+        void reset() override {}
 
         QStringList suggestions(const QString &word) const override { return provider_->suggestions(word); }
         void        addToDictionary(const QString &word) override { provider_->addToDictionary(word); }

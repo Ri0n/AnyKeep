@@ -6,7 +6,7 @@
 
 namespace AnyKeep {
 
-SettingsController::SettingsController(QObject *parent) : QAbstractListModel(parent) { }
+SettingsController::SettingsController(QObject *parent) : QAbstractListModel(parent) {}
 
 int SettingsController::rowCount(const QModelIndex &parent) const { return parent.isValid() ? 0 : fields_.size(); }
 

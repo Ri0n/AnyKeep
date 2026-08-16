@@ -4,6 +4,7 @@
 #include "desktopnoteactions.h"
 #include "editorcursorcontroller.h"
 #include "localmediaimageprovider.h"
+#include "noteeditor.h"
 #include "notemanager.h"
 #include "notestorage.h"
 #include "notesworkspacecontroller.h"
@@ -28,7 +29,7 @@
 
 namespace AnyKeep {
 
-NotesManagerWindow::NotesManagerWindow(QObject *parent) : NotesManagerWindow(nullptr, parent) { }
+NotesManagerWindow::NotesManagerWindow(QObject *parent) : NotesManagerWindow(nullptr, parent) {}
 
 NotesManagerWindow::NotesManagerWindow(UpdateController *updates, QObject *parent) : QObject(parent), updates_(updates)
 {
@@ -120,6 +121,13 @@ void NotesManagerWindow::setSpeechRecognitionProvider(SpeechRecognitionProviderI
 
 bool NotesManagerWindow::isReady() const { return !window_.isNull(); }
 bool NotesManagerWindow::isVisible() const { return window_ && window_->isVisible(); }
+bool NotesManagerWindow::hasOpenNote() const { return workspace_ && workspace_->currentEditor(); }
+
+bool NotesManagerWindow::checkpoint()
+{
+    flushEditorChanges();
+    return !workspace_ || !workspace_->currentEditor() || workspace_->currentEditor()->save();
+}
 
 void NotesManagerWindow::show()
 {
@@ -255,7 +263,23 @@ bool NotesManagerWindow::eventFilter(QObject *watched, QEvent *event)
             dragEvent->ignore();
         }
         return true;
+    } else if (event->type() == QEvent::Close) {
+        // Store/MSIX deployment closes active desktop windows before replacing
+        // the package. A normal note-manager close should checkpoint too, and
+        // this makes Store-driven updates safe even when they were initiated
+        // outside AnyKeep's own UpdateController.
+        if (!checkpoint()) {
+            event->ignore();
+            if (workspace_ && workspace_->currentEditor())
+                emit operationFailed(workspace_->currentEditor()->errorString());
+            return true;
+        }
     } else if (event->type() == QEvent::Hide) {
+        // A hidden manager is no longer considered an actively edited note by
+        // the automatic-update policy, so checkpoint it before it becomes a
+        // tray-only session.
+        if (!checkpoint() && workspace_ && workspace_->currentEditor())
+            emit operationFailed(workspace_->currentEditor()->errorString());
         saveWindowState();
     } else if (event->type() == QEvent::DragLeave) {
         imageDragAccepted_ = false;

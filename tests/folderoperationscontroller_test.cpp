@@ -42,7 +42,7 @@ public:
     }
     Note createNote() override { return {}; }
     bool saveNote(const Note &) override { return false; }
-    void removeNote(const QString &) override { }
+    void removeNote(const QString &) override {}
 
     bool                  supportsNativeFolders() const override { return nativeFolders_; }
     bool                  supportsNativeFolderCatalog() const override { return nativeCatalog_; }

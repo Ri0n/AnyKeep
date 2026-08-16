@@ -74,7 +74,7 @@ protected:
     void loadNext();
 
 public:
-    NoteFinder(NoteStorage &storage) : QObject(&storage), _storage(storage) { }
+    NoteFinder(NoteStorage &storage) : QObject(&storage), _storage(storage) {}
 
     NoteStorage &storage() const { return _storage; }
 
@@ -135,7 +135,7 @@ void NoteFinder::abort()
     deleteLater();
 }
 
-GlobalNoteFinder::GlobalNoteFinder(QObject *parent) : QObject(parent) { }
+GlobalNoteFinder::GlobalNoteFinder(QObject *parent) : QObject(parent) {}
 
 void GlobalNoteFinder::start(const QString &text)
 {

@@ -267,10 +267,10 @@ void NoteBlockModelTest::tagLineBecomesOrdinaryTextWhenContentMovesBeforeIt()
 void NoteBlockModelTest::parsesAndWritesGithubBlocks()
 {
     const QString  markdown = QStringLiteral("A [link](https://example.org)\n\n"
-                                              "- one\n- two\n\n"
-                                              "- [ ] todo\n- [x] done\n\n"
-                                              "| Name | Value |\n| --- | --- |\n| a | b |\n\n"
-                                              "![cat](media://cat)");
+                                             "- one\n- two\n\n"
+                                             "- [ ] todo\n- [x] done\n\n"
+                                             "| Name | Value |\n| --- | --- |\n| a | b |\n\n"
+                                             "![cat](media://cat)");
     NoteBlockModel model;
     model.load(markdown, true);
     QCOMPARE(model.rowCount(), 5);
@@ -379,11 +379,11 @@ void NoteBlockModelTest::serializesParsesAndTransfersAudioBlocks()
 
 void NoteBlockModelTest::serializesParsesAndTransfersAttachments()
 {
-    const QString uri  = QStringLiteral("anykeep-media:/22222222-2222-2222-2222-222222222222/spec.pdf");
-    const QString html = QStringLiteral("<a href=\"%1\" data-anykeep-attachment=\"1\" "
-                                        "data-anykeep-media-type=\"application/pdf\" data-anykeep-size=\"123456\">"
-                                        "Spec &amp; notes.pdf</a>")
-                             .arg(uri);
+    const QString  uri  = QStringLiteral("anykeep-media:/22222222-2222-2222-2222-222222222222/spec.pdf");
+    const QString  html = QStringLiteral("<a href=\"%1\" data-anykeep-attachment=\"1\" "
+                                         "data-anykeep-media-type=\"application/pdf\" data-anykeep-size=\"123456\">"
+                                         "Spec &amp; notes.pdf</a>")
+                              .arg(uri);
     NoteBlockModel model;
     model.load(html, true);
     QCOMPARE(model.rowCount(), 1);
@@ -413,10 +413,10 @@ void NoteBlockModelTest::serializesParsesAndTransfersAttachments()
 void NoteBlockModelTest::parsesSerializesAndTransfersBlockQuotes()
 {
     const QString  markdown = QStringLiteral("title\n\n"
-                                              "> quoted **text**\n"
-                                              ">\n"
-                                              "> second paragraph\n\n"
-                                              "after");
+                                             "> quoted **text**\n"
+                                             ">\n"
+                                             "> second paragraph\n\n"
+                                             "after");
     NoteBlockModel model;
     model.load(markdown, true);
 
@@ -515,8 +515,8 @@ void NoteBlockModelTest::splitsStructuredBlockIntoFollowingParagraph()
 void NoteBlockModelTest::leadingTablePipeDoesNotCreatePhantomColumn()
 {
     const QString  markdown = QStringLiteral("|  Header 1 | Header 2 |\n"
-                                              "| --- | --- |\n"
-                                              "| Content 1 | content 2 |");
+                                             "| --- | --- |\n"
+                                             "| Content 1 | content 2 |");
     NoteBlockModel model;
     model.load(markdown, true);
 

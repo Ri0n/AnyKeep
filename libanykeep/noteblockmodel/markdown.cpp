@@ -508,8 +508,8 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
                     const auto    nextBullet   = bullet.match(lines[next]);
                     const auto    nextNumbered = numbered.match(lines[next]);
                     const QString nextIndent   = nextTask.hasMatch() ? nextTask.captured(1)
-                          : nextBullet.hasMatch()                    ? nextBullet.captured(1)
-                          : nextNumbered.hasMatch()                  ? nextNumbered.captured(1)
+                        : nextBullet.hasMatch()                      ? nextBullet.captured(1)
+                        : nextNumbered.hasMatch()                    ? nextNumbered.captured(1)
                                                                      : QString();
                     if (nextIndent.isEmpty())
                         break;
@@ -522,15 +522,15 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
                     break;
                 BlockType       itemType;
                 const BlockType candidateType     = taskItem.hasMatch() ? CheckList
-                        : numberedItem.hasMatch()                       ? NumberedList
+                    : numberedItem.hasMatch()                           ? NumberedList
                                                                         : BulletList;
                 const QString   candidateIndent   = taskItem.hasMatch() ? taskItem.captured(1)
-                        : bulletItem.hasMatch()                         ? bulletItem.captured(1)
-                        : numberedItem.hasMatch()                       ? numberedItem.captured(1)
+                    : bulletItem.hasMatch()                             ? bulletItem.captured(1)
+                    : numberedItem.hasMatch()                           ? numberedItem.captured(1)
                                                                         : QString();
                 const int       rawIndent         = preserveSourceListIndents
-                                  ? sourceListIndents.value(sourceListItem, candidateIndent.size())
-                                  : candidateIndent.size();
+                    ? sourceListIndents.value(sourceListItem, candidateIndent.size())
+                    : candidateIndent.size();
                 const bool returnsFromNestedLevel = !block.indents.isEmpty() && block.indents.constLast().toInt() > 0;
                 if (!block.itemTypes.isEmpty() && rawIndent == 0 && !returnsFromNestedLevel
                     && candidateType != BlockType(block.itemTypes.constLast().toInt()))
@@ -563,7 +563,7 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
                     block.type = itemType;
                 block.itemTypes.append(itemType);
                 const int contentColumn      = taskItem.hasMatch() ? taskItem.capturedStart(3)
-                         : bulletItem.hasMatch()                   ? bulletItem.capturedStart(2)
+                    : bulletItem.hasMatch()                        ? bulletItem.capturedStart(2)
                                                                    : numberedItem.capturedStart(2);
                 const int continuationColumn = preserveSourceLines ? contentColumn : candidateIndent.size() + 2;
                 ++i;

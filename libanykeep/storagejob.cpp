@@ -4,7 +4,7 @@
 
 namespace AnyKeep {
 
-StorageJob::StorageJob(QObject *parent) : QObject(parent) { }
+StorageJob::StorageJob(QObject *parent) : QObject(parent) {}
 
 void StorageJob::start()
 {

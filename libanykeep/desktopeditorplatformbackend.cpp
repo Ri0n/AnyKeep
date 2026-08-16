@@ -52,7 +52,7 @@ namespace {
 
 } // namespace
 
-DesktopEditorPlatformBackend::DesktopEditorPlatformBackend(QObject *parent) : EditorPlatformBackend(parent) { }
+DesktopEditorPlatformBackend::DesktopEditorPlatformBackend(QObject *parent) : EditorPlatformBackend(parent) {}
 
 DesktopEditorPlatformBackend::DesktopEditorPlatformBackend(NoteEditor *editor, QObject *parent) :
     EditorPlatformBackend(editor, parent)

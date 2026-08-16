@@ -66,7 +66,7 @@ public:
     bool                 indexedCountInitialized { false };
 };
 
-NotesModel::NotesModel(QObject *parent) : NotesModel(nullptr, parent) { }
+NotesModel::NotesModel(QObject *parent) : NotesModel(nullptr, parent) {}
 
 NotesModel::NotesModel(FolderCatalogManager *folderCatalogManager, QObject *parent) : QAbstractItemModel(parent)
 {

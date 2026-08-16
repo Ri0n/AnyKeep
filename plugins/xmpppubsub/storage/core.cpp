@@ -279,7 +279,7 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController 
                             result.ok      = true;
                             const auto key = SecureEnvelope::generateMasterKey();
                             completion(std::move(result), key,
-                                                 SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes));
+                                       SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes));
                         },
                         this);
 
@@ -400,8 +400,8 @@ XmppConfig XmppStorage::readConfig() const
     config.resource = settings.value(QStringLiteral("storage.xmpppubsub.resource"), defaultResource).toString();
     const auto storedNodeName = settings.value(QStringLiteral("storage.xmpppubsub.node")).toString().trimmed();
     config.nodeName           = storedNodeName.isEmpty() || storedNodeName == QStringLiteral("urn:xmpp:private-notes:0")
-                  ? XmppConfig {}.nodeName
-                  : storedNodeName;
+        ? XmppConfig {}.nodeName
+        : storedNodeName;
     config.timeoutMs          = settings.value(QStringLiteral("storage.xmpppubsub.timeoutMs"), 15000).toInt();
     if (!config.jid.isEmpty()) {
         const auto key = SecureKeyStore::read(storageKeyName(config.jid));

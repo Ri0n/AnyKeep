@@ -831,8 +831,8 @@ void PluginManager::updateMetadata()
         settings.beginGroup(pd->metadata.id);
         pd->loadPolicyExplicit = settings.value(QStringLiteral("loadPolicyExplicit"), false).toBool();
         pd->loadPolicy         = pd->loadPolicyExplicit
-                    ? LoadPolicy(settings.value(QStringLiteral("loadPolicy"), LP_Auto).toInt())
-                    : defaultLoadPolicy(pd->metadata);
+            ? LoadPolicy(settings.value(QStringLiteral("loadPolicy"), LP_Auto).toInt())
+            : defaultLoadPolicy(pd->metadata);
         settings.setValue(QStringLiteral("loadPolicy"), int(pd->loadPolicy));
         settings.setValue(QStringLiteral("loadPolicyExplicit"), pd->loadPolicyExplicit);
         settings.setValue(QStringLiteral("filename"), pd->fileName);

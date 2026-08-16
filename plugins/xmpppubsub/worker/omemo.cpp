@@ -31,9 +31,9 @@ QCoro::Task<std::pair<QList<XmppDeviceInfo>, QString>> XmppWorker::ownOmemoDevic
 
     const auto bareJid = QXmppUtils::jidToBareJid(config_.jid);
     auto       list    = co_await pubSub_
-                    ->requestItem<XmppOmemoDeviceListItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:devices"),
-                                                           QStringLiteral("current"))
-                    .toFuture(this);
+                             ->requestItem<XmppOmemoDeviceListItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:devices"),
+                                                                    QStringLiteral("current"))
+                             .toFuture(this);
     if (const auto *error = std::get_if<QXmppError>(&list))
         co_return std::make_pair(QList<XmppDeviceInfo> {}, errorText(*error));
 
@@ -84,9 +84,9 @@ QCoro::Task<XmppStatusResult> XmppWorker::ownOmemoBundleValidTask()
         co_return XmppStatusResult { false, false, false, QStringLiteral("The local OMEMO device is not initialized") };
     const auto bareJid = QXmppUtils::jidToBareJid(config_.jid);
     auto       bundle  = co_await pubSub_
-                      ->requestItem<XmppOmemoBundleItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:bundles"),
-                                                         QString::number(own.deviceId))
-                      .toFuture(this);
+                             ->requestItem<XmppOmemoBundleItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:bundles"),
+                                                                QString::number(own.deviceId))
+                             .toFuture(this);
     if (const auto *error = std::get_if<QXmppError>(&bundle))
         co_return XmppStatusResult { false, false, false, errorText(*error), {}, classifyXmppError(*error) };
     const auto publishedKey = std::get<XmppOmemoBundleItem>(bundle).identityKey();
@@ -149,10 +149,10 @@ QCoro::Task<XmppStatusResult> XmppWorker::repairOwnOmemoDeviceTask()
     const auto oldDeviceId  = omemoStorage_->ownDeviceId();
     const auto oldDeviceKey = omemoStorage_->ownIdentityKey();
     auto       oldBundle    = co_await pubSub_
-                         ->requestItem<XmppOmemoBundleItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:bundles"),
-                                                            QString::number(oldDeviceId))
-                         .toFuture(this);
-    const bool bundleValid = std::holds_alternative<XmppOmemoBundleItem>(oldBundle)
+                                  ->requestItem<XmppOmemoBundleItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:bundles"),
+                                                                     QString::number(oldDeviceId))
+                                  .toFuture(this);
+    const bool bundleValid  = std::holds_alternative<XmppOmemoBundleItem>(oldBundle)
         && std::get<XmppOmemoBundleItem>(oldBundle).identityKey() == oldDeviceKey;
 
     auto list = co_await pubSub_
@@ -219,9 +219,9 @@ QCoro::Task<XmppStatusResult> XmppWorker::removeOwnOmemoDeviceTask(quint32 devic
 
     const auto bareJid = QXmppUtils::jidToBareJid(config_.jid);
     auto       list    = co_await pubSub_
-                    ->requestItem<XmppOmemoDeviceListItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:devices"),
-                                                           QStringLiteral("current"))
-                    .toFuture(this);
+                             ->requestItem<XmppOmemoDeviceListItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:devices"),
+                                                                    QStringLiteral("current"))
+                             .toFuture(this);
     if (const auto *error = std::get_if<QXmppError>(&list))
         co_return XmppStatusResult { false, false, false, errorText(*error), {}, classifyXmppError(*error) };
 
@@ -234,9 +234,9 @@ QCoro::Task<XmppStatusResult> XmppWorker::removeOwnOmemoDeviceTask(quint32 devic
 
     QByteArray removedKey;
     auto       bundle = co_await pubSub_
-                      ->requestItem<XmppOmemoBundleItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:bundles"),
-                                                         QString::number(deviceId))
-                      .toFuture(this);
+                            ->requestItem<XmppOmemoBundleItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:bundles"),
+                                                               QString::number(deviceId))
+                            .toFuture(this);
     if (const auto *publishedBundle = std::get_if<XmppOmemoBundleItem>(&bundle))
         removedKey = publishedBundle->identityKey();
 
@@ -338,7 +338,7 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
         if (std::holds_alternative<QXmppError>(result)) {
             requestId = newUuid();
             result    = co_await client_->sendSensitiveIq(keySyncExtension_->makeRequest(resource, requestId), {})
-                         .toFuture(this);
+                            .toFuture(this);
         }
         if (const auto *error = std::get_if<QXmppError>(&result)) {
             errors.append(QStringLiteral("%1: %2").arg(resource, errorText(*error)));

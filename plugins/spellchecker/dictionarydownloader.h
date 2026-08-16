@@ -29,7 +29,7 @@ namespace AnyKeep {
 class DictionaryDownloader : public QObject {
     Q_OBJECT
 public:
-    DictionaryDownloader(const QLocale &locale, QObject *parent) : QObject(parent), locale_(locale) { }
+    DictionaryDownloader(const QLocale &locale, QObject *parent) : QObject(parent), locale_(locale) {}
 
     virtual void start() = 0;
 

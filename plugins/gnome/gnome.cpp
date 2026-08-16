@@ -76,7 +76,7 @@ static QString runGSettings(const QStringList &arguments, bool *ok = nullptr)
 //------------------------------------------------------------
 // GnomePlugin
 //------------------------------------------------------------
-GnomePlugin::GnomePlugin(QObject *parent) : QObject(parent) { }
+GnomePlugin::GnomePlugin(QObject *parent) : QObject(parent) {}
 
 void GnomePlugin::setHost(PluginHostInterface *host)
 {

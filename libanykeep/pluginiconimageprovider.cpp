@@ -141,7 +141,7 @@ namespace {
 
     class PluginIconImageProvider final : public QQuickImageProvider {
     public:
-        PluginIconImageProvider() : QQuickImageProvider(QQuickImageProvider::Image) { }
+        PluginIconImageProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
 
         QImage requestImage(const QString &id, QSize *size, const QSize &requestedSize) override
         {

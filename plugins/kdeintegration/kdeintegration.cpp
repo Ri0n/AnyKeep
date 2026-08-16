@@ -37,7 +37,7 @@ static const QLatin1String useSonnetSetting("kdeintegration/useSonnet");
 //------------------------------------------------------------
 // KDEIntegration
 //------------------------------------------------------------
-KDEIntegration::KDEIntegration(QObject *parent) : QObject(parent) { }
+KDEIntegration::KDEIntegration(QObject *parent) : QObject(parent) {}
 
 bool KDEIntegration::ensureWaylandGeometryScript()
 {
@@ -80,7 +80,7 @@ bool KDEIntegration::ensureWaylandGeometryScript()
     return _waylandGeometryScriptAvailable;
 }
 
-void KDEIntegration::setHost(PluginHostInterface *) { }
+void KDEIntegration::setHost(PluginHostInterface *) {}
 
 std::shared_ptr<SpellCheckProvider> KDEIntegration::spellCheckProvider()
 {
@@ -272,7 +272,7 @@ try {
                                .arg(qMax(0, position.y()))
                                .arg(size.width())
                                .arg(size.height());
-    QString output;
+    QString       output;
     if (!evaluatePlasmaScript(script, &output))
         return false;
     const QString presentationId = output.trimmed().section(QLatin1Char(':'), 1, 1);
@@ -300,7 +300,7 @@ bool KDEIntegration::dismissStickyNote(const QUuid &stickyId)
             break;
         }
     }
-    const QString script = QStringLiteral(R"JS(
+    const QString script  = QStringLiteral(R"JS(
 try {
     var stickyId = "%1";
     var pluginId = "%2";
@@ -322,8 +322,8 @@ try {
     print("ERROR:" + error);
 }
 )JS")
-                               .arg(idText, stickyPlasmoidId, presentationId);
-    const bool removed = evaluatePlasmaScript(script);
+                                .arg(idText, stickyPlasmoidId, presentationId);
+    const bool    removed = evaluatePlasmaScript(script);
     if (removed && !presentationId.isEmpty())
         settings.remove(presentationId);
     return removed;

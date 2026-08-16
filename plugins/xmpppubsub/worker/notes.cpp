@@ -263,7 +263,7 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
                     decodeSummary.firstKeyMismatch
                         = QStringLiteral("Encrypted private-note storage key mismatch (item %1, configured %2)")
                               .arg(QString::fromLatin1(item.payload().keyId.left(8).toHex()),
-                                       QString::fromLatin1(configuredKeyId.left(8).toHex()));
+                                   QString::fromLatin1(configuredKeyId.left(8).toHex()));
                 }
                 qWarning().noquote() << "Skipping XMPP index item encrypted with another storage key" << item.id();
                 continue;

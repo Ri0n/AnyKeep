@@ -50,10 +50,10 @@ public:
     Q_INVOKABLE bool        moveRule(int sourceRow, int destinationRow);
     Q_INVOKABLE bool        setRuleEnabled(const QString &ruleId, bool enabled);
     Q_INVOKABLE QVariantMap ruleDetails(const QString &ruleId) const;
-    Q_INVOKABLE bool        updateRule(const QString &ruleId, const QString &name, int conditionCombiner,
-                                       const QVariantList &conditions, const QVariantList &actions, bool stopProcessing);
-    Q_INVOKABLE QString     conditionLabel(int kind) const;
-    Q_INVOKABLE QString     actionLabel(int kind) const;
+    Q_INVOKABLE bool    updateRule(const QString &ruleId, const QString &name, int conditionCombiner,
+                                   const QVariantList &conditions, const QVariantList &actions, bool stopProcessing);
+    Q_INVOKABLE QString conditionLabel(int kind) const;
+    Q_INVOKABLE QString actionLabel(int kind) const;
 
 signals:
     void availableChanged();

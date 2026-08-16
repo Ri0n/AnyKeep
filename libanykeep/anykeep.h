@@ -95,6 +95,9 @@ public:
     void unregisterStorage(NoteStorage *storage);
 
 private:
+    bool        hasVisibleNoteEditor() const;
+    bool        checkpointOpenEditorsForUpdate();
+    void        applyPreparedUpdateInternal(bool silentStoreOnly);
     NoteDialog *makeNoteDialog(const QString &storageId, const QString &noteId = {});
 
 signals:

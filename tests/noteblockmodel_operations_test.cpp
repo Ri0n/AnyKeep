@@ -415,7 +415,7 @@ void NoteBlockModelTest::coalescesAdjacentLinksCreatedAcrossFormatRuns()
 void NoteBlockModelTest::keepsLongInlineLinksOnTheirSourceLine()
 {
     const QString  url       = QStringLiteral("https://example.org/a/very/long/path/that/exceeds/the/markdown/"
-                                                     "writers/usual/wrapping/column?with=query&and=value");
+                                              "writers/usual/wrapping/column?with=query&and=value");
     const QString  paragraph = QStringLiteral("before [%1](%1) after").arg(url);
     NoteBlockModel model;
     model.load(paragraph, true);

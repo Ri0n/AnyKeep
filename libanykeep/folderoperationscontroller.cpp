@@ -366,7 +366,7 @@ void FolderOperationsController::startNativeTreePreparation(NoteStorage *storage
         auto *change = storageGuard->changeNoteFolderAsync(note, this);
         if (!change) {
             finishAssignment(storageId, note.id(), folderId, false,
-                              tr("The note storage did not create a folder operation"));
+                             tr("The note storage did not create a folder operation"));
             return;
         }
         const auto changeHandled = QSharedPointer<bool>::create(false);

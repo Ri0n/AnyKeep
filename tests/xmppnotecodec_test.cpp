@@ -373,7 +373,7 @@ void XmppNoteCodecTest::rejectsUnknownRequiredExtension()
         auto required = document.createElementNS(XmppNoteCodec::protocolNamespace, QStringLiteral("required"));
         required.setAttribute(QStringLiteral("feature"), QStringLiteral("urn:example:required:1"));
         document.documentElement().insertBefore(required,
-                                                     directChild(document.documentElement(), QStringLiteral("content")));
+                                                directChild(document.documentElement(), QStringLiteral("content")));
     });
     const auto decoded = XmppNoteCodec::decodeIndex(payload.value, key, QStringLiteral("index"));
     QVERIFY(!decoded);

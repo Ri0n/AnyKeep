@@ -9,7 +9,7 @@
 
 namespace AnyKeep {
 
-RecentNotesModel::RecentNotesModel(QObject *parent) : QAbstractListModel(parent) { }
+RecentNotesModel::RecentNotesModel(QObject *parent) : QAbstractListModel(parent) {}
 
 RecentNotesModel::RecentNotesModel(QAbstractItemModel *sourceModel, QObject *parent) : QAbstractListModel(parent)
 {

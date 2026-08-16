@@ -8,10 +8,9 @@ namespace AnyKeep {
 
 class ActionNotificationInterface {
 public:
-    virtual ~ActionNotificationInterface() = default;
+    virtual ~ActionNotificationInterface()            = default;
     virtual void notify(const QString &title, const QString &message, const QString &actionText,
-                        std::function<void()> action)
-        = 0;
+                        std::function<void()> action) = 0;
 };
 
 } // namespace AnyKeep

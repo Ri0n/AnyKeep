@@ -300,7 +300,7 @@ void GeminiPlugin::setHost(PluginHostInterface *host) { Q_UNUSED(host); }
 
 bool GeminiPlugin::initialize() { return true; }
 
-void GeminiPlugin::shutdown() { }
+void GeminiPlugin::shutdown() {}
 
 QString GeminiPlugin::tooltip() const
 {

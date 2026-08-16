@@ -4,7 +4,7 @@
 
 namespace AnyKeep {
 
-NoteHighlighter::NoteHighlighter(QTextDocument *document) : QSyntaxHighlighter(document) { }
+NoteHighlighter::NoteHighlighter(QTextDocument *document) : QSyntaxHighlighter(document) {}
 
 void NoteHighlighter::highlightBlock(const QString &text)
 {

@@ -36,7 +36,7 @@ public:
     public:
         typedef QSharedPointer<PluginData> Ptr;
 
-        PluginData() : instance(0), loadPolicy(LP_Auto), loadPolicyExplicit(false), loadStatus(LS_Undefined) { }
+        PluginData() : instance(0), loadPolicy(LP_Auto), loadPolicyExplicit(false), loadStatus(LS_Undefined) {}
         QObject                      *instance;
         LoadPolicy                    loadPolicy;
         bool                          loadPolicyExplicit;

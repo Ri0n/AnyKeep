@@ -31,6 +31,8 @@ public:
     bool                          isReady() const;
     DesktopEditorPlatformBackend *platformBackend() const { return platformBackend_; }
     bool                          isVisible() const;
+    bool                          hasOpenNote() const;
+    bool                          checkpoint();
     void                          show();
     void                          setSpeechRecognitionProvider(SpeechRecognitionProviderInterface *provider);
     bool                          close();

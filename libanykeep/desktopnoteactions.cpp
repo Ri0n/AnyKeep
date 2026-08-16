@@ -12,7 +12,7 @@
 
 namespace AnyKeep {
 
-DesktopNoteActions::DesktopNoteActions(QObject *parent) : QObject(parent) { }
+DesktopNoteActions::DesktopNoteActions(QObject *parent) : QObject(parent) {}
 
 void DesktopNoteActions::setEditor(NoteEditor *editor) { editor_ = editor; }
 

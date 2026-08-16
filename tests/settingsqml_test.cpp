@@ -106,7 +106,7 @@ private slots:
     {
         class PaletteRestorer {
         public:
-            PaletteRestorer() : original(qApp->palette()) { }
+            PaletteRestorer() : original(qApp->palette()) {}
             ~PaletteRestorer()
             {
                 qApp->setPalette(original);
@@ -258,7 +258,7 @@ private slots:
     {
         class PaletteRestorer {
         public:
-            PaletteRestorer() : original(qApp->palette()) { }
+            PaletteRestorer() : original(qApp->palette()) {}
             ~PaletteRestorer()
             {
                 qApp->setPalette(original);

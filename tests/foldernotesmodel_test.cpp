@@ -18,7 +18,7 @@ using namespace AnyKeep;
 class FolderModelStorage final : public NoteStorage {
     Q_OBJECT
 public:
-    explicit FolderModelStorage(QString id, QObject *parent = nullptr) : NoteStorage(parent), id_(std::move(id)) { }
+    explicit FolderModelStorage(QString id, QObject *parent = nullptr) : NoteStorage(parent), id_(std::move(id)) {}
 
     bool                init() override { return true; }
     const QString       systemName() const override { return id_; }
@@ -38,7 +38,7 @@ public:
     }
     Note createNote() override { return {}; }
     bool saveNote(const Note &) override { return false; }
-    void removeNote(const QString &) override { }
+    void removeNote(const QString &) override {}
 
     Note makeNote(const QString &id, const QString &title, const QUuid &folderId = {})
     {

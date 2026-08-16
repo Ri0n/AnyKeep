@@ -32,7 +32,7 @@ namespace AnyKeep {
 //------------------------------------------------------------
 // MacOSXPlugin
 //------------------------------------------------------------
-MacOSXPlugin::MacOSXPlugin(QObject *parent) : QObject(parent), _tray(0) { }
+MacOSXPlugin::MacOSXPlugin(QObject *parent) : QObject(parent), _tray(0) {}
 
 void MacOSXPlugin::setHost(PluginHostInterface *host) { this->host = host; }
 

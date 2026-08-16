@@ -124,7 +124,7 @@ public:
 
     // Stops accepting work and synchronously drains implementation-owned workers.
     // Called before the storage object or its plugin code can be unloaded.
-    virtual void shutdown() { }
+    virtual void shutdown() {}
 
 protected:
     struct NoteReorderChange {

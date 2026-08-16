@@ -51,7 +51,7 @@ namespace {
 
 } // namespace
 
-FolderCatalogManager::FolderCatalogManager(QObject *parent) : QObject(parent) { }
+FolderCatalogManager::FolderCatalogManager(QObject *parent) : QObject(parent) {}
 
 FolderCatalogManager::FolderCatalogManager(std::unique_ptr<FileFolderCatalogStore> store, QObject *parent) :
     QObject(parent), store_(std::move(store))

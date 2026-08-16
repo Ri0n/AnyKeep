@@ -144,7 +144,7 @@ public:
         AvailableRole,
     };
 
-    explicit XmppStorageKeyModel(QObject *parent = nullptr) : QAbstractListModel(parent) { }
+    explicit XmppStorageKeyModel(QObject *parent = nullptr) : QAbstractListModel(parent) {}
 
     int rowCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : candidates_.size(); }
 

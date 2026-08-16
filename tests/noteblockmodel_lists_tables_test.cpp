@@ -115,8 +115,8 @@ void NoteBlockModelTest::parsesIndentedListContinuationsAsOneItem()
 void NoteBlockModelTest::keepsCanonicalWriterWrapInsideLongListItem()
 {
     const QString  item = QStringLiteral("a fairly long checklist item with enough ordinary words to make "
-                                          "QTextDocument wrap its canonical Markdown output across more than "
-                                          "one physical source line without an explicit user line break");
+                                         "QTextDocument wrap its canonical Markdown output across more than "
+                                         "one physical source line without an explicit user line break");
     NoteBlockModel model;
     model.load(QStringLiteral("- [ ] ") + item, true);
 
@@ -222,10 +222,10 @@ void NoteBlockModelTest::taskListSurroundingNestedNumberedItemsStaysOneBlock()
 void NoteBlockModelTest::preservesThreeLevelMixedListIndentation()
 {
     const QString  markdown = QStringLiteral("- [ ] 111\n"
-                                              "    1. ds\n"
-                                              "        - aaa bbb\n"
-                                              "    2. dsfgdg\n"
-                                              "- [ ] 32");
+                                             "    1. ds\n"
+                                             "        - aaa bbb\n"
+                                             "    2. dsfgdg\n"
+                                             "- [ ] 32");
     NoteBlockModel model;
     model.load(markdown, true);
 

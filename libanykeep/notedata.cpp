@@ -25,7 +25,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 namespace AnyKeep {
 
-NoteData::NoteData(NoteStorage *storage) : storage_(storage) { }
+NoteData::NoteData(NoteStorage *storage) : storage_(storage) {}
 
 QString NoteData::storageId() const { return storage_ ? storage_->systemName() : QString(); }
 

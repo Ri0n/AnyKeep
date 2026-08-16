@@ -24,7 +24,7 @@ namespace AnyKeep {
 
 class AudioAttachmentRecorder::Impl {
 public:
-    explicit Impl(AudioAttachmentRecorder *q) : owner(q) { }
+    explicit Impl(AudioAttachmentRecorder *q) : owner(q) {}
 
     ~Impl()
     {
@@ -257,9 +257,9 @@ public:
             return;
         }
 
-        const QString name = QStringLiteral("Audio_%1.m4a")
-                                 .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss")));
-        auto imported = LocalMediaStore::instance()->importData(encoded, name, QStringLiteral("audio/mp4"));
+        const QString name     = QStringLiteral("Audio_%1.m4a")
+                                     .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss")));
+        auto          imported = LocalMediaStore::instance()->importData(encoded, name, QStringLiteral("audio/mp4"));
         if (!imported) {
             fail(imported.error);
             return;

@@ -138,9 +138,9 @@ void PrivateNotesPubSubItemTest::parsesHeadlineEventWithPortableXml()
 {
     QDomDocument document;
     const auto   message = parseItemElement(QStringLiteral("<message type='headline' from='romeo@example.net'>"
-                                                             "<event xmlns='http://jabber.org/protocol/pubsub#event'>"
-                                                             "<items node='urn:xmpp:private-notes:0:index'>"
-                                                             "<item id='note-1'>%1</item></items></event></message>")
+                                                           "<event xmlns='http://jabber.org/protocol/pubsub#event'>"
+                                                           "<items node='urn:xmpp:private-notes:0:index'>"
+                                                           "<item id='note-1'>%1</item></items></event></message>")
                                                 .arg(encryptedXml()),
                                             &document);
     QVERIFY(!message.isNull());
@@ -177,7 +177,7 @@ void PrivateNotesPubSubItemTest::classifiesLegacyPayloadAsObsolete()
     QDomDocument document;
     const auto   element = parseItemElement(
         QStringLiteral("<item id='note-1'><encrypted xmlns='urn:xmpp:private-notes:encrypted:0' wire='1.0' "
-                           "schema='1.0' kind='index' key-id='%1'>Y2Jvcg==</encrypted></item>")
+                       "schema='1.0' kind='index' key-id='%1'>Y2Jvcg==</encrypted></item>")
             .arg(keyIdText()),
         &document);
     QVERIFY(PrivateNotesPubSubItem::isItem(element));
@@ -218,8 +218,8 @@ void PrivateNotesPubSubItemTest::rejectsUnknownCoreAttribute()
     QDomDocument document;
     const auto   element = parseItemElement(
         QStringLiteral("<item id='note-1'><encrypted xmlns='urn:xmpp:private-notes:0' key-id='%1' minor='1'>"
-                           "<nonce>IiIiIiIiIiIiIiIi</nonce><payload>Y2lwaGVydGV4dA==</payload>"
-                           "<tag>MzMzMzMzMzMzMzMzMzMzMw==</tag></encrypted></item>")
+                       "<nonce>IiIiIiIiIiIiIiIi</nonce><payload>Y2lwaGVydGV4dA==</payload>"
+                       "<tag>MzMzMzMzMzMzMzMzMzMzMw==</tag></encrypted></item>")
             .arg(keyIdText()),
         &document);
     PrivateNotesPubSubItem parsed;

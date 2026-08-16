@@ -241,7 +241,7 @@ namespace {
 #endif
 }
 
-AndroidPlatformServices::AndroidPlatformServices(QObject *parent) : QObject(parent) { }
+AndroidPlatformServices::AndroidPlatformServices(QObject *parent) : QObject(parent) {}
 
 bool AndroidPlatformServices::speechRecognitionAvailable() const
 {

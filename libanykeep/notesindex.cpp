@@ -46,7 +46,7 @@ namespace {
     }
 }
 
-NotesIndex::NotesIndex(QObject *parent) : QObject(parent) { }
+NotesIndex::NotesIndex(QObject *parent) : QObject(parent) {}
 
 void NotesIndex::addStorage(const NoteStorage::Ptr &storage)
 {

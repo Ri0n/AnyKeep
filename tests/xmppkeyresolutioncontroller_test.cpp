@@ -149,7 +149,7 @@ void XmppKeyResolutionControllerTest::timesOutAndIgnoresLateDeviceResult()
 void XmppKeyResolutionControllerTest::removesPublishedDevice()
 {
     XmppDeviceInfo              device { QStringLiteral("Old laptop"), 77, QByteArray("device-key"),
-                            int(QXmpp::TrustLevel::Undecided) };
+                                         int(QXmpp::TrustLevel::Undecided) };
     quint32                     removedId = 0;
     XmppKeyResolutionController controller(
         true, { device }, {}, {},
@@ -172,7 +172,7 @@ void XmppKeyResolutionControllerTest::createsNewKeyOnlyWhenNoNotesExist()
 {
     const QByteArray            generatedKey(32, 'n');
     XmppDeviceInfo              device { QStringLiteral("Desktop"), 42, QByteArray("device-key"),
-                            int(QXmpp::TrustLevel::ManuallyTrusted) };
+                                         int(QXmpp::TrustLevel::ManuallyTrusted) };
     XmppKeyResolutionController controller(
         true, { device }, {},
         [](const QList<QByteArray> &, auto completion) {
@@ -207,7 +207,7 @@ void XmppKeyResolutionControllerTest::startsFreshWithoutChangingUnreadableNotes(
 {
     const QByteArray            generatedKey(32, 'f');
     XmppDeviceInfo              device { QStringLiteral("Desktop"), 42, QByteArray("device-key"),
-                            int(QXmpp::TrustLevel::ManuallyTrusted) };
+                                         int(QXmpp::TrustLevel::ManuallyTrusted) };
     bool                        rekeyCalled = false;
     XmppKeyResolutionController controller(
         true, { device }, {},

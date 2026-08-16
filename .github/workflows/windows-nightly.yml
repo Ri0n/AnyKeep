@@ -20,7 +20,7 @@ env:
 
 jobs:
   package:
-    name: Build unsigned Windows nightly
+    name: Build Windows nightly packages
     runs-on: windows-2022
     timeout-minutes: 120
     defaults:
@@ -69,6 +69,9 @@ jobs:
             -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_CONFIGURATION_TYPES=Release `
             -DANYKEEP_UPDATE_CHANNEL=nightly `
+            "-DANYKEEP_MSIX_IDENTITY_NAME=${{ vars.ANYKEEP_MSIX_IDENTITY_NAME }}" `
+            "-DANYKEEP_MSIX_PUBLISHER=${{ vars.ANYKEEP_MSIX_PUBLISHER }}" `
+            "-DANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME=${{ vars.ANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME }}" `
             -DBUILD_TESTING=ON
 
       - name: Build and test
@@ -76,26 +79,36 @@ jobs:
           cmake --build build/windows-nightly --config Release --parallel 4
           ctest --test-dir build/windows-nightly -C Release --output-on-failure --timeout 180
 
-      - name: Build unsigned MSI
+      - name: Build MSI and interactive EXE installer
         run: |
           cmake --build build/windows-nightly --config Release `
-            --target package `
+            --target package burn_installer `
             --parallel 4
 
-      # Keep exercising the Burn authoring path so changes to Microsoft's vc14 redirect chain or WiX remote-payload
-      # generation fail visibly in CI. This EXE contains the unsigned MSI and is deliberately not published.
-      - name: Smoke-test unsigned Burn bootstrapper
+      - name: Build Microsoft Store MSIX
+        if: ${{ vars.ANYKEEP_MSIX_IDENTITY_NAME != '' && vars.ANYKEEP_MSIX_PUBLISHER != '' && vars.ANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME != '' }}
         run: |
           cmake --build build/windows-nightly --config Release `
-            --target burn_installer `
+            --target msix_package `
             --parallel 4
 
-      - name: Upload unsigned MSI signing input
-        id: upload-unsigned-msi
+      - name: Explain skipped MSIX build
+        if: ${{ vars.ANYKEEP_MSIX_IDENTITY_NAME == '' || vars.ANYKEEP_MSIX_PUBLISHER == '' || vars.ANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME == '' }}
+        run: |
+          Write-Host "MSIX packaging is ready but Store identity is not configured yet."
+          Write-Host "After reserving AnyKeep in Partner Center, add these repository variables:"
+          Write-Host "  ANYKEEP_MSIX_IDENTITY_NAME"
+          Write-Host "  ANYKEEP_MSIX_PUBLISHER"
+          Write-Host "  ANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME"
+
+      - name: Upload Windows packages
         uses: actions/upload-artifact@v7
         with:
-          name: anykeep-windows-nightly-unsigned-msi-${{ github.run_number }}
-          path: build/windows-nightly/AnyKeep.msi
+          name: anykeep-windows-nightly-packages-${{ github.run_number }}
+          path: |
+            build/windows-nightly/AnyKeep.msi
+            build/windows-nightly/AnyKeep.Installer-*.exe
+            build/windows-nightly/AnyKeep-*-windows-x86_64.msix
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

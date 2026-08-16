@@ -56,7 +56,7 @@ class FirstLineHighlighter : public HighlighterExtension {
 public:
     using HighlighterExtension::HighlighterExtension;
 
-    void reset() { }
+    void reset() {}
 
     void highlight(NoteHighlighter *nh, const QString &text)
     {

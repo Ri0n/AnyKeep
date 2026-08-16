@@ -40,7 +40,7 @@ static const QLatin1String pluginId("spellchecker");
 
 class HunspellProvider final : public SpellCheckProvider {
 public:
-    explicit HunspellProvider(std::shared_ptr<SpellEngineInterface> engine) : engine_(std::move(engine)) { }
+    explicit HunspellProvider(std::shared_ptr<SpellEngineInterface> engine) : engine_(std::move(engine)) {}
 
     QString     id() const override { return QStringLiteral("hunspell"); }
     QString     displayName() const override { return QStringLiteral("Hunspell"); }
@@ -79,7 +79,7 @@ public:
         QString                error;
     };
 
-    explicit SpellcheckDictionaryModel(QObject *parent = nullptr) : QAbstractListModel(parent) { }
+    explicit SpellcheckDictionaryModel(QObject *parent = nullptr) : QAbstractListModel(parent) {}
 
     int rowCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : rows_.size(); }
 
@@ -306,7 +306,7 @@ private:
 //------------------------------------------------------------
 // SpellCheckPlugin
 //------------------------------------------------------------
-SpellCheckPlugin::SpellCheckPlugin(QObject *parent) : QObject(parent), host(nullptr), sei(nullptr) { }
+SpellCheckPlugin::SpellCheckPlugin(QObject *parent) : QObject(parent), host(nullptr), sei(nullptr) {}
 
 SpellCheckPlugin::~SpellCheckPlugin() { shutdown(); }
 

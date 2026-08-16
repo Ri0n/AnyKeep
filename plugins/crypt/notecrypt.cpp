@@ -2,4 +2,4 @@
 
 #include "notecrypt.h"
 
-NoteCrypt::NoteCrypt(QObject *parent) : QObject(parent) { }
+NoteCrypt::NoteCrypt(QObject *parent) : QObject(parent) {}

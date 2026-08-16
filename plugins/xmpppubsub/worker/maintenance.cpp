@@ -353,9 +353,9 @@ QCoro::Task<> XmppWorker::repairOwnOmemoBundleAfterPreKeyUseTask(int attemptsRem
     const auto bareJid  = QXmppUtils::jidToBareJid(config_.jid);
     const auto deviceId = omemoStorage_->ownDeviceId();
     auto       result   = co_await pubSub_
-                      ->requestItem<XmppOmemoBundleItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:bundles"),
-                                                         QString::number(deviceId))
-                      .toFuture(this);
+                              ->requestItem<XmppOmemoBundleItem>(bareJid, QStringLiteral("urn:xmpp:omemo:2:bundles"),
+                                                                 QString::number(deviceId))
+                              .toFuture(this);
     if (const auto *error = std::get_if<QXmppError>(&result)) {
         qWarning().noquote() << "Could not inspect own OMEMO bundle after pre-key use:" << errorText(*error);
         co_return;

@@ -33,7 +33,7 @@ static NoteStorage::Ptr storage;
 //------------------------------------------------------------
 // TomboyPlugin
 //------------------------------------------------------------
-TomboyPlugin::TomboyPlugin(QObject *parent) : QObject(parent), host(nullptr) { }
+TomboyPlugin::TomboyPlugin(QObject *parent) : QObject(parent), host(nullptr) {}
 
 TomboyPlugin::~TomboyPlugin() { shutdown(); }
 

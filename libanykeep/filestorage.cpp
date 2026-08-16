@@ -81,7 +81,7 @@ private:
     FileStorage *storage_;
 };
 
-FileStorage::FileStorage(QObject *parent) : NoteStorage(parent) { }
+FileStorage::FileStorage(QObject *parent) : NoteStorage(parent) {}
 
 void FileStorage::removeNote(const QString &noteId)
 {

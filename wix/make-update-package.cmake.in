@@ -91,9 +91,8 @@ if(version_payload STREQUAL "")
     message(FATAL_ERROR "Administrative image does not contain versions/${VERSION}/anykeep.exe and AnyKeepUpdater.exe")
 endif()
 
-# Publish the MSI bytes themselves. SignPath can deep-sign this MSI first and
-# then rerun this same script; the manifest/hash will therefore describe the
-# signed artifact rather than a pre-signing copy.
+# Publish the MSI bytes themselves. If direct-download releases are signed in the future, rerun this same script
+# after signing; the manifest/hash will then describe the final artifact rather than a pre-signing copy.
 if(NOT "${PACKAGE_PATH}" STREQUAL "${published_package_path}")
     file(COPY_FILE "${PACKAGE_PATH}" "${published_package_path}" ONLY_IF_DIFFERENT)
 endif()

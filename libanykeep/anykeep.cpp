@@ -319,9 +319,47 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     const auto notifyPreparedUpdate = [this](const QString &version) {
         notify(tr("AnyKeep update ready"),
                tr("AnyKeep %1 has been downloaded and prepared. Click to update and restart.").arg(version),
-               tr("Update"), [this] { applyPreparedUpdate(); });
+               tr("Update"), [this] {
+                   if (d->updates)
+                       d->updates->applyUpdate();
+               });
     };
     connect(d->updates, &UpdateController::updatePrepared, this, notifyPreparedUpdate);
+    connect(d->updates, &UpdateController::storeUpdatePrepared, this, [this](const QString &version, bool automatic) {
+        const bool downloaded = d->updates && d->updates->storePackageDownloaded();
+        const bool canSilent  = d->updates && d->updates->canApplyStoreUpdateSilently();
+
+        // Microsoft explicitly leaves the "good time to restart" policy
+        // to the application. If Store auto-update is allowed and no note
+        // is being edited, install immediately and let Windows restart us.
+        if (automatic && downloaded && canSilent && !hasVisibleNoteEditor()) {
+            applyPreparedUpdateInternal(true);
+            return;
+        }
+
+        QString title;
+        QString message;
+        QString action;
+        if (!downloaded) {
+            title   = tr("AnyKeep update available");
+            message = tr("AnyKeep %1 is available in Microsoft Store. Click to download it.").arg(version);
+            action  = tr("Download");
+        } else if (hasVisibleNoteEditor()) {
+            title   = tr("AnyKeep update ready");
+            message = tr("AnyKeep %1 is ready to install. A note is open, so AnyKeep will wait until you choose to "
+                         "restart.")
+                          .arg(version);
+            action  = tr("Update");
+        } else {
+            title   = tr("AnyKeep update ready");
+            message = tr("AnyKeep %1 is ready to install. Click to update and restart.").arg(version);
+            action  = tr("Update");
+        }
+        notify(title, message, action, [this] {
+            if (d->updates)
+                d->updates->applyUpdate();
+        });
+    });
     if (d->updates->state() == UpdateController::Failed && !d->updates->errorString().isEmpty()) {
         notify(tr("AnyKeep update rolled back"), d->updates->errorString(), {}, {});
     }
@@ -340,7 +378,7 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     });
 }
 
-Main::~Main() { }
+Main::~Main() {}
 
 void Main::parseAppArguments(const QStringList &args)
 {
@@ -400,11 +438,56 @@ void Main::exitAnyKeep()
     drafts->publishPending();
 }
 
-void Main::applyPreparedUpdate()
+bool Main::hasVisibleNoteEditor() const
+{
+    if (d->notesManagerWindow && d->notesManagerWindow->isVisible() && d->notesManagerWindow->hasOpenNote())
+        return true;
+    for (auto *dialog : NoteDialog::openDialogs()) {
+        if (dialog && dialog->isVisible())
+            return true;
+    }
+    return false;
+}
+
+bool Main::checkpointOpenEditorsForUpdate()
+{
+    if (d->notesManagerWindow && d->notesManagerWindow->hasOpenNote() && !d->notesManagerWindow->checkpoint())
+        return false;
+    for (auto *dialog : NoteDialog::openDialogs()) {
+        if (dialog && !dialog->checkpoint())
+            return false;
+    }
+    return true;
+}
+
+void Main::applyPreparedUpdateInternal(bool silentStoreOnly)
 {
 #ifdef Q_OS_WIN
     if (!d->updates || !d->updates->updateReady())
         return;
+
+    if (d->updates->managedByStore()) {
+        if (!d->updates->storePackageDownloaded()) {
+            if (!silentStoreOnly)
+                d->updates->applyUpdate();
+            return;
+        }
+        if (!checkpointOpenEditorsForUpdate()) {
+            notifyError(tr("The Microsoft Store update is ready, but an open note could not be checkpointed."));
+            return;
+        }
+
+        QString    error;
+        const bool silent = silentStoreOnly || d->updates->canApplyStoreUpdateSilently();
+        if (!d->updates->installStoreUpdate(silent, &error)) {
+            notifyError(error);
+            return;
+        }
+        // Do not quit here. Store package deployment terminates the packaged
+        // desktop process at the correct point. RegisterApplicationRestart in
+        // StoreUpdateBackend asks Windows to launch the new version afterwards.
+        return;
+    }
 
     if (d->notesManagerWindow && !d->notesManagerWindow->close()) {
         notifyError(tr("The update is ready, but the note manager could not checkpoint the current note."));
@@ -425,8 +508,12 @@ void Main::applyPreparedUpdate()
         return;
     }
     QCoreApplication::quit();
+#else
+    Q_UNUSED(silentStoreOnly)
 #endif
 }
+
+void Main::applyPreparedUpdate() { applyPreparedUpdateInternal(false); }
 
 void Main::appMessageReceived(const QString &message)
 {

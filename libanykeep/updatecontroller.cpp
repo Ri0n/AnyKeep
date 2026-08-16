@@ -21,6 +21,7 @@
 #include <string>
 
 #ifdef Q_OS_WIN
+#include "storeupdatebackend_win.h"
 #include <QCryptographicHash>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -36,17 +37,21 @@ namespace AnyKeep {
 Q_LOGGING_CATEGORY(logUpdates, "anykeep.updates")
 
 namespace {
-    constexpr int  UpdateManifestSchemaVersion = 2;
-    constexpr int  UpdateStateSchemaVersion    = 1;
-    constexpr int  LauncherProtocolVersion     = 1;
-    constexpr int  AutomaticCheckDelayMs       = 20 * 1000;
-    constexpr int  StartupProbeHealthyMs       = 60 * 1000;
-    constexpr int  AutomaticCheckIntervalSecs  = 6 * 60 * 60;
-    constexpr int  AutomaticCheckIntervalMs    = AutomaticCheckIntervalSecs * 1000;
-    constexpr auto UpdateSettingsGroup         = "updates";
-    constexpr auto PreparedFileName            = "prepared.json";
-    constexpr auto RollbackFileName            = "rollback.json";
-    constexpr auto RollbackVersionKey          = "rollbackVersion";
+    constexpr int UpdateManifestSchemaVersion = 2;
+    constexpr int UpdateStateSchemaVersion    = 1;
+    constexpr int LauncherProtocolVersion     = 1;
+    constexpr int AutomaticCheckDelayMs       = 20 * 1000;
+    // RegisterApplicationRestart only relaunches a process that has been alive
+    // for at least 60 seconds. Give Store-managed builds a small safety margin
+    // before the first automatic check can lead to a silent installation.
+    constexpr int  StoreAutomaticCheckDelayMs = 65 * 1000;
+    constexpr int  StartupProbeHealthyMs      = 60 * 1000;
+    constexpr int  AutomaticCheckIntervalSecs = 6 * 60 * 60;
+    constexpr int  AutomaticCheckIntervalMs   = AutomaticCheckIntervalSecs * 1000;
+    constexpr auto UpdateSettingsGroup        = "updates";
+    constexpr auto PreparedFileName           = "prepared.json";
+    constexpr auto RollbackFileName           = "rollback.json";
+    constexpr auto RollbackVersionKey         = "rollbackVersion";
 
     bool safeVersionName(const QString &version)
     {
@@ -108,16 +113,30 @@ UpdateController::UpdateController(QObject *parent) : QObject(parent)
 #ifdef Q_OS_WIN
     managedByStore_ = currentProcessHasPackageIdentity();
     installRoot_    = detectInstallRoot();
-    supported_      = !managedByStore_ && !installRoot_.isEmpty() && !manifestUrlString().isEmpty();
+    supported_      = managedByStore_ || (!installRoot_.isEmpty() && !manifestUrlString().isEmpty());
 
     QSettings settings;
     settings.beginGroup(QLatin1String(UpdateSettingsGroup));
     automaticChecksEnabled_ = settings.value(QStringLiteral("enabled"), true).toBool();
 
-    network_        = new QNetworkAccessManager(this);
+    network_ = new QNetworkAccessManager(this);
+    if (managedByStore_) {
+        storeBackend_ = new StoreUpdateBackend(this);
+        connect(storeBackend_, &StoreUpdateBackend::checkFinished, this, &UpdateController::handleStoreCheckFinished);
+        connect(storeBackend_, &StoreUpdateBackend::progressChanged, this, [this](qreal progress) {
+            if (!qFuzzyCompare(downloadProgress_ + 1.0, progress + 1.0)) {
+                downloadProgress_ = progress;
+                emit downloadProgressChanged();
+            }
+        });
+        connect(storeBackend_, &StoreUpdateBackend::downloadFinished, this,
+                &UpdateController::handleStoreDownloadFinished);
+        connect(storeBackend_, &StoreUpdateBackend::installFinished, this,
+                &UpdateController::handleStoreInstallFinished);
+    }
     automaticTimer_ = new QTimer(this);
     automaticTimer_->setSingleShot(true);
-    automaticTimer_->setInterval(AutomaticCheckDelayMs);
+    automaticTimer_->setInterval(managedByStore_ ? StoreAutomaticCheckDelayMs : AutomaticCheckDelayMs);
     connect(automaticTimer_, &QTimer::timeout, this, [this] {
         if (!automaticChecksEnabled_)
             return;
@@ -149,19 +168,23 @@ QString UpdateController::statusText() const
 {
     switch (state_) {
     case Unsupported:
-        return managedByStore_ ? tr("Updates are managed by Microsoft Store") : tr("Automatic updates are unavailable");
+        return tr("Automatic updates are unavailable");
     case Idle:
         return tr("Up to date");
     case Checking:
         return tr("Checking for updates…");
     case Downloading:
-        return tr("Downloading AnyKeep %1…").arg(availableVersion_);
+        return managedByStore_ ? tr("Downloading AnyKeep %1 from Microsoft Store…").arg(availableVersion_)
+                               : tr("Downloading AnyKeep %1…").arg(availableVersion_);
     case Preparing:
         return tr("Preparing AnyKeep %1…").arg(availableVersion_);
     case Ready:
+        if (managedByStore_ && !storePackageDownloaded_)
+            return tr("AnyKeep %1 is available in Microsoft Store").arg(availableVersion_);
         return tr("AnyKeep %1 is ready to install").arg(availableVersion_);
     case Applying:
-        return tr("Restarting into AnyKeep %1…").arg(availableVersion_);
+        return managedByStore_ ? tr("Installing AnyKeep %1 from Microsoft Store…").arg(availableVersion_)
+                               : tr("Restarting into AnyKeep %1…").arg(availableVersion_);
     case Failed:
         return errorString_.isEmpty() ? tr("Update failed") : errorString_;
     }
@@ -175,7 +198,7 @@ void UpdateController::startAutomaticChecks()
         || automaticTimer_->isActive()) {
         return;
     }
-    automaticTimer_->setInterval(AutomaticCheckDelayMs);
+    automaticTimer_->setInterval(managedByStore_ ? StoreAutomaticCheckDelayMs : AutomaticCheckDelayMs);
     automaticTimer_->start();
 #endif
 }
@@ -265,6 +288,13 @@ void UpdateController::applyUpdate()
 {
     if (state_ != Ready)
         return;
+#ifdef Q_OS_WIN
+    if (managedByStore_ && !storePackageDownloaded_) {
+        automaticRequest_ = false;
+        beginStoreDownload(false);
+        return;
+    }
+#endif
     emit applyRequested();
 }
 
@@ -306,6 +336,34 @@ bool UpdateController::launchPreparedUpdater(qint64 waitPid, QString *error)
 #endif
 }
 
+bool UpdateController::installStoreUpdate(bool silentOnly, QString *error)
+{
+#ifdef Q_OS_WIN
+    if (!managedByStore_ || !storeBackend_) {
+        if (error)
+            *error = tr("This build is not managed by Microsoft Store");
+        return false;
+    }
+    if (state_ != Ready || !storePackageDownloaded_) {
+        if (error)
+            *error = tr("The Microsoft Store update is not ready to install");
+        return false;
+    }
+    storeSilentInstallRequest_ = silentOnly;
+    if (!storeBackend_->installUpdates(silentOnly, error)) {
+        storeSilentInstallRequest_ = false;
+        return false;
+    }
+    setState(Applying);
+    return true;
+#else
+    Q_UNUSED(silentOnly)
+    if (error)
+        *error = tr("Microsoft Store updates are available only on Windows");
+    return false;
+#endif
+}
+
 void UpdateController::setState(State state, const QString &error)
 {
     const bool stateChangedValue = state_ != state;
@@ -329,6 +387,17 @@ void UpdateController::checkForUpdate(bool automatic)
             return;
     }
 
+    automaticRequest_ = automatic;
+    if (managedByStore_) {
+        storePackageDownloaded_ = false;
+        storeSilentAvailable_   = false;
+        downloadProgress_       = 0.0;
+        emit downloadProgressChanged();
+        setState(Checking);
+        storeBackend_->checkForUpdates();
+        return;
+    }
+
     QUrl manifestUrl(manifestUrlString());
     if (!isAllowedUpdateUrl(manifestUrl)) {
         setState(Failed, tr("The update manifest URL is invalid"));
@@ -338,7 +407,6 @@ void UpdateController::checkForUpdate(bool automatic)
     query.addQueryItem(QStringLiteral("anykeep-check"), QString::number(QDateTime::currentMSecsSinceEpoch()));
     manifestUrl.setQuery(query);
 
-    automaticRequest_ = automatic;
     QNetworkRequest request(manifestUrl);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
@@ -351,6 +419,145 @@ void UpdateController::checkForUpdate(bool automatic)
     setState(Checking);
 #else
     Q_UNUSED(automatic)
+#endif
+}
+
+void UpdateController::handleStoreCheckFinished(bool updateAvailable, const QString &version, bool canSilentlyDownload,
+                                                const QString &error)
+{
+#ifdef Q_OS_WIN
+    QSettings settings;
+    settings.beginGroup(QLatin1String(UpdateSettingsGroup));
+    settings.setValue(QStringLiteral("lastCheckUtc"), QDateTime::currentDateTimeUtc());
+
+    if (!error.isEmpty()) {
+        setState(Failed, tr("Could not check Microsoft Store for updates: %1").arg(error));
+        return;
+    }
+    if (!updateAvailable) {
+        availableVersion_.clear();
+        storePackageDownloaded_ = false;
+        storeSilentAvailable_   = false;
+        emit updateChanged();
+        setState(Idle);
+        return;
+    }
+
+    availableVersion_       = version;
+    storeSilentAvailable_   = canSilentlyDownload;
+    storePackageDownloaded_ = false;
+    downloadProgress_       = 0.0;
+    emit updateChanged();
+    emit downloadProgressChanged();
+
+    if (canSilentlyDownload) {
+        beginStoreDownload(true);
+        return;
+    }
+
+    setState(Ready);
+    emit storeUpdatePrepared(availableVersion_, automaticRequest_);
+#else
+    Q_UNUSED(updateAvailable)
+    Q_UNUSED(version)
+    Q_UNUSED(canSilentlyDownload)
+    Q_UNUSED(error)
+#endif
+}
+
+void UpdateController::beginStoreDownload(bool silentOnly)
+{
+#ifdef Q_OS_WIN
+    if (!managedByStore_ || !storeBackend_ || !storeBackend_->hasUpdates()) {
+        setState(Failed, tr("No Microsoft Store update is available"));
+        return;
+    }
+    downloadProgress_           = 0.0;
+    storeSilentDownloadRequest_ = silentOnly;
+    emit downloadProgressChanged();
+    setState(Downloading);
+    storeBackend_->downloadUpdates(silentOnly);
+#else
+    Q_UNUSED(silentOnly)
+#endif
+}
+
+void UpdateController::handleStoreDownloadFinished(bool success, bool canceled, const QString &error)
+{
+#ifdef Q_OS_WIN
+    const bool silentRequest    = storeSilentDownloadRequest_;
+    storeSilentDownloadRequest_ = false;
+    if (canceled) {
+        // A silent background request can be canceled by Store policy without
+        // user interaction. Keep the update visible so the user can retry it
+        // through the normal Store consent UI.
+        if (silentRequest) {
+            storeSilentAvailable_ = false;
+            setState(Ready);
+            emit storeUpdatePrepared(availableVersion_, automaticRequest_);
+            return;
+        }
+        setState(Ready);
+        return;
+    }
+    if (!success) {
+        // A silent download can become unavailable between the check and the
+        // request (metered network, Store setting change, etc.). Keep the
+        // update actionable so the user can retry with Store consent.
+        if (silentRequest) {
+            storeSilentAvailable_ = false;
+            setState(Ready);
+            emit storeUpdatePrepared(availableVersion_, automaticRequest_);
+            return;
+        }
+        setState(Failed, error.isEmpty() ? tr("Microsoft Store could not download the update") : error);
+        return;
+    }
+
+    storePackageDownloaded_ = true;
+    downloadProgress_       = 1.0;
+    emit downloadProgressChanged();
+    setState(Ready);
+    emit storeUpdatePrepared(availableVersion_, automaticRequest_);
+#else
+    Q_UNUSED(success)
+    Q_UNUSED(canceled)
+    Q_UNUSED(error)
+#endif
+}
+
+void UpdateController::handleStoreInstallFinished(bool success, bool canceled, const QString &error)
+{
+#ifdef Q_OS_WIN
+    // A successful Store deployment normally terminates the running desktop
+    // process before this callback is reached. This path is primarily for
+    // cancellation and deployment failures.
+    const bool silentRequest   = storeSilentInstallRequest_;
+    storeSilentInstallRequest_ = false;
+    if (success) {
+        qCInfo(logUpdates) << "Microsoft Store update completed without terminating the process";
+        setState(Idle);
+        return;
+    }
+    if (silentRequest) {
+        // Store policy can change after the package was downloaded (for
+        // example, a metered connection or automatic-app-update setting). Do
+        // not strand a prepared update in Failed: fall back to an explicit
+        // user-triggered Store installation with its normal consent UI.
+        storeSilentAvailable_ = false;
+        setState(Ready);
+        emit storeUpdatePrepared(availableVersion_, automaticRequest_);
+        return;
+    }
+    if (canceled) {
+        setState(Ready);
+        return;
+    }
+    setState(Failed, error.isEmpty() ? tr("Microsoft Store could not install the update") : error);
+#else
+    Q_UNUSED(success)
+    Q_UNUSED(canceled)
+    Q_UNUSED(error)
 #endif
 }
 
@@ -799,7 +1006,7 @@ bool UpdateController::savePreparedState(QString *error)
 void UpdateController::restorePreparedUpdate()
 {
 #ifdef Q_OS_WIN
-    if (!supported_)
+    if (!supported_ || managedByStore_)
         return;
     QFile file(preparedStatePath());
     if (!file.open(QIODevice::ReadOnly))
@@ -824,7 +1031,7 @@ void UpdateController::restorePreparedUpdate()
 void UpdateController::restoreRollbackResult()
 {
 #ifdef Q_OS_WIN
-    if (!supported_)
+    if (!supported_ || managedByStore_)
         return;
 
     QFile file(rollbackStatePath());

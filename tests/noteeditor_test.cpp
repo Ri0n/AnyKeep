@@ -70,10 +70,10 @@ public:
     bool        isValid() const override { return true; }
     bool        isCorrect(const QString &) const override { return false; }
     QStringList suggestions(const QString &) const override { return {}; }
-    void        addToDictionary(const QString &) override { }
+    void        addToDictionary(const QString &) override {}
 
 protected:
-    void onDisabled(DisableMode) override { }
+    void onDisabled(DisableMode) override {}
 };
 } // namespace
 

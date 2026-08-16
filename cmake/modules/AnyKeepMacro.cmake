@@ -132,7 +132,7 @@ macro(add_anykeep_plugin name description buildable)
   set(multiValueArgs SOURCES)
   cmake_parse_arguments(arg "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-  cmake_minimum_required(VERSION 3.14.0)
+  cmake_minimum_required(VERSION 3.16.0)
   project(
     anykeep_plugin_${name}
     VERSION ${ANYKEEP_VERSION}
@@ -217,7 +217,12 @@ function(add_anykeep_bundled_plugin name)
 
   set(target "anykeep_bundled_${name}")
   add_library(${target} STATIC ${arg_SOURCES})
-  set_target_properties(${target} PROPERTIES AUTOMOC ON AUTORCC ON AUTOUIC ON POSITION_INDEPENDENT_CODE ON)
+  set_target_properties(
+    ${target}
+    PROPERTIES AUTOMOC ON
+               AUTORCC ON
+               AUTOUIC ON
+               POSITION_INDEPENDENT_CODE ON)
   target_compile_definitions(${target} PRIVATE ANYKEEP_BUNDLED_PLUGIN_BUILD)
   target_include_directories(${target} PRIVATE "${CMAKE_SOURCE_DIR}/libanykeep" "${CMAKE_BINARY_DIR}/libanykeep"
                                                "${CMAKE_BINARY_DIR}" "${plugins_SOURCE_DIR}")

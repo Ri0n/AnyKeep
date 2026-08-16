@@ -20,13 +20,14 @@ file(GLOB libanykeep_HDRS CONFIGURE_DEPENDS "./*.h")
 file(GLOB libanykeep_UIS CONFIGURE_DEPENDS "./*.ui")
 set(libanykeep_PRIVATE_HDRS
     "${CMAKE_CURRENT_SOURCE_DIR}/notedocumenthistory.h" "${CMAKE_CURRENT_SOURCE_DIR}/ptffolderindex.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/updatecontroller.h")
+    "${CMAKE_CURRENT_SOURCE_DIR}/storeupdatebackend_win.h" "${CMAKE_CURRENT_SOURCE_DIR}/updatecontroller.h")
 list(APPEND libanykeep_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/iconutils.cpp")
 list(APPEND libanykeep_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/iconutils.h")
 list(REMOVE_DUPLICATES libanykeep_SRCS)
 list(REMOVE_DUPLICATES libanykeep_HDRS)
 list(FILTER libanykeep_HDRS EXCLUDE REGEX "/notedocumenthistory\\.h$")
 list(FILTER libanykeep_HDRS EXCLUDE REGEX "/ptffolderindex\\.h$")
+list(FILTER libanykeep_HDRS EXCLUDE REGEX "/storeupdatebackend_win\\.h$")
 list(FILTER libanykeep_HDRS EXCLUDE REGEX "/updatecontroller\\.h$")
 list(REMOVE_ITEM libanykeep_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/freedesktopnotifier.cpp")
 list(REMOVE_ITEM libanykeep_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/freedesktopnotifier.h")
@@ -36,6 +37,10 @@ list(REMOVE_ITEM libanykeep_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/anykeepdbus.h")
 # Self-updating is a Windows versioned-installation feature. Linux builds are updated by the distribution package
 # manager and must not link its client.
 if(NOT WIN32)
+  list(REMOVE_ITEM libanykeep_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/storeupdatebackend_win.cpp"
+       "${CMAKE_CURRENT_SOURCE_DIR}/./storeupdatebackend_win.cpp" "./storeupdatebackend_win.cpp"
+       "storeupdatebackend_win.cpp")
+  list(REMOVE_ITEM libanykeep_PRIVATE_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/storeupdatebackend_win.h")
   list(REMOVE_ITEM libanykeep_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/updatecontroller.cpp"
        "${CMAKE_CURRENT_SOURCE_DIR}/./updatecontroller.cpp" "./updatecontroller.cpp" "updatecontroller.cpp")
   list(REMOVE_ITEM libanykeep_PRIVATE_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/updatecontroller.h")
@@ -304,6 +309,10 @@ if(APPLE)
 endif()
 
 if(WIN32)
+  # Windows.Services.Store is projected through C++/WinRT and implemented by
+  # the Windows Runtime umbrella import library.
+  target_link_libraries(anykeep PRIVATE windowsapp)
+
   # Install only the DLL for Windows
   install(TARGETS anykeep RUNTIME DESTINATION "." COMPONENT Libraries)
   windeployqt(anykeep)

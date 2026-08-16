@@ -36,6 +36,7 @@ public:
     void        setText(const QString &text);
     void        registerWindowGeometry();
     void        show();
+    bool        checkpoint();
 
     bool alwaysOnTop() const;
     bool pinAvailable() const;

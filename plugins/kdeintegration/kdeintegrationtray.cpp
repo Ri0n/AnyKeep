@@ -533,8 +533,8 @@ bool KDEIntegrationTray::updateDevelopmentPackage(const QString &sourcePath, con
     for (const auto &uiFile : uiFiles) {
         const QString targetPath = targetUi.absoluteFilePath(uiFile.fileName());
         const bool    copied     = uiFile.fileName() == QLatin1String("main.qml")
-                   ? updateDevelopmentMainQml(uiFile.absoluteFilePath(), targetPath)
-                   : updateDevelopmentFile(uiFile.absoluteFilePath(), targetPath);
+            ? updateDevelopmentMainQml(uiFile.absoluteFilePath(), targetPath)
+            : updateDevelopmentFile(uiFile.absoluteFilePath(), targetPath);
         if (!copied)
             return false;
     }

@@ -255,8 +255,8 @@ void XmppStorage::applyConfig(const XmppConfig &config)
     QSettings  settings;
     const bool endpointChanged = config_.jid != config.jid || config_.nodeName != config.nodeName;
     const auto instanceId      = endpointChanged || config.instanceId.isEmpty()
-             ? QUuid::createUuid().toString(QUuid::WithoutBraces)
-             : config.instanceId;
+        ? QUuid::createUuid().toString(QUuid::WithoutBraces)
+        : config.instanceId;
     settings.setValue(QStringLiteral("storage.xmpppubsub.instanceId"), instanceId);
     settings.setValue(QStringLiteral("storage.xmpppubsub.jid"), config.jid);
     const auto passwordError
