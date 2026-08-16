@@ -126,7 +126,7 @@ bool NotesManagerWindow::hasOpenNote() const { return workspace_ && workspace_->
 bool NotesManagerWindow::checkpoint()
 {
     flushEditorChanges();
-    return !workspace_ || !workspace_->currentEditor() || workspace_->currentEditor()->save();
+    return !workspace_ || !workspace_->currentEditor() || workspace_->editor()->save();
 }
 
 void NotesManagerWindow::show()
@@ -271,7 +271,7 @@ bool NotesManagerWindow::eventFilter(QObject *watched, QEvent *event)
         if (!checkpoint()) {
             event->ignore();
             if (workspace_ && workspace_->currentEditor())
-                emit operationFailed(workspace_->currentEditor()->errorString());
+                emit operationFailed(workspace_->editor()->errorString());
             return true;
         }
     } else if (event->type() == QEvent::Hide) {
@@ -279,7 +279,7 @@ bool NotesManagerWindow::eventFilter(QObject *watched, QEvent *event)
         // the automatic-update policy, so checkpoint it before it becomes a
         // tray-only session.
         if (!checkpoint() && workspace_ && workspace_->currentEditor())
-            emit operationFailed(workspace_->currentEditor()->errorString());
+            emit operationFailed(workspace_->editor()->errorString());
         saveWindowState();
     } else if (event->type() == QEvent::DragLeave) {
         imageDragAccepted_ = false;
