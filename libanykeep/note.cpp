@@ -37,21 +37,17 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 namespace AnyKeep {
 
-Note::Note() {}
+Note::Note() = default;
 
-Note::~Note() {}
+Note::~Note() = default;
 
-Note::Note(NoteData *data) : d(QExplicitlySharedDataPointer<NoteData>(data)) {}
+Note::Note(NoteData *data) : d(data) {}
 
-Note::Note(const Note &note) : d(note.d) {}
+Note::Note(const Note &note) = default;
 
-Note::Note(Note &&note) : d(std::move(note.d)) {}
+Note::Note(Note &&note) = default;
 
-Note &Note::operator=(const Note &note)
-{
-    d = note.d;
-    return *this;
-}
+Note &Note::operator=(const Note &note) = default;
 
 bool Note::isNull() const { return !d; }
 
@@ -86,7 +82,6 @@ void Note::setTitle(const QString &title)
 {
     if (!d)
         return;
-    d.detach();
     d->title_ = title;
 }
 
@@ -94,7 +89,6 @@ void Note::setText(const QString &text, Format format)
 {
     if (!d)
         return;
-    d.detach();
     d->setText(text, format);
 }
 
@@ -102,7 +96,6 @@ void Note::setId(const QString &id)
 {
     if (!d)
         return;
-    d.detach();
     d->setId(id);
 }
 
@@ -110,7 +103,6 @@ void Note::setFormat(Format format)
 {
     if (!d)
         return;
-    d.detach();
     d->format_ = format;
 }
 
@@ -118,7 +110,6 @@ void Note::setTags(const QStringList &tags)
 {
     if (!d)
         return;
-    d.detach();
     d->setTags(tags);
 }
 
@@ -126,7 +117,6 @@ void Note::setFolderId(const QUuid &folderId)
 {
     if (!d)
         return;
-    d.detach();
     d->folderId_ = folderId;
 }
 
@@ -134,7 +124,6 @@ void Note::unload()
 {
     if (!d)
         return;
-    d.detach();
     d->unload();
 }
 
@@ -142,7 +131,6 @@ void Note::setLastChangeUTC(const QDateTime &lastChange)
 {
     if (!d)
         return;
-    d.detach();
     d->lastChange_ = lastChange;
 }
 
@@ -150,7 +138,6 @@ void Note::setBackendValue(const QString &key, const QVariant &value)
 {
     if (!d)
         return;
-    d.detach();
     d->setBackendValue(key, value);
 }
 
@@ -158,7 +145,6 @@ void Note::removeBackendValue(const QString &key)
 {
     if (!d)
         return;
-    d.detach();
     d->removeBackendValue(key);
 }
 
@@ -186,8 +172,6 @@ QStringList Note::tags() const { return d ? d->tags() : QStringList(); }
 
 QUuid Note::folderId() const { return d ? d->folderId_ : QUuid {}; }
 
-NoteData *Note::data() const { return d.data(); }
-
 Note::Format Note::format() const { return d ? d->format_ : PlainText; }
 
 QDateTime Note::lastChangeUTC() const { return d ? d->lastChange_ : QDateTime(); }
@@ -200,7 +184,6 @@ void Note::setBackendData(const QVariantMap &values)
 {
     if (!d)
         return;
-    d.detach();
     d->backendData_ = values;
 }
 
@@ -210,7 +193,6 @@ void Note::setMedia(const QList<MediaReference> &media)
 {
     if (!d)
         return;
-    d.detach();
     d->media_ = media;
 }
 

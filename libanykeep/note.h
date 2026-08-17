@@ -22,7 +22,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #ifndef NOTE_H
 #define NOTE_H
 
-#include <QExplicitlySharedDataPointer>
+#include <QSharedDataPointer>
 #include <QString>
 #include <QStringList>
 #include <QUuid>
@@ -78,7 +78,6 @@ public:
     QString               displayTitle() const;
     QStringList           tags() const;
     QUuid                 folderId() const;
-    NoteData             *data() const;
     Format                format() const;
     QDateTime             lastChangeUTC() const;
     QVariant              backendValue(const QString &key) const;
@@ -89,7 +88,7 @@ public:
     bool                  isUpdated() const;
 
 private:
-    QExplicitlySharedDataPointer<NoteData> d;
+    QSharedDataPointer<NoteData> d;
 };
 
 inline bool noteListItemModifyComparer(const Note &a, const Note &b)

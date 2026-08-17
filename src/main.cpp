@@ -36,11 +36,13 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <cstring>
 #include <iostream>
 
+// clang-format off
 #ifdef Q_OS_WIN
-#include <Windows.h>
+#include <windows.h>
 #include <appmodel.h>
 #include <shobjidl_core.h>
 #endif
+// clang-format on
 
 #ifdef Q_OS_UNIX
 #include <fcntl.h>
