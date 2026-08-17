@@ -62,6 +62,10 @@ template <typename T> struct CryptoResult {
     explicit operator bool() const { return !error; }
 };
 
+/**
+ * Authenticated encryption helpers. The process entry point must keep a
+ * QcaInitializer alive while these functions are in use.
+ */
 class ANYKEEP_EXPORT SecureEnvelope {
 public:
     static constexpr int MasterKeySize = 32;

@@ -2,7 +2,6 @@
 
 #include <QSignalSpy>
 #include <QTest>
-#include <QXmppTrustLevel.h>
 
 using namespace AnyKeep;
 
@@ -31,7 +30,7 @@ void XmppKeyResolutionControllerTest::completesRecovery()
     device.label      = QStringLiteral("Laptop");
     device.deviceId   = 42;
     device.keyId      = deviceKey;
-    device.trustLevel = int(QXmpp::TrustLevel::Undecided);
+    device.trustLevel = XmppTrustLevel::Undecided;
 
     XmppKeyResolutionController controller(
         true, { device }, {},
@@ -89,7 +88,7 @@ void XmppKeyResolutionControllerTest::requiresRecognizedDevice()
     device.label      = QStringLiteral("Unknown");
     device.deviceId   = 7;
     device.keyId      = QByteArray("unknown-key");
-    device.trustLevel = int(QXmpp::TrustLevel::Undecided);
+    device.trustLevel = XmppTrustLevel::Undecided;
 
     bool                        trustCalled = false;
     XmppKeyResolutionController controller(
@@ -109,7 +108,7 @@ void XmppKeyResolutionControllerTest::reportsPartialDeviceRefresh()
     available.label      = QStringLiteral("Desktop");
     available.deviceId   = 42;
     available.keyId      = QByteArray::fromHex("00112233445566778899aabbccddeeff");
-    available.trustLevel = int(QXmpp::TrustLevel::ManuallyTrusted);
+    available.trustLevel = XmppTrustLevel::ManuallyTrusted;
 
     XmppDeviceInfo stale;
     stale.label    = QStringLiteral("Old device");
@@ -125,7 +124,7 @@ void XmppKeyResolutionControllerTest::reportsPartialDeviceRefresh()
 
 void XmppKeyResolutionControllerTest::timesOutAndIgnoresLateDeviceResult()
 {
-    XmppDeviceInfo device { QStringLiteral("Laptop"), 42, QByteArray("device-key"), int(QXmpp::TrustLevel::Undecided) };
+    XmppDeviceInfo device { QStringLiteral("Laptop"), 42, QByteArray("device-key"), XmppTrustLevel::Undecided };
     XmppKeyResolutionController::StatusCompletion lateCompletion;
     XmppKeyResolutionController                   controller(
         true, { device }, {},
@@ -148,9 +147,8 @@ void XmppKeyResolutionControllerTest::timesOutAndIgnoresLateDeviceResult()
 
 void XmppKeyResolutionControllerTest::removesPublishedDevice()
 {
-    XmppDeviceInfo              device { QStringLiteral("Old laptop"), 77, QByteArray("device-key"),
-                                         int(QXmpp::TrustLevel::Undecided) };
-    quint32                     removedId = 0;
+    XmppDeviceInfo device { QStringLiteral("Old laptop"), 77, QByteArray("device-key"), XmppTrustLevel::Undecided };
+    quint32        removedId = 0;
     XmppKeyResolutionController controller(
         true, { device }, {}, {},
         [&removedId](quint32 deviceId, auto completion) {
@@ -170,9 +168,8 @@ void XmppKeyResolutionControllerTest::removesPublishedDevice()
 
 void XmppKeyResolutionControllerTest::createsNewKeyOnlyWhenNoNotesExist()
 {
-    const QByteArray            generatedKey(32, 'n');
-    XmppDeviceInfo              device { QStringLiteral("Desktop"), 42, QByteArray("device-key"),
-                                         int(QXmpp::TrustLevel::ManuallyTrusted) };
+    const QByteArray generatedKey(32, 'n');
+    XmppDeviceInfo device { QStringLiteral("Desktop"), 42, QByteArray("device-key"), XmppTrustLevel::ManuallyTrusted };
     XmppKeyResolutionController controller(
         true, { device }, {},
         [](const QList<QByteArray> &, auto completion) {
@@ -205,10 +202,9 @@ void XmppKeyResolutionControllerTest::createsNewKeyOnlyWhenNoNotesExist()
 
 void XmppKeyResolutionControllerTest::startsFreshWithoutChangingUnreadableNotes()
 {
-    const QByteArray            generatedKey(32, 'f');
-    XmppDeviceInfo              device { QStringLiteral("Desktop"), 42, QByteArray("device-key"),
-                                         int(QXmpp::TrustLevel::ManuallyTrusted) };
-    bool                        rekeyCalled = false;
+    const QByteArray generatedKey(32, 'f');
+    XmppDeviceInfo device { QStringLiteral("Desktop"), 42, QByteArray("device-key"), XmppTrustLevel::ManuallyTrusted };
+    bool           rekeyCalled = false;
     XmppKeyResolutionController controller(
         true, { device }, {},
         [](const QList<QByteArray> &, auto completion) {

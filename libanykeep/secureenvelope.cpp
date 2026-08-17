@@ -19,12 +19,6 @@ namespace {
     constexpr int     NonceSize       = 12;
     constexpr int     TagSize         = 16;
 
-    QCA::Initializer &qcaInitializer()
-    {
-        static QCA::Initializer initializer;
-        return initializer;
-    }
-
     CryptoError error(CryptoError::Code code, const QString &message) { return { code, message }; }
 
     QByteArray hmacSha256(QByteArray key, const QByteArray &message)
@@ -88,15 +82,10 @@ namespace {
 
 } // namespace
 
-bool SecureEnvelope::isAvailable()
-{
-    qcaInitializer();
-    return QCA::haveSecureRandom() && QCA::isSupported("aes256-gcm");
-}
+bool SecureEnvelope::isAvailable() { return QCA::haveSecureRandom() && QCA::isSupported("aes256-gcm"); }
 
 QByteArray SecureEnvelope::generateMasterKey()
 {
-    qcaInitializer();
     return QCA::haveSecureRandom() ? QCA::Random::randomArray(MasterKeySize).toByteArray() : QByteArray {};
 }
 

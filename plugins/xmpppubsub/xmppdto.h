@@ -22,6 +22,15 @@ enum class XmppErrorKind {
     Protocol,       ///< A valid response could not be understood or completed.
 };
 
+/** Backend-neutral trust state of an end-to-end-encryption identity key. */
+enum class XmppTrustLevel : quint8 {
+    Undecided,
+    AutomaticallyTrusted,
+    ManuallyTrusted,
+    Authenticated,
+    Distrusted,
+};
+
 /** @brief Complete backend configuration for one XMPP account. */
 struct XmppConfig {
     QString    instanceId; ///< Stable local identity of this configured storage instance.
@@ -79,10 +88,10 @@ struct XmppEncryptedPayload {
 
 /** @brief OMEMO device shown by the trust and recovery UI. */
 struct XmppDeviceInfo {
-    QString    label;
-    quint32    deviceId { 0 };
-    QByteArray keyId;
-    int        trustLevel { 0 };
+    QString        label;
+    quint32        deviceId { 0 };
+    QByteArray     keyId;
+    XmppTrustLevel trustLevel { XmppTrustLevel::Undecided };
 };
 
 /** @brief Candidate note master key discovered during recovery auditing. */

@@ -7,6 +7,10 @@ add_library(anykeep_headless_test_init OBJECT headlesstestinit.cpp)
 target_link_libraries(anykeep_headless_test_init PRIVATE Qt6::Core)
 set_target_properties(anykeep_headless_test_init PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 
+add_library(anykeep_qca_test_init OBJECT qcatestinit.cpp)
+target_link_libraries(anykeep_qca_test_init PRIVATE anykeep)
+set_target_properties(anykeep_qca_test_init PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+
 set(anykeep_test_results_dir "${CMAKE_BINARY_DIR}/test-results")
 file(MAKE_DIRECTORY "${anykeep_test_results_dir}")
 
@@ -146,6 +150,16 @@ add_anykeep_test(xmppnotecodec_test xmppnotecodec_test.cpp ../plugins/xmpppubsub
 target_include_directories(xmppnotecodec_test PRIVATE ../plugins/xmpppubsub)
 target_link_libraries(xmppnotecodec_test PRIVATE Qt6::Xml)
 
+add_anykeep_test(xmpppayloadxml_test xmpppayloadxml_test.cpp ../plugins/xmpppubsub/xmpppayloadxml.cpp)
+target_include_directories(xmpppayloadxml_test PRIVATE ../plugins/xmpppubsub)
+target_link_libraries(xmpppayloadxml_test PRIVATE Qt6::Xml)
+
+add_executable(xmppkeyresolutioncontroller_test xmppkeyresolutioncontroller_test.cpp
+                                                ../plugins/xmpppubsub/xmppkeyresolutioncontroller.cpp)
+target_include_directories(xmppkeyresolutioncontroller_test PRIVATE ../plugins/xmpppubsub)
+target_link_libraries(xmppkeyresolutioncontroller_test PRIVATE Qt6::Test)
+register_anykeep_test(xmppkeyresolutioncontroller_test)
+
 if(TARGET QXmpp::QXmpp)
   add_executable(
     privatenotespubsubitem_test privatenotespubsubitem_test.cpp ../plugins/xmpppubsub/privatenotespubsubitem.cpp
@@ -154,13 +168,6 @@ if(TARGET QXmpp::QXmpp)
   target_link_libraries(privatenotespubsubitem_test PRIVATE anykeep Qt6::Test Qt6::Xml QXmpp::QXmpp)
   anykeep_configure_qxmpp_target(privatenotespubsubitem_test)
   register_anykeep_test(privatenotespubsubitem_test)
-
-  add_executable(xmppkeyresolutioncontroller_test xmppkeyresolutioncontroller_test.cpp
-                                                  ../plugins/xmpppubsub/xmppkeyresolutioncontroller.cpp)
-  target_include_directories(xmppkeyresolutioncontroller_test PRIVATE ../plugins/xmpppubsub)
-  target_link_libraries(xmppkeyresolutioncontroller_test PRIVATE Qt6::Test QXmpp::QXmpp)
-  anykeep_configure_qxmpp_target(xmppkeyresolutioncontroller_test)
-  register_anykeep_test(xmppkeyresolutioncontroller_test)
 
   add_executable(xmppkeysyncextension_test xmppkeysyncextension_test.cpp ../plugins/xmpppubsub/xmppkeysyncextension.cpp)
   target_include_directories(xmppkeysyncextension_test PRIVATE ../plugins/xmpppubsub)
@@ -225,7 +232,7 @@ set_tests_properties(ptfstorage_test notesindex_test fileremotecachestore_test s
                      PROPERTIES LABELS storage)
 set_tests_properties(nextcloudcategory_test nextcloudworker_test nextcloudstorage_test PROPERTIES LABELS
                                                                                                   "nextcloud;storage")
-set_tests_properties(xmppnotecodec_test PROPERTIES LABELS "storage;xmpp")
+set_tests_properties(xmppnotecodec_test xmpppayloadxml_test PROPERTIES LABELS "storage;xmpp")
 foreach(
   xmpp_test_target
   privatenotespubsubitem_test
@@ -252,6 +259,10 @@ foreach(anykeep_test_target IN LISTS anykeep_test_targets)
   get_target_property(anykeep_test_target_type ${anykeep_test_target} TYPE)
   if(anykeep_test_target_type STREQUAL "EXECUTABLE")
     target_sources(${anykeep_test_target} PRIVATE $<TARGET_OBJECTS:anykeep_headless_test_init>)
+    get_target_property(anykeep_test_link_libraries ${anykeep_test_target} LINK_LIBRARIES)
+    if(anykeep IN_LIST anykeep_test_link_libraries)
+      target_sources(${anykeep_test_target} PRIVATE $<TARGET_OBJECTS:anykeep_qca_test_init>)
+    endif()
     list(APPEND anykeep_test_executable_targets ${anykeep_test_target})
   endif()
 endforeach()

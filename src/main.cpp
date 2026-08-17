@@ -48,6 +48,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #endif
 
 #include "anykeep.h"
+#include "qcainitializer.h"
 
 #ifdef Q_OS_UNIX
 namespace {
@@ -143,6 +144,8 @@ void applyNeutralWindowsPalette()
 
 int main(int argc, char *argv[])
 {
+    AnyKeep::QcaInitializer qca;
+
 #ifdef Q_OS_WIN
     // FluentWinUI3 follows Windows' light/dark appearance. Its unsupported
     // controls automatically fall back to Fusion.

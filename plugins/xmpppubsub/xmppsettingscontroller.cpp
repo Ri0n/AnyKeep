@@ -136,7 +136,7 @@ void XmppSettingsController::setOmemoDevices(const XmppDeviceInfo &ownDevice, bo
         omemoDeviceLabels_.append(tr("OMEMO ID %1 — client label/resource: %2 — %3 — trust %4")
                                       .arg(device.deviceId)
                                       .arg(label, fingerprint)
-                                      .arg(device.trustLevel));
+                                      .arg(int(device.trustLevel)));
         omemoDeviceKeys_.append(device.keyId);
         omemoDeviceIds_.append(device.deviceId);
     }

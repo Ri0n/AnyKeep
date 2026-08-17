@@ -101,6 +101,14 @@ option(ANYKEEP_BUILD_BUNDLED_QCORO "Build bundled QCoro when a suitable system Q
        ${_anykeep_bundled_qcoro_default})
 option(ANYKEEP_BUILD_BUNDLED_QTKEYCHAIN "Build bundled QtKeychain when a suitable system QtKeychain is unavailable"
        ${_anykeep_bundled_qtkeychain_default})
+set(ANYKEEP_XMPP_BACKEND
+    "QXMPP"
+    CACHE STRING "XMPP implementation used by the Private Notes plugin (QXMPP or IRIS)")
+set_property(CACHE ANYKEEP_XMPP_BACKEND PROPERTY STRINGS QXMPP IRIS)
+string(TOUPPER "${ANYKEEP_XMPP_BACKEND}" ANYKEEP_XMPP_BACKEND)
+if(NOT ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP" AND NOT ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
+  message(FATAL_ERROR "ANYKEEP_XMPP_BACKEND must be QXMPP or IRIS (got '${ANYKEEP_XMPP_BACKEND}')")
+endif()
 unset(_anykeep_mobile_default)
 unset(_anykeep_bundled_qca_default)
 unset(_anykeep_bundled_qcoro_default)
@@ -126,23 +134,51 @@ else()
 endif()
 include(GNUInstallDirs)
 
-# The OMEMO package pulls in its matching QXmpp core package. Searching it first also avoids creating a core-only
-# imported target when OMEMO is absent, so the bundled fallback can define a complete, self-consistent target pair.
-find_package(QXmppOmemoQt6 1.11 QUIET)
-
-if(TARGET QXmpp::QXmpp AND TARGET QXmpp::Omemo)
-  message(STATUS "Using system QXmpp with OMEMO")
-elseif(ANYKEEP_BUILD_BUNDLED_QXMPP)
-  message(STATUS "System QXmpp 1.11+ with OMEMO not found; using bundled QXmpp")
-  include(BundledQXmpp)
-else()
-  message(STATUS "QXmpp 1.11+ with OMEMO not found; the XMPP plugin will be disabled")
-endif()
-
 find_package(Qca-qt6 QUIET)
 if(NOT TARGET qca-qt6 AND ANYKEEP_BUILD_BUNDLED_QCA)
   message(STATUS "System QCA not found; using bundled QCA")
   include(BundledQca)
+endif()
+
+if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS" AND TARGET qca-qt6)
+  get_target_property(_anykeep_qca_type qca-qt6 TYPE)
+  get_target_property(_anykeep_qca_definitions qca-qt6 INTERFACE_COMPILE_DEFINITIONS)
+  if(_anykeep_qca_type STREQUAL "STATIC_LIBRARY")
+    message(FATAL_ERROR
+            "The Iris backend requires shared QCA so AnyKeep and shared Iris use one QCA instance; found static qca-qt6")
+  endif()
+  if(_anykeep_qca_definitions)
+    list(FIND _anykeep_qca_definitions "QCA_STATIC" _anykeep_qca_static_definition)
+    if(NOT _anykeep_qca_static_definition EQUAL -1)
+      message(FATAL_ERROR
+              "The Iris backend requires shared QCA so AnyKeep and shared Iris use one QCA instance; qca-qt6 exports QCA_STATIC")
+    endif()
+    unset(_anykeep_qca_static_definition)
+  endif()
+  unset(_anykeep_qca_type)
+  unset(_anykeep_qca_definitions)
+endif()
+
+if(ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP")
+  # The OMEMO package pulls in its matching QXmpp core package. Searching it first also avoids creating a core-only
+  # imported target when OMEMO is absent, so the bundled fallback can define a complete, self-consistent target pair.
+  find_package(QXmppOmemoQt6 1.11 QUIET)
+
+  if(TARGET QXmpp::QXmpp AND TARGET QXmpp::Omemo)
+    message(STATUS "XMPP backend: system QXmpp with OMEMO")
+  elseif(ANYKEEP_BUILD_BUNDLED_QXMPP)
+    message(STATUS "XMPP backend: bundled QXmpp with OMEMO")
+    include(BundledQXmpp)
+  else()
+    message(STATUS "QXmpp 1.11+ with OMEMO not found; the XMPP plugin will be disabled")
+  endif()
+elseif(TARGET qca-qt6)
+  # Iris is intentionally an ExternalProject even when a system installation exists: it is developed in lockstep with
+  # AnyKeep and may expose protocol functionality before distributions package it.
+  message(STATUS "XMPP backend: bundled Iris ExternalProject")
+  include(BundledIris)
+else()
+  message(STATUS "QCA not found; the Iris XMPP backend cannot be built")
 endif()
 
 find_package(Qt6Keychain QUIET)
@@ -166,14 +202,16 @@ else()
   include(BundledQSourceHighlite)
 endif()
 
-find_package(QCoro6 QUIET COMPONENTS Core)
-if(TARGET QCoro::Core)
-  message(STATUS "Using system QCoro")
-elseif(ANYKEEP_BUILD_BUNDLED_QCORO)
-  message(STATUS "System QCoro not found; using bundled QCoro")
-  include(BundledQCoro)
-else()
-  message(STATUS "QCoro not found; the XMPP plugin will be disabled")
+if(ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP")
+  find_package(QCoro6 QUIET COMPONENTS Core)
+  if(TARGET QCoro::Core)
+    message(STATUS "Using system QCoro")
+  elseif(ANYKEEP_BUILD_BUNDLED_QCORO)
+    message(STATUS "System QCoro not found; using bundled QCoro")
+    include(BundledQCoro)
+  else()
+    message(STATUS "QCoro not found; the QXmpp XMPP backend will be disabled")
+  endif()
 endif()
 
 function(anykeep_configure_qxmpp_target target)
@@ -183,6 +221,13 @@ function(anykeep_configure_qxmpp_target target)
     # and its generated MOC/UIC timestamp target.
     add_dependencies(${target} anykeep_bundled_qxmpp)
     set_property(TARGET ${target} APPEND PROPERTY AUTOGEN_TARGET_DEPENDS anykeep_bundled_qxmpp)
+  endif()
+endfunction()
+
+function(anykeep_configure_iris_target target)
+  if(TARGET anykeep_bundled_iris)
+    add_dependencies(${target} anykeep_bundled_iris)
+    set_property(TARGET ${target} APPEND PROPERTY AUTOGEN_TARGET_DEPENDS anykeep_bundled_iris)
   endif()
 endfunction()
 

@@ -3,7 +3,6 @@
 #include <QAbstractListModel>
 #include <QPointer>
 #include <QStringList>
-#include <QXmppTrustLevel.h>
 
 #include <utility>
 
@@ -12,8 +11,8 @@ namespace {
 
     bool isTrusted(const XmppDeviceInfo &device)
     {
-        const auto level = QXmpp::TrustLevel(device.trustLevel);
-        return level == QXmpp::TrustLevel::ManuallyTrusted || level == QXmpp::TrustLevel::Authenticated;
+        return device.trustLevel == XmppTrustLevel::ManuallyTrusted
+            || device.trustLevel == XmppTrustLevel::Authenticated;
     }
 
     QString deviceFingerprint(const QByteArray &keyId)

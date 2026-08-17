@@ -24,7 +24,7 @@ the storage key during device onboarding.
 
 - creates and verifies private persistent PEP nodes;
 - stores the encrypted note index and content in separate nodes;
-- lists notes in batches and supports the QXmpp/RSM-compatible item-ID path;
+- lists notes in batches using backend-specific item-ID discovery with a direct PubSub fallback;
 - creates, loads, updates, and retracts notes asynchronously;
 - propagates publish, retract, purge, and node invalidation events;
 - detects optimistic revision conflicts before publishing an update;
@@ -40,20 +40,43 @@ the storage key during device onboarding.
 
 ## Building
 
-The plugin is available on Linux/Unix, macOS, and Windows. It is enabled by
-default when all required development packages are present:
+The plugin is available on Linux/Unix, macOS, and Windows. The XMPP
+implementation is selected at configure time with `ANYKEEP_XMPP_BACKEND`:
 
-- Qt Network and Qt XML for the selected Qt major version;
-- QXmpp 1.11 or newer;
-- the matching QXmpp OMEMO library;
-- QCoro Core for the matching Qt major version.
+- `QXMPP` (default) requires QXmpp 1.11 or newer, its matching OMEMO library,
+  and QCoro Core for the selected Qt major version;
+- `IRIS` builds Iris as a pinned `ExternalProject` and requires shared QCA.
+  Iris is deliberately not resolved from a system package so AnyKeep can track
+  the protocol APIs it needs before distributions package them. When QCA is
+  bundled, AnyKeep builds it shared for this backend and both AnyKeep and Iris
+  link that same QCA instance.
 
-Configure AnyKeep normally to build the plugin:
+Both backends require Qt Network and Qt XML. Configure the default QXmpp build
+normally:
 
 ```sh
 cmake -S . -B build
 cmake --build build
 ```
+
+Select Iris explicitly:
+
+```sh
+cmake -S . -B build-iris -DANYKEEP_XMPP_BACKEND=IRIS
+cmake --build build-iris
+```
+
+The remote Iris build uses the upstream commit pinned by
+`ANYKEEP_IRIS_GIT_TAG`. For Iris development, point the ExternalProject
+at a local checkout instead:
+
+```sh
+cmake -S . -B build-iris \
+  -DANYKEEP_XMPP_BACKEND=IRIS \
+  -DANYKEEP_IRIS_SOURCE_DIR=/path/to/iris
+```
+
+A local checkout is never modified by AnyKeep; it is built as-is.
 
 Disable it explicitly when building without the XMPP dependencies:
 
@@ -102,9 +125,11 @@ PubSub `publish-options`.
 
 ## Architecture
 
-The storage-facing code does not depend directly on QXmpp. `XmppBackend` is the
-asynchronous boundary intended for both the current QXmpp implementation and a
-future Iris implementation.
+The storage-facing code does not depend directly on QXmpp or Iris. `XmppBackend`
+is the asynchronous boundary implemented by both `XmppWorker` (QXmpp) and
+`IrisXmppBackend` (Iris). The selected backend is created by
+`XmppBackendFactory`; storage, retry, recovery, and UI code use the same
+contract in either build.
 
 Arguments of asynchronous backend methods are passed by value deliberately.
 An implementation owns the request data after the call returns and may safely
@@ -119,7 +144,7 @@ graph TD;
     STORAGE["XmppStorage: adapter and memory cache"];
     API["XmppBackend: asynchronous backend contract"];
     QXMPP["XmppWorker: QXmpp and QCoro backend"];
-    IRIS["Planned Iris backend"];
+    IRIS["IrisXmppBackend: Iris backend"];
     CODEC["XmppNoteCodec: AES-256-GCM envelopes"];
     OMEMO["OMEMO state and trust storage"];
     KEYCHAIN["OS keychain"];
@@ -130,9 +155,11 @@ graph TD;
     OUTBOX --> STORAGE;
     STORAGE --> API;
     API --> QXMPP;
-    API -.-> IRIS;
+    API --> IRIS;
     QXMPP --> CODEC;
+    IRIS --> CODEC;
     QXMPP --> OMEMO;
+    IRIS --> OMEMO;
     CODEC --> SERVER;
     OMEMO --> SERVER;
     STORAGE --> KEYCHAIN;
@@ -145,7 +172,8 @@ graph TD;
 | --- | --- |
 | `XmppStorage` | AnyKeep `NoteStorage` adapter, configuration, in-memory cache, job completion, UI-facing errors |
 | `XmppBackend` | backend-neutral asynchronous CRUD, lifecycle, OMEMO, audit, and key-sync contract |
-| `XmppWorker` | current QXmpp implementation; connection, PEP, PubSub, OMEMO, and QCoro flows |
+| `XmppWorker` | QXmpp implementation; connection, PEP, PubSub, OMEMO, and QCoro flows |
+| `IrisXmppBackend` | Iris implementation of the same lifecycle, PEP/PubSub, OMEMO, audit, and key-sync contract |
 | `XmppPepExtension` | incoming PubSub event filtering and conversion to backend signals |
 | `XmppKeySyncExtension` | `urn:xmpp:private-notes:key-sync:0` IQ parsing, request tracking, and replies |
 | `XmppNoteCodec` | encryption/decryption and binding index/content records to the PubSub node and item ID |
@@ -155,10 +183,11 @@ graph TD;
 | `XmppDialogPresenter` | presents the shared QML recovery and trust flows in an active or standalone Qt Quick window |
 | `DraftManager` | durable publish/delete intent, retry scheduling, and recovery after restart |
 
-QXmpp runs in Qt's normal event loop. There is no dedicated XMPP thread and no
-nested `QEventLoop`; sequential protocol operations are QCoro tasks. XMPP is
-primarily I/O-bound, so a second thread is not useful here. Expensive CPU work
-can be isolated later without changing the backend contract.
+Both backends run in Qt's normal event loop. There is no dedicated XMPP thread
+and no nested `QEventLoop`; the QXmpp implementation uses QCoro while the Iris
+implementation composes Iris tasks and encryption jobs with queued callbacks.
+XMPP is primarily I/O-bound, so a second thread is not useful here. Expensive
+CPU work can be isolated later without changing the backend contract.
 
 Concurrent storage requests share a single backend preparation attempt. Login,
 OMEMO loading, PEP discovery, and node verification therefore run once even
@@ -404,22 +433,26 @@ protected at rest. The storage key and OMEMO-state wrapping key are kept in the
 platform keychain; encrypted draft/outbox and OMEMO state files live in the
 AnyKeep data directory.
 
-## Backend evolution and Iris
+## Iris integration
 
-`XmppBackend` deliberately describes AnyKeep operations instead of exposing
-QXmpp classes. An Iris backend should implement:
+`IrisXmppBackend` implements the same AnyKeep-facing contract as `XmppWorker`:
+connection lifecycle and error classification, PEP discovery/configuration,
+PubSub events and note CRUD, OMEMO device/trust maintenance, storage-key audit,
+and encrypted key-sync IQs. Iris OMEMO and trust state use separate encrypted
+state files so switching builds never asks one backend to deserialize the
+other backend's session format.
 
-1. connection lifecycle and permanent/transient error classification;
-2. PEP discovery/configuration and PubSub item events;
-3. item-ID/RSM pagination;
-4. asynchronous note CRUD returning the existing DTO result types;
-5. OMEMO device, bundle, session, trust, and encrypted-IQ operations;
-6. cancellation/shutdown semantics compatible with `StorageJob` ownership.
+The bundled Iris patch intentionally stays small and general-purpose. It adds a
+public PubSub node-configuration getter and a self-owned QCA TLS handler. The
+factory keeps the `QCA::TLS` lifetime inside Iris while preserving the historical
+borrowed-TLS constructor used by Psi. AnyKeep and shared Iris deliberately link
+to one shared QCA instance; Iris never embeds a second bundled QCA copy. No
+private-notes wire format is changed by these additions.
 
-The current Psi OMEMO plugin is a useful implementation source, but OMEMO should
-live behind the Iris backend rather than leak Psi plugin interfaces into
-`XmppStorage`. Backend selection can later be made at build time or through a
-factory without changing note synchronization or recovery UI.
+Iris also exposes Jingle file transfer and SXE. They are intentionally not part
+of the current `XmppBackend` storage contract yet; selecting the Iris backend
+puts those facilities in the same XMPP runtime so the notes manager can adopt
+them without first replacing the synchronization backend.
 
 ## Current limitations
 
@@ -432,8 +465,10 @@ factory without changing note synchronization or recovery UI.
   merge UI or remote revision history;
 - PubSub does not provide an atomic transaction across revision check, content
   publication, and index publication;
-- the QXmpp implementation is the only backend currently shipped; Iris is an
-  architectural extension point, not yet a selectable backend;
+- backend selection is currently a build-time choice; one binary does not switch
+  between QXmpp and Iris at runtime;
+- Jingle file transfer and SXE are available from the Iris dependency but are
+  not yet wired into the notes-manager UI;
 - servers that reject item-ID discovery fall back to one page, which may be
   partial when the server does not expose a usable continuation API.
 

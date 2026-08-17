@@ -1,37 +1,30 @@
 #ifndef ANYKEEPPUBSUBITEM_H
 #define ANYKEEPPUBSUBITEM_H
 
-#include "xmppdto.h"
+#include "xmpppayloadxml.h"
 
 #include <QXmppPubSubBaseItem.h>
 
 namespace AnyKeep {
 
-/**
- * @brief QXmpp PubSub item adapter for AnyKeep encrypted payloads.
- *
- * The class validates the application namespace and transports the opaque
- * encrypted envelope. Plain note metadata is never exposed in the PubSub XML.
- */
+/** QXmpp adapter around the backend-neutral encrypted PubSub payload codec. */
 class PrivateNotesPubSubItem final : public QXmppPubSubBaseItem {
 public:
-    enum class ParseFailure { None, ObsoleteFormat, UnsupportedFormat, Malformed };
+    using ParseFailure = XmppPayloadParseFailure;
 
     static const QString payloadNamespace;
-    static const QString legacyPayloadNamespace; ///< Accepted only for explicit maintenance cleanup.
+    static const QString legacyPayloadNamespace;
 
     PrivateNotesPubSubItem() = default;
     explicit PrivateNotesPubSubItem(const XmppEncryptedPayload &payload);
 
-    /// Returns whether @p element is a AnyKeep encrypted PubSub item.
     static bool isItem(const QDomElement &element);
 
     const XmppEncryptedPayload &payload() const { return payload_; }
     bool                        isValid() const { return valid_; }
     const QString              &parseError() const { return parseError_; }
     ParseFailure                parseFailure() const { return parseFailure_; }
-    /// True only for malformed/current-development payloads safe to remove explicitly.
-    bool isObsoleteOrMalformed() const
+    bool                        isObsoleteOrMalformed() const
     {
         return parseFailure_ == ParseFailure::ObsoleteFormat || parseFailure_ == ParseFailure::Malformed;
     }

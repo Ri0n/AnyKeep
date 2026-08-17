@@ -68,7 +68,7 @@ XmppDeviceInfo XmppWorker::ownOmemoDevice() const
     if (!omemoStorage_)
         return {};
     return { omemoStorage_->ownDeviceLabel(), omemoStorage_->ownDeviceId(), omemoStorage_->ownIdentityKey(),
-             int(QXmpp::TrustLevel::Authenticated) };
+             XmppTrustLevel::Authenticated };
 }
 
 void XmppWorker::ownOmemoDevicesAsync(DevicesCallback callback)

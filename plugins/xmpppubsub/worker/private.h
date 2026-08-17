@@ -8,10 +8,28 @@
 #include <QXmppPubSubNodeConfig.h>
 #include <QXmppPubSubPublishOptions.h>
 #include <QXmppStanza.h>
+#include <QXmppTrustLevel.h>
 
 #include <variant>
 
 namespace AnyKeep::XmppWorkerPrivate {
+
+inline XmppTrustLevel backendTrustLevel(QXmpp::TrustLevel level)
+{
+    switch (level) {
+    case QXmpp::TrustLevel::AutomaticallyTrusted:
+        return XmppTrustLevel::AutomaticallyTrusted;
+    case QXmpp::TrustLevel::ManuallyTrusted:
+        return XmppTrustLevel::ManuallyTrusted;
+    case QXmpp::TrustLevel::Authenticated:
+        return XmppTrustLevel::Authenticated;
+    case QXmpp::TrustLevel::Distrusted:
+        return XmppTrustLevel::Distrusted;
+    case QXmpp::TrustLevel::Undecided:
+    default:
+        return XmppTrustLevel::Undecided;
+    }
+}
 
 inline QXmppPubSubPublishOptions privatePublishOptions()
 {

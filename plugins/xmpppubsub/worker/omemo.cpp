@@ -62,11 +62,11 @@ QCoro::Task<std::pair<QList<XmppDeviceInfo>, QString>> XmppWorker::ownOmemoDevic
         const auto label = listed.label.isEmpty() ? QStringLiteral("Unnamed device") : listed.label;
         if (keyId.isEmpty()) {
             ++missingFingerprints;
-            devices.append({ label, listed.id.toUInt(), {}, int(QXmpp::TrustLevel::Undecided) });
+            devices.append({ label, listed.id.toUInt(), {}, XmppTrustLevel::Undecided });
             continue;
         }
         const auto trust = co_await omemoManager_->trustLevel(bareJid, keyId).toFuture(this);
-        devices.append({ label, listed.id.toUInt(), keyId, int(trust) });
+        devices.append({ label, listed.id.toUInt(), keyId, backendTrustLevel(trust) });
     }
     const auto error = missingFingerprints
         ? QStringLiteral("Could not obtain the OMEMO fingerprint for %1 device(s)").arg(missingFingerprints)

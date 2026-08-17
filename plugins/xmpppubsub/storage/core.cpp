@@ -12,10 +12,10 @@
 #include "securekeystore.h"
 #include "utils.h"
 #include "xmppbackend.h"
+#include "xmppbackendfactory.h"
 #include "xmppdialogpresenter.h"
 #include "xmppkeyresolutioncontroller.h"
 #include "xmppsettingscontroller.h"
-#include "xmppworker.h"
 
 #include <QCryptographicHash>
 #include <QMetaObject>
@@ -54,7 +54,7 @@ XmppStorage::XmppStorage(QObject *parent, XmppBackend *backend, FolderCatalogMan
     folderCatalogManager_(folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance())
 {
     dialogPresenter_ = new XmppDialogPresenter(this);
-    backend_         = backend ? backend : new XmppWorker;
+    backend_         = backend ? backend : createXmppBackend();
     backend_->setParent(this);
     connect(backend_, &XmppBackend::remoteNotePublished, this, &XmppStorage::onRemoteNotePublished);
     connect(backend_, &XmppBackend::remoteNoteRetracted, this, &XmppStorage::onRemoteNoteRetracted);

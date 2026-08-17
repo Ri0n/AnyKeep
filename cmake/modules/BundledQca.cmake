@@ -20,6 +20,15 @@ set(ANYKEEP_BUNDLED_QCA_JOBS
     "${_qca_detected_jobs}"
     CACHE STRING "Parallel jobs used to build bundled QCA")
 
+# A shared Iris must not embed a second static QCA copy while AnyKeep also
+# links QCA itself. Keep the historical static bundled QCA for the QXmpp
+# backend, but build one shared QCA instance for the Iris backend.
+set(_qca_build_shared OFF)
+if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
+  set(_qca_build_shared ON)
+endif()
+set(ANYKEEP_BUNDLED_QCA_SHARED ${_qca_build_shared})
+
 if(Qt6Core_DIR AND NOT Qt6Test_DIR)
   get_filename_component(_anykeep_qt6_cmake_root "${Qt6Core_DIR}/.." ABSOLUTE)
   if(EXISTS "${_anykeep_qt6_cmake_root}/Qt6Test/Qt6TestConfig.cmake")
@@ -42,17 +51,43 @@ endif()
 
 set(_qca_prefix "${CMAKE_BINARY_DIR}/_deps/qca")
 set(_qca_install_dir "${_qca_prefix}/install")
+set(ANYKEEP_QCA_INSTALL_DIR "${_qca_install_dir}")
+set(ANYKEEP_QCA_IS_BUNDLED TRUE)
 set(_qca_include_dir "${_qca_install_dir}/${CMAKE_INSTALL_INCLUDEDIR}/Qca-qt6/QtCrypto")
 set(_qca_library_dir "${_qca_install_dir}/${CMAKE_INSTALL_LIBDIR}")
+set(_qca_runtime_dir "${_qca_install_dir}/${CMAKE_INSTALL_BINDIR}")
 set(_qca_debug_postfix "")
 if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(_qca_debug_postfix "d")
 endif()
-set(_qca_library
-    "${_qca_library_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}qca-qt6${_qca_debug_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}")
-set(_qca_ossl_plugin
-    "${_qca_library_dir}/qca-qt6/crypto/${CMAKE_STATIC_LIBRARY_PREFIX}qca-ossl${_qca_debug_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}"
-)
+
+if(_qca_build_shared)
+  if(WIN32)
+    set(_qca_runtime
+        "${_qca_runtime_dir}/qca-qt6${_qca_debug_postfix}${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    set(_qca_library
+        "${_qca_library_dir}/${CMAKE_IMPORT_LIBRARY_PREFIX}qca-qt6${_qca_debug_postfix}${CMAKE_IMPORT_LIBRARY_SUFFIX}")
+    set(_qca_ossl_plugin
+        "${_qca_library_dir}/qca-qt6/crypto/qca-ossl${_qca_debug_postfix}${CMAKE_SHARED_MODULE_SUFFIX}")
+  else()
+    set(_qca_library
+        "${_qca_library_dir}/${CMAKE_SHARED_LIBRARY_PREFIX}qca-qt6${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    if(APPLE)
+      set(_qca_ossl_suffix ".dylib")
+    else()
+      set(_qca_ossl_suffix "${CMAKE_SHARED_MODULE_SUFFIX}")
+    endif()
+    set(_qca_ossl_plugin
+        "${_qca_library_dir}/qca-qt6/crypto/${CMAKE_SHARED_MODULE_PREFIX}qca-ossl${_qca_ossl_suffix}")
+  endif()
+else()
+  set(_qca_library
+      "${_qca_library_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}qca-qt6${_qca_debug_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+  set(_qca_ossl_plugin
+      "${_qca_library_dir}/qca-qt6/crypto/${CMAKE_STATIC_LIBRARY_PREFIX}qca-ossl${_qca_debug_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+endif()
+
+set(ANYKEEP_QCA_OSSL_PLUGIN "${_qca_ossl_plugin}")
 
 if(ANYKEEP_QCA_SOURCE_DIR)
   if(NOT EXISTS "${ANYKEEP_QCA_SOURCE_DIR}/CMakeLists.txt")
@@ -66,10 +101,10 @@ endif()
 
 string(REPLACE ";" "|" _qca_prefix_path_arg "${CMAKE_PREFIX_PATH}")
 set(_qca_cmake_args
-    "-DBUILD_SHARED_LIBS=OFF"
+    "-DBUILD_SHARED_LIBS=${_qca_build_shared}"
     "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
     "-DBUILD_PLUGINS=ossl"
-    "-DLOAD_SHARED_PLUGINS=OFF"
+    "-DLOAD_SHARED_PLUGINS=${_qca_build_shared}"
     "-DBUILD_TESTS=OFF"
     "-DBUILD_TOOLS=OFF"
     "-DBUILD_WITH_QT6=ON"
@@ -133,19 +168,40 @@ ExternalProject_Add(
   BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> ${_qca_build_config_args} --parallel
                 "${ANYKEEP_BUNDLED_QCA_JOBS}"
   INSTALL_COMMAND "${CMAKE_COMMAND}" --install <BINARY_DIR> ${_qca_build_config_args}
-  BUILD_BYPRODUCTS "${_qca_library}" "${_qca_ossl_plugin}")
+  BUILD_BYPRODUCTS "${_qca_library}" "${_qca_ossl_plugin}" ${_qca_runtime})
 
 file(MAKE_DIRECTORY "${_qca_include_dir}")
 
-add_library(qca-qt6 STATIC IMPORTED GLOBAL)
-set_target_properties(
-  qca-qt6
-  PROPERTIES IMPORTED_LOCATION "${_qca_library}" INTERFACE_INCLUDE_DIRECTORIES "${_qca_include_dir}"
-             INTERFACE_LINK_LIBRARIES "${_qca_ossl_plugin};OpenSSL::SSL;OpenSSL::Crypto;Qt6::Core"
-             INTERFACE_COMPILE_DEFINITIONS QCA_STATIC)
-if(APPLE)
-  # QCA's static macOS system-store implementation calls Security.framework. Keep this on the imported QCA target so
-  # every consumer gets it transitively.
-  target_link_libraries(qca-qt6 INTERFACE "-framework Security")
+if(_qca_build_shared)
+  add_library(qca-qt6 SHARED IMPORTED GLOBAL)
+  if(WIN32)
+    set_target_properties(qca-qt6 PROPERTIES IMPORTED_LOCATION "${_qca_runtime}" IMPORTED_IMPLIB "${_qca_library}")
+  else()
+    set_target_properties(qca-qt6 PROPERTIES IMPORTED_LOCATION "${_qca_library}")
+  endif()
+  set_target_properties(
+    qca-qt6
+    PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${_qca_include_dir}" INTERFACE_LINK_LIBRARIES "Qt6::Core")
+
+  # The bundled shared QCA is a runtime dependency. qca-ossl remains a
+  # dynamically loaded QCA provider and is installed next to the Windows
+  # executable under crypto/, which is one of QCA's normal application
+  # library-path locations. Other desktop platforms normally use system QCA.
+  if(WIN32)
+    install(FILES "${_qca_runtime}" DESTINATION "." COMPONENT Libraries)
+    install(FILES "${_qca_ossl_plugin}" DESTINATION "crypto" COMPONENT Libraries)
+  endif()
+else()
+  add_library(qca-qt6 STATIC IMPORTED GLOBAL)
+  set_target_properties(
+    qca-qt6
+    PROPERTIES IMPORTED_LOCATION "${_qca_library}" INTERFACE_INCLUDE_DIRECTORIES "${_qca_include_dir}"
+               INTERFACE_LINK_LIBRARIES "${_qca_ossl_plugin};OpenSSL::SSL;OpenSSL::Crypto;Qt6::Core"
+               INTERFACE_COMPILE_DEFINITIONS QCA_STATIC)
+  if(APPLE)
+    # QCA's static macOS system-store implementation calls Security.framework. Keep this on the imported QCA target so
+    # every consumer gets it transitively.
+    target_link_libraries(qca-qt6 INTERFACE "-framework Security")
+  endif()
 endif()
 add_dependencies(qca-qt6 anykeep_bundled_qca)

@@ -6,11 +6,14 @@
 #include "localmediaimageprovider.h"
 #include "mobileapplication.h"
 #include "pluginiconimageprovider.h"
+#include "qcainitializer.h"
 #include "storageiconimageprovider.h"
 #include "themediconimageprovider.h"
 
 int main(int argc, char *argv[])
 {
+    AnyKeep::QcaInitializer qca;
+
     QGuiApplication application(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("R-Soft"));
     QCoreApplication::setApplicationName(QStringLiteral("AnyKeep"));
