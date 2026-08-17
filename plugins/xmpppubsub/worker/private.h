@@ -23,11 +23,32 @@ inline XmppTrustLevel backendTrustLevel(QXmpp::TrustLevel level)
         return XmppTrustLevel::ManuallyTrusted;
     case QXmpp::TrustLevel::Authenticated:
         return XmppTrustLevel::Authenticated;
-    case QXmpp::TrustLevel::Distrusted:
+    case QXmpp::TrustLevel::AutomaticallyDistrusted:
+    case QXmpp::TrustLevel::ManuallyDistrusted:
         return XmppTrustLevel::Distrusted;
     case QXmpp::TrustLevel::Undecided:
     default:
         return XmppTrustLevel::Undecided;
+    }
+}
+
+inline QXmpp::TrustLevel qxmppTrustLevel(XmppTrustLevel level)
+{
+    switch (level) {
+    case XmppTrustLevel::AutomaticallyTrusted:
+        return QXmpp::TrustLevel::AutomaticallyTrusted;
+    case XmppTrustLevel::ManuallyTrusted:
+        return QXmpp::TrustLevel::ManuallyTrusted;
+    case XmppTrustLevel::Authenticated:
+        return QXmpp::TrustLevel::Authenticated;
+    case XmppTrustLevel::Distrusted:
+        // The backend-neutral model deliberately does not distinguish automatic
+        // from explicit distrust. Converting back to QXmpp therefore preserves
+        // the stronger, user-visible meaning.
+        return QXmpp::TrustLevel::ManuallyDistrusted;
+    case XmppTrustLevel::Undecided:
+    default:
+        return QXmpp::TrustLevel::Undecided;
     }
 }
 

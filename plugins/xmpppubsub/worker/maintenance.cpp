@@ -276,7 +276,7 @@ QCoro::Task<> XmppWorker::approveKeySyncRequestTask(QString requestId)
     if (pending.trustBootstrap) {
         QMultiHash<QString, QByteArray> keys;
         keys.insert(QXmppUtils::jidToBareJid(config_.jid), pending.senderKey);
-        co_await omemoManager_->setTrustLevel(keys, QXmpp::TrustLevel::ManuallyTrusted).toFuture(this);
+        co_await omemoManager_->setTrustLevel(keys, qxmppTrustLevel(XmppTrustLevel::ManuallyTrusted)).toFuture(this);
         keySyncExtension_->replyTrustApproved(requestId);
         co_return;
     }

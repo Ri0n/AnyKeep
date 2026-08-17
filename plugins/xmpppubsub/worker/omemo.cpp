@@ -125,7 +125,7 @@ QCoro::Task<XmppStatusResult> XmppWorker::trustOwnOmemoDeviceTask(QByteArray key
                                                      : error };
     QMultiHash<QString, QByteArray> keys;
     keys.insert(QXmppUtils::jidToBareJid(config_.jid), keyId);
-    co_await omemoManager_->setTrustLevel(keys, QXmpp::TrustLevel::ManuallyTrusted).toFuture(this);
+    co_await omemoManager_->setTrustLevel(keys, qxmppTrustLevel(XmppTrustLevel::ManuallyTrusted)).toFuture(this);
     co_return XmppStatusResult { true };
 }
 
