@@ -1,4 +1,4 @@
-anykeep (3.99.18) UNRELEASED; urgency=medium
+anykeep (3.99.19) UNRELEASED; urgency=medium
 
   * KDE plasmamoid
   * Gnome shell-extension
@@ -6,13 +6,9 @@ anykeep (3.99.18) UNRELEASED; urgency=medium
   * Added remote storages, caches, drafts
   * Added folders
   * Added image tuning
-  * New release
-  * New release
-  * New release
-  * New release
-  * New release
+  * Added Iris XMPP backend
 
- -- Sergei Ilinykh <rion4ik@gmail.com>  Mon, 17 Aug 2026 20:59:40 +0300
+ -- Sergei Ilinykh <rion4ik@gmail.com>  Mon, 17 Aug 2026 22:57:46 +0300
 
 anykeep (3.2.99) UNRELEASED; urgency=medium
 

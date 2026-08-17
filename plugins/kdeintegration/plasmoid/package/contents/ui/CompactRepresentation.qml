@@ -21,6 +21,12 @@ MouseArea {
         if (mouse.button === Qt.MiddleButton) {
             root.notesModel.createNote();
         } else {
+            // Only an explicit click on a manually placed widget may start
+            // AnyKeep.  The system-tray instance must stay passive while the
+            // application is shutting down.
+            if (!root.notesModel.inSystemTray && !root.notesModel.available) {
+                root.notesModel.activate();
+            }
             root.plasmoidItem.expanded = !root.plasmoidItem.expanded;
         }
     }

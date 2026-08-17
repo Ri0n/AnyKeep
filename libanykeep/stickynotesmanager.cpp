@@ -118,6 +118,14 @@ bool StickyNotesManager::unpin(const QUuid &stickyId)
     return true;
 }
 
+bool StickyNotesManager::unpinPresentation(const QString &presentationId)
+{
+    if (!backend_ || presentationId.isEmpty())
+        return false;
+    const auto stickyId = backend_->stickyNoteIdForPresentation(presentationId);
+    return !stickyId.isNull() && unpin(stickyId);
+}
+
 bool StickyNotesManager::open(const QUuid &stickyId)
 {
     const auto *item = record(stickyId);

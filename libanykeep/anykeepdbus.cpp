@@ -259,6 +259,10 @@ void AnyKeepDBus::setXdgActivationToken(const QString &token)
 void AnyKeepDBus::createNote() { emit createNoteRequested(); }
 void AnyKeepDBus::openStickyNote(const QString &stickyId) { m_anykeep->stickyNotesManager()->open(QUuid(stickyId)); }
 void AnyKeepDBus::unpinStickyNote(const QString &stickyId) { m_anykeep->stickyNotesManager()->unpin(QUuid(stickyId)); }
+void AnyKeepDBus::unpinStickyNoteForPresentation(const QString &presentationId)
+{
+    m_anykeep->stickyNotesManager()->unpinPresentation(presentationId);
+}
 void AnyKeepDBus::activateGlobalShortcut(const QString &id)
 {
     if (!id.isEmpty())

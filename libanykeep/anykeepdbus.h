@@ -49,6 +49,7 @@ public slots:
     Q_SCRIPTABLE void    createNote();
     Q_SCRIPTABLE void    openStickyNote(const QString &stickyId);
     Q_SCRIPTABLE void    unpinStickyNote(const QString &stickyId);
+    Q_SCRIPTABLE void    unpinStickyNoteForPresentation(const QString &presentationId);
     Q_SCRIPTABLE void    activateGlobalShortcut(const QString &id);
     Q_SCRIPTABLE void    showNoteManager();
     Q_SCRIPTABLE void    showOptions();

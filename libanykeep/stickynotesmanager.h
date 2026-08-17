@@ -25,6 +25,7 @@ public:
 
     void requestPin(const Note &note, const QUuid &draftId, bool awaitingPublication, const QRect &preferredGeometry);
     bool unpin(const QUuid &stickyId) override;
+    bool unpinPresentation(const QString &presentationId);
     bool open(const QUuid &stickyId) override;
 
     QString  notesJson() const;

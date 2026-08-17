@@ -4,6 +4,8 @@
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 #include <QDBusInterface>
+#include <QDBusMessage>
+#include <QDBusPendingCall>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QDBusServiceWatcher>
@@ -14,7 +16,6 @@
 #include <QJsonParseError>
 #include <QLocale>
 #include <QLoggingCategory>
-#include <QProcess>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTimer>
@@ -28,12 +29,35 @@
 #include "anykeep_config.h"
 
 namespace {
-constexpr auto ServiceName                 = "com.github.ri0n.AnyKeep";
-constexpr auto ObjectPath                  = "/AnyKeep";
-constexpr auto InterfaceName               = "com.github.ri0n.AnyKeep";
-constexpr auto AutostartSuppressedProperty = "_anykeep_backendAutostartSuppressed";
+constexpr auto ServiceName   = "com.github.ri0n.AnyKeep";
+constexpr auto ObjectPath    = "/AnyKeep";
+constexpr auto InterfaceName = "com.github.ri0n.AnyKeep";
 
 Q_LOGGING_CATEGORY(logPlasmoid, "anykeep.plasmoid")
+
+QDBusPendingCall callBackendWithoutActivation(const QString &method, const QVariantList &arguments = {})
+{
+    auto message = QDBusMessage::createMethodCall(QLatin1String(ServiceName), QLatin1String(ObjectPath),
+                                                  QLatin1String(InterfaceName), method);
+    message.setArguments(arguments);
+    message.setAutoStartService(false);
+    return QDBusConnection::sessionBus().asyncCall(message);
+}
+
+QDBusPendingCallWatcher *requestBackendActivation(QObject *parent)
+{
+#ifdef ANYKEEP_DEVEL_EXECUTABLE
+    Q_UNUSED(parent);
+    qCInfo(logPlasmoid) << "AnyKeep D-Bus activation is disabled in development builds";
+    return nullptr;
+#else
+    auto message = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.DBus"), QStringLiteral("/org/freedesktop/DBus"),
+        QStringLiteral("org.freedesktop.DBus"), QStringLiteral("StartServiceByName"));
+    message.setArguments({ QLatin1String(ServiceName), quint32(0) });
+    return new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(message), parent);
+#endif
+}
 
 void loadTranslations()
 {
@@ -152,24 +176,16 @@ void NotesModel::setQuery(const QString &query)
 void NotesModel::refresh()
 {
     m_queryRefreshTimer->stop();
-    if (!m_available || !m_interface) {
-        if (m_backendAutostartSuppressed)
-            return;
-        startBackend();
+    if (!m_available || !m_interface)
         return;
-    }
 
     requestPage(0, false);
 }
 
 void NotesModel::loadMore()
 {
-    if (!m_available || !m_interface) {
-        if (m_backendAutostartSuppressed)
-            return;
-        startBackend();
+    if (!m_available || !m_interface)
         return;
-    }
     if (!m_hasMore || m_loading || m_loadingMore)
         return;
 
@@ -221,7 +237,7 @@ void NotesModel::requestPage(int offset, bool append)
 
     const quint64 requestSerial = ++m_requestSerial;
     auto         *watcher       = new QDBusPendingCallWatcher(
-        m_interface->asyncCall(QStringLiteral("notesJson"), offset, m_pageSize, m_query), this);
+        callBackendWithoutActivation(QStringLiteral("notesJson"), { offset, m_pageSize, m_query }), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher, requestSerial, append]() {
         const QDBusPendingReply<QString> reply = *watcher;
         watcher->deleteLater();
@@ -292,13 +308,6 @@ void NotesModel::showAbout(QWindow *activationWindow)
 }
 void NotesModel::quit()
 {
-    if (m_inSystemTray) {
-        m_backendAutostartSuppressed = true;
-        qCInfo(logPlasmoid) << "AnyKeep quit requested from system tray;"
-                            << "suppressing passive backend autostart";
-    } else {
-        qCInfo(logPlasmoid) << "AnyKeep quit requested from standalone plasmoid";
-    }
     m_pendingCall.clear();
     call(QStringLiteral("quit"));
 }
@@ -315,6 +324,8 @@ void NotesModel::serviceRegistered()
 void NotesModel::serviceUnregistered()
 {
     ++m_requestSerial;
+    m_starting = false;
+    m_pendingCall.clear();
     m_queryRefreshTimer->stop();
     setLoading(false);
     setLoadingMore(false);
@@ -365,7 +376,7 @@ void NotesModel::setHasMore(bool hasMore)
 void NotesModel::call(const QString &method)
 {
     if (m_available && m_interface)
-        m_interface->asyncCall(method);
+        callBackendWithoutActivation(method);
 }
 
 void NotesModel::callWithActivationToken(const QString &method, const QVariantList &arguments,
@@ -381,7 +392,7 @@ void NotesModel::callWithActivationToken(const QString &method, const QVariantLi
         if (!m_available || !m_interface)
             return;
 
-        m_interface->asyncCallWithArgumentList(method, arguments);
+        callBackendWithoutActivation(method, arguments);
     };
 
     if (!activationWindow || !KWindowSystem::isPlatformWayland()) {
@@ -395,37 +406,36 @@ void NotesModel::callWithActivationToken(const QString &method, const QVariantLi
         watcher->deleteLater();
 
         if (!token.isEmpty() && m_available && m_interface)
-            m_interface->asyncCall(QStringLiteral("setXdgActivationToken"), token);
+            callBackendWithoutActivation(QStringLiteral("setXdgActivationToken"), { token });
 
         callMethod();
     });
     watcher->setFuture(KWaylandExtras::xdgActivationToken(activationWindow, QStringLiteral("anykeep")));
 }
 
-bool NotesModel::startBackend()
+bool NotesModel::requestBackend()
 {
-    if (m_backendAutostartSuppressed)
-        return false;
-    if (m_starting)
+    if (m_available || m_starting)
         return true;
 
-#ifdef ANYKEEP_DEVEL_EXECUTABLE
-    qCInfo(logPlasmoid) << "AnyKeep backend autostart is disabled in development builds";
-    return false;
-#else
-    const QString executable = QStandardPaths::findExecutable(QStringLiteral("anykeep"));
-    if (executable.isEmpty()) {
-        qCWarning(logPlasmoid) << "Unable to find anykeep executable";
+    auto *watcher = requestBackendActivation(this);
+    if (!watcher)
         return false;
-    }
-
-    if (!QProcess::startDetached(executable)) {
-        qCWarning(logPlasmoid) << "Failed to start anykeep executable:" << executable;
-        return false;
-    }
 
     m_starting = true;
     setLoading(true);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher]() {
+        const QDBusPendingReply<quint32> reply = *watcher;
+        watcher->deleteLater();
+        if (!reply.isError() || m_available)
+            return;
+
+        qCWarning(logPlasmoid) << "Failed to activate AnyKeep:" << reply.error().message();
+        m_starting = false;
+        m_pendingCall.clear();
+        setLoading(false);
+    });
+
     QTimer::singleShot(10000, this, [this]() {
         if (m_available)
             return;
@@ -435,18 +445,19 @@ bool NotesModel::startBackend()
         setLoading(false);
     });
     return true;
-#endif
 }
+
+void NotesModel::activate() { requestBackend(); }
 
 void NotesModel::callOrStart(const QString &method)
 {
     if (m_available && m_interface) {
-        m_interface->asyncCall(method);
+        callBackendWithoutActivation(method);
         return;
     }
 
     m_pendingCall = method;
-    if (!startBackend())
+    if (!requestBackend())
         m_pendingCall.clear();
 }
 
@@ -456,7 +467,7 @@ void NotesModel::runPendingCall()
         return;
 
     const QString method = std::exchange(m_pendingCall, QString());
-    m_interface->asyncCall(method);
+    callBackendWithoutActivation(method);
 }
 
 void NotesModel::createInterface()
@@ -479,15 +490,8 @@ StickyNoteModel::StickyNoteModel(QObject *parent) : QObject(parent)
 
     const auto reply = bus.interface()->isServiceRegistered(QLatin1String(ServiceName));
     setAvailable(reply.isValid() && reply.value());
-    if (m_available) {
+    if (m_available)
         createInterface();
-    } else {
-        auto startMessage = QDBusMessage::createMethodCall(
-            QStringLiteral("org.freedesktop.DBus"), QStringLiteral("/org/freedesktop/DBus"),
-            QStringLiteral("org.freedesktop.DBus"), QStringLiteral("StartServiceByName"));
-        startMessage.setArguments({ QLatin1String(ServiceName), quint32(0) });
-        bus.asyncCall(startMessage);
-    }
 }
 
 void StickyNoteModel::setPresentationId(const QString &presentationId)
@@ -508,7 +512,7 @@ void StickyNoteModel::refresh()
 
     const quint64 serial  = ++m_requestSerial;
     auto         *watcher = new QDBusPendingCallWatcher(
-        m_interface->asyncCall(QStringLiteral("stickyNoteForPresentationJson"), m_presentationId), this);
+        callBackendWithoutActivation(QStringLiteral("stickyNoteForPresentationJson"), { m_presentationId }), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher, serial]() {
         const QDBusPendingReply<QString> reply = *watcher;
         watcher->deleteLater();
@@ -516,6 +520,7 @@ void StickyNoteModel::refresh()
             return;
         if (reply.isError()) {
             qCWarning(logPlasmoid) << "Failed to fetch sticky note:" << reply.error().message();
+            m_openWhenAvailable = false;
             clear();
             return;
         }
@@ -523,12 +528,14 @@ void StickyNoteModel::refresh()
         QJsonParseError error;
         const auto      document = QJsonDocument::fromJson(reply.value().toUtf8(), &error);
         if (error.error != QJsonParseError::NoError || !document.isObject()) {
+            m_openWhenAvailable = false;
             clear();
             return;
         }
         const auto object   = document.object();
         const auto stickyId = object.value(QStringLiteral("stickyId")).toString();
         if (stickyId.isEmpty()) {
+            m_openWhenAvailable = false;
             clear();
             return;
         }
@@ -536,23 +543,36 @@ void StickyNoteModel::refresh()
         m_title    = object.value(QStringLiteral("title")).toString();
         m_body     = object.value(QStringLiteral("body")).toString();
         emit noteChanged();
+
+        if (std::exchange(m_openWhenAvailable, false) && m_available && m_interface)
+            callBackendWithoutActivation(QStringLiteral("openStickyNote"), { m_stickyId });
     });
 }
 
 void StickyNoteModel::open()
 {
-    if (m_available && m_interface && !m_stickyId.isEmpty())
-        m_interface->asyncCall(QStringLiteral("openStickyNote"), m_stickyId);
+    if (m_available && m_interface && !m_stickyId.isEmpty()) {
+        callBackendWithoutActivation(QStringLiteral("openStickyNote"), { m_stickyId });
+        return;
+    }
+
+    if (m_presentationId.isEmpty())
+        return;
+
+    m_openWhenAvailable = true;
+    if (!requestBackend())
+        m_openWhenAvailable = false;
 }
 
 void StickyNoteModel::unpin()
 {
     if (m_available && m_interface && !m_stickyId.isEmpty())
-        m_interface->asyncCall(QStringLiteral("unpinStickyNote"), m_stickyId);
+        callBackendWithoutActivation(QStringLiteral("unpinStickyNote"), { m_stickyId });
 }
 
 void StickyNoteModel::serviceRegistered()
 {
+    m_starting = false;
     createInterface();
     setAvailable(true);
     refresh();
@@ -561,10 +581,43 @@ void StickyNoteModel::serviceRegistered()
 void StickyNoteModel::serviceUnregistered()
 {
     ++m_requestSerial;
+    m_starting          = false;
+    m_openWhenAvailable = false;
     delete m_interface;
     m_interface = nullptr;
     setAvailable(false);
     clear();
+}
+
+bool StickyNoteModel::requestBackend()
+{
+    if (m_available || m_starting)
+        return true;
+
+    auto *watcher = requestBackendActivation(this);
+    if (!watcher)
+        return false;
+
+    m_starting = true;
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher]() {
+        const QDBusPendingReply<quint32> reply = *watcher;
+        watcher->deleteLater();
+        if (!reply.isError() || m_available)
+            return;
+
+        qCWarning(logPlasmoid) << "Failed to activate AnyKeep for sticky note:" << reply.error().message();
+        m_starting          = false;
+        m_openWhenAvailable = false;
+    });
+
+    QTimer::singleShot(10000, this, [this]() {
+        if (m_available)
+            return;
+
+        m_starting          = false;
+        m_openWhenAvailable = false;
+    });
+    return true;
 }
 
 void StickyNoteModel::createInterface()

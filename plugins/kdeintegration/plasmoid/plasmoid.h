@@ -58,6 +58,7 @@ public:
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void loadMore();
+    Q_INVOKABLE void activate();
     Q_INVOKABLE void openNote(int row, QWindow *activationWindow = nullptr);
     Q_INVOKABLE void createNote(QWindow *activationWindow = nullptr);
     Q_INVOKABLE void showNoteManager(QWindow *activationWindow = nullptr);
@@ -95,7 +96,7 @@ private:
     void call(const QString &method);
     void callWithActivationToken(const QString &method, const QVariantList &arguments, QWindow *activationWindow);
     void createInterface();
-    bool startBackend();
+    bool requestBackend();
     void callOrStart(const QString &method);
     void runPendingCall();
 
@@ -113,8 +114,7 @@ private:
     quint64              m_requestSerial = 0;
     int                  m_pageSize      = 50;
 
-    bool m_inSystemTray               = false;
-    bool m_backendAutostartSuppressed = false;
+    bool m_inSystemTray = false;
 };
 
 class StickyNoteModel : public QObject {
@@ -153,6 +153,7 @@ private:
     void createInterface();
     void clear();
     void setAvailable(bool available);
+    bool requestBackend();
 
     QDBusInterface      *m_interface      = nullptr;
     QDBusServiceWatcher *m_serviceWatcher = nullptr;
@@ -160,8 +161,10 @@ private:
     QString              m_stickyId;
     QString              m_title;
     QString              m_body;
-    bool                 m_available     = false;
-    quint64              m_requestSerial = 0;
+    bool                 m_available         = false;
+    bool                 m_starting          = false;
+    bool                 m_openWhenAvailable = false;
+    quint64              m_requestSerial     = 0;
 };
 
 #endif

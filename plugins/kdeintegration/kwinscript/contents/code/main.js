@@ -6,6 +6,7 @@ const service = "com.github.ri0n.AnyKeep";
 const objectPath = "/AnyKeep";
 const interfaceName = "com.github.ri0n.AnyKeep";
 const trackedWindows = {};
+let serviceOwner = "";
 
 function windowId(window) {
     return String(window.internalId);
@@ -23,7 +24,10 @@ function saveGeometry(window) {
         return;
 
     const geometry = window.frameGeometry;
-    callDBus(service, objectPath, interfaceName, "storeWindowGeometry",
+    if (!serviceOwner)
+        return;
+
+    callDBus(serviceOwner, objectPath, interfaceName, "storeWindowGeometry",
              key,
              Math.round(geometry.x), Math.round(geometry.y),
              Math.round(geometry.width), Math.round(geometry.height));
@@ -34,7 +38,10 @@ function claimWindow(window) {
     if (trackedWindows[id])
         return;
 
-    callDBus(service, objectPath, interfaceName, "claimWindowGeometry", function (response) {
+    if (!serviceOwner)
+        return;
+
+    callDBus(serviceOwner, objectPath, interfaceName, "claimWindowGeometry", function (response) {
         if (!response || window.deleted)
             return;
 
@@ -79,8 +86,23 @@ function watchWindow(window) {
     });
 }
 
-workspace.windowAdded.connect(watchWindow);
-for (const window of workspace.stackingOrder)
-    watchWindow(window);
+function startForCurrentOwner(owner) {
+    serviceOwner = String(owner || "");
+    if (!serviceOwner.startsWith(":")) {
+        print("AnyKeep Window Geometry: unable to resolve current D-Bus owner");
+        return;
+    }
 
-callDBus(service, objectPath, interfaceName, "windowGeometryScriptReady");
+    workspace.windowAdded.connect(watchWindow);
+    for (const window of workspace.stackingOrder)
+        watchWindow(window);
+
+    // Use the unique connection name, not the activatable well-known name.
+    // If AnyKeep exits while a window.closed/frameGeometryChanged callback is
+    // still queued, the call then fails instead of asking D-Bus to start a new
+    // AnyKeep process.
+    callDBus(serviceOwner, objectPath, interfaceName, "windowGeometryScriptReady");
+}
+
+callDBus("org.freedesktop.DBus", "/org/freedesktop/DBus",
+         "org.freedesktop.DBus", "GetNameOwner", service, startForCurrentOwner);
