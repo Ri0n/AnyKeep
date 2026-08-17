@@ -162,8 +162,11 @@ register_anykeep_test(xmppkeyresolutioncontroller_test)
 
 if(TARGET QXmpp::QXmpp)
   add_executable(
-    privatenotespubsubitem_test privatenotespubsubitem_test.cpp ../plugins/xmpppubsub/privatenotespubsubitem.cpp
-                                ../plugins/xmpppubsub/xmpppepextension.cpp)
+    privatenotespubsubitem_test
+    privatenotespubsubitem_test.cpp
+    ../plugins/xmpppubsub/privatenotespubsubitem.cpp
+    ../plugins/xmpppubsub/xmpppayloadxml.cpp
+    ../plugins/xmpppubsub/xmpppepextension.cpp)
   target_include_directories(privatenotespubsubitem_test PRIVATE ../plugins/xmpppubsub)
   target_link_libraries(privatenotespubsubitem_test PRIVATE anykeep Qt6::Test Qt6::Xml QXmpp::QXmpp)
   anykeep_configure_qxmpp_target(privatenotespubsubitem_test)

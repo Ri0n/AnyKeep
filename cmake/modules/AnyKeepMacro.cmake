@@ -132,7 +132,7 @@ macro(add_anykeep_plugin name description buildable)
   set(multiValueArgs SOURCES)
   cmake_parse_arguments(arg "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-  cmake_minimum_required(VERSION 3.16.0)
+  cmake_minimum_required(VERSION 3.22.0)
   project(
     anykeep_plugin_${name}
     VERSION ${ANYKEEP_VERSION}

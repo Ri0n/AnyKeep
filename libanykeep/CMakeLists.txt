@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14.0)
+cmake_minimum_required(VERSION 3.22.0)
 include(AnyKeepMacro)
 project(
   libanykeep
@@ -59,7 +59,10 @@ if(TARGET Qt6::DBus)
   list(APPEND libanykeep_SRCS anykeepdbus.cpp)
   list(APPEND libanykeep_HDRS anykeepdbus.h)
 endif()
-find_package(Qt6 COMPONENTS Multimedia QUIET)
+find_package(
+  Qt6
+  COMPONENTS Multimedia
+  QUIET)
 if(NOT TARGET qca-qt6)
   find_package(Qca-qt6 REQUIRED)
 endif()
@@ -311,8 +314,8 @@ if(APPLE)
 endif()
 
 if(WIN32)
-  # Windows.Services.Store is projected through C++/WinRT and implemented by
-  # the Windows Runtime umbrella import library.
+  # Windows.Services.Store is projected through C++/WinRT and implemented by the Windows Runtime umbrella import
+  # library.
   target_link_libraries(anykeep PRIVATE windowsapp)
 
   # Install only the DLL for Windows
