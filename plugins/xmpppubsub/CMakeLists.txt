@@ -70,6 +70,7 @@ set(xmpppubsub_sources
     xmppdto.h
     xmpppayloadxml.cpp
     xmpppayloadxml.h
+    xmppxmllog.h
     xmppdialogpresenter.cpp
     xmppdialogpresenter.h
     xmppkeyresolutioncontroller.cpp

@@ -6,6 +6,7 @@
 #include "secureenvelope.h"
 #include "xmppnotecodec.h"
 #include "xmpppayloadxml.h"
+#include "xmppxmllog.h"
 
 #include <iris/xmpp.h>
 #include <iris/xmpp_client.h>
@@ -20,6 +21,7 @@
 #include <iris/xmpp_status.h>
 #include <iris/xmpp_tasks.h>
 
+#include <QCryptographicHash>
 #include <QtCrypto>
 
 #include <QDomDocument>
@@ -320,6 +322,15 @@ void IrisXmppBackend::createClient()
     stream_->setAllowPlain(XMPP::ClientStream::AllowPlainOverTLS);
 
     client_ = new XMPP::Client(this);
+    // PEP implicit subscriptions are driven by XEP-0115 entity capabilities.
+    // Iris only puts a <c/> element into presence when a caps node is configured.
+    client_->setCaps(XMPP::CapsSpec(QStringLiteral("https://anykeep.net"), QCryptographicHash::Sha1));
+    if (XmppXmlLog::isEnabled()) {
+        connect(client_, &XMPP::Client::xmlIncoming, this,
+                [](const QString &xml) { qInfo().noquote() << "XMPP <<" << XmppXmlLog::sanitized(xml); });
+        connect(client_, &XMPP::Client::xmlOutgoing, this,
+                [](const QString &xml) { qInfo().noquote() << "XMPP >>" << XmppXmlLog::sanitized(xml); });
+    }
     pubSub_ = client_->pubSubManager();
 
     const auto irisStatePath = config_.omemoStatePath + QStringLiteral(".iris");
@@ -334,6 +345,7 @@ void IrisXmppBackend::createClient()
     auto features = client_->features();
     features += client_->encryptionManager()->features();
     features.addFeature(IrisKeySyncTask::feature);
+    features.addFeature(config_.indexNodeName() + QStringLiteral("+notify"));
     client_->setFeatures(features);
 
     keySyncTask_ = new IrisKeySyncTask(client_);
