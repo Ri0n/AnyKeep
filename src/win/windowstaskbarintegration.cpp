@@ -17,6 +17,7 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QLoggingCategory>
+#include <QPainter>
 #include <QPlatformSurfaceEvent>
 #include <QSaveFile>
 #include <QSet>
@@ -149,15 +150,29 @@ namespace {
         }
 
         const QByteArray sourceData = resource.readAll();
-        QImage           image;
-        if (!image.loadFromData(sourceData)) {
+        QImage           sourceImage;
+        if (!sourceImage.loadFromData(sourceData)) {
             qCWarning(logWindowsTaskbar) << "Failed to decode Jump List icon resource" << resourcePath;
             return {};
         }
 
+        constexpr int iconSize      = 32;
+        QImage        renderedImage = sourceImage;
+        if (renderedImage.width() > iconSize || renderedImage.height() > iconSize) {
+            renderedImage = renderedImage.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        }
+
+        QImage iconImage(iconSize, iconSize, QImage::Format_ARGB32_Premultiplied);
+        iconImage.fill(Qt::transparent);
+        {
+            QPainter painter(&iconImage);
+            painter.drawImage((iconSize - renderedImage.width()) / 2, (iconSize - renderedImage.height()) / 2,
+                              renderedImage);
+        }
+
         QByteArray pngData;
         QBuffer    buffer(&pngData);
-        if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG")) {
+        if (!buffer.open(QIODevice::WriteOnly) || !iconImage.save(&buffer, "PNG")) {
             qCWarning(logWindowsTaskbar) << "Failed to encode Jump List icon resource" << resourcePath;
             return {};
         }
@@ -168,8 +183,13 @@ namespace {
             return {};
         }
 
+        // Include the export format in the cache key. Otherwise an icon created by
+        // an older exporter would keep the same path and Windows could continue
+        // using the stale ICO indefinitely.
+        QByteArray cacheData = sourceData;
+        cacheData += QByteArrayLiteral("|jump-list-32-v2");
         const QString digest
-            = QString::fromLatin1(QCryptographicHash::hash(sourceData, QCryptographicHash::Sha256).toHex().left(12));
+            = QString::fromLatin1(QCryptographicHash::hash(cacheData, QCryptographicHash::Sha256).toHex().left(12));
         const QString iconPath = QDir(iconDirectory).filePath(QStringLiteral("%1-%2.ico").arg(baseName, digest));
 
         if (!QFileInfo::exists(iconPath)) {
@@ -188,7 +208,7 @@ namespace {
             stream << quint16(0) << quint16(1) << quint16(1);
 
             const auto iconDimension = [](int size) { return static_cast<quint8>(size >= 256 ? 0 : size); };
-            stream << iconDimension(image.width()) << iconDimension(image.height()) << quint8(0) << quint8(0)
+            stream << iconDimension(iconImage.width()) << iconDimension(iconImage.height()) << quint8(0) << quint8(0)
                    << quint16(1) << quint16(32) << quint32(pngData.size()) << quint32(6 + 16);
 
             if (stream.writeRawData(pngData.constData(), pngData.size()) != pngData.size()
@@ -407,11 +427,19 @@ void WindowsTaskbarIntegration::configureNoteWindow(QObject *object)
 
     const QString relaunchCommand = quoteWindowsArgument(nativeLaunchExecutable()) + QStringLiteral(" -n");
     const QString displayName     = QCoreApplication::applicationName();
+    QString       relaunchIcon    = exportedJumpListIcon(QStringLiteral(":/icons/trayicon"), QStringLiteral("taskbar"));
+    if (relaunchIcon.isEmpty())
+        relaunchIcon = nativeLaunchExecutable();
+    relaunchIcon += QStringLiteral(",0");
 
     // Relaunch properties must be set before the explicit window AppUserModelID.
+    // Supplying all three prevents Shell from substituting an existing Start
+    // Menu shortcut with the same AppUserModelID (whose command has no -n).
     hr = setStringProperty(store, PKEY_AppUserModel_RelaunchCommand, relaunchCommand);
     if (SUCCEEDED(hr))
         hr = setStringProperty(store, PKEY_AppUserModel_RelaunchDisplayNameResource, displayName);
+    if (SUCCEEDED(hr))
+        hr = setStringProperty(store, PKEY_AppUserModel_RelaunchIconResource, relaunchIcon);
     if (SUCCEEDED(hr))
         hr = setStringProperty(store, PKEY_AppUserModel_ID, appId);
     if (SUCCEEDED(hr))
@@ -443,6 +471,7 @@ void WindowsTaskbarIntegration::clearNoteWindowProperties(QObject *object)
     store->SetValue(PKEY_AppUserModel_RelaunchDisplayNameResource, empty);
     store->SetValue(PKEY_AppUserModel_RelaunchIconResource, empty);
     store->SetValue(PKEY_AppUserModel_ID, empty);
+    store->Commit();
     store->Release();
 }
 
