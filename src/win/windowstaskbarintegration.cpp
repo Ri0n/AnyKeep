@@ -7,11 +7,18 @@
 #include "utils.h"
 
 #include <QApplication>
+#include <QBuffer>
 #include <QCoreApplication>
+#include <QCryptographicHash>
+#include <QDataStream>
 #include <QDir>
 #include <QEvent>
+#include <QFile>
+#include <QFileInfo>
+#include <QImage>
 #include <QLoggingCategory>
 #include <QPlatformSurfaceEvent>
+#include <QSaveFile>
 #include <QSet>
 #include <QTimer>
 #include <QWindow>
@@ -133,8 +140,69 @@ namespace {
         return quoted.join(QLatin1Char(' '));
     }
 
+    QString exportedJumpListIcon(const QString &resourcePath, const QString &baseName)
+    {
+        QFile resource(resourcePath);
+        if (!resource.open(QIODevice::ReadOnly)) {
+            qCWarning(logWindowsTaskbar) << "Failed to open Jump List icon resource" << resourcePath;
+            return {};
+        }
+
+        const QByteArray sourceData = resource.readAll();
+        QImage           image;
+        if (!image.loadFromData(sourceData)) {
+            qCWarning(logWindowsTaskbar) << "Failed to decode Jump List icon resource" << resourcePath;
+            return {};
+        }
+
+        QByteArray pngData;
+        QBuffer    buffer(&pngData);
+        if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG")) {
+            qCWarning(logWindowsTaskbar) << "Failed to encode Jump List icon resource" << resourcePath;
+            return {};
+        }
+
+        const QString iconDirectory = QDir(Utils::anykeepDataDir()).filePath(QStringLiteral("jump-list-icons"));
+        if (!QDir().mkpath(iconDirectory)) {
+            qCWarning(logWindowsTaskbar) << "Failed to create Jump List icon directory" << iconDirectory;
+            return {};
+        }
+
+        const QString digest
+            = QString::fromLatin1(QCryptographicHash::hash(sourceData, QCryptographicHash::Sha256).toHex().left(12));
+        const QString iconPath = QDir(iconDirectory).filePath(QStringLiteral("%1-%2.ico").arg(baseName, digest));
+
+        if (!QFileInfo::exists(iconPath)) {
+            QSaveFile file(iconPath);
+            if (!file.open(QIODevice::WriteOnly)) {
+                qCWarning(logWindowsTaskbar) << "Failed to create Jump List icon" << iconPath;
+                return {};
+            }
+
+            QDataStream stream(&file);
+            stream.setByteOrder(QDataStream::LittleEndian);
+
+            // ICO header with one PNG-compressed image. Windows supports PNG
+            // payloads in ICO files, while keeping the original Qt resources
+            // as the single source of truth for the artwork.
+            stream << quint16(0) << quint16(1) << quint16(1);
+
+            const auto iconDimension = [](int size) { return static_cast<quint8>(size >= 256 ? 0 : size); };
+            stream << iconDimension(image.width()) << iconDimension(image.height()) << quint8(0) << quint8(0)
+                   << quint16(1) << quint16(32) << quint32(pngData.size()) << quint32(6 + 16);
+
+            if (stream.writeRawData(pngData.constData(), pngData.size()) != pngData.size()
+                || stream.status() != QDataStream::Ok || !file.commit()) {
+                qCWarning(logWindowsTaskbar) << "Failed to write Jump List icon" << iconPath;
+                return {};
+            }
+        }
+
+        return QDir::toNativeSeparators(iconPath);
+    }
+
     HRESULT createShellLink(const QStringList &arguments, const QString &title, const QString &description,
-                            IShellLinkW **result)
+                            const QString &iconPath, IShellLinkW **result)
     {
         if (!result)
             return E_POINTER;
@@ -149,12 +217,13 @@ namespace {
         const std::wstring args       = commandLineArguments(arguments).toStdWString();
         const std::wstring tooltip    = description.toStdWString();
         const std::wstring itemTitle  = title.toStdWString();
+        const std::wstring icon       = (iconPath.isEmpty() ? nativeLaunchExecutable() : iconPath).toStdWString();
 
         hr = link->SetPath(executable.c_str());
         if (SUCCEEDED(hr))
             hr = link->SetArguments(args.c_str());
         if (SUCCEEDED(hr))
-            hr = link->SetIconLocation(executable.c_str(), 0);
+            hr = link->SetIconLocation(icon.c_str(), 0);
         if (SUCCEEDED(hr) && !tooltip.empty())
             hr = link->SetDescription(tooltip.c_str());
 
@@ -192,13 +261,13 @@ namespace {
     }
 
     bool addShellLink(IObjectCollection *collection, const QStringList &arguments, const QString &title,
-                      const QString &description = {})
+                      const QString &description = {}, const QString &iconPath = {})
     {
         if (!collection)
             return false;
 
         IShellLinkW  *link = nullptr;
-        const HRESULT hr   = createShellLink(arguments, title, description, &link);
+        const HRESULT hr   = createShellLink(arguments, title, description, iconPath, &link);
         if (FAILED(hr)) {
             qCWarning(logWindowsTaskbar) << "Failed to create Jump List link:" << hresultText(hr);
             return false;
@@ -424,17 +493,22 @@ void WindowsTaskbarIntegration::rebuildJumpList()
     if (SUCCEEDED(createCollection(&tasks))) {
         int taskCount = 0;
 
+        const QString newNoteIcon = exportedJumpListIcon(QStringLiteral(":/icons/new"), QStringLiteral("new-note"));
+        const QString noteManagerIcon
+            = exportedJumpListIcon(QStringLiteral(":/icons/manager"), QStringLiteral("note-manager"));
+
         const QStringList newNoteArguments { QStringLiteral("-n") };
         if (!removedItems.contains(commandLineArguments(newNoteArguments))
             && addShellLink(tasks, newNoteArguments,
-                            QCoreApplication::translate("WindowsTaskbarIntegration", "New note"))) {
+                            QCoreApplication::translate("WindowsTaskbarIntegration", "New note"), {}, newNoteIcon)) {
             ++taskCount;
         }
 
         const QStringList noteManagerArguments { QStringLiteral("--note-manager") };
         if (!removedItems.contains(commandLineArguments(noteManagerArguments))
             && addShellLink(tasks, noteManagerArguments,
-                            QCoreApplication::translate("WindowsTaskbarIntegration", "Note manager"))) {
+                            QCoreApplication::translate("WindowsTaskbarIntegration", "Note manager"), {},
+                            noteManagerIcon)) {
             ++taskCount;
         }
 
