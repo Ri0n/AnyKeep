@@ -95,9 +95,14 @@ public:
     void unregisterStorage(NoteStorage *storage);
 
 private:
-    bool        hasVisibleNoteEditor() const;
-    void        showInstructionsNote();
-    bool        checkpointOpenEditorsForUpdate();
+    bool hasVisibleNoteEditor() const;
+    void showInstructionsNote();
+    bool checkpointOpenEditorsForUpdate();
+#ifdef Q_OS_WIN
+    bool saveOpenWindowSessionForUpdate();
+    void restoreUpdateSessionForStorage(const QString &storageId);
+    void maybeFinishUpdateSessionRestore();
+#endif
     void        applyPreparedUpdateInternal(bool silentStoreOnly);
     NoteDialog *makeNoteDialog(const QString &storageId, const QString &noteId = {});
 

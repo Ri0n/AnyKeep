@@ -45,6 +45,7 @@ namespace {
     Q_LOGGING_CATEGORY(logWindowsTaskbar, "anykeep.windows.taskbar")
 
     constexpr wchar_t UnpackagedAppId[]  = L"com.github.ri0n.AnyKeep";
+    constexpr auto    QuickNotesSuffix   = ".QuickNotes";
     constexpr int     MaximumRecentNotes = 10;
 
     QWindow *noteWindow(QObject *object)
@@ -78,6 +79,12 @@ namespace {
         if (!appId.empty() && appId.back() == L'\0')
             appId.pop_back();
         return QString::fromStdWString(appId);
+    }
+
+    QString quickNotesAppUserModelId()
+    {
+        const QString appId = currentAppUserModelId();
+        return appId.isEmpty() ? QString() : appId + QLatin1String(QuickNotesSuffix);
     }
 
     HRESULT setStringProperty(IPropertyStore *store, REFPROPERTYKEY key, const QString &value)
@@ -141,6 +148,28 @@ namespace {
         return quoted.join(QLatin1Char(' '));
     }
 
+    QRect visibleImageBounds(const QImage &image)
+    {
+        if (image.isNull() || !image.hasAlphaChannel())
+            return image.rect();
+
+        int left   = image.width();
+        int top    = image.height();
+        int right  = -1;
+        int bottom = -1;
+        for (int y = 0; y < image.height(); ++y) {
+            for (int x = 0; x < image.width(); ++x) {
+                if (qAlpha(image.pixel(x, y)) == 0)
+                    continue;
+                left   = qMin(left, x);
+                top    = qMin(top, y);
+                right  = qMax(right, x);
+                bottom = qMax(bottom, y);
+            }
+        }
+        return right >= left && bottom >= top ? QRect(QPoint(left, top), QPoint(right, bottom)) : image.rect();
+    }
+
     QString exportedJumpListIcon(const QString &resourcePath, const QString &baseName)
     {
         QFile resource(resourcePath);
@@ -157,8 +186,8 @@ namespace {
         }
 
         constexpr int iconSize      = 32;
-        QImage        renderedImage = sourceImage;
-        if (renderedImage.width() > iconSize || renderedImage.height() > iconSize) {
+        QImage        renderedImage = sourceImage.copy(visibleImageBounds(sourceImage));
+        if (renderedImage.size() != QSize(iconSize, iconSize)) {
             renderedImage = renderedImage.scaled(iconSize, iconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         }
 
@@ -187,7 +216,7 @@ namespace {
         // an older exporter would keep the same path and Windows could continue
         // using the stale ICO indefinitely.
         QByteArray cacheData = sourceData;
-        cacheData += QByteArrayLiteral("|jump-list-32-v2");
+        cacheData += QByteArrayLiteral("|jump-list-visible-32-v4");
         const QString digest
             = QString::fromLatin1(QCryptographicHash::hash(cacheData, QCryptographicHash::Sha256).toHex().left(12));
         const QString iconPath = QDir(iconDirectory).filePath(QStringLiteral("%1-%2.ico").arg(baseName, digest));
@@ -408,9 +437,9 @@ void WindowsTaskbarIntegration::configureNoteWindow(QObject *object)
     if (!window)
         return;
 
-    const QString appId = currentAppUserModelId();
+    const QString appId = quickNotesAppUserModelId();
     if (appId.isEmpty()) {
-        qCWarning(logWindowsTaskbar) << "Could not determine AppUserModelID for note window";
+        qCWarning(logWindowsTaskbar) << "Could not determine Quick Notes AppUserModelID for note window";
         return;
     }
 
@@ -432,9 +461,9 @@ void WindowsTaskbarIntegration::configureNoteWindow(QObject *object)
         relaunchIcon = nativeLaunchExecutable();
     relaunchIcon += QStringLiteral(",0");
 
-    // Relaunch properties must be set before the explicit window AppUserModelID.
-    // Supplying all three prevents Shell from substituting an existing Start
-    // Menu shortcut with the same AppUserModelID (whose command has no -n).
+    // Give note windows their own pinnable taskbar identity. The ordinary
+    // AnyKeep application keeps its neutral launch command, while a pin made
+    // from a note window relaunches AnyKeep with -n.
     hr = setStringProperty(store, PKEY_AppUserModel_RelaunchCommand, relaunchCommand);
     if (SUCCEEDED(hr))
         hr = setStringProperty(store, PKEY_AppUserModel_RelaunchDisplayNameResource, displayName);
@@ -496,13 +525,18 @@ void WindowsTaskbarIntegration::rebuildJumpList()
         return;
     }
 
-    if (!hasPackageIdentity()) {
-        hr = destinationList->SetAppID(UnpackagedAppId);
-        if (FAILED(hr)) {
-            qCWarning(logWindowsTaskbar) << "Failed to set Jump List AppUserModelID:" << hresultText(hr);
-            destinationList->Release();
-            return;
-        }
+    const QString appId = quickNotesAppUserModelId();
+    if (appId.isEmpty()) {
+        qCWarning(logWindowsTaskbar) << "Could not determine Quick Notes AppUserModelID for Jump List";
+        destinationList->Release();
+        return;
+    }
+    const std::wstring nativeAppId = appId.toStdWString();
+    hr                             = destinationList->SetAppID(nativeAppId.c_str());
+    if (FAILED(hr)) {
+        qCWarning(logWindowsTaskbar) << "Failed to set Jump List AppUserModelID:" << hresultText(hr);
+        destinationList->Release();
+        return;
     }
 
     UINT          maximumSlots = 0;

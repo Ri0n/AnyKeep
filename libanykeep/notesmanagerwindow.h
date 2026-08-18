@@ -6,8 +6,10 @@
 #include <QElapsedTimer>
 #include <QObject>
 #include <QPointer>
+#include <QUuid>
 
 class QPointF;
+class QRect;
 class QQmlApplicationEngine;
 class QQuickWindow;
 
@@ -18,6 +20,7 @@ class DesktopNoteActions;
 class SpeechRecognitionController;
 class SpeechRecognitionProviderInterface;
 class NotesWorkspaceController;
+class Note;
 class UpdateController;
 
 class ANYKEEP_EXPORT NotesManagerWindow final : public QObject {
@@ -32,6 +35,13 @@ public:
     DesktopEditorPlatformBackend *platformBackend() const { return platformBackend_; }
     bool                          isVisible() const;
     bool                          hasOpenNote() const;
+    QString                       currentStorageId() const;
+    QString                       currentNoteId() const;
+    QUuid                         currentDraftId() const;
+    QRect                         windowGeometry() const;
+    void                          setWindowGeometry(const QRect &geometry);
+    bool                          openNote(const QString &storageId, const QString &noteId);
+    bool                          openNote(const Note &note, const QUuid &draftId = {});
     bool                          checkpoint();
     void                          show();
     void                          setSpeechRecognitionProvider(SpeechRecognitionProviderInterface *provider);

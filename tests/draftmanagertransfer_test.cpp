@@ -148,6 +148,7 @@ class DraftManagerTransferTest : public QObject {
 private slots:
     void publishesDestinationBeforeDeletingSource();
     void preservesSourceWhenDestinationPublicationFails();
+    void resumesPendingPublishForEditing();
 };
 
 void DraftManagerTransferTest::publishesDestinationBeforeDeletingSource()
@@ -227,6 +228,28 @@ void DraftManagerTransferTest::preservesSourceWhenDestinationPublicationFails()
     QVERIFY(!sourceRaw->note(source.id()).isNull());
     QCOMPARE(sourceRaw->removeCalls_, 0);
     QCOMPARE(destinationRaw->notes_.size(), 0);
+}
+
+void DraftManagerTransferTest::resumesPendingPublishForEditing()
+{
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord record;
+    record.id        = QUuid::createUuid();
+    record.operation = DraftRecord::Publish;
+    record.state     = DraftRecord::Ready;
+    record.storageId = QStringLiteral("resume-storage");
+    record.retryAt   = QDateTime::currentDateTimeUtc().addSecs(60);
+    data->records_.insert(record.id, record);
+
+    DraftManager drafts(std::move(store));
+    const auto   resumed = drafts.resumeEditingDraft(record.id);
+    QVERIFY2(resumed, qPrintable(resumed.error.message));
+    QCOMPARE(resumed.value.state, DraftRecord::Editing);
+    QVERIFY(!resumed.value.retryAt.isValid());
+    QCOMPARE(data->records_.value(record.id).state, DraftRecord::Editing);
+    QCOMPARE(drafts.recoverableDrafts().size(), 1);
+    QCOMPARE(drafts.recoverableDrafts().constFirst().id, record.id);
 }
 
 QTEST_MAIN(DraftManagerTransferTest)

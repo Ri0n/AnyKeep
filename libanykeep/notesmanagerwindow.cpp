@@ -13,6 +13,7 @@
 #include "storageiconimageprovider.h"
 #include "themediconimageprovider.h"
 #include "updatecontroller.h"
+#include "windowgeometryutils.h"
 
 #include <QDebug>
 #include <QDragEnterEvent>
@@ -122,6 +123,33 @@ void NotesManagerWindow::setSpeechRecognitionProvider(SpeechRecognitionProviderI
 bool NotesManagerWindow::isReady() const { return !window_.isNull(); }
 bool NotesManagerWindow::isVisible() const { return window_ && window_->isVisible(); }
 bool NotesManagerWindow::hasOpenNote() const { return workspace_ && workspace_->currentEditor(); }
+
+QString NotesManagerWindow::currentStorageId() const { return workspace_ ? workspace_->currentStorageId() : QString(); }
+
+QString NotesManagerWindow::currentNoteId() const { return workspace_ ? workspace_->currentNoteId() : QString(); }
+
+QUuid NotesManagerWindow::currentDraftId() const
+{
+    return workspace_ && workspace_->editor() ? workspace_->editor()->draftId() : QUuid();
+}
+
+QRect NotesManagerWindow::windowGeometry() const { return window_ ? window_->geometry() : QRect(); }
+
+void NotesManagerWindow::setWindowGeometry(const QRect &geometry)
+{
+    if (window_ && geometry.isValid())
+        window_->setGeometry(WindowGeometryUtils::constrainToCurrentScreens(geometry, window_->minimumSize()));
+}
+
+bool NotesManagerWindow::openNote(const QString &storageId, const QString &noteId)
+{
+    return workspace_ && workspace_->openNote(storageId, noteId);
+}
+
+bool NotesManagerWindow::openNote(const Note &note, const QUuid &draftId)
+{
+    return workspace_ && workspace_->openNote(note, draftId);
+}
 
 bool NotesManagerWindow::checkpoint()
 {

@@ -279,6 +279,7 @@ void UpdateController::writeStartupProbe()
     if (completedStage.exists())
         completedStage.removeRecursively();
     qCInfo(logUpdates) << "Confirmed a healthy updated application startup";
+    emit startupProbeConfirmed();
 #endif
 }
 

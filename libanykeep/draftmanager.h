@@ -45,6 +45,8 @@ public:
     bool            isLastEditingSession(const QUuid &draftId) const;
     bool            releaseEditingSession(const QUuid &draftId);
     DraftStoreResult<DraftRecord> editingDraft(const QUuid &draftId) const;
+    /** Reclaims a persisted publish draft for an explicitly restored editor session. */
+    DraftStoreResult<DraftRecord> resumeEditingDraft(const QUuid &draftId);
     DraftStoreError               markReady(const QUuid &draftId);
     DraftStoreError               discard(const QUuid &draftId);
     DraftStoreError               queueRemoval(const QString &storageId, const QString &noteId);

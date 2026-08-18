@@ -104,6 +104,7 @@ void XmppPayloadXmlTest::protectsFutureMajorNamespace()
     QVERIFY(!XmppPayloadXml::isEncryptedPayload(element));
     const auto parsed = XmppPayloadXml::parse(QStringLiteral("note-1"), element);
     QVERIFY(!parsed.valid);
+    QCOMPARE(parsed.failure, XmppPayloadParseFailure::UnsupportedFormat);
     QVERIFY(!parsed.isObsoleteOrMalformed());
 }
 

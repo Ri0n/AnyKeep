@@ -169,7 +169,17 @@ XmppPayloadParseResult XmppPayloadXml::parse(const QString &itemId, const QDomEl
     result.payload.id = itemId;
 
     if (!isEncryptedPayload(element)) {
-        result.error = QStringLiteral("Missing encrypted private-note payload");
+        // A payload with the expected element name but an unknown namespace may
+        // belong to a future incompatible protocol major.  It is unreadable by
+        // this implementation, but it must never be classified as malformed: the
+        // maintenance path is allowed to remove malformed current-major data.
+        if (!element.isNull() && elementLocalName(element) == QStringLiteral("encrypted")
+            && !element.namespaceURI().isEmpty()) {
+            result.failure = XmppPayloadParseFailure::UnsupportedFormat;
+            result.error   = QStringLiteral("Unsupported encrypted private-note payload namespace");
+        } else {
+            result.error = QStringLiteral("Missing encrypted private-note payload");
+        }
         return result;
     }
     if (element.namespaceURI() != payloadNamespace || element.hasAttribute(QStringLiteral("wire"))

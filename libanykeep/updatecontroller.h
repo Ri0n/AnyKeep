@@ -51,6 +51,7 @@ public:
     QString statusText() const;
     QString errorString() const { return errorString_; }
     qreal   downloadProgress() const { return downloadProgress_; }
+    bool    startupProbeActive() const { return !startupProbePath_.isEmpty() && !startupProbeWritten_; }
 
     void startAutomaticChecks();
     void confirmStartupProbe(const QStringList &arguments);
@@ -69,6 +70,7 @@ signals:
     void updatePrepared(const QString &version);
     void storeUpdatePrepared(const QString &version, bool automatic);
     void applyRequested();
+    void startupProbeConfirmed();
 
 private:
     void    setState(State state, const QString &error = {});

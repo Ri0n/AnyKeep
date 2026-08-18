@@ -137,6 +137,32 @@ DraftStoreResult<DraftRecord> DraftManager::editingDraft(const QUuid &draftId) c
     return draft;
 }
 
+DraftStoreResult<DraftRecord> DraftManager::resumeEditingDraft(const QUuid &draftId)
+{
+    if (!store_)
+        return { {}, { DraftStoreError::Locked, lastError_.isEmpty() ? tr("Draft store is locked") : lastError_ } };
+    auto draft = store_->load(draftId);
+    if (!draft)
+        return draft;
+    if (draft.value.operation != DraftRecord::Publish)
+        return { {}, { DraftStoreError::InvalidArgument, tr("Only publish drafts can be resumed for editing") } };
+    if (draft.value.state == DraftRecord::Publishing)
+        return { {}, { DraftStoreError::Locked, tr("The draft is already being published") } };
+    if (draft.value.state == DraftRecord::Editing)
+        return draft;
+
+    draft.value.state     = DraftRecord::Editing;
+    draft.value.lastError = {};
+    draft.value.retryAt   = {};
+    const auto error      = store_->write(draft.value);
+    if (error)
+        return { {}, error };
+    emit draftsChanged();
+    qCInfo(logDraftPersistence) << "Resumed draft for update-session editing:"
+                                << draftId.toString(QUuid::WithoutBraces);
+    return draft;
+}
+
 void DraftManager::setConflictResolver(std::unique_ptr<ConflictResolver> resolver)
 {
     conflictResolver_ = resolver ? std::move(resolver) : std::make_unique<CopyConflictResolver>();

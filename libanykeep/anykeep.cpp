@@ -41,6 +41,7 @@
 #include "globalshortcutsinterface.h"
 #include "notedata.h"
 #include "notedialog.h"
+#include "noteeditor.h"
 #include "notemanager.h"
 #include "noteruleapplicationcontroller.h"
 #include "noterulemanager.h"
@@ -57,8 +58,13 @@
 #include "trayimpl.h"
 #ifdef Q_OS_WIN
 #include "updatecontroller.h"
+#include "updatesessionmanager.h"
+#include <QVersionNumber>
 #endif
 #include "utils.h"
+#ifdef Q_OS_WIN
+#include "windowgeometryutils.h"
+#endif
 
 // #define MAIN_DEBUG
 #ifdef MAIN_DEBUG
@@ -85,10 +91,21 @@ public:
     StickyNotesManager          *stickyNotes;
     QSet<QUuid>                  recoveredDraftIds;
     QPointer<NotesManagerWindow> notesManagerWindow;
+    QPointer<OptionsDlg>         optionsDialog;
     QPointer<NoteDialog>         instructionsWindow;
     QFont                        editorFont;
     QColor                       titleHighlightColor;
     UpdateController            *updates;
+#ifdef Q_OS_WIN
+    UpdateSessionManager              updateSessions;
+    std::optional<UpdateSessionState> pendingUpdateSession;
+    QSet<QString>                     restoredSessionNotes;
+    bool                              restoredSessionManager { false };
+    bool                              restoredSessionManagerNote { false };
+    bool                              restoringSessionManagerNote { false };
+    bool                              restoredSessionOptions { false };
+    bool                              startupUpdateSessionVersionChanged { false };
+#endif
 #ifdef ANYKEEP_DBUS_AVAILABLE
     AnyKeepDBus *dbus;
 #endif
@@ -127,7 +144,16 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     qtLangDirs << langDirs;
 #endif
 
-    QSettings     settings;
+    QSettings settings;
+#ifdef Q_OS_WIN
+    d->pendingUpdateSession = d->updateSessions.pendingSession();
+    if (d->pendingUpdateSession) {
+        const auto currentVersion             = QVersionNumber::fromString(QStringLiteral(ANYKEEP_VERSION_STR));
+        const auto sourceVersion              = QVersionNumber::fromString(d->pendingUpdateSession->sourceVersion);
+        d->startupUpdateSessionVersionChanged = !currentVersion.isNull() && !sourceVersion.isNull()
+            && QVersionNumber::compare(currentVersion, sourceVersion) > 0;
+    }
+#endif
     const QString serializedEditorFont = settings.value(QStringLiteral("ui.default-font")).toString();
     if (serializedEditorFont.isEmpty() || !d->editorFont.fromString(serializedEditorFont))
         d->editorFont = qApp->font();
@@ -189,6 +215,25 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
         if (draftManager->recreateStore(&draftStoreError))
             break;
     }
+#ifdef Q_OS_WIN
+    // An orderly MSI shutdown may have moved checkpointed editor drafts to
+    // Ready. Reclaim only the draft ids owned by the saved update session
+    // before DraftManager's queued publisher gets a chance to process them.
+    if (d->pendingUpdateSession) {
+        const auto resumeDraft = [draftManager](const QUuid &draftId) {
+            if (draftId.isNull())
+                return;
+            const auto resumed = draftManager->resumeEditingDraft(draftId);
+            if (!resumed && resumed.error.code != DraftStoreError::NotFound)
+                qCWarning(logMain) << "Could not resume update-session draft" << draftId << resumed.error.message;
+        };
+        for (const auto &entry : d->pendingUpdateSession->noteWindows)
+            resumeDraft(entry.draftId);
+        if (d->pendingUpdateSession->restoreNoteManagerNote)
+            resumeDraft(d->pendingUpdateSession->noteManagerDraftId);
+    }
+#endif
+
     connect(draftManager, &DraftManager::publicationAbandoned, this, &Main::notifyError);
     connect(draftManager, &DraftManager::conflictResolved, this, &Main::notifyError);
     connect(draftManager, &DraftManager::draftPublished, this, [](const QUuid &draftId, const Note &note) {
@@ -229,7 +274,33 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     connect(NoteManager::instance(), &NoteManager::storageReady, this, [this](const NoteStorage::Ptr &storage) {
         if (!storage)
             return;
+#ifdef Q_OS_WIN
+        // Install the update-session geometry before DraftManager recreates any
+        // checkpointed editors. That lets both clean remote notes and recovered
+        // drafts come back at exactly the coordinates they had before restart.
+        if (d->pendingUpdateSession) {
+            QSettings geometrySettings;
+            for (const auto &entry : d->pendingUpdateSession->noteWindows) {
+                if ((!entry.storageId.isEmpty() && entry.storageId != storage->systemName())
+                    || !entry.geometry.isValid())
+                    continue;
+                const QString key = !entry.noteId.isEmpty()
+                    ? QStringLiteral("geometry.%1.%2").arg(entry.storageId, entry.noteId)
+                    : QStringLiteral("geometry.draft.%1").arg(entry.draftId.toString(QUuid::WithoutBraces));
+                geometrySettings.setValue(key, entry.geometry);
+            }
+        }
+#endif
         for (const auto &draft : DraftManager::instance()->recoverableDrafts()) {
+#ifdef Q_OS_WIN
+            // A draft that belonged to the Note Manager must return to that
+            // window, not be recovered as an extra standalone note.
+            if (d->pendingUpdateSession && d->pendingUpdateSession->restoreNoteManagerNote
+                && !d->pendingUpdateSession->noteManagerDraftId.isNull()
+                && draft.id == d->pendingUpdateSession->noteManagerDraftId) {
+                continue;
+            }
+#endif
             // An unassigned draft is opened through the first ready storage only
             // to obtain an editable Note shell. Its empty origin is preserved in
             // DraftStore and it will still go through routing on publication.
@@ -248,6 +319,9 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
             d->recoveredDraftIds.insert(draft.id);
             dialog->show();
         }
+#ifdef Q_OS_WIN
+        restoreUpdateSessionForStorage(storage->systemName());
+#endif
     });
 
     _pluginManager = new PluginManager(this);
@@ -317,7 +391,44 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     // expose the Windows update controller there.
     d->updates = new UpdateController(this);
     d->updates->confirmStartupProbe(qApp->arguments());
+    connect(d->updates, &UpdateController::startupProbeConfirmed, this, [this] {
+        // The rollback window is over, but keep the snapshot durable until
+        // every requested window has actually been recreated. Slow storage
+        // initialization may outlive the health probe.
+        maybeFinishUpdateSessionRestore();
+    });
     connect(d->updates, &UpdateController::applyRequested, this, &Main::applyPreparedUpdate);
+    connect(d->updates, &UpdateController::stateChanged, this, [this] {
+        // A Store deployment can fail after installStoreUpdate() accepted it.
+        // If the current process remains alive, the restart snapshot is stale
+        // and must not be replayed on an unrelated future launch.
+        if (d->updates && d->updates->managedByStore() && d->updates->state() == UpdateController::Failed
+            && d->pendingUpdateSession && d->pendingUpdateSession->sourceVersion == d->updates->currentVersion()) {
+            d->updateSessions.clearPendingSession();
+            d->pendingUpdateSession.reset();
+        }
+    });
+
+    const QString currentVersion  = d->updates->currentVersion();
+    const QString previousVersion = d->updateSessions.recordStartedVersion(currentVersion);
+    const auto    currentParsed   = QVersionNumber::fromString(currentVersion);
+    const auto    previousParsed  = QVersionNumber::fromString(previousVersion);
+    const bool    versionAdvanced = !previousVersion.isEmpty() && !currentParsed.isNull() && !previousParsed.isNull()
+        && QVersionNumber::compare(currentParsed, previousParsed) > 0;
+    const bool existingInstallWithoutVersionMarker
+        = previousVersion.isEmpty() && settings.value(QStringLiteral("first-start"), false).toBool();
+    // The persistent update-session marker covers Store and MSI relaunches
+    // initiated by versions that already support session snapshots, including
+    // the no-open-window case. The MSI startup probe is an additional
+    // authoritative signal from the external updater. first-start is the
+    // one-time migration fallback for an existing installation upgrading from
+    // a build that predates lastStartedVersion tracking.
+    if (versionAdvanced || d->startupUpdateSessionVersionChanged || d->updates->startupProbeActive()
+        || existingInstallWithoutVersionMarker) {
+        QTimer::singleShot(0, this, [this, currentVersion] {
+            notify(tr("AnyKeep updated"), tr("AnyKeep was updated to version %1").arg(currentVersion), {}, {});
+        });
+    }
     const auto notifyPreparedUpdate = [this](const QString &version) {
         notify(tr("AnyKeep update ready"),
                tr("AnyKeep %1 has been downloaded and prepared. Click to update and restart.").arg(version),
@@ -503,6 +614,277 @@ bool Main::checkpointOpenEditorsForUpdate()
     return true;
 }
 
+#ifdef Q_OS_WIN
+namespace {
+    QString updateSessionNoteKey(const UpdateSessionNoteWindow &entry)
+    {
+        if (!entry.noteId.isEmpty())
+            return entry.storageId + QLatin1Char('\n') + entry.noteId;
+        return QStringLiteral("draft:") + entry.draftId.toString(QUuid::WithoutBraces);
+    }
+}
+
+bool Main::saveOpenWindowSessionForUpdate()
+{
+    if (!d->updates)
+        return false;
+
+    UpdateSessionState session;
+    session.sourceVersion = d->updates->currentVersion();
+    session.targetVersion = d->updates->availableVersion();
+
+    for (auto *dialog : NoteDialog::openDialogs()) {
+        if (!dialog || !dialog->isVisible() || dialog->tutorial() || !dialog->editor())
+            continue;
+        UpdateSessionNoteWindow entry;
+        entry.storageId = dialog->editor()->storageId();
+        entry.noteId    = dialog->editor()->noteId();
+        entry.draftId   = dialog->editor()->draftId();
+        entry.geometry  = dialog->geometry();
+        if (!entry.storageId.isEmpty() || !entry.draftId.isNull())
+            session.noteWindows.append(entry);
+    }
+
+    if (d->notesManagerWindow && d->notesManagerWindow->isVisible()) {
+        session.noteManagerVisible  = true;
+        session.noteManagerGeometry = d->notesManagerWindow->windowGeometry();
+        if (d->notesManagerWindow->hasOpenNote()) {
+            session.noteManagerStorageId   = d->notesManagerWindow->currentStorageId();
+            session.noteManagerNoteId      = d->notesManagerWindow->currentNoteId();
+            session.noteManagerDraftId     = d->notesManagerWindow->currentDraftId();
+            session.restoreNoteManagerNote = true;
+        }
+    }
+
+    if (d->optionsDialog && d->optionsDialog->isVisible()) {
+        session.optionsVisible  = true;
+        session.optionsGeometry = d->optionsDialog->geometry();
+    }
+
+    d->restoredSessionNotes.clear();
+    d->restoredSessionManager      = false;
+    d->restoredSessionManagerNote  = false;
+    d->restoringSessionManagerNote = false;
+    d->restoredSessionOptions      = false;
+
+    // Save the update transaction even when no windows are open. Besides the
+    // optional UI snapshot, sourceVersion is the durable signal that lets a
+    // relaunched Store build identify an updater-controlled version change.
+    if (!d->updateSessions.savePendingSession(session))
+        return false;
+    d->pendingUpdateSession = session;
+    return true;
+}
+
+void Main::restoreUpdateSessionForStorage(const QString &storageId)
+{
+    if (!d->pendingUpdateSession)
+        return;
+
+    for (const auto &entry : d->pendingUpdateSession->noteWindows) {
+        if (!entry.storageId.isEmpty() && entry.storageId != storageId)
+            continue;
+        const QString key = updateSessionNoteKey(entry);
+        if (d->restoredSessionNotes.contains(key))
+            continue;
+
+        if (!entry.noteId.isEmpty()) {
+            if (auto *dialog = NoteDialog::findDialog(entry.storageId, entry.noteId)) {
+                if (entry.geometry.isValid()) {
+                    dialog->setGeometry(
+                        WindowGeometryUtils::constrainToCurrentScreens(entry.geometry, dialog->minimumSize()));
+                }
+                dialog->show();
+                d->restoredSessionNotes.insert(key);
+                continue;
+            }
+
+            auto *job = NoteManager::instance()->loadNoteAsync(entry.storageId, entry.noteId, this);
+            connect(job, &StorageJob::finished, this, [this, job, entry, key]() {
+                if (!d->pendingUpdateSession) {
+                    job->deleteLater();
+                    return;
+                }
+                if (job->state() != StorageJob::Succeeded) {
+                    qCWarning(logMain) << "Failed to restore note window after update" << entry.storageId
+                                       << entry.noteId << job->error().message;
+                    job->deleteLater();
+                    return;
+                }
+                auto *dialog = NoteDialog::findDialog(entry.storageId, entry.noteId);
+                if (!dialog)
+                    dialog = new NoteDialog(job->result(), this);
+                if (entry.geometry.isValid()) {
+                    dialog->setGeometry(
+                        WindowGeometryUtils::constrainToCurrentScreens(entry.geometry, dialog->minimumSize()));
+                }
+                dialog->show();
+                d->restoredSessionNotes.insert(key);
+                job->deleteLater();
+                maybeFinishUpdateSessionRestore();
+            });
+            continue;
+        }
+
+        // New notes have no remote id. Their update checkpoint is recovered by
+        // DraftManager above; correlate the recreated window by draft id.
+        bool recovered = false;
+        for (auto *dialog : NoteDialog::openDialogs()) {
+            if (!dialog || !dialog->editor() || dialog->editor()->draftId() != entry.draftId)
+                continue;
+            if (entry.geometry.isValid()) {
+                dialog->setGeometry(
+                    WindowGeometryUtils::constrainToCurrentScreens(entry.geometry, dialog->minimumSize()));
+            }
+            dialog->show();
+            d->restoredSessionNotes.insert(key);
+            recovered = true;
+            break;
+        }
+        if (!recovered) {
+            // An untouched new note has no persisted draft at all. Recreate its
+            // empty editor shell with the same session id instead of dropping
+            // the window during the update restart.
+            const auto effectiveStorageId = entry.storageId.isEmpty() ? storageId : entry.storageId;
+            const auto storage            = NoteManager::instance()->storage(effectiveStorageId);
+            if (storage) {
+                auto note = storage->createNote();
+                if (!note.isNull()) {
+                    auto *dialog = new NoteDialog(note, this, entry.draftId);
+                    if (entry.geometry.isValid()) {
+                        dialog->setGeometry(
+                            WindowGeometryUtils::constrainToCurrentScreens(entry.geometry, dialog->minimumSize()));
+                    }
+                    dialog->show();
+                    d->restoredSessionNotes.insert(key);
+                }
+            }
+        }
+    }
+
+    const auto &session = *d->pendingUpdateSession;
+    if (session.noteManagerVisible && !d->restoredSessionManager) {
+        QSettings settings;
+        if (session.noteManagerGeometry.isValid()) {
+            settings.beginGroup(QStringLiteral("note-manager-window"));
+            settings.setValue(QStringLiteral("x"), session.noteManagerGeometry.x());
+            settings.setValue(QStringLiteral("y"), session.noteManagerGeometry.y());
+            settings.setValue(QStringLiteral("width"), session.noteManagerGeometry.width());
+            settings.setValue(QStringLiteral("height"), session.noteManagerGeometry.height());
+            settings.endGroup();
+        }
+        showNoteManager();
+        if (d->notesManagerWindow && d->notesManagerWindow->isReady()) {
+            if (session.noteManagerGeometry.isValid())
+                d->notesManagerWindow->setWindowGeometry(session.noteManagerGeometry);
+            d->restoredSessionManager = d->notesManagerWindow->isVisible();
+        }
+    }
+
+    if (session.restoreNoteManagerNote && !d->restoredSessionManagerNote && d->notesManagerWindow) {
+        const auto storage = NoteManager::instance()->storage(storageId);
+        if (storage) {
+            for (const auto &draft : DraftManager::instance()->recoverableDrafts()) {
+                if (draft.id != session.noteManagerDraftId
+                    || (!draft.storageId.isEmpty() && draft.storageId != storageId)) {
+                    continue;
+                }
+                auto note = draft.remoteNoteId.isEmpty() ? storage->createNote() : storage->note(draft.remoteNoteId);
+                if (note.isNull())
+                    continue;
+                note.setTitle(draft.title);
+                note.setText(draft.body, draft.format);
+                note.setFolderId(draft.folderId);
+                note.setMedia(draft.media);
+                note.setBackendData(draft.backendData);
+                if (d->notesManagerWindow->openNote(note, draft.id)) {
+                    d->recoveredDraftIds.insert(draft.id);
+                    d->restoredSessionManagerNote = true;
+                }
+                break;
+            }
+
+            if (!d->restoredSessionManagerNote
+                && (session.noteManagerStorageId.isEmpty() || session.noteManagerStorageId == storageId)) {
+                if (!session.noteManagerNoteId.isEmpty()) {
+                    if (!d->restoringSessionManagerNote) {
+                        d->restoringSessionManagerNote = true;
+                        auto *job = NoteManager::instance()->loadNoteAsync(session.noteManagerStorageId,
+                                                                           session.noteManagerNoteId, this);
+                        connect(job, &StorageJob::finished, this, [this, job] {
+                            d->restoringSessionManagerNote = false;
+                            if (!d->pendingUpdateSession) {
+                                job->deleteLater();
+                                return;
+                            }
+                            if (job->state() != StorageJob::Succeeded || !d->notesManagerWindow
+                                || !d->notesManagerWindow->openNote(job->result())) {
+                                qCWarning(logMain)
+                                    << "Failed to restore Note Manager note after update" << job->error().message;
+                                job->deleteLater();
+                                return;
+                            }
+                            d->restoredSessionManagerNote = true;
+                            job->deleteLater();
+                            maybeFinishUpdateSessionRestore();
+                        });
+                    }
+                } else {
+                    // Just like a standalone untouched new note, an empty new
+                    // editor in the manager has no draft to recover.
+                    auto note = storage->createNote();
+                    if (!note.isNull()) {
+                        d->restoredSessionManagerNote
+                            = d->notesManagerWindow->openNote(note, session.noteManagerDraftId);
+                    }
+                }
+            }
+        }
+    }
+
+    maybeFinishUpdateSessionRestore();
+}
+
+void Main::maybeFinishUpdateSessionRestore()
+{
+    if (!d->pendingUpdateSession)
+        return;
+
+    for (const auto &entry : d->pendingUpdateSession->noteWindows) {
+        if (!d->restoredSessionNotes.contains(updateSessionNoteKey(entry)))
+            return;
+    }
+    if (d->pendingUpdateSession->noteManagerVisible && !d->restoredSessionManager)
+        return;
+    if (d->pendingUpdateSession->restoreNoteManagerNote && !d->restoredSessionManagerNote)
+        return;
+
+    // Settings is deliberately restored last so it comes back on top of the
+    // note windows and Note Manager, matching the pre-update interaction state.
+    if (d->pendingUpdateSession->optionsVisible && !d->restoredSessionOptions) {
+        showOptions();
+        if (!d->optionsDialog)
+            return;
+        if (d->pendingUpdateSession->optionsGeometry.isValid()) {
+            d->optionsDialog->setGeometry(WindowGeometryUtils::constrainToCurrentScreens(
+                d->pendingUpdateSession->optionsGeometry, d->optionsDialog->minimumSize()));
+        }
+        activateWidget(d->optionsDialog);
+        d->restoredSessionOptions = true;
+    }
+
+    // The versioned MSI updater may still roll back during its health probe.
+    // Keep the snapshot until UpdateController confirms that probe so the old
+    // version can restore the same session after a failed startup.
+    const bool probeRequested = qApp->arguments().contains(QStringLiteral("--update-probe-file"));
+    if ((d->updates && d->updates->startupProbeActive()) || (!d->updates && probeRequested))
+        return;
+
+    d->updateSessions.clearPendingSession();
+    d->pendingUpdateSession.reset();
+}
+#endif
+
 void Main::applyPreparedUpdateInternal(bool silentStoreOnly)
 {
 #ifdef Q_OS_WIN
@@ -515,7 +897,13 @@ void Main::applyPreparedUpdateInternal(bool silentStoreOnly)
                 d->updates->applyUpdate();
             return;
         }
+        if (!saveOpenWindowSessionForUpdate()) {
+            notifyError(tr("The Microsoft Store update is ready, but the open-window session could not be saved."));
+            return;
+        }
         if (!checkpointOpenEditorsForUpdate()) {
+            d->updateSessions.clearPendingSession();
+            d->pendingUpdateSession.reset();
             notifyError(tr("The Microsoft Store update is ready, but an open note could not be checkpointed."));
             return;
         }
@@ -523,6 +911,8 @@ void Main::applyPreparedUpdateInternal(bool silentStoreOnly)
         QString    error;
         const bool silent = silentStoreOnly || d->updates->canApplyStoreUpdateSilently();
         if (!d->updates->installStoreUpdate(silent, &error)) {
+            d->updateSessions.clearPendingSession();
+            d->pendingUpdateSession.reset();
             notifyError(error);
             return;
         }
@@ -532,21 +922,25 @@ void Main::applyPreparedUpdateInternal(bool silentStoreOnly)
         return;
     }
 
-    if (d->notesManagerWindow && !d->notesManagerWindow->close()) {
-        notifyError(tr("The update is ready, but the note manager could not checkpoint the current note."));
+    if (!saveOpenWindowSessionForUpdate()) {
+        notifyError(tr("The update is ready, but the open-window session could not be saved."));
         return;
     }
-    for (auto *dialog : NoteDialog::openDialogs())
-        dialog->close();
-    for (auto *dialog : NoteDialog::openDialogs()) {
-        if (dialog->isVisible()) {
-            notifyError(tr("The update is ready, but an open note could not be checkpointed."));
-            return;
-        }
+    if (!checkpointOpenEditorsForUpdate()) {
+        d->updateSessions.clearPendingSession();
+        d->pendingUpdateSession.reset();
+        notifyError(tr("The update is ready, but an open note could not be checkpointed."));
+        return;
     }
 
+    // Keep the windows alive until the updater has actually started. If launch
+    // fails, the user continues in the current process with the same windows.
+    // On successful quit, the ordinary close path may mark checkpointed drafts
+    // Ready; the next version explicitly resumes the session-owned draft ids.
     QString error;
     if (!d->updates->launchPreparedUpdater(QCoreApplication::applicationPid(), &error)) {
+        d->updateSessions.clearPendingSession();
+        d->pendingUpdateSession.reset();
         notifyError(error);
         return;
     }
@@ -605,11 +999,18 @@ void Main::showNoteManager()
 
 void Main::showOptions()
 {
-    OptionsDlg *d = new OptionsDlg(this);
-    d->setAttribute(Qt::WA_DeleteOnClose);
-    d->show();
-    connect(d, SIGNAL(accepted()), SIGNAL(settingsUpdated()));
-    activateWidget(d);
+    if (d->optionsDialog) {
+        d->optionsDialog->show();
+        activateWidget(d->optionsDialog);
+        return;
+    }
+
+    auto *dialog     = new OptionsDlg(this);
+    d->optionsDialog = dialog;
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dialog, SIGNAL(accepted()), SIGNAL(settingsUpdated()));
+    dialog->show();
+    activateWidget(dialog);
 }
 
 UpdateController *Main::updateController() const { return d->updates; }
