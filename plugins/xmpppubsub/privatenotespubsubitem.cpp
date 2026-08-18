@@ -5,8 +5,12 @@
 
 namespace AnyKeep {
 
-const QString PrivateNotesPubSubItem::payloadNamespace       = XmppPayloadXml::payloadNamespace;
-const QString PrivateNotesPubSubItem::legacyPayloadNamespace = XmppPayloadXml::legacyPayloadNamespace;
+// Keep these literals independent from XmppPayloadXml's QString objects.  Copying
+// one namespace QString from another translation unit during static initialization
+// makes the result depend on link/init order: this adapter may otherwise copy the
+// still-zero-initialized QString and permanently expose an empty namespace.
+const QString PrivateNotesPubSubItem::payloadNamespace       = QStringLiteral("urn:xmpp:private-notes:0");
+const QString PrivateNotesPubSubItem::legacyPayloadNamespace = QStringLiteral("urn:xmpp:private-notes:encrypted:0");
 
 PrivateNotesPubSubItem::PrivateNotesPubSubItem(const XmppEncryptedPayload &payload) :
     QXmppPubSubBaseItem(payload.id), payload_(payload), valid_(true)

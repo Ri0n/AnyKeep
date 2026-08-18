@@ -59,6 +59,12 @@ private slots:
 
 void PrivateNotesPubSubItemTest::roundTripCurrentXml()
 {
+    // The QXmpp adapter and the backend-neutral codec intentionally expose the
+    // same wire namespaces.  Keep this explicit so future protocol bumps cannot
+    // silently update only one side.
+    QCOMPARE(PrivateNotesPubSubItem::payloadNamespace, XmppPayloadXml::payloadNamespace);
+    QCOMPARE(PrivateNotesPubSubItem::legacyPayloadNamespace, XmppPayloadXml::legacyPayloadNamespace);
+
     XmppEncryptedPayload payload;
     payload.id         = QStringLiteral("note-1");
     payload.keyId      = QByteArray(32, '\x11');
