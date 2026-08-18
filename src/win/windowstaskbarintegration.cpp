@@ -2,7 +2,6 @@
 
 #include "foldercatalogmanager.h"
 #include "note.h"
-#include "notedialog.h"
 #include "notemanager.h"
 #include "notesindex.h"
 #include "utils.h"
@@ -15,6 +14,7 @@
 #include <QPlatformSurfaceEvent>
 #include <QSet>
 #include <QTimer>
+#include <QWindow>
 
 #include <algorithm>
 #include <array>
@@ -38,6 +38,13 @@ namespace {
 
     constexpr wchar_t UnpackagedAppId[]  = L"com.github.ri0n.AnyKeep";
     constexpr int     MaximumRecentNotes = 10;
+
+    QWindow *noteWindow(QObject *object)
+    {
+        if (!object || !object->inherits("AnyKeep::NoteDialog"))
+            return nullptr;
+        return qobject_cast<QWindow *>(object);
+    }
 
     QString hresultText(HRESULT result)
     {
@@ -292,7 +299,7 @@ WindowsTaskbarIntegration::~WindowsTaskbarIntegration()
 
 bool WindowsTaskbarIntegration::eventFilter(QObject *watched, QEvent *event)
 {
-    if (!event || !qobject_cast<NoteDialog *>(watched))
+    if (!event || !noteWindow(watched))
         return QObject::eventFilter(watched, event);
 
     if (event->type() == QEvent::Show) {
@@ -308,8 +315,8 @@ bool WindowsTaskbarIntegration::eventFilter(QObject *watched, QEvent *event)
 
 void WindowsTaskbarIntegration::configureNoteWindow(QObject *object)
 {
-    auto *dialog = qobject_cast<NoteDialog *>(object);
-    if (!dialog)
+    auto *window = noteWindow(object);
+    if (!window)
         return;
 
     const QString appId = currentAppUserModelId();
@@ -318,7 +325,7 @@ void WindowsTaskbarIntegration::configureNoteWindow(QObject *object)
         return;
     }
 
-    const HWND hwnd = reinterpret_cast<HWND>(dialog->winId());
+    const HWND hwnd = reinterpret_cast<HWND>(window->winId());
     if (!hwnd)
         return;
 
@@ -349,11 +356,11 @@ void WindowsTaskbarIntegration::configureNoteWindow(QObject *object)
 
 void WindowsTaskbarIntegration::clearNoteWindowProperties(QObject *object)
 {
-    auto *dialog = qobject_cast<NoteDialog *>(object);
-    if (!dialog)
+    auto *window = noteWindow(object);
+    if (!window)
         return;
 
-    const HWND hwnd = reinterpret_cast<HWND>(dialog->winId());
+    const HWND hwnd = reinterpret_cast<HWND>(window->winId());
     if (!hwnd)
         return;
 
