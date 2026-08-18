@@ -41,15 +41,15 @@ Item {
         editor: noteEditor
         platformBackend: desktopEditorPlatform
         audioTranscriptionController: desktopSpeech
-        showDeleteButton: true
-        showDesktopActions: true
-        microphoneVisible: desktopSpeech.available
+        showDeleteButton: !standaloneHost.tutorial
+        showDesktopActions: !standaloneHost.tutorial
+        microphoneVisible: !standaloneHost.tutorial && desktopSpeech.available
         microphoneBusy: desktopSpeech.busy
         microphoneRecording: desktopSpeech.recording
         microphoneHoldToRecord: true
         microphoneModeSwitchVisible: desktopSpeech.modeSwitchVisible
         microphoneMode: desktopSpeech.mode
-        pinActionsVisible: true
+        pinActionsVisible: !standaloneHost.tutorial
         pinVisible: standaloneHost.pinAvailable
         alwaysOnTop: standaloneHost.alwaysOnTop
         onDeleteRequested: standaloneHost.trashNote()

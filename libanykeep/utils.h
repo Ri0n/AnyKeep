@@ -40,6 +40,9 @@ public:
 
     static bool isAutostartEnabled();
     static bool setAutostartEnabled(bool enabled);
+#ifdef Q_OS_WIN
+    static QString windowsLaunchExecutable();
+#endif
 
     static QColor perceptiveColor(const QColor &against);
     static QColor mergeColors(const QColor &a, const QColor &b);

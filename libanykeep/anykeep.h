@@ -96,6 +96,7 @@ public:
 
 private:
     bool        hasVisibleNoteEditor() const;
+    void        showInstructionsNote();
     bool        checkpointOpenEditorsForUpdate();
     void        applyPreparedUpdateInternal(bool silentStoreOnly);
     NoteDialog *makeNoteDialog(const QString &storageId, const QString &noteId = {});

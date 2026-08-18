@@ -39,6 +39,7 @@
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
 #include "globalshortcutsinterface.h"
+#include "notedata.h"
 #include "notedialog.h"
 #include "notemanager.h"
 #include "noteruleapplicationcontroller.h"
@@ -84,6 +85,7 @@ public:
     StickyNotesManager          *stickyNotes;
     QSet<QUuid>                  recoveredDraftIds;
     QPointer<NotesManagerWindow> notesManagerWindow;
+    QPointer<NoteDialog>         instructionsWindow;
     QFont                        editorFont;
     QColor                       titleHighlightColor;
     UpdateController            *updates;
@@ -386,11 +388,10 @@ void Main::parseAppArguments(const QStringList &args)
     bool argsHandled = false;
     while (i < args.size()) {
         if (args.at(i) == QLatin1String("-n")) {
-            if (i < args.size() + 1 && args.at(i + 1)[0] != '-') {
-                i++;
-                if (args.at(i) == QLatin1String("selection")) {
+            if (i + 1 < args.size() && !args.at(i + 1).startsWith(QLatin1Char('-'))) {
+                ++i;
+                if (args.at(i) == QLatin1String("selection"))
                     createNewNoteFromSelection();
-                }
             } else {
                 createNewNote();
             }
@@ -398,27 +399,69 @@ void Main::parseAppArguments(const QStringList &args)
         } else if (args.at(i) == QLatin1String("-m") || args.at(i) == QLatin1String("--note-manager")) {
             showNoteManager();
             argsHandled = true;
+#ifdef Q_OS_WIN
+        } else if (args.at(i) == QLatin1String("--open-note")) {
+            if (i + 2 < args.size()) {
+                openNoteDialog(args.at(i + 1), args.at(i + 2));
+                i += 2;
+                argsHandled = true;
+            } else {
+                qCWarning(logMain) << "--open-note requires storage and note IDs";
+            }
+#endif
         } else if (args.at(i) == QLatin1String("--safe-mode") || args.at(i) == QLatin1String("--safemode")) {
             // Safe mode is consumed before Main is constructed so plugin
             // loading can be restricted.  Treat it as a handled argument here
             // as well to avoid showing first-start UI.
             argsHandled = true;
         }
-        i++;
+        ++i;
     }
-    QSettings s;
-    if (!argsHandled && !s.value("first-start").toBool()) {
-        QMessageBox *mb = new QMessageBox(
-            QMessageBox::Information, tr("First Start"),
-            tr("This is your first start of AnyKeep note-taking application.\n\n"
-               "To start using just click on pencil in the system tray and choose \"New\" item to create new note.\n"
-               "Notes will be automatically saved to special storage, so you should not worry about this."),
-            QMessageBox::Ok);
-        mb->setModal(false);
-        mb->setAttribute(Qt::WA_DeleteOnClose);
-        mb->show();
-        s.setValue("first-start", true);
+
+    QSettings settings;
+    if (!argsHandled && !settings.value(QStringLiteral("first-start")).toBool()) {
+        showInstructionsNote();
+        settings.setValue(QStringLiteral("first-start"), true);
     }
+}
+
+void Main::showInstructionsNote()
+{
+    if (d->instructionsWindow) {
+        d->instructionsWindow->show();
+        activateWindow(d->instructionsWindow);
+        return;
+    }
+
+    Note note(new NoteData(nullptr));
+    note.setTitle(tr("Welcome to AnyKeep"));
+    note.setText(tr("AnyKeep stays in the background so your notes are always close at hand. "
+                    "This is a real AnyKeep note editor, but this particular tutorial is temporary: "
+                    "you can change anything here and it will not be saved.\n\n"
+                    "## Try the editor\n\n"
+                    "Use **bold**, *italic*, ~~strikethrough~~, `inline code`, headings, links and other Markdown "
+                    "formatting.\n\n"
+                    "- Bulleted lists\n"
+                    "- Nested and numbered lists\n"
+                    "- [x] Check lists\n"
+                    "- [ ] Things still to do\n\n"
+                    "| Feature | Example |\n"
+                    "| --- | --- |\n"
+                    "| Formatting | **Bold**, *italic*, `code` |\n"
+                    "| Structure | Lists, tables, quotes and headings |\n"
+                    "| Storage | Local files or XMPP, depending on your setup |\n\n"
+                    "> Notes are saved automatically. There is no Save button to remember.\n\n"
+                    "## Find AnyKeep in the tray\n\n"
+                    "<p align=\"center\"><img src=\"qrc:/icons/trayicon-symbolic\" alt=\"AnyKeep tray icon\" "
+                    "width=\"80\" /></p>\n\n"
+                    "Look for the AnyKeep icon in the system tray. From there you can create a new note, "
+                    "open the note manager, change settings, or quit AnyKeep.\n\n"
+                    "You can show this tutorial again later from **About AnyKeep**."),
+                 Note::Markdown);
+
+    d->instructionsWindow = new NoteDialog(note, this, {}, NoteDialog::Mode::Tutorial);
+    d->instructionsWindow->show();
+    activateWindow(d->instructionsWindow);
 }
 
 void Main::exitAnyKeep()
@@ -527,10 +570,11 @@ void Main::appMessageReceived(const QString &message)
 
 void Main::showAbout()
 {
-    AboutDlg *d = new AboutDlg;
-    d->setAttribute(Qt::WA_DeleteOnClose);
-    d->show();
-    activateWidget(d);
+    AboutDlg *dialog = new AboutDlg;
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dialog, &AboutDlg::instructionsRequested, this, &Main::showInstructionsNote);
+    dialog->show();
+    activateWidget(dialog);
 }
 
 void Main::showNoteManager()

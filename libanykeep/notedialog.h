@@ -24,9 +24,12 @@ class NoteDialog final : public QQuickView {
     Q_OBJECT
     Q_PROPERTY(bool alwaysOnTop READ alwaysOnTop NOTIFY alwaysOnTopChanged)
     Q_PROPERTY(bool pinAvailable READ pinAvailable CONSTANT)
+    Q_PROPERTY(bool tutorial READ tutorial CONSTANT)
 
 public:
-    explicit NoteDialog(const Note &note, Main *main, const QUuid &draftId = {});
+    enum class Mode { Normal, Tutorial };
+
+    explicit NoteDialog(const Note &note, Main *main, const QUuid &draftId = {}, Mode mode = Mode::Normal);
     ~NoteDialog() override;
 
     static NoteDialog         *findDialog(const QString &storageId, const QString &noteId);
@@ -40,6 +43,7 @@ public:
 
     bool alwaysOnTop() const;
     bool pinAvailable() const;
+    bool tutorial() const { return mode_ == Mode::Tutorial; }
 
     Q_INVOKABLE void requestClose();
     Q_INVOKABLE bool trashNote();
@@ -86,6 +90,7 @@ private:
     QElapsedTimer                 initialFrameTimer_;
     bool                          imageDragAccepted_ { false };
     bool                          textDragAccepted_ { false };
+    Mode                          mode_ { Mode::Normal };
 
     static QHash<QPair<QString, QString>, NoteDialog *> dialogs_;
     static QSet<NoteDialog *>                           allDialogs_;

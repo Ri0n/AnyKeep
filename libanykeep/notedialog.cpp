@@ -93,10 +93,10 @@ namespace {
 QHash<QPair<QString, QString>, NoteDialog *> NoteDialog::dialogs_;
 QSet<NoteDialog *>                           NoteDialog::allDialogs_;
 
-NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId) :
+NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode mode) :
     QQuickView(sharedStandaloneNoteEngine(), nullptr), main_(main), editor_(new NoteEditor(note, draftId, this)),
     platformBackend_(new DesktopEditorPlatformBackend(editor_, this)), desktopActions_(new DesktopNoteActions(this)),
-    speechController_(new SpeechRecognitionController(this))
+    speechController_(new SpeechRecognitionController(this)), mode_(mode)
 {
     Q_ASSERT(main_);
     allDialogs_.insert(this);
@@ -274,7 +274,7 @@ bool NoteDialog::pinAvailable() const
     // closes.  pinNote() deliberately follows that same path, so requiring a
     // remote note id here made the most useful case (write a note and pin it
     // immediately) unnecessarily unavailable.
-    return main_->stickyNotesManager()->isAvailable();
+    return !tutorial() && main_->stickyNotesManager()->isAvailable();
 }
 
 void NoteDialog::requestClose() { requestDeferredClose(); }
@@ -296,6 +296,10 @@ void NoteDialog::requestDeferredClose()
 
 bool NoteDialog::trashNote()
 {
+    if (tutorial()) {
+        requestDeferredClose();
+        return true;
+    }
     flushEditorChanges();
     if (editor_->noteId().isEmpty()) {
         // A never-published note has no remote object to recycle.  Autosave
@@ -340,6 +344,8 @@ bool NoteDialog::trashNote()
 
 bool NoteDialog::pinNote()
 {
+    if (tutorial())
+        return false;
     flushEditorChanges();
     if (!editor_->save()) {
         emit operationFailed(editor_->errorString());
@@ -396,18 +402,19 @@ void NoteDialog::closeEvent(QCloseEvent *event)
     closing_     = true;
     closeQueued_ = false;
     flushEditorChanges();
-    if (!trashRequested_ && !editor_->close()) {
+    const bool closed = tutorial() ? editor_->discardAndClose() : (trashRequested_ || editor_->close());
+    if (!closed) {
         closing_ = false;
         emit operationFailed(editor_->errorString());
         event->ignore();
         return;
     }
 
-    const bool  awaitingPublication = editor_->hasPersistedDraft();
+    const bool  awaitingPublication = !tutorial() && editor_->hasPersistedDraft();
     const QRect preferredGeometry   = frameGeometry();
     saveGeometryState(trashRequested_);
     removeFromRegistry();
-    if (pinning_)
+    if (pinning_ && !tutorial())
         main_->pinNote(editor_->note(), editor_->draftId(), awaitingPublication, preferredGeometry);
 
     // Keep the QML object tree alive until deleteLater() runs. Destroying it
@@ -425,10 +432,10 @@ bool NoteDialog::event(QEvent *event)
         // through separate paths. Re-read the application palette after Qt
         // has finished delivering the theme-change event.
         QTimer::singleShot(0, this, &NoteDialog::updateBackgroundColor);
-    } else if (event->type() == QEvent::WindowDeactivate) {
+    } else if (event->type() == QEvent::WindowDeactivate && !tutorial()) {
         flushEditorChanges();
         editor_->save();
-    } else if (event->type() == QEvent::WindowActivate) {
+    } else if (event->type() == QEvent::WindowActivate && !tutorial()) {
         editor_->reloadNewerDraft();
     } else if (event->type() == QEvent::DragEnter) {
         auto *drag         = static_cast<QDragEnterEvent *>(event);
@@ -472,6 +479,8 @@ bool NoteDialog::event(QEvent *event)
 
 QString NoteDialog::geometryKey() const
 {
+    if (tutorial())
+        return QStringLiteral("geometry.tutorial");
     if (!editor_->noteId().isEmpty())
         return QStringLiteral("geometry.%1.%2").arg(editor_->storageId(), editor_->noteId());
     return QStringLiteral("geometry.draft.%1").arg(editor_->draftIdString());
@@ -521,6 +530,8 @@ void NoteDialog::flushEditorChanges()
 
 bool NoteDialog::checkpoint()
 {
+    if (tutorial())
+        return true;
     flushEditorChanges();
     return !editor_ || editor_->save();
 }

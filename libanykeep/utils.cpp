@@ -41,25 +41,9 @@ namespace AnyKeep {
 
 namespace {
 #ifdef Q_OS_WIN
-    QString windowsLaunchExecutable()
-    {
-        QDir applicationDirectory(QCoreApplication::applicationDirPath());
-        QDir versionsDirectory = applicationDirectory;
-        if (versionsDirectory.cdUp()
-            && versionsDirectory.dirName().compare(QStringLiteral("versions"), Qt::CaseInsensitive) == 0) {
-            QDir installRoot = versionsDirectory;
-            if (installRoot.cdUp()) {
-                const QString launcher = installRoot.filePath(QStringLiteral("AnyKeepLauncher.exe"));
-                if (QFileInfo::exists(launcher))
-                    return launcher;
-            }
-        }
-        return QCoreApplication::applicationFilePath();
-    }
-
     QString windowsAutostartCommand()
     {
-        return QLatin1Char('"') + QDir::toNativeSeparators(windowsLaunchExecutable()) + QLatin1Char('"');
+        return QLatin1Char('"') + QDir::toNativeSeparators(Utils::windowsLaunchExecutable()) + QLatin1Char('"');
     }
 #endif
 } // namespace
@@ -101,6 +85,24 @@ const QString &Utils::anykeepDataDir()
     }
     return dataDir;
 }
+
+#ifdef Q_OS_WIN
+QString Utils::windowsLaunchExecutable()
+{
+    QDir applicationDirectory(QCoreApplication::applicationDirPath());
+    QDir versionsDirectory = applicationDirectory;
+    if (versionsDirectory.cdUp()
+        && versionsDirectory.dirName().compare(QStringLiteral("versions"), Qt::CaseInsensitive) == 0) {
+        QDir installRoot = versionsDirectory;
+        if (installRoot.cdUp()) {
+            const QString launcher = installRoot.filePath(QStringLiteral("AnyKeepLauncher.exe"));
+            if (QFileInfo::exists(launcher))
+                return launcher;
+        }
+    }
+    return QCoreApplication::applicationFilePath();
+}
+#endif
 
 bool Utils::isAutostartEnabled()
 {

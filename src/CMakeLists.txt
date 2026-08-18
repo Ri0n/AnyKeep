@@ -15,6 +15,10 @@ set_source_files_properties(${APP_ICON_MACOSX} PROPERTIES MACOSX_PACKAGE_LOCATIO
 
 add_executable(${PROJECT_NAME} WIN32 MACOSX_BUNDLE main.cpp ${WINRESFILE} ${APP_ICON_MACOSX})
 
+if(WIN32)
+  target_sources(${PROJECT_NAME} PRIVATE win/windowstaskbarintegration.cpp win/windowstaskbarintegration.h)
+endif()
+
 # add_dependencies(${PROJECT_NAME} build_translations)
 set_target_properties(
   ${PROJECT_NAME}
@@ -31,7 +35,7 @@ endif()
 
 target_link_libraries(${PROJECT_NAME} ${anykeep_lib} QtSingleApplication)
 if(WIN32)
-  target_link_libraries(${PROJECT_NAME} shell32)
+  target_link_libraries(${PROJECT_NAME} shell32 ole32)
 endif()
 
 if(WIN32)

@@ -34,6 +34,9 @@ public:
     AboutDlg(QWidget *parent = nullptr);
     ~AboutDlg();
 
+signals:
+    void instructionsRequested();
+
 protected:
     void changeEvent(QEvent *e);
 

@@ -23,10 +23,15 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "anykeep_config.h"
 #include "ui_aboutdlg.h"
 
+#include <QDialogButtonBox>
+#include <QPushButton>
+
 AboutDlg::AboutDlg(QWidget *parent) : QDialog(parent), ui(new Ui::AboutDlg)
 {
     ui->setupUi(this);
     ui->lblVersion->setText(ANYKEEP_VERSION_STR);
+    auto *instructions = ui->buttonBox->addButton(tr("Show Instructions"), QDialogButtonBox::ActionRole);
+    connect(instructions, &QPushButton::clicked, this, &AboutDlg::instructionsRequested);
 }
 
 AboutDlg::~AboutDlg() { delete ui; }

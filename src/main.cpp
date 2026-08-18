@@ -51,6 +51,9 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 
 #include "anykeep.h"
 #include "qcainitializer.h"
+#ifdef Q_OS_WIN
+#include "win/windowstaskbarintegration.h"
+#endif
 
 #ifdef Q_OS_UNIX
 namespace {
@@ -113,13 +116,6 @@ QColor blendColors(const QColor &first, const QColor &second, qreal secondWeight
                             first.blueF() * (1.0 - secondWeight) + second.blueF() * secondWeight);
 }
 
-bool currentProcessHasPackageIdentity()
-{
-    UINT32     length = 0;
-    const LONG result = GetCurrentPackageFamilyName(&length, nullptr);
-    return result == ERROR_INSUFFICIENT_BUFFER;
-}
-
 void applyNeutralWindowsPalette()
 {
     QPalette                       palette  = QGuiApplication::palette();
@@ -169,7 +165,7 @@ int main(int argc, char *argv[])
     // Packaged desktop applications get their AUMID from AppxManifest.xml. Overriding it at runtime breaks package
     // identity integrations such as taskbar grouping and jump lists. Keep the historical explicit AppID only for
     // unpackaged MSI/portable launches.
-    if (!currentProcessHasPackageIdentity())
+    if (!AnyKeep::WindowsTaskbarIntegration::hasPackageIdentity())
         SetCurrentProcessExplicitAppUserModelID(L"com.github.ri0n.AnyKeep");
 #endif
 
@@ -178,8 +174,12 @@ int main(int argc, char *argv[])
         if (v == "-h" || v == "--help") {
             std::cout << "AnyKeep - note taking application\n\n"
                       << " -n [type]          Create a new note from 'type'. 'selection' is the only supported type.\n"
-                      << " -m, --note-manager Open the Notes Manager.\n"
-                      << " --safe-mode, --safemode\n"
+                      << " -m, --note-manager Open the Notes Manager.\n";
+#ifdef Q_OS_WIN
+            std::cout << " --open-note STORAGE NOTE\n"
+                      << "                    Open a note by storage and note ID.\n";
+#endif
+            std::cout << " --safe-mode, --safemode\n"
                       << "                    Load only the base desktop integration plugin.\n\n";
             return 0;
         }
@@ -195,10 +195,9 @@ int main(int argc, char *argv[])
             return 1;
         }
         QStringList args = a.arguments();
-        if (args.size() > 1) {
-            args.pop_front();
+        args.pop_front();
+        if (!args.isEmpty())
             a.sendMessage(args.join("!anykeep_argdelim!").toUtf8());
-        }
         return 0;
     }
 
@@ -216,6 +215,9 @@ int main(int argc, char *argv[])
 
     AnyKeep::Main anykeep;
     if (anykeep.isOperable()) {
+#ifdef Q_OS_WIN
+        AnyKeep::WindowsTaskbarIntegration taskbarIntegration;
+#endif
         a.connect(&a, &QtSingleApplication::messageReceived, &anykeep, &AnyKeep::Main::appMessageReceived);
         anykeep.parseAppArguments(a.arguments().mid(1));
         return a.exec();
