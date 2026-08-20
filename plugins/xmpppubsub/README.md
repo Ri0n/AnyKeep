@@ -48,11 +48,12 @@ implementation is selected at configure time with `ANYKEEP_XMPP_BACKEND`:
 
 - `QXMPP` (default) requires QXmpp 1.11 or newer, its matching OMEMO library,
   and QCoro Core for the selected Qt major version;
-- `IRIS` builds Iris as a pinned `ExternalProject` and requires shared QCA.
-  Iris is deliberately not resolved from a system package so AnyKeep can track
-  the protocol APIs it needs before distributions package them. When QCA is
-  bundled, AnyKeep builds it shared for this backend and both AnyKeep and Iris
-  link that same QCA instance.
+- `IRIS` prefers an installed Iris CMake package exposing `Iris::Iris`. If no
+  suitable system package exists, `ANYKEEP_BUILD_BUNDLED_IRIS=ON` enables the
+  pinned FetchContent fallback. The fallback is enabled by default on Android,
+  Windows, and macOS and disabled by default on Linux/Unix. When QCA itself is
+  bundled, AnyKeep deliberately does not use a system Iris so both AnyKeep and
+  Iris consume the same bundled QCA runtime.
 
 Both backends require Qt Network and Qt XML. Configure the default QXmpp build
 normally:
@@ -69,9 +70,10 @@ cmake -S . -B build-iris -DANYKEEP_XMPP_BACKEND=IRIS
 cmake --build build-iris
 ```
 
-The remote Iris build uses the upstream commit pinned by
-`ANYKEEP_IRIS_GIT_TAG`. For Iris development, point the ExternalProject
-at a local checkout instead:
+The bundled Iris build uses AnyKeep's source-controlled upstream commit pin;
+`ANYKEEP_IRIS_GIT_TAG` can override that revision. For Iris development, point
+AnyKeep at a local checkout instead; `ANYKEEP_IRIS_SOURCE_DIR` explicitly
+overrides an installed Iris:
 
 ```sh
 cmake -S . -B build-iris \
@@ -445,12 +447,11 @@ and encrypted key-sync IQs. Iris OMEMO and trust state use separate encrypted
 state files so switching builds never asks one backend to deserialize the
 other backend's session format.
 
-The bundled Iris patch intentionally stays small and general-purpose. It adds a
-public PubSub node-configuration getter and a self-owned QCA TLS handler. The
-factory keeps the `QCA::TLS` lifetime inside Iris while preserving the historical
-borrowed-TLS constructor used by Psi. AnyKeep and shared Iris deliberately link
-to one shared QCA instance; Iris never embeds a second bundled QCA copy. No
-private-notes wire format is changed by these additions.
+AnyKeep consumes Iris only through its canonical `Iris::Iris` CMake target,
+whether Iris comes from a system package or the pinned FetchContent fallback.
+The Iris backend uses the QCA generation selected by AnyKeep; bundled Iris never
+builds a second QCA copy. No private-notes wire format depends on how Iris is
+provided.
 
 Iris also exposes Jingle file transfer and SXE. They are intentionally not part
 of the current `XmppBackend` storage contract yet; selecting the Iris backend

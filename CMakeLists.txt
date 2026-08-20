@@ -90,6 +90,11 @@ else()
   set(_anykeep_bundled_qxmpp_default OFF)
   set(_anykeep_bundled_omemo_c_default OFF)
 endif()
+if(ANDROID OR WIN32 OR APPLE)
+  set(_anykeep_bundled_iris_default ON)
+else()
+  set(_anykeep_bundled_iris_default OFF)
+endif()
 option(ANYKEEP_BUILD_MOBILE "Build the experimental Qt Quick mobile application" ${_anykeep_mobile_default})
 option(ANYKEEP_BUILD_BUNDLED_QXMPP "Build bundled QXmpp when a suitable system QXmpp is unavailable"
        ${_anykeep_bundled_qxmpp_default})
@@ -97,6 +102,11 @@ option(ANYKEEP_BUILD_BUNDLED_OMEMO_C "Build bundled libomemo-c and protobuf-c fo
        ${_anykeep_bundled_omemo_c_default})
 option(ANYKEEP_BUILD_BUNDLED_QCA "Build and use bundled QCA 3 instead of a system QCA"
        ${_anykeep_bundled_qca_default})
+option(ANYKEEP_BUILD_BUNDLED_IRIS "Build bundled Iris when a suitable system Iris is unavailable"
+       ${_anykeep_bundled_iris_default})
+set(ANYKEEP_IRIS_SOURCE_DIR
+    ""
+    CACHE PATH "Local Iris source directory (forces the in-tree Iris build and avoids cloning)")
 option(ANYKEEP_BUILD_BUNDLED_QCORO "Build bundled QCoro when a suitable system QCoro is unavailable"
        ${_anykeep_bundled_qcoro_default})
 option(ANYKEEP_BUILD_BUNDLED_QTKEYCHAIN "Build bundled QtKeychain when a suitable system QtKeychain is unavailable"
@@ -111,6 +121,7 @@ if(NOT ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP" AND NOT ANYKEEP_XMPP_BACKEND STREQU
 endif()
 unset(_anykeep_mobile_default)
 unset(_anykeep_bundled_qca_default)
+unset(_anykeep_bundled_iris_default)
 unset(_anykeep_bundled_qcoro_default)
 unset(_anykeep_bundled_qtkeychain_default)
 unset(_anykeep_bundled_qxmpp_default)
@@ -225,10 +236,35 @@ if(ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP")
     message(STATUS "QXmpp 1.11+ with OMEMO not found; the XMPP plugin will be disabled")
   endif()
 else()
-  # Iris is intentionally built from the pinned source revision even when a
-  # system installation exists. It consumes the QCA target selected above.
-  message(STATUS "XMPP backend: bundled Iris FetchContent")
-  include(BundledIris)
+  # A local Iris checkout is an explicit development override and therefore
+  # takes precedence over an installed package. Otherwise prefer system Iris
+  # when AnyKeep also uses system QCA; this keeps both libraries on the same
+  # QCA runtime. A bundled-QCA build must use bundled Iris for the same reason.
+  if(ANYKEEP_IRIS_SOURCE_DIR)
+    message(STATUS "XMPP backend: local Iris source (${ANYKEEP_IRIS_SOURCE_DIR})")
+    include(BundledIris)
+  else()
+    if(NOT ANYKEEP_BUILD_BUNDLED_QCA)
+      find_package(Iris CONFIG QUIET)
+    endif()
+
+    if(TARGET Iris::Iris)
+      if(DEFINED Iris_QCA_MAJOR AND NOT "${Iris_QCA_MAJOR}" STREQUAL "${ANYKEEP_QCA_MAJOR}")
+        message(FATAL_ERROR
+                "System Iris uses QCA ${Iris_QCA_MAJOR}, but AnyKeep selected QCA ${ANYKEEP_QCA_MAJOR}. "
+                "Use matching system packages or build Iris with AnyKeep.")
+      endif()
+      message(STATUS "XMPP backend: system Iris (Iris::Iris)")
+    elseif(ANYKEEP_BUILD_BUNDLED_IRIS)
+      message(STATUS "XMPP backend: bundled Iris FetchContent")
+      include(BundledIris)
+    elseif(ANYKEEP_BUILD_BUNDLED_QCA)
+      message(STATUS
+              "System Iris is not used with bundled QCA and bundled Iris is disabled; the XMPP plugin will be disabled")
+    else()
+      message(STATUS "System Iris not found and bundled Iris is disabled; the XMPP plugin will be disabled")
+    endif()
+  endif()
 endif()
 
 find_package(Qt6Keychain QUIET)
