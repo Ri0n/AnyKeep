@@ -226,6 +226,7 @@ void EditorPlatformBackend::setEditor(NoteEditor *editor)
 {
     if (editor_ == editor)
         return;
+    fullNoteSpellCheck_ = false;
     if (editor_)
         disconnect(editor_, nullptr, this, nullptr);
     editor_ = editor;
@@ -291,8 +292,14 @@ void EditorPlatformBackend::registerTextDocument(QQuickTextDocument *document, b
             else
                 registered.highlighter->disableExtension(NoteHighlighter::Title);
         }
+        const bool oneShotFullSpell = spellCheckEnabled_ && fullNoteSpellCheck_ && textDocument != activeSpellDocument_;
+        if (oneShotFullSpell)
+            registered.highlighter->enableExtension(NoteHighlighter::SpellCheck);
         registered.highlighter->rehighlight();
-        QTimer::singleShot(0, this, &EditorPlatformBackend::rehighlight);
+        if (oneShotFullSpell)
+            registered.highlighter->disableExtension(NoteHighlighter::SpellCheck);
+        if (!fullNoteSpellCheck_)
+            QTimer::singleShot(0, this, &EditorPlatformBackend::rehighlight);
         emit highlightingChanged();
         return;
     }
@@ -303,14 +310,18 @@ void EditorPlatformBackend::registerTextDocument(QQuickTextDocument *document, b
         if (type == NoteHighlighter::Other)
             continue;
         highlighter->addExtension(item.extension, type);
-        if ((type == NoteHighlighter::SpellCheck && !spellCheckEnabled_)
+        if ((type == NoteHighlighter::SpellCheck
+             && (!spellCheckEnabled_ || (!fullNoteSpellCheck_ && textDocument != activeSpellDocument_)))
             || (type == NoteHighlighter::Title && !titleDocument)) {
             highlighter->disableExtension(type);
         }
     }
     highlighters_.append({ highlighter, titleDocument });
     highlighter->rehighlight();
-    QTimer::singleShot(0, this, &EditorPlatformBackend::rehighlight);
+    if (spellCheckEnabled_ && fullNoteSpellCheck_ && textDocument != activeSpellDocument_)
+        highlighter->disableExtension(NoteHighlighter::SpellCheck);
+    if (!fullNoteSpellCheck_)
+        QTimer::singleShot(0, this, &EditorPlatformBackend::rehighlight);
 }
 
 void EditorPlatformBackend::registerCodeDocument(QQuickTextDocument *document, const QString &language)
@@ -449,6 +460,38 @@ QVariantList EditorPlatformBackend::spellCheckRanges(QQuickTextDocument *documen
         }
     }
     return result;
+}
+
+void EditorPlatformBackend::setActiveSpellCheckDocument(QQuickTextDocument *document)
+{
+    QTextDocument *target = document ? document->textDocument() : nullptr;
+    if (activeSpellDocument_ == target)
+        return;
+
+    QTextDocument *previous = activeSpellDocument_.data();
+    activeSpellDocument_    = target;
+    highlighters_.removeIf([](const auto &registered) { return registered.highlighter.isNull(); });
+    for (const auto &registered : std::as_const(highlighters_)) {
+        if (!registered.highlighter)
+            continue;
+        auto *registeredDocument = registered.highlighter->document();
+        if (spellCheckEnabled_ && registeredDocument == target)
+            registered.highlighter->enableExtension(NoteHighlighter::SpellCheck);
+        else
+            registered.highlighter->disableExtension(NoteHighlighter::SpellCheck);
+        if (registeredDocument == target || (!fullNoteSpellCheck_ && registeredDocument == previous))
+            registered.highlighter->rehighlight();
+    }
+    emit highlightingChanged();
+}
+
+void EditorPlatformBackend::checkSpellingInAllDocuments()
+{
+    if (!spellCheckEnabled_)
+        return;
+
+    fullNoteSpellCheck_ = true;
+    rehighlight();
 }
 
 QStringList EditorPlatformBackend::spellingSuggestions(const QString &word) const
@@ -681,11 +724,12 @@ void EditorPlatformBackend::setSpellCheckEnabled(bool enabled)
 {
     if (spellCheckEnabled_ == enabled)
         return;
-    spellCheckEnabled_ = enabled;
+    spellCheckEnabled_  = enabled;
+    fullNoteSpellCheck_ = false;
     for (const auto &registered : std::as_const(highlighters_)) {
         if (!registered.highlighter)
             continue;
-        if (enabled)
+        if (enabled && registered.highlighter->document() == activeSpellDocument_)
             registered.highlighter->enableExtension(NoteHighlighter::SpellCheck);
         else
             registered.highlighter->disableExtension(NoteHighlighter::SpellCheck);
@@ -704,8 +748,11 @@ void EditorPlatformBackend::addHighlightExtension(const std::shared_ptr<Highligh
             continue;
         const auto extensionType = NoteHighlighter::ExtType(type);
         registered.highlighter->addExtension(extension, extensionType);
-        if (extensionType == NoteHighlighter::Title && !registered.titleDocument)
+        if ((extensionType == NoteHighlighter::SpellCheck
+             && (!spellCheckEnabled_ || registered.highlighter->document() != activeSpellDocument_))
+            || (extensionType == NoteHighlighter::Title && !registered.titleDocument)) {
             registered.highlighter->disableExtension(extensionType);
+        }
     }
     rehighlight();
 }
@@ -713,8 +760,17 @@ void EditorPlatformBackend::addHighlightExtension(const std::shared_ptr<Highligh
 void EditorPlatformBackend::rehighlight()
 {
     highlighters_.removeIf([](const auto &registered) { return registered.highlighter.isNull(); });
-    for (const auto &registered : std::as_const(highlighters_))
+    for (const auto &registered : std::as_const(highlighters_)) {
+        if (!registered.highlighter)
+            continue;
+        const bool oneShotFullSpell
+            = spellCheckEnabled_ && fullNoteSpellCheck_ && registered.highlighter->document() != activeSpellDocument_;
+        if (oneShotFullSpell)
+            registered.highlighter->enableExtension(NoteHighlighter::SpellCheck);
         registered.highlighter->rehighlight();
+        if (oneShotFullSpell)
+            registered.highlighter->disableExtension(NoteHighlighter::SpellCheck);
+    }
     codeHighlighters_.removeIf([](const auto &registered) { return registered.quickDocument.isNull(); });
     for (const auto &registered : std::as_const(codeHighlighters_)) {
         if (registered.highlighter)

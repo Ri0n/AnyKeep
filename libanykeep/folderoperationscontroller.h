@@ -79,7 +79,10 @@ private:
     void                                       endOperation();
     FolderCatalogResult<FolderCatalogSnapshot> nativeTreeSnapshot(NoteStorage *storage) const;
     bool updateOverlay(const QString &storageId, const QString &noteId, const QUuid &folderId);
-    void startNativeAssignment(NoteStorage *storage, const Note &note, const QUuid &folderId);
+    void startAssignmentLoad(NoteStorage *storage, const QString &noteId, const QUuid &folderId,
+                             bool overlayAlreadyStored);
+    void startNativeAssignment(NoteStorage *storage, const Note &note, const QUuid &folderId,
+                               bool operationAlreadyStarted = false);
     void startNativeTreePreparation(NoteStorage *storage, bool assignmentFollows, Note note = {}, QUuid folderId = {});
     void finishAssignment(const QString &storageId, const QString &noteId, const QUuid &folderId, bool nativeStored,
                           const QString &error = {});

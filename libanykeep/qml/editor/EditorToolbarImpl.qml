@@ -64,6 +64,12 @@ ToolBar {
     function insertBlockQuote() { return actions.insertBlockQuote() }
     function insertImage() { return actions.insertImage() }
     function copyDocument() { return actions.copyDocument() }
+    function checkSpellingInNote() {
+        if (!root.platformBackend
+                || typeof root.platformBackend.checkSpellingInAllDocuments !== "function")
+            return
+        root.platformBackend.checkSpellingInAllDocuments()
+    }
 
     function assignCurrentNoteFolder(folderId) {
         if (!root.folderWorkspace || !root.editorBackend || !root.blockEditor)
@@ -555,6 +561,11 @@ ToolBar {
                 MenuItem { text: qsTr("Copy note"); onTriggered: root.copyDocument() }
                 MenuItem { text: qsTr("Find in note"); onTriggered: root.findRequested() }
                 MenuItem {
+                    text: qsTr("Check spelling in note")
+                    enabled: root.platformBackend && root.platformBackend.spellCheckEnabled
+                    onTriggered: root.checkSpellingInNote()
+                }
+                MenuItem {
                     text: root.editorBackend && root.editorBackend.markdown
                           ? qsTr("Switch to plain text") : qsTr("Switch to Markdown")
                     onTriggered: root.toggleMarkdownMode()
@@ -646,6 +657,11 @@ ToolBar {
                 }
                 MenuItem { text: qsTr("Copy note"); onTriggered: root.copyDocument() }
                 MenuItem { text: qsTr("Find in note"); onTriggered: root.findRequested() }
+                MenuItem {
+                    text: qsTr("Check spelling in note")
+                    enabled: root.platformBackend && root.platformBackend.spellCheckEnabled
+                    onTriggered: root.checkSpellingInNote()
+                }
                 MenuItem {
                     text: root.editorBackend && root.editorBackend.markdown
                           ? qsTr("Switch to plain text") : qsTr("Switch to Markdown")

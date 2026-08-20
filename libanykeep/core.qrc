@@ -17,6 +17,7 @@
         <file alias="preferences-system-symbolic.svg">images/preferences-system-symbolic.svg</file>
         <file alias="format-list-unordered-symbolic.svg">images/format-list-unordered-symbolic.svg</file>
         <file alias="code-symbolic.svg">images/code-symbolic.svg</file>
+        <file alias="text-wrap-symbolic.svg">images/text-wrap-symbolic.svg</file>
         <file alias="insert-link-symbolic.svg">images/insert-link-symbolic.svg</file>
         <file alias="user-trash-full-symbolic.svg">images/user-trash-full-symbolic.svg</file>
         <file alias="folder-symbolic.svg">images/folder-symbolic.svg</file>

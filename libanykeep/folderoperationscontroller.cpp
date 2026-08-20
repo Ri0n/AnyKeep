@@ -75,6 +75,14 @@ bool FolderOperationsController::assignNoteFolder(const QString &storageId, cons
     if (note.isNull())
         note = storage->note(noteId);
     if (note.isNull()) {
+        if (storage->supportsNativeFolders()) {
+            // Remote caches can temporarily drop an entry while their index is
+            // being refreshed or replaced after publication. Resolve the note
+            // through the storage's asynchronous loader before declaring the
+            // folder operation invalid.
+            startAssignmentLoad(storage, noteId, folderId, overlayAlreadyStored);
+            return true;
+        }
         setError(tr("The note used for the folder change was not found"));
         return false;
     }
@@ -245,15 +253,80 @@ bool FolderOperationsController::updateOverlay(const QString &storageId, const Q
     return false;
 }
 
-void FolderOperationsController::startNativeAssignment(NoteStorage *storage, const Note &note, const QUuid &folderId)
+void FolderOperationsController::startAssignmentLoad(NoteStorage *storage, const QString &noteId, const QUuid &folderId,
+                                                     bool overlayAlreadyStored)
+{
+    if (!storage) {
+        setError(tr("The note storage is no longer available"));
+        return;
+    }
+
+    const QString               storageId = storage->systemName();
+    const QPointer<NoteStorage> storageGuard(storage);
+    beginOperation();
+    qCInfo(logFolderOperations) << "Resolving note asynchronously for folder assignment: storage=" << storageId
+                                << "note=" << diagnosticNoteId(noteId);
+
+    auto *job = storage->loadNoteAsync(noteId, this);
+    if (!job) {
+        finishAssignment(storageId, noteId, folderId, false,
+                         tr("The note storage did not create a note load operation"));
+        return;
+    }
+
+    const auto handled = QSharedPointer<bool>::create(false);
+    const auto finish  = [this, job, handled, storageGuard, storageId, noteId, folderId, overlayAlreadyStored]() {
+        if (*handled)
+            return;
+        *handled = true;
+        if (!storageGuard) {
+            job->deleteLater();
+            finishAssignment(storageId, noteId, folderId, false, tr("The note storage is no longer available"));
+            return;
+        }
+        if (job->state() != StorageJob::Succeeded) {
+            const auto jobError = job->error();
+            const auto message  = jobError.code == StorageError::NotFound || jobError.message.isEmpty()
+                ? tr("The note used for the folder change was not found")
+                : jobError.message;
+            job->deleteLater();
+            finishAssignment(storageId, noteId, folderId, false, message);
+            return;
+        }
+
+        Note note = job->result();
+        job->deleteLater();
+        if (note.isNull() || note.id() != noteId) {
+            finishAssignment(storageId, noteId, folderId, false,
+                             tr("The note used for the folder change was not found"));
+            return;
+        }
+        if (!overlayAlreadyStored && !storeOverlayAssignment(storageId, noteId, folderId)) {
+            finishAssignment(storageId, noteId, folderId, false, errorString_);
+            return;
+        }
+
+        note.setFolderId(folderId);
+        startNativeAssignment(storageGuard, note, folderId, true);
+    };
+    connect(job, &StorageJob::finished, this, finish);
+    if (job->isFinished())
+        QTimer::singleShot(0, this, finish);
+}
+
+void FolderOperationsController::startNativeAssignment(NoteStorage *storage, const Note &note, const QUuid &folderId,
+                                                       bool operationAlreadyStarted)
 {
     if (!storage) {
         const auto error = tr("The note storage is no longer available");
         setError(error);
         emit assignmentFinished(note.storageId(), note.id(), folderId, false);
+        if (operationAlreadyStarted)
+            endOperation();
         return;
     }
-    beginOperation();
+    if (!operationAlreadyStarted)
+        beginOperation();
     qCInfo(logFolderOperations) << "Starting native folder assignment: storage=" << note.storageId()
                                 << "note=" << diagnosticNoteId(note.id())
                                 << "prepareCatalog=" << storage->supportsNativeFolderCatalog();

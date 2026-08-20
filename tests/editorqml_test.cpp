@@ -15,12 +15,15 @@
 #include <QtTest>
 
 #include <algorithm>
+#include <memory>
 
 #include "desktopeditorplatformbackend.h"
 #include "desktopnoteeditorhost.h"
 #include "draftmanager.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
+#include "notehighlighter.h"
+#include "spellcheckprovider.h"
 #include "textdroputils.h"
 
 #include "editortestsupport.h"
@@ -30,6 +33,19 @@ using namespace AnyKeep;
 using namespace AnyKeep::TestSupport;
 
 namespace {
+
+class RejectAllEditorSpellCheckProvider final : public SpellCheckProvider {
+public:
+    QString     id() const override { return QStringLiteral("editor-qml-test"); }
+    QString     displayName() const override { return QStringLiteral("Editor QML Test"); }
+    bool        isValid() const override { return true; }
+    bool        isCorrect(const QString &) const override { return false; }
+    QStringList suggestions(const QString &) const override { return {}; }
+    void        addToDictionary(const QString &) override {}
+
+protected:
+    void onDisabled(DisableMode) override {}
+};
 
 QList<QQuickItem *> textEditors(QQuickItem *root)
 {
@@ -574,6 +590,23 @@ private slots:
         QVERIFY(qAbs(border.greenF() - text.greenF()) < 0.01);
         QVERIFY(qAbs(border.blueF() - text.blueF()) < 0.01);
         QVERIFY(qAbs(border.alphaF() - 0.28) < 0.01);
+
+        auto *wrapButton = quickItemByName(codeBlock, QStringLiteral("wrapCodeButton"));
+        auto *codeEditor = textEditorForBlock(qobject_cast<QQuickItem *>(host.quickWidget()->rootObject()), 1);
+        QVERIFY(wrapButton);
+        QVERIFY(codeEditor);
+        QVERIFY(wrapButton->property("checkable").toBool());
+        QVERIFY(!codeBlock->property("lineWrapEnabled").toBool());
+        const int     noWrapMode         = codeEditor->property("wrapMode").toInt();
+        const QString contentsBeforeWrap = editor.model()->contents();
+        QVERIFY(wrapButton->setProperty("checked", true));
+        QTRY_VERIFY(codeBlock->property("lineWrapEnabled").toBool());
+        QTRY_VERIFY(codeEditor->property("wrapMode").toInt() != noWrapMode);
+        QCOMPARE(editor.model()->contents(), contentsBeforeWrap);
+        QVERIFY(wrapButton->setProperty("checked", false));
+        QTRY_VERIFY(!codeBlock->property("lineWrapEnabled").toBool());
+        QTRY_COMPARE(codeEditor->property("wrapMode").toInt(), noWrapMode);
+        QCOMPARE(editor.model()->contents(), contentsBeforeWrap);
     }
 
     void codeBlockTabAndShiftTabAdjustSelectedLineIndentation()
@@ -1166,6 +1199,91 @@ private:
         QQuickItem *body = nullptr;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
         QTRY_COMPARE(body->property("selectedText").toString(), QStringLiteral("needle"));
+        QTRY_VERIFY(field->hasActiveFocus());
+        QCOMPARE(field->property("text").toString(), QStringLiteral("needle"));
+    }
+
+    void spellCheckDefaultsToActiveBlockAndCanCheckWholeNote()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("badtitle"));
+        note.setText(QStringLiteral("badone\n\nbadtwo"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.platformBackend()->addHighlightExtension(
+            makeSpellCheckExtension(std::make_shared<RejectAllEditorSpellCheckProvider>()),
+            int(NoteHighlighter::SpellCheck));
+
+        host.resize(560, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+
+        QQuickItem *title  = nullptr;
+        QQuickItem *first  = nullptr;
+        QQuickItem *second = nullptr;
+        QTRY_VERIFY(([&]() {
+            title  = textEditorForBlock(root, 0);
+            first  = textEditorForBlock(root, 1);
+            second = textEditorForBlock(root, 2);
+            return title && first && second;
+        })());
+
+        first->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(first->hasActiveFocus());
+        QTRY_VERIFY(!first->property("spellingRanges").toList().isEmpty());
+        QTRY_VERIFY(title->property("spellingRanges").toList().isEmpty());
+        QTRY_VERIFY(second->property("spellingRanges").toList().isEmpty());
+
+        host.platformBackend()->checkSpellingInAllDocuments();
+        QTRY_VERIFY(!title->property("spellingRanges").toList().isEmpty());
+        QTRY_VERIFY(!first->property("spellingRanges").toList().isEmpty());
+        QTRY_VERIFY(!second->property("spellingRanges").toList().isEmpty());
+    }
+
+    void tableWholeCellPasteIsVisibleWithoutFocusLoss()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("| Source | Destination |\n| --- | --- |\n| lower | other |"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(620, 440);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+
+        QList<QQuickItem *> cells;
+        QTRY_VERIFY(([&]() {
+            cells = tableCellEditors(root, 1);
+            return cells.size() == 4;
+        })());
+        QQuickItem *source = cells.at(0);
+        QQuickItem *target = cells.at(1);
+
+        source->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(source->hasActiveFocus());
+        QVERIFY(
+            QMetaObject::invokeMethod(source, "select", Q_ARG(int, 0), Q_ARG(int, source->property("length").toInt())));
+        QVariant copied;
+        QVERIFY(QMetaObject::invokeMethod(root, "copyActiveSelection", Q_RETURN_ARG(QVariant, copied)));
+        QVERIFY(copied.toBool());
+
+        target->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(target->hasActiveFocus());
+        QVERIFY(
+            QMetaObject::invokeMethod(target, "select", Q_ARG(int, 0), Q_ARG(int, target->property("length").toInt())));
+        QVariant pasted;
+        QVERIFY(QMetaObject::invokeMethod(root, "pasteClipboard", Q_RETURN_ARG(QVariant, pasted)));
+        QVERIFY(pasted.toBool());
+
+        QTRY_COMPARE(target->property("text").toString(), QStringLiteral("Source"));
+        QVERIFY(target->hasActiveFocus());
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::CellsRole).toStringList().at(1),
+                 QStringLiteral("Source"));
     }
 
     void tableShiftUpSelectsTheRowAndDeleteClearsIt()

@@ -18,6 +18,7 @@
 class QImage;
 class QMimeData;
 class QQuickTextDocument;
+class QTextDocument;
 
 namespace AnyKeep {
 
@@ -54,6 +55,8 @@ public:
     Q_INVOKABLE QString      canonicalCodeLanguage(const QString &language) const;
     Q_INVOKABLE QVariantList codeLanguages() const;
     Q_INVOKABLE QVariantList spellCheckRanges(QQuickTextDocument *document);
+    Q_INVOKABLE void         setActiveSpellCheckDocument(QQuickTextDocument *document);
+    Q_INVOKABLE void         checkSpellingInAllDocuments();
     Q_INVOKABLE QStringList  spellingSuggestions(const QString &word) const;
     Q_INVOKABLE void         addToSpellingDictionary(const QString &word);
     Q_INVOKABLE QStringList  customSpellingDictionary() const;
@@ -128,6 +131,8 @@ private:
     QFont                                 editorFont_;
     QColor                                titleHighlightColor_;
     bool                                  spellCheckEnabled_ { true };
+    bool                                  fullNoteSpellCheck_ { false };
+    QPointer<QTextDocument>               activeSpellDocument_;
 };
 
 } // namespace AnyKeep

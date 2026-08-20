@@ -10,6 +10,7 @@ Rectangle {
     required property var linkEditorPopup
     required property var block
     property alias blockIndex: codeCell.blockIndex
+    property bool lineWrapEnabled: false
     width: block.width
     implicitHeight: Math.max(codeCell.implicitHeight + 12, codeRoot.editorView.editorFontMetricsHeight * 2)
     radius: 4
@@ -55,7 +56,7 @@ Rectangle {
         syntaxLanguage: block.codeLanguage
         sourceText: block.blockText
         textFormat: TextEdit.PlainText
-        wrapMode: TextEdit.NoWrap
+        wrapMode: codeRoot.lineWrapEnabled ? TextEdit.Wrap : TextEdit.NoWrap
         font.family: Qt.platform.os === "windows" ? "Consolas" : "monospace"
         font.pointSize: codeRoot.editorView.editorPointSize
         commitText: function() { codeRoot.editorView.blockModel.setBlockText(block.index, text) }
@@ -77,6 +78,36 @@ Rectangle {
             triggerHovered: languageSelector.hovered
             fadeDuration: 480
             gapAfter: 6
+
+            ToolButton {
+                id: wrapCodeButton
+                objectName: "wrapCodeButton"
+                width: languageSelector.height
+                height: languageSelector.height
+                padding: 3
+                checkable: true
+                checked: codeRoot.lineWrapEnabled
+                display: AbstractButton.IconOnly
+                contentItem: Shared.ThemedIconImpl {
+                    themeName: "text-wrap-symbolic"
+                    fallbackName: "text-wrap-symbolic.svg"
+                    recolorFallback: true
+                    pixelSize: Math.max(14, Math.round(wrapCodeButton.height * 0.58))
+                }
+                Accessible.name: checked ? qsTr("Disable code line wrapping")
+                                         : qsTr("Enable code line wrapping")
+                ToolTip.visible: hovered
+                ToolTip.text: Accessible.name
+                onToggled: codeRoot.lineWrapEnabled = checked
+
+                background: Rectangle {
+                    radius: codeRoot.radius
+                    color: wrapCodeButton.checked || wrapCodeButton.pressed
+                           ? codeRoot.controlHoverSurface : codeRoot.controlSurface
+                    border.width: 1
+                    border.color: codeRoot.codeBorderColor
+                }
+            }
 
             ToolButton {
                 id: copyCodeButton

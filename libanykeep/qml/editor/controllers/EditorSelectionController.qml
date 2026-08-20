@@ -901,7 +901,25 @@ QtObject {
         }
         if (editor.tableCell) {
             const tablePasted = editorBackend.pasteTableFromClipboard(editor.blockIndex, editor.tableCellIndex)
-            return tablePasted.handled
+            if (!tablePasted.handled)
+                return false
+            // A structural table paste mutates NoteBlockModel directly. The
+            // focused table-cell editor normally defers model echoes until it
+            // loses focus; apply that echo now so the pasted cell is visible
+            // immediately and the cursor remains in the destination cell.
+            function applyTableModelEcho() {
+                if (!editor)
+                    return
+                if (editor.sourceTextPending && typeof editor.applyPendingSourceText === "function")
+                    editor.applyPendingSourceText()
+                editor.cursorPosition = editor.length
+                editor.rememberPlainText()
+            }
+            applyTableModelEcho()
+            // dataChanged normally reaches sourceText synchronously, but keep a
+            // queued pass for delegates whose binding update is deferred.
+            Qt.callLater(applyTableModelEcho)
+            return true
         }
         const pasted = editorBackend.pasteStructuredFromClipboard(editor.textDocument, editor.blockIndex,
                                                                     editor.selectionStart, editor.selectionEnd)

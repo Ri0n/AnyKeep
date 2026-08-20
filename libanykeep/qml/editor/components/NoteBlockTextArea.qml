@@ -443,6 +443,11 @@ TextArea {
     onActiveFocusChanged: {
         if (activeFocus) {
             hasReceivedActiveFocus = true
+            if (!codeDocument && editorView.platformBackend
+                    && typeof editorView.platformBackend.setActiveSpellCheckDocument === "function") {
+                editorView.platformBackend.setActiveSpellCheckDocument(textDocument)
+                spellRefresh.restart()
+            }
             editorView.clearPendingInsertionBoundary()
             editorView.clearImageSelection()
             editorView.clearAudioSelection()
@@ -464,6 +469,9 @@ TextArea {
         synchronizeSourceText(true)
         editorView.registerEditor(blockArea)
         registerTextDocument()
+        if (activeFocus && !codeDocument && editorView.platformBackend
+                && typeof editorView.platformBackend.setActiveSpellCheckDocument === "function")
+            editorView.platformBackend.setActiveSpellCheckDocument(textDocument)
         rememberPlainText()
         spellRefresh.restart()
     }
@@ -481,7 +489,15 @@ TextArea {
 
     Connections {
         target: editorView
-        function onPlatformBackendChanged() { blockArea.registerTextDocument() }
+        function onPlatformBackendChanged() {
+            blockArea.registerTextDocument()
+            if (blockArea.activeFocus && !blockArea.codeDocument
+                    && editorView.platformBackend
+                    && typeof editorView.platformBackend.setActiveSpellCheckDocument === "function") {
+                editorView.platformBackend.setActiveSpellCheckDocument(blockArea.textDocument)
+                spellRefresh.restart()
+            }
+        }
     }
 
     Connections {

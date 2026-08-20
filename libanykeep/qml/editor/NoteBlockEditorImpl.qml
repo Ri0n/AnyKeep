@@ -100,9 +100,11 @@ ListView {
         currentFindText = ""
     }
 
-    function findNext(text, backwards) {
+    function findNext(text, backwards, takeFocus) {
         if (!blockModel || !text || text.length === 0)
             return false
+        if (takeFocus === undefined)
+            takeFocus = true
         flushPendingEditorChanges()
         if (currentFindText !== text) {
             currentFindText = text
@@ -112,8 +114,7 @@ ListView {
         if (!result || result.blockIndex === undefined)
             return false
         currentFindResult = result
-        positionViewAtIndex(Number(result.blockIndex), ListView.Contain)
-        return focusEditorAddress({
+        const address = {
             blockIndex: Number(result.blockIndex),
             listItemIndex: Number(result.listItemIndex),
             tableCellIndex: Number(result.tableCellIndex),
@@ -122,7 +123,23 @@ ListView {
             selectionStart: Number(result.start),
             selectionEnd: Number(result.start) + Number(result.length),
             atEnd: false
-        })
+        }
+        positionViewAtIndex(address.blockIndex, ListView.Contain)
+        if (takeFocus)
+            return focusEditorAddress(address)
+
+        function revealWithoutFocus() {
+            const editor = editorForAddress(address)
+            if (!editor)
+                return false
+            if (editor.sourceTextPending && typeof editor.applyPendingSourceText === "function")
+                editor.applyPendingSourceText()
+            setEditorSelection(editor, address.selectionStart, address.selectionEnd)
+            return true
+        }
+        if (!revealWithoutFocus())
+            Qt.callLater(revealWithoutFocus)
+        return true
     }
 
     function registerEditorBackendView() {

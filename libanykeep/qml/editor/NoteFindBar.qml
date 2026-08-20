@@ -79,7 +79,7 @@ Pane {
         repeat: false
         onTriggered: {
             if (searchField.text.length > 0)
-                root.blockEditor.findNext(searchField.text, false)
+                root.blockEditor.findNext(searchField.text, false, false)
         }
     }
 }

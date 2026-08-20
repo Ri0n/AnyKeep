@@ -6,9 +6,11 @@
 #include "notesindex.h"
 #include "secureenvelope.h"
 
+#include <QPointer>
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QtTest>
 
 #include <algorithm>
@@ -40,9 +42,29 @@ public:
         }
         return {};
     }
-    Note createNote() override { return {}; }
-    bool saveNote(const Note &) override { return false; }
-    void removeNote(const QString &) override {}
+    Note         createNote() override { return {}; }
+    bool         saveNote(const Note &) override { return false; }
+    void         removeNote(const QString &) override {}
+    NoteLoadJob *loadNoteAsync(const QString &id, QObject *owner = nullptr) override
+    {
+        if (asyncLoadNote.isNull())
+            return NoteStorage::loadNoteAsync(id, owner);
+
+        auto *job = new NoteLoadJob(owner ? owner : this);
+        job->start();
+        const QPointer<NoteLoadJob> guard(job);
+        const Note                  result = asyncLoadNote;
+        QTimer::singleShot(0, this, [guard, result, id]() {
+            if (!guard || guard->isFinished())
+                return;
+            if (result.id() != id) {
+                guard->fail({ StorageError::NotFound, QStringLiteral("Note was not found"), false });
+                return;
+            }
+            guard->complete(result);
+        });
+        return job;
+    }
 
     bool                  supportsNativeFolders() const override { return nativeFolders_; }
     bool                  supportsNativeFolderCatalog() const override { return nativeCatalog_; }
@@ -91,6 +113,7 @@ public:
     FolderCatalogSnapshot catalog_;
     FolderCatalogSnapshot lastReplacedCatalog;
     Note                  lastChangedNote;
+    Note                  asyncLoadNote;
     int                   replaceCalls { 0 };
     int                   changeCalls { 0 };
     bool                  failReplace { false };
@@ -109,6 +132,7 @@ private slots:
     void initTestCase();
     void storesOverlayForUnsupportedStorage();
     void preparesNativeTreeBeforeMetadataOnlyMove();
+    void loadsTransientlyMissingNativeNoteBeforeFolderChange();
     void propagatesFolderTombstonesOverStaleNativeAssignments();
     void retainsOverlayWhenNativeMoveFails();
 };
@@ -196,6 +220,37 @@ void FolderOperationsControllerTest::preparesNativeTreeBeforeMetadataOnlyMove()
     QCOMPARE(raw->lastReplacedCatalog.folders.first().id, folder);
     QCOMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("note")), folder);
     QVERIFY(finished.constFirst().at(3).toBool());
+}
+
+void FolderOperationsControllerTest::loadsTransientlyMissingNativeNoteBeforeFolderChange()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    QVERIFY(catalog.initialize());
+    const auto folder = addFolder(catalog);
+
+    auto storage = std::make_unique<FolderOperationStorage>(QStringLiteral("folder-native-async"), true, false);
+    storage->asyncLoadNote = storage->makeNote(QStringLiteral("note"), QStringLiteral("Transient cache miss"));
+    auto *raw              = registerStorage(std::move(storage));
+    QTRY_VERIFY(NoteManager::instance()->notesIndex()->hasSnapshot(raw->systemName()));
+    QVERIFY(raw->note(QStringLiteral("note")).isNull());
+    const auto cleanup = qScopeGuard([raw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+
+    FolderOperationsController controller(&catalog, NoteManager::instance());
+    QSignalSpy                 finished(&controller, &FolderOperationsController::assignmentFinished);
+    QVERIFY(controller.assignNoteFolder(raw->systemName(), QStringLiteral("note"), folder));
+    QTRY_COMPARE(finished.count(), 1);
+    QCOMPARE(raw->changeCalls, 1);
+    QCOMPARE(raw->lastChangedNote.id(), QStringLiteral("note"));
+    QCOMPARE(raw->lastChangedNote.folderId(), folder);
+    QCOMPARE(catalog.catalog().folderForNote(raw->systemName(), QStringLiteral("note")), folder);
+    QVERIFY(finished.constFirst().at(3).toBool());
+    QVERIFY(!controller.busy());
 }
 
 void FolderOperationsControllerTest::propagatesFolderTombstonesOverStaleNativeAssignments()
