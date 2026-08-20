@@ -1,6 +1,8 @@
 #ifndef XMPPPUBSUBDTO_H
 #define XMPPPUBSUBDTO_H
 
+#include "mediareference.h"
+
 #include <QDateTime>
 #include <QHash>
 #include <QList>
@@ -50,6 +52,13 @@ struct XmppConfig {
     QString contentNodeName() const { return nodeName + QStringLiteral(":content"); }
 };
 
+/** XEP-0447 descriptor plus the AnyKeep attachment it represents. */
+struct XmppRemoteMedia {
+    MediaReference reference;
+    /** Complete UTF-8 <file-sharing xmlns='urn:xmpp:sfs:0'> element. */
+    QByteArray fileSharingXml;
+};
+
 /** @brief Backend-neutral representation of a remotely synchronized note. */
 struct XmppRemoteNote {
     QString id;
@@ -65,6 +74,8 @@ struct XmppRemoteNote {
     bool        preserveModified { false }; ///< Local save hint; never serialized.
     QString     format { QStringLiteral("markdown") };
     QStringList tags;
+    /** Media descriptors embedded as authenticated XEP-0447 content extensions. */
+    QList<XmppRemoteMedia> media;
     /** Folder names from the root to this note's folder, stored in the encrypted index. */
     QStringList folderPath;
     bool        contentPresent { true }; ///< False for index-only list results.

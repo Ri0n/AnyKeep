@@ -51,6 +51,7 @@ public:
     QIcon           noteIcon() const override;
     bool            isAccessible() const override;
     bool            canAcceptWrites() const override;
+    bool            supportsMedia() const override;
 
     QList<Note::Format> availableFormats() const override;
     qint64              requestedModificationTimeResolutionMs() const override { return 1; }

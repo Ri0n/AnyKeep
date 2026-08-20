@@ -564,6 +564,8 @@ QIcon XmppStorage::noteIcon() const { return icon_; }
 
 bool XmppStorage::isAccessible() const { return accessible_ || cacheAvailable_; }
 
+bool XmppStorage::supportsMedia() const { return backend_ && backend_->supportsMedia(); }
+
 bool XmppStorage::canAcceptWrites() const
 {
     if (shuttingDown_ || errorState_)

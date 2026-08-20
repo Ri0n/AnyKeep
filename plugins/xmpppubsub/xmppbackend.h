@@ -39,6 +39,8 @@ public:
     using QObject::QObject;
     ~XmppBackend() override = default;
 
+    virtual bool supportsMedia() const { return false; }
+
     virtual void start()                                                   = 0;
     virtual void setConfig(const XmppConfig &config)                       = 0;
     virtual void shutdown()                                                = 0;

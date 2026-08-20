@@ -51,6 +51,15 @@ void XmppStorage::applyRemote(Note &note, const XmppRemoteNote &remote)
     else
         note.unload();
     note.setTags(remote.tags);
+    QList<MediaReference> media;
+    media.reserve(remote.media.size());
+    for (const auto &remoteMedia : remote.media) {
+        auto reference = remoteMedia.reference;
+        if (!remoteMedia.fileSharingXml.isEmpty())
+            reference.remoteData.insert(QStringLiteral("xmpp.sfs"), remoteMedia.fileSharingXml);
+        media.append(std::move(reference));
+    }
+    note.setMedia(media);
 }
 
 bool XmppStorage::folderPathForFolder(const QUuid &folderId, QStringList *path, QString *error) const
@@ -122,8 +131,14 @@ bool XmppStorage::toRemote(const Note &note, XmppRemoteNote *remote, QString *er
     result.preserveModified = requestedModified.isValid();
     if (result.preserveModified)
         result.modified = requestedModified;
-    result.format                = QStringLiteral("markdown");
-    result.tags                  = note.tags();
+    result.format = QStringLiteral("markdown");
+    result.tags   = note.tags();
+    for (const auto &reference : note.media()) {
+        XmppRemoteMedia media;
+        media.reference      = reference;
+        media.fileSharingXml = reference.remoteData.value(QStringLiteral("xmpp.sfs")).toByteArray();
+        result.media.append(std::move(media));
+    }
     result.contentPresent        = note.isLoaded();
     result.indexRecordTemplate   = note.backendValue(IndexRecordTemplateKey).toByteArray();
     result.contentRecordTemplate = note.backendValue(ContentRecordTemplateKey).toByteArray();
@@ -407,6 +422,10 @@ void XmppStorage::persistCache()
 
 void XmppStorage::startBodyPrefetch(const QStringList &ids)
 {
+    // Iris media hydration may download large attachments. Do not turn the
+    // existing body cache warmer into an implicit download-all-media job.
+    if (backend_ && backend_->supportsMedia())
+        return;
     for (const auto &id : ids) {
         if (!id.isEmpty() && !bodyPrefetchQueue_.contains(id))
             bodyPrefetchQueue_.append(id);

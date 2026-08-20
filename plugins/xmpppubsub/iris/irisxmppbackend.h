@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QPointer>
 #include <QSet>
+#include <QUuid>
 
 #include <memory>
 
@@ -32,6 +33,8 @@ class IrisXmppBackend final : public XmppBackend {
 public:
     explicit IrisXmppBackend(QObject *parent = nullptr);
     ~IrisXmppBackend() override;
+
+    bool supportsMedia() const override { return true; }
 
     void start() override;
     void setConfig(const XmppConfig &config) override;
@@ -77,6 +80,12 @@ private:
 
     void requestIndexAsync(QString id, quint64 generation, NoteCallback callback);
     void requestNoteAsync(QString id, quint64 generation, NoteCallback callback, int attempt = 1);
+    void prepareMediaAsync(XmppRemoteNote note, quint64 generation,
+                           std::function<void(XmppRemoteNote, XmppStatusResult)> callback);
+    void hydrateMediaAsync(XmppRemoteNote note, quint64 generation,
+                           std::function<void(XmppRemoteNote, XmppStatusResult)> callback);
+    void downloadMediaAsync(XmppRemoteMedia media, quint64 generation,
+                            std::function<void(XmppRemoteMedia, XmppStatusResult)> callback);
     void publishNoteAsync(XmppRemoteNote note, quint64 generation, NoteCallback callback);
 
     void listNodeItemIdsAsync(QString nodeName, std::function<void(QStringList, XmppStatusResult)> callback);
@@ -129,6 +138,8 @@ private:
         bool       trustBootstrap { false };
     };
     QHash<QString, PendingInboundKeyRequest> pendingInboundKeyRequests_;
+    /** Current-resource XEP-0358 publications keyed by AnyKeep attachment UUID. */
+    QHash<QUuid, QString> publishedMediaIds_;
 };
 
 } // namespace AnyKeep

@@ -1,8 +1,8 @@
 # Private Encrypted Notes over XMPP
 
 Status: **ProtoXEP / implementation draft**
-Version: **0.6**
-Namespaces: `urn:xmpp:private-notes:0`, `urn:xmpp:private-notes:folders:0`, `urn:xmpp:private-notes:content:0`, `urn:xmpp:private-notes:key-sync:0`
+Version: **0.7**
+Namespaces: `urn:xmpp:private-notes:0`, `urn:xmpp:private-notes:folders:0`, `urn:xmpp:private-notes:content:0`, `urn:xmpp:private-notes:media:0`, `urn:xmpp:private-notes:key-sync:0`
 
 > This document describes the protocol implemented by Private Notes. It has not been
 > submitted to or accepted by the XMPP Standards Foundation and does not have
@@ -41,6 +41,11 @@ An implementation of this protocol depends on:
 - Publish-Subscribe (XEP-0060) and PEP (XEP-0163);
 - Persistent Storage of Private Data via PubSub (XEP-0223);
 - OMEMO Encryption (XEP-0384) for storage-key transport;
+- File Metadata Element (XEP-0446), Stateless File Sharing (XEP-0447), and
+  Stateless File Sharing Encryption (XEP-0448) for note attachments;
+- HTTP File Upload (XEP-0363) for a persistent attachment source;
+- Jingle File Transfer (XEP-0234) and Publishing Available Jingle Sessions
+  (XEP-0358) for an optional direct attachment source;
 - AES-256-GCM, HKDF-SHA-256, SHA-256, and a cryptographically secure random
   number generator.
 
@@ -91,6 +96,13 @@ Every Private Notes installation capable of key transfer MUST advertise:
 
 ```xml
 <feature var='urn:xmpp:private-notes:key-sync:0'/>
+```
+
+An implementation capable of materializing and publishing the media extension
+SHOULD additionally advertise:
+
+```xml
+<feature var='urn:xmpp:private-notes:media:0'/>
 ```
 
 An installation SHOULD use a stable, distinct XMPP resource. A requester MUST
@@ -383,6 +395,87 @@ index **content revision**. When the required content-revision extension is
 absent, that is the index `revision`; when it is present, it is the extension
 value. The body MAY be empty. A mismatch MUST be treated as incomplete or
 inconsistent remote state, never as valid note content.
+
+
+### Media extension
+
+A content record MAY carry attachments as direct XEP-0447 `file-sharing`
+children of the `note` element. A record containing at least one attachment
+MUST declare the authenticated required feature:
+
+```xml
+<required xmlns='urn:xmpp:private-notes:0'
+          feature='urn:xmpp:private-notes:media:0'/>
+```
+
+Each attachment MUST have a distinct UUID `id`. The UUID is the stable
+attachment identity used by `anykeep-media:` references in Markdown and MUST
+not be replaced merely because a remote source or Jingle publication changes.
+The XEP-0446 metadata describes the **plaintext** file and, for this profile,
+MUST contain its size and SHA-256 hash. A sender SHOULD include a filename and
+media type.
+
+The attachment payload MUST be represented by exactly one XEP-0448 encrypted
+source. The encrypted source MUST contain a SHA-256 hash of the complete
+ciphertext representation and MUST contain at least one persistent XEP-0363
+`url-data` source. The current profile uses AES-256-GCM. The XEP-0448 key and
+IV are therefore note metadata and are protected by the authenticated and
+encrypted Private Notes content record; they MUST NOT be published separately
+in cleartext application metadata.
+
+A sender MUST additionally include an XEP-0358 `jinglepub` source describing
+XEP-0234 file transfer. The HTTP and Jingle sources MUST serve the same XEP-0448
+ciphertext bytes. This permits a receiver to prefer direct Jingle transfer but
+fall back to HTTP without changing the attachment's cryptographic identity.
+The Jingle transfer advertises the ciphertext size and ciphertext SHA-256, not
+the plaintext metadata.
+
+Example, with Base64 values shortened for readability:
+
+```xml
+<note xmlns='urn:xmpp:private-notes:0'
+      id='2b7e1516-28ae-4d2a-abf7-158809cf4f3c'
+      revision='018f0be0-df0d-7c70-a2ef-1f5c973ec92a'>
+  <body>![diagram](anykeep-media:/45b22c0e-956d-4c65-9a77-7d52ef142c1d/diagram.png)</body>
+  <file-sharing xmlns='urn:xmpp:sfs:0'
+                id='45b22c0e-956d-4c65-9a77-7d52ef142c1d'
+                disposition='inline'>
+    <file xmlns='urn:xmpp:file:metadata:0'>
+      <media-type>image/png</media-type>
+      <name>diagram.png</name>
+      <size>123456</size>
+      <hash xmlns='urn:xmpp:hashes:2' algo='sha-256'>...</hash>
+    </file>
+    <sources>
+      <encrypted xmlns='urn:xmpp:esfs:0'
+                 cipher='urn:xmpp:ciphers:aes-256-gcm-nopadding:0'>
+        <key>...</key>
+        <iv>...</iv>
+        <hash xmlns='urn:xmpp:hashes:2' algo='sha-256'>...</hash>
+        <sources xmlns='urn:xmpp:sfs:0'>
+          <url-data xmlns='http://jabber.org/protocol/url-data'
+                    target='https://upload.example/opaque.bin'/>
+          <jinglepub xmlns='urn:xmpp:jinglepub:1'
+                     from='romeo@example.net/AnyKeep-device'
+                     id='published-session-id'>
+            <description xmlns='urn:xmpp:jingle:apps:file-transfer:5'/>
+          </jinglepub>
+        </sources>
+      </encrypted>
+    </sources>
+  </file-sharing>
+</note>
+```
+
+A receiver MUST verify the encrypted SHA-256 before decryption, authenticate
+XEP-0448 decryption, then verify the plaintext size and SHA-256 before installing
+the bytes into its local media store. A transport failure is not an integrity
+failure: the receiver MAY try another source for the same encrypted payload.
+An integrity or authentication failure MUST be treated as a security/data error.
+
+A client that does not support `urn:xmpp:private-notes:media:0` MAY display the
+safely understood core note body but MUST NOT rewrite the content record. This
+prevents an attachment-unaware client from silently deleting media descriptors.
 
 ## Synchronization operations
 

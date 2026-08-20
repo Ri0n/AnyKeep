@@ -34,6 +34,19 @@ XmppRemoteNote note()
     return value;
 }
 
+XmppRemoteMedia media()
+{
+    XmppRemoteMedia value;
+    value.reference.id   = QUuid(QStringLiteral("11111111-2222-3333-4444-555555555555"));
+    value.fileSharingXml = QByteArrayLiteral(
+        "<file-sharing xmlns='urn:xmpp:sfs:0' id='11111111-2222-3333-4444-555555555555' disposition='inline'>"
+        "<file xmlns='urn:xmpp:file:metadata:0'><media-type>image/png</media-type><name>image.png</name>"
+        "<size>4</size><hash xmlns='urn:xmpp:hashes:2' algo='sha-256'>AQIDBA==</hash></file>"
+        "<sources><url-data xmlns='http://jabber.org/protocol/url-data' target='https://example.test/file'/></sources>"
+        "</file-sharing>");
+    return value;
+}
+
 QByteArray masterKey()
 {
     return QByteArray::fromHex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
@@ -101,6 +114,8 @@ class XmppNoteCodecTest : public QObject {
 
 private slots:
     void roundTrip();
+    void mediaRoundTrip();
+    void rejectsUndeclaredMedia();
     void encryptedPayloadDoesNotExposeText();
     void plaintextUsesOneVersionedNamespace();
     void preservesUnknownOptionalXml();
@@ -156,6 +171,73 @@ void XmppNoteCodecTest::roundTrip()
         = XmppNoteCodec::decodeContent(encodedContent.value, key, contentNode, decodedIndex.value);
     QVERIFY2(decodedContent, qPrintable(decodedContent.error.message));
     QCOMPARE(decodedContent.value.content, source.content);
+}
+
+void XmppNoteCodecTest::mediaRoundTrip()
+{
+    auto source        = note();
+    source.media       = { media() };
+    const auto key     = masterKey();
+    const auto index   = XmppNoteCodec::encodeIndex(source, key, QStringLiteral("index"));
+    const auto content = XmppNoteCodec::encodeContent(source, key, QStringLiteral("content"));
+    QVERIFY(index);
+    QVERIFY2(content, qPrintable(content.error.message));
+
+    const auto plaintext           = openedPlaintext(content.value, key, XmppEncryptedPayload::Content);
+    const auto document            = parseXml(plaintext);
+    const auto root                = document.documentElement();
+    bool       hasMediaRequirement = false;
+    for (auto node = root.firstChild(); !node.isNull(); node = node.nextSibling()) {
+        const auto element = node.toElement();
+        if (!element.isNull() && element.namespaceURI() == XmppNoteCodec::protocolNamespace
+            && element.localName() == QStringLiteral("required")
+            && element.attribute(QStringLiteral("feature")) == XmppNoteCodec::mediaFeature) {
+            hasMediaRequirement = true;
+        }
+    }
+    QVERIFY(hasMediaRequirement);
+
+    const auto decodedIndex = XmppNoteCodec::decodeIndex(index.value, key, QStringLiteral("index"));
+    QVERIFY(decodedIndex);
+    const auto decoded
+        = XmppNoteCodec::decodeContent(content.value, key, QStringLiteral("content"), decodedIndex.value);
+    QVERIFY2(decoded, qPrintable(decoded.error.message));
+    QCOMPARE(decoded.value.media.size(), 1);
+    QCOMPARE(decoded.value.media.constFirst().reference.id, source.media.constFirst().reference.id);
+    QVERIFY(decoded.value.media.constFirst().fileSharingXml.contains("urn:xmpp:esfs:0") == false);
+    QVERIFY(decoded.value.media.constFirst().fileSharingXml.contains("urn:xmpp:sfs:0"));
+
+    auto rewritten          = decoded.value;
+    rewritten.content       = QStringLiteral("changed");
+    const auto encodedAgain = XmppNoteCodec::encodeContent(rewritten, key, QStringLiteral("content"));
+    QVERIFY2(encodedAgain, qPrintable(encodedAgain.error.message));
+    const auto againPlaintext = openedPlaintext(encodedAgain.value, key, XmppEncryptedPayload::Content);
+    QCOMPARE(againPlaintext.count("<file-sharing"), 1);
+}
+
+void XmppNoteCodecTest::rejectsUndeclaredMedia()
+{
+    const auto key    = masterKey();
+    auto       source = note();
+    source.media      = { media() };
+    auto content      = XmppNoteCodec::encodeContent(source, key, QStringLiteral("content"));
+    QVERIFY(content);
+    content.value      = mutatePlaintext(content.value, key, XmppEncryptedPayload::Content, [](QDomDocument &document) {
+        auto root = document.documentElement();
+        for (auto node = root.firstChild(); !node.isNull();) {
+            const auto next    = node.nextSibling();
+            const auto element = node.toElement();
+            if (!element.isNull() && element.namespaceURI() == XmppNoteCodec::protocolNamespace
+                && element.localName() == QStringLiteral("required")
+                && element.attribute(QStringLiteral("feature")) == XmppNoteCodec::mediaFeature) {
+                root.removeChild(node);
+            }
+            node = next;
+        }
+    });
+    const auto decoded = XmppNoteCodec::decodeContent(content.value, key, QStringLiteral("content"), note());
+    QVERIFY(!decoded);
+    QCOMPARE(decoded.error.code, CryptoError::Corrupt);
 }
 
 void XmppNoteCodecTest::encryptedPayloadDoesNotExposeText()

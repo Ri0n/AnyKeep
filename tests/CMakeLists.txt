@@ -157,7 +157,7 @@ target_link_libraries(xmpppayloadxml_test PRIVATE Qt6::Xml)
 add_executable(xmppkeyresolutioncontroller_test xmppkeyresolutioncontroller_test.cpp
                                                 ../plugins/xmpppubsub/xmppkeyresolutioncontroller.cpp)
 target_include_directories(xmppkeyresolutioncontroller_test PRIVATE ../plugins/xmpppubsub)
-target_link_libraries(xmppkeyresolutioncontroller_test PRIVATE Qt6::Test)
+target_link_libraries(xmppkeyresolutioncontroller_test PRIVATE anykeep Qt6::Test)
 register_anykeep_test(xmppkeyresolutioncontroller_test)
 
 if(TARGET QXmpp::QXmpp)

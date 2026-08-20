@@ -24,6 +24,8 @@ public:
     static const QString folderNamespace;
     /** Required extension which binds an index-only update to an unchanged body. */
     static const QString contentRevisionNamespace;
+    /** Required feature declaring XEP-0447 media descriptors in the content record. */
+    static const QString mediaFeature;
 
     static CryptoResult<XmppEncryptedPayload> encodeIndex(const XmppRemoteNote &note, const QByteArray &masterKey,
                                                           const QString &nodeName);

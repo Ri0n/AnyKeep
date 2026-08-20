@@ -10,10 +10,10 @@ and implementation specification, not an XSF-assigned XEP. Cross-language
 encoder/decoder instructions, fixed vectors and the Rust smoke test are in the
 [interoperability guide](INTEROPERABILITY.md).
 
-The proposed cross-storage attachment model is documented in
-[Media storage architecture](../../docs/media-storage-architecture.md). XEP-0447
-is currently an implementation direction for attachments, not part of the
-implemented private-notes wire protocol.
+The cross-storage attachment model is documented in
+[Media storage architecture](../../docs/media-storage-architecture.md). The Iris
+backend implements the XMPP mapping with XEP-0447/XEP-0448, persistent XEP-0363
+HTTP sources, and XEP-0358/XEP-0234 direct Jingle sources.
 
 The XMPP server stores encrypted note records and routes synchronization
 events. Note plaintext and the AnyKeep storage master key are not published to
@@ -26,6 +26,9 @@ the storage key during device onboarding.
 - stores the encrypted note index and content in separate nodes;
 - lists notes in batches using backend-specific item-ID discovery with a direct PubSub fallback;
 - creates, loads, updates, and retracts notes asynchronously;
+- publishes encrypted media attachments with a persistent HTTP source and a
+  preferred direct Jingle source, and verifies ciphertext and plaintext hashes
+  when receiving them;
 - propagates publish, retract, purge, and node invalidation events;
 - detects optimistic revision conflicts before publishing an update;
 - keeps note publication and deletion operations in an encrypted persistent

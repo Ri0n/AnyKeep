@@ -95,7 +95,7 @@ option(ANYKEEP_BUILD_BUNDLED_QXMPP "Build bundled QXmpp when a suitable system Q
        ${_anykeep_bundled_qxmpp_default})
 option(ANYKEEP_BUILD_BUNDLED_OMEMO_C "Build bundled libomemo-c and protobuf-c for bundled QXmpp"
        ${_anykeep_bundled_omemo_c_default})
-option(ANYKEEP_BUILD_BUNDLED_QCA "Build bundled QCA when a suitable system QCA is unavailable"
+option(ANYKEEP_BUILD_BUNDLED_QCA "Build and use bundled QCA 3 instead of a system QCA"
        ${_anykeep_bundled_qca_default})
 option(ANYKEEP_BUILD_BUNDLED_QCORO "Build bundled QCoro when a suitable system QCoro is unavailable"
        ${_anykeep_bundled_qcoro_default})
@@ -134,24 +134,76 @@ else()
 endif()
 include(GNUInstallDirs)
 
-find_package(Qca-qt6 QUIET)
-if(NOT TARGET qca-qt6 AND ANYKEEP_BUILD_BUNDLED_QCA)
-  message(STATUS "System QCA not found; using bundled QCA")
+# QCA is selected exactly once at the top level. QCA 3 is the primary ABI;
+# QCA 2 remains a temporary system-only compatibility path. Every AnyKeep
+# consumer links the target recorded in ANYKEEP_QCA_TARGET, while Iris sees
+# that same Qca3::Qca / Qca::Qca target directly.
+set(ANYKEEP_QCA_TARGET "")
+set(ANYKEEP_QCA_MAJOR "")
+set(_anykeep_qca_native_target "")
+
+if(ANYKEEP_BUILD_BUNDLED_QCA)
+  message(STATUS "QCA: using bundled QCA 3")
   include(BundledQca)
+  if(NOT TARGET Qca3::Qca)
+    message(FATAL_ERROR "BundledQca.cmake did not provide Qca3::Qca")
+  endif()
+  set(ANYKEEP_QCA_TARGET Qca3::Qca)
+  set(ANYKEEP_QCA_MAJOR 3)
+  set(_anykeep_qca_native_target Qca3::Qca)
+else()
+  find_package(Qca3-qt6 CONFIG QUIET)
+  if(TARGET Qca3::Qca)
+    set(ANYKEEP_QCA_TARGET Qca3::Qca)
+    set(ANYKEEP_QCA_MAJOR 3)
+    set(_anykeep_qca_native_target Qca3::Qca)
+    message(STATUS "QCA: using system QCA 3 (${ANYKEEP_QCA_TARGET})")
+  else()
+    # Temporary QCA 2 compatibility. Upstream QCA 2 with Qt 6 installs the
+    # Qca-qt6 package and exports the legacy qca-qt6 target. Normalize that
+    # package-local name to the canonical Qca::Qca target expected by Iris and
+    # the rest of AnyKeep, while retaining the real target for ABI/type checks.
+    find_package(Qca-qt6 CONFIG QUIET)
+    if(TARGET Qca::Qca)
+      set(ANYKEEP_QCA_TARGET Qca::Qca)
+      set(ANYKEEP_QCA_MAJOR 2)
+      set(_anykeep_qca_native_target Qca::Qca)
+      message(STATUS "QCA: using system QCA 2 (${ANYKEEP_QCA_TARGET})")
+    elseif(TARGET qca-qt6)
+      add_library(Qca::Qca ALIAS qca-qt6)
+      set(ANYKEEP_QCA_TARGET Qca::Qca)
+      set(ANYKEEP_QCA_MAJOR 2)
+      set(_anykeep_qca_native_target qca-qt6)
+      message(STATUS "QCA: using system QCA 2 (qca-qt6, exposed as ${ANYKEEP_QCA_TARGET})")
+    endif()
+  endif()
 endif()
 
-if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS" AND TARGET qca-qt6)
-  get_target_property(_anykeep_qca_type qca-qt6 TYPE)
-  get_target_property(_anykeep_qca_definitions qca-qt6 INTERFACE_COMPILE_DEFINITIONS)
+if(NOT ANYKEEP_QCA_TARGET)
+  message(FATAL_ERROR
+          "No usable QCA found. Install QCA 3 (Qca3-qt6, preferred), provide QCA 2, or enable "
+          "ANYKEEP_BUILD_BUNDLED_QCA")
+endif()
+if(NOT TARGET ${ANYKEEP_QCA_TARGET})
+  message(FATAL_ERROR "Selected QCA target does not exist: ${ANYKEEP_QCA_TARGET}")
+endif()
+
+if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
+  # Iris and libanykeep must share one dynamic QCA runtime. Inspect the real
+  # package target rather than the QCA 2 compatibility facade above.
+  get_target_property(_anykeep_qca_type ${_anykeep_qca_native_target} TYPE)
+  get_target_property(_anykeep_qca_definitions ${_anykeep_qca_native_target} INTERFACE_COMPILE_DEFINITIONS)
   if(_anykeep_qca_type STREQUAL "STATIC_LIBRARY")
     message(FATAL_ERROR
-            "The Iris backend requires shared QCA so AnyKeep and shared Iris use one QCA instance; found static qca-qt6")
+            "The Iris backend requires shared QCA so AnyKeep and Iris use one QCA instance; "
+            "${_anykeep_qca_native_target} is static")
   endif()
   if(_anykeep_qca_definitions)
     list(FIND _anykeep_qca_definitions "QCA_STATIC" _anykeep_qca_static_definition)
     if(NOT _anykeep_qca_static_definition EQUAL -1)
       message(FATAL_ERROR
-              "The Iris backend requires shared QCA so AnyKeep and shared Iris use one QCA instance; qca-qt6 exports QCA_STATIC")
+              "The Iris backend requires shared QCA so AnyKeep and Iris use one QCA instance; "
+              "${_anykeep_qca_native_target} exports QCA_STATIC")
     endif()
     unset(_anykeep_qca_static_definition)
   endif()
@@ -172,13 +224,11 @@ if(ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP")
   else()
     message(STATUS "QXmpp 1.11+ with OMEMO not found; the XMPP plugin will be disabled")
   endif()
-elseif(TARGET qca-qt6)
-  # Iris is intentionally an ExternalProject even when a system installation exists: it is developed in lockstep with
-  # AnyKeep and may expose protocol functionality before distributions package it.
-  message(STATUS "XMPP backend: bundled Iris ExternalProject")
-  include(BundledIris)
 else()
-  message(STATUS "QCA not found; the Iris XMPP backend cannot be built")
+  # Iris is intentionally built from the pinned source revision even when a
+  # system installation exists. It consumes the QCA target selected above.
+  message(STATUS "XMPP backend: bundled Iris FetchContent")
+  include(BundledIris)
 endif()
 
 find_package(Qt6Keychain QUIET)

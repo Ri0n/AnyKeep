@@ -1,9 +1,9 @@
 # Media storage architecture
 
 Status: partially implemented. The shared encrypted local blob store, draft/cache
-manifests, `anykeep-media:` references, image/audio insertion and playback, and
-PTF sidecars are in place. Remote media transport and Tomboy/Gnote adapters
-remain future work.
+manifests, `anykeep-media:` references, image/audio insertion and playback, PTF
+sidecars, and the Iris/XMPP remote-media transport are in place. Tomboy/Gnote
+adapters and fully streaming local-at-rest blob I/O remain future work.
 
 AnyKeep notes are Markdown documents. Attachments and inline media are addressed
 from Markdown by a stable attachment UUID and a readable portable filename:
@@ -302,68 +302,67 @@ flowchart LR
     API --> OTHER["Other storage-specific transport"]
 ```
 
-### XMPP direction
+### XMPP implementation
 
-[XEP-0447: Stateless File Sharing](https://xmpp.org/extensions/xep-0447.html)
-is the current candidate for representing XMPP attachments. It provides generic
-file metadata, hashes for integrity and caching, inline/attachment disposition,
-and one or more transport-independent sources. XEP-0447 does not itself define
-byte storage or transport, but a source can advertise a published Jingle session.
-The receiver can then request the content using
-[XEP-0234: Jingle File Transfer](https://xmpp.org/extensions/xep-0234.html)
-and negotiate an appropriate Jingle transport.
+The Iris backend maps every XMPP attachment to
+[XEP-0447: Stateless File Sharing](https://xmpp.org/extensions/xep-0447.html).
+XEP-0446 metadata describes the plaintext file. The payload itself is encrypted
+once with [XEP-0448](https://xmpp.org/extensions/xep-0448.html), using
+AES-256-GCM, and every transport source serves those identical ciphertext
+bytes.
 
 ```mermaid
 flowchart TD
-    SFS["XEP-0447 file-sharing<br/>metadata, hashes, disposition"]
-    SRC{"Advertised source"}
-    JP["Jingle-published source"]
-    URL["URL source"]
+    LOCAL["LocalMediaStore plaintext"]
+    ESFS["XEP-0448 AES-256-GCM<br/>ciphertext + SHA-256"]
+    HTTP["XEP-0363 HTTP Upload<br/>required durable source"]
+    JP["XEP-0358 jinglepub<br/>required live publication"]
     JFT["XEP-0234 Jingle File Transfer"]
-    DC["XEP-0343 WebRTC DataChannel<br/>SCTP over DTLS"]
-    JET["XEP-0391 encrypted<br/>Jingle transport"]
-    JHTTP["XEP-0370 Jingle HTTP<br/>HTTP or HTTPS"]
-    HFU["XEP-0363 HTTP File Upload<br/>persistent source"]
+    TRANSPORT["IBB / S5B / WebRTC DataChannel / other Jingle transport"]
+    NOTE["Encrypted Private Notes content record<br/>XEP-0447 descriptor + key/IV"]
 
-    SFS --> SRC
-    SRC --> JP --> JFT
-    SRC --> URL --> HFU
-    JFT --> DC
-    JFT --> JET
-    JFT --> JHTTP
+    LOCAL --> ESFS
+    ESFS --> HTTP
+    ESFS --> JP --> JFT --> TRANSPORT
+    ESFS --> NOTE
 ```
 
-Jingle therefore does not imply one fixed byte channel. A WebRTC DataChannel
-transport uses SCTP over DTLS and protects the transferred media. Jingle Encrypted
-Transports can add an end-to-end encryption layer around a negotiated Jingle
-transport, including a transport whose underlying exchange is HTTP. Jingle's HTTP
-transport can itself use HTTPS. These layers must be recorded separately in the
-protocol design: HTTPS protects a client-to-server hop, DTLS protects its channel,
-and a Jingle end-to-end encryption layer protects the file stream between the
-participating XMPP entities.
+The durable HTTP source is required for note publication. A Jingle publication
+is intentionally only an additional source: it disappears when the publishing
+resource goes offline, while a note must remain recoverable later. On save, an
+unchanged attachment reuses its existing HTTP object and XEP-0448 key/IV and
+refreshes only the current-resource Jingle publication.
 
-For persistent notes, source lifetime remains important. A direct DataChannel is
-useful while another device is online, but is not by itself durable storage. An
-HTTP-uploaded source is naturally available to offline devices, but AnyKeep must
-decide whether it stores plaintext behind HTTPS or uploads an independently
-encrypted object whose key is distributed through the authenticated XMPP storage
-protocol. Multiple XEP-0447 sources may allow both paths for the same content.
+The XEP-0448 key, IV, ciphertext hash, durable URL, and Jingle publication are
+stored inside the already authenticated and encrypted Private Notes content
+record. Consequently an untrusted HTTP server, IBB/S5B proxy path, or other
+transport sees only ciphertext. WebRTC/DTLS may provide transport security as
+well, but AnyKeep does not depend on that for attachment E2E confidentiality.
+This is why the attachment layer does not use `EncryptionController::DataStream`
+or XEP-0391/JET in the current profile: doing so would create a second,
+transport-specific encryption identity and would not cover the persistent HTTP
+fallback with the same bytes.
 
-The specification is Experimental, and its primary examples use messages,
-Carbons, and MAM. Before implementation AnyKeep still needs to define how an
-XEP-0447 file-sharing description and its source lifetime are bound to a persistent
-note revision in the private PubSub protocol. The design must also decide:
+On receive, AnyKeep prefers the live XEP-0358 Jingle source when it belongs to
+the same bare JID. The offered Jingle file must match the expected ciphertext
+size and SHA-256. If Jingle negotiation or transfer is unavailable, the client
+falls back to the HTTP source. Before installing an attachment locally it
+verifies ciphertext SHA-256, authenticates XEP-0448 decryption, and verifies the
+plaintext size and SHA-256 from XEP-0446 metadata.
+The first implementation hydrates all attachments when a specific note is explicitly opened;
+background index/body warming does not download media. Lazy hydration of large arbitrary
+attachments can be added later together with a remote-only media-reference state.
 
-- which source protocols AnyKeep requires, prefers, or advertises together;
-- which Jingle transports and end-to-end encryption profiles are interoperable;
-- how remote attachment encryption and key rotation work;
-- whether sources survive as long as their note revisions;
-- how replacement and deletion avoid breaking older revisions;
-- how hashes map to the local keyed `blobId` without publishing the keyed value;
-- which XEP-0446 metadata and thumbnails are retained in `MediaReference`.
+The Private Notes attachment UUID is stable and independent of source lifetime.
+It is both the XEP-0447 `file-sharing` ID and the identity used by
+`anykeep-media:` Markdown URIs. Changing a Jingle publication or HTTP source
+therefore does not rewrite the note body.
 
-Until those questions are specified, XEP-0447 is a direction and interoperability
-target, not part of the implemented AnyKeep XMPP wire protocol.
+Network encryption is streamed through Iris `QIODevice` adapters. The current
+`LocalMediaStore`, however, still decrypts its at-rest SecureEnvelope into a
+`QByteArray`; eliminating that remaining plaintext-in-memory copy requires a
+separate streaming format for the local encrypted blob store rather than a
+Jingle or XEP-0448 change.
 
 ## Failure and security rules
 
@@ -387,5 +386,6 @@ target, not part of the implemented AnyKeep XMPP wire protocol.
 4. Implement insertion, preview, export, and safe external opening.
 5. Add mark-and-sweep collection with a grace period.
 6. Implement PTF/Tomboy sidecar adapters.
-7. Specify and implement the XMPP mapping, using XEP-0447 where appropriate.
-8. Define transports independently for other remote-storage plugins.
+7. Implement the XMPP mapping with XEP-0447/XEP-0448, XEP-0363, and XEP-0358/Jingle.
+8. Make the local encrypted media store itself streaming for very large files.
+9. Define transports independently for other remote-storage plugins.

@@ -4,6 +4,7 @@
 #include <QDomDocument>
 #include <QDomElement>
 #include <QSet>
+#include <QUuid>
 
 #include <algorithm>
 #include <utility>
@@ -13,8 +14,11 @@ namespace AnyKeep {
 const QString XmppNoteCodec::protocolNamespace        = QStringLiteral("urn:xmpp:private-notes:0");
 const QString XmppNoteCodec::folderNamespace          = QStringLiteral("urn:xmpp:private-notes:folders:0");
 const QString XmppNoteCodec::contentRevisionNamespace = QStringLiteral("urn:xmpp:private-notes:content:0");
+const QString XmppNoteCodec::mediaFeature             = QStringLiteral("urn:xmpp:private-notes:media:0");
 
 namespace {
+    const QString StatelessFileSharingNamespace = QStringLiteral("urn:xmpp:sfs:0");
+
     constexpr int MaxXmlDepth      = 32;
     constexpr int MaxXmlElements   = 8192;
     constexpr int MaxXmlAttributes = 256;
@@ -213,6 +217,7 @@ namespace {
         }
         QSet<QString> unsupportedFeatures = features;
         unsupportedFeatures.remove(XmppNoteCodec::contentRevisionNamespace);
+        unsupportedFeatures.remove(XmppNoteCodec::mediaFeature);
         if (!unsupportedFeatures.isEmpty()) {
             auto list = unsupportedFeatures.values();
             std::sort(list.begin(), list.end());
@@ -249,6 +254,9 @@ namespace {
         if (kind != XmppEncryptedPayload::Index
             && result.requiredFeatures.contains(XmppNoteCodec::contentRevisionNamespace)) {
             return { {}, corrupt(QStringLiteral("XMPP content-revision extension is valid only for an index record")) };
+        }
+        if (kind != XmppEncryptedPayload::Content && result.requiredFeatures.contains(XmppNoteCodec::mediaFeature)) {
+            return { {}, corrupt(QStringLiteral("XMPP media extension is valid only for a content record")) };
         }
         if (hasNonWhitespaceDirectText(result.root))
             return { {}, corrupt(QStringLiteral("Unexpected text in encrypted private-note XML envelope")) };
@@ -453,6 +461,74 @@ namespace {
         return locateRecord(parsed.value, kind, false);
     }
 
+    CryptoResult<XmppRemoteMedia> parseMediaElement(const QDomElement &element)
+    {
+        if (element.localName() != QStringLiteral("file-sharing")
+            || element.namespaceURI() != StatelessFileSharingNamespace) {
+            return { {}, corrupt(QStringLiteral("Invalid XMPP media descriptor")) };
+        }
+        const auto idText = element.attribute(QStringLiteral("id"));
+        const auto id     = QUuid(idText);
+        if (id.isNull())
+            return { {}, corrupt(QStringLiteral("XMPP media descriptor requires a UUID id")) };
+
+        QDomDocument document;
+        document.appendChild(document.importNode(element, true));
+        XmppRemoteMedia media;
+        media.reference.id   = id;
+        media.fileSharingXml = serializeXml(document);
+        return { media, {} };
+    }
+
+    CryptoResult<QList<XmppRemoteMedia>> mediaDescriptors(const XmlRecordDocument &opened)
+    {
+        const auto elements
+            = directChildren(opened.record, StatelessFileSharingNamespace, QStringLiteral("file-sharing"));
+        const bool required = opened.requiredFeatures.contains(XmppNoteCodec::mediaFeature);
+        if (elements.isEmpty()) {
+            if (required)
+                return { {}, corrupt(QStringLiteral("Required XMPP media extension has no file-sharing descriptors")) };
+            return { {}, {} };
+        }
+        if (!required)
+            return { {}, corrupt(QStringLiteral("XMPP media descriptors must be declared as a required extension")) };
+
+        QList<XmppRemoteMedia> result;
+        QSet<QUuid>            ids;
+        result.reserve(elements.size());
+        for (const auto &element : elements) {
+            const auto parsed = parseMediaElement(element);
+            if (!parsed)
+                return { {}, parsed.error };
+            if (ids.contains(parsed.value.reference.id))
+                return { {}, corrupt(QStringLiteral("Duplicate XMPP media attachment id")) };
+            ids.insert(parsed.value.reference.id);
+            result.append(parsed.value);
+        }
+        return { result, {} };
+    }
+
+    CryptoResult<QDomElement> importMediaElement(QDomDocument &document, const XmppRemoteMedia &media)
+    {
+        if (media.reference.id.isNull() || media.fileSharingXml.isEmpty()) {
+            return { {},
+                     cryptoError(CryptoError::InvalidArgument, QStringLiteral("Incomplete XMPP media descriptor")) };
+        }
+        const auto parsed = parseXml(media.fileSharingXml, QStringLiteral("XMPP media descriptor"));
+        if (!parsed)
+            return { {}, parsed.error };
+        const auto root    = parsed.value.documentElement();
+        const auto decoded = parseMediaElement(root);
+        if (!decoded)
+            return { {}, decoded.error };
+        if (decoded.value.reference.id != media.reference.id) {
+            return { {},
+                     cryptoError(CryptoError::InvalidArgument,
+                                 QStringLiteral("XMPP media descriptor id does not match attachment id")) };
+        }
+        return { document.importNode(root, true).toElement(), {} };
+    }
+
     QByteArray preservationTemplate(const XmlRecordDocument &opened, XmppEncryptedPayload::Kind kind)
     {
         QDomDocument document;
@@ -477,6 +553,8 @@ namespace {
             record.removeAttribute(QStringLiteral("id"));
             record.removeAttribute(QStringLiteral("revision"));
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("body"));
+            removeDirectChildren(record, StatelessFileSharingNamespace, QStringLiteral("file-sharing"));
+            removeRequiredFeature(root, XmppNoteCodec::mediaFeature);
         }
         return serializeXml(document);
     }
@@ -566,10 +644,26 @@ namespace {
             record.setAttribute(QStringLiteral("id"), note.id);
             record.setAttribute(QStringLiteral("revision"), noteContentRevision);
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("body"));
+            removeDirectChildren(record, StatelessFileSharingNamespace, QStringLiteral("file-sharing"));
+            setRequiredFeature(document, root, XmppNoteCodec::mediaFeature, !note.media.isEmpty());
+            const auto anchor = record.firstChild();
             insertBeforeOrAppend(
                 record,
                 createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("body"), note.content),
-                record.firstChild());
+                anchor);
+            QSet<QUuid> mediaIds;
+            for (const auto &media : note.media) {
+                if (mediaIds.contains(media.reference.id)) {
+                    return { {},
+                             cryptoError(CryptoError::InvalidArgument,
+                                         QStringLiteral("Duplicate XMPP media attachment id")) };
+                }
+                const auto imported = importMediaElement(document, media);
+                if (!imported)
+                    return { {}, imported.error };
+                mediaIds.insert(media.reference.id);
+                insertBeforeOrAppend(record, imported.value, anchor);
+            }
         }
 
         const auto plaintext = serializeXml(document);
@@ -714,7 +808,7 @@ namespace {
     }
 
     CryptoError validateContentRecord(const XmlRecordDocument &opened, const XmppEncryptedPayload &payload,
-                                      QString *revision, QString *content)
+                                      QString *revision, QString *content, QList<XmppRemoteMedia> *media = nullptr)
     {
         const auto &record = opened.record;
         if (const auto error = validateAttributes(record, { QStringLiteral("id"), QStringLiteral("revision") },
@@ -742,6 +836,11 @@ namespace {
         const auto body = simpleText(bodies.constFirst(), QStringLiteral("body"));
         if (!body)
             return body.error;
+        const auto decodedMedia = mediaDescriptors(opened);
+        if (!decodedMedia)
+            return decodedMedia.error;
+        if (media)
+            *media = decodedMedia.value;
         if (revision)
             *revision = recordRevision;
         if (content)
@@ -781,15 +880,17 @@ CryptoResult<XmppRemoteNote> XmppNoteCodec::decodeContent(const XmppEncryptedPay
     auto opened = openPayload(payload, XmppEncryptedPayload::Content, masterKey, nodeName);
     if (!opened)
         return { {}, opened.error };
-    QString revision;
-    QString content;
-    if (const auto error = validateContentRecord(opened.value, payload, &revision, &content); error)
+    QString                revision;
+    QString                content;
+    QList<XmppRemoteMedia> media;
+    if (const auto error = validateContentRecord(opened.value, payload, &revision, &content, &media); error)
         return { {}, error };
     const auto expectedContentRevision = index.contentRevision.isEmpty() ? index.revision : index.contentRevision;
     if (payload.id != index.id || revision != expectedContentRevision)
         return { {}, corrupt(QStringLiteral("private-note content does not match its index revision")) };
     auto note                  = index;
     note.content               = std::move(content);
+    note.media                 = std::move(media);
     note.contentPresent        = true;
     note.contentRecordTemplate = preservationTemplate(opened.value, XmppEncryptedPayload::Content);
     return { note, {} };
