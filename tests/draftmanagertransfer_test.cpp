@@ -7,6 +7,7 @@
 #include <QSignalSpy>
 #include <QtTest>
 
+#include <algorithm>
 #include <memory>
 
 using namespace AnyKeep;
@@ -149,6 +150,10 @@ private slots:
     void publishesDestinationBeforeDeletingSource();
     void preservesSourceWhenDestinationPublicationFails();
     void resumesPendingPublishForEditing();
+    void prepareForShutdownRequeuesPublishingDraft();
+    void exposesPendingPublicationDrafts();
+    void retargetsPublishedDraftWithoutLosingSourceIdentity();
+    void movesUnpublishedDraftWithoutCreatingSourceRemoval();
 };
 
 void DraftManagerTransferTest::publishesDestinationBeforeDeletingSource()
@@ -250,6 +255,141 @@ void DraftManagerTransferTest::resumesPendingPublishForEditing()
     QCOMPARE(data->records_.value(record.id).state, DraftRecord::Editing);
     QCOMPARE(drafts.recoverableDrafts().size(), 1);
     QCOMPARE(drafts.recoverableDrafts().constFirst().id, record.id);
+}
+
+void DraftManagerTransferTest::prepareForShutdownRequeuesPublishingDraft()
+{
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord record;
+    record.id           = QUuid::createUuid();
+    record.operation    = DraftRecord::Publish;
+    record.state        = DraftRecord::Publishing;
+    record.storageId    = QStringLiteral("xmpp-pubsub");
+    record.remoteNoteId = QStringLiteral("remote-note");
+    record.lastError    = QStringLiteral("old error");
+    record.retryAt      = QDateTime::currentDateTimeUtc().addSecs(60);
+    data->records_.insert(record.id, record);
+
+    DraftManager drafts(std::move(store));
+    QSignalSpy   changed(&drafts, &DraftManager::draftsChanged);
+    drafts.prepareForShutdown();
+
+    const auto preserved = data->records_.value(record.id);
+    QCOMPARE(preserved.state, DraftRecord::Ready);
+    QCOMPARE(preserved.storageId, record.storageId);
+    QCOMPARE(preserved.remoteNoteId, record.remoteNoteId);
+    QVERIFY(preserved.lastError.isEmpty());
+    QVERIFY(!preserved.retryAt.isValid());
+    QCOMPARE(changed.count(), 1);
+}
+
+void DraftManagerTransferTest::exposesPendingPublicationDrafts()
+{
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord local;
+    local.id        = QUuid::createUuid();
+    local.operation = DraftRecord::Publish;
+    local.state     = DraftRecord::Retry;
+    local.storageId = QStringLiteral("xmpp-pubsub");
+    local.title     = QStringLiteral("Local draft");
+    local.lastError = QStringLiteral("Permanent upload failure");
+    data->records_.insert(local.id, local);
+
+    DraftRecord edit  = local;
+    edit.id           = QUuid::createUuid();
+    edit.remoteNoteId = QStringLiteral("published-note");
+    edit.title        = QStringLiteral("Pending edit");
+    data->records_.insert(edit.id, edit);
+
+    DraftRecord deletion = edit;
+    deletion.id          = QUuid::createUuid();
+    deletion.operation   = DraftRecord::Delete;
+    data->records_.insert(deletion.id, deletion);
+
+    DraftManager drafts(std::move(store));
+    const auto   pending = drafts.pendingDrafts();
+    QCOMPARE(pending.size(), 2);
+    QVERIFY(std::any_of(pending.cbegin(), pending.cend(),
+                        [&](const DraftRecord &record) { return record.id == local.id; }));
+    QVERIFY(
+        std::any_of(pending.cbegin(), pending.cend(), [&](const DraftRecord &record) { return record.id == edit.id; }));
+
+    const auto found = drafts.pendingDraftForNote(edit.storageId, edit.remoteNoteId);
+    QVERIFY(found);
+    QCOMPARE(found.value.id, edit.id);
+}
+
+void DraftManagerTransferTest::retargetsPublishedDraftWithoutLosingSourceIdentity()
+{
+    auto       destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("retarget-destination"));
+    auto      *destinationRaw     = registerStorage(std::move(destinationStorage));
+    const auto cleanup            = qScopeGuard([destinationRaw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(destinationRaw->systemName()) == destinationRaw)
+            manager->unregisterStorage(destinationRaw);
+    });
+
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord record;
+    record.id           = QUuid::createUuid();
+    record.operation    = DraftRecord::Publish;
+    record.state        = DraftRecord::Retry;
+    record.storageId    = QStringLiteral("retarget-source");
+    record.remoteNoteId = QStringLiteral("source-note");
+    record.title        = QStringLiteral("Pending edit");
+    record.body         = QStringLiteral("Body");
+    record.format       = Note::Markdown;
+    data->records_.insert(record.id, record);
+
+    DraftManager drafts(std::move(store));
+    const auto   error = drafts.moveDraft(record.id, destinationRaw->systemName());
+    QVERIFY2(!error, qPrintable(error.message));
+
+    const auto moved = data->records_.value(record.id);
+    QCOMPARE(moved.storageId, destinationRaw->systemName());
+    QVERIFY(moved.remoteNoteId.isEmpty());
+    QCOMPARE(moved.removeSourceStorageId, record.storageId);
+    QCOMPARE(moved.removeSourceNoteId, record.remoteNoteId);
+    QCOMPARE(moved.state, DraftRecord::Ready);
+    QVERIFY(moved.lastError.isEmpty());
+    QVERIFY(!moved.retryAt.isValid());
+}
+
+void DraftManagerTransferTest::movesUnpublishedDraftWithoutCreatingSourceRemoval()
+{
+    auto       destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("unpublished-destination"));
+    auto      *destinationRaw     = registerStorage(std::move(destinationStorage));
+    const auto cleanup            = qScopeGuard([destinationRaw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(destinationRaw->systemName()) == destinationRaw)
+            manager->unregisterStorage(destinationRaw);
+    });
+
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord record;
+    record.id        = QUuid::createUuid();
+    record.operation = DraftRecord::Publish;
+    record.state     = DraftRecord::Ready;
+    record.storageId = QStringLiteral("old-publication-target");
+    record.title     = QStringLiteral("Never published");
+    record.body      = QStringLiteral("Body");
+    record.format    = Note::Markdown;
+    data->records_.insert(record.id, record);
+
+    DraftManager drafts(std::move(store));
+    const auto   error = drafts.moveDraft(record.id, destinationRaw->systemName());
+    QVERIFY2(!error, qPrintable(error.message));
+
+    const auto moved = data->records_.value(record.id);
+    QCOMPARE(moved.storageId, destinationRaw->systemName());
+    QVERIFY(moved.remoteNoteId.isEmpty());
+    QVERIFY(moved.removeSourceStorageId.isEmpty());
+    QVERIFY(moved.removeSourceNoteId.isEmpty());
+    QCOMPARE(moved.state, DraftRecord::Ready);
 }
 
 QTEST_MAIN(DraftManagerTransferTest)

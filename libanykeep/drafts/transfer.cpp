@@ -104,6 +104,61 @@ DraftStoreError DraftManager::stageTransfer(const Note &source, const QString &d
     return {};
 }
 
+DraftStoreError DraftManager::moveDraft(const QUuid &draftId, const QString &destinationStorageId)
+{
+    if (!store_)
+        return { DraftStoreError::Locked, lastError_.isEmpty() ? tr("Draft store is locked") : lastError_ };
+    auto draft = store_->load(draftId);
+    if (!draft)
+        return draft.error;
+    if (draft.value.operation != DraftRecord::Publish)
+        return { DraftStoreError::InvalidArgument, tr("Only note drafts can be moved between storages") };
+
+    cancelPublication(draftId);
+    if (const auto error = retargetDraftForPublication(&draft.value, destinationStorageId))
+        return error;
+    draft.value.updatedAt = QDateTime::currentDateTimeUtc();
+    if (const auto error = store_->write(draft.value))
+        return error;
+    emit draftsChanged();
+    QTimer::singleShot(0, this, &DraftManager::publishPending);
+    return {};
+}
+
+DraftStoreError DraftManager::copyDraft(const QUuid &draftId, const QString &destinationStorageId, QUuid *copyDraftId)
+{
+    if (!store_)
+        return { DraftStoreError::Locked, lastError_.isEmpty() ? tr("Draft store is locked") : lastError_ };
+    if (copyDraftId)
+        *copyDraftId = {};
+    const auto source = store_->load(draftId);
+    if (!source)
+        return source.error;
+    if (source.value.operation != DraftRecord::Publish)
+        return { DraftStoreError::InvalidArgument, tr("Only note drafts can be copied between storages") };
+
+    DraftRecord copy = source.value;
+    copy.id          = QUuid::createUuid();
+    copy.removeSourceStorageId.clear();
+    copy.removeSourceNoteId.clear();
+    copy.remoteNoteId.clear();
+    copy.backendData.clear();
+    copy.state = DraftRecord::Ready;
+    copy.lastError.clear();
+    copy.retryAt  = {};
+    copy.revision = 1;
+    if (const auto error = retargetDraftForPublication(&copy, destinationStorageId))
+        return error;
+    copy.updatedAt = QDateTime::currentDateTimeUtc();
+    if (const auto error = store_->write(copy))
+        return error;
+    if (copyDraftId)
+        *copyDraftId = copy.id;
+    emit draftsChanged();
+    QTimer::singleShot(0, this, &DraftManager::publishPending);
+    return {};
+}
+
 bool DraftManager::hasPendingTransferFrom(const QString &storageId, const QString &noteId) const
 {
     if (!store_ || storageId.isEmpty() || noteId.isEmpty())

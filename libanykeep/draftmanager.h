@@ -30,6 +30,7 @@ public:
     using PrePublicationHandler = std::function<DraftStoreError(DraftRecord *record)>;
 
     static DraftManager *instance();
+    static QString       draftsStorageId();
     explicit DraftManager(std::unique_ptr<DraftStore> store, QObject *parent = nullptr);
     ~DraftManager() override;
 
@@ -49,7 +50,15 @@ public:
     DraftStoreResult<DraftRecord> resumeEditingDraft(const QUuid &draftId);
     DraftStoreError               markReady(const QUuid &draftId);
     DraftStoreError               discard(const QUuid &draftId);
-    DraftStoreError               queueRemoval(const QString &storageId, const QString &noteId);
+    /** Cancel an in-flight publication, retarget the same persisted draft and publish it at the new storage. */
+    DraftStoreError moveDraft(const QUuid &draftId, const QString &destinationStorageId);
+    /** Publish a copy of the same local draft contents to another storage. */
+    DraftStoreError copyDraft(const QUuid &draftId, const QString &destinationStorageId, QUuid *copyDraftId = nullptr);
+    /** Update local folder metadata without touching a storage until publication. */
+    DraftStoreError setDraftFolder(const QUuid &draftId, const QUuid &folderId, bool userOverride = true);
+    /** Make a failed/paused publish draft immediately eligible for another publication attempt. */
+    DraftStoreError retryDraftNow(const QUuid &draftId);
+    DraftStoreError queueRemoval(const QString &storageId, const QString &noteId);
     /**
      * Creates a persisted cross-storage move. The source is deleted only
      * after the destination draft is acknowledged by its storage.
@@ -59,10 +68,15 @@ public:
     bool            hasPendingTransferFrom(const QString &storageId, const QString &noteId) const;
     void            setPrePublicationHandler(PrePublicationHandler handler);
     /** Safely converts a pending draft into a restart-safe storage transfer. */
-    DraftStoreError    retargetDraftForPublication(DraftRecord *record, const QString &destinationStorageId) const;
-    void               publishPending();
-    QList<DraftRecord> recoverableDrafts() const;
-    void               setConflictResolver(std::unique_ptr<ConflictResolver> resolver);
+    DraftStoreError retargetDraftForPublication(DraftRecord *record, const QString &destinationStorageId) const;
+    void            publishPending();
+    /** Preserve in-flight publication drafts for a clean retry on the next launch. */
+    void                          prepareForShutdown();
+    QList<DraftRecord>            pendingDrafts() const;
+    DraftStoreResult<DraftRecord> pendingDraft(const QUuid &draftId) const;
+    DraftStoreResult<DraftRecord> pendingDraftForNote(const QString &storageId, const QString &noteId) const;
+    QList<DraftRecord>            recoverableDrafts() const;
+    void                          setConflictResolver(std::unique_ptr<ConflictResolver> resolver);
     /// Resolves a conflict discovered after a storage operation was acknowledged.
     void resolveConcurrentEdit(const Note &localVersion, const Note &remoteVersion, const QString &message);
 
@@ -84,6 +98,7 @@ private:
     void           resolveConflict(const DraftRecord &record, const StorageError &error, const Note &remoteNote = {});
     void           storageBecameReady(NoteStorage *storage);
     void           storageAboutToBeRemoved(NoteStorage *storage);
+    void           cancelPublication(const QUuid &draftId);
     static QString sourceKey(const Note &note);
 
     std::unique_ptr<DraftStore>        store_;
@@ -94,6 +109,7 @@ private:
     QString                            lastError_;
     std::unique_ptr<ConflictResolver>  conflictResolver_;
     PrePublicationHandler              prePublicationHandler_;
+    bool                               shuttingDown_ { false };
 };
 
 } // namespace AnyKeep

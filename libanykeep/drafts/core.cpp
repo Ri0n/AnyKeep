@@ -89,6 +89,8 @@ QString DraftManager::sourceKey(const Note &note)
     return note.storageId() + QChar(0x1f) + note.id();
 }
 
+QString DraftManager::draftsStorageId() { return QStringLiteral("anykeep-local-drafts"); }
+
 DraftManager *DraftManager::instance()
 {
     static DraftManager *manager = new DraftManager(QCoreApplication::instance());

@@ -226,12 +226,55 @@ DraftStoreError DraftManager::discard(const QUuid &draftId)
 {
     if (!store_)
         return { DraftStoreError::Locked, lastError_ };
+    cancelPublication(draftId);
     auto result = store_->remove(draftId);
     if (result.code == DraftStoreError::NotFound)
         result = {};
     if (!result)
         emit draftsChanged();
     return result;
+}
+
+DraftStoreError DraftManager::setDraftFolder(const QUuid &draftId, const QUuid &folderId, bool userOverride)
+{
+    if (!store_)
+        return { DraftStoreError::Locked, lastError_ };
+    auto draft = store_->load(draftId);
+    if (!draft)
+        return draft.error;
+    if (draft.value.operation != DraftRecord::Publish)
+        return { DraftStoreError::InvalidArgument, tr("Only note drafts can be assigned to folders") };
+
+    draft.value.folderId           = folderId;
+    draft.value.folderUserOverride = draft.value.folderUserOverride || userOverride;
+    draft.value.updatedAt          = QDateTime::currentDateTimeUtc();
+    const auto error               = store_->write(draft.value);
+    if (!error)
+        emit draftsChanged();
+    return error;
+}
+
+DraftStoreError DraftManager::retryDraftNow(const QUuid &draftId)
+{
+    if (!store_)
+        return { DraftStoreError::Locked, lastError_ };
+    auto draft = store_->load(draftId);
+    if (!draft)
+        return draft.error;
+    if (draft.value.operation != DraftRecord::Publish)
+        return { DraftStoreError::InvalidArgument, tr("Only note drafts can be published") };
+
+    cancelPublication(draftId);
+    draft.value.state = draft.value.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready;
+    draft.value.lastError.clear();
+    draft.value.retryAt   = {};
+    draft.value.updatedAt = QDateTime::currentDateTimeUtc();
+    const auto error      = store_->write(draft.value);
+    if (!error) {
+        emit draftsChanged();
+        QTimer::singleShot(0, this, &DraftManager::publishPending);
+    }
+    return error;
 }
 
 DraftStoreError DraftManager::queueRemoval(const QString &storageId, const QString &noteId)
