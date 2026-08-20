@@ -14,6 +14,8 @@
 #include <iris/jingle-pub.h>
 #include <iris/jingle-session.h>
 #include <iris/jingle.h>
+#include <iris/s5b.h>
+#include <iris/tcpportreserver.h>
 #include <iris/xmpp.h>
 #include <iris/xmpp_client.h>
 #include <iris/xmpp_clientstream.h>
@@ -417,6 +419,9 @@ void IrisXmppBackend::createClient()
 
     client_ = new XMPP::Client(this);
     client_->setNetworkAccessManager(new QNetworkAccessManager(client_));
+    auto *tcpPortReserver = new XMPP::TcpPortReserver(client_);
+    tcpPortReserver->registerScope(QStringLiteral("s5b"), new XMPP::S5BServersProducer);
+    client_->setTcpPortReserver(tcpPortReserver);
     // PEP implicit subscriptions are driven by XEP-0115 entity capabilities.
     // Iris only puts a <c/> element into presence when a caps node is configured.
     client_->setCaps(XMPP::CapsSpec(QStringLiteral("https://anykeep.net"), QCryptographicHash::Sha1));
@@ -1405,15 +1410,34 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                     state->callback(std::move(state->note), backend->cancelledResult());
                     return;
                 }
-                if (!upload->success()) {
+                const auto jingleOnly
+                    = !upload->success() && upload->statusCode() == XMPP::HttpFileUpload::ErrorCode::Timeout;
+                if (jingleOnly)
+                    qWarning() << "HTTP media upload made no progress; falling back to Jingle publication";
+                if (!upload->success() && !jingleOnly) {
                     state->callback(
                         std::move(state->note),
                         mediaFailure(QStringLiteral("Encrypted media upload failed: %1").arg(upload->statusString()),
                                      XmppErrorKind::Transient));
                     return;
                 }
-                const auto hash = encrypted->encryptedHash();
-                if (!encrypted->finished() || !hash.isValid()) {
+                auto hash = encrypted->encryptedHash();
+                if (jingleOnly && (!encrypted->finished() || !hash.isValid())) {
+                    const auto local = LocalMediaStore::instance()->data(reference.blobId);
+                    if (local && local.value.size() == reference.size
+                        && QCryptographicHash::hash(local.value, QCryptographicHash::Sha256) == reference.checksum) {
+                        QBuffer plainForHash;
+                        plainForHash.setData(local.value);
+                        plainForHash.open(QIODevice::ReadOnly);
+                        XMPP::StatelessFileSharing::EncryptingDevice encryptedForHash(
+                            &plainForHash, encrypted->cipher(), encrypted->key(), encrypted->iv());
+                        if (encryptedForHash.open(QIODevice::ReadOnly)) {
+                            encryptedForHash.readAll();
+                            hash = encryptedForHash.encryptedHash();
+                        }
+                    }
+                }
+                if (!hash.isValid()) {
                     state->callback(std::move(state->note),
                                     mediaFailure(QStringLiteral("Encrypted media stream did not finish cleanly"),
                                                  XmppErrorKind::Security));
@@ -1434,7 +1458,8 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                 file.addHash(XMPP::Hash(XMPP::Hash::Sha256, reference.checksum));
 
                 XMPP::StatelessFileSharing::Sources nested;
-                nested.add(XMPP::StatelessFileSharing::Source::fromUrl(QUrl(upload->getHttpSlot().get.url)));
+                if (!jingleOnly)
+                    nested.add(XMPP::StatelessFileSharing::Source::fromUrl(QUrl(upload->getHttpSlot().get.url)));
                 nested.add(XMPP::StatelessFileSharing::Source::fromJinglePub(publication));
                 XMPP::StatelessFileSharing::EncryptedSource encryptedSource;
                 encryptedSource.setCipher(encrypted->cipher());

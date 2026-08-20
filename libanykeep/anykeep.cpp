@@ -1131,10 +1131,6 @@ void Main::openNoteDialog(const QString &storageId, const QString &noteId)
             pending = presentedDraft;
     }
     if (pending) {
-        if (pending.value.state == DraftRecord::Publishing) {
-            notifyError(tr("This note is currently being published"));
-            return;
-        }
         const auto resumed = drafts->resumeEditingDraft(pending.value.id);
         if (!resumed) {
             notifyError(resumed.error.message.isEmpty() ? tr("The pending draft could not be opened")

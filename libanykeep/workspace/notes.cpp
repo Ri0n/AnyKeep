@@ -76,10 +76,6 @@ bool NotesWorkspaceController::openNote(const QString &storageId, const QString 
                 pending = std::move(presentedDraft);
         }
         if (pending) {
-            if (pending.value.state == DraftRecord::Publishing) {
-                setError(tr("This note is currently being published"));
-                return false;
-            }
             const auto resumed = draftManager_->resumeEditingDraft(pending.value.id);
             if (!resumed) {
                 setError(resumed.error.message.isEmpty() ? tr("The pending draft could not be opened")

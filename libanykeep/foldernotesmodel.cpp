@@ -350,7 +350,10 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
         row.pendingDraft = true;
         row.draftState   = draftStateName(draft.state);
         row.draftError   = draft.lastError;
-        row.accessible   = draft.state != DraftRecord::Publishing;
+        // A local draft remains openable while publication is in flight. The
+        // editor cancels that attempt before resuming the draft, rather than
+        // making its only local copy inaccessible.
+        row.accessible = true;
         if (row.storageId == DraftManager::draftsStorageId()) {
             row.storageName = tr("Drafts");
         } else if (const auto storage = NoteManager::instance()->storage(row.storageId)) {

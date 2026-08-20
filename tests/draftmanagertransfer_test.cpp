@@ -149,7 +149,7 @@ class DraftManagerTransferTest : public QObject {
 private slots:
     void publishesDestinationBeforeDeletingSource();
     void preservesSourceWhenDestinationPublicationFails();
-    void resumesPendingPublishForEditing();
+    void resumesPublishingDraftForEditing();
     void prepareForShutdownRequeuesPublishingDraft();
     void exposesPendingPublicationDrafts();
     void retargetsPublishedDraftWithoutLosingSourceIdentity();
@@ -235,14 +235,14 @@ void DraftManagerTransferTest::preservesSourceWhenDestinationPublicationFails()
     QCOMPARE(destinationRaw->notes_.size(), 0);
 }
 
-void DraftManagerTransferTest::resumesPendingPublishForEditing()
+void DraftManagerTransferTest::resumesPublishingDraftForEditing()
 {
     auto        store = std::make_unique<MemoryDraftStore>();
     auto       *data  = store.get();
     DraftRecord record;
     record.id        = QUuid::createUuid();
     record.operation = DraftRecord::Publish;
-    record.state     = DraftRecord::Ready;
+    record.state     = DraftRecord::Publishing;
     record.storageId = QStringLiteral("resume-storage");
     record.retryAt   = QDateTime::currentDateTimeUtc().addSecs(60);
     data->records_.insert(record.id, record);

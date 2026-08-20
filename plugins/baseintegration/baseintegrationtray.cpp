@@ -95,7 +95,7 @@ namespace {
 
         QList<TrayNote> notes;
         QSet<QString>   presented;
-        const auto      storageNotes   = host->noteManager()->noteList(0, std::numeric_limits<int>::max());
+        const auto      storageNotes   = host->noteManager()->noteList();
         const auto     *catalogManager = FolderCatalogManager::instance();
         for (const auto &note : storageNotes) {
             if (catalogManager->isAvailable() && catalogManager->catalog().isRecycled(note.storageId(), note.id())) {

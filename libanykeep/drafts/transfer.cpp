@@ -5,6 +5,7 @@
 #include "notetransfercontroller.h"
 
 #include <QDateTime>
+#include <QTimer>
 
 #include <algorithm>
 

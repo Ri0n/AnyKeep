@@ -146,8 +146,13 @@ DraftStoreResult<DraftRecord> DraftManager::resumeEditingDraft(const QUuid &draf
         return draft;
     if (draft.value.operation != DraftRecord::Publish)
         return { {}, { DraftStoreError::InvalidArgument, tr("Only publish drafts can be resumed for editing") } };
+    // Opening a draft must always preserve access to its local contents. A
+    // publication can block indefinitely (for example while an upload waits
+    // for a remote response), so stop the in-flight job before handing the
+    // draft back to an editor. Its completion is ignored because
+    // cancelPublication() removes the job from publishJobs_.
     if (draft.value.state == DraftRecord::Publishing)
-        return { {}, { DraftStoreError::Locked, tr("The draft is already being published") } };
+        cancelPublication(draftId);
     if (draft.value.state == DraftRecord::Editing)
         return draft;
 
