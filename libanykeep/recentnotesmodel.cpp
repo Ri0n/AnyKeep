@@ -41,6 +41,9 @@ QHash<int, QByteArray> RecentNotesModel::roleNames() const
         { NotesModel::StorageNameRole, "storageName" },
         { NotesModel::AccessibleRole, "accessible" },
         { NotesModel::IconSourceRole, "iconSource" },
+        { NotesModel::PendingDraftRole, "pendingDraft" },
+        { NotesModel::DraftStateRole, "draftState" },
+        { NotesModel::DraftErrorRole, "draftError" },
     };
 }
 
@@ -81,6 +84,10 @@ void RecentNotesModel::rebuild()
         }
 
         std::stable_sort(next.begin(), next.end(), [this](const auto &left, const auto &right) {
+            const bool leftPending  = sourceModel_->data(left, NotesModel::PendingDraftRole).toBool();
+            const bool rightPending = sourceModel_->data(right, NotesModel::PendingDraftRole).toBool();
+            if (leftPending != rightPending)
+                return leftPending;
             const QDateTime leftTime  = sourceModel_->data(left, NotesModel::ModifiedTimeRole).toDateTime();
             const QDateTime rightTime = sourceModel_->data(right, NotesModel::ModifiedTimeRole).toDateTime();
             if (leftTime != rightTime)

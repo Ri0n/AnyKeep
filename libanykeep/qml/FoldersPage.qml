@@ -420,20 +420,25 @@ Item {
                 }
                 groupCanCollapseProvider: function(item) {
                     return item.groupKind === "folder" || item.groupKind === "unsorted"
+                            || item.groupKind === "drafts"
                 }
                 groupToggleHandler: function(item) {
                     if (item.groupKind === "folder")
                         root.workspace.setFolderCollapsed(item.folderId, !item.groupCollapsed)
                     else if (item.groupKind === "unsorted")
                         root.workspace.setUnsortedCollapsed(!item.groupCollapsed)
+                    else if (item.groupKind === "drafts")
+                        root.workspace.setDraftsCollapsed(!item.groupCollapsed)
                 }
                 groupActivateHandler: function(item) {
-                    root.selectedFolderId = item.groupKind === "unsorted" ? "" : item.folderId
+                    root.selectedFolderId = item.groupKind === "folder" ? item.folderId : ""
                     root.unsortedSelected = item.groupKind === "unsorted"
                     if (item.groupKind === "folder")
                         root.workspace.setFolderCollapsed(item.folderId, !item.groupCollapsed)
                     else if (item.groupKind === "unsorted")
                         root.workspace.setUnsortedCollapsed(!item.groupCollapsed)
+                    else if (item.groupKind === "drafts")
+                        root.workspace.setDraftsCollapsed(!item.groupCollapsed)
                 }
                 noteSelectionHandler: function(item) {
                     // A note selection is independent from a group selection.

@@ -40,6 +40,47 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
     }
     setError({});
 
+    QUuid pendingDraftId;
+    if (sourceStorageId == DraftManager::draftsStorageId()) {
+        pendingDraftId = QUuid(noteId);
+        if (pendingDraftId.isNull()) {
+            setError(tr("The draft identifier is invalid"));
+            return false;
+        }
+    } else {
+        const auto pending = draftManager_->pendingDraftForNote(sourceStorageId, noteId);
+        if (pending) {
+            pendingDraftId = pending.value.id;
+        } else {
+            const QUuid presentedDraftId(noteId);
+            const auto  presentedDraft = draftManager_->pendingDraft(presentedDraftId);
+            if (presentedDraft && presentedDraft.value.storageId == sourceStorageId)
+                pendingDraftId = presentedDraftId;
+        }
+    }
+
+    if (!pendingDraftId.isNull()) {
+        if (currentEditor_ && currentEditor_->draftId() == pendingDraftId) {
+            if (!draftManager_->isLastEditingSession(pendingDraftId)) {
+                setError(tr("The note is open in another editor and cannot be moved yet"));
+                return false;
+            }
+            if (!currentEditor_->close()) {
+                setError(currentEditor_->errorString());
+                return false;
+            }
+            clearCurrentEditor();
+        }
+        const auto error = draftManager_->moveDraft(pendingDraftId, destinationStorageId);
+        if (error) {
+            setError(error.message);
+            return false;
+        }
+        if (!reorderBatchId.isNull())
+            pendingMoves_.insert(pendingDraftId, { {}, {}, reorderBatchId, reorderIndex });
+        return true;
+    }
+
     if (currentEditor_ && currentEditor_->storageId() == sourceStorageId && currentEditor_->noteId() == noteId) {
         if (!draftManager_->isLastEditingSession(currentEditor_->draftId())) {
             setError(tr("The note is open in another editor and cannot be moved yet"));
@@ -93,9 +134,27 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
 
 bool NotesWorkspaceController::moveCurrentNote(const QString &destinationStorageId)
 {
-    if (!currentEditor_)
+    if (!currentEditor_ || destinationStorageId.isEmpty())
         return false;
-    return moveNote(currentEditor_->storageId(), currentEditor_->noteId(), destinationStorageId);
+    if (!currentEditor_->noteId().isEmpty())
+        return moveNote(currentEditor_->storageId(), currentEditor_->noteId(), destinationStorageId);
+
+    const QUuid draftId = currentEditor_->draftId();
+    if (!draftManager_->isLastEditingSession(draftId)) {
+        setError(tr("The note is open in another editor and cannot be moved yet"));
+        return false;
+    }
+    if (!currentEditor_->close()) {
+        setError(currentEditor_->errorString());
+        return false;
+    }
+    clearCurrentEditor();
+    const auto error = draftManager_->moveDraft(draftId, destinationStorageId);
+    if (error) {
+        setError(error.message);
+        return false;
+    }
+    return true;
 }
 
 bool NotesWorkspaceController::copyNote(const QString &sourceStorageId, const QString &noteId,
@@ -106,6 +165,31 @@ bool NotesWorkspaceController::copyNote(const QString &sourceStorageId, const QS
         return false;
     }
     setError({});
+
+    QUuid pendingDraftId;
+    if (sourceStorageId == DraftManager::draftsStorageId()) {
+        pendingDraftId = QUuid(noteId);
+    } else {
+        const auto pending = draftManager_->pendingDraftForNote(sourceStorageId, noteId);
+        if (pending) {
+            pendingDraftId = pending.value.id;
+        } else {
+            const QUuid presentedDraftId(noteId);
+            const auto  presentedDraft = draftManager_->pendingDraft(presentedDraftId);
+            if (presentedDraft && presentedDraft.value.storageId == sourceStorageId)
+                pendingDraftId = presentedDraftId;
+        }
+    }
+    if (!pendingDraftId.isNull()) {
+        if (currentEditor_ && currentEditor_->draftId() == pendingDraftId && !saveCurrentNote())
+            return false;
+        const auto error = draftManager_->copyDraft(pendingDraftId, destinationStorageId);
+        if (error) {
+            setError(error.message);
+            return false;
+        }
+        return true;
+    }
 
     const auto stageAndPublish = [this, destinationStorageId](const Note &source, bool folderUserOverride = false) {
         QUuid draftId;

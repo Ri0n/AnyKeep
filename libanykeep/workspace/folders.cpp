@@ -121,6 +121,11 @@ bool NotesWorkspaceController::setUnsortedCollapsed(bool collapsed)
     return folderNotesModel_->setUnsortedCollapsed(collapsed);
 }
 
+bool NotesWorkspaceController::setDraftsCollapsed(bool collapsed)
+{
+    return folderNotesModel_ && folderNotesModel_->setDraftsCollapsed(collapsed);
+}
+
 bool NotesWorkspaceController::setFolderFlags(const QString &folderIdText, bool favorite, bool archived)
 {
     if (!ensureFolderCatalogAvailable())
@@ -308,8 +313,24 @@ QString NotesWorkspaceController::folderIdForNote(const QString &storageId, cons
 {
     if (storageId.isEmpty() || noteId.isEmpty())
         return {};
+    if (storageId == DraftManager::draftsStorageId()) {
+        const QUuid draftId(noteId);
+        if (draftId.isNull())
+            return {};
+        if (currentEditor_ && currentEditor_->draftId() == draftId)
+            return currentEditor_->folderIdString();
+        const auto draft = draftManager_->pendingDraft(draftId);
+        return draft ? draft.value.folderId.toString(QUuid::WithoutBraces) : QString();
+    }
     if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId)
         return currentEditor_->folderIdString();
+    const auto pending = draftManager_->pendingDraftForNote(storageId, noteId);
+    if (pending)
+        return pending.value.folderId.toString(QUuid::WithoutBraces);
+    const QUuid presentedDraftId(noteId);
+    const auto  presentedDraft = draftManager_->pendingDraft(presentedDraftId);
+    if (presentedDraft && presentedDraft.value.storageId == storageId)
+        return presentedDraft.value.folderId.toString(QUuid::WithoutBraces);
 
     Note note;
     for (const auto &candidate : NoteManager::instance()->notesIndex()->notes(storageId)) {
@@ -344,6 +365,38 @@ bool NotesWorkspaceController::assignNoteFolder(const QString &storageId, const 
         if (folderCatalogManager_ && folderCatalogManager_->isAvailable())
             setError(tr("The selected folder no longer exists"));
         return false;
+    }
+    QUuid draftId;
+    if (storageId == DraftManager::draftsStorageId())
+        draftId = QUuid(noteId);
+    else {
+        const auto pending = draftManager_->pendingDraftForNote(storageId, noteId);
+        if (pending) {
+            draftId = pending.value.id;
+        } else {
+            const QUuid presentedDraftId(noteId);
+            const auto  presentedDraft = draftManager_->pendingDraft(presentedDraftId);
+            if (presentedDraft && presentedDraft.value.storageId == storageId)
+                draftId = presentedDraftId;
+        }
+    }
+    if (!draftId.isNull()) {
+        if (currentEditor_ && currentEditor_->draftId() == draftId) {
+            qCInfo(logWorkspaceFolders) << "Routing draft folder assignment through current editor";
+            return assignCurrentNoteFolder(folderIdText);
+        }
+        if (const auto error = draftManager_->setDraftFolder(draftId, folderId, true)) {
+            setError(error.message);
+            return false;
+        }
+        const auto draft = draftManager_->pendingDraft(draftId);
+        if (draft && draft.value.state != DraftRecord::Editing) {
+            if (const auto error = draftManager_->retryDraftNow(draftId)) {
+                setError(error.message);
+                return false;
+            }
+        }
+        return true;
     }
     if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId) {
         qCInfo(logWorkspaceFolders) << "Routing folder assignment through current editor";

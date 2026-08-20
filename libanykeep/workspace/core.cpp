@@ -40,12 +40,12 @@ NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderC
 {
     folderCatalogManager_ = folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance();
     draftManager_         = draftManager ? draftManager : DraftManager::instance();
-    notesModel_           = new NotesModel(folderCatalogManager_, this);
+    notesModel_           = new NotesModel(folderCatalogManager_, draftManager_, this);
     searchModel_          = new NotesSearchModel(this);
     searchModel_->setSourceModel(notesModel_);
     recentNotesModel_     = new RecentNotesModel(searchModel_, this);
     storagePriorityModel_ = new StoragePriorityModel(this);
-    folderNotesModel_     = new FolderNotesModel(folderCatalogManager_, this);
+    folderNotesModel_     = new FolderNotesModel(folderCatalogManager_, draftManager_, this);
     folderNotesModel_->setSearchModel(searchModel_);
     folderOperations_ = new FolderOperationsController(folderCatalogManager_, NoteManager::instance(), this);
     connect(this, &NotesWorkspaceController::trashUndoChanged, this, &NotesWorkspaceController::folderTrashUndoChanged);
@@ -97,13 +97,16 @@ NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderC
 
         if (!pendingMoves_.contains(draftId))
             return;
-        const auto move  = pendingMoves_.take(draftId);
-        const auto error = drafts->queueRemoval(move.sourceStorageId, move.sourceNoteId);
-        if (error)
-            setError(error.message);
+        const auto move = pendingMoves_.take(draftId);
+        if (!move.sourceStorageId.isEmpty() && !move.sourceNoteId.isEmpty()) {
+            const auto error = drafts->queueRemoval(move.sourceStorageId, move.sourceNoteId);
+            if (error)
+                setError(error.message);
+            drafts->publishPending();
+        }
         completePendingReorderMove(move.reorderBatchId, move.reorderIndex, note.id());
-        drafts->publishPending();
-        endOperation();
+        if (!move.sourceStorageId.isEmpty())
+            endOperation();
     });
     connect(drafts, &DraftManager::draftPublishFailed, this, [this](const QUuid &draftId, const QString &message) {
         if (pendingFolderAssignments_.contains(draftId))
@@ -113,7 +116,8 @@ NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderC
         const auto move = pendingMoves_.take(draftId);
         completePendingReorderMove(move.reorderBatchId, move.reorderIndex, {});
         setError(message);
-        endOperation();
+        if (!move.sourceStorageId.isEmpty())
+            endOperation();
     });
 }
 

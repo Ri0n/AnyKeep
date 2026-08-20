@@ -10,10 +10,12 @@ the Free Software Foundation, either version 3 of the License, or
 
 #include "foldernotesmodel.h"
 
+#include "draftmanager.h"
 #include "foldercatalogmanager.h"
 #include "notemanager.h"
 #include "notesindex.h"
 #include "notessearchmodel.h"
+#include "notetitleresolver.h"
 #include "storageiconimageprovider.h"
 
 #include <QSet>
@@ -33,11 +35,43 @@ namespace {
             preview = preview.left(177) + QStringLiteral("...");
         return preview;
     }
+
+    QString draftPreview(const DraftRecord &draft)
+    {
+        QString preview = draft.body.simplified();
+        if (preview.size() > 180)
+            preview = preview.left(177) + QStringLiteral("...");
+        return preview;
+    }
+
+    QString draftStateName(DraftRecord::State state)
+    {
+        switch (state) {
+        case DraftRecord::Editing:
+            return QStringLiteral("editing");
+        case DraftRecord::Ready:
+            return QStringLiteral("ready");
+        case DraftRecord::Publishing:
+            return QStringLiteral("publishing");
+        case DraftRecord::Retry:
+            return QStringLiteral("retry");
+        case DraftRecord::NeedsRouting:
+            return QStringLiteral("needs-routing");
+        }
+        return {};
+    }
 }
 
-FolderNotesModel::FolderNotesModel(FolderCatalogManager *catalogManager, QObject *parent) : QAbstractListModel(parent)
+FolderNotesModel::FolderNotesModel(FolderCatalogManager *catalogManager, QObject *parent) :
+    FolderNotesModel(catalogManager, DraftManager::instance(), parent)
+{
+}
+
+FolderNotesModel::FolderNotesModel(FolderCatalogManager *catalogManager, DraftManager *draftManager, QObject *parent) :
+    QAbstractListModel(parent)
 {
     catalogManager_   = catalogManager ? catalogManager : FolderCatalogManager::instance();
+    draftManager_     = draftManager ? draftManager : DraftManager::instance();
     catalogAvailable_ = catalogManager_->isAvailable();
 
     connect(catalogManager_, &FolderCatalogManager::catalogChanged, this, &FolderNotesModel::rebuild);
@@ -54,6 +88,7 @@ FolderNotesModel::FolderNotesModel(FolderCatalogManager *catalogManager, QObject
     connect(notes, &NoteManager::storageAdded, this, [this](const NoteStorage::Ptr &) { rebuild(); });
     connect(notes, &NoteManager::storageRemoved, this, [this](const NoteStorage::Ptr &) { rebuild(); });
     connect(notes, &NoteManager::storageReady, this, [this](const NoteStorage::Ptr &) { rebuild(); });
+    connect(draftManager_, &DraftManager::draftsChanged, this, &FolderNotesModel::rebuild);
 
     rebuild();
 }
@@ -94,11 +129,15 @@ QVariant FolderNotesModel::data(const QModelIndex &index, int role) const
     case ItemTypeRole:
         return row.kind == NoteRow ? 1 : 0;
     case GroupKindRole:
-        return row.kind == FolderRow ? QStringLiteral("folder")
-                                     : (row.kind == UnsortedRow ? QStringLiteral("unsorted") : QString());
+        return row.kind == FolderRow
+            ? QStringLiteral("folder")
+            : (row.kind == UnsortedRow ? QStringLiteral("unsorted")
+                                       : (row.kind == DraftsRow ? QStringLiteral("drafts") : QString()));
     case GroupIdRole:
-        return row.kind == FolderRow ? row.folderId.toString(QUuid::WithoutBraces)
-                                     : (row.kind == UnsortedRow ? QStringLiteral("unsorted") : QString());
+        return row.kind == FolderRow
+            ? row.folderId.toString(QUuid::WithoutBraces)
+            : (row.kind == UnsortedRow ? QStringLiteral("unsorted")
+                                       : (row.kind == DraftsRow ? QStringLiteral("drafts") : QString()));
     case PreviewRole:
         return row.preview;
     case StorageNameRole:
@@ -112,9 +151,17 @@ QVariant FolderNotesModel::data(const QModelIndex &index, int role) const
     case HasMoreRole:
         return false;
     case IconSourceRole:
+        if (row.kind == DraftsRow || (row.kind == NoteRow && row.storageId == DraftManager::draftsStorageId()))
+            return QStringLiteral("qrc:/icons/document-open-recent-symbolic.svg");
         return row.kind == NoteRow ? storageIconSource(row.storageId, true) : QString();
     case SystemFolderRole:
         return row.systemFolder;
+    case PendingDraftRole:
+        return row.pendingDraft;
+    case DraftStateRole:
+        return row.draftState;
+    case DraftErrorRole:
+        return row.draftError;
     }
     return {};
 }
@@ -145,6 +192,9 @@ QHash<int, QByteArray> FolderNotesModel::roleNames() const
         { HasMoreRole, "hasMore" },
         { IconSourceRole, "iconSource" },
         { SystemFolderRole, "systemFolder" },
+        { PendingDraftRole, "pendingDraft" },
+        { DraftStateRole, "draftState" },
+        { DraftErrorRole, "draftError" },
     };
 }
 
@@ -170,19 +220,29 @@ QVariantMap FolderNotesModel::itemAt(int row) const
         { QStringLiteral("noteCount"), item.noteCount },
         { QStringLiteral("itemType"), item.kind == NoteRow ? 1 : 0 },
         { QStringLiteral("groupKind"),
-          item.kind == FolderRow ? QStringLiteral("folder")
-                                 : (item.kind == UnsortedRow ? QStringLiteral("unsorted") : QString()) },
+          item.kind == FolderRow
+              ? QStringLiteral("folder")
+              : (item.kind == UnsortedRow ? QStringLiteral("unsorted")
+                                          : (item.kind == DraftsRow ? QStringLiteral("drafts") : QString())) },
         { QStringLiteral("groupId"),
-          item.kind == FolderRow ? item.folderId.toString(QUuid::WithoutBraces)
-                                 : (item.kind == UnsortedRow ? QStringLiteral("unsorted") : QString()) },
+          item.kind == FolderRow
+              ? item.folderId.toString(QUuid::WithoutBraces)
+              : (item.kind == UnsortedRow ? QStringLiteral("unsorted")
+                                          : (item.kind == DraftsRow ? QStringLiteral("drafts") : QString())) },
         { QStringLiteral("preview"), item.preview },
         { QStringLiteral("storageName"), item.storageName },
         { QStringLiteral("accessible"), item.accessible },
         { QStringLiteral("loading"), false },
         { QStringLiteral("errorString"), QString() },
         { QStringLiteral("hasMore"), false },
-        { QStringLiteral("iconSource"), item.kind == NoteRow ? storageIconSource(item.storageId, true) : QString() },
+        { QStringLiteral("iconSource"),
+          item.kind == DraftsRow || (item.kind == NoteRow && item.storageId == DraftManager::draftsStorageId())
+              ? QStringLiteral("qrc:/icons/document-open-recent-symbolic.svg")
+              : (item.kind == NoteRow ? storageIconSource(item.storageId, true) : QString()) },
         { QStringLiteral("systemFolder"), item.systemFolder },
+        { QStringLiteral("pendingDraft"), item.pendingDraft },
+        { QStringLiteral("draftState"), item.draftState },
+        { QStringLiteral("draftError"), item.draftError },
     };
 }
 
@@ -215,6 +275,15 @@ bool FolderNotesModel::setUnsortedCollapsed(bool collapsed)
     return true;
 }
 
+bool FolderNotesModel::setDraftsCollapsed(bool collapsed)
+{
+    if (draftsCollapsed_ == collapsed)
+        return true;
+    draftsCollapsed_ = collapsed;
+    rebuild();
+    return true;
+}
+
 void FolderNotesModel::setSearchModel(NotesSearchModel *model)
 {
     if (searchModel_ == model)
@@ -238,12 +307,79 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
     QList<Note>               unsorted;
     QList<Row>                rows;
 
+    auto pending = draftManager_ ? draftManager_->pendingDrafts() : QList<DraftRecord> {};
+    std::sort(pending.begin(), pending.end(),
+              [](const DraftRecord &left, const DraftRecord &right) { return left.updatedAt > right.updatedAt; });
+    QSet<QString> pendingRemoteNotes;
+    QList<Row>    draftRows;
+    const QString searchText = searchModel_ ? searchModel_->searchText().trimmed() : QString();
+    const bool    searchBody = searchModel_ && searchModel_->searchInBody();
+    for (const auto &draft : pending) {
+        if (!draft.remoteNoteId.isEmpty())
+            pendingRemoteNotes.insert(draft.storageId + QChar(0x1f) + draft.remoteNoteId);
+
+        QString title = NoteTitleResolver::displayTitle(draft.title, draft.body, draft.format);
+        if (title.isEmpty())
+            title = tr("Untitled note");
+        if (!searchText.isEmpty()) {
+            bool matches = title.contains(searchText, Qt::CaseInsensitive);
+            if (!matches) {
+                QString tagText = searchText;
+                if (tagText.startsWith(QLatin1Char('#')))
+                    tagText.remove(0, 1);
+                for (const auto &tag : draft.tags) {
+                    if (!tagText.isEmpty() && tag.contains(tagText, Qt::CaseInsensitive)) {
+                        matches = true;
+                        break;
+                    }
+                }
+            }
+            if (!matches && searchBody)
+                matches = draft.body.contains(searchText, Qt::CaseInsensitive);
+            if (!matches)
+                continue;
+        }
+
+        Row row;
+        row.kind         = NoteRow;
+        row.storageId    = draft.remoteNoteId.isEmpty() ? DraftManager::draftsStorageId() : draft.storageId;
+        row.noteId       = draft.remoteNoteId.isEmpty() ? draft.id.toString(QUuid::WithoutBraces) : draft.remoteNoteId;
+        row.title        = title;
+        row.preview      = draftPreview(draft);
+        row.depth        = 1;
+        row.pendingDraft = true;
+        row.draftState   = draftStateName(draft.state);
+        row.draftError   = draft.lastError;
+        row.accessible   = draft.state != DraftRecord::Publishing;
+        if (row.storageId == DraftManager::draftsStorageId()) {
+            row.storageName = tr("Drafts");
+        } else if (const auto storage = NoteManager::instance()->storage(row.storageId)) {
+            row.storageName = storage->name();
+        } else {
+            row.storageName = row.storageId;
+        }
+        draftRows.append(std::move(row));
+    }
+
+    if (!draftRows.isEmpty()) {
+        Row draftsRow;
+        draftsRow.kind      = DraftsRow;
+        draftsRow.title     = tr("Drafts");
+        draftsRow.noteCount = draftRows.size();
+        draftsRow.collapsed = draftsCollapsed_;
+        rows.append(std::move(draftsRow));
+        if (!draftsCollapsed_)
+            rows.append(draftRows);
+    }
+
     auto *noteManager = NoteManager::instance();
     for (const auto &storage : noteManager->storages(true)) {
         if (!storage)
             continue;
         for (const auto &note : noteManager->notesIndex()->notes(storage->systemName())) {
             if (note.isNull() || note.id().isEmpty())
+                continue;
+            if (pendingRemoteNotes.contains(storage->systemName() + QChar(0x1f) + note.id()))
                 continue;
             if (!matchesSearch(note))
                 continue;
@@ -360,6 +496,8 @@ QString FolderNotesModel::rowKey(const Row &row)
             + row.noteId;
     case UnsortedRow:
         return QStringLiteral("unsorted");
+    case DraftsRow:
+        return QStringLiteral("drafts");
     }
     return {};
 }
@@ -371,7 +509,9 @@ bool FolderNotesModel::sameRow(const Row &left, const Row &right)
         && left.preview == right.preview && left.storageName == right.storageName && left.depth == right.depth
         && left.accessible == right.accessible && left.collapsed == right.collapsed && left.favorite == right.favorite
         && left.archived == right.archived && left.systemFolder == right.systemFolder
-        && left.childFolderCount == right.childFolderCount && left.noteCount == right.noteCount;
+        && left.pendingDraft == right.pendingDraft && left.draftState == right.draftState
+        && left.draftError == right.draftError && left.childFolderCount == right.childFolderCount
+        && left.noteCount == right.noteCount;
 }
 
 bool FolderNotesModel::matchesSearch(const Note &note) const

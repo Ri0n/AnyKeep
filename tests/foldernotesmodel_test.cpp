@@ -1,3 +1,5 @@
+#include "draftmanager.h"
+#include "draftstore.h"
 #include "filefoldercatalogstore.h"
 #include "foldercatalogmanager.h"
 #include "foldernotesmodel.h"
@@ -57,6 +59,43 @@ private:
     QString id_;
 };
 
+class FolderModelDraftStore final : public DraftStore {
+public:
+    DraftStoreError write(const DraftRecord &record) override
+    {
+        records_.insert(record.id, record);
+        return {};
+    }
+
+    DraftStoreResult<DraftRecord> load(const QUuid &id) const override
+    {
+        const auto it = records_.constFind(id);
+        return it == records_.cend()
+            ? DraftStoreResult<DraftRecord> { {}, { DraftStoreError::NotFound, QStringLiteral("not found") } }
+            : DraftStoreResult<DraftRecord> { it.value(), {} };
+    }
+
+    DraftStoreResult<QList<DraftRecord>> records() const override { return { records_.values(), {} }; }
+
+    DraftStoreError transition(const QUuid &id, DraftRecord::State state) override
+    {
+        auto it = records_.find(id);
+        if (it == records_.end())
+            return { DraftStoreError::NotFound, QStringLiteral("not found") };
+        it->state = state;
+        return {};
+    }
+
+    DraftStoreError remove(const QUuid &id) override
+    {
+        return records_.remove(id) ? DraftStoreError {}
+                                   : DraftStoreError { DraftStoreError::NotFound, QStringLiteral("not found") };
+    }
+
+private:
+    QHash<QUuid, DraftRecord> records_;
+};
+
 class FolderNotesModelTest : public QObject {
     Q_OBJECT
 
@@ -67,6 +106,7 @@ private slots:
     void recyclingNoteUpdatesProjectionWithoutReset();
     void folderPickerIgnoresCollapsedAndArchivedBranches();
     void overlayTombstoneWinsOverProviderFolder();
+    void exposesPendingDraftsAsVirtualFolder();
 };
 
 void FolderNotesModelTest::initTestCase()
@@ -277,6 +317,35 @@ void FolderNotesModelTest::overlayTombstoneWinsOverProviderFolder()
     QTRY_COMPARE(model.rowCount(), 3);
     QCOMPARE(model.index(1, 0).data(FolderNotesModel::RowKindRole).toInt(), int(FolderNotesModel::UnsortedRow));
     QCOMPARE(model.index(2, 0).data(FolderNotesModel::NoteIdRole).toString(), QStringLiteral("note"));
+}
+
+void FolderNotesModelTest::exposesPendingDraftsAsVirtualFolder()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager manager(makeCatalogStore(directory));
+    QVERIFY(manager.initialize());
+
+    DraftManager drafts(std::make_unique<FolderModelDraftStore>());
+    Note         note(new NoteData(nullptr));
+    const auto   draftId = drafts.acquireEditingSession(note);
+    const auto   saved = drafts.saveEditing(draftId, note, QStringLiteral("Unpublished"), QStringLiteral("Draft body"),
+                                            Note::Markdown);
+    QVERIFY2(!saved, qPrintable(saved.message));
+
+    FolderNotesModel model(&manager, &drafts, nullptr);
+    QCOMPARE(model.rowCount(), 3);
+    QCOMPARE(model.index(0, 0).data(FolderNotesModel::RowKindRole).toInt(), int(FolderNotesModel::DraftsRow));
+    QCOMPARE(model.index(0, 0).data(FolderNotesModel::TitleRole).toString(), QStringLiteral("Drafts"));
+    QCOMPARE(model.index(1, 0).data(FolderNotesModel::NoteIdRole).toString(), draftId.toString(QUuid::WithoutBraces));
+    QVERIFY(model.index(1, 0).data(FolderNotesModel::PendingDraftRole).toBool());
+    QCOMPARE(model.index(1, 0).data(FolderNotesModel::TitleRole).toString(), QStringLiteral("Unpublished"));
+    QCOMPARE(model.index(2, 0).data(FolderNotesModel::RowKindRole).toInt(), int(FolderNotesModel::UnsortedRow));
+
+    QVERIFY(model.setDraftsCollapsed(true));
+    QCOMPARE(model.rowCount(), 2);
+    QCOMPARE(model.index(0, 0).data(FolderNotesModel::RowKindRole).toInt(), int(FolderNotesModel::DraftsRow));
+    QVERIFY(model.index(0, 0).data(FolderNotesModel::CollapsedRole).toBool());
 }
 
 QTEST_GUILESS_MAIN(FolderNotesModelTest)

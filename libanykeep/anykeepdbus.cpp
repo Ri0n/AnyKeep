@@ -7,9 +7,11 @@
 #include <QByteArray>
 #include <QDBusConnection>
 #include <QDBusError>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
 #include <QSettings>
 #include <QtGlobal>
 
@@ -19,6 +21,7 @@
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
 #include "notemanager.h"
+#include "notetitleresolver.h"
 #include "shortcutsmanager.h"
 #include "stickynotesmanager.h"
 #include "windowgeometryutils.h"
@@ -59,21 +62,32 @@ namespace {
         return accelerator;
     }
 
-    bool matchesMenuQuery(const Note &note, const QString &query)
+    bool matchesMenuQuery(const QString &title, const QStringList &tags, const QString &query)
     {
-        if (query.isEmpty() || note.title().contains(query, Qt::CaseInsensitive))
+        if (query.isEmpty() || title.contains(query, Qt::CaseInsensitive))
             return true;
-
         QString tagQuery = query;
         if (tagQuery.startsWith(QLatin1Char('#')))
             tagQuery.remove(0, 1);
         if (tagQuery.isEmpty())
             return false;
-        for (const auto &tag : note.tags()) {
+        for (const auto &tag : tags) {
             if (tag.contains(tagQuery, Qt::CaseInsensitive))
                 return true;
         }
         return false;
+    }
+
+    QString draftDisplayTitle(const DraftRecord &draft)
+    {
+        auto title = NoteTitleResolver::displayTitle(draft.title, draft.body, draft.format);
+        return title.isEmpty() ? QObject::tr("Untitled Note") : title;
+    }
+
+    bool isUnpublishedDraft(const DraftRecord &draft)
+    {
+        return draft.remoteNoteId.isEmpty() && draft.removeSourceStorageId.isEmpty()
+            && draft.removeSourceNoteId.isEmpty();
     }
 
     const FolderRecord *menuFolder(const Note &note, const FolderCatalog &catalog)
@@ -96,6 +110,7 @@ AnyKeepDBus::AnyKeepDBus(Main *anykeep, QObject *parent) : QObject(parent), m_an
     // cache has accepted the returned note, even if a plugin omits or delays its
     // noteModified signal.
     connect(DraftManager::instance(), &DraftManager::draftPublished, this, &AnyKeepDBus::notesChanged);
+    connect(DraftManager::instance(), &DraftManager::draftsChanged, this, &AnyKeepDBus::notesChanged);
     // Folder flags determine which entries are exposed by menu consumers.
     // They live in the catalog rather than NoteManager, so notify D-Bus
     // clients explicitly when a folder is favorited, archived, moved, etc.
@@ -134,41 +149,117 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
     limit  = limit > 0 ? qMin(limit, MaxNotesPageSize) : DefaultNotesPageSize;
 
     struct MenuNote {
-        Note note;
-        bool favorite { false };
+        QString     storageId;
+        QString     noteId;
+        QString     title;
+        QStringList tags;
+        QDateTime   modified;
+        bool        favorite { false };
+        bool        pendingDraft { false };
     };
 
     const QString        filter         = query.trimmed();
     const auto          *catalogManager = FolderCatalogManager::instance();
     const FolderCatalog *catalog        = catalogManager->isAvailable() ? &catalogManager->catalog() : nullptr;
-    QList<MenuNote>      notes;
-    const auto           allNotes = NoteManager::instance()->noteList(-1);
-    notes.reserve(allNotes.size());
-    for (const auto &note : allNotes) {
-        if (!matchesMenuQuery(note, filter))
+    const auto           draftRecords   = DraftManager::instance()->pendingDrafts();
+
+    QHash<QString, DraftRecord> pendingByNote;
+    QList<DraftRecord>          localDrafts;
+    QList<DraftRecord>          pendingTransfers;
+    for (const auto &draft : draftRecords) {
+        if (isUnpublishedDraft(draft)) {
+            localDrafts.append(draft);
             continue;
+        }
+        if (draft.remoteNoteId.isEmpty()) {
+            pendingTransfers.append(draft);
+            continue;
+        }
+        const QString key = draft.storageId + QChar(0x1f) + draft.remoteNoteId;
+        const auto    it  = pendingByNote.constFind(key);
+        if (it == pendingByNote.cend() || draft.updatedAt > it->updatedAt)
+            pendingByNote.insert(key, draft);
+    }
+
+    QList<MenuNote> notes;
+    QSet<QString>   presented;
+    const auto      allNotes = NoteManager::instance()->noteList(-1);
+    notes.reserve(allNotes.size() + draftRecords.size());
+    for (const auto &note : allNotes) {
         const auto *folder = catalog ? menuFolder(note, *catalog) : nullptr;
         // The menu is a quick route to active notes. Archived folders are
         // deliberately hidden; Recycle Bin entries are only reachable from
         // the manager, where restore and permanent-delete actions exist.
         if (folder && catalog->isInArchivedBranch(folder->id))
             continue;
-        notes.append({ note, folder && catalog->isEffectivelyFavorite(folder->id) });
+
+        const QString key = note.storageId() + QChar(0x1f) + note.id();
+        const auto    it  = pendingByNote.constFind(key);
+        MenuNote      entry;
+        entry.storageId = note.storageId();
+        entry.noteId    = note.id();
+        entry.favorite  = folder && catalog->isEffectivelyFavorite(folder->id);
+        if (it != pendingByNote.cend()) {
+            entry.title        = draftDisplayTitle(*it);
+            entry.tags         = it->tags;
+            entry.modified     = it->updatedAt;
+            entry.pendingDraft = true;
+        } else {
+            entry.title    = note.displayTitle();
+            entry.tags     = note.tags();
+            entry.modified = note.lastChangeUTC();
+        }
+        presented.insert(key);
+        if (matchesMenuQuery(entry.title, entry.tags, filter))
+            notes.append(std::move(entry));
     }
-    std::stable_partition(notes.begin(), notes.end(), [](const MenuNote &entry) { return entry.favorite; });
+
+    for (auto it = pendingByNote.cbegin(); it != pendingByNote.cend(); ++it) {
+        if (presented.contains(it.key()))
+            continue;
+        const auto &draft = it.value();
+        const auto  title = draftDisplayTitle(draft);
+        if (matchesMenuQuery(title, draft.tags, filter))
+            notes.append({ draft.storageId, draft.remoteNoteId, title, draft.tags, draft.updatedAt, false, true });
+    }
+    for (const auto &draft : pendingTransfers) {
+        const auto title = draftDisplayTitle(draft);
+        if (matchesMenuQuery(title, draft.tags, filter)) {
+            notes.append({ draft.storageId, draft.id.toString(QUuid::WithoutBraces), title, draft.tags, draft.updatedAt,
+                           false, true });
+        }
+    }
+    for (const auto &draft : localDrafts) {
+        const auto title = draftDisplayTitle(draft);
+        if (matchesMenuQuery(title, draft.tags, filter)) {
+            notes.append({ DraftManager::draftsStorageId(), draft.id.toString(QUuid::WithoutBraces), title, draft.tags,
+                           draft.updatedAt, false, true });
+        }
+    }
+
+    std::stable_sort(notes.begin(), notes.end(), [](const MenuNote &left, const MenuNote &right) {
+        if (left.pendingDraft != right.pendingDraft)
+            return left.pendingDraft;
+        if (left.favorite != right.favorite)
+            return left.favorite;
+        if (left.modified != right.modified)
+            return left.modified > right.modified;
+        return left.title.localeAwareCompare(right.title) < 0;
+    });
 
     const qsizetype first = qMin<qsizetype>(offset, notes.size());
     const qsizetype last  = qMin<qsizetype>(first + limit, notes.size());
 
     QJsonArray result;
     for (qsizetype i = first; i < last; ++i) {
-        const auto &note = notes.at(i).note;
+        const auto &note = notes.at(i);
         result.append(QJsonObject {
-            { "id", note.id() },
-            { "storageId", note.storageId() },
-            { "title", note.displayTitle() },
-            { "tags", QJsonArray::fromStringList(note.tags()) },
-            { "modified", note.lastChangeUTC().toUTC().toString(Qt::ISODateWithMs) },
+            { "id", note.noteId },
+            { "storageId", note.storageId },
+            { "title", note.title },
+            { "tags", QJsonArray::fromStringList(note.tags) },
+            { "modified", note.modified.toUTC().toString(Qt::ISODateWithMs) },
+            { "pendingDraft", note.pendingDraft },
         });
     }
     return QString::fromUtf8(QJsonDocument(QJsonObject {

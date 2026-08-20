@@ -136,6 +136,8 @@ QVariant NotesModel::data(const QModelIndex &index, int role) const
         return item.title;
     case ModifiedRole:
         return item.modified;
+    case PendingDraftRole:
+        return item.pendingDraft;
     default:
         return {};
     }
@@ -144,10 +146,8 @@ QVariant NotesModel::data(const QModelIndex &index, int role) const
 QHash<int, QByteArray> NotesModel::roleNames() const
 {
     return {
-        { NoteIdRole, "noteId" },
-        { StorageIdRole, "storageId" },
-        { TitleRole, "title" },
-        { ModifiedRole, "modified" },
+        { NoteIdRole, "noteId" },     { StorageIdRole, "storageId" },       { TitleRole, "title" },
+        { ModifiedRole, "modified" }, { PendingDraftRole, "pendingDraft" },
     };
 }
 
@@ -218,6 +218,7 @@ bool NotesModel::parseNotesResponse(const QString &response, QList<Item> *items,
             object.value(QStringLiteral("storageId")).toString(),
             object.value(QStringLiteral("title")).toString(),
             object.value(QStringLiteral("modified")).toString(),
+            object.value(QStringLiteral("pendingDraft")).toBool(false),
         };
         if (!item.id.isEmpty() && !item.storageId.isEmpty())
             items->append(std::move(item));

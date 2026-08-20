@@ -129,6 +129,7 @@ public:
                                          const QString &beforeFolderId = {});
     Q_INVOKABLE bool    setFolderCollapsed(const QString &folderId, bool collapsed);
     Q_INVOKABLE bool    setUnsortedCollapsed(bool collapsed);
+    Q_INVOKABLE bool    setDraftsCollapsed(bool collapsed);
     Q_INVOKABLE bool    setFolderFlags(const QString &folderId, bool favorite, bool archived);
     Q_INVOKABLE bool    trashFolder(const QString &folderId);
     Q_INVOKABLE bool    undoTrash();

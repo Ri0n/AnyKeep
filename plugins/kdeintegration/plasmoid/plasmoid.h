@@ -28,6 +28,7 @@ public:
         StorageIdRole,
         TitleRole,
         ModifiedRole,
+        PendingDraftRole,
     };
     Q_ENUM(Role)
 
@@ -85,6 +86,7 @@ private:
         QString storageId;
         QString title;
         QString modified;
+        bool    pendingDraft { false };
     };
 
     void setAvailable(bool available);

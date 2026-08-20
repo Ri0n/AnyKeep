@@ -31,6 +31,9 @@ SwipeDelegate {
     property bool favorite: false
     property bool archived: false
     property bool systemFolder: false
+    property bool pendingDraft: false
+    property string draftState: ""
+    property string draftError: ""
     property bool loading: false
     property string errorString: ""
     property int noteCount: 0
@@ -98,9 +101,9 @@ SwipeDelegate {
     transform: Translate { y: row.reorderOffset }
 
     ToolTip.visible: !collection.dragSelectionSuppressed && hovered
-                     && (errorString.length > 0 || preview.length > 0)
-    ToolTip.text: errorString.length > 0 ? errorString
-                  : preview
+                     && (draftError.length > 0 || errorString.length > 0 || preview.length > 0)
+    ToolTip.text: draftError.length > 0 ? draftError
+                  : (errorString.length > 0 ? errorString : preview)
 
     Component.onCompleted: collection.registerRow(row)
     TableView.onPooled: row.inReusePool = true
@@ -308,6 +311,7 @@ SwipeDelegate {
             color: row.highlighted
                    ? row.palette.highlightedText
                    : (row.archived ? row.palette.placeholderText : row.palette.text)
+            opacity: row.pendingDraft ? 0.72 : 1.0
             elide: Text.ElideRight
             verticalAlignment: Text.AlignVCenter
         }

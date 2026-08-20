@@ -139,7 +139,7 @@ Item {
     function sharedGroupedDirectTarget(view, payload, pointerX, pointerY) { return dragController.sharedGroupedDirectTarget(view, payload, pointerX, pointerY) }
     function commitSharedGroupedDrop(payload, boundary, directTarget) { return dragController.commitSharedGroupedDrop(payload, boundary, directTarget) }
     function recentNoteBoundaries(view, payload, delegates) { return dragController.recentNoteBoundaries(view, payload, delegates) }
-    function canReorderRecentNote(item) { return dragController.canReorderRecentNote(item) }
+    function canReorderRecentNote(item) { return !item.pendingDraft && dragController.canReorderRecentNote(item) }
     function commitRecentDrop(payload, boundary) { return dragController.commitRecentDrop(payload, boundary) }
 
     function openSearch() {

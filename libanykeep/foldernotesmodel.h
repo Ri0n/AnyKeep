@@ -22,6 +22,7 @@ the Free Software Foundation, either version 3 of the License, or
 
 namespace AnyKeep {
 
+class DraftManager;
 class FolderCatalogManager;
 class NotesSearchModel;
 /**
@@ -42,6 +43,7 @@ public:
         FolderRow,
         NoteRow,
         UnsortedRow,
+        DraftsRow,
     };
     Q_ENUM(RowKind)
 
@@ -69,10 +71,14 @@ public:
         HasMoreRole,
         IconSourceRole,
         SystemFolderRole,
+        PendingDraftRole,
+        DraftStateRole,
+        DraftErrorRole,
     };
     Q_ENUM(Role)
 
     explicit FolderNotesModel(FolderCatalogManager *catalogManager = nullptr, QObject *parent = nullptr);
+    FolderNotesModel(FolderCatalogManager *catalogManager, DraftManager *draftManager, QObject *parent);
 
     int                    rowCount(const QModelIndex &parent = {}) const override;
     QVariant               data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
@@ -92,6 +98,7 @@ public:
      * inventing a persistent pseudo-folder in the shared catalog.
      */
     bool setUnsortedCollapsed(bool collapsed);
+    bool setDraftsCollapsed(bool collapsed);
     void setSearchModel(NotesSearchModel *model);
 
 signals:
@@ -114,15 +121,20 @@ private:
         bool    favorite { false };
         bool    archived { false };
         bool    systemFolder { false };
+        bool    pendingDraft { false };
+        QString draftState;
+        QString draftError;
         int     childFolderCount { 0 };
         int     noteCount { 0 };
     };
 
     FolderCatalogManager *catalogManager_ { nullptr };
+    DraftManager         *draftManager_ { nullptr };
     NotesSearchModel     *searchModel_ { nullptr };
     QList<Row>            rows_;
     bool                  catalogAvailable_ { false };
     bool                  unsortedCollapsed_ { false };
+    bool                  draftsCollapsed_ { false };
 
     void           rebuild();
     QList<Row>     buildRows() const;

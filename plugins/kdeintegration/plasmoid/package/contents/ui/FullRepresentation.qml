@@ -174,9 +174,11 @@ PlasmaExtras.Representation {
                 required property int index
                 required property string title
                 required property string storageId
+                required property bool pendingDraft
 
                 width: ListView.view.width
                 text: title.length > 0 ? title : qsTr("Untitled Note")
+                opacity: pendingDraft ? 0.72 : 1.0
                 icon.name: "text-x-generic"
                 Accessible.description: qsTr("Stored in %1").arg(storageId)
 

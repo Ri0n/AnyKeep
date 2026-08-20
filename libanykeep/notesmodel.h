@@ -13,6 +13,7 @@ namespace AnyKeep {
 
 class NMMItem;
 class Note;
+class DraftManager;
 class FolderCatalogManager;
 
 class ANYKEEP_EXPORT NotesModel final : public QAbstractItemModel {
@@ -36,6 +37,9 @@ public:
         HasMoreRole,
         NoteCountRole,
         IconSourceRole,
+        PendingDraftRole,
+        DraftStateRole,
+        DraftErrorRole,
     };
     Q_ENUM(DataRole)
 
@@ -44,6 +48,7 @@ public:
 
     explicit NotesModel(QObject *parent = nullptr);
     NotesModel(FolderCatalogManager *folderCatalogManager, QObject *parent);
+    NotesModel(FolderCatalogManager *folderCatalogManager, DraftManager *draftManager, QObject *parent);
     ~NotesModel() override;
 
     QModelIndex            index(int row, int column, const QModelIndex &parent = {}) const override;
@@ -92,15 +97,18 @@ private slots:
 
 private:
     void        replaceVisibleNotes(NMMItem *storageItem, int desiredCount = -1);
+    void        draftsChanged();
     QModelIndex storageIndex(const QString &storageId) const;
     QModelIndex noteIndex(const QString &storageId, const QString &noteId) const;
     NMMItem    *storageItem(const QString &storageId) const;
     QList<Note> indexedNotes(const QString &storageId) const;
+    int         projectedNoteCount(const NMMItem *storageItem) const;
 
     QList<NMMItem *>      storages_;
     int                   pageSize_ { 30 };
     bool                  searchActive_ { false };
     FolderCatalogManager *folderCatalogManager_ { nullptr };
+    DraftManager         *draftManager_ { nullptr };
 };
 
 } // namespace AnyKeep
