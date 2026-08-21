@@ -21,6 +21,7 @@
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
 #include "notemanager.h"
+#include "notepresentationorder.h"
 #include "notetitleresolver.h"
 #include "shortcutsmanager.h"
 #include "stickynotesmanager.h"
@@ -198,11 +199,15 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
         MenuNote      entry;
         entry.storageId = note.storageId();
         entry.noteId    = note.id();
-        entry.favorite  = folder && catalog->isEffectivelyFavorite(folder->id);
+        entry.favorite  = note.isFavorite() || (folder && catalog->isEffectivelyFavorite(folder->id));
         if (it != pendingByNote.cend()) {
-            entry.title        = draftDisplayTitle(*it);
-            entry.tags         = it->tags;
-            entry.modified     = it->updatedAt;
+            entry.title            = draftDisplayTitle(*it);
+            entry.tags             = it->tags;
+            entry.modified         = it->updatedAt;
+            const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+            if (it->backendData.contains(favoriteKey))
+                entry.favorite = it->backendData.value(favoriteKey).toBool()
+                    || (folder && catalog->isEffectivelyFavorite(folder->id));
             entry.pendingDraft = true;
         } else {
             entry.title    = note.displayTitle();
@@ -220,31 +225,28 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
         const auto &draft = it.value();
         const auto  title = draftDisplayTitle(draft);
         if (matchesMenuQuery(title, draft.tags, filter))
-            notes.append({ draft.storageId, draft.remoteNoteId, title, draft.tags, draft.updatedAt, false, true });
+            notes.append({ draft.storageId, draft.remoteNoteId, title, draft.tags, draft.updatedAt,
+                           draft.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool(), true });
     }
     for (const auto &draft : pendingTransfers) {
         const auto title = draftDisplayTitle(draft);
         if (matchesMenuQuery(title, draft.tags, filter)) {
             notes.append({ draft.storageId, draft.id.toString(QUuid::WithoutBraces), title, draft.tags, draft.updatedAt,
-                           false, true });
+                           draft.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool(), true });
         }
     }
     for (const auto &draft : localDrafts) {
         const auto title = draftDisplayTitle(draft);
         if (matchesMenuQuery(title, draft.tags, filter)) {
             notes.append({ DraftManager::draftsStorageId(), draft.id.toString(QUuid::WithoutBraces), title, draft.tags,
-                           draft.updatedAt, false, true });
+                           draft.updatedAt, draft.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool(),
+                           true });
         }
     }
 
     std::stable_sort(notes.begin(), notes.end(), [](const MenuNote &left, const MenuNote &right) {
-        if (left.pendingDraft != right.pendingDraft)
-            return left.pendingDraft;
-        if (left.favorite != right.favorite)
-            return left.favorite;
-        if (left.modified != right.modified)
-            return left.modified > right.modified;
-        return left.title.localeAwareCompare(right.title) < 0;
+        return notePresentationComesBefore(left.pendingDraft, left.favorite, left.modified, left.title,
+                                           right.pendingDraft, right.favorite, right.modified, right.title);
     });
 
     const qsizetype first = qMin<qsizetype>(offset, notes.size());
@@ -259,6 +261,7 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
             { "title", note.title },
             { "tags", QJsonArray::fromStringList(note.tags) },
             { "modified", note.modified.toUTC().toString(Qt::ISODateWithMs) },
+            { "favorite", note.favorite },
             { "pendingDraft", note.pendingDraft },
         });
     }

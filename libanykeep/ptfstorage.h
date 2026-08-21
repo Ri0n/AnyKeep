@@ -25,6 +25,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "filestorage.h"
 #include "foldercatalog.h"
 
+#include <QSet>
+
 namespace AnyKeep {
 
 class LocalMediaStore;
@@ -52,6 +54,7 @@ public:
     bool saveNote(const Note &note) override;
     void removeNote(const QString &noteId) override;
 
+    bool                  supportsFavorite() const override { return true; }
     bool                  supportsNativeFolders() const override { return true; }
     bool                  supportsNativeFolderCatalog() const override { return true; }
     FolderCatalogSnapshot nativeFolderCatalog() const override;
@@ -79,9 +82,12 @@ private:
     void               loadFolderCatalog();
     QUuid              folderIdForNote(const QString &noteId) const;
     FolderCatalogError replaceFolderCatalog(const FolderCatalogSnapshot &snapshot);
-    FolderCatalogError updateFolderAssignment(const QString &oldNoteId, const Note &saved);
+    FolderCatalogError updateNoteMetadata(const QString &oldNoteId, const Note &saved);
+    FolderCatalogError persistPortableMetadata(const FolderCatalogSnapshot &snapshot,
+                                               const QSet<QString>         &favoriteNoteIds);
 
     FolderCatalogSnapshot folderCatalog_;
+    QSet<QString>         favoriteNoteIds_;
     bool                  folderCatalogAvailable_ { true };
     QString               folderCatalogError_;
     LocalMediaStore      &mediaStore_;

@@ -14,16 +14,17 @@ the Free Software Foundation, either version 3 of the License, or
 #include "foldercatalog.h"
 
 #include <QByteArray>
+#include <QSet>
 #include <QString>
 
 namespace AnyKeep {
 
 /**
- * Versioned, atomic JSON persistence for the portable PTF folder catalog.
+ * Versioned, atomic JSON persistence for portable PTF note metadata.
  *
- * PTF note bodies intentionally remain at the storage root: moving a note
- * between folders updates only this index and therefore keeps note ids, media
- * sidecars and externally managed files stable.
+ * PTF note bodies intentionally remain at the storage root. Folder assignments
+ * and note favorites live in this side index, keeping note ids, media sidecars
+ * and externally managed files stable.
  */
 class PtfFolderIndex final {
 public:
@@ -31,7 +32,9 @@ public:
 
     FolderCatalogResult<FolderCatalogSnapshot> load() const;
     FolderCatalogResult<FolderCatalogSnapshot> loadBackup() const;
+    FolderCatalogResult<QSet<QString>>         loadFavoriteNoteIds() const;
     FolderCatalogError                         save(const FolderCatalogSnapshot &snapshot) const;
+    FolderCatalogError save(const FolderCatalogSnapshot &snapshot, const QSet<QString> &favoriteNoteIds) const;
 
     QString filePath() const { return filePath_; }
     QString backupFilePath() const;
@@ -48,6 +51,7 @@ private:
     QString storageId_;
 
     FolderCatalogResult<FolderCatalogSnapshot> loadPath(const QString &path, bool absentIsEmpty) const;
+    FolderCatalogResult<QSet<QString>>         loadFavoriteNoteIdsPath(const QString &path, bool absentIsEmpty) const;
     FolderCatalogResult<QByteArray>            readRaw(const QString &path) const;
     FolderCatalogError                         writeRaw(const QString &path, const QByteArray &bytes) const;
     FolderCatalogError                         validateSnapshot(const FolderCatalogSnapshot &snapshot) const;

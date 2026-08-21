@@ -40,7 +40,9 @@ namespace {
     bool hasSamePublishedContents(const DraftRecord &draft, const Note &note)
     {
         if (draft.title != note.title() || draft.body != note.text() || draft.format != note.format()
-            || draft.folderId != note.folderId() || draft.media.size() != note.media().size())
+            || draft.folderId != note.folderId()
+            || draft.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool() != note.isFavorite()
+            || draft.media.size() != note.media().size())
             return false;
         const auto media = note.media();
         for (qsizetype index = 0; index < draft.media.size(); ++index) {

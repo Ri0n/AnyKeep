@@ -203,10 +203,12 @@ void NextcloudStorageTest::dirtyPublishIncludesFolderCategory()
     settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 1000);
 
     NextcloudStorage storage(nullptr, &catalog);
-    auto             note = storage.createNote();
+    QVERIFY(storage.supportsFavorite());
+    auto note = storage.createNote();
     note.setTitle(QStringLiteral("Draft title"));
     note.setText(QStringLiteral("Draft body"), Note::Markdown);
     note.setFolderId(destination.value);
+    note.setFavorite(true);
     auto *saved = storage.saveNoteAsync(note);
     QTRY_VERIFY(saved->isFinished());
     QCOMPARE(saved->state(), StorageJob::Succeeded);
@@ -223,6 +225,7 @@ void NextcloudStorageTest::dirtyPublishIncludesFolderCategory()
     QVERIFY(body.isObject());
     QCOMPARE(body.object().value(QStringLiteral("category")).toString(), QStringLiteral("Projects/2026"));
     QCOMPARE(body.object().value(QStringLiteral("content")).toString(), QStringLiteral("Draft body"));
+    QVERIFY(body.object().value(QStringLiteral("favorite")).toBool());
 
     settings.remove(QStringLiteral("storage.nextcloud.url"));
     settings.remove(QStringLiteral("storage.nextcloud.username"));

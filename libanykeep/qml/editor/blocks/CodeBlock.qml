@@ -15,19 +15,25 @@ Rectangle {
     implicitHeight: Math.max(codeCell.implicitHeight + 12, codeRoot.editorView.editorFontMetricsHeight * 2)
     radius: 4
     clip: true
-    color: Qt.rgba(activePalette.base.r, activePalette.base.g,
-                   activePalette.base.b, 0.82)
+    readonly property real baseLuminance: 0.2126 * activePalette.base.r
+                                          + 0.7152 * activePalette.base.g
+                                          + 0.0722 * activePalette.base.b
+    readonly property real textLuminance: 0.2126 * activePalette.text.r
+                                          + 0.7152 * activePalette.text.g
+                                          + 0.0722 * activePalette.text.b
+    readonly property real surfaceMix: baseLuminance < textLuminance ? 0.07 : 0.045
+    color: Qt.rgba(
+        activePalette.base.r * (1.0 - surfaceMix) + activePalette.text.r * surfaceMix,
+        activePalette.base.g * (1.0 - surfaceMix) + activePalette.text.g * surfaceMix,
+        activePalette.base.b * (1.0 - surfaceMix) + activePalette.text.b * surfaceMix,
+        1.0)
     border.width: 1
     readonly property color codeTextColor: activePalette.text
     readonly property color codeBorderColor: Qt.rgba(codeTextColor.r, codeTextColor.g,
                                                      codeTextColor.b, 0.28)
-    // AlternateBase on Windows follows the user's accent colour. Code block
-    // controls need a neutral surface rather than an accent-coloured one.
-    readonly property color controlSurface: Qt.rgba(
-        activePalette.base.r * 0.92 + activePalette.text.r * 0.08,
-        activePalette.base.g * 0.92 + activePalette.text.g * 0.08,
-        activePalette.base.b * 0.92 + activePalette.text.b * 0.08,
-        1.0)
+    // Keep the overlay controls on the document surface rather than the code
+    // surface, so their boundary remains clear even on subtle themes.
+    readonly property color controlSurface: activePalette.base
     readonly property color controlHoverSurface: Qt.rgba(
         activePalette.base.r * 0.86 + activePalette.text.r * 0.14,
         activePalette.base.g * 0.86 + activePalette.text.g * 0.14,
@@ -89,7 +95,9 @@ Rectangle {
                 checked: codeRoot.lineWrapEnabled
                 display: AbstractButton.IconOnly
                 contentItem: Shared.ThemedIconImpl {
-                    themeName: "text-wrap-symbolic"
+                    // Do not let a desktop theme substitute a low-resolution
+                    // bitmap for the bundled symbolic SVG.
+                    themeName: "__bundled__"
                     fallbackName: "text-wrap-symbolic.svg"
                     recolorFallback: true
                     pixelSize: Math.max(14, Math.round(wrapCodeButton.height * 0.58))
@@ -116,8 +124,9 @@ Rectangle {
                 padding: 3
                 display: AbstractButton.IconOnly
                 contentItem: Shared.ThemedIconImpl {
-                    themeName: "edit-copy"
-                    fallbackName: "copy22.png"
+                    themeName: "__bundled__"
+                    fallbackName: "edit-copy-symbolic.svg"
+                    recolorFallback: true
                     pixelSize: Math.max(14, Math.round(copyCodeButton.height * 0.58))
                 }
                 Accessible.name: qsTr("Copy code")
@@ -149,6 +158,7 @@ Rectangle {
             minimumControlWidth: 48
             minimumPopupWidth: 180
             backgroundColor: codeRoot.controlSurface
+            popupBackgroundColor: codeRoot.controlSurface
             hoverColor: codeRoot.controlHoverSurface
             borderColor: codeRoot.codeBorderColor
 

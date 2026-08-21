@@ -13,6 +13,7 @@ the Free Software Foundation, either version 3 of the License, or
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
 #include "notemanager.h"
+#include "notepresentationorder.h"
 #include "notesindex.h"
 #include "notessearchmodel.h"
 #include "notetitleresolver.h"
@@ -308,8 +309,13 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
     QList<Row>                rows;
 
     auto pending = draftManager_ ? draftManager_->pendingDrafts() : QList<DraftRecord> {};
-    std::sort(pending.begin(), pending.end(),
-              [](const DraftRecord &left, const DraftRecord &right) { return left.updatedAt > right.updatedAt; });
+    std::stable_sort(pending.begin(), pending.end(), [](const DraftRecord &left, const DraftRecord &right) {
+        const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+        return notePresentationComesBefore(true, left.backendData.value(favoriteKey).toBool(), left.updatedAt,
+                                           NoteTitleResolver::displayTitle(left.title, left.body, left.format), true,
+                                           right.backendData.value(favoriteKey).toBool(), right.updatedAt,
+                                           NoteTitleResolver::displayTitle(right.title, right.body, right.format));
+    });
     QSet<QString> pendingRemoteNotes;
     QList<Row>    draftRows;
     const QString searchText = searchModel_ ? searchModel_->searchText().trimmed() : QString();
@@ -347,6 +353,7 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
         row.title        = title;
         row.preview      = draftPreview(draft);
         row.depth        = 1;
+        row.favorite     = draft.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool();
         row.pendingDraft = true;
         row.draftState   = draftStateName(draft.state);
         row.draftError   = draft.lastError;
@@ -393,8 +400,12 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
                 notesByFolder[folderId].append(note);
         }
     }
-    const auto orderNotes
-        = [](QList<Note> &notes) { std::sort(notes.begin(), notes.end(), noteListItemModifyComparer); };
+    const auto orderNotes = [](QList<Note> &notes) {
+        std::stable_sort(notes.begin(), notes.end(), [](const Note &left, const Note &right) {
+            return notePresentationComesBefore(false, left.isFavorite(), left.lastChangeUTC(), left.displayTitle(),
+                                               false, right.isFavorite(), right.lastChangeUTC(), right.displayTitle());
+        });
+    };
     orderNotes(unsorted);
     for (auto it = notesByFolder.begin(); it != notesByFolder.end(); ++it)
         orderNotes(it.value());
@@ -597,6 +608,7 @@ void FolderNotesModel::appendNotes(QList<Row> *rows, const QList<Note> &notes, c
         row.preview        = notePreview(note);
         row.depth          = depth;
         row.noteCount      = 1;
+        row.favorite       = note.isFavorite();
         const auto storage = NoteManager::instance()->storage(row.storageId);
         row.storageName    = storage ? storage->name() : row.storageId;
         row.accessible     = storage && storage->isAccessible();

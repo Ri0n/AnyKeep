@@ -114,6 +114,7 @@ class XmppNoteCodecTest : public QObject {
 
 private slots:
     void roundTrip();
+    void favoriteRoundTripUsesOptionalEncryptedExtension();
     void mediaRoundTrip();
     void rejectsUndeclaredMedia();
     void encryptedPayloadDoesNotExposeText();
@@ -171,6 +172,32 @@ void XmppNoteCodecTest::roundTrip()
         = XmppNoteCodec::decodeContent(encodedContent.value, key, contentNode, decodedIndex.value);
     QVERIFY2(decodedContent, qPrintable(decodedContent.error.message));
     QCOMPARE(decodedContent.value.content, source.content);
+}
+
+void XmppNoteCodecTest::favoriteRoundTripUsesOptionalEncryptedExtension()
+{
+    auto       source = note();
+    const auto key    = masterKey();
+    source.favorite   = true;
+
+    auto encoded = XmppNoteCodec::encodeIndex(source, key, QStringLiteral("index"));
+    QVERIFY2(encoded, qPrintable(encoded.error.message));
+    auto plaintext = openedPlaintext(encoded.value, key, XmppEncryptedPayload::Index);
+    QVERIFY(plaintext.contains(XmppNoteCodec::favoriteNamespace.toUtf8()));
+    QVERIFY(!plaintext.contains(QByteArrayLiteral("feature=\"urn:xmpp:private-notes:favorite:0\"")));
+
+    auto decoded = XmppNoteCodec::decodeIndex(encoded.value, key, QStringLiteral("index"));
+    QVERIFY2(decoded, qPrintable(decoded.error.message));
+    QVERIFY(decoded.value.favorite);
+
+    decoded.value.favorite = false;
+    encoded                = XmppNoteCodec::encodeIndex(decoded.value, key, QStringLiteral("index"));
+    QVERIFY2(encoded, qPrintable(encoded.error.message));
+    plaintext = openedPlaintext(encoded.value, key, XmppEncryptedPayload::Index);
+    QVERIFY(!plaintext.contains(XmppNoteCodec::favoriteNamespace.toUtf8()));
+    decoded = XmppNoteCodec::decodeIndex(encoded.value, key, QStringLiteral("index"));
+    QVERIFY2(decoded, qPrintable(decoded.error.message));
+    QVERIFY(!decoded.value.favorite);
 }
 
 void XmppNoteCodecTest::mediaRoundTrip()

@@ -3,6 +3,7 @@
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
 #include "notemanager.h"
+#include "notepresentationorder.h"
 #include "notesindex.h"
 #include "notetitleresolver.h"
 #include "storageiconimageprovider.h"
@@ -94,6 +95,7 @@ public:
         tags         = note.tags();
         lastChange   = note.lastChangeUTC();
         preview      = notePreview(note);
+        favorite     = note.isFavorite();
         pendingDraft = false;
         draftId      = {};
         draftState.clear();
@@ -107,9 +109,12 @@ public:
         title        = NoteTitleResolver::displayTitle(draft.title, draft.body, draft.format);
         if (title.isEmpty())
             title = QObject::tr("Untitled note");
-        tags       = draft.tags;
-        lastChange = draft.updatedAt;
-        preview    = draftPreview(draft);
+        tags                   = draft.tags;
+        lastChange             = draft.updatedAt;
+        preview                = draftPreview(draft);
+        const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+        if (draft.backendData.contains(favoriteKey))
+            favorite = draft.backendData.value(favoriteKey).toBool();
         draftState = draftStateName(draft.state);
         draftError = draft.lastError;
     }
@@ -131,6 +136,7 @@ public:
     int                  indexedCount { 0 };
     bool                 indexedCountInitialized { false };
     bool                 syntheticStorage { false };
+    bool                 favorite { false };
     bool                 pendingDraft { false };
 };
 
@@ -259,6 +265,8 @@ QVariant NotesModel::data(const QModelIndex &modelIndex, int role) const
         if (item->syntheticStorage || (!storage && item->parent && item->parent->syntheticStorage))
             return QStringLiteral("qrc:/icons/document-open-recent-symbolic.svg");
         return storageIconSource(storage ? item->id : item->parent->id, !storage);
+    case FavoriteRole:
+        return !storage && item->favorite;
     case PendingDraftRole:
         return !storage && item->pendingDraft;
     case DraftStateRole:
@@ -297,6 +305,7 @@ QHash<int, QByteArray> NotesModel::roleNames() const
         { HasMoreRole, "hasMore" },
         { NoteCountRole, "noteCount" },
         { IconSourceRole, "iconSource" },
+        { FavoriteRole, "favorite" },
         { PendingDraftRole, "pendingDraft" },
         { DraftStateRole, "draftState" },
         { DraftErrorRole, "draftError" },
@@ -614,11 +623,8 @@ void NotesModel::replaceVisibleNotes(NMMItem *storageItem, int desiredCount)
     }
 
     std::stable_sort(projected.begin(), projected.end(), [](const NMMItem *left, const NMMItem *right) {
-        if (left->pendingDraft != right->pendingDraft)
-            return left->pendingDraft;
-        if (left->lastChange != right->lastChange)
-            return left->lastChange > right->lastChange;
-        return left->title.localeAwareCompare(right->title) < 0;
+        return notePresentationComesBefore(left->pendingDraft, left->favorite, left->lastChange, left->title,
+                                           right->pendingDraft, right->favorite, right->lastChange, right->title);
     });
 
     const int count = storageItem->syntheticStorage ? projected.size() : qMin(desiredCount, projected.size());

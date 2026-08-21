@@ -1,5 +1,6 @@
 #include "recentnotesmodel.h"
 
+#include "notepresentationorder.h"
 #include "notesmodel.h"
 
 #include <QDateTime>
@@ -41,6 +42,7 @@ QHash<int, QByteArray> RecentNotesModel::roleNames() const
         { NotesModel::StorageNameRole, "storageName" },
         { NotesModel::AccessibleRole, "accessible" },
         { NotesModel::IconSourceRole, "iconSource" },
+        { NotesModel::FavoriteRole, "favorite" },
         { NotesModel::PendingDraftRole, "pendingDraft" },
         { NotesModel::DraftStateRole, "draftState" },
         { NotesModel::DraftErrorRole, "draftError" },
@@ -84,18 +86,14 @@ void RecentNotesModel::rebuild()
         }
 
         std::stable_sort(next.begin(), next.end(), [this](const auto &left, const auto &right) {
-            const bool leftPending  = sourceModel_->data(left, NotesModel::PendingDraftRole).toBool();
-            const bool rightPending = sourceModel_->data(right, NotesModel::PendingDraftRole).toBool();
-            if (leftPending != rightPending)
-                return leftPending;
-            const QDateTime leftTime  = sourceModel_->data(left, NotesModel::ModifiedTimeRole).toDateTime();
-            const QDateTime rightTime = sourceModel_->data(right, NotesModel::ModifiedTimeRole).toDateTime();
-            if (leftTime != rightTime)
-                return leftTime > rightTime;
-            return sourceModel_->data(left, NotesModel::TitleRole)
-                       .toString()
-                       .localeAwareCompare(sourceModel_->data(right, NotesModel::TitleRole).toString())
-                < 0;
+            return notePresentationComesBefore(sourceModel_->data(left, NotesModel::PendingDraftRole).toBool(),
+                                               sourceModel_->data(left, NotesModel::FavoriteRole).toBool(),
+                                               sourceModel_->data(left, NotesModel::ModifiedTimeRole).toDateTime(),
+                                               sourceModel_->data(left, NotesModel::TitleRole).toString(),
+                                               sourceModel_->data(right, NotesModel::PendingDraftRole).toBool(),
+                                               sourceModel_->data(right, NotesModel::FavoriteRole).toBool(),
+                                               sourceModel_->data(right, NotesModel::ModifiedTimeRole).toDateTime(),
+                                               sourceModel_->data(right, NotesModel::TitleRole).toString());
         });
         if (next.size() > maximumCount_)
             next.resize(maximumCount_);

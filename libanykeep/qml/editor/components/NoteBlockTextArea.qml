@@ -165,6 +165,12 @@ TextArea {
         })
     }
 
+    function handleDocumentSelectionTextReplacement(event) {
+        if (event.text.length === 0 || /[\u0000-\u001f\u007f\r\n\u2028\u2029]/.test(event.text))
+            return false
+        return editorView.replaceStructuredSelectionWithText(event.text, blockArea)
+    }
+
     function markdownRange(start, end) {
         if (codeDocument) {
             const plain = currentPlainText()
@@ -539,6 +545,8 @@ TextArea {
         } else if (blockArea.handleCodeIndent(event)) {
             event.accepted = true
         } else if (!blockArea.codeDocument && blockArea.handleLinkSpaceExit(event)) {
+            event.accepted = true
+        } else if (blockArea.handleDocumentSelectionTextReplacement(event)) {
             event.accepted = true
         } else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace)
                 && editorView.deleteStructuredSelection(event.key === Qt.Key_Backspace)) {

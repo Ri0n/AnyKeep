@@ -63,6 +63,7 @@ public:
 
     virtual QList<Note::Format> availableFormats() const = 0;
     virtual bool                supportsMedia() const { return false; }
+    virtual bool                supportsFavorite() const { return false; }
     virtual bool                supportsNoteReordering() const { return requestedModificationTimeResolutionMs() > 0; }
     // Native folder support means the provider can persist a note's folder
     // assignment independently from its body.  Providers without it use the

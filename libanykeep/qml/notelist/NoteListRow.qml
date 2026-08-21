@@ -317,7 +317,7 @@ SwipeDelegate {
         }
 
         App.ThemedIcon {
-            visible: row.groupRow && row.favorite
+            visible: row.favorite
             Layout.preferredWidth: visible ? 18 : 0
             Layout.preferredHeight: 18
             Layout.rightMargin: visible ? 6 : 0
@@ -328,7 +328,7 @@ SwipeDelegate {
                                      ? row.palette.highlightedText
                                      : row.palette.text)
             pixelSize: 16
-            Accessible.name: qsTr("Favorite group")
+            Accessible.name: row.groupRow ? qsTr("Favorite group") : qsTr("Favorite note")
         }
 
         CheckBox {

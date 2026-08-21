@@ -22,6 +22,7 @@ public:
     static const QString protocolNamespace;
     /** Optional encrypted-index extension carrying one canonical folder path. */
     static const QString folderNamespace;
+    static const QString favoriteNamespace;
     /** Required extension which binds an index-only update to an unchanged body. */
     static const QString contentRevisionNamespace;
     /** Required feature declaring XEP-0447 media descriptors in the content record. */

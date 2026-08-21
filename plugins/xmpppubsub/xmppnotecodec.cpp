@@ -13,6 +13,7 @@ namespace AnyKeep {
 
 const QString XmppNoteCodec::protocolNamespace        = QStringLiteral("urn:xmpp:private-notes:0");
 const QString XmppNoteCodec::folderNamespace          = QStringLiteral("urn:xmpp:private-notes:folders:0");
+const QString XmppNoteCodec::favoriteNamespace        = QStringLiteral("urn:xmpp:private-notes:favorite:0");
 const QString XmppNoteCodec::contentRevisionNamespace = QStringLiteral("urn:xmpp:private-notes:content:0");
 const QString XmppNoteCodec::mediaFeature             = QStringLiteral("urn:xmpp:private-notes:media:0");
 
@@ -547,6 +548,7 @@ namespace {
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("title"));
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"));
             removeDirectChildren(record, XmppNoteCodec::folderNamespace, QStringLiteral("folder"));
+            removeDirectChildren(record, XmppNoteCodec::favoriteNamespace, QStringLiteral("favorite"));
             removeDirectChildren(record, XmppNoteCodec::contentRevisionNamespace, QStringLiteral("content-revision"));
             removeRequiredFeature(root, XmppNoteCodec::contentRevisionNamespace);
         } else {
@@ -610,6 +612,7 @@ namespace {
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("title"));
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"));
             removeDirectChildren(record, XmppNoteCodec::folderNamespace, QStringLiteral("folder"));
+            removeDirectChildren(record, XmppNoteCodec::favoriteNamespace, QStringLiteral("favorite"));
             removeDirectChildren(record, XmppNoteCodec::contentRevisionNamespace, QStringLiteral("content-revision"));
             setRequiredFeature(document, root, XmppNoteCodec::contentRevisionNamespace,
                                noteContentRevision != note.revision);
@@ -621,6 +624,11 @@ namespace {
             for (const auto &tag : note.tags) {
                 insertBeforeOrAppend(
                     record, createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"), tag),
+                    anchor);
+            }
+            if (note.favorite) {
+                insertBeforeOrAppend(
+                    record, document.createElementNS(XmppNoteCodec::favoriteNamespace, QStringLiteral("favorite")),
                     anchor);
             }
             if (!noteFolderPath.value.isEmpty()) {
@@ -778,6 +786,17 @@ namespace {
         const auto decodedFolderPath = folderPath(record);
         if (!decodedFolderPath)
             return decodedFolderPath.error;
+        const auto favoriteElements
+            = directChildren(record, XmppNoteCodec::favoriteNamespace, QStringLiteral("favorite"));
+        if (favoriteElements.size() > 1)
+            return corrupt(QStringLiteral("Encrypted private-note index contains more than one favorite marker"));
+        if (!favoriteElements.isEmpty()) {
+            const auto &favorite = favoriteElements.constFirst();
+            if (const auto error = validateLeaf(favorite, QStringLiteral("encrypted private-note favorite")); error)
+                return error;
+            if (!favorite.firstChild().isNull())
+                return corrupt(QStringLiteral("Encrypted private-note favorite marker must be empty"));
+        }
         const auto decodedContentRevision = contentRevision(opened, revision);
         if (!decodedContentRevision)
             return decodedContentRevision.error;
@@ -792,6 +811,7 @@ namespace {
         decoded.modified        = modified.value;
         decoded.format          = QStringLiteral("markdown");
         decoded.folderPath      = decodedFolderPath.value;
+        decoded.favorite        = !favoriteElements.isEmpty();
         for (const auto &tagElement : directChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"))) {
             if (const auto error = validateLeaf(tagElement, QStringLiteral("encrypted private-note tag")); error)
                 return error;

@@ -23,6 +23,7 @@
 #include "noteblockmodel.h"
 #include "noteeditor.h"
 #include "notehighlighter.h"
+#include "notestorage.h"
 #include "spellcheckprovider.h"
 #include "textdroputils.h"
 
@@ -33,6 +34,25 @@ using namespace AnyKeep;
 using namespace AnyKeep::TestSupport;
 
 namespace {
+
+class FavoriteEditorStorage final : public NoteStorage {
+public:
+    using NoteStorage::NoteStorage;
+
+    bool                init() override { return true; }
+    const QString       systemName() const override { return QStringLiteral("favorite-editor-test"); }
+    const QString       name() const override { return QStringLiteral("Favorite editor test"); }
+    QIcon               storageIcon() const override { return {}; }
+    QIcon               noteIcon() const override { return {}; }
+    bool                isAccessible() const override { return true; }
+    QList<Note::Format> availableFormats() const override { return { Note::Markdown, Note::PlainText }; }
+    bool                supportsFavorite() const override { return true; }
+    QList<Note>         noteList(int = 0) override { return {}; }
+    Note                note(const QString &) override { return {}; }
+    Note                createNote() override { return Note(new NoteData(this)); }
+    bool                saveNote(const Note &) override { return true; }
+    void                removeNote(const QString &) override {}
+};
 
 class RejectAllEditorSpellCheckProvider final : public SpellCheckProvider {
 public:
@@ -105,6 +125,38 @@ private slots:
         QCOMPARE(host.model(), editor.model());
     }
 
+    void favoriteButtonTracksBackendAcrossRepeatedClicks()
+    {
+        FavoriteEditorStorage storage;
+        Note                  note(new NoteData(&storage));
+        note.setId(QStringLiteral("favorite-note"));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("Body"), Note::PlainText);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(620, 420);
+        host.show();
+        auto *button
+            = host.quickWidget()->rootObject()->findChild<QQuickItem *>(QStringLiteral("editorFavoriteButton"));
+        QVERIFY(button);
+        QTRY_VERIFY(button->isVisible());
+        QTRY_VERIFY(button->property("enabled").toBool());
+        QVERIFY(!button->property("checked").toBool());
+
+        const auto center = button->mapToScene(QPointF(button->width() / 2.0, button->height() / 2.0)).toPoint();
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier, center);
+        QTRY_VERIFY(editor.isFavorite());
+        QTRY_VERIFY(button->property("checked").toBool());
+        QVERIFY(editor.isDirty());
+
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier, center);
+        QTRY_VERIFY(!editor.isFavorite());
+        QTRY_VERIFY(!button->property("checked").toBool());
+        QVERIFY(!editor.isDirty());
+    }
+
     void editorFontPreviewUpdatesTextAndHeadings()
     {
         Note note(new NoteData(nullptr));
@@ -146,13 +198,15 @@ private slots:
         preview.setPointSizeF(12.0);
         host.platformBackend()->setEditorFont(preview);
         QTRY_VERIFY(qAbs(title->property("font").value<QFont>().pointSizeF() - 12.0) < 0.01);
-        QTRY_VERIFY(qAbs(heading->property("font").value<QFont>().pointSizeF() - 20.4) < 0.01);
+        // QML Font.pointSize is integral, so the structural scale is applied
+        // with the same truncation as the rendered heading font.
+        QTRY_VERIFY(qAbs(heading->property("font").value<QFont>().pointSizeF() - 20.0) < 0.01);
         QTRY_VERIFY(readTitleFormat() && qAbs(titleFormat.fontPointSize() - 18.0) < 0.01);
 
         preview.setPointSizeF(18.0);
         host.platformBackend()->setEditorFont(preview);
         QTRY_VERIFY(qAbs(title->property("font").value<QFont>().pointSizeF() - 18.0) < 0.01);
-        QTRY_VERIFY(qAbs(heading->property("font").value<QFont>().pointSizeF() - 30.6) < 0.01);
+        QTRY_VERIFY(qAbs(heading->property("font").value<QFont>().pointSizeF() - 30.0) < 0.01);
         QTRY_VERIFY(readTitleFormat() && qAbs(titleFormat.fontPointSize() - 27.0) < 0.01);
 
         const QColor previewTitleColor(35, 145, 235);
@@ -245,6 +299,10 @@ private slots:
             host.resize(520, 360);
             host.show();
 
+            QFont preview = QGuiApplication::font();
+            preview.setPointSizeF(12.0);
+            host.platformBackend()->setEditorFont(preview);
+
             auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
             QVERIFY(root);
             QQuickItem *body = nullptr;
@@ -275,6 +333,12 @@ private slots:
             QTRY_VERIFY((structured = textEditorForBlock(root, 2)));
             QTRY_VERIFY(structured->hasActiveFocus());
             QTRY_COMPARE(structured->property("cursorPosition").toInt(), 3);
+            if (!quote) {
+                QTRY_VERIFY(qAbs(structured->property("font").value<QFont>().pointSizeF() - 18.0) < 0.01);
+                preview.setPointSizeF(16.0);
+                host.platformBackend()->setEditorFont(preview);
+                QTRY_VERIFY(qAbs(structured->property("font").value<QFont>().pointSizeF() - 24.0) < 0.01);
+            }
         };
 
         verifyConversion(false);
@@ -930,6 +994,162 @@ private:
                  QStringLiteral("cpp"));
         QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::LanguageRole).toString(),
                  QStringLiteral("python"));
+    }
+
+    void typingAndPasteCollapseSelectionAcrossListItems()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("- first\n- second\n- third"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(620, 420);
+        host.show();
+        auto *quick = host.quickWidget();
+        auto *root  = qobject_cast<QQuickItem *>(quick->rootObject());
+        QVERIFY(root);
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::BulletList));
+
+        QList<QQuickItem *> items;
+        QTRY_VERIFY(([&]() {
+            items.clear();
+            for (QQuickItem *candidate : textEditors(root)) {
+                if (candidate->property("blockIndex").toInt() == 1
+                    && candidate->property("listItemIndex").toInt() >= 0) {
+                    items.append(candidate);
+                }
+            }
+            std::sort(items.begin(), items.end(), [](QQuickItem *left, QQuickItem *right) {
+                return left->property("listItemIndex").toInt() < right->property("listItemIndex").toInt();
+            });
+            return items.size() == 3;
+        })());
+
+        auto *blockEditor = ancestorWithProperty(items.constFirst(), "currentFindText");
+        QVERIFY(blockEditor);
+        QVERIFY(QMetaObject::invokeMethod(
+            blockEditor, "applyDocumentSelection",
+            Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(items.constFirst()))), Q_ARG(QVariant, 2),
+            Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(items.constLast()))), Q_ARG(QVariant, 2),
+            Q_ARG(QVariant, false)));
+        QTRY_VERIFY(items.constFirst()->property("selectionStart").toInt()
+                    != items.constFirst()->property("selectionEnd").toInt());
+        QTRY_VERIFY(items.constLast()->hasActiveFocus());
+
+        QTest::keyClicks(quick, QStringLiteral("x"));
+
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                     QStringList({ QStringLiteral("fixird") }));
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::BulletList));
+        QCOMPARE(editor.model()->rowCount(), 2);
+        QList<QQuickItem *> updatedItems;
+        QTRY_VERIFY(([&]() {
+            updatedItems.clear();
+            for (QQuickItem *candidate : textEditors(root)) {
+                if (candidate->property("blockIndex").toInt() == 1
+                    && candidate->property("listItemIndex").toInt() >= 0) {
+                    updatedItems.append(candidate);
+                }
+            }
+            std::sort(updatedItems.begin(), updatedItems.end(), [](QQuickItem *left, QQuickItem *right) {
+                return left->property("listItemIndex").toInt() < right->property("listItemIndex").toInt();
+            });
+            return updatedItems.size() == 1;
+        })());
+        for (QQuickItem *item : std::as_const(updatedItems))
+            QTRY_COMPARE(item->property("selectionStart").toInt(), item->property("selectionEnd").toInt());
+        QTRY_VERIFY(updatedItems.constFirst()->hasActiveFocus());
+
+        QVERIFY(editor.canUndo());
+        QVERIFY(editor.undo());
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                     QStringList({ QStringLiteral("first"), QStringLiteral("second"), QStringLiteral("third") }));
+
+        QTRY_VERIFY(([&]() {
+            items.clear();
+            for (QQuickItem *candidate : textEditors(root)) {
+                if (candidate->property("blockIndex").toInt() == 1
+                    && candidate->property("listItemIndex").toInt() >= 0) {
+                    items.append(candidate);
+                }
+            }
+            std::sort(items.begin(), items.end(), [](QQuickItem *left, QQuickItem *right) {
+                return left->property("listItemIndex").toInt() < right->property("listItemIndex").toInt();
+            });
+            return items.size() == 3;
+        })());
+        blockEditor = ancestorWithProperty(items.constFirst(), "currentFindText");
+        QVERIFY(blockEditor);
+        QVERIFY(QMetaObject::invokeMethod(
+            blockEditor, "applyDocumentSelection",
+            Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(items.constFirst()))), Q_ARG(QVariant, 0),
+            Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(items.constLast()))),
+            Q_ARG(QVariant, items.constLast()->property("length").toInt()), Q_ARG(QVariant, false)));
+        QTest::keyClicks(quick, QStringLiteral("z"));
+        QTRY_COMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::Text));
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TextRole).toString(),
+                     QStringLiteral("z"));
+
+        QVERIFY(editor.undo());
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                     QStringList({ QStringLiteral("first"), QStringLiteral("second"), QStringLiteral("third") }));
+        QTRY_VERIFY(([&]() {
+            items.clear();
+            for (QQuickItem *candidate : textEditors(root)) {
+                if (candidate->property("blockIndex").toInt() == 1
+                    && candidate->property("listItemIndex").toInt() >= 0) {
+                    items.append(candidate);
+                }
+            }
+            std::sort(items.begin(), items.end(), [](QQuickItem *left, QQuickItem *right) {
+                return left->property("listItemIndex").toInt() < right->property("listItemIndex").toInt();
+            });
+            return items.size() == 3;
+        })());
+        blockEditor = ancestorWithProperty(items.constFirst(), "currentFindText");
+        QVERIFY(blockEditor);
+        QVERIFY(QMetaObject::invokeMethod(
+            blockEditor, "applyDocumentSelection",
+            Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(items.constFirst()))), Q_ARG(QVariant, 2),
+            Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(items.constLast()))), Q_ARG(QVariant, 2),
+            Q_ARG(QVariant, false)));
+        QGuiApplication::clipboard()->setText(QStringLiteral("paste"));
+        QVariant pasted;
+        QVERIFY(QMetaObject::invokeMethod(root, "pasteClipboard", Q_RETURN_ARG(QVariant, pasted)));
+        QVERIFY(pasted.toBool());
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                     QStringList({ QStringLiteral("fipasteird") }));
+
+        QVERIFY(editor.undo());
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                     QStringList({ QStringLiteral("first"), QStringLiteral("second"), QStringLiteral("third") }));
+        QTRY_VERIFY(([&]() {
+            items.clear();
+            for (QQuickItem *candidate : textEditors(root)) {
+                if (candidate->property("blockIndex").toInt() == 1
+                    && candidate->property("listItemIndex").toInt() >= 0) {
+                    items.append(candidate);
+                }
+            }
+            std::sort(items.begin(), items.end(), [](QQuickItem *left, QQuickItem *right) {
+                return left->property("listItemIndex").toInt() < right->property("listItemIndex").toInt();
+            });
+            return items.size() == 3;
+        })());
+        blockEditor = ancestorWithProperty(items.constFirst(), "currentFindText");
+        QVERIFY(blockEditor);
+        // Exercise the reverse selection direction as well. Delete and text
+        // replacement must use the same boundary-collapse operation.
+        QVERIFY(QMetaObject::invokeMethod(
+            blockEditor, "applyDocumentSelection",
+            Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(items.constLast()))), Q_ARG(QVariant, 2),
+            Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(items.constFirst()))), Q_ARG(QVariant, 2),
+            Q_ARG(QVariant, false)));
+        QTest::keyClick(quick, Qt::Key_Delete);
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                     QStringList({ QStringLiteral("fiird") }));
     }
 
     void draggingTextSelectionAcrossTrailingAudioHighlightsPlayer()
@@ -2393,6 +2613,11 @@ private slots:
     }
 
     void regressionListToolbarConvertsMultilineTextSelection() { listToolbarConvertsMultilineTextSelection(); }
+
+    void regressionTypingAndPasteCollapseSelectionAcrossListItems()
+    {
+        typingAndPasteCollapseSelectionAcrossListItems();
+    }
 
     void regressionUnlistingAtItemStartKeepsCursorAtFormerItemStart()
     {

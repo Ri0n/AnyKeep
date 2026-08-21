@@ -15,6 +15,7 @@ Control {
     property int maximumPopupHeight: 360
     property int itemHorizontalPadding: 12
     property color backgroundColor: palette.alternateBase
+    property color popupBackgroundColor: palette.window
     property color borderColor: palette.midlight
     property color hoverColor: palette.button
 
@@ -190,7 +191,7 @@ Control {
 
         background: Rectangle {
             radius: 4
-            color: root.palette.window
+            color: root.popupBackgroundColor
             border.width: 1
             border.color: root.borderColor
         }

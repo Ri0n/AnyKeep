@@ -107,6 +107,7 @@ void NoteEditor::loadFromNote()
         baselineText_ = text_;
         format_ = baselineFormat_ = Note::PlainText;
         baselineFolderId_         = {};
+        baselineFavorite_         = false;
         return;
     }
     if (!note_.isLoaded())
@@ -117,6 +118,7 @@ void NoteEditor::loadFromNote()
     baselineText_     = text_;
     baselineFormat_   = format_;
     baselineFolderId_ = note_.folderId();
+    baselineFavorite_ = note_.isFavorite();
 }
 
 void NoteEditor::adoptEditingDraft(const DraftRecord &draft)
@@ -227,6 +229,7 @@ bool NoteEditor::save()
     }
 
     baselineFolderId_ = note_.folderId();
+    baselineFavorite_ = note_.isFavorite();
     setMetadataDirty(false);
     setDirty(false);
     draftPersisted_ = true;
@@ -311,6 +314,11 @@ void NoteEditor::setMetadataDirty(bool dirty)
     updateDirty();
 }
 
+void NoteEditor::updateMetadataDirty()
+{
+    setMetadataDirty(note_.folderId() != baselineFolderId_ || note_.isFavorite() != baselineFavorite_);
+}
+
 void NoteEditor::updateDirty()
 {
     const auto dirty = contentDirty_ || metadataDirty_;
@@ -345,8 +353,23 @@ void NoteEditor::setFolderId(const QUuid &folderId)
     if (note_.isNull() || note_.folderId() == folderId)
         return;
     note_.setFolderId(folderId);
-    setMetadataDirty(note_.folderId() != baselineFolderId_);
+    updateMetadataDirty();
     emit folderIdChanged();
+}
+
+bool NoteEditor::supportsFavorite() const
+{
+    const auto *storage = note_.storage();
+    return storage && storage->supportsFavorite();
+}
+
+void NoteEditor::setFavorite(bool favorite)
+{
+    if (note_.isNull() || !supportsFavorite() || note_.isFavorite() == favorite)
+        return;
+    note_.setFavorite(favorite);
+    updateMetadataDirty();
+    emit favoriteChanged();
 }
 
 void NoteEditor::markFolderPersisted(const QUuid &folderId)
@@ -354,7 +377,7 @@ void NoteEditor::markFolderPersisted(const QUuid &folderId)
     if (note_.isNull() || note_.folderId() != folderId)
         return;
     baselineFolderId_ = folderId;
-    setMetadataDirty(false);
+    updateMetadataDirty();
 }
 
 QObject *NoteEditor::blockModel() const { return model_; }
@@ -563,6 +586,7 @@ bool NoteEditor::reloadNewerDraft()
     if (!draft || draft.value.state != DraftRecord::Editing || draft.value.revision <= draftRevision_)
         return false;
     const auto previousFolderId = note_.folderId();
+    const bool previousFavorite = note_.isFavorite();
     adoptEditingDraft(draft.value);
     loadFromNote();
     media_ = note_.media();
@@ -574,6 +598,8 @@ bool NoteEditor::reloadNewerDraft()
     emit formatChanged();
     if (previousFolderId != note_.folderId())
         emit folderIdChanged();
+    if (previousFavorite != note_.isFavorite())
+        emit favoriteChanged();
     return true;
 }
 

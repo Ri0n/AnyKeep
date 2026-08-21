@@ -37,6 +37,7 @@ public:
         HasMoreRole,
         NoteCountRole,
         IconSourceRole,
+        FavoriteRole,
         PendingDraftRole,
         DraftStateRole,
         DraftErrorRole,

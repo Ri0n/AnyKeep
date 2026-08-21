@@ -74,6 +74,7 @@ struct XmppRemoteNote {
     bool        preserveModified { false }; ///< Local save hint; never serialized.
     QString     format { QStringLiteral("markdown") };
     QStringList tags;
+    bool        favorite { false };
     /** Media descriptors embedded as authenticated XEP-0447 content extensions. */
     QList<XmppRemoteMedia> media;
     /** Folder names from the root to this note's folder, stored in the encrypted index. */

@@ -36,6 +36,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 namespace AnyKeep {
 
 inline constexpr auto RequestedModificationTimeBackendKey = "anykeep.requestedModificationTime";
+inline constexpr auto FavoriteBackendKey                  = "favorite";
 
 class NoteData;
 class NoteStorage;
@@ -65,6 +66,7 @@ public:
     void setFormat(Format format);
     void setTags(const QStringList &tags);
     void setFolderId(const QUuid &folderId);
+    void setFavorite(bool favorite);
     void unload();
     void setLastChangeUTC(const QDateTime &lastChange);
     void setBackendValue(const QString &key, const QVariant &value);
@@ -78,6 +80,7 @@ public:
     QString               displayTitle() const;
     QStringList           tags() const;
     QUuid                 folderId() const;
+    bool                  isFavorite() const;
     Format                format() const;
     QDateTime             lastChangeUTC() const;
     QVariant              backendValue(const QString &key) const;

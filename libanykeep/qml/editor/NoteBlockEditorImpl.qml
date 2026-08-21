@@ -286,6 +286,9 @@ ListView {
     function cutDocumentSelection() { return selectionController.cutDocumentSelection() }
     function cutActiveSelection() { return selectionController.cutActiveSelection() }
     function deleteStructuredSelection(backwards) { return selectionController.deleteStructuredSelection(backwards) }
+    function replaceStructuredSelectionWithText(value, focusEditor) {
+        return selectionController.replaceStructuredSelectionWithText(value, focusEditor)
+    }
     function deleteStructuredSelectionImpl(backwards) { return selectionController.deleteStructuredSelectionImpl(backwards) }
     function selectAllDocument() { return selectionController.selectAllDocument() }
     function selectImageBlock(blockIndex) { return mediaNavigationController.selectImageBlock(blockIndex) }

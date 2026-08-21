@@ -120,6 +120,13 @@ void Note::setFolderId(const QUuid &folderId)
     d->folderId_ = folderId;
 }
 
+void Note::setFavorite(bool favorite)
+{
+    if (!d)
+        return;
+    d->setBackendValue(QString::fromLatin1(FavoriteBackendKey), favorite);
+}
+
 void Note::unload()
 {
     if (!d)
@@ -171,6 +178,8 @@ QString Note::displayTitle() const
 QStringList Note::tags() const { return d ? d->tags() : QStringList(); }
 
 QUuid Note::folderId() const { return d ? d->folderId_ : QUuid {}; }
+
+bool Note::isFavorite() const { return d && d->backendValue(QString::fromLatin1(FavoriteBackendKey)).toBool(); }
 
 Note::Format Note::format() const { return d ? d->format_ : PlainText; }
 

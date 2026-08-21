@@ -253,7 +253,7 @@ void NextcloudStorage::applyRemote(Note &note, const NextcloudRemoteNote &remote
     note.setFormat(Note::Markdown);
     note.setBackendValue(QStringLiteral("etag"), remote.etag);
     note.setBackendValue(QStringLiteral("category"), remote.category);
-    note.setBackendValue(QStringLiteral("favorite"), remote.favorite);
+    note.setFavorite(remote.favorite);
     note.setBackendValue(QStringLiteral("readOnly"), remote.readOnly);
     if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
         note.setFolderId(folderCatalogManager_->catalog().folderForNote(systemName(), remote.id));
@@ -332,7 +332,7 @@ bool NextcloudStorage::toRemote(const Note &note, NextcloudRemoteNote *remote, Q
     result.content        = note.text();
     result.contentPresent = note.isLoaded();
     result.title          = note.title();
-    result.favorite       = note.backendValue(QStringLiteral("favorite")).toBool();
+    result.favorite       = note.isFavorite();
     if (!categoryForNote(note, &result.category, error))
         return false;
     const auto requestedModified

@@ -34,8 +34,8 @@ The code appends `/index.php/apps/notes/api/v1`.
 - Updates send `If-Match` with the last known note ETag.
 - HTTP 412 is treated as a conflict. The local text is preserved and the server version is not overwritten.
 - Server-sanitized titles are adopted from the API response.
-- `category`, `favorite`, `readonly`, and `etag` are preserved as opaque backend attributes of the generic note data.
-- The current AnyKeep `Note` API does not expose category/favorite/read-only metadata to the editor UI.
+- `category`, `readonly`, and `etag` are preserved as opaque backend attributes of the generic note data.
+- `favorite` is exposed through the generic note API and can be changed directly from the note editor.
 - There is no persistent offline cache and no three-way merge in this first version.
 
 ## Credential storage

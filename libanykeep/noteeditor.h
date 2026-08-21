@@ -33,6 +33,8 @@ class ANYKEEP_EXPORT NoteEditor final : public QObject {
     Q_PROPERTY(QString storageId READ storageId CONSTANT)
     Q_PROPERTY(QString noteId READ noteId CONSTANT)
     Q_PROPERTY(QString folderId READ folderIdString NOTIFY folderIdChanged)
+    Q_PROPERTY(bool favorite READ isFavorite WRITE setFavorite NOTIFY favoriteChanged)
+    Q_PROPERTY(bool favoriteSupported READ supportsFavorite CONSTANT)
     Q_PROPERTY(bool supportsMedia READ supportsMedia CONSTANT)
     Q_PROPERTY(bool canInsertImages READ canInsertImages NOTIFY formatChanged)
     Q_PROPERTY(bool canInsertAudio READ canInsertAudio NOTIFY formatChanged)
@@ -77,6 +79,8 @@ public:
     Note::Format          format() const { return format_; }
     bool                  isDirty() const { return dirty_; }
     QUuid                 folderId() const { return note_.folderId(); }
+    bool                  isFavorite() const { return note_.isFavorite(); }
+    bool                  supportsFavorite() const;
     bool                  hasPersistedDraft() const { return draftPersisted_; }
     bool                  folderUserOverride() const { return folderUserOverride_; }
     QString               errorString() const { return errorString_; }
@@ -96,6 +100,7 @@ public:
     bool             insertAttachment(const MediaReference &reference, int row = -1);
     Q_INVOKABLE bool setAudioTranscript(int row, const QString &transcript);
     void             setFolderId(const QUuid &folderId);
+    void             setFavorite(bool favorite);
     /** Preserves a direct user folder choice against automatic routing rules. */
     void setFolderUserOverride(bool enabled = true) { folderUserOverride_ = enabled; }
     /** Marks the current folder metadata as durably stored without touching document content. */
@@ -122,6 +127,10 @@ public:
     Q_INVOKABLE bool        copyMarkdownToPrimarySelection(const QString &markdown);
     Q_INVOKABLE bool        copySelectionToPrimarySelection(const QVariantList &ranges);
     Q_INVOKABLE QVariantMap deleteSelection(const QVariantList &ranges);
+    Q_INVOKABLE QVariantMap replaceListSelectionWithText(const QVariantList &ranges, int focusBlock, int focusItem,
+                                                         const QString &text);
+    Q_INVOKABLE QVariantMap replaceListSelectionFromClipboard(const QVariantList &ranges, int focusBlock,
+                                                              int focusItem);
     Q_INVOKABLE QVariantMap convertSelectionToCodeBlock(const QVariantList &ranges, const QString &plainText,
                                                         const QString &language = QString());
     Q_INVOKABLE int  insertDroppedCodeBlock(int row, const QString &before, const QString &after, const QString &text,
@@ -161,6 +170,7 @@ signals:
     void dirtyChanged();
     void errorStringChanged();
     void folderIdChanged();
+    void favoriteChanged();
     void mediaChanged(const QList<MediaReference> &media);
     void mediaInserted(const QList<MediaReference> &media);
     void documentLoaded(bool formatChanged, bool formatConversion);
@@ -180,6 +190,7 @@ private:
     NoteFragment                withMedia(NoteFragment fragment) const;
     void                        setDirty(bool dirty);
     void                        setMetadataDirty(bool dirty);
+    void                        updateMetadataDirty();
     void                        updateDirty();
     bool                        setError(const QString &error);
     Note                        note_;
@@ -192,6 +203,7 @@ private:
     Note::Format                format_ { Note::PlainText };
     Note::Format                baselineFormat_ { Note::PlainText };
     QUuid                       baselineFolderId_;
+    bool                        baselineFavorite_ { false };
     bool                        contentDirty_ { false };
     bool                        metadataDirty_ { false };
     bool                        dirty_ { false };

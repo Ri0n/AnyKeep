@@ -1,6 +1,7 @@
 #include "draftmanager.h"
 #include "draftstore.h"
 #include "notedata.h"
+#include "noteeditor.h"
 #include "notemanager.h"
 
 #include <QScopeGuard>
@@ -63,6 +64,7 @@ public:
     bool                isAccessible() const override { return true; }
     QList<Note::Format> availableFormats() const override { return formats_; }
     bool                supportsMedia() const override { return supportsMedia_; }
+    bool                supportsFavorite() const override { return supportsFavorite_; }
     QList<Note>         noteList(int limit = 0) override { return limit > 0 ? notes_.mid(0, limit) : notes_; }
     Note                note(const QString &id) override
     {
@@ -84,6 +86,7 @@ public:
     {
         if (failSaves_)
             return false;
+        ++saveCalls_;
         auto saved = note;
         if (saved.id().isEmpty())
             saved.setId(QStringLiteral("%1-%2").arg(id_).arg(++nextId_));
@@ -126,7 +129,9 @@ public:
     QList<Note::Format> formats_ { Note::Markdown, Note::PlainText };
     QList<Note>         notes_;
     bool                supportsMedia_ { true };
+    bool                supportsFavorite_ { false };
     bool                failSaves_ { false };
+    int                 saveCalls_ { 0 };
     int                 removeCalls_ { 0 };
 
 private:
@@ -152,9 +157,57 @@ private slots:
     void resumesPublishingDraftForEditing();
     void prepareForShutdownRequeuesPublishingDraft();
     void exposesPendingPublicationDrafts();
+    void publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval();
     void retargetsPublishedDraftWithoutLosingSourceIdentity();
     void movesUnpublishedDraftWithoutCreatingSourceRemoval();
 };
+
+void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
+{
+    auto storage               = std::make_unique<TransferStorage>(QStringLiteral("favorite-publication"));
+    storage->supportsFavorite_ = true;
+    const auto first
+        = storage->addStored(QStringLiteral("favorite-note-1"), QStringLiteral("First"), QStringLiteral("First body"));
+    const auto second  = storage->addStored(QStringLiteral("favorite-note-2"), QStringLiteral("Second"),
+                                            QStringLiteral("Second body"));
+    auto      *raw     = registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([raw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+
+    DraftManager drafts(std::make_unique<MemoryDraftStore>());
+
+    {
+        NoteEditor editor(first, drafts);
+        editor.setFavorite(true);
+        QVERIFY(editor.isDirty());
+        QVERIFY(editor.close());
+    }
+    QTRY_COMPARE(raw->saveCalls_, 1);
+    QTRY_VERIFY(raw->note(first.id()).isFavorite());
+
+    {
+        NoteEditor editor(second, drafts);
+        editor.setFavorite(true);
+        QVERIFY(editor.isDirty());
+        QVERIFY(editor.close());
+    }
+    QTRY_COMPARE(raw->saveCalls_, 2);
+    QTRY_VERIFY(raw->note(first.id()).isFavorite());
+    QTRY_VERIFY(raw->note(second.id()).isFavorite());
+
+    {
+        NoteEditor editor(raw->note(first.id()), drafts);
+        editor.setFavorite(false);
+        QVERIFY(editor.isDirty());
+        QVERIFY(editor.close());
+    }
+    QTRY_COMPARE(raw->saveCalls_, 3);
+    QTRY_VERIFY(!raw->note(first.id()).isFavorite());
+    QTRY_VERIFY(raw->note(second.id()).isFavorite());
+}
 
 void DraftManagerTransferTest::publishesDestinationBeforeDeletingSource()
 {

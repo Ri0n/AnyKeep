@@ -39,6 +39,12 @@ DraftStoreError DraftManager::saveEditing(const QUuid &draftId, const Note &note
         record.remoteNoteId = note.id();
         record.backendData  = note.backendData();
     }
+    // backendData also contains storage-owned concurrency state, so never
+    // replace it wholesale after the draft has been created. Favorite is an
+    // AnyKeep user-editable metadata key, though, and must follow every
+    // checkpoint just like folderId does.
+    if (const auto *storage = note.storage(); storage && storage->supportsFavorite())
+        record.backendData.insert(QString::fromLatin1(FavoriteBackendKey), note.isFavorite());
     record.title              = title;
     record.body               = body;
     record.format             = format;

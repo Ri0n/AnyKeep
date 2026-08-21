@@ -107,6 +107,7 @@ private slots:
     void folderPickerIgnoresCollapsedAndArchivedBranches();
     void overlayTombstoneWinsOverProviderFolder();
     void exposesPendingDraftsAsVirtualFolder();
+    void favoriteNotesLeadFolderRowsAndExposeFavoriteRole();
 };
 
 void FolderNotesModelTest::initTestCase()
@@ -346,6 +347,43 @@ void FolderNotesModelTest::exposesPendingDraftsAsVirtualFolder()
     QCOMPARE(model.rowCount(), 2);
     QCOMPARE(model.index(0, 0).data(FolderNotesModel::RowKindRole).toInt(), int(FolderNotesModel::DraftsRow));
     QVERIFY(model.index(0, 0).data(FolderNotesModel::CollapsedRole).toBool());
+}
+
+void FolderNotesModelTest::favoriteNotesLeadFolderRowsAndExposeFavoriteRole()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager manager(makeCatalogStore(directory));
+    QVERIFY(manager.initialize());
+
+    FolderRecord folder;
+    folder.name             = QStringLiteral("Inbox");
+    const auto folderResult = manager.addFolder(folder);
+    QVERIFY(folderResult);
+
+    auto       storage = std::make_unique<FolderModelStorage>(QStringLiteral("folder-favorite-order"));
+    auto      *raw     = storage.get();
+    const auto now     = QDateTime::currentDateTimeUtc();
+    auto       recent  = raw->makeNote(QStringLiteral("recent"), QStringLiteral("Recent"), folderResult.value);
+    recent.setLastChangeUTC(now);
+    auto favorite = raw->makeNote(QStringLiteral("favorite"), QStringLiteral("Favorite"), folderResult.value);
+    favorite.setFavorite(true);
+    favorite.setLastChangeUTC(now.addSecs(-3600));
+    raw->notes = { recent, favorite };
+
+    auto *notes = NoteManager::instance();
+    notes->registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([notes, raw]() {
+        if (notes->storage(raw->systemName()) == raw)
+            notes->unregisterStorage(raw);
+    });
+    QTRY_COMPARE(notes->notesIndex()->noteCount(raw->systemName()), 2);
+
+    FolderNotesModel model(&manager);
+    QCOMPARE(model.index(0, 0).data(FolderNotesModel::RowKindRole).toInt(), int(FolderNotesModel::FolderRow));
+    QCOMPARE(model.index(1, 0).data(FolderNotesModel::NoteIdRole).toString(), QStringLiteral("favorite"));
+    QVERIFY(model.index(1, 0).data(FolderNotesModel::FavoriteRole).toBool());
+    QCOMPARE(model.index(2, 0).data(FolderNotesModel::NoteIdRole).toString(), QStringLiteral("recent"));
 }
 
 QTEST_GUILESS_MAIN(FolderNotesModelTest)

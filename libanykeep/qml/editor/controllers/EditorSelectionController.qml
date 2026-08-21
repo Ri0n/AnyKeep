@@ -933,6 +933,8 @@ QtObject {
     function pasteClipboard() {
         if (!editorView.activeEditor)
             return false
+        if (replaceStructuredSelectionFromClipboard(editorView.activeEditor))
+            return true
         // Code blocks are literal text containers. Never let image or rich
         // structured clipboard import turn their contents into other block
         // types or pass them through QTextDocument's Markdown importer.
@@ -1034,6 +1036,74 @@ QtObject {
         })
     }
 
+    function replaceStructuredSelectionWithText(value, focusEditor) {
+        if (!selectionSpansEditors || wholeDocumentSelected || !focusEditor
+                || focusEditor.listItemIndex < 0 || String(value).length === 0)
+            return false
+
+        const ranges = structuredSelectionRanges(true)
+        const affected = ranges.filter(function(range) { return !range.boundaryOnly })
+        if (affected.length < 2
+                || affected.some(function(range) {
+                    return range.blockIndex !== focusEditor.blockIndex
+                            || range.listItemIndex < 0 || range.tableCellIndex >= 0
+                })) {
+            return false
+        }
+
+        return runEditTransaction("replace-list-selection", function() {
+            const result = editorBackend.replaceListSelectionWithText(
+                        affected, focusEditor.blockIndex, focusEditor.listItemIndex, String(value))
+            if (!result || !result.handled)
+                return false
+            return focusListSelectionMutation(result)
+        })
+    }
+
+    function replaceStructuredSelectionFromClipboard(focusEditor) {
+        if (!selectionSpansEditors || wholeDocumentSelected || !focusEditor
+                || focusEditor.listItemIndex < 0)
+            return false
+        const ranges = structuredSelectionRanges(true)
+        const affected = ranges.filter(function(range) { return !range.boundaryOnly })
+        if (affected.length < 2
+                || affected.some(function(range) {
+                    return range.blockIndex !== focusEditor.blockIndex
+                            || range.listItemIndex < 0 || range.tableCellIndex >= 0
+                })) {
+            return false
+        }
+        return runEditTransaction("paste-replace-list-selection", function() {
+            const result = editorBackend.replaceListSelectionFromClipboard(
+                        affected, focusEditor.blockIndex, focusEditor.listItemIndex)
+            if (!result || !result.handled)
+                return false
+            return focusListSelectionMutation(result)
+        })
+    }
+
+    function focusListSelectionMutation(result) {
+        clearDocumentSelection()
+        const block = Number(result.focusBlock)
+        const item = Number(result.focusItem)
+        const position = Number(result.focusMarkdownPosition)
+        if (item < 0) {
+            editorView.focusBlock(block, false, position)
+        } else {
+            editorView.focusEditorAddress({
+                blockIndex: block,
+                listItemIndex: item,
+                tableCellIndex: -1,
+                markdownSourcePosition: position,
+                cursorPosition: -1,
+                selectionStart: -1,
+                selectionEnd: -1,
+                atEnd: false
+            })
+        }
+        return true
+    }
+
     function deleteStructuredSelectionImpl(backwards) {
         if (wholeDocumentSelected) {
             wholeDocumentSelected = false
@@ -1071,31 +1141,12 @@ QtObject {
                 const listItems = affected.filter(range => range.listItemIndex >= 0)
                 if (block >= 0 && listItems.length === affected.length
                         && affected.every(range => range.blockIndex === block)) {
-                    const indexes = listItems.map(range => range.listItemIndex)
-                    const firstItem = Math.min(...indexes)
-                    const lastItem = Math.max(...indexes)
-                    const blockEditors = editorView.orderedEditors().filter(editor => editor.blockIndex === block
-                                                                         && editor.listItemIndex >= 0)
-                    const removesWholeList = firstItem === 0 && lastItem === blockEditors.length - 1
-                    let focusItem = Math.max(0, firstItem - 1)
-                    let focusPosition = 0
-                    if (firstItem > 0) {
-                        const previous = blockEditors.find(editor => editor.listItemIndex === focusItem)
-                        focusPosition = previous ? previous.length : 0
-                    }
                     prepareForStructuralMutation()
-                    blockModel.removeListItems(block, firstItem, lastItem)
-                    if (removesWholeList)
-                        editorView.focusBlock(block)
-                    else
-                        editorView.focusEditorAddress({
-                            blockIndex: block,
-                            listItemIndex: focusItem,
-                            tableCellIndex: -1,
-                            field: "listItem",
-                            cursorPosition: focusPosition
-                        })
-                    return true
+                    const removed = editorBackend.replaceListSelectionWithText(
+                                listItems, block, listItems[0].listItemIndex, "")
+                    if (removed && removed.handled)
+                        return focusListSelectionMutation(removed)
+                    return false
                 }
 
                 const tableCells = affected.filter(range => range.tableCellIndex >= 0)

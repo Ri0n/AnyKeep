@@ -41,6 +41,7 @@ void XmppStorage::applyRemote(Note &note, const XmppRemoteNote &remote)
     note.setBackendValue(IndexRecordTemplateKey, remote.indexRecordTemplate);
     note.setBackendValue(ContentRecordTemplateKey, remote.contentRecordTemplate);
     note.setBackendValue(FolderPathBackendKey, remote.folderPath);
+    note.setFavorite(remote.favorite);
     if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
         note.setFolderId(folderCatalogManager_->catalog().folderForNote(systemName(), remote.id));
     } else {
@@ -131,8 +132,9 @@ bool XmppStorage::toRemote(const Note &note, XmppRemoteNote *remote, QString *er
     result.preserveModified = requestedModified.isValid();
     if (result.preserveModified)
         result.modified = requestedModified;
-    result.format = QStringLiteral("markdown");
-    result.tags   = note.tags();
+    result.format   = QStringLiteral("markdown");
+    result.tags     = note.tags();
+    result.favorite = note.isFavorite();
     for (const auto &reference : note.media()) {
         XmppRemoteMedia media;
         media.reference      = reference;

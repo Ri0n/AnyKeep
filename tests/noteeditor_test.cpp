@@ -13,6 +13,7 @@
 #include "noteeditor.h"
 #include "notehighlighter.h"
 #include "noterule.h"
+#include "notestorage.h"
 #include "notetransfercontroller.h"
 #include "spellcheckprovider.h"
 
@@ -62,6 +63,25 @@ Note plainNote(const QString &title = QStringLiteral("Title"), const QString &bo
     note.setText(body, Note::PlainText);
     return note;
 }
+
+class FavoriteStorage final : public NoteStorage {
+public:
+    using NoteStorage::NoteStorage;
+
+    bool                init() override { return true; }
+    const QString       systemName() const override { return QStringLiteral("favorite-test"); }
+    const QString       name() const override { return QStringLiteral("Favorite test"); }
+    QIcon               storageIcon() const override { return {}; }
+    QIcon               noteIcon() const override { return {}; }
+    bool                isAccessible() const override { return true; }
+    QList<Note::Format> availableFormats() const override { return { Note::Markdown, Note::PlainText }; }
+    bool                supportsFavorite() const override { return true; }
+    QList<Note>         noteList(int = 0) override { return {}; }
+    Note                note(const QString &) override { return {}; }
+    Note                createNote() override { return Note(new NoteData(this)); }
+    bool                saveNote(const Note &) override { return true; }
+    void                removeNote(const QString &) override {}
+};
 
 class RejectAllSpellCheckProvider final : public SpellCheckProvider {
 public:
@@ -115,17 +135,20 @@ private slots:
         edited.setTitle(QStringLiteral("Changed"));
         edited.setText(QStringLiteral("New body"), Note::PlainText);
         edited.setFolderId(QUuid::createUuid());
+        edited.setFavorite(true);
         edited.setLastChangeUTC(QDateTime::currentDateTimeUtc());
         edited.setBackendValue(QStringLiteral("revision"), 2);
 
         QCOMPARE(original.title(), QStringLiteral("Title"));
         QCOMPARE(original.text(), QStringLiteral("Body"));
         QVERIFY(original.folderId().isNull());
+        QVERIFY(!original.isFavorite());
         QVERIFY(!original.lastChangeUTC().isValid());
         QVERIFY(!original.backendValue(QStringLiteral("revision")).isValid());
         QCOMPARE(edited.title(), QStringLiteral("Changed"));
         QCOMPARE(edited.text(), QStringLiteral("New body"));
         QVERIFY(!edited.folderId().isNull());
+        QVERIFY(edited.isFavorite());
     }
 
     void unchangedEditorDoesNotCreateDraft()
@@ -139,6 +162,36 @@ private slots:
         QVERIFY(!editor.isDirty());
         QVERIFY(editor.close());
         QVERIFY(data->drafts.isEmpty());
+    }
+
+    void favoriteMetadataFollowsEveryDraftCheckpoint()
+    {
+        FavoriteStorage storage;
+        Note            note(new NoteData(&storage));
+        note.setId(QStringLiteral("favorite-note"));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("Body"), Note::PlainText);
+        note.setBackendValue(QStringLiteral("etag"), QStringLiteral("base-etag"));
+
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(note, drafts);
+
+        editor.setFavorite(true);
+        QVERIFY(editor.isFavorite());
+        QVERIFY(editor.save());
+        auto record = data->drafts.value(editor.draftId());
+        QVERIFY(record.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool());
+        QCOMPARE(record.backendData.value(QStringLiteral("etag")).toString(), QStringLiteral("base-etag"));
+
+        editor.setFavorite(false);
+        QVERIFY(!editor.isFavorite());
+        QVERIFY(editor.save());
+        record = data->drafts.value(editor.draftId());
+        QVERIFY(record.backendData.contains(QString::fromLatin1(FavoriteBackendKey)));
+        QVERIFY(!record.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool());
+        QCOMPARE(record.backendData.value(QStringLiteral("etag")).toString(), QStringLiteral("base-etag"));
     }
 
     void markdownTagLineIsCheckpointedAsTags()

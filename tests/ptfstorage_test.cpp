@@ -8,6 +8,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QUuid>
@@ -237,6 +240,100 @@ private slots:
             settings.setValue(QStringLiteral("storage.ptf.path"), previousPath);
         else
             settings.remove(QStringLiteral("storage.ptf.path"));
+    }
+
+    void favoriteSurvivesFreshStorageInstanceAndLivesBesideFolderMetadata()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+
+        QString noteId;
+        {
+            PTFStorage writer;
+            QVERIFY(writer.setStoragePath(directory.path()));
+            QVERIFY(writer.supportsFavorite());
+
+            Note note = writer.createNote();
+            note.setTitle(QStringLiteral("Favorite PTF note"));
+            note.setText(QStringLiteral("Body"), Note::Markdown);
+            note.setFavorite(true);
+            QVERIFY(writer.saveNote(note));
+
+            const auto notes = writer.noteList();
+            QCOMPARE(notes.size(), 1);
+            QVERIFY(notes.constFirst().isFavorite());
+            noteId = notes.constFirst().id();
+        }
+
+        QFile indexFile(directory.filePath(QStringLiteral(".anykeep-folders.json")));
+        QVERIFY(indexFile.open(QIODevice::ReadOnly));
+        const auto root = QJsonDocument::fromJson(indexFile.readAll()).object();
+        QVERIFY(root.value(QStringLiteral("folders")).isArray());
+        QVERIFY(root.value(QStringLiteral("assignments")).isArray());
+        const auto favorites = root.value(QStringLiteral("favorites")).toArray();
+        QCOMPARE(favorites.size(), 1);
+        QCOMPARE(favorites.at(0).toString(), noteId);
+        indexFile.close();
+
+        QString renamedId;
+        {
+            PTFStorage reader;
+            QVERIFY(reader.setStoragePath(directory.path()));
+            const auto notes = reader.noteList();
+            QCOMPARE(notes.size(), 1);
+            QVERIFY(notes.constFirst().isFavorite());
+
+            Note loaded = notes.constFirst();
+            QVERIFY(loaded.load());
+            QVERIFY(loaded.isFavorite());
+            loaded.setTitle(QStringLiteral("Renamed favorite PTF note"));
+            QVERIFY(reader.saveNote(loaded));
+
+            const auto renamed = reader.noteList();
+            QCOMPARE(renamed.size(), 1);
+            renamedId = renamed.constFirst().id();
+            QVERIFY(renamedId != noteId);
+            QVERIFY(renamed.constFirst().isFavorite());
+        }
+
+        QVERIFY(indexFile.open(QIODevice::ReadOnly));
+        const auto renamedRoot      = QJsonDocument::fromJson(indexFile.readAll()).object();
+        const auto renamedFavorites = renamedRoot.value(QStringLiteral("favorites")).toArray();
+        QCOMPARE(renamedFavorites.size(), 1);
+        QCOMPARE(renamedFavorites.at(0).toString(), renamedId);
+        indexFile.close();
+
+        {
+            PTFStorage reader;
+            QVERIFY(reader.setStoragePath(directory.path()));
+            Note loaded = reader.noteList().constFirst();
+            QVERIFY(loaded.load());
+            QVERIFY(loaded.isFavorite());
+            loaded.setFavorite(false);
+            QVERIFY(reader.saveNote(loaded));
+        }
+
+        PTFStorage reloaded;
+        QVERIFY(reloaded.setStoragePath(directory.path()));
+        const auto notes = reloaded.noteList();
+        QCOMPARE(notes.size(), 1);
+        QVERIFY(!notes.constFirst().isFavorite());
+
+        QVERIFY(indexFile.open(QIODevice::ReadOnly));
+        const auto updatedRoot = QJsonDocument::fromJson(indexFile.readAll()).object();
+        QVERIFY(updatedRoot.value(QStringLiteral("favorites")).toArray().isEmpty());
+        indexFile.close();
+
+        Note favoriteAgain = notes.constFirst();
+        QVERIFY(favoriteAgain.load());
+        favoriteAgain.setFavorite(true);
+        QVERIFY(reloaded.saveNote(favoriteAgain));
+        reloaded.removeNote(favoriteAgain.id());
+
+        QVERIFY(indexFile.open(QIODevice::ReadOnly));
+        const auto removedRoot = QJsonDocument::fromJson(indexFile.readAll()).object();
+        QVERIFY(removedRoot.value(QStringLiteral("favorites")).toArray().isEmpty());
+        indexFile.close();
     }
 
     void legacyPtfMetadataIsMigrated()
@@ -735,7 +832,7 @@ private slots:
         QSignalSpy errors(&storage, &NoteStorage::storageErorr);
         QTest::ignoreMessage(QtWarningMsg,
                              QRegularExpression(QStringLiteral(
-                                 ".*Failed to update PTF folder index.*Invalid PTF folder index payload.*")));
+                                 ".*Failed to update PTF portable metadata.*Invalid PTF folder index payload.*")));
         QVERIFY(storage.saveNote(note));
         QCOMPARE(errors.size(), 1);
         QVERIFY(!storage.folderCatalogAvailable());

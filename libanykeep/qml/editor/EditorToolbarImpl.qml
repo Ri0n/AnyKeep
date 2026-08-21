@@ -113,11 +113,15 @@ ToolBar {
     readonly property bool folderPickerAvailable: root.folderWorkspace !== null
                                                && root.folderWorkspace !== undefined
                                                && root.folderWorkspace.folderCatalogAvailable
+    readonly property bool favoriteAvailable: root.editorBackend !== null
+                                               && root.editorBackend !== undefined
+                                               && Boolean(root.editorBackend.favoriteSupported)
     readonly property int microphoneSelectorWidth: microphoneVisible && microphoneModeSwitchVisible ? 14 : 0
     readonly property int mandatoryButtonCount: 3
                                                 + (showBackButton ? 1 : 0)
                                                 + (microphoneVisible ? 1 : 0)
                                                 + (folderPickerAvailable ? 1 : 0)
+                                                + (favoriteAvailable ? 1 : 0)
                                                 + (showDeleteButton ? 1 : 0)
     readonly property real optionalWidth: width - 16 - microphoneSelectorWidth
                                           - mandatoryButtonCount * controlSize
@@ -488,6 +492,32 @@ ToolBar {
                 currentFolderId: root.folderWorkspace
                                  ? String(root.folderWorkspace.currentFolderId || "") : ""
                 onFolderSelected: function(folderId) { root.assignCurrentNoteFolder(folderId) }
+            }
+        }
+
+        ToolButton {
+            id: favoriteButton
+            objectName: "editorFavoriteButton"
+            visible: root.favoriteAvailable
+            Layout.preferredWidth: root.controlSize
+            Layout.preferredHeight: root.controlSize
+            padding: 0
+            checkable: true
+            checked: root.editorBackend && Boolean(root.editorBackend.favorite)
+            display: AbstractButton.IconOnly
+            contentItem: Shared.ThemedIconImpl {
+                themeName: "emblem-favorite-symbolic"
+                fallbackName: "emblem-favorite-symbolic.svg"
+                recolorFallback: true
+                fallbackTintMode: root.fallbackIconTintMode
+                pixelSize: root.iconSize
+            }
+            Accessible.name: checked ? qsTr("Remove from favorites") : qsTr("Add to favorites")
+            ToolTip.visible: hovered
+            ToolTip.text: Accessible.name
+            onClicked: {
+                if (root.editorBackend)
+                    root.editorBackend.favorite = checked
             }
         }
 

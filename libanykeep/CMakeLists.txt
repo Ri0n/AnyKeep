@@ -191,6 +191,7 @@ set(anykeep_CORE_HDRS
     notedata.h
     noteeditor.h
     notetitleresolver.h
+    notepresentationorder.h
     notehighlighter.h
     noterule.h
     noteruleapplicationcontroller.h

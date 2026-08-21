@@ -413,6 +413,7 @@ QList<Note> PTFStorage::noteListFromInfoList(const QFileInfoList &files)
         Note note(new NoteData(this));
         note.setId(fi.completeBaseName());
         note.setFolderId(folderIdForNote(note.id()));
+        note.setFavorite(favoriteNoteIds_.contains(note.id()));
         note.setFormat(fi.suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0 ? Note::Markdown
                                                                                           : Note::PlainText);
         const auto [title, body] = splitPtfContents(QString::fromUtf8(file.readAll()));
@@ -452,6 +453,7 @@ Note PTFStorage::note(const QString &noteId)
                 Note loaded(new NoteData(this));
                 loaded.setId(fi.completeBaseName());
                 loaded.setFolderId(folderIdForNote(loaded.id()));
+                loaded.setFavorite(favoriteNoteIds_.contains(loaded.id()));
                 loaded.setFormat(fi.suffix().compare(QLatin1String("md"), Qt::CaseInsensitive) == 0 ? Note::Markdown
                                                                                                     : Note::PlainText);
                 loaded.setLastChangeUTC(fi.lastModified());
@@ -509,6 +511,7 @@ bool PTFStorage::loadNote(Note &note)
                          NoteTitleResolver::displayTitle(title, body, note.format()));
     note.setMedia(media);
     note.setFolderId(folderIdForNote(note.id()));
+    note.setFavorite(favoriteNoteIds_.contains(note.id()));
     return true;
 }
 
@@ -637,10 +640,10 @@ bool PTFStorage::saveNote(const Note &note)
     saved.setLastChangeUTC(QFileInfo(fileName).lastModified());
     saved.removeBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey));
     saved.setBackendValue(QStringLiteral("fileName"), fileName);
-    if (const auto folderError = updateFolderAssignment(oldNoteId, saved)) {
-        qCWarning(logPtfStorage) << "Failed to update PTF folder index:" << folderError.message;
-        emit storageErorr(
-            tr("Failed to update the PTF folder index. The note content was saved, but its folder may need recovery."));
+    if (const auto metadataError = updateNoteMetadata(oldNoteId, saved)) {
+        qCWarning(logPtfStorage) << "Failed to update PTF portable metadata:" << metadataError.message;
+        emit storageErorr(tr("Failed to update PTF note metadata. The note content was saved, but its folder or "
+                             "favorite state may need recovery."));
         // Folder organization is recoverable metadata. Do not report a body
         // save as failed after its QSaveFile commit succeeded: doing so would
         // make a damaged folder index block ordinary editing and can cause a
@@ -741,12 +744,22 @@ void PTFStorage::removeNote(const QString &noteId)
         QDir(notesDir.filePath(noteId)).removeRecursively();
     if (folderCatalogAvailable_) {
         FolderCatalog catalog;
-        if (!catalog.replaceSnapshot(folderCatalog_) && catalog.assignment(systemName(), noteId)) {
-            if (const auto clearError = catalog.clearNoteAssignment(systemName(), noteId)) {
-                qCWarning(logPtfStorage) << "Failed to clear PTF folder assignment:" << clearError.message;
-            } else if (const auto persistError = replaceFolderCatalog(catalog.snapshot())) {
-                qCWarning(logPtfStorage) << "Failed to persist cleared PTF folder assignment:" << persistError.message;
-                emit storageErorr(tr("Failed to update the PTF folder index after removing a note."));
+        if (!catalog.replaceSnapshot(folderCatalog_)) {
+            auto favorites = favoriteNoteIds_;
+            bool changed   = favorites.remove(noteId);
+            if (catalog.assignment(systemName(), noteId)) {
+                if (const auto clearError = catalog.clearNoteAssignment(systemName(), noteId)) {
+                    qCWarning(logPtfStorage) << "Failed to clear PTF folder assignment:" << clearError.message;
+                } else {
+                    changed = true;
+                }
+            }
+            if (changed) {
+                if (const auto persistError = persistPortableMetadata(catalog.snapshot(), favorites)) {
+                    qCWarning(logPtfStorage)
+                        << "Failed to persist PTF metadata after removing note:" << persistError.message;
+                    emit storageErorr(tr("Failed to update PTF note metadata after removing a note."));
+                }
             }
         }
     }
@@ -849,7 +862,8 @@ FolderCatalogError PTFStorage::recreateFolderCatalog(QString *preservedPath)
 
 void PTFStorage::loadFolderCatalog()
 {
-    folderCatalog_          = {};
+    folderCatalog_ = {};
+    favoriteNoteIds_.clear();
     folderCatalogAvailable_ = false;
     folderCatalogError_.clear();
 
@@ -861,7 +875,15 @@ void PTFStorage::loadFolderCatalog()
                                  << "backupAvailable=" << index.hasBackup();
         return;
     }
+    const auto favorites = index.loadFavoriteNoteIds();
+    if (!favorites) {
+        folderCatalogError_ = favorites.error.message;
+        qCWarning(logPtfStorage) << "PTF favorite index is unavailable:" << favorites.error.message
+                                 << "backupAvailable=" << index.hasBackup();
+        return;
+    }
     folderCatalog_          = loaded.value;
+    favoriteNoteIds_        = favorites.value;
     folderCatalogAvailable_ = true;
 }
 
@@ -878,6 +900,12 @@ QUuid PTFStorage::folderIdForNote(const QString &noteId) const
 
 FolderCatalogError PTFStorage::replaceFolderCatalog(const FolderCatalogSnapshot &snapshot)
 {
+    return persistPortableMetadata(snapshot, favoriteNoteIds_);
+}
+
+FolderCatalogError PTFStorage::persistPortableMetadata(const FolderCatalogSnapshot &snapshot,
+                                                       const QSet<QString>         &favoriteNoteIds)
+{
     if (!folderCatalogAvailable_) {
         return { FolderCatalogError::Corrupt,
                  folderCatalogError_.isEmpty() ? tr("The PTF folder index is unavailable") : folderCatalogError_ };
@@ -891,22 +919,26 @@ FolderCatalogError PTFStorage::replaceFolderCatalog(const FolderCatalogSnapshot 
     }
 
     PtfFolderIndex index(notesDir.filePath(FolderIndexName), systemName());
-    if (const auto saveError = index.save(owned)) {
+    if (const auto saveError = index.save(owned, favoriteNoteIds)) {
         if (saveError.code == FolderCatalogError::Corrupt) {
-            folderCatalog_          = {};
+            folderCatalog_ = {};
+            favoriteNoteIds_.clear();
             folderCatalogAvailable_ = false;
             folderCatalogError_     = saveError.message;
         }
         return saveError;
     }
-    folderCatalog_ = std::move(owned);
+    folderCatalog_   = std::move(owned);
+    favoriteNoteIds_ = favoriteNoteIds;
     return {};
 }
 
-FolderCatalogError PTFStorage::updateFolderAssignment(const QString &oldNoteId, const Note &saved)
+FolderCatalogError PTFStorage::updateNoteMetadata(const QString &oldNoteId, const Note &saved)
 {
+    const bool favoriteRequiresIndex
+        = saved.isFavorite() || (!oldNoteId.isEmpty() && favoriteNoteIds_.contains(oldNoteId));
     if (!folderCatalogAvailable_) {
-        if (saved.folderId().isNull())
+        if (saved.folderId().isNull() && !favoriteRequiresIndex)
             return {};
         return { FolderCatalogError::Corrupt,
                  folderCatalogError_.isEmpty() ? tr("The PTF folder index is unavailable") : folderCatalogError_ };
@@ -916,22 +948,35 @@ FolderCatalogError PTFStorage::updateFolderAssignment(const QString &oldNoteId, 
     if (const auto validation = catalog.replaceSnapshot(folderCatalog_))
         return validation;
 
+    bool       changed       = false;
     const auto oldAssignment = oldNoteId.isEmpty() ? nullptr : catalog.assignment(systemName(), oldNoteId);
     const auto oldFolderId   = oldAssignment && !oldAssignment->tombstone ? oldAssignment->folderId : QUuid {};
-    if (oldFolderId.isNull() && saved.folderId().isNull())
-        return {};
-    if (oldNoteId == saved.id() && oldFolderId == saved.folderId())
-        return {};
+    if (oldNoteId != saved.id() || oldFolderId != saved.folderId()) {
+        if (!oldNoteId.isEmpty() && oldAssignment) {
+            if (const auto clearError = catalog.clearNoteAssignment(systemName(), oldNoteId))
+                return clearError;
+            changed = true;
+        }
+        if (!saved.folderId().isNull()) {
+            if (const auto assignError = catalog.assignNote(systemName(), saved.id(), saved.folderId()))
+                return assignError;
+            changed = true;
+        }
+    }
 
-    if (!oldNoteId.isEmpty() && oldAssignment) {
-        if (const auto clearError = catalog.clearNoteAssignment(systemName(), oldNoteId))
-            return clearError;
-    }
-    if (!saved.folderId().isNull()) {
-        if (const auto assignError = catalog.assignNote(systemName(), saved.id(), saved.folderId()))
-            return assignError;
-    }
-    return replaceFolderCatalog(catalog.snapshot());
+    auto favorites = favoriteNoteIds_;
+    if (!oldNoteId.isEmpty() && oldNoteId != saved.id())
+        changed = favorites.remove(oldNoteId) || changed;
+    const bool wasFavorite = favorites.contains(saved.id());
+    if (saved.isFavorite())
+        favorites.insert(saved.id());
+    else
+        favorites.remove(saved.id());
+    changed = changed || (wasFavorite != saved.isFavorite());
+
+    if (!changed)
+        return {};
+    return persistPortableMetadata(catalog.snapshot(), favorites);
 }
 
 QString PTFStorage::storageId = QStringLiteral("ptf");

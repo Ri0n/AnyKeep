@@ -4,6 +4,7 @@
 #include "notemanager.h"
 #include "notesindex.h"
 #include "notesmodel.h"
+#include "recentnotesmodel.h"
 
 #include <QPointer>
 #include <QScopeGuard>
@@ -390,6 +391,47 @@ private slots:
         QCOMPARE(storage.sourceNotes.at(1).id(), first.id());
         QCOMPARE(storage.sourceNotes.at(2).id(), second.id());
         delete job;
+    }
+
+    void favoriteNotesLeadGroupedAndRecentProjections()
+    {
+        auto       storage  = std::make_unique<FakeStorage>(QStringLiteral("fake-favorite-order"));
+        auto      *raw      = storage.get();
+        const auto baseTime = QDateTime::currentDateTimeUtc();
+        auto       recent   = raw->makeNote(QStringLiteral("recent"), QStringLiteral("Recent"));
+        recent.setLastChangeUTC(baseTime);
+        auto favorite = raw->makeNote(QStringLiteral("favorite"), QStringLiteral("Favorite"));
+        favorite.setFavorite(true);
+        favorite.setLastChangeUTC(baseTime.addSecs(-3600));
+        raw->sourceNotes = { recent, favorite };
+
+        auto *manager = NoteManager::instance();
+        manager->registerStorage(std::move(storage));
+        const auto unregister = qScopeGuard([manager, raw]() {
+            if (manager->storage(raw->systemName()) == raw)
+                manager->unregisterStorage(raw);
+        });
+        QTRY_COMPARE(manager->notesIndex()->noteCount(raw->systemName()), 2);
+
+        NotesModel  grouped;
+        QModelIndex storageIndex;
+        for (int row = 0; row < grouped.rowCount(); ++row) {
+            const auto candidate = grouped.index(row, 0);
+            if (candidate.data(NotesModel::StorageIdRole).toString() == raw->systemName()) {
+                storageIndex = candidate;
+                break;
+            }
+        }
+        QVERIFY(storageIndex.isValid());
+        QTRY_COMPARE(grouped.rowCount(storageIndex), 2);
+        QCOMPARE(grouped.index(0, 0, storageIndex).data(NotesModel::NoteIdRole).toString(), QStringLiteral("favorite"));
+        QVERIFY(grouped.index(0, 0, storageIndex).data(NotesModel::FavoriteRole).toBool());
+
+        RecentNotesModel recentModel(&grouped);
+        recentModel.setMaximumCount(10);
+        QTRY_COMPARE(recentModel.rowCount(), 2);
+        QCOMPARE(recentModel.index(0, 0).data(NotesModel::NoteIdRole).toString(), QStringLiteral("favorite"));
+        QVERIFY(recentModel.index(0, 0).data(NotesModel::FavoriteRole).toBool());
     }
 
     void visiblePageKeepsItsTailWhenAnInsertedNoteIncreasesTheCount()

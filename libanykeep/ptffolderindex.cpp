@@ -20,6 +20,7 @@ the Free Software Foundation, either version 3 of the License, or
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QSaveFile>
+#include <QStringList>
 #include <QUuid>
 
 #include <utility>
@@ -29,6 +30,7 @@ namespace {
 
     constexpr int MaximumFolderCount     = 100000;
     constexpr int MaximumAssignmentCount = 1000000;
+    constexpr int MaximumFavoriteCount   = 1000000;
     constexpr int IndexVersion           = 1;
 
     FolderCatalogError error(FolderCatalogError::Code code, const QString &message) { return { code, message }; }
@@ -76,7 +78,7 @@ namespace {
         return object;
     }
 
-    QByteArray serialize(const FolderCatalogSnapshot &snapshot)
+    QByteArray serialize(const FolderCatalogSnapshot &snapshot, const QSet<QString> &favoriteNoteIds)
     {
         QJsonArray folders;
         for (const auto &record : snapshot.folders)
@@ -86,10 +88,21 @@ namespace {
         for (const auto &record : snapshot.assignments)
             assignments.append(encodeAssignment(record));
 
+        QStringList favoriteIds;
+        favoriteIds.reserve(favoriteNoteIds.size());
+        for (const auto &noteId : favoriteNoteIds)
+            favoriteIds.append(noteId);
+        favoriteIds.sort();
+
+        QJsonArray favorites;
+        for (const auto &noteId : std::as_const(favoriteIds))
+            favorites.append(noteId);
+
         QJsonObject root;
         root.insert(QStringLiteral("version"), IndexVersion);
         root.insert(QStringLiteral("folders"), folders);
         root.insert(QStringLiteral("assignments"), assignments);
+        root.insert(QStringLiteral("favorites"), favorites);
         return QJsonDocument(root).toJson(QJsonDocument::Compact);
     }
 
@@ -258,6 +271,36 @@ namespace {
         return { snapshot, {} };
     }
 
+    FolderCatalogResult<QSet<QString>> deserializeFavoriteNoteIds(const QByteArray &bytes)
+    {
+        QJsonParseError parseError;
+        const auto      document = QJsonDocument::fromJson(bytes, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            return { {}, error(FolderCatalogError::Corrupt, QStringLiteral("Invalid PTF folder index payload")) };
+        }
+
+        const auto root      = document.object();
+        const auto version   = root.value(QStringLiteral("version"));
+        const auto favorites = root.value(QStringLiteral("favorites"));
+        if (!version.isDouble() || version.toDouble() != IndexVersion) {
+            return { {}, error(FolderCatalogError::Corrupt, QStringLiteral("Unsupported PTF folder index payload")) };
+        }
+        if (favorites.isUndefined())
+            return { {}, {} };
+        if (!favorites.isArray() || favorites.toArray().size() > MaximumFavoriteCount) {
+            return { {}, error(FolderCatalogError::Corrupt, QStringLiteral("Invalid PTF favorite note index")) };
+        }
+
+        QSet<QString> result;
+        for (const auto &value : favorites.toArray()) {
+            if (!value.isString() || value.toString().isEmpty()) {
+                return { {}, error(FolderCatalogError::Corrupt, QStringLiteral("Invalid PTF favorite note id")) };
+            }
+            result.insert(value.toString());
+        }
+        return { result, {} };
+    }
+
 } // namespace
 
 PtfFolderIndex::PtfFolderIndex(QString filePath, QString storageId) :
@@ -272,10 +315,33 @@ FolderCatalogResult<FolderCatalogSnapshot> PtfFolderIndex::loadBackup() const
     return loadPath(backupFilePath(), false);
 }
 
+FolderCatalogResult<QSet<QString>> PtfFolderIndex::loadFavoriteNoteIds() const
+{
+    return loadFavoriteNoteIdsPath(filePath_, true);
+}
+
 FolderCatalogError PtfFolderIndex::save(const FolderCatalogSnapshot &snapshot) const
+{
+    QSet<QString> favorites;
+    if (QFile::exists(filePath_)) {
+        const auto loadedFavorites = loadFavoriteNoteIds();
+        if (!loadedFavorites)
+            return loadedFavorites.error;
+        favorites = loadedFavorites.value;
+    }
+    return save(snapshot, favorites);
+}
+
+FolderCatalogError PtfFolderIndex::save(const FolderCatalogSnapshot &snapshot,
+                                        const QSet<QString>         &favoriteNoteIds) const
 {
     if (const auto validation = validateSnapshot(snapshot))
         return validation;
+    if (favoriteNoteIds.size() > MaximumFavoriteCount
+        || std::any_of(favoriteNoteIds.cbegin(), favoriteNoteIds.cend(),
+                       [](const QString &noteId) { return noteId.isEmpty(); })) {
+        return error(FolderCatalogError::InvalidArgument, QStringLiteral("Invalid PTF favorite note index"));
+    }
 
     if (QFile::exists(filePath_)) {
         const auto current = load();
@@ -287,7 +353,7 @@ FolderCatalogError PtfFolderIndex::save(const FolderCatalogSnapshot &snapshot) c
         if (const auto backupError = writeRaw(backupFilePath(), raw.value))
             return backupError;
     }
-    return writeRaw(filePath_, serialize(snapshot));
+    return writeRaw(filePath_, serialize(snapshot, favoriteNoteIds));
 }
 
 QString PtfFolderIndex::backupFilePath() const { return filePath_ + QStringLiteral(".bak"); }
@@ -301,6 +367,9 @@ FolderCatalogError PtfFolderIndex::restoreBackup(QString *preservedPath) const
     const auto backup = loadBackup();
     if (!backup)
         return backup.error;
+    const auto favorites = loadFavoriteNoteIdsPath(backupFilePath(), false);
+    if (!favorites)
+        return favorites.error;
     const auto raw = readRaw(backupFilePath());
     if (!raw)
         return raw.error;
@@ -323,7 +392,7 @@ FolderCatalogError PtfFolderIndex::recreate(QString *preservedPath) const
         preserved = backupPreserved;
     if (preservedPath)
         *preservedPath = preserved;
-    return save({});
+    return save({}, {});
 }
 
 FolderCatalogResult<FolderCatalogSnapshot> PtfFolderIndex::loadPath(const QString &path, bool absentIsEmpty) const
@@ -339,6 +408,22 @@ FolderCatalogResult<FolderCatalogSnapshot> PtfFolderIndex::loadPath(const QStrin
     if (!raw)
         return { {}, raw.error };
     return deserialize(raw.value, storageId_);
+}
+
+FolderCatalogResult<QSet<QString>> PtfFolderIndex::loadFavoriteNoteIdsPath(const QString &path,
+                                                                           bool           absentIsEmpty) const
+{
+    if (path.isEmpty())
+        return { {}, error(FolderCatalogError::InvalidArgument, QStringLiteral("PTF folder index path is empty")) };
+    if (!QFile::exists(path)) {
+        if (absentIsEmpty)
+            return { {}, {} };
+        return { {}, error(FolderCatalogError::NotFound, QStringLiteral("PTF folder index backup was not found")) };
+    }
+    const auto raw = readRaw(path);
+    if (!raw)
+        return { {}, raw.error };
+    return deserializeFavoriteNoteIds(raw.value);
 }
 
 FolderCatalogResult<QByteArray> PtfFolderIndex::readRaw(const QString &path) const

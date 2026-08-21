@@ -9,6 +9,7 @@
         <file alias="markdown.svg">images/markdown.svg</file>
         <file alias="txt.svg">images/txt.svg</file>
         <file alias="edit-find-symbolic.svg">images/edit-find-symbolic.svg</file>
+        <file alias="emblem-favorite-symbolic.svg">images/emblem-favorite-symbolic.svg</file>
         <file alias="edit-redo-symbolic.svg">images/edit-redo-symbolic.svg</file>
         <file alias="edit-undo-symbolic.svg">images/edit-undo-symbolic.svg</file>
         <file alias="table-symbolic.svg">images/table-symbolic.svg</file>
@@ -18,6 +19,7 @@
         <file alias="format-list-unordered-symbolic.svg">images/format-list-unordered-symbolic.svg</file>
         <file alias="code-symbolic.svg">images/code-symbolic.svg</file>
         <file alias="text-wrap-symbolic.svg">images/text-wrap-symbolic.svg</file>
+        <file alias="edit-copy-symbolic.svg">images/edit-copy-symbolic.svg</file>
         <file alias="insert-link-symbolic.svg">images/insert-link-symbolic.svg</file>
         <file alias="user-trash-full-symbolic.svg">images/user-trash-full-symbolic.svg</file>
         <file alias="folder-symbolic.svg">images/folder-symbolic.svg</file>

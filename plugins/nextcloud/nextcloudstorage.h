@@ -44,6 +44,7 @@ public:
     NoteRemoveJob      *removeNoteAsync(const QString &noteId, QObject *owner = nullptr) override;
 
     bool                 supportsNativeFolders() const override { return true; }
+    bool                 supportsFavorite() const override { return true; }
     NoteFolderChangeJob *changeNoteFolderAsync(const Note &note, QObject *owner = nullptr) override;
 
     bool                isConfigurable() const override { return true; }

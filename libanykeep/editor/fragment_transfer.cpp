@@ -13,6 +13,8 @@
 #include <QTextDocument>
 #include <QTextFragment>
 
+#include <algorithm>
+
 #include "localmediastore.h"
 #include "noteblockmodel.h"
 #include "notefragmentmediatransfer.h"
@@ -40,6 +42,104 @@ QVariantMap NoteEditor::deleteSelection(const QVariantList &encodedRanges)
         result.insert(QStringLiteral("focusPosition"), first.value(QStringLiteral("selectionStart"), 0));
     }
     return result;
+}
+
+QVariantMap NoteEditor::replaceListSelectionWithText(const QVariantList &encodedRanges, int focusBlock, int focusItem,
+                                                     const QString &text)
+{
+    QList<NoteBlockSelectionRange> ranges = decodeSelectionRanges(encodedRanges);
+    if (ranges.isEmpty() || focusBlock < 0 || focusItem < 0)
+        return {};
+
+    std::sort(ranges.begin(), ranges.end(),
+              [](const auto &left, const auto &right) { return left.listItemIndex < right.listItemIndex; });
+
+    const QStringList items = model_->data(model_->index(focusBlock), NoteBlockModel::ItemsRole).toStringList();
+    if (items.isEmpty())
+        return {};
+    for (qsizetype index = 0; index < ranges.size(); ++index) {
+        const auto &range = ranges.at(index);
+        if (range.blockIndex != focusBlock || range.listItemIndex < 0 || range.listItemIndex >= items.size()
+            || range.tableCellIndex >= 0
+            || (index > 0 && range.listItemIndex != ranges.at(index - 1).listItemIndex + 1)) {
+            return {};
+        }
+    }
+
+    QString replacement = text;
+    replacement.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    replacement.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+
+    const auto &first     = ranges.constFirst();
+    const auto &last      = ranges.constLast();
+    const int   firstItem = first.listItemIndex;
+    const int   lastItem  = last.listItemIndex;
+    int         resultItem;
+    int         resultPosition;
+
+    if (!first.before.isEmpty()) {
+        // The first item survives. All following selected items, including a
+        // partially selected last one, collapse into it.
+        model_->setListItem(focusBlock, firstItem, first.before + replacement + last.after);
+        if (lastItem > firstItem)
+            model_->removeListItems(focusBlock, firstItem + 1, lastItem);
+        resultItem     = firstItem;
+        resultPosition = first.before.size() + replacement.size();
+    } else if (!last.after.isEmpty()) {
+        // The first item was selected completely, so preserve the last item's
+        // list metadata and move it into the vacated position.
+        if (lastItem > firstItem)
+            model_->removeListItems(focusBlock, firstItem, lastItem - 1);
+        model_->setListItem(focusBlock, firstItem, replacement + last.after);
+        resultItem     = firstItem;
+        resultPosition = replacement.size();
+    } else {
+        // Every affected item was selected completely. Delete the items first,
+        // then insert at the same structural deletion point.
+        const bool removesWholeList = firstItem == 0 && lastItem == items.size() - 1;
+        model_->removeListItems(focusBlock, firstItem, lastItem);
+        if (removesWholeList) {
+            if (!replacement.isEmpty())
+                model_->setBlockText(focusBlock, replacement);
+            return {
+                { QStringLiteral("handled"), true },
+                { QStringLiteral("focusBlock"), focusBlock },
+                { QStringLiteral("focusItem"), -1 },
+                { QStringLiteral("focusMarkdownPosition"), replacement.size() },
+            };
+        }
+
+        if (firstItem > 0) {
+            resultItem           = firstItem - 1;
+            const QString prefix = items.at(resultItem);
+            if (!replacement.isEmpty())
+                model_->setListItem(focusBlock, resultItem, prefix + replacement);
+            resultPosition = prefix.size() + replacement.size();
+        } else {
+            resultItem           = 0;
+            const QString suffix = items.at(lastItem + 1);
+            if (!replacement.isEmpty())
+                model_->setListItem(focusBlock, resultItem, replacement + suffix);
+            resultPosition = replacement.size();
+        }
+    }
+
+    return {
+        { QStringLiteral("handled"), true },
+        { QStringLiteral("focusBlock"), focusBlock },
+        { QStringLiteral("focusItem"), resultItem },
+        { QStringLiteral("focusMarkdownPosition"), resultPosition },
+    };
+}
+
+QVariantMap NoteEditor::replaceListSelectionFromClipboard(const QVariantList &encodedRanges, int focusBlock,
+                                                          int focusItem)
+{
+    const QClipboard *clipboard = QGuiApplication::clipboard();
+    const QMimeData  *mimeData  = clipboard ? clipboard->mimeData() : nullptr;
+    if (!mimeData || !mimeData->hasText())
+        return {};
+    return replaceListSelectionWithText(encodedRanges, focusBlock, focusItem, mimeData->text());
 }
 
 QVariantMap NoteEditor::convertSelectionToCodeBlock(const QVariantList &encodedRanges, const QString &plainText,
