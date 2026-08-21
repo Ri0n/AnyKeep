@@ -186,7 +186,7 @@ if(TARGET QXmpp::QXmpp)
 
   add_executable(xmpperror_test xmpperror_test.cpp ../plugins/xmpppubsub/xmpperror.cpp)
   target_include_directories(xmpperror_test PRIVATE ../plugins/xmpppubsub)
-  target_link_libraries(xmpperror_test PRIVATE Qt6::Test Qt6::Network QXmpp::QXmpp)
+  target_link_libraries(xmpperror_test PRIVATE anykeep Qt6::Test Qt6::Network QXmpp::QXmpp)
   anykeep_configure_qxmpp_target(xmpperror_test)
   register_anykeep_test(xmpperror_test)
 

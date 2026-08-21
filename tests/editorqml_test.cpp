@@ -596,14 +596,20 @@ private slots:
         QVERIFY(wrapButton);
         QVERIFY(codeEditor);
         QVERIFY(wrapButton->property("checkable").toBool());
+        auto *wrapActions = wrapButton->parentItem() ? wrapButton->parentItem()->parentItem() : nullptr;
+        QVERIFY(wrapActions);
+        QVERIFY(wrapActions->setProperty("revealRequested", true));
+        QTRY_VERIFY(wrapButton->property("enabled").toBool());
         QVERIFY(!codeBlock->property("lineWrapEnabled").toBool());
         const int     noWrapMode         = codeEditor->property("wrapMode").toInt();
         const QString contentsBeforeWrap = editor.model()->contents();
-        QVERIFY(wrapButton->setProperty("checked", true));
+        const auto    wrapButtonCenter
+            = wrapButton->mapToScene(QPointF(wrapButton->width() / 2.0, wrapButton->height() / 2.0)).toPoint();
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier, wrapButtonCenter);
         QTRY_VERIFY(codeBlock->property("lineWrapEnabled").toBool());
         QTRY_VERIFY(codeEditor->property("wrapMode").toInt() != noWrapMode);
         QCOMPARE(editor.model()->contents(), contentsBeforeWrap);
-        QVERIFY(wrapButton->setProperty("checked", false));
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier, wrapButtonCenter);
         QTRY_VERIFY(!codeBlock->property("lineWrapEnabled").toBool());
         QTRY_COMPARE(codeEditor->property("wrapMode").toInt(), noWrapMode);
         QCOMPARE(editor.model()->contents(), contentsBeforeWrap);
