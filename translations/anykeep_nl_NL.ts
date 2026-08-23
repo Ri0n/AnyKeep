@@ -517,7 +517,7 @@ To start using just click on pencil in the system tray and choose &quot;New&quot
 Notes will be automatically saved to special storage, so you should not worry about this.</source>
         <translation>Dit is de eerste keer dat je AnyKeep opstart.
 
-Klik op het potlood in het systeemvak en kies &apos;Nieuw&apos; om een notitie te creëren.
+Klik op het potlood in het systeemvak en kies ‘Nieuw’ om een notitie te creëren.
 Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze nooit kwijtraakt.</translation>
     </message>
     <message>
@@ -666,7 +666,7 @@ Notities worden automatisch opgeslagen in een speciale opslagmap zodat je ze noo
     <message>
         <location filename="../libanykeep/notewidget.cpp" line="509"/>
         <source>HTML files (*.html)</source>
-        <translation>HTML-bestanden (*.html)</translation>
+        <translation>Html-bestanden (*.html)</translation>
     </message>
     <message>
         <location filename="../libanykeep/notewidget.cpp" line="517"/>
