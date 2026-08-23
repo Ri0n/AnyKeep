@@ -104,6 +104,11 @@ jobs:
           aqtsource: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
           cache: true
 
+      - name: Install Conan
+        run: |
+          python -m pip install --upgrade "conan>=2,<3"
+          conan profile detect --force
+
       - name: Download QCA/Iris SDKs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -141,6 +146,7 @@ jobs:
             -DANYKEEP_BUILD_BUNDLED_IRIS=OFF `
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF `
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF `
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON `
             -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON `
             -DBUILD_TESTING=OFF
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -225,6 +231,7 @@ jobs:
             -DANYKEEP_BUILD_BUNDLED_IRIS=OFF \
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON \
             -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON \
             -DBUILD_TESTING=OFF
           cmake --build build/package --parallel 4
@@ -250,6 +257,13 @@ jobs:
           find qca-sdk/lib/qca3-qt6/crypto -maxdepth 1 -type f -name '*.dylib' \
             -exec cp -a {} "$app/Contents/PlugIns/qca3-qt6/crypto/" \;
 
+          openssl_lib="$(brew --prefix openssl@3)/lib"
+          crypto="$openssl_lib/libcrypto.3.dylib"
+          ssl="$openssl_lib/libssl.3.dylib"
+          test -f "$crypto"
+          test -f "$ssl"
+          cp -a "$crypto" "$ssl" "$app/Contents/Frameworks/"
+
           args=("$app" "-qmldir=$PWD/libanykeep/qml" "-always-overwrite")
           while IFS= read -r -d '' binary; do
             args+=("-executable=$binary")
@@ -257,8 +271,42 @@ jobs:
                     -type f \( -name '*.dylib' -o -perm -111 \) -print0)
           "$QT_ROOT_DIR/bin/macdeployqt" "${args[@]}"
 
-          if find "$app" -type f -perm -111 -print0 | xargs -0 -n1 otool -L 2>/dev/null \
-              | grep -E "$PWD/(qca-sdk|iris-sdk|build|stage)|/(opt/homebrew|usr/local)/opt/openssl"; then
+          crypto_name="$(basename "$crypto")"
+          ssl_name="$(basename "$ssl")"
+          bundled_crypto="$app/Contents/Frameworks/$crypto_name"
+          bundled_ssl="$app/Contents/Frameworks/$ssl_name"
+          install_name_tool -id "@rpath/$crypto_name" "$bundled_crypto"
+          install_name_tool -id "@rpath/$ssl_name" "$bundled_ssl"
+
+          # libssl and QCA providers are not Qt-owned dependencies, so macdeployqt
+          # does not relocate their Homebrew OpenSSL install names for us. Keep
+          # the provider independent of the main executable's LC_RPATH and make
+          # libssl resolve libcrypto next to itself.
+          while IFS= read -r dependency; do
+            case "$dependency" in
+              */libcrypto.3.dylib)
+                install_name_tool -change "$dependency" "@loader_path/$crypto_name" "$bundled_ssl"
+                ;;
+            esac
+          done < <(otool -L "$bundled_ssl" | tail -n +2 | sed -E 's/^[[:space:]]*([^[:space:]]+).*/\1/')
+
+          while IFS= read -r -d '' provider; do
+            while IFS= read -r dependency; do
+              case "$dependency" in
+                */libcrypto.3.dylib)
+                  install_name_tool -change "$dependency" "@loader_path/../../../Frameworks/$crypto_name" "$provider"
+                  ;;
+                */libssl.3.dylib)
+                  install_name_tool -change "$dependency" "@loader_path/../../../Frameworks/$ssl_name" "$provider"
+                  ;;
+              esac
+            done < <(otool -L "$provider" | tail -n +2 | sed -E 's/^[[:space:]]*([^[:space:]]+).*/\1/')
+          done < <(find "$app/Contents/PlugIns/qca3-qt6/crypto" -type f -name '*.dylib' -print0)
+
+          if find "$app" -type f -print0 | while IFS= read -r -d '' binary; do
+               file "$binary" | grep -q 'Mach-O' || continue
+               otool -L "$binary"
+             done | grep -E "$PWD/(qca-sdk|iris-sdk|build|stage)|/(opt/homebrew|usr/local)/opt/openssl"; then
             echo 'Non-relocatable build path remains in the app bundle' >&2
             exit 1
           fi
@@ -349,6 +397,7 @@ jobs:
             -DANYKEEP_BUILD_BUNDLED_IRIS=OFF \
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON \
             -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON \
             -DANYKEEP_ANDROID_OPENSSL_ROOT="$PWD/android-openssl/ssl_3" \
             -DBUILD_TESTING=OFF

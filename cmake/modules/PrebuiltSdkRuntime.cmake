@@ -42,15 +42,34 @@ function(anykeep_configure_prebuilt_sdk_runtime_target target)
   if(NOT _anykeep_qca_plugins)
     message(FATAL_ERROR "No Android QCA crypto plugins found in ${ANYKEEP_QCA_SDK_ROOT}/lib/qca3-qt6/crypto")
   endif()
-
-  # Iris and QCA themselves are linked through imported CMake targets and are
-  # therefore discovered by Qt's Android deployment machinery. QCA providers
-  # are loaded dynamically, so declare them explicitly.
-  get_target_property(_anykeep_android_extra_libs ${target} QT_ANDROID_EXTRA_LIBS)
-  if(NOT _anykeep_android_extra_libs OR _anykeep_android_extra_libs STREQUAL "_anykeep_android_extra_libs-NOTFOUND")
-    set(_anykeep_android_extra_libs "")
+  if(NOT CMAKE_ANDROID_ARCH_ABI)
+    message(FATAL_ERROR "CMAKE_ANDROID_ARCH_ABI is required to package prebuilt QCA Android plugins")
   endif()
-  list(APPEND _anykeep_android_extra_libs ${_anykeep_qca_plugins})
-  list(REMOVE_DUPLICATES _anykeep_android_extra_libs)
-  set_property(TARGET ${target} PROPERTY QT_ANDROID_EXTRA_LIBS "${_anykeep_android_extra_libs}")
+
+  # QCA discovers providers by scanning <Qt library path>/crypto. Android cannot
+  # preserve arbitrary subdirectories in the native library directory, so
+  # package providers as proper Qt Android plugins. androiddeployqt decodes the
+  # libplugins_<type>_<name>_<abi>.so naming convention back to the "crypto"
+  # plugin type at runtime, making it visible through QCoreApplication's library
+  # paths and therefore through QCA::pluginPaths().
+  set(_anykeep_qca_plugin_root "${CMAKE_BINARY_DIR}/_deps/qca-android-plugins/plugins")
+  set(_anykeep_qca_plugin_dir "${_anykeep_qca_plugin_root}/qca")
+  file(MAKE_DIRECTORY "${_anykeep_qca_plugin_dir}")
+  foreach(_anykeep_qca_plugin IN LISTS _anykeep_qca_plugins)
+    get_filename_component(_anykeep_qca_plugin_name "${_anykeep_qca_plugin}" NAME_WE)
+    string(REGEX REPLACE "^lib" "" _anykeep_qca_plugin_name "${_anykeep_qca_plugin_name}")
+    set(_anykeep_qca_android_name
+        "libplugins_crypto_${_anykeep_qca_plugin_name}_${CMAKE_ANDROID_ARCH_ABI}.so")
+    configure_file("${_anykeep_qca_plugin}"
+                   "${_anykeep_qca_plugin_dir}/${_anykeep_qca_android_name}" COPYONLY)
+  endforeach()
+
+  get_target_property(_anykeep_android_extra_plugins ${target} QT_ANDROID_EXTRA_PLUGINS)
+  if(NOT _anykeep_android_extra_plugins
+     OR _anykeep_android_extra_plugins STREQUAL "_anykeep_android_extra_plugins-NOTFOUND")
+    set(_anykeep_android_extra_plugins "")
+  endif()
+  list(APPEND _anykeep_android_extra_plugins "${_anykeep_qca_plugin_root}")
+  list(REMOVE_DUPLICATES _anykeep_android_extra_plugins)
+  set_property(TARGET ${target} PROPERTY QT_ANDROID_EXTRA_PLUGINS "${_anykeep_android_extra_plugins}")
 endfunction()
