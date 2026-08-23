@@ -293,6 +293,14 @@ target_include_directories(
 )
 
 set_target_properties(anykeep PROPERTIES VERSION ${ANYKEEP_VERSION} SOVERSION ${ANYKEEP_ABI_VERSION})
+if(UNIX AND NOT APPLE AND ANYKEEP_QCA_IS_BUNDLED AND ANYKEEP_BUNDLED_QCA_SHARED)
+  # The bundled QCA has the same SONAME as the system library, so it lives in
+  # a private directory. Resolve it only for libanykeep and its dependants.
+  set_property(TARGET anykeep APPEND PROPERTY INSTALL_RPATH "$ORIGIN/${APP_NAME}")
+  target_compile_definitions(
+    anykeep_core
+    PRIVATE ANYKEEP_QCA_PLUGIN_PATH="${CMAKE_INSTALL_FULL_LIBDIR}/${APP_NAME}/qca3-qt6")
+endif()
 if(APPLE)
   # Mach-O encodes the minor and patch components of LC_ID_DYLIB versions in 8 bits each. ANYKEEP_VERSION uses an
   # ever-increasing build number as its patch component, so values such as 3.2.346 are truncated by ld. Keep the

@@ -96,6 +96,16 @@ else()
   set(_anykeep_bundled_iris_default OFF)
 endif()
 option(ANYKEEP_BUILD_MOBILE "Build the experimental Qt Quick mobile application" ${_anykeep_mobile_default})
+option(ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS
+       "Allow FetchContent/ExternalProject fallbacks for missing third-party dependencies" ON)
+set(ANYKEEP_QCA_SDK_ROOT
+    ""
+    CACHE PATH "Root of a prebuilt QCA 3 SDK; when set it takes precedence over the bundled QCA fallback")
+set(ANYKEEP_IRIS_SDK_ROOT
+    ""
+    CACHE PATH "Root of a prebuilt Iris SDK; when set it takes precedence over the bundled Iris fallback")
+option(ANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME
+       "Install/package runtime files from ANYKEEP_QCA_SDK_ROOT and ANYKEEP_IRIS_SDK_ROOT" OFF)
 option(ANYKEEP_BUILD_BUNDLED_QXMPP "Build bundled QXmpp when a suitable system QXmpp is unavailable"
        ${_anykeep_bundled_qxmpp_default})
 option(ANYKEEP_BUILD_BUNDLED_OMEMO_C "Build bundled libomemo-c and protobuf-c for bundled QXmpp"
@@ -145,15 +155,35 @@ else()
 endif()
 include(GNUInstallDirs)
 
+foreach(_anykeep_sdk_root IN ITEMS "${ANYKEEP_QCA_SDK_ROOT}" "${ANYKEEP_IRIS_SDK_ROOT}")
+  if(_anykeep_sdk_root)
+    if(NOT IS_DIRECTORY "${_anykeep_sdk_root}")
+      message(FATAL_ERROR "Configured AnyKeep SDK root does not exist: ${_anykeep_sdk_root}")
+    endif()
+    list(PREPEND CMAKE_PREFIX_PATH "${_anykeep_sdk_root}")
+  endif()
+endforeach()
+unset(_anykeep_sdk_root)
+
 # QCA is selected exactly once at the top level. QCA 3 is the primary ABI;
 # QCA 2 remains a temporary system-only compatibility path. Every AnyKeep
 # consumer links the target recorded in ANYKEEP_QCA_TARGET, while Iris sees
 # that same Qca3::Qca / Qca::Qca target directly.
 set(ANYKEEP_QCA_TARGET "")
 set(ANYKEEP_QCA_MAJOR "")
+set(ANYKEEP_QCA_IS_BUNDLED FALSE)
 set(_anykeep_qca_native_target "")
 
-if(ANYKEEP_BUILD_BUNDLED_QCA)
+if(ANYKEEP_QCA_SDK_ROOT)
+  find_package(Qca3-qt6 CONFIG REQUIRED PATHS "${ANYKEEP_QCA_SDK_ROOT}" NO_DEFAULT_PATH)
+  if(NOT TARGET Qca3::Qca)
+    message(FATAL_ERROR "QCA SDK did not provide Qca3::Qca: ${ANYKEEP_QCA_SDK_ROOT}")
+  endif()
+  set(ANYKEEP_QCA_TARGET Qca3::Qca)
+  set(ANYKEEP_QCA_MAJOR 3)
+  set(_anykeep_qca_native_target Qca3::Qca)
+  message(STATUS "QCA: using prebuilt QCA 3 SDK (${ANYKEEP_QCA_SDK_ROOT})")
+elseif(ANYKEEP_BUILD_BUNDLED_QCA AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
   message(STATUS "QCA: using bundled QCA 3")
   include(BundledQca)
   if(NOT TARGET Qca3::Qca)
@@ -163,12 +193,15 @@ if(ANYKEEP_BUILD_BUNDLED_QCA)
   set(ANYKEEP_QCA_MAJOR 3)
   set(_anykeep_qca_native_target Qca3::Qca)
 else()
+  if(ANYKEEP_BUILD_BUNDLED_QCA AND NOT ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
+    message(STATUS "QCA: bundled fallback requested but source dependency fallbacks are disabled; searching packages")
+  endif()
   find_package(Qca3-qt6 CONFIG QUIET)
   if(TARGET Qca3::Qca)
     set(ANYKEEP_QCA_TARGET Qca3::Qca)
     set(ANYKEEP_QCA_MAJOR 3)
     set(_anykeep_qca_native_target Qca3::Qca)
-    message(STATUS "QCA: using system QCA 3 (${ANYKEEP_QCA_TARGET})")
+    message(STATUS "QCA: using installed QCA 3 (${ANYKEEP_QCA_TARGET})")
   else()
     # Temporary QCA 2 compatibility. Upstream QCA 2 with Qt 6 installs the
     # Qca-qt6 package and exports the legacy qca-qt6 target. Normalize that
@@ -179,21 +212,21 @@ else()
       set(ANYKEEP_QCA_TARGET Qca::Qca)
       set(ANYKEEP_QCA_MAJOR 2)
       set(_anykeep_qca_native_target Qca::Qca)
-      message(STATUS "QCA: using system QCA 2 (${ANYKEEP_QCA_TARGET})")
+      message(STATUS "QCA: using installed QCA 2 (${ANYKEEP_QCA_TARGET})")
     elseif(TARGET qca-qt6)
       add_library(Qca::Qca ALIAS qca-qt6)
       set(ANYKEEP_QCA_TARGET Qca::Qca)
       set(ANYKEEP_QCA_MAJOR 2)
       set(_anykeep_qca_native_target qca-qt6)
-      message(STATUS "QCA: using system QCA 2 (qca-qt6, exposed as ${ANYKEEP_QCA_TARGET})")
+      message(STATUS "QCA: using installed QCA 2 (qca-qt6, exposed as ${ANYKEEP_QCA_TARGET})")
     endif()
   endif()
 endif()
 
 if(NOT ANYKEEP_QCA_TARGET)
   message(FATAL_ERROR
-          "No usable QCA found. Install QCA 3 (Qca3-qt6, preferred), provide QCA 2, or enable "
-          "ANYKEEP_BUILD_BUNDLED_QCA")
+          "No usable QCA found. Provide ANYKEEP_QCA_SDK_ROOT, install QCA 3 (Qca3-qt6, preferred), "
+          "provide QCA 2, or enable the bundled QCA source fallback")
 endif()
 if(NOT TARGET ${ANYKEEP_QCA_TARGET})
   message(FATAL_ERROR "Selected QCA target does not exist: ${ANYKEEP_QCA_TARGET}")
@@ -229,75 +262,97 @@ if(ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP")
 
   if(TARGET QXmpp::QXmpp AND TARGET QXmpp::Omemo)
     message(STATUS "XMPP backend: system QXmpp with OMEMO")
-  elseif(ANYKEEP_BUILD_BUNDLED_QXMPP)
+  elseif(ANYKEEP_BUILD_BUNDLED_QXMPP AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
     message(STATUS "XMPP backend: bundled QXmpp with OMEMO")
     include(BundledQXmpp)
+  elseif(ANYKEEP_BUILD_BUNDLED_QXMPP)
+    message(STATUS "QXmpp source fallback is disabled; the XMPP plugin will be disabled")
   else()
     message(STATUS "QXmpp 1.11+ with OMEMO not found; the XMPP plugin will be disabled")
   endif()
 else()
-  # A local Iris checkout is an explicit development override and therefore
-  # takes precedence over an installed package. Otherwise prefer system Iris
-  # when AnyKeep also uses system QCA; this keeps both libraries on the same
-  # QCA runtime. A bundled-QCA build must use bundled Iris for the same reason.
-  if(ANYKEEP_IRIS_SOURCE_DIR)
+  # A prebuilt SDK is explicit and takes precedence over source fallbacks. A
+  # local Iris source checkout remains available for development when source
+  # dependency fallbacks are enabled. System/package Iris is used whenever QCA
+  # itself is not a private bundled build.
+  if(ANYKEEP_IRIS_SDK_ROOT)
+    find_package(Iris CONFIG REQUIRED PATHS "${ANYKEEP_IRIS_SDK_ROOT}" NO_DEFAULT_PATH)
+    if(NOT TARGET Iris::Iris)
+      message(FATAL_ERROR "Iris SDK did not provide Iris::Iris: ${ANYKEEP_IRIS_SDK_ROOT}")
+    endif()
+    message(STATUS "XMPP backend: prebuilt Iris SDK (${ANYKEEP_IRIS_SDK_ROOT})")
+  elseif(ANYKEEP_IRIS_SOURCE_DIR)
+    if(NOT ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
+      message(FATAL_ERROR
+              "ANYKEEP_IRIS_SOURCE_DIR was set while ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS=OFF")
+    endif()
     message(STATUS "XMPP backend: local Iris source (${ANYKEEP_IRIS_SOURCE_DIR})")
     include(BundledIris)
   else()
-    if(NOT ANYKEEP_BUILD_BUNDLED_QCA)
+    if(NOT ANYKEEP_QCA_IS_BUNDLED)
       find_package(Iris CONFIG QUIET)
     endif()
 
     if(TARGET Iris::Iris)
       if(DEFINED Iris_QCA_MAJOR AND NOT "${Iris_QCA_MAJOR}" STREQUAL "${ANYKEEP_QCA_MAJOR}")
         message(FATAL_ERROR
-                "System Iris uses QCA ${Iris_QCA_MAJOR}, but AnyKeep selected QCA ${ANYKEEP_QCA_MAJOR}. "
-                "Use matching system packages or build Iris with AnyKeep.")
+                "Iris uses QCA ${Iris_QCA_MAJOR}, but AnyKeep selected QCA ${ANYKEEP_QCA_MAJOR}. "
+                "Use matching packages/SDKs or build Iris with AnyKeep.")
       endif()
-      message(STATUS "XMPP backend: system Iris (Iris::Iris)")
-    elseif(ANYKEEP_BUILD_BUNDLED_IRIS)
+      message(STATUS "XMPP backend: installed Iris (Iris::Iris)")
+    elseif(ANYKEEP_BUILD_BUNDLED_IRIS AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
       message(STATUS "XMPP backend: bundled Iris FetchContent")
       include(BundledIris)
-    elseif(ANYKEEP_BUILD_BUNDLED_QCA)
+    elseif(ANYKEEP_QCA_IS_BUNDLED)
       message(STATUS
-              "System Iris is not used with bundled QCA and bundled Iris is disabled; the XMPP plugin will be disabled")
+              "Installed Iris is not used with bundled QCA and bundled Iris is unavailable; the XMPP plugin will be disabled")
+    elseif(ANYKEEP_BUILD_BUNDLED_IRIS)
+      message(STATUS "Iris source fallback is disabled; the XMPP plugin will be disabled")
     else()
-      message(STATUS "System Iris not found and bundled Iris is disabled; the XMPP plugin will be disabled")
+      message(STATUS "Iris package not found and bundled Iris is disabled; the XMPP plugin will be disabled")
     endif()
+  endif()
+
+  if(TARGET Iris::Iris AND DEFINED Iris_QCA_MAJOR AND NOT "${Iris_QCA_MAJOR}" STREQUAL "${ANYKEEP_QCA_MAJOR}")
+    message(FATAL_ERROR
+            "Iris uses QCA ${Iris_QCA_MAJOR}, but AnyKeep selected QCA ${ANYKEEP_QCA_MAJOR}. "
+            "Use matching packages/SDKs or build Iris with AnyKeep.")
   endif()
 endif()
 
 find_package(Qt6Keychain QUIET)
-if(NOT TARGET Qt6Keychain::Qt6Keychain AND ANYKEEP_BUILD_BUNDLED_QTKEYCHAIN)
+if(NOT TARGET Qt6Keychain::Qt6Keychain AND ANYKEEP_BUILD_BUNDLED_QTKEYCHAIN
+   AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
   message(STATUS "System QtKeychain not found; using bundled QtKeychain")
   include(BundledQtKeychain)
+elseif(NOT TARGET Qt6Keychain::Qt6Keychain AND ANYKEEP_BUILD_BUNDLED_QTKEYCHAIN)
+  message(STATUS "QtKeychain source fallback is disabled")
 endif()
 
-find_package(QSourceHighlite CONFIG QUIET NAMES QSourceHighlite qsourcehighlite)
-if(TARGET qsourcehighlite::qsourcehighlite AND NOT TARGET QSourceHighlite::QSourceHighlite)
-  add_library(QSourceHighlite::QSourceHighlite ALIAS qsourcehighlite::qsourcehighlite)
-elseif(TARGET QSourceHighlite::qsourcehighlite AND NOT TARGET QSourceHighlite::QSourceHighlite)
-  add_library(QSourceHighlite::QSourceHighlite ALIAS QSourceHighlite::qsourcehighlite)
-elseif(TARGET QSourceHighlite AND NOT TARGET QSourceHighlite::QSourceHighlite)
-  add_library(QSourceHighlite::QSourceHighlite ALIAS QSourceHighlite)
-endif()
-if(TARGET QSourceHighlite::QSourceHighlite)
-  message(STATUS "Using QSourceHighlite from the configured package manager")
-else()
-  message(STATUS "QSourceHighlite package not found; using pinned ExternalProject fallback")
-  include(BundledQSourceHighlite)
+# QSourceHighlite is tiny and MIT-licensed, so keep the pinned source in-tree
+# instead of running a configure-time ExternalProject.
+add_subdirectory(3rdparty/qsourcehighlite)
+if(NOT TARGET QSourceHighlite::QSourceHighlite)
+  message(FATAL_ERROR "Vendored QSourceHighlite did not provide QSourceHighlite::QSourceHighlite")
 endif()
 
 if(ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP")
   find_package(QCoro6 QUIET COMPONENTS Core)
   if(TARGET QCoro::Core)
     message(STATUS "Using system QCoro")
-  elseif(ANYKEEP_BUILD_BUNDLED_QCORO)
+  elseif(ANYKEEP_BUILD_BUNDLED_QCORO AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
     message(STATUS "System QCoro not found; using bundled QCoro")
     include(BundledQCoro)
+  elseif(ANYKEEP_BUILD_BUNDLED_QCORO)
+    message(STATUS "QCoro source fallback is disabled; the QXmpp XMPP backend will be disabled")
   else()
     message(STATUS "QCoro not found; the QXmpp XMPP backend will be disabled")
   endif()
+endif()
+
+if(ANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME)
+  include(PrebuiltSdkRuntime)
+  anykeep_install_prebuilt_sdk_runtime()
 endif()
 
 function(anykeep_configure_qxmpp_target target)
@@ -323,6 +378,7 @@ if(ANYKEEP_BUILD_MOBILE)
   qt_standard_project_setup()
   set(PLUGINSDIR "plugins")
   set(TRANSLATIONSDIR "translations")
+  set(TRANSLATIONS_INSTALL_DIR "translations")
   configure_file(anykeep_config.h.in anykeep_config.h)
   set(ANYKEEP_CORE_ONLY ON)
   add_subdirectory(libanykeep)
@@ -368,10 +424,14 @@ if(WIN32)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/install")
   set(PLUGINSDIR "plugins")
   set(TRANSLATIONSDIR "translations")
+  set(TRANSLATIONS_INSTALL_DIR "translations")
   set(EXECUTABLE_OUTPUT_PATH ${CMAKE_CURRENT_BINARY_DIR}/anykeep)
 else()
-  set(PLUGINSDIR "${CMAKE_INSTALL_FULL_LIBDIR}/${APP_NAME}")
+  # Install destinations must remain relative so that `cmake --install
+  # --prefix …` and DESTDIR-based package builds do not write into /usr.
+  set(PLUGINSDIR "${CMAKE_INSTALL_LIBDIR}/${APP_NAME}")
   set(TRANSLATIONSDIR ${CMAKE_INSTALL_FULL_DATADIR}/${APP_NAME})
+  set(TRANSLATIONS_INSTALL_DIR "${CMAKE_INSTALL_DATADIR}/${APP_NAME}")
 endif()
 
 message(STATUS "CMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}")

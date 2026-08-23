@@ -20,3 +20,9 @@ override_dh_auto_configure:
 		$(ANYKEEP_CMAKE_ARGS) \
 		$(ANYKEEP_CMAKE_EXTRA_ARGS) \
 		$(CCACHE_CMAKE_ARGS)
+
+# QCA is bundled privately with libanykeep3 for the Iris build profile. It has
+# no Debian shlibs/symbols file, so resolve it in the staged package and omit
+# only its unavailable dependency metadata.
+override_dh_shlibdeps:
+	dh_shlibdeps -l$(CURDIR)/debian/libanykeep3/usr/lib/$(DEB_HOST_MULTIARCH)/anykeep -- --ignore-missing-info

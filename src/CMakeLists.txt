@@ -55,7 +55,7 @@ else()
                  ${CMAKE_CURRENT_BINARY_DIR}/com.github.ri0n.AnyKeep.service @ONLY)
   install(
     FILES ${CMAKE_SOURCE_DIR}/anykeep.desktop
-    DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/applications
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
     COMPONENT Executable)
   install(
     FILES ${CMAKE_CURRENT_BINARY_DIR}/com.github.ri0n.AnyKeep.service
@@ -63,12 +63,12 @@ else()
     COMPONENT Executable)
   install(
     FILES ${CMAKE_SOURCE_DIR}/libanykeep/images/anykeep.svg
-    DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/scalable/apps
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
     COMPONENT Executable)
   foreach(icon_size 16 22 24 32 48 64)
     install(
       FILES ${CMAKE_SOURCE_DIR}/libanykeep/images/anykeep${icon_size}.png
-      DESTINATION ${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/${icon_size}x${icon_size}/apps
+      DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/${icon_size}x${icon_size}/apps
       RENAME anykeep.png
       COMPONENT Executable)
   endforeach()

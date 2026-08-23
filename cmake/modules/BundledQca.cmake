@@ -1,3 +1,7 @@
+if(DEFINED ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS AND NOT ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
+  message(FATAL_ERROR "BundledQca.cmake was included while ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS=OFF")
+endif()
+
 include(ExternalProject)
 include(GNUInstallDirs)
 include(ProcessorCount)
@@ -130,6 +134,22 @@ set(_qca_cmake_args
     "-DANDROID_NDK=${ANDROID_NDK}"
     "-DOSX_FRAMEWORK=OFF")
 
+set(_qca_patch_args)
+if(UNIX AND NOT APPLE AND _qca_build_shared AND NOT ANYKEEP_QCA_SOURCE_DIR)
+  # QCA otherwise bakes its temporary ExternalProject prefix into the shared
+  # library and scans it after the packaged provider.  Patch only a cloned
+  # dependency; a caller-owned local source tree must never be modified.
+  list(
+    APPEND
+    _qca_patch_args
+    PATCH_COMMAND
+      "${CMAKE_COMMAND}"
+      "-DQCA_CMAKE_FILE=<SOURCE_DIR>/src/CMakeLists.txt"
+      "-DQCA_RUNTIME_PLUGIN_PATH=${CMAKE_INSTALL_FULL_LIBDIR}/${APP_NAME}/qca3-qt6"
+      -P
+      "${CMAKE_CURRENT_LIST_DIR}/PatchQcaPluginPath.cmake")
+endif()
+
 foreach(_openssl_var IN ITEMS OPENSSL_ROOT_DIR OPENSSL_INCLUDE_DIR OPENSSL_SSL_LIBRARY OPENSSL_CRYPTO_LIBRARY
                               OPENSSL_USE_STATIC_LIBS)
   if(DEFINED ${_openssl_var}
@@ -166,10 +186,14 @@ ExternalProject_Add(
   PREFIX "${_qca_prefix}"
   INSTALL_DIR "${_qca_install_dir}"
   LIST_SEPARATOR "|"
+  ${_qca_patch_args}
   CMAKE_ARGS ${_qca_cmake_args}
   BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> ${_qca_build_config_args} --parallel
                 "${ANYKEEP_BUNDLED_QCA_JOBS}"
-  INSTALL_COMMAND "${CMAKE_COMMAND}" --install <BINARY_DIR> ${_qca_build_config_args}
+  # The external prefix is a build-time cache. Do not let a parent package
+  # install's DESTDIR redirect QCA there as debian/tmp/<absolute-build-path>.
+  INSTALL_COMMAND "${CMAKE_COMMAND}" -E env "DESTDIR=" "${CMAKE_COMMAND}" --install <BINARY_DIR>
+                  ${_qca_build_config_args}
   BUILD_BYPRODUCTS "${_qca_library}" "${_qca_ossl_plugin}" ${_qca_runtime})
 
 file(MAKE_DIRECTORY "${_qca_include_dir}")
@@ -192,6 +216,18 @@ if(_qca_build_shared)
   if(WIN32)
     install(FILES "${_qca_runtime}" DESTINATION "." COMPONENT Libraries)
     install(FILES "${_qca_ossl_plugin}" DESTINATION "crypto" COMPONENT Libraries)
+  elseif(UNIX)
+    # The imported target has no install rule of its own. Keep the bundled
+    # runtime private: installing its system-wide SONAME beside libanykeep
+    # would conflict with a distribution-provided QCA package.
+    install(DIRECTORY "${_qca_library_dir}/" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${APP_NAME}" COMPONENT Libraries
+            FILES_MATCHING
+            PATTERN "pkgconfig" EXCLUDE
+            PATTERN "cmake" EXCLUDE
+            PATTERN "qca3-qt6" EXCLUDE
+            PATTERN "libqca3-qt6${CMAKE_SHARED_LIBRARY_SUFFIX}*")
+    install(FILES "${_qca_ossl_plugin}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${APP_NAME}/qca3-qt6/crypto"
+            COMPONENT Libraries)
   endif()
 else()
   add_library(Qca3::Qca STATIC IMPORTED GLOBAL)

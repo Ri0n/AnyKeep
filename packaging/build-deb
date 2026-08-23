@@ -4,7 +4,7 @@ set -eu
 
 usage()
 {
-    echo "Usage: $0 <qt6|qt6-noble> [dpkg-buildpackage arguments...]" >&2
+    echo "Usage: $0 <qt6|qt6-noble|sdk-ubuntu-24.04|sdk-ubuntu-26.04> [dpkg-buildpackage arguments...]" >&2
     echo "       $0 <qt6|qt6-noble> -- <command> [arguments...]" >&2
     exit 2
 }
@@ -15,7 +15,7 @@ profile=$1
 shift
 
 case "$profile" in
-    qt6|qt6-noble)
+    qt6|qt6-noble|sdk-ubuntu-24.04|sdk-ubuntu-26.04)
         ;;
     *)
         usage
