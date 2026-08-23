@@ -1,0 +1,366 @@
+name: AnyKeep packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: read
+
+env:
+  QT_CURRENT_SERIES: "6.11.*"
+  QCA_TAG: v3.0.1
+  IRIS_TAG: v1.0.2
+  ANDROID_NDK_VERSION: r27c
+  ANDROID_API: 28
+  ANDROID_OPENSSL_REVISION: b71f1470962019bd89534a2919f5925f93bc5779
+  WIX_VERSION: 6.0.2
+  # Temporary until aqtinstall releases Qt 6.11+ Windows repository support.
+  AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
+
+jobs:
+  debian:
+    name: Debian package / Ubuntu ${{ matrix.ubuntu-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu-version: ["24.04", "26.04"]
+    runs-on: ubuntu-${{ matrix.ubuntu-version }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download and install QCA/Iris packages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir qca-release iris-release
+          gh release download "$QCA_TAG" --repo psi-im/qca \
+            -p "qca3-deb-ubuntu-${{ matrix.ubuntu-version }}.zip" -O qca.zip
+          gh release download "$IRIS_TAG" --repo psi-im/iris \
+            -p "iris-deb-ubuntu-${{ matrix.ubuntu-version }}.zip" -O iris.zip
+          (cd qca-release && cmake -E tar xvf ../qca.zip)
+          (cd iris-release && cmake -E tar xvf ../iris.zip)
+          sudo apt-get update
+          sudo apt-get install -y ./qca-release/*.deb
+          sudo apt-get install -y ./iris-release/*.deb
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake debhelper dh-cmake dh-cmake-compat dh-sequence-cmake \
+            dpkg-dev fakeroot libhunspell-dev libx11-dev pkgconf \
+            qml6-module-qtqml-workerscript qml6-module-qtquick \
+            qml6-module-qtquick-controls qml6-module-qtquick-layouts \
+            qml6-module-qtquick-templates qml6-module-qtquick-window \
+            qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-l10n-tools \
+            qt6-multimedia-dev qt6-svg-dev qt6-tools-dev qt6-tools-dev-tools \
+            qtkeychain-qt6-dev
+          if apt-cache show qt6-svg-plugins >/dev/null 2>&1; then
+            sudo apt-get install -y --no-install-recommends qt6-svg-plugins
+          fi
+
+      - name: Build Debian packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./packaging/build-deb "sdk-ubuntu-${{ matrix.ubuntu-version }}" -b -uc -us
+          mkdir packages
+          find .. -maxdepth 1 -type f -name '*.deb' -exec cp -v {} packages/ \;
+          test -n "$(find packages -type f -name '*.deb' -print -quit)"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: anykeep-deb-ubuntu-${{ matrix.ubuntu-version }}
+          path: packages/*.deb
+          if-no-files-found: error
+          compression-level: 0
+
+  windows:
+    name: Windows x64 package
+    runs-on: windows-2022
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_CURRENT_SERIES }}
+          arch: win64_msvc2022_64
+          modules: qtmultimedia qttasktree
+          aqtsource: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          cache: true
+
+      - name: Download QCA/Iris SDKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force qca-sdk, iris-sdk | Out-Null
+          gh release download $env:QCA_TAG --repo psi-im/qca -p qca3-qt6-windows-x64.zip -O qca.zip
+          gh release download $env:IRIS_TAG --repo psi-im/iris -p iris-qt6-windows-x64.zip -O iris.zip
+          # cmake -E tar has no destination argument; unpack in the SDK directories.
+          Push-Location qca-sdk; cmake -E tar xvf ../qca.zip; Pop-Location
+          Push-Location iris-sdk; cmake -E tar xvf ../iris.zip; Pop-Location
+          if (-not (Test-Path qca-sdk/lib/cmake/Qca3-qt6)) { throw 'QCA CMake package missing' }
+          if (-not (Test-Path iris-sdk/lib/cmake/Iris)) { throw 'Iris CMake package missing' }
+
+      - name: Set up WiX
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install WiX
+        run: |
+          dotnet tool install --global wix --version $env:WIX_VERSION
+          "$HOME\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$HOME\.dotnet\tools\wix.exe" extension add -g "WixToolset.Util.wixext/$env:WIX_VERSION"
+          & "$HOME\.dotnet\tools\wix.exe" extension add -g "WixToolset.BootstrapperApplications.wixext/$env:WIX_VERSION"
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/package `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_CONFIGURATION_TYPES=Release `
+            -DANYKEEP_XMPP_BACKEND=IRIS `
+            -DANYKEEP_QCA_SDK_ROOT="$pwd/qca-sdk" `
+            -DANYKEEP_IRIS_SDK_ROOT="$pwd/iris-sdk" `
+            -DANYKEEP_BUILD_BUNDLED_QCA=OFF `
+            -DANYKEEP_BUILD_BUNDLED_IRIS=OFF `
+            -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF `
+            -DANYKEEP_BUILD_BUNDLED_QCORO=OFF `
+            -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON `
+            -DBUILD_TESTING=OFF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build MSI and Burn installer
+        run: |
+          cmake --build build/package --config Release --target package burn_installer --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build Store MSIX when identity is configured
+        if: ${{ vars.ANYKEEP_MSIX_IDENTITY_NAME != '' && vars.ANYKEEP_MSIX_PUBLISHER != '' && vars.ANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME != '' }}
+        run: |
+          cmake --build build/package --config Release --target msix_package --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: anykeep-windows-x64
+          path: |
+            build/package/AnyKeep.msi
+            build/package/AnyKeep.Installer-*.exe
+            build/package/AnyKeep-*-windows-x86_64.msix
+          if-no-files-found: error
+          compression-level: 0
+
+  macos:
+    name: macOS / ${{ matrix.arch }} package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_CURRENT_SERIES }}
+          modules: qtmultimedia qttasktree
+          cache: true
+
+      - name: Install OpenSSL
+        run: |
+          brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+
+      - name: Download QCA/Iris SDKs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir qca-sdk iris-sdk
+          gh release download "$QCA_TAG" --repo psi-im/qca \
+            -p "qca3-qt6-macos-${{ matrix.arch }}.zip" -O qca.zip
+          gh release download "$IRIS_TAG" --repo psi-im/iris \
+            -p "iris-qt6-macos-${{ matrix.arch }}.zip" -O iris.zip
+          (cd qca-sdk && cmake -E tar xvf ../qca.zip)
+          (cd iris-sdk && cmake -E tar xvf ../iris.zip)
+          test -d qca-sdk/lib/cmake/Qca3-qt6
+          test -d iris-sdk/lib/cmake/Iris
+
+      - name: Configure and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/package -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR" \
+            -DANYKEEP_XMPP_BACKEND=IRIS \
+            -DANYKEEP_QCA_SDK_ROOT="$PWD/qca-sdk" \
+            -DANYKEEP_IRIS_SDK_ROOT="$PWD/iris-sdk" \
+            -DANYKEEP_BUILD_BUNDLED_QCA=OFF \
+            -DANYKEEP_BUILD_BUNDLED_IRIS=OFF \
+            -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
+            -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
+            -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON \
+            -DBUILD_TESTING=OFF
+          cmake --build build/package --parallel 4
+          cmake --install build/package --prefix "$PWD/stage"
+
+      - name: Assemble standalone app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$PWD/stage/AnyKeep.app"
+          test -d "$app"
+          mkdir -p "$app/Contents/Frameworks" "$app/Contents/plugins" "$app/Contents/PlugIns/qca3-qt6/crypto"
+
+          find stage/lib -maxdepth 1 \( -type f -o -type l \) -name 'libanykeep*.dylib' \
+            -exec cp -a {} "$app/Contents/Frameworks/" \;
+          if [ -d stage/lib/anykeep ]; then
+            cp -a stage/lib/anykeep/. "$app/Contents/plugins/"
+          fi
+          find qca-sdk/lib -maxdepth 1 \( -type f -o -type l \) -name 'libqca*.dylib*' \
+            -exec cp -a {} "$app/Contents/Frameworks/" \;
+          find iris-sdk/lib -maxdepth 1 \( -type f -o -type l \) -name 'libiris*.dylib*' \
+            -exec cp -a {} "$app/Contents/Frameworks/" \;
+          find qca-sdk/lib/qca3-qt6/crypto -maxdepth 1 -type f -name '*.dylib' \
+            -exec cp -a {} "$app/Contents/PlugIns/qca3-qt6/crypto/" \;
+
+          args=("$app" "-qmldir=$PWD/libanykeep/qml" "-always-overwrite")
+          while IFS= read -r -d '' binary; do
+            args+=("-executable=$binary")
+          done < <(find "$app/Contents/Frameworks" "$app/Contents/plugins" "$app/Contents/PlugIns/qca3-qt6/crypto" \
+                    -type f \( -name '*.dylib' -o -perm -111 \) -print0)
+          "$QT_ROOT_DIR/bin/macdeployqt" "${args[@]}"
+
+          if find "$app" -type f -perm -111 -print0 | xargs -0 -n1 otool -L 2>/dev/null \
+              | grep -E "$PWD/(qca-sdk|iris-sdk|build|stage)|/(opt/homebrew|usr/local)/opt/openssl"; then
+            echo 'Non-relocatable build path remains in the app bundle' >&2
+            exit 1
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$app" "anykeep-macos-${{ matrix.arch }}.zip"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: anykeep-macos-${{ matrix.arch }}
+          path: anykeep-macos-${{ matrix.arch }}.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  android:
+    name: Android / ${{ matrix.abi }} APK
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+            qt-arch: android_arm64_v8a
+          - abi: x86_64
+            qt-arch: android_x86_64
+          - abi: x86
+            qt-arch: android_x86
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+
+      - name: Install Qt Android
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_CURRENT_SERIES }}
+          target: android
+          arch: ${{ matrix.qt-arch }}
+          modules: qtmultimedia qttasktree
+          cache: true
+
+      - name: Download QCA/Iris SDKs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir qca-sdk iris-sdk
+          gh release download "$QCA_TAG" --repo psi-im/qca \
+            -p "qca3-qt6-android-${{ matrix.abi }}.zip" -O qca.zip
+          gh release download "$IRIS_TAG" --repo psi-im/iris \
+            -p "iris-qt6-android-${{ matrix.abi }}.zip" -O iris.zip
+          (cd qca-sdk && cmake -E tar xvf ../qca.zip)
+          (cd iris-sdk && cmake -E tar xvf ../iris.zip)
+          test -d qca-sdk/lib/cmake/Qca3-qt6
+          test -d iris-sdk/lib/cmake/Iris
+
+      - name: Provision Android OpenSSL
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/KDAB/android_openssl.git android-openssl
+          git -C android-openssl checkout "$ANDROID_OPENSSL_REVISION"
+          test -f "android-openssl/ssl_3/${{ matrix.abi }}/libcrypto.a"
+          test -f "android-openssl/ssl_3/${{ matrix.abi }}/libssl.a"
+
+      - name: Configure and build APK
+        shell: bash
+        env:
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          set -euo pipefail
+          qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
+          test -x "$qt_cmake"
+          "$qt_cmake" -S . -B build/package -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DANDROID_PLATFORM="android-$ANDROID_API" \
+            -DANYKEEP_BUILD_MOBILE=ON \
+            -DANYKEEP_XMPP_BACKEND=IRIS \
+            -DANYKEEP_QCA_SDK_ROOT="$PWD/qca-sdk" \
+            -DANYKEEP_IRIS_SDK_ROOT="$PWD/iris-sdk" \
+            -DANYKEEP_BUILD_BUNDLED_QCA=OFF \
+            -DANYKEEP_BUILD_BUNDLED_IRIS=OFF \
+            -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
+            -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
+            -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON \
+            -DANYKEEP_ANDROID_OPENSSL_ROOT="$PWD/android-openssl/ssl_3" \
+            -DBUILD_TESTING=OFF
+          cmake --build build/package --target apk --parallel 4
+          mkdir packages
+          apk=$(find build/package -type f -path '*/outputs/apk/*/*.apk' -print -quit)
+          test -n "$apk"
+          cp "$apk" "packages/AnyKeep-${{ matrix.abi }}.apk"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: anykeep-android-${{ matrix.abi }}
+          path: packages/*.apk
+          if-no-files-found: error
+          compression-level: 0
