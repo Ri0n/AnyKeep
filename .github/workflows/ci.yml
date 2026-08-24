@@ -15,7 +15,7 @@ concurrency:
 env:
   QT_CURRENT_SERIES: "6.11.*"
   QCA_TAG: v3.0.1
-  IRIS_TAG: v1.0.2
+  IRIS_TAG: v1.0.3
   # aqtinstall 3.3.0 cannot read the new Windows Qt 6.11 repository layout.
   # PR #1000 contains the upstream fix; remove this override after aqt releases it.
   AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
