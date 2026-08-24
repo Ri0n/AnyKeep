@@ -14,6 +14,8 @@ concurrency:
 
 env:
   QT_CURRENT_SERIES: "6.11.*"
+  QCA_TAG: v3.0.1
+  IRIS_TAG: v1.0.2
   # aqtinstall 3.3.0 cannot read the new Windows Qt 6.11 repository layout.
   # PR #1000 contains the upstream fix; remove this override after aqt releases it.
   AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
@@ -110,9 +112,25 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Download and install QCA/Iris packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir qca-release iris-release
+          gh release download "$QCA_TAG" --repo psi-im/qca \
+            -p "qca3-deb-${{ matrix.runner }}.zip" -O qca.zip
+          gh release download "$IRIS_TAG" --repo psi-im/iris \
+            -p "iris-deb-${{ matrix.runner }}.zip" -O iris.zip
+          (cd qca-release && cmake -E tar xvf ../qca.zip)
+          (cd iris-release && cmake -E tar xvf ../iris.zip)
+          sudo apt-get update
+          sudo apt-get install -y ./qca-release/*.deb
+          sudo apt-get install -y ./iris-release/*.deb
+
       - name: Install system dependencies
         run: |
-          sudo apt-get update
+          set -euo pipefail
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             gettext \
@@ -134,7 +152,8 @@ jobs:
             qt6-multimedia-dev \
             qt6-svg-dev \
             qt6-tools-dev \
-            qt6-tools-dev-tools
+            qt6-tools-dev-tools \
+            qtkeychain-qt6-dev
 
           # Starting with Ubuntu 26.04, the SVG icon/image plugins are split out
           # of libqt6svg6. Noble still ships them in libqt6svg6 itself.
