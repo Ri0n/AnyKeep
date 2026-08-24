@@ -89,7 +89,9 @@ jobs:
         run: cmake --build build/windows --config Release --parallel 4
 
       - name: Test
-        run: ctest --test-dir build/windows -C Release --output-on-failure --timeout 180
+        run: |
+          $env:PATH = "$pwd\qca-sdk\bin;$pwd\iris-sdk\bin;$env:PATH"
+          ctest --test-dir build/windows -C Release --output-on-failure --timeout 180
 
       - name: Print failed or incomplete QtTest reports
         if: failure()
@@ -257,7 +259,7 @@ jobs:
             -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR" \
             -DANYKEEP_BUILD_BUNDLED_QCA=OFF \
             -DANYKEEP_BUILD_BUNDLED_IRIS=OFF \
-            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF \
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON \
             -DANYKEEP_QCA_SDK_ROOT="$PWD/qca-sdk" \
             -DANYKEEP_IRIS_SDK_ROOT="$PWD/iris-sdk" \
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
