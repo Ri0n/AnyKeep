@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - ci/anykeep-packages-applied
+  pull_request:
+    branches:
+      - ci/anykeep-packages-applied
 
 permissions:
   contents: write
