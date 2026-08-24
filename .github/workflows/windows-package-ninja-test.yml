@@ -53,6 +53,7 @@ jobs:
         run: |
           cmake -S . -B build/package -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
+            -DANYKEEP_UPDATE_CHANNEL=nightly `
             -DANYKEEP_XMPP_BACKEND=IRIS `
             -DANYKEEP_QCA_SDK_ROOT="$pwd/qca-sdk" `
             -DANYKEEP_IRIS_SDK_ROOT="$pwd/iris-sdk" `
@@ -68,9 +69,9 @@ jobs:
             -DBUILD_TESTING=OFF
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build MSI and Burn installer
+      - name: Build canonical MSI/update payload and Burn installer
         run: |
-          cmake --build build/package --target package burn_installer --parallel 4
+          cmake --build build/package --target windows_update_package burn_installer --parallel 4
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Store MSIX when identity is configured
@@ -86,5 +87,6 @@ jobs:
             build/package/AnyKeep.msi
             build/package/AnyKeep.Installer-*.exe
             build/package/AnyKeep-*-windows-x86_64.msix
+            build/package/updates/nightly/*
           if-no-files-found: error
           compression-level: 0
