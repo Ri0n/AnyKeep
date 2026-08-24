@@ -239,12 +239,12 @@ jobs:
 
           gh release download "$IRIS_TAG" \
             --repo psi-im/iris \
-            -p "iris-qt6-macos-*.zip" \
+            -p "iris-qt6-macos-x86_64.zip" \
             -O iris.zip
 
           gh release download "$QCA_TAG" \
             --repo psi-im/qca \
-            -p "qca3-qt6-macos-*.zip" \
+            -p "qca3-qt6-macos-x86_64.zip" \
             -O qca.zip
 
           (cd qca-sdk && cmake -E tar xvf ../qca.zip)
