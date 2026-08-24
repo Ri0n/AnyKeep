@@ -232,7 +232,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          app="$PWD/stage/AnyKeep.app"
+          app="$PWD/stage/anykeep.app"
           test -d "$app"
           mkdir -p "$app/Contents/Frameworks" "$app/Contents/plugins" "$app/Contents/PlugIns/qca3-qt6/crypto"
 
@@ -296,7 +296,7 @@ jobs:
 
           if find "$app" -type f -print0 | while IFS= read -r -d '' binary; do
                file "$binary" | grep -q 'Mach-O' || continue
-               otool -L "$binary"
+               otool -L "$binary" | tail -n +2
              done | grep -E "$PWD/(qca-sdk|iris-sdk|build|stage)|/(opt/homebrew|usr/local)/opt/openssl"; then
             echo 'Non-relocatable build path remains in the app bundle' >&2
             exit 1
