@@ -100,9 +100,11 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-24.04
+            ubuntu-version: "24.04"
             label: Ubuntu 24.04
             build_dir: build/linux-24.04
           - runner: ubuntu-26.04
+            ubuntu-version: "26.04"
             label: Ubuntu 26.04
             build_dir: build/linux-26.04
 
@@ -113,20 +115,12 @@ jobs:
           fetch-depth: 0
 
       - name: Download and install QCA/Iris packages
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir qca-release iris-release
-          gh release download "$QCA_TAG" --repo psi-im/qca \
-            -p "qca3-deb-${{ matrix.runner }}.zip" -O qca.zip
-          gh release download "$IRIS_TAG" --repo psi-im/iris \
-            -p "iris-deb-${{ matrix.runner }}.zip" -O iris.zip
-          (cd qca-release && cmake -E tar xvf ../qca.zip)
-          (cd iris-release && cmake -E tar xvf ../iris.zip)
-          sudo apt-get update
-          sudo apt-get install -y ./qca-release/*.deb
-          sudo apt-get install -y ./iris-release/*.deb
+        uses: ./.github/actions/install-qca-iris-linux
+        with:
+          ubuntu-version: ${{ matrix.ubuntu-version }}
+          qca-tag: ${{ env.QCA_TAG }}
+          iris-tag: ${{ env.IRIS_TAG }}
+          github-token: ${{ github.token }}
 
       - name: Install system dependencies
         run: |
