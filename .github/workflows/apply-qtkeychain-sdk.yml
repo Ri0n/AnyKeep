@@ -1,0 +1,44 @@
+name: Apply QtKeychain SDK integration
+
+on:
+  push:
+    branches:
+      - ci/anykeep-packages-fixes
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ci/anykeep-packages-fixes
+          fetch-depth: 0
+
+      - name: Apply integration changes
+        run: python .github/scripts/apply-qtkeychain-sdk.py
+
+      - name: Verify expected policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'CACHE PATH "Root of a prebuilt QtKeychain SDK' CMakeLists.txt
+          grep -F '"IRIS"' CMakeLists.txt
+          grep -F 'ANYKEEP_QTKEYCHAIN_SDK_ROOT' .github/workflows/packages.yml
+          grep -F 'ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS=OFF' .github/workflows/packages.yml
+          grep -F 'ANYKEEP_BUILD_BUNDLED_IRIS=ON' .github/workflows/ci.yml
+
+      - name: Commit integration and remove helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/scripts/apply-qtkeychain-sdk.py .github/workflows/apply-qtkeychain-sdk.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m 'CI: consume prebuilt QtKeychain SDKs'
+          git push origin HEAD:ci/anykeep-packages-fixes
