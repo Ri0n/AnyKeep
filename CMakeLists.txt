@@ -122,7 +122,7 @@ option(ANYKEEP_BUILD_BUNDLED_QCORO "Build bundled QCoro when a suitable system Q
 option(ANYKEEP_BUILD_BUNDLED_QTKEYCHAIN "Build bundled QtKeychain when a suitable system QtKeychain is unavailable"
        ${_anykeep_bundled_qtkeychain_default})
 set(ANYKEEP_XMPP_BACKEND
-    "QXMPP"
+    "IRIS"
     CACHE STRING "XMPP implementation used by the Private Notes plugin (QXMPP or IRIS)")
 set_property(CACHE ANYKEEP_XMPP_BACKEND PROPERTY STRINGS QXMPP IRIS)
 string(TOUPPER "${ANYKEEP_XMPP_BACKEND}" ANYKEEP_XMPP_BACKEND)
