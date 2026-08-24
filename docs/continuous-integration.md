@@ -1,87 +1,98 @@
 # Continuous integration
 
-AnyKeep uses GitHub Actions for reproducible desktop builds. The initial CI
-layer deliberately does not publish releases and does not sign artifacts; code
-signing is intended to be added after the unsigned pipeline is stable.
+AnyKeep uses GitHub Actions for reproducible desktop builds and package assembly.
+The ordinary CI workflow does not publish releases or sign artifacts.
 
 ## Pull requests and pushes
 
 `.github/workflows/ci.yml` builds the desktop application on three platforms:
 
-- Windows 2025 with the Visual Studio 2022 x64 generator and Release only;
-- Ubuntu 24.04 with GCC/Ninja, followed by the complete CTest suite;
-- Intel macOS 15 as a compile check for the application and macOS integration.
+- Windows Server 2022 with MSVC, Ninja, and the complete CTest suite;
+- Ubuntu 24.04 and 26.04 with GCC/Ninja and CTest;
+- Intel macOS 15 as a compile check.
 
-Qt is pinned to the same desktop version used by the project (`6.10.2`). The
-Windows build uses the project's existing Conan dependency path. Linux and
-macOS use bundled QCA and QtKeychain while leaving the optional XMPP stack off
-for the first cross-platform CI pass. Windows keeps its normal bundled XMPP
-stack enabled, so the priority platform exercises the same dependency layout as
-local release builds.
+Qt is installed from the current 6.11 series. Windows CI and Windows packaging
+share `.github/actions/setup-windows-desktop`, which installs Qt, prepares the
+MSVC environment, installs Conan, downloads the prebuilt QCA/Iris SDKs, and
+sets the QCA runtime/plugin paths. Windows builds use Ninja with
+`--parallel 4`.
 
 The checkout fetches full Git history because `AnyKeepMacro.cmake` derives the
 application version from Git tags and the distance from the last tag.
 
-## Windows nightly packages
+## Package workflow
 
-`.github/workflows/windows-nightly.yml` runs every day at 03:00 UTC and can also
-be started manually from the Actions tab. It uses the same Visual Studio 2022
-Release configuration as the Windows CI job and runs CTest.
+`.github/workflows/packages.yml` is the canonical package workflow.
 
-The nightly keeps three Windows distribution paths separate:
+- a version tag builds Debian, Windows, macOS, and Android packages;
+- a manual run defaults to the stable Windows update channel and builds all
+  package platforms;
+- a manual run with `windows_update_channel=nightly` builds only Windows and
+  runs the Windows tests first;
+- the 03:00 UTC schedule is the former Windows nightly job: it builds only
+  Windows with the nightly update channel and runs CTest before packaging.
 
-- `AnyKeep.msi` is the canonical Windows Installer package and remains the
-  payload used by AnyKeep's own restart-to-update path outside the Store.
-- `AnyKeep.Installer-<version>.exe` is the interactive Burn bootstrapper. It
-  resolves Microsoft's current x64 VC++ v14 Redistributable to a concrete CDN
-  object, pins that payload with WiX-generated metadata, and then installs the
-  MSI.
-- `AnyKeep-<version>-windows-x86_64.msix` is the Microsoft Store package. It
-  starts `anykeep.exe` directly, excludes `AnyKeepLauncher.exe` and
-  `AnyKeepUpdater.exe`, declares `runFullTrust`, and depends on the Store-managed
-  `Microsoft.VCLibs.140.00.UWPDesktop` framework package. Its retail framework identity is discovered from the installed Windows Extension SDK when available. AnyKeep detects package
-  identity at runtime and routes the existing update UI through Microsoft Store APIs instead of the direct MSI updater.
+The separate `windows-nightly.yml` workflow is intentionally no longer needed.
+Keeping nightly and release Windows package assembly in one workflow prevents
+the CMake flags, Store identity handling, dependency setup, and package targets
+from drifting apart.
 
-The Store assigns the package identity after the product name is reserved in
-Partner Center. Until then, the MSIX step is skipped. Configure these GitHub
-repository variables with the exact case-sensitive values from Partner Center:
+## Windows distribution artifacts
+
+The Windows package job keeps three distribution paths separate while deriving
+them from one Release build tree:
+
+- `AnyKeep.msi` is the canonical Windows Installer package;
+- `AnyKeep.Installer-<version>.exe` is the interactive Burn bootstrapper and
+  bootstraps the required Visual C++ Redistributable;
+- `AnyKeep-<version>-windows-x86_64.msix` is the Microsoft Store package.
+
+The same MSI is also the direct self-update payload. The job builds
+`windows_update_package`, which performs a Windows Installer administrative
+extraction to verify the version-owned runtime and then writes the selected
+update channel under `build/package/updates/<channel>/`:
+
+```text
+AnyKeep-<version>-windows-x86_64.msi
+AnyKeep-<version>-windows-x86_64.json
+windows-x86_64.json
+SHA256SUMS.txt
+```
+
+This makes the installer MSI and the self-update MSI the same bytes rather than
+two independently assembled packages.
+
+The Store identity is passed explicitly at CMake configure time from these
+repository variables:
 
 - `ANYKEEP_MSIX_IDENTITY_NAME` (`Package/Identity/Name`);
 - `ANYKEEP_MSIX_PUBLISHER` (`Package/Identity/Publisher`);
 - `ANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME`
   (`Package/Properties/PublisherDisplayName`).
 
-Once all three are present, nightly artifacts contain MSI, EXE and MSIX. The
-MSIX produced by CI is intentionally not CA-signed: Microsoft Store re-signs an
-MSIX after certification. Direct-download MSI/EXE files are a separate signing
-problem; Microsoft Store does not sign them for distribution outside the Store.
+If any of them is absent, the MSIX target is skipped while MSI/Burn/update
+artifacts are still built. Microsoft Store re-signs the submitted MSIX after
+certification; direct-download MSI/EXE signing remains a separate publishing
+step.
 
-`msix_package` uses `MakeAppx.exe` from the installed Windows SDK. The package
-minimum is Windows 10 version 1809, matching Qt 6.11's supported Windows floor.
-The MSIX is for Store submission; sideloading the CI artifact requires a
-separate signing/dependency setup and is not the release path.
+## Local Windows equivalent
 
-## Local equivalent
-
-The Windows CI configuration intentionally uses an ordinary Visual Studio
-multi-config build. The essential commands are:
+A matching fast Release build uses the MSVC environment with Ninja:
 
 ```powershell
-cmake -S . -B build/windows `
-  -G "Visual Studio 17 2022" -A x64 `
-  -DCMAKE_CONFIGURATION_TYPES=Release `
+cmake -S . -B build/windows -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release `
   -DANYKEEP_UPDATE_CHANNEL=nightly `
   -DANYKEEP_MSIX_IDENTITY_NAME="<Partner Center Identity Name>" `
   -DANYKEEP_MSIX_PUBLISHER="<Partner Center Publisher>" `
   -DANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME="<Partner Center PublisherDisplayName>" `
   -DBUILD_TESTING=ON
 
-cmake --build build/windows --config Release --parallel 4
-ctest --test-dir build/windows -C Release --output-on-failure
-cmake --build build/windows --config Release --target package --parallel 4
-cmake --build build/windows --config Release --target burn_installer --parallel 4
-cmake --build build/windows --config Release --target msix_package --parallel 4
+cmake --build build/windows --parallel 4
+ctest --test-dir build/windows --output-on-failure
+cmake --build build/windows --target windows_update_package burn_installer --parallel 4
+cmake --build build/windows --target msix_package --parallel 4
 ```
 
-Qt, Conan, and WiX still need to be available exactly as they do for a manual
-release build.
+Qt, Conan, QCA/Iris SDKs, WiX, and the MSVC environment must be available in the
+same way as in CI.
