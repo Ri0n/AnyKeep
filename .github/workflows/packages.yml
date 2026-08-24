@@ -340,6 +340,7 @@ jobs:
           target: android
           arch: ${{ matrix.qt-arch }}
           modules: qtmultimedia qttasktree
+          aqtsource: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
           cache: true
 
       - name: Download QCA/Iris SDKs
