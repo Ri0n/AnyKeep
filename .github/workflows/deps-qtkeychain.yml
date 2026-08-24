@@ -1,0 +1,273 @@
+name: QtKeychain dependency bundles
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - .github/workflows/deps-qtkeychain.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qtkeychain-dependency-bundles
+  cancel-in-progress: false
+
+env:
+  QT_SERIES: "6.11.*"
+  QTKEYCHAIN_VERSION: "0.14.3"
+  QTKEYCHAIN_REVISION: "r1"
+  QTKEYCHAIN_TAG: "deps-qtkeychain-0.14.3-r1-qt6.11"
+  ANDROID_NDK_VERSION: "r27c"
+  ANDROID_API: "28"
+  # Temporary until aqtinstall releases Qt 6.11+ Windows repository support.
+  AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - id: vars
+        shell: bash
+        run: echo "tag=$QTKEYCHAIN_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create dependency release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.vars.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" \
+              --notes "Static QtKeychain ${QTKEYCHAIN_VERSION} dependency bundles for AnyKeep, built with Qt 6.11." \
+              --prerelease
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: windows-x64
+            kind: windows
+            qt-arch: win64_msvc2022_64
+          - os: macos-15
+            platform: macos-arm64
+            kind: macos
+          - os: macos-15-intel
+            platform: macos-x86_64
+            kind: macos
+          - os: ubuntu-24.04
+            platform: android-arm64-v8a
+            kind: android
+            qt-arch: android_arm64_v8a
+          - os: ubuntu-24.04
+            platform: android-x86_64
+            kind: android
+            qt-arch: android_x86_64
+          - os: ubuntu-24.04
+            platform: android-x86
+            kind: android
+            qt-arch: android_x86
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compute asset name
+        id: asset
+        run: echo "name=qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.11-${{ matrix.platform }}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Check existing release asset
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          ASSET: ${{ steps.asset.outputs.name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$ASSET"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Qt / Windows
+        if: steps.existing.outputs.skip != 'true' && matrix.kind == 'windows'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_SERIES }}
+          arch: ${{ matrix.qt-arch }}
+          aqtsource: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          cache: true
+
+      - name: Install Qt / macOS
+        if: steps.existing.outputs.skip != 'true' && matrix.kind == 'macos'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_SERIES }}
+          cache: true
+
+      - name: Install Qt / Android
+        if: steps.existing.outputs.skip != 'true' && matrix.kind == 'android'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_SERIES }}
+          host: all_os
+          target: android
+          arch: ${{ matrix.qt-arch }}
+          cache: true
+
+      - name: Set up Android NDK
+        if: steps.existing.outputs.skip != 'true' && matrix.kind == 'android'
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+
+      - name: Set up MSVC environment
+        if: steps.existing.outputs.skip != 'true' && matrix.kind == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Download pinned QtKeychain source
+        if: steps.existing.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 5 --retry-all-errors \
+            -o qtkeychain.tar.gz \
+            "https://github.com/frankosterfeld/qtkeychain/archive/refs/tags/${QTKEYCHAIN_VERSION}.tar.gz"
+          mkdir source
+          tar -xzf qtkeychain.tar.gz --strip-components=1 -C source
+          grep -F "set(QTKEYCHAIN_VERSION ${QTKEYCHAIN_VERSION})" source/CMakeLists.txt
+
+      - name: Configure and build desktop QtKeychain
+        if: steps.existing.outputs.skip != 'true' && matrix.kind != 'android'
+        run: |
+          set -euo pipefail
+          cmake -S source -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/bundle" \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DCMAKE_INSTALL_INCLUDEDIR=include \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_WITH_QT6=ON \
+            -DBUILD_TEST_APPLICATION=OFF \
+            -DBUILD_TRANSLATIONS=OFF \
+            -DLIBSECRET_SUPPORT=OFF
+          cmake --build build --parallel 4
+          cmake --install build
+
+      - name: Configure and build Android QtKeychain
+        if: steps.existing.outputs.skip != 'true' && matrix.kind == 'android'
+        env:
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          set -euo pipefail
+          qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
+          test -x "$qt_cmake"
+          "$qt_cmake" -S source -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/bundle" \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DCMAKE_INSTALL_INCLUDEDIR=include \
+            -DANDROID_NDK="$ANDROID_NDK_ROOT" \
+            -DANDROID_PLATFORM="android-$ANDROID_API" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_WITH_QT6=ON \
+            -DBUILD_TEST_APPLICATION=OFF \
+            -DBUILD_TRANSLATIONS=OFF \
+            -DLIBSECRET_SUPPORT=OFF
+          cmake --build build --parallel 4
+          cmake --install build
+
+      - name: Verify installed SDK layout
+        if: steps.existing.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          test -f bundle/include/qt6keychain/keychain.h
+          test -d bundle/lib/cmake/Qt6Keychain
+          test -f bundle/lib/cmake/Qt6Keychain/Qt6KeychainConfig.cmake
+          if [[ '${{ matrix.kind }}' == windows ]]; then
+            test -f bundle/lib/qt6keychain.lib
+          else
+            test -f bundle/lib/libqt6keychain.a
+          fi
+
+      - name: Verify SDK can be consumed
+        if: steps.existing.outputs.skip != 'true'
+        env:
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          set -euo pipefail
+          mkdir verify
+          cat > verify/CMakeLists.txt <<'CMAKE'
+          cmake_minimum_required(VERSION 3.25)
+          project(qtkeychain_verify LANGUAGES CXX)
+          find_package(Qt6 REQUIRED COMPONENTS Core)
+          find_package(Qt6Keychain CONFIG REQUIRED)
+          add_library(qtkeychain_verify SHARED verify.cpp)
+          target_link_libraries(qtkeychain_verify PRIVATE Qt6::Core Qt6Keychain::Qt6Keychain)
+          CMAKE
+          cat > verify/verify.cpp <<'CPP'
+          #include <qt6keychain/keychain.h>
+          int qtkeychain_verify()
+          {
+              QKeychain::ReadPasswordJob job(QStringLiteral("AnyKeep"));
+              return job.autoDelete() ? 0 : 1;
+          }
+          CPP
+          if [[ '${{ matrix.kind }}' == android ]]; then
+            qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
+            "$qt_cmake" -S verify -B verify-build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH="$PWD/bundle" \
+              -DANDROID_NDK="$ANDROID_NDK_ROOT" \
+              -DANDROID_PLATFORM="android-$ANDROID_API"
+          else
+            cmake -S verify -B verify-build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH="$PWD/bundle"
+          fi
+          cmake --build verify-build --parallel 4
+
+      - name: Record bundle metadata and license
+        if: steps.existing.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p bundle/licenses
+          cp source/COPYING bundle/licenses/COPYING
+          cat > bundle/anykeep-qtkeychain-bundle.txt <<META
+          qtkeychain=${QTKEYCHAIN_VERSION}
+          revision=${QTKEYCHAIN_REVISION}
+          qt-series=6.11
+          platform=${{ matrix.platform }}
+          linkage=static
+          source=https://github.com/frankosterfeld/qtkeychain/tree/${QTKEYCHAIN_VERSION}
+          META
+
+      - name: Pack dependency bundle
+        if: steps.existing.outputs.skip != 'true'
+        env:
+          ASSET: ${{ steps.asset.outputs.name }}
+        run: tar -czf "$ASSET" -C bundle .
+
+      - name: Publish dependency bundle
+        if: steps.existing.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          ASSET: ${{ steps.asset.outputs.name }}
+        run: gh release upload "$TAG" "$ASSET" --repo "$GITHUB_REPOSITORY"
