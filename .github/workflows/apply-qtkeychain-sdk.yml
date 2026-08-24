@@ -3,7 +3,7 @@ name: Apply QtKeychain SDK integration
 on:
   push:
     branches:
-      - ci/anykeep-packages-fixes
+      - ci/anykeep-packages-applied
 
 permissions:
   contents: write
@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ci/anykeep-packages-fixes
+          ref: ci/anykeep-packages-applied
           fetch-depth: 0
 
       - name: Apply integration changes
@@ -41,4 +41,4 @@ jobs:
           git add -A
           git diff --cached --check
           git commit -m 'CI: consume prebuilt QtKeychain SDKs'
-          git push origin HEAD:ci/anykeep-packages-fixes
+          git push origin HEAD:ci/anykeep-packages-applied
