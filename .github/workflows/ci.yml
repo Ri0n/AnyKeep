@@ -49,12 +49,40 @@ jobs:
           python -m pip install --upgrade "conan>=2,<3"
           conan profile detect --force
 
+      - name: Download QCA/Iris SDKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force qca-sdk, iris-sdk | Out-Null
+
+          gh release download $env:QCA_TAG --repo psi-im/qca `
+            -p qca3-qt6-windows-x64.zip -O qca.zip
+
+          gh release download $env:IRIS_TAG --repo psi-im/iris `
+            -p iris-qt6-windows-x64.zip -O iris.zip
+
+          Push-Location qca-sdk
+          cmake -E tar xvf ../qca.zip
+          Pop-Location
+
+          Push-Location iris-sdk
+          cmake -E tar xvf ../iris.zip
+          Pop-Location
+
+          if (-not (Test-Path iris-sdk/lib/cmake/Iris)) {
+            throw "Iris CMake package missing"
+          }
+
       - name: Configure
         run: |
           cmake -S . -B build/windows `
             -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_CONFIGURATION_TYPES=Release `
             -DANYKEEP_UPDATE_CHANNEL=nightly `
+            -DANYKEEP_BUILD_BUNDLED_QCA=OFF `
+            -DANYKEEP_BUILD_BUNDLED_IRIS=OFF `
+            -DANYKEEP_QCA_SDK_ROOT="$pwd/qca-sdk" `
+            -DANYKEEP_IRIS_SDK_ROOT="$pwd/iris-sdk" `
             -DBUILD_TESTING=ON
 
       - name: Build
@@ -203,13 +231,35 @@ jobs:
           brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
           echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
 
+      - name: Download QCA/Iris SDKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p qca-sdk iris-sdk
+
+          gh release download "$IRIS_TAG" \
+            --repo psi-im/iris \
+            -p "iris-qt6-macos-*.zip" \
+            -O iris.zip
+
+          gh release download "$QCA_TAG" \
+            --repo psi-im/qca \
+            -p "qca3-qt6-macos-*.zip" \
+            -O qca.zip
+
+          (cd qca-sdk && cmake -E tar xvf ../qca.zip)
+          (cd iris-sdk && cmake -E tar xvf ../iris.zip)
+
       - name: Configure
         run: |
           cmake -S . -B build/macos -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR" \
-            -DANYKEEP_BUILD_BUNDLED_QCA=ON \
-            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON \
+            -DANYKEEP_BUILD_BUNDLED_QCA=OFF \
+            -DANYKEEP_BUILD_BUNDLED_IRIS=OFF \
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF \
+            -DANYKEEP_QCA_SDK_ROOT="$PWD/qca-sdk" \
+            -DANYKEEP_IRIS_SDK_ROOT="$PWD/iris-sdk" \
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
             -DBUILD_TESTING=OFF
