@@ -2,6 +2,17 @@ name: AnyKeep packages
 
 on:
   workflow_dispatch:
+    inputs:
+      windows_update_channel:
+        description: Windows self-update channel
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - nightly
+  schedule:
+    - cron: "0 3 * * *"
   push:
     tags: [ 'v*' ]
 
@@ -22,6 +33,7 @@ env:
 jobs:
   debian:
     name: Debian package / Ubuntu ${{ matrix.ubuntu-version }}
+    if: ${{ github.event_name != 'schedule' && (github.event_name != 'workflow_dispatch' || inputs.windows_update_channel != 'nightly') }}
     strategy:
       fail-fast: false
       matrix:
@@ -86,32 +98,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+      - name: Select Windows update channel
+        run: |
+          $channel = "stable"
+          if ("${{ github.event_name }}" -eq "schedule") {
+            $channel = "nightly"
+          } elseif ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $requested = "${{ inputs.windows_update_channel }}"
+            if ($requested) {
+              $channel = $requested
+            }
+          }
+          "ANYKEEP_WINDOWS_UPDATE_CHANNEL=$channel" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Windows update channel: $channel"
+
+      - name: Set up Windows desktop build
+        uses: ./.github/actions/setup-windows-desktop
         with:
-          version: ${{ env.QT_CURRENT_SERIES }}
-          arch: win64_msvc2022_64
-          modules: qtmultimedia qttasktree
-          aqtsource: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
-          cache: true
-
-      - name: Install Conan
-        run: |
-          python -m pip install --upgrade "conan>=2,<3"
-          conan profile detect --force
-
-      - name: Download QCA/Iris SDKs
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          New-Item -ItemType Directory -Force qca-sdk, iris-sdk | Out-Null
-          gh release download $env:QCA_TAG --repo psi-im/qca -p qca3-qt6-windows-x64.zip -O qca.zip
-          gh release download $env:IRIS_TAG --repo psi-im/iris -p iris-qt6-windows-x64.zip -O iris.zip
-          # cmake -E tar has no destination argument; unpack in the SDK directories.
-          Push-Location qca-sdk; cmake -E tar xvf ../qca.zip; Pop-Location
-          Push-Location iris-sdk; cmake -E tar xvf ../iris.zip; Pop-Location
-          if (-not (Test-Path qca-sdk/lib/cmake/Qca3-qt6)) { throw 'QCA CMake package missing' }
-          if (-not (Test-Path iris-sdk/lib/cmake/Iris)) { throw 'Iris CMake package missing' }
+          qt-version: ${{ env.QT_CURRENT_SERIES }}
+          qca-tag: ${{ env.QCA_TAG }}
+          iris-tag: ${{ env.IRIS_TAG }}
+          aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          github-token: ${{ github.token }}
 
       - name: Set up WiX
         uses: actions/setup-dotnet@v6
@@ -127,9 +135,10 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -S . -B build/package `
-            -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_CONFIGURATION_TYPES=Release `
+          $buildTesting = if ($env:ANYKEEP_WINDOWS_UPDATE_CHANNEL -eq "nightly") { "ON" } else { "OFF" }
+          cmake -S . -B build/package -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-DANYKEEP_UPDATE_CHANNEL=$env:ANYKEEP_WINDOWS_UPDATE_CHANNEL" `
             -DANYKEEP_XMPP_BACKEND=IRIS `
             -DANYKEEP_QCA_SDK_ROOT="$pwd/qca-sdk" `
             -DANYKEEP_IRIS_SDK_ROOT="$pwd/iris-sdk" `
@@ -139,19 +148,36 @@ jobs:
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF `
             -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON `
             -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON `
-            -DBUILD_TESTING=OFF
+            "-DANYKEEP_MSIX_IDENTITY_NAME=${{ vars.ANYKEEP_MSIX_IDENTITY_NAME }}" `
+            "-DANYKEEP_MSIX_PUBLISHER=${{ vars.ANYKEEP_MSIX_PUBLISHER }}" `
+            "-DANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME=${{ vars.ANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME }}" `
+            "-DBUILD_TESTING=$buildTesting"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build MSI and Burn installer
+      - name: Build and test nightly tree
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.windows_update_channel == 'nightly') }}
         run: |
-          cmake --build build/package --config Release --target package burn_installer --parallel 4
+          cmake --build build/package --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir build/package --output-on-failure --timeout 180
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build canonical MSI/update payload and Burn installer
+        run: |
+          cmake --build build/package --target windows_update_package burn_installer --parallel 4
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Store MSIX when identity is configured
         if: ${{ vars.ANYKEEP_MSIX_IDENTITY_NAME != '' && vars.ANYKEEP_MSIX_PUBLISHER != '' && vars.ANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME != '' }}
         run: |
-          cmake --build build/package --config Release --target msix_package --parallel 4
+          cmake --build build/package --target msix_package --parallel 4
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Explain skipped MSIX build
+        if: ${{ vars.ANYKEEP_MSIX_IDENTITY_NAME == '' || vars.ANYKEEP_MSIX_PUBLISHER == '' || vars.ANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME == '' }}
+        run: |
+          Write-Host "MSIX packaging is ready but Store identity is not configured."
+          Write-Host "Configure ANYKEEP_MSIX_IDENTITY_NAME, ANYKEEP_MSIX_PUBLISHER and ANYKEEP_MSIX_PUBLISHER_DISPLAY_NAME."
 
       - uses: actions/upload-artifact@v7
         with:
@@ -160,11 +186,13 @@ jobs:
             build/package/AnyKeep.msi
             build/package/AnyKeep.Installer-*.exe
             build/package/AnyKeep-*-windows-x86_64.msix
+            build/package/updates/*/*
           if-no-files-found: error
           compression-level: 0
 
   macos:
     name: macOS / ${{ matrix.arch }} package
+    if: ${{ github.event_name != 'schedule' && (github.event_name != 'workflow_dispatch' || inputs.windows_update_channel != 'nightly') }}
     strategy:
       fail-fast: false
       matrix:
@@ -312,6 +340,7 @@ jobs:
 
   android:
     name: Android / ${{ matrix.abi }} APK
+    if: ${{ github.event_name != 'schedule' && (github.event_name != 'workflow_dispatch' || inputs.windows_update_channel != 'nightly') }}
     strategy:
       fail-fast: false
       matrix:
