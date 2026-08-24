@@ -72,10 +72,6 @@ jobs:
             platform: android-x86_64
             kind: android
             qt-arch: android_x86_64
-          - os: ubuntu-24.04
-            platform: android-x86
-            kind: android
-            qt-arch: android_x86
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     defaults:
