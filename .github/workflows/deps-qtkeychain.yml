@@ -233,7 +233,7 @@ jobs:
             qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
             "$qt_cmake" -S verify -B verify-build -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_PREFIX_PATH="$PWD/bundle" \
+              -DQt6Keychain_DIR="$PWD/bundle/lib/cmake/Qt6Keychain" \
               -DANDROID_NDK="$ANDROID_NDK_ROOT" \
               -DANDROID_PLATFORM="android-$ANDROID_API"
           else
