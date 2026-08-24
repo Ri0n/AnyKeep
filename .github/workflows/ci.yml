@@ -153,8 +153,8 @@ jobs:
         run: |
           cmake -S . -B "${{ matrix.build_dir }}" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DANYKEEP_BUILD_BUNDLED_QCA=ON \
-            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON \
+            -DANYKEEP_BUILD_BUNDLED_QCA=OFF \
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF \
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
             -DBUILD_TESTING=ON
