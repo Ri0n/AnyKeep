@@ -22,7 +22,7 @@ env:
 
 jobs:
   windows:
-    name: Windows / Visual Studio 2022 / current Qt
+    name: Windows / MSVC + Ninja / current Qt
     runs-on: windows-2022
     timeout-minutes: 90
     defaults:
@@ -43,6 +43,9 @@ jobs:
           modules: qtmultimedia qttasktree
           aqtsource: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
           cache: true
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Install Conan
         run: |
@@ -75,9 +78,8 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -S . -B build/windows `
-            -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_CONFIGURATION_TYPES=Release `
+          cmake -S . -B build/windows -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
             -DANYKEEP_UPDATE_CHANNEL=nightly `
             -DANYKEEP_BUILD_BUNDLED_QCA=OFF `
             -DANYKEEP_BUILD_BUNDLED_IRIS=OFF `
@@ -86,12 +88,13 @@ jobs:
             -DBUILD_TESTING=ON
 
       - name: Build
-        run: cmake --build build/windows --config Release --parallel 4
+        run: cmake --build build/windows --parallel 4
 
       - name: Test
         run: |
           $env:PATH = "$pwd\qca-sdk\bin;$pwd\iris-sdk\bin;$env:PATH"
-          ctest --test-dir build/windows -C Release --output-on-failure --timeout 180
+          $env:QCA_PLUGIN_PATH = "$pwd\qca-sdk\lib\qca3-qt6"
+          ctest --test-dir build/windows --output-on-failure --timeout 180
 
       - name: Print failed or incomplete QtTest reports
         if: failure()
