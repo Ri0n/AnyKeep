@@ -40,7 +40,13 @@ function(anykeep_setup_conan_dependencies)
 
   set(_conan_output_dir "${CMAKE_BINARY_DIR}/conan")
   file(MAKE_DIRECTORY "${_conan_output_dir}")
-  configure_file("${CMAKE_SOURCE_DIR}/conanfile.txt" "${_conan_output_dir}/conanfile.txt" COPYONLY)
+  file(READ "${CMAKE_SOURCE_DIR}/conanfile.txt" _conanfile_contents)
+  if(ANYKEEP_CONAN_EXTRA_REQUIRES)
+    string(JOIN "\n" _conan_extra_requires ${ANYKEEP_CONAN_EXTRA_REQUIRES})
+    string(REPLACE "# ANYKEEP_CMAKE_EXTRA_REQUIRES" "${_conan_extra_requires}\n# ANYKEEP_CMAKE_EXTRA_REQUIRES"
+                   _conanfile_contents "${_conanfile_contents}")
+  endif()
+  file(WRITE "${_conan_output_dir}/conanfile.txt" "${_conanfile_contents}")
   set(_conan_common_args --profile:host=default --profile:build=default "--build=${ANYKEEP_CONAN_BUILD_POLICY}" "-s:h"
                          "compiler.cppstd=${CMAKE_CXX_STANDARD}")
 
@@ -69,7 +75,6 @@ function(anykeep_setup_conan_dependencies)
     message(FATAL_ERROR "ANYKEEP_USE_CONAN requires CMAKE_BUILD_TYPE for a single-config generator")
   endif()
 
-  file(READ "${CMAKE_SOURCE_DIR}/conanfile.txt" _conanfile_contents)
   foreach(_build_type IN LISTS _conan_build_types)
     set(_conan_args ${_conan_common_args} "-s:h" "build_type=${_build_type}")
     if(MSVC)

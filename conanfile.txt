@@ -1,6 +1,7 @@
 [requires]
 hunspell/1.7.2
 openssl/4.0.1
+# ANYKEEP_CMAKE_EXTRA_REQUIRES
 
 [generators]
 CMakeDeps
