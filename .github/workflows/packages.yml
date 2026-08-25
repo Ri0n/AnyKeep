@@ -75,7 +75,7 @@ jobs:
 
   debian:
     name: Debian package / Ubuntu ${{ matrix.ubuntu-version }}
-    if: ${{ github.event_name != 'schedule' && (github.event_name != 'workflow_dispatch' || inputs.windows_update_channel != 'nightly') }}
+    if: ${{ github.event_name != 'schedule' }}
     strategy:
       fail-fast: false
       matrix:
@@ -318,7 +318,7 @@ jobs:
 
   macos:
     name: macOS / ${{ matrix.arch }} package
-    if: ${{ github.event_name != 'schedule' && (github.event_name != 'workflow_dispatch' || inputs.windows_update_channel != 'nightly') }}
+    if: ${{ github.event_name != 'schedule' }}
     strategy:
       fail-fast: false
       matrix:
@@ -466,7 +466,7 @@ jobs:
 
   android:
     name: Android / ${{ matrix.abi }} APK
-    if: ${{ github.event_name != 'schedule' && (github.event_name != 'workflow_dispatch' || inputs.windows_update_channel != 'nightly') }}
+    if: ${{ github.event_name != 'schedule' }}
     strategy:
       fail-fast: false
       matrix:
