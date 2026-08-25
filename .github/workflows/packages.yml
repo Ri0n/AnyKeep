@@ -31,6 +31,48 @@ env:
   AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
 
 jobs:
+  nightly_gate:
+    name: Check rolling nightly release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+      - name: Compare nightly release commit
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Manual runs are an explicit request to rebuild. The gate only skips
+          # unchanged scheduled nightlies.
+          if [[ "${{ github.event_name }}" != "schedule" ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          release_body="$(
+            gh release view nightly --repo "$GITHUB_REPOSITORY" --json body --jq '.body' 2>/dev/null || true
+          )"
+          nightly_sha="$(
+            printf '%s\n' "$release_body" \
+              | sed -nE 's/.*<!-- anykeep-nightly-sha:([0-9a-f]{40}) -->.*/\1/p' \
+              | tail -n 1
+          )"
+
+          if [[ -z "$nightly_sha" ]]; then
+            echo "No successful rolling nightly marker found; building."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$nightly_sha" == "$GITHUB_SHA" ]]; then
+            echo "Rolling nightly already contains $GITHUB_SHA; skipping scheduled build."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Rolling nightly is $nightly_sha, current master is $GITHUB_SHA; building."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   debian:
     name: Debian package / Ubuntu ${{ matrix.ubuntu-version }}
     if: ${{ github.event_name != 'schedule' && (github.event_name != 'workflow_dispatch' || inputs.windows_update_channel != 'nightly') }}
@@ -88,6 +130,10 @@ jobs:
 
   windows:
     name: Windows x64 package
+    needs: nightly_gate
+    if: ${{ needs.nightly_gate.outputs.should_build == 'true' }}
+    permissions:
+      contents: write
     runs-on: windows-2022
     timeout-minutes: 150
     defaults:
@@ -189,6 +235,86 @@ jobs:
             build/package/updates/*/*
           if-no-files-found: error
           compression-level: 0
+
+      - name: Publish rolling nightly release
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.windows_update_channel == 'nightly') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $releaseTag = "nightly"
+          $releaseTitle = "AnyKeep Nightly"
+          $repo = $env:GITHUB_REPOSITORY
+
+          gh release view $releaseTag --repo $repo *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $releaseTag --repo $repo `
+              --target $env:GITHUB_SHA `
+              --title $releaseTitle `
+              --prerelease `
+              --notes "Nightly artifacts are being published. No successful build marker has been recorded yet."
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          $assets = [System.Collections.Generic.List[string]]::new()
+          $assets.Add((Resolve-Path "build/package/AnyKeep.msi").Path)
+          Get-ChildItem "build/package" -File -Filter "AnyKeep.Installer-*.exe" |
+            ForEach-Object { $assets.Add($_.FullName) }
+          Get-ChildItem "build/package" -File -Filter "AnyKeep-*-windows-x86_64.msix" |
+            ForEach-Object { $assets.Add($_.FullName) }
+
+          $updateDir = "build/package/updates/$env:ANYKEEP_WINDOWS_UPDATE_CHANNEL"
+          if (-not (Test-Path -LiteralPath $updateDir)) {
+            throw "Nightly update directory is missing: $updateDir"
+          }
+          Get-ChildItem $updateDir -File | ForEach-Object { $assets.Add($_.FullName) }
+
+          if ($assets.Count -eq 0) {
+            throw "No nightly release assets were found"
+          }
+
+          $newAssetNames = @{}
+          foreach ($asset in $assets) {
+            $name = [System.IO.Path]::GetFileName($asset)
+            $newAssetNames[$name] = $true
+            gh release upload $releaseTag $asset --repo $repo --clobber
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          # Keep the old release complete until every new asset has uploaded.
+          # Only then remove obsolete versioned files left by the previous nightly.
+          $oldAssetNames = @(gh release view $releaseTag --repo $repo --json assets --jq '.assets[].name')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($name in $oldAssetNames) {
+            if (-not $newAssetNames.ContainsKey($name)) {
+              gh release delete-asset $releaseTag $name --repo $repo --yes
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
+
+          # Update the tag before writing the success marker. If anything above
+          # fails, the release keeps the old marker and the next cron retries.
+          gh api --method PATCH "/repos/$repo/git/refs/tags/$releaseTag" `
+            -f "sha=$env:GITHUB_SHA" -F force=true > $null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $builtAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'")
+          $notes = @"
+          Rolling AnyKeep nightly build.
+
+          Commit: $env:GITHUB_SHA
+          Built: $builtAt
+
+          <!-- anykeep-nightly-sha:$env:GITHUB_SHA -->
+          "@
+          $notesFile = Join-Path $env:RUNNER_TEMP "anykeep-nightly-notes.md"
+          Set-Content -LiteralPath $notesFile -Value $notes -Encoding utf8
+
+          gh release edit $releaseTag --repo $repo `
+            --title $releaseTitle `
+            --prerelease `
+            --notes-file $notesFile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   macos:
     name: macOS / ${{ matrix.arch }} package
