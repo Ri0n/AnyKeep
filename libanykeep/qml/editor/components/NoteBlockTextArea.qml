@@ -689,6 +689,16 @@ TextArea {
         return info ? info.href : ""
     }
 
+    function renderedLinkInfoAt(x, y) {
+        if (!renderedMarkdown || !editorView.editorBackend)
+            return null
+        const position = positionAt(x, y)
+        if (position < 0 || position >= length)
+            return null
+        const info = editorView.editorBackend.linkInfo(textDocument, position, position + 1)
+        return info && info.valid && info.href ? info : null
+    }
+
     Timer {
         id: renderedLinkHoverTimer
         interval: 700
@@ -754,17 +764,13 @@ TextArea {
             }
             if (blockArea.renderedMarkdown) {
                 hoveredPlainLinkInfo = null
-                const href = blockArea.linkAt(hoverX, hoverY)
-                const position = blockArea.positionAt(hoverX, hoverY)
-                const info = href.length > 0
-                        ? editorView.editorBackend.linkInfo(blockArea.textDocument, position, position)
-                        : null
+                const info = blockArea.renderedLinkInfoAt(hoverX, hoverY)
                 const changed = !hoveredRenderedLinkInfo || !info
                         || hoveredRenderedLinkInfo.start !== info.start
                         || hoveredRenderedLinkInfo.end !== info.end
                         || hoveredRenderedLinkInfo.href !== info.href
-                hoveredRenderedLink = href
-                hoveredRenderedLinkInfo = info && info.valid ? info : null
+                hoveredRenderedLink = info ? info.href : ""
+                hoveredRenderedLinkInfo = info
                 if (hoveredRenderedLinkInfo && changed)
                     renderedLinkHoverTimer.restart()
                 else if (!hoveredRenderedLinkInfo)
@@ -872,9 +878,9 @@ TextArea {
                 if (!selectionMoved) {
                     const position = blockArea.positionAt(mouse.x, mouse.y)
                     if (blockArea.renderedMarkdown) {
-                        const link = blockArea.linkAt(mouse.x, mouse.y)
-                        if (link.length > 0)
-                            Qt.openUrlExternally(link)
+                        const info = blockArea.renderedLinkInfoAt(mouse.x, mouse.y)
+                        if (info)
+                            Qt.openUrlExternally(info.href)
                     } else if (mouse.modifiers & (Qt.ControlModifier | Qt.MetaModifier)) {
                         const link = blockArea.plainLinkAtPosition(position)
                         if (link.length > 0)
