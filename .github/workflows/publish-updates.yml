@@ -1,0 +1,183 @@
+name: Publish AnyKeep updates
+
+on:
+  workflow_run:
+    workflows: ["AnyKeep packages"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  publish-nightly:
+    name: Publish nightly updater payload
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: anykeep-net
+    env:
+      ANYKEEP_UPD_PRIVKEY: ${{ secrets.ANYKEEP_UPD_PRIVKEY }}
+      ANYKEEP_NET_PORT: ${{ secrets.ANYKEEP_NET_PORT }}
+      ANYKEEP_NET_USER: ${{ secrets.ANYKEEP_NET_USER }}
+      ANYKEEP_NET_HOST: anykeep.net
+
+    steps:
+      - name: Download Windows package artifact
+        id: payload
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+
+          artifact_count="$(
+            gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts" \
+              --jq '[.artifacts[] | select(.name == "anykeep-windows-x64" and .expired == false)] | length'
+          )"
+
+          if [[ "$artifact_count" == "0" ]]; then
+            echo "No anykeep-windows-x64 artifact in source run; nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          rm -rf downloaded
+          mkdir -p downloaded
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name anykeep-windows-x64 --dir downloaded
+
+          update_dir="$(find downloaded -type d -path '*/updates/nightly' -print -quit)"
+          if [[ -z "$update_dir" ]]; then
+            echo "Artifact contains no updates/nightly directory; nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf 'update_dir=%s\n' "$update_dir" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Validate nightly payload
+        id: validate
+        if: ${{ steps.payload.outputs.publish == 'true' }}
+        shell: bash
+        env:
+          UPDATE_DIR: ${{ steps.payload.outputs.update_dir }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          msi=("$UPDATE_DIR"/AnyKeep-*-windows-x86_64.msi)
+          version_manifest=("$UPDATE_DIR"/AnyKeep-*-windows-x86_64.json)
+
+          [[ ${#msi[@]} -eq 1 ]] || {
+            echo "Expected exactly one versioned MSI, found ${#msi[@]}" >&2
+            exit 1
+          }
+          [[ ${#version_manifest[@]} -eq 1 ]] || {
+            echo "Expected exactly one versioned manifest, found ${#version_manifest[@]}" >&2
+            exit 1
+          }
+          [[ -f "$UPDATE_DIR/windows-x86_64.json" ]]
+          [[ -f "$UPDATE_DIR/SHA256SUMS.txt" ]]
+
+          file_count="$(find "$UPDATE_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          [[ "$file_count" == "4" ]] || {
+            echo "Expected exactly four nightly update files, found $file_count" >&2
+            find "$UPDATE_DIR" -maxdepth 1 -type f -printf '%f\n' | sort >&2
+            exit 1
+          }
+
+          (
+            cd "$UPDATE_DIR"
+            sha256sum -c SHA256SUMS.txt
+          )
+
+          printf 'msi_name=%s\n' "$(basename "${msi[0]}")" >> "$GITHUB_OUTPUT"
+          printf 'manifest_name=%s\n' "$(basename "${version_manifest[0]}")" >> "$GITHUB_OUTPUT"
+
+      - name: Configure SSH
+        if: ${{ steps.payload.outputs.publish == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${ANYKEEP_UPD_PRIVKEY:?ANYKEEP_UPD_PRIVKEY is not configured}"
+          : "${ANYKEEP_NET_PORT:?ANYKEEP_NET_PORT is not configured}"
+          : "${ANYKEEP_NET_USER:?ANYKEEP_NET_USER is not configured}"
+
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$ANYKEEP_UPD_PRIVKEY" > "$HOME/.ssh/anykeep_updates"
+          chmod 600 "$HOME/.ssh/anykeep_updates"
+
+          # The deployment host is public anykeep.net. Pin the key for this run
+          # before sending credentials; a dedicated host-key secret can replace
+          # ssh-keyscan later if we want out-of-band host-key pinning.
+          ssh-keyscan -T 10 -p "$ANYKEEP_NET_PORT" -H "$ANYKEEP_NET_HOST" \
+            > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Publish four nightly update files
+        if: ${{ steps.payload.outputs.publish == 'true' }}
+        shell: bash
+        env:
+          UPDATE_DIR: ${{ steps.payload.outputs.update_dir }}
+          MSI_NAME: ${{ steps.validate.outputs.msi_name }}
+          VERSION_MANIFEST_NAME: ${{ steps.validate.outputs.manifest_name }}
+        run: |
+          set -euo pipefail
+
+          ssh_cmd=(
+            ssh
+            -i "$HOME/.ssh/anykeep_updates"
+            -p "$ANYKEEP_NET_PORT"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          scp_cmd=(
+            scp
+            -i "$HOME/.ssh/anykeep_updates"
+            -P "$ANYKEEP_NET_PORT"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+
+          remote="$ANYKEEP_NET_USER@$ANYKEEP_NET_HOST"
+          staging="updates/.incoming-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          destination="updates/nightly"
+
+          "${ssh_cmd[@]}" "$remote" \
+            "set -eu; rm -rf '$staging'; mkdir -p '$staging' '$destination'"
+
+          cleanup() {
+            "${ssh_cmd[@]}" "$remote" "rm -rf '$staging'" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          "${scp_cmd[@]}" \
+            "$UPDATE_DIR/$MSI_NAME" \
+            "$UPDATE_DIR/$VERSION_MANIFEST_NAME" \
+            "$UPDATE_DIR/SHA256SUMS.txt" \
+            "$UPDATE_DIR/windows-x86_64.json" \
+            "$remote:$staging/"
+
+          # Validate uploaded bytes on the server before making any new manifest
+          # visible. All renames happen under the nginx-backed updates tree.
+          "${ssh_cmd[@]}" "$remote" \
+            "set -eu; cd '$staging'; sha256sum -c SHA256SUMS.txt"
+
+          # Versioned payload first. The mutable channel pointer is deliberately
+          # moved last, so clients never observe a manifest for a missing MSI.
+          "${ssh_cmd[@]}" "$remote" "set -eu; \
+            mv -f '$staging/$MSI_NAME' '$destination/$MSI_NAME'; \
+            mv -f '$staging/$VERSION_MANIFEST_NAME' '$destination/$VERSION_MANIFEST_NAME'; \
+            mv -f '$staging/SHA256SUMS.txt' '$destination/SHA256SUMS.txt'; \
+            mv -f '$staging/windows-x86_64.json' '$destination/windows-x86_64.json'; \
+            rmdir '$staging'"
+
+          trap - EXIT
+
+          "${ssh_cmd[@]}" "$remote" \
+            "set -eu; ls -lh '$destination/$MSI_NAME' '$destination/$VERSION_MANIFEST_NAME' '$destination/SHA256SUMS.txt' '$destination/windows-x86_64.json'"
