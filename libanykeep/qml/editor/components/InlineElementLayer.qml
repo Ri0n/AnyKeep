@@ -291,10 +291,10 @@ Item {
     function replaceRangeWithDate(start, end, value, addSeparator) {
         const date = startOfDay(value)
         const replacement = isoDate(date)
-        const boundedStart = Math.max(0, Math.min(editor.length, Number(start)))
-        const boundedEnd = Math.max(boundedStart, Math.min(editor.length, Number(end)))
-        const characterAfter = boundedEnd < editor.length
-                ? editor.getText(boundedEnd, boundedEnd + 1) : ""
+        const plain = editor.currentPlainText()
+        const boundedStart = Math.max(0, Math.min(plain.length, Number(start)))
+        const boundedEnd = Math.max(boundedStart, Math.min(plain.length, Number(end)))
+        const characterAfter = boundedEnd < plain.length ? plain.charAt(boundedEnd) : ""
         let suffix = ""
         let existingSeparatorAdvance = 0
         if (Boolean(addSeparator)) {
