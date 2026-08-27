@@ -94,16 +94,20 @@ Item {
     }
 
     readonly property var segments: segmentsForRange()
+    readonly property bool caretImmediatelyAfter: editor.activeFocus
+                                                 && editor.selectionStart === editor.selectionEnd
+                                                 && editor.cursorPosition === element.end
 
     Repeater {
         model: root.segments
         delegate: Rectangle {
             id: segmentBackground
             required property var modelData
-            readonly property real horizontalPadding: root.editor.editorView.touchMode ? 2.5 : 2
-            x: modelData.x - horizontalPadding
+            readonly property real leftExtra: root.editor.editorView.touchMode ? 2.5 : 2
+            readonly property real rightExtra: root.caretImmediatelyAfter ? 0 : leftExtra
+            x: modelData.x - leftExtra
             y: modelData.y + 1
-            width: modelData.width + 2 * horizontalPadding
+            width: modelData.width + leftExtra + rightExtra
             height: Math.max(2, modelData.height - 2)
             radius: Math.min(6, height / 3)
             color: root.backgroundColor(segmentMouse.containsMouse)
