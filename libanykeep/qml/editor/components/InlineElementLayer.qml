@@ -16,6 +16,8 @@ Item {
     property bool inlineCaretOn: true
     property bool normalizingCursor: false
     property int lastCursorPosition: -1
+    property var delegatedKeyHandler: null
+    property var installedKeyHandler: null
 
     function startOfDay(value) {
         return new Date(value.getFullYear(), value.getMonth(), value.getDate())
@@ -126,28 +128,78 @@ Item {
         ++layoutRevision
     }
 
-    function insertTransientDateSeparator(position) {
+    function dateEndingAt(position) {
         if (!editor)
-            return false
+            return null
+        const value = Number(position)
         const plain = editor.currentPlainText()
-        const boundedPosition = Math.max(0, Math.min(plain.length, Number(position)))
-        if (boundedPosition !== plain.length)
+        for (const element of elements) {
+            if (!element || element.type !== "date" || element.end !== value)
+                continue
+            if (element.start < 0 || element.end > plain.length)
+                continue
+            if (plain.substring(element.start, element.end) === element.dateText)
+                return element
+        }
+        return null
+    }
+
+    function handleDateContinuationInput(event) {
+        if (!editor || !event || !editor.renderedMarkdown || editor.codeDocument
+                || editor.selectionStart !== editor.selectionEnd)
             return false
 
-        // Keep a normal separator in the live QTextDocument so the user can
-        // immediately continue typing after a shortcut date. Do not commit a
-        // trailing Markdown space by itself: the model already contains the
-        // date, and the next real character will commit "date text" normally.
-        const previousSyncing = Boolean(editor.syncingSourceText)
-        editor.syncingSourceText = true
-        try {
-            editor.insert(boundedPosition, " ")
-            editor.cursorPosition = boundedPosition + 1
-        } finally {
-            editor.syncingSourceText = previousSyncing
+        const input = String(event.text || "")
+        if (input.length === 0 || /[\u0000-\u001f\u007f\u2028\u2029]/.test(input)
+                || isDateBoundary(input))
+            return false
+
+        // Preserve ordinary shortcuts while still allowing printable AltGr
+        // input (Ctrl+Alt on several desktop platforms).
+        if (event.modifiers & Qt.MetaModifier)
+            return false
+        if ((event.modifiers & Qt.ControlModifier) && !(event.modifiers & Qt.AltModifier))
+            return false
+        if ((event.modifiers & Qt.AltModifier) && !(event.modifiers & Qt.ControlModifier))
+            return false
+
+        const position = Number(editor.cursorPosition)
+        if (!dateEndingAt(position))
+            return false
+
+        // Insert the separator and the first continuation character in one
+        // QTextDocument operation. There is never a trailing-space-only state
+        // for Markdown to normalize away, and the date never temporarily
+        // becomes "YYYY-MM-DDx".
+        const handled = editorView.runEditTransaction("continue-date", function() {
+            editor.insert(position, " " + input)
+            const inputStart = position + 1
+            const inputEnd = inputStart + input.length
+            editor.cursorPosition = inputEnd
+            if (typeof editor.hasPendingInlineStyle === "function"
+                    && typeof editor.applyPendingInlineStyle === "function"
+                    && editor.hasPendingInlineStyle()) {
+                editor.applyPendingInlineStyle(inputStart, inputEnd)
+            }
+            editor.commitText(false)
+            editor.rememberPlainText()
+            return true
+        })
+        if (handled)
+            Qt.callLater(root.refresh)
+        return Boolean(handled)
+    }
+
+    function installKeyHandler() {
+        if (!editor || installedKeyHandler)
+            return
+        delegatedKeyHandler = editor.keyHandler
+        installedKeyHandler = function(event) {
+            if (root.handleDateContinuationInput(event))
+                return true
+            return root.delegatedKeyHandler ? Boolean(root.delegatedKeyHandler(event)) : false
         }
-        editor.rememberPlainText()
-        return true
+        editor.keyHandler = installedKeyHandler
     }
 
     function dateAtCursor(position, backspace) {
@@ -339,13 +391,8 @@ Item {
             editor.rememberPlainText()
             return true
         })
-        if (handled) {
-            if (Boolean(addSeparator) && characterAfter.length === 0
-                    && suffix.length === 0 && existingSeparatorAdvance === 0) {
-                root.insertTransientDateSeparator(boundedStart + replacement.length)
-            }
+        if (handled)
             Qt.callLater(root.refresh)
-        }
         return Boolean(handled)
     }
 
@@ -382,6 +429,8 @@ Item {
         dateShortcutTimer.restart()
         return true
     }
+
+    Component.onCompleted: installKeyHandler()
 
     Timer {
         id: dateShortcutTimer
