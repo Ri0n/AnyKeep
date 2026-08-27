@@ -172,9 +172,14 @@ Item {
         // for Markdown to normalize away, and the date never temporarily
         // becomes "YYYY-MM-DDx".
         const handled = editorView.runEditTransaction("continue-date", function() {
-            editor.insert(position, " " + input)
+            // QQuickTextEdit::insert() discards a leading space at the end of
+            // a Markdown paragraph. Use the QTextCursor-backed plain-text
+            // primitive so the separator and input really are one insertion.
+            const inputEnd = editorView.editorBackend.insertPlainText(
+                                 editor.textDocument, position, position, " " + input)
+            if (inputEnd < 0)
+                return false
             const inputStart = position + 1
-            const inputEnd = inputStart + input.length
             editor.cursorPosition = inputEnd
             if (typeof editor.hasPendingInlineStyle === "function"
                     && typeof editor.applyPendingInlineStyle === "function"
@@ -383,10 +388,14 @@ Item {
         }
 
         const handled = editorView.runEditTransaction("set-date", function() {
-            editor.remove(boundedStart, boundedEnd)
-            editor.insert(boundedStart, replacement + suffix)
-            editor.cursorPosition = boundedStart + replacement.length
-                    + suffix.length + existingSeparatorAdvance
+            // This also preserves a separator suffix before existing text;
+            // QQuickTextEdit::insert() normalizes edge whitespace in Markdown.
+            const replacementEnd = editorView.editorBackend.insertPlainText(
+                                       editor.textDocument, boundedStart, boundedEnd,
+                                       replacement + suffix)
+            if (replacementEnd < 0)
+                return false
+            editor.cursorPosition = replacementEnd + existingSeparatorAdvance
             editor.commitText(false)
             editor.rememberPlainText()
             return true

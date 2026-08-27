@@ -77,6 +77,26 @@ namespace AnyKeep {
 
 Q_LOGGING_CATEGORY(logMain, "anykeep.main")
 
+namespace {
+    NoteDialog *findOpenNoteDialog(const Note &note, const QUuid &draftId = {})
+    {
+        // The id used to start an asynchronous load is not necessarily the
+        // canonical id carried by its result (remote storages may resolve an
+        // alias while loading). Always deduplicate by the loaded Note first.
+        if (!note.id().isEmpty()) {
+            if (auto *dialog = NoteDialog::findDialog(note.storageId(), note.id()))
+                return dialog;
+        }
+        if (draftId.isNull())
+            return nullptr;
+        for (auto *dialog : NoteDialog::openDialogs()) {
+            if (dialog && dialog->editor() && dialog->editor()->draftId() == draftId)
+                return dialog;
+        }
+        return nullptr;
+    }
+}
+
 class Main::Private : public QObject {
     Q_OBJECT
 
@@ -315,7 +335,9 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
             note.setFolderId(draft.folderId);
             note.setMedia(draft.media);
             note.setBackendData(draft.backendData);
-            auto *dialog = new NoteDialog(note, this, draft.id);
+            auto *dialog = findOpenNoteDialog(note, draft.id);
+            if (!dialog)
+                dialog = new NoteDialog(note, this, draft.id);
             d->recoveredDraftIds.insert(draft.id);
             dialog->show();
         }
@@ -715,9 +737,10 @@ void Main::restoreUpdateSessionForStorage(const QString &storageId)
                     job->deleteLater();
                     return;
                 }
-                auto *dialog = NoteDialog::findDialog(entry.storageId, entry.noteId);
+                const auto loaded = job->result();
+                auto      *dialog = findOpenNoteDialog(loaded, entry.draftId);
                 if (!dialog)
-                    dialog = new NoteDialog(job->result(), this);
+                    dialog = new NoteDialog(loaded, this, entry.draftId);
                 if (entry.geometry.isValid()) {
                     dialog->setGeometry(
                         WindowGeometryUtils::constrainToCurrentScreens(entry.geometry, dialog->minimumSize()));
@@ -1082,7 +1105,9 @@ void Main::openNoteDialog(const QString &storageId, const QString &noteId)
                 notifyError(tr("The draft could not be opened"));
                 return;
             }
-            auto *dialog = new NoteDialog(note, this, draftId);
+            auto *dialog = findOpenNoteDialog(note, draftId);
+            if (!dialog)
+                dialog = new NoteDialog(note, this, draftId);
             dialog->show();
             activateWindow(dialog);
             return;
@@ -1090,15 +1115,16 @@ void Main::openNoteDialog(const QString &storageId, const QString &noteId)
         const QString effectiveStorageId = storage->systemName();
         const QString effectiveNoteId    = resumed.value.remoteNoteId;
         auto         *job = NoteManager::instance()->loadNoteAsync(effectiveStorageId, effectiveNoteId, this);
-        connect(job, &StorageJob::finished, this, [this, job, draftId, effectiveStorageId, effectiveNoteId]() {
+        connect(job, &StorageJob::finished, this, [this, job, draftId]() {
             if (job->state() != StorageJob::Succeeded) {
                 notifyError(job->error().message.isEmpty() ? tr("Failed to load note") : job->error().message);
                 job->deleteLater();
                 return;
             }
-            auto *dialog = NoteDialog::findDialog(effectiveStorageId, effectiveNoteId);
+            const auto loaded = job->result();
+            auto      *dialog = findOpenNoteDialog(loaded, draftId);
             if (!dialog)
-                dialog = new NoteDialog(job->result(), this, draftId);
+                dialog = new NoteDialog(loaded, this, draftId);
             dialog->show();
             activateWindow(dialog);
             job->deleteLater();
@@ -1149,7 +1175,9 @@ void Main::openNoteDialog(const QString &storageId, const QString &noteId)
                 notifyError(tr("The pending draft could not be opened"));
                 return;
             }
-            auto *dialog = new NoteDialog(note, this, draftId);
+            auto *dialog = findOpenNoteDialog(note, draftId);
+            if (!dialog)
+                dialog = new NoteDialog(note, this, draftId);
             dialog->show();
             activateWindow(dialog);
             return;
@@ -1159,15 +1187,16 @@ void Main::openNoteDialog(const QString &storageId, const QString &noteId)
     const QString effectiveStorageId = pending ? pending.value.storageId : storageId;
     const QString effectiveNoteId    = pending ? pending.value.remoteNoteId : noteId;
     auto         *job = NoteManager::instance()->loadNoteAsync(effectiveStorageId, effectiveNoteId, this);
-    connect(job, &StorageJob::finished, this, [this, job, effectiveStorageId, effectiveNoteId, draftId]() {
+    connect(job, &StorageJob::finished, this, [this, job, draftId]() {
         if (job->state() != StorageJob::Succeeded) {
             notifyError(job->error().message.isEmpty() ? tr("Failed to load note") : job->error().message);
             job->deleteLater();
             return;
         }
-        auto *dlg = NoteDialog::findDialog(effectiveStorageId, effectiveNoteId);
+        const auto loaded = job->result();
+        auto      *dlg    = findOpenNoteDialog(loaded, draftId);
         if (!dlg)
-            dlg = new NoteDialog(job->result(), this, draftId);
+            dlg = new NoteDialog(loaded, this, draftId);
         dlg->show();
         activateWindow(dlg);
         job->deleteLater();

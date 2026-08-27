@@ -155,6 +155,7 @@ private slots:
     void publishesDestinationBeforeDeletingSource();
     void preservesSourceWhenDestinationPublicationFails();
     void resumesPublishingDraftForEditing();
+    void excludesActiveEditingSessionFromCrashRecovery();
     void prepareForShutdownRequeuesPublishingDraft();
     void exposesPendingPublicationDrafts();
     void publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval();
@@ -308,6 +309,26 @@ void DraftManagerTransferTest::resumesPublishingDraftForEditing()
     QCOMPARE(data->records_.value(record.id).state, DraftRecord::Editing);
     QCOMPARE(drafts.recoverableDrafts().size(), 1);
     QCOMPARE(drafts.recoverableDrafts().constFirst().id, record.id);
+}
+
+void DraftManagerTransferTest::excludesActiveEditingSessionFromCrashRecovery()
+{
+    TransferStorage storage(QStringLiteral("delayed-storage"));
+    const auto      note
+        = storage.addStored(QStringLiteral("open-note"), QStringLiteral("Open note"), QStringLiteral("Body"));
+    DraftManager drafts(std::make_unique<MemoryDraftStore>());
+
+    const auto draftId = drafts.acquireEditingSession(note);
+    QVERIFY(!draftId.isNull());
+    const auto saved = drafts.saveEditing(draftId, note, note.title(), note.text(), note.format());
+    QVERIFY2(!saved, qPrintable(saved.message));
+
+    QVERIFY(drafts.recoverableDrafts().isEmpty());
+
+    QVERIFY(drafts.releaseEditingSession(draftId));
+    const auto recoverable = drafts.recoverableDrafts();
+    QCOMPARE(recoverable.size(), 1);
+    QCOMPARE(recoverable.constFirst().id, draftId);
 }
 
 void DraftManagerTransferTest::prepareForShutdownRequeuesPublishingDraft()
