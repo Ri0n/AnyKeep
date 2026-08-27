@@ -60,6 +60,9 @@ set(anykeep_mobile_editor_qml
 set(anykeep_mobile_editor_component_qml
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/components/CompactPopupSelector.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/components/HoverActionStrip.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/components/DateChip.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/components/DatePickerPopup.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/components/InlineElementLayer.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/components/ListBlockEditor.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/components/NoteBlockTextArea.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/components/TagLineEditor.qml")

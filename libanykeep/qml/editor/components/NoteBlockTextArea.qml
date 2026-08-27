@@ -315,6 +315,10 @@ TextArea {
             cursorPosition = restoredCursor
         }
         rememberPlainText()
+        Qt.callLater(function() {
+            if (blockArea)
+                inlineElementLayer.refresh()
+        })
         return true
     }
 
@@ -436,13 +440,17 @@ TextArea {
     onSourceTextChanged: {
         synchronizeSourceText()
         Qt.callLater(function() {
-            if (blockArea)
+            if (blockArea) {
                 blockArea.registerTextDocument()
+                inlineElementLayer.refresh()
+            }
         })
     }
     onTextFormatChanged: Qt.callLater(function() {
-        if (blockArea)
+        if (blockArea) {
             blockArea.registerTextDocument()
+            inlineElementLayer.refresh()
+        }
     })
     onTitleDocumentChanged: registerTextDocument()
     onSyntaxLanguageChanged: registerTextDocument()
@@ -471,6 +479,9 @@ TextArea {
         }
     }
     onCursorPositionChanged: editorView.scheduleCursorVisibility(blockArea)
+    onWidthChanged: inlineElementLayer.invalidateGeometry()
+    onHeightChanged: inlineElementLayer.invalidateGeometry()
+    onFontChanged: inlineElementLayer.invalidateGeometry()
     Component.onCompleted: {
         synchronizeSourceText(true)
         editorView.registerEditor(blockArea)
@@ -479,6 +490,7 @@ TextArea {
                 && typeof editorView.platformBackend.setActiveSpellCheckDocument === "function")
             editorView.platformBackend.setActiveSpellCheckDocument(textDocument)
         rememberPlainText()
+        inlineElementLayer.refresh()
         spellRefresh.restart()
     }
     Component.onDestruction: editorView.unregisterEditor(blockArea)
@@ -530,6 +542,7 @@ TextArea {
     Keys.priority: Keys.BeforeItem
     Keys.onPressed: function(event) {
         armPendingInlineFormatting(event)
+        inlineElementLayer.armDateShortcut(event)
         if (event.key === Qt.Key_Control || event.key === Qt.Key_Meta) {
             primaryModifierDown = true
             editorMouseArea.refreshPlainLinkHover(event.modifiers)
@@ -547,6 +560,9 @@ TextArea {
         } else if (!blockArea.codeDocument && blockArea.handleLinkSpaceExit(event)) {
             event.accepted = true
         } else if (blockArea.handleDocumentSelectionTextReplacement(event)) {
+            event.accepted = true
+        } else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace)
+                   && inlineElementLayer.deleteDateAtCursor(event.key === Qt.Key_Backspace)) {
             event.accepted = true
         } else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace)
                 && editorView.deleteStructuredSelection(event.key === Qt.Key_Backspace)) {
@@ -697,6 +713,13 @@ TextArea {
             return null
         const info = editorView.editorBackend.linkInfo(textDocument, position, position + 1)
         return info && info.valid && info.href ? info : null
+    }
+
+    InlineElementLayer {
+        id: inlineElementLayer
+        anchors.fill: parent
+        editor: blockArea
+        editorView: blockArea.editorView
     }
 
     Timer {
