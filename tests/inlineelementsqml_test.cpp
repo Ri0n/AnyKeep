@@ -187,25 +187,74 @@ private slots:
         body->forceActiveFocus(Qt::MouseFocusReason);
         QTRY_VERIFY(body->hasActiveFocus());
 
-        QVariant handled;
         body->setProperty("cursorPosition", start);
-        QVERIFY(QMetaObject::invokeMethod(layer, "moveAcrossDate", Q_RETURN_ARG(QVariant, handled),
-                                          Q_ARG(QVariant, QVariant(1))));
-        QVERIFY(handled.toBool());
-        QCOMPARE(body->property("cursorPosition").toInt(), end);
+        QTest::keyClick(host.quickWidget(), Qt::Key_Right);
+        QTRY_COMPARE(body->property("cursorPosition").toInt(), end);
 
-        handled = {};
-        QVERIFY(QMetaObject::invokeMethod(layer, "moveAcrossDate", Q_RETURN_ARG(QVariant, handled),
-                                          Q_ARG(QVariant, QVariant(-1))));
-        QVERIFY(handled.toBool());
-        QCOMPARE(body->property("cursorPosition").toInt(), start);
+        QTest::keyClick(host.quickWidget(), Qt::Key_Left);
+        QTRY_COMPARE(body->property("cursorPosition").toInt(), start);
 
+        // Cursor placement from the left cannot leave the caret in the source
+        // characters hidden by the QML widget.
         body->setProperty("cursorPosition", start + 4);
-        handled = {};
-        QVERIFY(QMetaObject::invokeMethod(layer, "moveAcrossDate", Q_RETURN_ARG(QVariant, handled),
-                                          Q_ARG(QVariant, QVariant(1))));
-        QVERIFY(handled.toBool());
-        QCOMPARE(body->property("cursorPosition").toInt(), end);
+        QTRY_COMPARE(body->property("cursorPosition").toInt(), end);
+
+        // The same placement while approaching from the right resolves to the
+        // other widget boundary.
+        body->setProperty("cursorPosition", start + 6);
+        QTRY_COMPARE(body->property("cursorPosition").toInt(), start);
+    }
+
+    void selectionTreatsDateAsAtomic()
+    {
+        const QString dateText = QStringLiteral("2030-12-31");
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("before %1 after").arg(dateText), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 320);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QObject *layer = nullptr;
+        QTRY_VERIFY((layer = inlineLayer(body)));
+        refreshInlineLayer(layer);
+        QTRY_COMPARE(int(inlineElements(layer).size()), 1);
+
+        const int start = currentPlainText(body).indexOf(dateText);
+        QVERIFY(start >= 0);
+        const int end = start + dateText.size();
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(body->hasActiveFocus());
+
+        body->setProperty("cursorPosition", start);
+        QTest::keyClick(host.quickWidget(), Qt::Key_Right, Qt::ShiftModifier);
+        QTRY_COMPARE(body->property("selectionStart").toInt(), start);
+        QTRY_COMPARE(body->property("selectionEnd").toInt(), end);
+        QTRY_COMPARE(body->property("cursorPosition").toInt(), end);
+
+        // Contracting the selection back into the widget drops it as one
+        // atomic unit instead of selecting nine of its ten source characters.
+        QTest::keyClick(host.quickWidget(), Qt::Key_Left, Qt::ShiftModifier);
+        QTRY_COMPARE(body->property("selectionStart").toInt(), start);
+        QTRY_COMPARE(body->property("selectionEnd").toInt(), start);
+        QTRY_COMPARE(body->property("cursorPosition").toInt(), start);
+
+        body->setProperty("cursorPosition", end);
+        QTest::keyClick(host.quickWidget(), Qt::Key_Left, Qt::ShiftModifier);
+        QTRY_COMPARE(body->property("selectionStart").toInt(), start);
+        QTRY_COMPARE(body->property("selectionEnd").toInt(), end);
+        QTRY_COMPARE(body->property("cursorPosition").toInt(), start);
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_Right, Qt::ShiftModifier);
+        QTRY_COMPARE(body->property("selectionStart").toInt(), end);
+        QTRY_COMPARE(body->property("selectionEnd").toInt(), end);
+        QTRY_COMPARE(body->property("cursorPosition").toInt(), end);
     }
 
     void backspaceAndDeleteTreatDateAsAtomic()
@@ -263,7 +312,7 @@ private slots:
         QTRY_VERIFY(!editor.text().contains(dateText));
     }
 
-    void shortcutReplacementAddsSeparatorAndMovesCaret()
+    void shortcutReplacementAtEndLeavesCaretAfterDate()
     {
         const QString dateText = QStringLiteral("2030-12-31");
         Note note(new NoteData(nullptr));
@@ -298,11 +347,9 @@ private slots:
                                           Q_ARG(QVariant, dateValue), Q_ARG(QVariant, QVariant(true))));
         QVERIFY(handled.toBool());
 
-        // Markdown serialization may normalize a trailing space, but the
-        // focused QTextDocument deliberately keeps it as an input separator.
-        // That leaves the caret one real character beyond the inline widget
-        // so the user can immediately continue typing ordinary text.
-        QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31 "));
+        // A separator at EOL has no Markdown meaning and Qt normalizes it.
+        // Keep the source clean and leave the caret on the right widget edge.
+        QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31"));
         QCOMPARE(body->property("cursorPosition").toInt(), currentPlainText(body).size());
         QTRY_VERIFY(editor.text().contains(QStringLiteral("before 2030-12-31")));
         QVERIFY(!editor.text().contains(QStringLiteral("//")));
@@ -316,6 +363,48 @@ private slots:
         QVERIFY(handled.toBool());
         QTRY_COMPARE(currentPlainText(body), QStringLiteral("before "));
         QTRY_VERIFY(!editor.text().contains(dateText));
+    }
+
+    void shortcutReplacementSeparatesFollowingText()
+    {
+        const QString dateText = QStringLiteral("2030-12-31");
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("before //after"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 320);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QObject *layer = nullptr;
+        QTRY_VERIFY((layer = inlineLayer(body)));
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(body->hasActiveFocus());
+
+        const int shortcutStart = currentPlainText(body).indexOf(QStringLiteral("//"));
+        QVERIFY(shortcutStart >= 0);
+        QVariant dateValue;
+        QVERIFY(QMetaObject::invokeMethod(layer, "dateFromIso", Q_RETURN_ARG(QVariant, dateValue),
+                                          Q_ARG(QVariant, QVariant(dateText))));
+        QVERIFY(dateValue.isValid());
+
+        QVariant handled;
+        QVERIFY(QMetaObject::invokeMethod(layer, "replaceRangeWithDate", Q_RETURN_ARG(QVariant, handled),
+                                          Q_ARG(QVariant, QVariant(shortcutStart)),
+                                          Q_ARG(QVariant, QVariant(shortcutStart + 2)),
+                                          Q_ARG(QVariant, dateValue), Q_ARG(QVariant, QVariant(true))));
+        QVERIFY(handled.toBool());
+
+        QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31 after"));
+        const int followingStart = currentPlainText(body).indexOf(QStringLiteral("after"));
+        QVERIFY(followingStart > 0);
+        QCOMPARE(body->property("cursorPosition").toInt(), followingStart);
+        QTRY_VERIFY(editor.text().contains(QStringLiteral("2030-12-31 after")));
     }
 
     void tableCellsUseTheSameInlineDateLayer()
