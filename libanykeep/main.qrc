@@ -56,6 +56,9 @@
         <file alias="editor/controllers/EditorFocusController.qml">qml/editor/controllers/EditorFocusController.qml</file>
         <file alias="editor/controllers/EditorMediaNavigationController.qml">qml/editor/controllers/EditorMediaNavigationController.qml</file>
         <file alias="editor/controllers/EditorSelectionController.qml">qml/editor/controllers/EditorSelectionController.qml</file>
+        <file alias="editor/components/DateChip.qml">qml/editor/components/DateChip.qml</file>
+        <file alias="editor/components/DatePickerPopup.qml">qml/editor/components/DatePickerPopup.qml</file>
+        <file alias="editor/components/InlineElementLayer.qml">qml/editor/components/InlineElementLayer.qml</file>
         <file alias="editor/components/NoteBlockTextArea.qml">qml/editor/components/NoteBlockTextArea.qml</file>
         <file alias="editor/NoteEditorPaneImpl.qml">qml/editor/NoteEditorPaneImpl.qml</file>
         <file alias="editor/NoteFindBar.qml">qml/editor/NoteFindBar.qml</file>

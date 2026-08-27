@@ -193,8 +193,15 @@ QList<DraftRecord> DraftManager::recoverableDrafts() const
     if (!records)
         return result;
     for (const auto &record : records.value) {
-        if (record.operation == DraftRecord::Publish && record.state == DraftRecord::Editing)
+        // Editing records are crash-recovery candidates only when no editor in
+        // this process currently owns them. A storage may finish initializing
+        // after its cached note has already been opened and checkpointed; in
+        // that case treating the live session as recoverable would open the
+        // same note a second time from Main's storageReady handler.
+        if (record.operation == DraftRecord::Publish && record.state == DraftRecord::Editing
+            && !editingSessions_.contains(record.id)) {
             result.push_back(record);
+        }
     }
     qCInfo(logDraftPersistence) << "Recoverable editing drafts:" << result.size();
     return result;

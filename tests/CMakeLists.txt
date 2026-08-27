@@ -62,6 +62,9 @@ target_link_libraries(desktopnoteeditorhost_test PRIVATE Qt6::QuickWidgets)
 add_anykeep_test(editorqml_test editorqml_test.cpp)
 target_link_libraries(editorqml_test PRIVATE Qt6::QuickWidgets)
 
+add_anykeep_test(inlineelementsqml_test inlineelementsqml_test.cpp)
+target_link_libraries(inlineelementsqml_test PRIVATE Qt6::QuickWidgets)
+
 add_anykeep_test(
   notesmanagerqml_test
   notesmanagerqml_test.cpp
@@ -80,15 +83,16 @@ set_target_properties(notesmanagerqml_test PROPERTIES AUTORCC ON)
 add_anykeep_test(settingsqml_test settingsqml_test.cpp desktopqmltestsupport.h)
 target_link_libraries(settingsqml_test PRIVATE Qt6::QuickWidgets)
 
-add_custom_target(desktop_qml_tests DEPENDS desktopnoteeditorhost_test editorqml_test notesmanagerqml_test
-                                            settingsqml_test)
+add_custom_target(desktop_qml_tests DEPENDS desktopnoteeditorhost_test editorqml_test inlineelementsqml_test
+                                            notesmanagerqml_test settingsqml_test)
 
 # One stable entry point for structured-editor work.  The target builds the model/controller/QML layers together, while
 # the matching CTest label runs exactly the same focused set without maintaining a regular expression in contributor
 # instructions or automation.
-add_custom_target(editor_tests DEPENDS noteblockmodel_test noteeditor_test desktopnoteeditorhost_test editorqml_test)
+add_custom_target(editor_tests DEPENDS noteblockmodel_test noteeditor_test desktopnoteeditorhost_test editorqml_test
+                                       inlineelementsqml_test)
 set_tests_properties(noteblockmodel_test noteeditor_test PROPERTIES LABELS editor)
-set_tests_properties(desktopnoteeditorhost_test editorqml_test PROPERTIES LABELS "editor;qml")
+set_tests_properties(desktopnoteeditorhost_test editorqml_test inlineelementsqml_test PROPERTIES LABELS "editor;qml")
 set_tests_properties(notesmanagerqml_test PROPERTIES LABELS "notesmanager;qml")
 set_tests_properties(settingsqml_test PROPERTIES LABELS "settings;qml")
 
