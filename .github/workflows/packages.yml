@@ -423,12 +423,7 @@ jobs:
           test -f "$ssl"
           cp -a "$crypto" "$ssl" "$app/Contents/Frameworks/"
 
-          args=("$app" "-qmldir=$PWD/libanykeep/qml" "-always-overwrite")
-          while IFS= read -r -d '' binary; do
-            args+=("-executable=$binary")
-          done < <(find "$app/Contents/Frameworks" "$app/Contents/plugins" "$app/Contents/PlugIns/qca3-qt6/crypto" \
-                    -type f \( -name '*.dylib' -o -perm -111 \) -print0)
-          "$QT_ROOT_DIR/bin/macdeployqt" "${args[@]}"
+          "$QT_ROOT_DIR/bin/macdeployqt" "$app" "-qmldir=$PWD/libanykeep/qml" -always-overwrite
 
           crypto_name="$(basename "$crypto")"
           ssl_name="$(basename "$ssl")"
