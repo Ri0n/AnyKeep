@@ -457,11 +457,18 @@ jobs:
             done < <(otool -L "$provider" | tail -n +2 | sed -E 's/^[[:space:]]*([^[:space:]]+).*/\1/')
           done < <(find "$app/Contents/PlugIns/qca3-qt6/crypto" -type f -name '*.dylib' -print0)
 
-          if find "$app" -type f -print0 | while IFS= read -r -d '' binary; do
-               file "$binary" | grep -q 'Mach-O' || continue
-               otool -L "$binary" | tail -n +2
-             done | grep -E "$PWD/(qca-sdk|iris-sdk|build|stage)|/(opt/homebrew|usr/local)/opt/openssl"; then
-            echo 'Non-relocatable build path remains in the app bundle' >&2
+          bad_dependencies="$(
+            find "$app" -type f -print0 | while IFS= read -r -d '' binary; do
+              file "$binary" | grep -q 'Mach-O' || continue
+              # Dependency records are indented. Ignore otool architecture
+              # headers such as "... (architecture arm64):", which contain
+              # the bundle path itself and otherwise cause false positives.
+              otool -L "$binary" | sed -nE 's/^[[:space:]]+([^[:space:]]+).*/\1/p'
+            done | grep -E "$PWD/(qca-sdk|iris-sdk|build|stage)|/(opt/homebrew|usr/local)/opt/openssl" || true
+          )"
+          if [ -n "$bad_dependencies" ]; then
+            echo 'Non-relocatable dependency remains in the app bundle:' >&2
+            printf '%s\n' "$bad_dependencies" >&2
             exit 1
           fi
           ditto -c -k --sequesterRsrc --keepParent "$app" "anykeep-macos-${{ matrix.arch }}.zip"
