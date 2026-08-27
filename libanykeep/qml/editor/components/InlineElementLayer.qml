@@ -12,6 +12,7 @@ Item {
     property int layoutRevision: 0
     property date today: startOfDay(new Date())
     property int pendingDateShortcutStart: -1
+    property bool datePickerAddsSeparator: false
 
     function startOfDay(value) {
         return new Date(value.getFullYear(), value.getMonth(), value.getDate())
@@ -125,6 +126,9 @@ Item {
                 if (position === element.end
                         || (position > element.start && position < element.end))
                     return element
+                if (editor && position === element.end + 1
+                        && editor.getText(element.end, element.end + 1) === " ")
+                    return element
             } else if (position === element.start
                        || (position > element.start && position < element.end)) {
                 return element
@@ -139,8 +143,13 @@ Item {
         const element = dateAtCursor(editor.cursorPosition, Boolean(backspace))
         if (!element)
             return false
+        let deleteEnd = element.end
+        if (Boolean(backspace) && editor.cursorPosition === element.end + 1
+                && editor.getText(element.end, element.end + 1) === " ") {
+            deleteEnd = element.end + 1
+        }
         const handled = editorView.runEditTransaction("delete-date", function() {
-            editor.remove(element.start, element.end)
+            editor.remove(element.start, deleteEnd)
             editor.cursorPosition = element.start
             editor.commitText(false)
             editor.rememberPlainText()
@@ -151,15 +160,30 @@ Item {
         return Boolean(handled)
     }
 
-    function replaceRangeWithDate(start, end, value) {
+    function replaceRangeWithDate(start, end, value, addSeparator) {
         const date = startOfDay(value)
         const replacement = isoDate(date)
         const boundedStart = Math.max(0, Math.min(editor.length, Number(start)))
         const boundedEnd = Math.max(boundedStart, Math.min(editor.length, Number(end)))
+        const characterAfter = boundedEnd < editor.length
+                ? editor.getText(boundedEnd, boundedEnd + 1) : ""
+        let suffix = ""
+        let existingSeparatorAdvance = 0
+        if (Boolean(addSeparator)) {
+            if (characterAfter === " " || characterAfter === "\t")
+                existingSeparatorAdvance = 1
+            else if (characterAfter.length === 0)
+                suffix = " "
+            else if (characterAfter !== "\n" && characterAfter !== "\r"
+                     && ".,;:!?)]}".indexOf(characterAfter) < 0)
+                suffix = " "
+        }
+
         const handled = editorView.runEditTransaction("set-date", function() {
             editor.remove(boundedStart, boundedEnd)
-            editor.insert(boundedStart, replacement)
+            editor.insert(boundedStart, replacement + suffix)
             editor.cursorPosition = boundedStart + replacement.length
+                    + suffix.length + existingSeparatorAdvance
             editor.commitText(false)
             editor.rememberPlainText()
             return true
@@ -169,9 +193,10 @@ Item {
         return Boolean(handled)
     }
 
-    function openDatePicker(start, end, dateText) {
+    function openDatePicker(start, end, dateText, addSeparator) {
         if (!editor || !editor.renderedMarkdown || editor.codeDocument)
             return false
+        datePickerAddsSeparator = Boolean(addSeparator)
         datePicker.openFor(editor, start, end, dateText)
         return true
     }
@@ -213,7 +238,7 @@ Item {
                 return
             if (root.editor.getText(start, start + 2) !== "//")
                 return
-            root.openDatePicker(start, start + 2, "")
+            root.openDatePicker(start, start + 2, "", true)
         }
     }
 
@@ -241,7 +266,7 @@ Item {
                 element: parent.modelData
                 urgencyState: root.dateState(parent.modelData.dateText)
                 layoutRevision: root.layoutRevision
-                onActivated: root.openDatePicker(element.start, element.end, element.dateText)
+                onActivated: root.openDatePicker(element.start, element.end, element.dateText, false)
             }
         }
     }
@@ -250,7 +275,9 @@ Item {
         id: datePicker
         editorView: root.editorView
         onDateChosen: function(value) {
-            root.replaceRangeWithDate(datePicker.selectionStart, datePicker.selectionEnd, value)
+            root.replaceRangeWithDate(datePicker.selectionStart, datePicker.selectionEnd,
+                                      value, root.datePickerAddsSeparator)
         }
+        onClosed: root.datePickerAddsSeparator = false
     }
 }
