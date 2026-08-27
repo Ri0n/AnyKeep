@@ -13,6 +13,7 @@ Item {
     property date today: startOfDay(new Date())
     property int pendingDateShortcutStart: -1
     property bool datePickerAddsSeparator: false
+    property bool inlineCaretOn: true
 
     function startOfDay(value) {
         return new Date(value.getFullYear(), value.getMonth(), value.getDate())
@@ -137,6 +138,58 @@ Item {
         return null
     }
 
+    function dateForNavigation(position, direction) {
+        for (const element of elements) {
+            if (!element || element.type !== "date")
+                continue
+            if (direction > 0 && position >= element.start && position < element.end)
+                return element
+            if (direction < 0 && position > element.start && position <= element.end)
+                return element
+        }
+        return null
+    }
+
+    function canMoveAcrossDate(direction) {
+        return editor && editor.activeFocus
+                && editor.selectionStart === editor.selectionEnd
+                && dateForNavigation(editor.cursorPosition, Number(direction)) !== null
+    }
+
+    function moveAcrossDate(direction) {
+        if (!editor || editor.selectionStart !== editor.selectionEnd)
+            return false
+        const step = Number(direction)
+        const element = dateForNavigation(editor.cursorPosition, step)
+        if (!element)
+            return false
+        editor.cursorPosition = step > 0 ? element.end : element.start
+        editorView.activeEditor = editor
+        inlineCaretOn = true
+        inlineCaretTimer.restart()
+        return true
+    }
+
+    function cursorTouchesDate() {
+        if (!editor || !editor.activeFocus || editor.selectionStart !== editor.selectionEnd)
+            return false
+        const position = editor.cursorPosition
+        for (const element of elements) {
+            if (element && element.type === "date"
+                    && position >= element.start && position <= element.end)
+                return true
+        }
+        return false
+    }
+
+    function currentCaretRectangle() {
+        const revision = layoutRevision
+        void revision
+        if (!editor)
+            return Qt.rect(0, 0, 0, 0)
+        return editor.positionToRectangle(editor.cursorPosition)
+    }
+
     function deleteDateAtCursor(backspace) {
         if (!editor || editor.selectionStart !== editor.selectionEnd)
             return false
@@ -227,6 +280,18 @@ Item {
         return true
     }
 
+    Shortcut {
+        sequence: "Left"
+        enabled: root.canMoveAcrossDate(-1)
+        onActivated: root.moveAcrossDate(-1)
+    }
+
+    Shortcut {
+        sequence: "Right"
+        enabled: root.canMoveAcrossDate(1)
+        onActivated: root.moveAcrossDate(1)
+    }
+
     Timer {
         id: dateShortcutTimer
         interval: 0
@@ -253,6 +318,31 @@ Item {
         }
     }
 
+    Timer {
+        id: inlineCaretTimer
+        interval: 500
+        repeat: true
+        running: root.cursorTouchesDate()
+        onRunningChanged: {
+            if (running)
+                root.inlineCaretOn = true
+        }
+        onTriggered: root.inlineCaretOn = !root.inlineCaretOn
+    }
+
+    Connections {
+        target: root.editor
+        ignoreUnknownSignals: true
+        function onCursorPositionChanged() {
+            root.inlineCaretOn = true
+            if (inlineCaretTimer.running)
+                inlineCaretTimer.restart()
+        }
+        function onActiveFocusChanged() {
+            root.inlineCaretOn = true
+        }
+    }
+
     Repeater {
         model: root.elements
         delegate: Item {
@@ -269,6 +359,17 @@ Item {
                 onActivated: root.openDatePicker(element.start, element.end, element.dateText, false)
             }
         }
+    }
+
+    Rectangle {
+        readonly property var caretGeometry: root.currentCaretRectangle()
+        z: 100
+        visible: root.cursorTouchesDate() && root.inlineCaretOn
+        x: caretGeometry.x
+        y: caretGeometry.y + 1
+        width: 1
+        height: Math.max(2, caretGeometry.height - 2)
+        color: root.editor ? root.editor.palette.text : "white"
     }
 
     DatePickerPopup {
