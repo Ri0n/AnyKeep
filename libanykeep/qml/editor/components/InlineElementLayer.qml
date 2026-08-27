@@ -14,6 +14,8 @@ Item {
     property int pendingDateShortcutStart: -1
     property bool datePickerAddsSeparator: false
     property bool inlineCaretOn: true
+    property bool normalizingCursor: false
+    property int lastCursorPosition: -1
 
     function startOfDay(value) {
         return new Date(value.getFullYear(), value.getMonth(), value.getDate())
@@ -78,6 +80,8 @@ Item {
                 || !editorView || !editorView.editorBackend) {
             elements = []
             ++layoutRevision
+            if (editor)
+                lastCursorPosition = Number(editor.cursorPosition)
             return
         }
 
@@ -113,6 +117,9 @@ Item {
         }
         elements = discovered
         ++layoutRevision
+        if (lastCursorPosition < 0)
+            lastCursorPosition = Number(editor.cursorPosition)
+        Qt.callLater(root.normalizeCursorAndSelection)
     }
 
     function invalidateGeometry() {
@@ -138,35 +145,103 @@ Item {
         return null
     }
 
-    function dateForNavigation(position, direction) {
+    function dateContainingPosition(position) {
+        const value = Number(position)
         for (const element of elements) {
-            if (!element || element.type !== "date")
-                continue
-            if (direction > 0 && position >= element.start && position < element.end)
-                return element
-            if (direction < 0 && position > element.start && position <= element.end)
+            if (element && element.type === "date"
+                    && value > element.start && value < element.end)
                 return element
         }
         return null
     }
 
-    function canMoveAcrossDate(direction) {
-        return editor && editor.activeFocus
-                && editor.selectionStart === editor.selectionEnd
-                && dateForNavigation(editor.cursorPosition, Number(direction)) !== null
+    function normalizedSelectionBoundary(position, startBoundary) {
+        const element = dateContainingPosition(position)
+        if (!element)
+            return Number(position)
+        return Boolean(startBoundary) ? element.start : element.end
     }
 
-    function moveAcrossDate(direction) {
-        if (!editor || editor.selectionStart !== editor.selectionEnd)
+    function normalizeCursorAndSelection() {
+        if (!editor || normalizingCursor)
             return false
-        const step = Number(direction)
-        const element = dateForNavigation(editor.cursorPosition, step)
-        if (!element)
+
+        const current = Number(editor.cursorPosition)
+        const selectionStart = Number(editor.selectionStart)
+        const selectionEnd = Number(editor.selectionEnd)
+        const previous = lastCursorPosition
+
+        if (selectionStart !== selectionEnd) {
+            const activeElement = dateContainingPosition(current)
+            if (activeElement) {
+                const activeAtStart = current === selectionStart
+                const anchor = activeAtStart ? selectionEnd : selectionStart
+                let target
+
+                if (anchor <= activeElement.start) {
+                    // Expanding from the left selects the entire widget at
+                    // once. Contracting back into a previously selected date
+                    // drops the entire widget at once instead of exposing its
+                    // individual source characters.
+                    target = previous >= activeElement.end && current < previous
+                            ? activeElement.start : activeElement.end
+                } else if (anchor >= activeElement.end) {
+                    target = previous >= 0 && previous <= activeElement.start
+                            && current > previous
+                            ? activeElement.end : activeElement.start
+                } else {
+                    target = current - activeElement.start
+                            < activeElement.end - current
+                            ? activeElement.start : activeElement.end
+                }
+
+                normalizingCursor = true
+                editor.select(anchor, target)
+                lastCursorPosition = Number(editor.cursorPosition)
+                normalizingCursor = false
+                return true
+            }
+
+            // Programmatic selections and cross-editor mouse selection can
+            // occasionally move the non-active boundary without first moving
+            // the cursor. Never leave either endpoint inside a widget.
+            const normalizedStart = normalizedSelectionBoundary(selectionStart, true)
+            const normalizedEnd = normalizedSelectionBoundary(selectionEnd, false)
+            if (normalizedStart !== selectionStart || normalizedEnd !== selectionEnd) {
+                const activeAtStart = current === selectionStart
+                normalizingCursor = true
+                if (activeAtStart)
+                    editor.select(normalizedEnd, normalizedStart)
+                else
+                    editor.select(normalizedStart, normalizedEnd)
+                lastCursorPosition = Number(editor.cursorPosition)
+                normalizingCursor = false
+                return true
+            }
+
+            lastCursorPosition = current
             return false
-        editor.cursorPosition = step > 0 ? element.end : element.start
-        editorView.activeEditor = editor
-        inlineCaretOn = true
-        inlineCaretTimer.restart()
+        }
+
+        const element = dateContainingPosition(current)
+        if (!element) {
+            lastCursorPosition = current
+            return false
+        }
+
+        let target
+        if (previous >= 0 && previous <= element.start)
+            target = element.end
+        else if (previous >= element.end)
+            target = element.start
+        else
+            target = current - element.start < element.end - current
+                    ? element.start : element.end
+
+        normalizingCursor = true
+        editor.cursorPosition = target
+        lastCursorPosition = target
+        normalizingCursor = false
         return true
     }
 
@@ -225,9 +300,8 @@ Item {
         if (Boolean(addSeparator)) {
             if (characterAfter === " " || characterAfter === "\t")
                 existingSeparatorAdvance = 1
-            else if (characterAfter.length === 0)
-                suffix = " "
-            else if (characterAfter !== "\n" && characterAfter !== "\r"
+            else if (characterAfter.length > 0
+                     && characterAfter !== "\n" && characterAfter !== "\r"
                      && ".,;:!?)]}".indexOf(characterAfter) < 0)
                 suffix = " "
         }
@@ -280,18 +354,6 @@ Item {
         return true
     }
 
-    Shortcut {
-        sequence: "Left"
-        enabled: root.canMoveAcrossDate(-1)
-        onActivated: root.moveAcrossDate(-1)
-    }
-
-    Shortcut {
-        sequence: "Right"
-        enabled: root.canMoveAcrossDate(1)
-        onActivated: root.moveAcrossDate(1)
-    }
-
     Timer {
         id: dateShortcutTimer
         interval: 0
@@ -334,12 +396,18 @@ Item {
         target: root.editor
         ignoreUnknownSignals: true
         function onCursorPositionChanged() {
+            if (!root.normalizingCursor)
+                root.normalizeCursorAndSelection()
             root.inlineCaretOn = true
             if (inlineCaretTimer.running)
                 inlineCaretTimer.restart()
         }
         function onActiveFocusChanged() {
             root.inlineCaretOn = true
+            if (root.editor && root.editor.activeFocus) {
+                root.lastCursorPosition = Number(root.editor.cursorPosition)
+                Qt.callLater(root.normalizeCursorAndSelection)
+            }
         }
     }
 
