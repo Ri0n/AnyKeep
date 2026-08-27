@@ -13,6 +13,8 @@ Item {
     property date today: startOfDay(new Date())
     property int pendingDateShortcutStart: -1
     property bool datePickerAddsSeparator: false
+    property int pendingDateContinuationPosition: -1
+    property bool materializingDateSeparator: false
     property bool inlineCaretOn: true
     property bool normalizingCursor: false
     property int lastCursorPosition: -1
@@ -124,6 +126,37 @@ Item {
 
     function invalidateGeometry() {
         ++layoutRevision
+    }
+
+    function materializePendingDateSeparator() {
+        if (!editor || materializingDateSeparator || pendingDateContinuationPosition < 0)
+            return false
+        if (!editor.activeFocus || editor.selectionStart !== editor.selectionEnd) {
+            pendingDateContinuationPosition = -1
+            return false
+        }
+
+        const plain = editor.currentPlainText()
+        const position = pendingDateContinuationPosition
+        if (position >= plain.length)
+            return false
+
+        const characterAfterDate = plain.charAt(position)
+        if (isDateBoundary(characterAfterDate)) {
+            // The user supplied a real separator (space/newline) or typed
+            // punctuation that is already a valid standalone-date boundary.
+            pendingDateContinuationPosition = -1
+            return false
+        }
+
+        const cursor = Number(editor.cursorPosition)
+        pendingDateContinuationPosition = -1
+        materializingDateSeparator = true
+        editor.insert(position, " ")
+        if (cursor >= position)
+            editor.cursorPosition = cursor + 1
+        materializingDateSeparator = false
+        return true
     }
 
     function dateAtCursor(position, backspace) {
@@ -306,6 +339,7 @@ Item {
                 suffix = " "
         }
 
+        pendingDateContinuationPosition = -1
         const handled = editorView.runEditTransaction("set-date", function() {
             editor.remove(boundedStart, boundedEnd)
             editor.insert(boundedStart, replacement + suffix)
@@ -315,8 +349,15 @@ Item {
             editor.rememberPlainText()
             return true
         })
-        if (handled)
+        if (handled) {
+            // At EOL (or immediately before punctuation/newline) a literal
+            // trailing space would be normalized away. Remember the widget
+            // boundary instead and materialize a separator only if the next
+            // actual input is ordinary text.
+            if (Boolean(addSeparator) && suffix.length === 0 && existingSeparatorAdvance === 0)
+                pendingDateContinuationPosition = boundedStart + replacement.length
             Qt.callLater(root.refresh)
+        }
         return Boolean(handled)
     }
 
@@ -395,6 +436,10 @@ Item {
     Connections {
         target: root.editor
         ignoreUnknownSignals: true
+        function onTextChanged() {
+            if (!root.materializingDateSeparator && root.pendingDateContinuationPosition >= 0)
+                Qt.callLater(root.materializePendingDateSeparator)
+        }
         function onCursorPositionChanged() {
             if (!root.normalizingCursor)
                 root.normalizeCursorAndSelection()
@@ -407,6 +452,8 @@ Item {
             if (root.editor && root.editor.activeFocus) {
                 root.lastCursorPosition = Number(root.editor.cursorPosition)
                 Qt.callLater(root.normalizeCursorAndSelection)
+            } else {
+                root.pendingDateContinuationPosition = -1
             }
         }
     }
