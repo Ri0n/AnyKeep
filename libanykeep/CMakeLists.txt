@@ -152,6 +152,8 @@ set(anykeep_CORE_SRCS
     qcainitializer.cpp
     secureenvelope.cpp
     securekeystore.cpp
+    speechaudiorecorder.cpp
+    speechrecognitioncontroller.cpp
     spellcheckprovider.cpp
     settingscontroller.cpp
     storageiconimageprovider.cpp
@@ -221,6 +223,8 @@ set(anykeep_CORE_HDRS
     securekeystore.h
     settingscontroller.h
     settingsproviderinterface.h
+    speechaudiorecorder.h
+    speechrecognitioncontroller.h
     speechrecognitionprovider.h
     spellcheckprovider.h
     storageiconimageprovider.h
