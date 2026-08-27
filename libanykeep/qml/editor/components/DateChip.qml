@@ -10,32 +10,24 @@ Item {
 
     anchors.fill: parent
 
-    function paletteIsDark() {
-        const base = editor.palette.base
-        return 0.299 * base.r + 0.587 * base.g + 0.114 * base.b < 0.5
-    }
-
-    function statusColor() {
-        const dark = paletteIsDark()
-        if (urgencyState === "overdue")
-            return dark ? Qt.rgba(0.973, 0.318, 0.286, 1) : Qt.rgba(0.812, 0.133, 0.180, 1)
-        if (urgencyState === "soon")
-            return dark ? Qt.rgba(0.824, 0.600, 0.133, 1) : Qt.rgba(0.604, 0.404, 0.000, 1)
-        return dark ? Qt.rgba(0.247, 0.725, 0.314, 1) : Qt.rgba(0.102, 0.498, 0.216, 1)
-    }
-
     function backgroundColor(hovered) {
-        const base = statusColor()
-        const dark = paletteIsDark()
-        return Qt.rgba(base.r, base.g, base.b,
-                       hovered ? (dark ? 0.24 : 0.16) : (dark ? 0.16 : 0.10))
+        if (urgencyState === "overdue")
+            return hovered ? "#f27d7d" : "#ef6c6c"
+        if (urgencyState === "soon")
+            return hovered ? "#ffe082" : "#ffd54f"
+        return hovered ? "#93d497" : "#81c784"
     }
 
-    function borderColor(hovered) {
-        const base = statusColor()
-        const dark = paletteIsDark()
-        return Qt.rgba(base.r, base.g, base.b,
-                       hovered ? (dark ? 0.72 : 0.55) : (dark ? 0.46 : 0.34))
+    function borderColor() {
+        if (urgencyState === "overdue")
+            return "#b94343"
+        if (urgencyState === "soon")
+            return "#c59a17"
+        return "#4f8f58"
+    }
+
+    function foregroundColor() {
+        return "#1a1a1a"
     }
 
     function segmentsForRange() {
@@ -73,11 +65,14 @@ Item {
                     x: current.x,
                     y: current.y,
                     right: right,
-                    height: current.height
+                    height: current.height,
+                    start: position,
+                    end: position + 1
                 }
             } else {
                 segment.right = Math.max(segment.right, right)
                 segment.height = Math.max(segment.height, current.height)
+                segment.end = position + 1
             }
 
             if (!sameLine || position === element.end - 1) {
@@ -103,16 +98,28 @@ Item {
         delegate: Rectangle {
             id: segmentBackground
             required property var modelData
-            readonly property real leftExtra: root.editor.editorView.touchMode ? 2.5 : 2
-            readonly property real rightExtra: root.caretImmediatelyAfter ? 0 : leftExtra
-            x: modelData.x - leftExtra
-            y: modelData.y + 1
-            width: modelData.width + leftExtra + rightExtra
-            height: Math.max(2, modelData.height - 2)
+            readonly property real horizontalPadding: root.editor.editorView.touchMode ? 4 : 3.5
+            readonly property real rightPadding: root.caretImmediatelyAfter ? 0 : horizontalPadding
+            x: modelData.x - horizontalPadding
+            y: modelData.y
+            width: modelData.width + horizontalPadding + rightPadding
+            height: Math.max(2, modelData.height)
             radius: Math.min(6, height / 3)
             color: root.backgroundColor(segmentMouse.containsMouse)
-            border.color: root.borderColor(segmentMouse.containsMouse)
+            border.color: root.borderColor()
             border.width: 1
+
+            Text {
+                anchors.fill: parent
+                leftPadding: segmentBackground.horizontalPadding
+                rightPadding: segmentBackground.rightPadding
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                text: root.editor.getText(parent.modelData.start, parent.modelData.end)
+                font: root.editor.font
+                color: root.foregroundColor()
+                elide: Text.ElideNone
+            }
 
             MouseArea {
                 id: segmentMouse
