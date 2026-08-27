@@ -312,7 +312,7 @@ private slots:
         QTRY_VERIFY(!editor.text().contains(dateText));
     }
 
-    void shortcutReplacementAtEndLeavesCaretAfterDate()
+    void shortcutReplacementAtEndKeepsSeparatorForTyping()
     {
         const QString dateText = QStringLiteral("2030-12-31");
         Note note(new NoteData(nullptr));
@@ -347,9 +347,10 @@ private slots:
                                           Q_ARG(QVariant, dateValue), Q_ARG(QVariant, QVariant(true))));
         QVERIFY(handled.toBool());
 
-        // A separator at EOL has no Markdown meaning and Qt normalizes it.
-        // Keep the source clean and leave the caret on the right widget edge.
-        QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31"));
+        // Keep the continuation separator only in the live QTextDocument.
+        // The model already contains the date, so an otherwise meaningless
+        // trailing Markdown space is not persisted by itself.
+        QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31 "));
         QCOMPARE(body->property("cursorPosition").toInt(), currentPlainText(body).size());
         QTRY_VERIFY(editor.text().contains(QStringLiteral("before 2030-12-31")));
         QVERIFY(!editor.text().contains(QStringLiteral("//")));
@@ -357,12 +358,11 @@ private slots:
         refreshInlineLayer(layer);
         QTRY_COMPARE(int(inlineElements(layer).size()), 1);
 
-        handled = {};
-        QVERIFY(QMetaObject::invokeMethod(layer, "deleteDateAtCursor", Q_RETURN_ARG(QVariant, handled),
-                                          Q_ARG(QVariant, QVariant(true))));
-        QVERIFY(handled.toBool());
-        QTRY_COMPARE(currentPlainText(body), QStringLiteral("before "));
-        QTRY_VERIFY(!editor.text().contains(dateText));
+        QTest::keyClicks(host.quickWidget(), QStringLiteral("x"));
+        QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31 x"));
+        QTRY_VERIFY(editor.text().contains(QStringLiteral("before 2030-12-31 x")));
+        refreshInlineLayer(layer);
+        QTRY_COMPARE(int(inlineElements(layer).size()), 1);
     }
 
     void shortcutReplacementSeparatesFollowingText()
