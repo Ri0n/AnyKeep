@@ -103,6 +103,9 @@ set(ANYKEEP_QCA_SDK_ROOT
 set(ANYKEEP_IRIS_SDK_ROOT
     ""
     CACHE PATH "Root of a prebuilt Iris SDK; when set it takes precedence over the bundled Iris fallback")
+set(ANYKEEP_QTKEYCHAIN_SDK_ROOT
+    ""
+    CACHE PATH "Root of a prebuilt QtKeychain SDK; when set it takes precedence over installed/source fallbacks")
 option(ANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME
        "Install/package runtime files from ANYKEEP_QCA_SDK_ROOT and ANYKEEP_IRIS_SDK_ROOT" OFF)
 option(ANYKEEP_BUILD_BUNDLED_QXMPP "Build bundled QXmpp when a suitable system QXmpp is unavailable"
@@ -166,7 +169,8 @@ else()
 endif()
 include(GNUInstallDirs)
 
-foreach(_anykeep_sdk_root IN ITEMS "${ANYKEEP_QCA_SDK_ROOT}" "${ANYKEEP_IRIS_SDK_ROOT}")
+foreach(_anykeep_sdk_root IN ITEMS "${ANYKEEP_QCA_SDK_ROOT}" "${ANYKEEP_IRIS_SDK_ROOT}"
+                                   "${ANYKEEP_QTKEYCHAIN_SDK_ROOT}")
   if(_anykeep_sdk_root)
     if(NOT IS_DIRECTORY "${_anykeep_sdk_root}")
       message(FATAL_ERROR "Configured AnyKeep SDK root does not exist: ${_anykeep_sdk_root}")
@@ -331,13 +335,33 @@ else()
   endif()
 endif()
 
-find_package(Qt6Keychain QUIET)
-if(NOT TARGET Qt6Keychain::Qt6Keychain AND ANYKEEP_BUILD_BUNDLED_QTKEYCHAIN
-   AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
-  message(STATUS "System QtKeychain not found; using bundled QtKeychain")
-  include(BundledQtKeychain)
-elseif(NOT TARGET Qt6Keychain::Qt6Keychain AND ANYKEEP_BUILD_BUNDLED_QTKEYCHAIN)
-  message(STATUS "QtKeychain source fallback is disabled")
+if(ANYKEEP_QTKEYCHAIN_SDK_ROOT)
+  set(_anykeep_qtkeychain_package_dir "${ANYKEEP_QTKEYCHAIN_SDK_ROOT}/lib/cmake/Qt6Keychain")
+  if(NOT EXISTS "${_anykeep_qtkeychain_package_dir}/Qt6KeychainConfig.cmake")
+    message(FATAL_ERROR "QtKeychain SDK CMake package missing: ${_anykeep_qtkeychain_package_dir}")
+  endif()
+  # Android's Qt toolchain normally re-roots package searches. The SDK lives
+  # outside that sysroot, so keep this explicit package lookup unrooted.
+  find_package(Qt6Keychain CONFIG REQUIRED
+               PATHS "${_anykeep_qtkeychain_package_dir}"
+               NO_DEFAULT_PATH
+               NO_CMAKE_FIND_ROOT_PATH)
+  if(NOT TARGET Qt6Keychain::Qt6Keychain)
+    message(FATAL_ERROR
+            "QtKeychain SDK did not provide Qt6Keychain::Qt6Keychain: ${ANYKEEP_QTKEYCHAIN_SDK_ROOT}")
+  endif()
+  message(STATUS "QtKeychain: using prebuilt SDK (${ANYKEEP_QTKEYCHAIN_SDK_ROOT})")
+  unset(_anykeep_qtkeychain_package_dir)
+else()
+  find_package(Qt6Keychain QUIET)
+  if(TARGET Qt6Keychain::Qt6Keychain)
+    message(STATUS "QtKeychain: using installed package")
+  elseif(ANYKEEP_BUILD_BUNDLED_QTKEYCHAIN AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
+    message(STATUS "System QtKeychain not found; using bundled QtKeychain")
+    include(BundledQtKeychain)
+  elseif(ANYKEEP_BUILD_BUNDLED_QTKEYCHAIN)
+    message(STATUS "QtKeychain source fallback is disabled")
+  endif()
 endif()
 
 # QSourceHighlite is tiny and MIT-licensed, so keep the pinned source in-tree

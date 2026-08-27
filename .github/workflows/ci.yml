@@ -16,6 +16,9 @@ env:
   QT_CURRENT_SERIES: "6.11.*"
   QCA_TAG: v3.0.1
   IRIS_TAG: v1.0.3
+  QTKEYCHAIN_TAG: deps-qtkeychain-0.14.3-r1-qt6.11
+  QTKEYCHAIN_VERSION: "0.14.3"
+  QTKEYCHAIN_REVISION: "r1"
   # aqtinstall 3.3.0 cannot read the new Windows Qt 6.11 repository layout.
   # PR #1000 contains the upstream fix; remove this override after aqt releases it.
   AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
@@ -41,6 +44,9 @@ jobs:
           qt-version: ${{ env.QT_CURRENT_SERIES }}
           qca-tag: ${{ env.QCA_TAG }}
           iris-tag: ${{ env.IRIS_TAG }}
+          qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
+          qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
+          qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
           aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
           github-token: ${{ github.token }}
 
@@ -51,8 +57,10 @@ jobs:
             -DANYKEEP_UPDATE_CHANNEL=nightly `
             -DANYKEEP_BUILD_BUNDLED_QCA=OFF `
             -DANYKEEP_BUILD_BUNDLED_IRIS=OFF `
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF `
             -DANYKEEP_QCA_SDK_ROOT="$pwd/qca-sdk" `
             -DANYKEEP_IRIS_SDK_ROOT="$pwd/iris-sdk" `
+            -DANYKEEP_QTKEYCHAIN_SDK_ROOT="$pwd/qtkeychain-sdk" `
             -DBUILD_TESTING=ON
 
       - name: Build
@@ -201,11 +209,12 @@ jobs:
           brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
           echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
 
-      - name: Download QCA/Iris SDKs
+      - name: Download QCA/Iris/QtKeychain SDKs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p qca-sdk iris-sdk
+          set -euo pipefail
+          mkdir -p qca-sdk iris-sdk qtkeychain-sdk
 
           gh release download "$IRIS_TAG" \
             --repo psi-im/iris \
@@ -217,8 +226,20 @@ jobs:
             -p "qca3-qt6-macos-x86_64.zip" \
             -O qca.zip
 
+          qtkeychain_asset="qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.11-macos-x86_64.tar.gz"
+          gh release download "$QTKEYCHAIN_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            -p "$qtkeychain_asset" \
+            -O qtkeychain.tar.gz
+
           (cd qca-sdk && cmake -E tar xvf ../qca.zip)
           (cd iris-sdk && cmake -E tar xvf ../iris.zip)
+          tar -xzf qtkeychain.tar.gz -C qtkeychain-sdk
+
+          test -d qca-sdk/lib/cmake/Qca3-qt6
+          test -d iris-sdk/lib/cmake/Iris
+          test -f qtkeychain-sdk/lib/cmake/Qt6Keychain/Qt6KeychainConfig.cmake
+          test -f qtkeychain-sdk/lib/libqt6keychain.a
 
       - name: Configure
         run: |
@@ -227,9 +248,10 @@ jobs:
             -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR" \
             -DANYKEEP_BUILD_BUNDLED_QCA=OFF \
             -DANYKEEP_BUILD_BUNDLED_IRIS=OFF \
-            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON \
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF \
             -DANYKEEP_QCA_SDK_ROOT="$PWD/qca-sdk" \
             -DANYKEEP_IRIS_SDK_ROOT="$PWD/iris-sdk" \
+            -DANYKEEP_QTKEYCHAIN_SDK_ROOT="$PWD/qtkeychain-sdk" \
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
             -DBUILD_TESTING=OFF
