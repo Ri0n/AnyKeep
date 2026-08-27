@@ -23,6 +23,9 @@ env:
   QT_CURRENT_SERIES: "6.11.*"
   QCA_TAG: v3.0.1
   IRIS_TAG: v1.0.3
+  QTKEYCHAIN_TAG: deps-qtkeychain-0.14.3-r1-qt6.11
+  QTKEYCHAIN_VERSION: "0.14.3"
+  QTKEYCHAIN_REVISION: "r1"
   ANDROID_NDK_VERSION: r27c
   ANDROID_API: 28
   ANDROID_OPENSSL_REVISION: b71f1470962019bd89534a2919f5925f93bc5779
@@ -164,6 +167,9 @@ jobs:
           qt-version: ${{ env.QT_CURRENT_SERIES }}
           qca-tag: ${{ env.QCA_TAG }}
           iris-tag: ${{ env.IRIS_TAG }}
+          qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
+          qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
+          qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
           aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
           github-token: ${{ github.token }}
 
@@ -188,11 +194,12 @@ jobs:
             -DANYKEEP_XMPP_BACKEND=IRIS `
             -DANYKEEP_QCA_SDK_ROOT="$pwd/qca-sdk" `
             -DANYKEEP_IRIS_SDK_ROOT="$pwd/iris-sdk" `
+            -DANYKEEP_QTKEYCHAIN_SDK_ROOT="$pwd/qtkeychain-sdk" `
             -DANYKEEP_BUILD_BUNDLED_QCA=OFF `
             -DANYKEEP_BUILD_BUNDLED_IRIS=OFF `
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF `
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF `
-            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON `
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF `
             -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON `
             "-DANYKEEP_MSIX_IDENTITY_NAME=${{ vars.ANYKEEP_MSIX_IDENTITY_NAME }}" `
             "-DANYKEEP_MSIX_PUBLISHER=${{ vars.ANYKEEP_MSIX_PUBLISHER }}" `
@@ -346,21 +353,27 @@ jobs:
           brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
           echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
 
-      - name: Download QCA/Iris SDKs
+      - name: Download QCA/Iris/QtKeychain SDKs
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir qca-sdk iris-sdk
+          mkdir qca-sdk iris-sdk qtkeychain-sdk
           gh release download "$QCA_TAG" --repo psi-im/qca \
             -p "qca3-qt6-macos-${{ matrix.arch }}.zip" -O qca.zip
           gh release download "$IRIS_TAG" --repo psi-im/iris \
             -p "iris-qt6-macos-${{ matrix.arch }}.zip" -O iris.zip
+          qtkeychain_asset="qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.11-macos-${{ matrix.arch }}.tar.gz"
+          gh release download "$QTKEYCHAIN_TAG" --repo "$GITHUB_REPOSITORY" \
+            -p "$qtkeychain_asset" -O qtkeychain.tar.gz
           (cd qca-sdk && cmake -E tar xvf ../qca.zip)
           (cd iris-sdk && cmake -E tar xvf ../iris.zip)
+          tar -xzf qtkeychain.tar.gz -C qtkeychain-sdk
           test -d qca-sdk/lib/cmake/Qca3-qt6
           test -d iris-sdk/lib/cmake/Iris
+          test -f qtkeychain-sdk/lib/cmake/Qt6Keychain/Qt6KeychainConfig.cmake
+          test -f qtkeychain-sdk/lib/libqt6keychain.a
 
       - name: Configure and build
         shell: bash
@@ -372,11 +385,12 @@ jobs:
             -DANYKEEP_XMPP_BACKEND=IRIS \
             -DANYKEEP_QCA_SDK_ROOT="$PWD/qca-sdk" \
             -DANYKEEP_IRIS_SDK_ROOT="$PWD/iris-sdk" \
+            -DANYKEEP_QTKEYCHAIN_SDK_ROOT="$PWD/qtkeychain-sdk" \
             -DANYKEEP_BUILD_BUNDLED_QCA=OFF \
             -DANYKEEP_BUILD_BUNDLED_IRIS=OFF \
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
-            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON \
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF \
             -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON \
             -DBUILD_TESTING=OFF
           cmake --build build/package --parallel 4
@@ -492,27 +506,34 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_CURRENT_SERIES }}
+          host: all_os
           target: android
           arch: ${{ matrix.qt-arch }}
           modules: qtmultimedia qttasktree
           aqtsource: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
           cache: true
 
-      - name: Download QCA/Iris SDKs
+      - name: Download QCA/Iris/QtKeychain SDKs
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir qca-sdk iris-sdk
+          mkdir qca-sdk iris-sdk qtkeychain-sdk
           gh release download "$QCA_TAG" --repo psi-im/qca \
             -p "qca3-qt6-android-${{ matrix.abi }}.zip" -O qca.zip
           gh release download "$IRIS_TAG" --repo psi-im/iris \
             -p "iris-qt6-android-${{ matrix.abi }}.zip" -O iris.zip
+          qtkeychain_asset="qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.11-android-${{ matrix.abi }}.tar.gz"
+          gh release download "$QTKEYCHAIN_TAG" --repo "$GITHUB_REPOSITORY" \
+            -p "$qtkeychain_asset" -O qtkeychain.tar.gz
           (cd qca-sdk && cmake -E tar xvf ../qca.zip)
           (cd iris-sdk && cmake -E tar xvf ../iris.zip)
+          tar -xzf qtkeychain.tar.gz -C qtkeychain-sdk
           test -d qca-sdk/lib/cmake/Qca3-qt6
           test -d iris-sdk/lib/cmake/Iris
+          test -f qtkeychain-sdk/lib/cmake/Qt6Keychain/Qt6KeychainConfig.cmake
+          test -f qtkeychain-sdk/lib/libqt6keychain.a
 
       - name: Provision Android OpenSSL
         shell: bash
@@ -538,11 +559,12 @@ jobs:
             -DANYKEEP_XMPP_BACKEND=IRIS \
             -DANYKEEP_QCA_SDK_ROOT="$PWD/qca-sdk" \
             -DANYKEEP_IRIS_SDK_ROOT="$PWD/iris-sdk" \
+            -DANYKEEP_QTKEYCHAIN_SDK_ROOT="$PWD/qtkeychain-sdk" \
             -DANYKEEP_BUILD_BUNDLED_QCA=OFF \
             -DANYKEEP_BUILD_BUNDLED_IRIS=OFF \
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
-            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=ON \
+            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF \
             -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON \
             -DANYKEEP_ANDROID_OPENSSL_ROOT="$PWD/android-openssl/ssl_3" \
             -DBUILD_TESTING=OFF
