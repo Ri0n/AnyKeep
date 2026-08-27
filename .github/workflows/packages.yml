@@ -299,12 +299,6 @@ jobs:
             }
           }
 
-          # Update the tag before writing the success marker. If anything above
-          # fails, the release keeps the old marker and the next cron retries.
-          gh api --method PATCH "/repos/$repo/git/refs/tags/$releaseTag" `
-            -f "sha=$env:GITHUB_SHA" -F force=true > $null
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
           $builtAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'")
           $notes = @"
           Rolling AnyKeep nightly build.
