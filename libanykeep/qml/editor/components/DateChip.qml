@@ -15,24 +15,27 @@ Item {
         return 0.299 * base.r + 0.587 * base.g + 0.114 * base.b < 0.5
     }
 
-    function backgroundColor(hovered) {
+    function statusColor() {
         const dark = paletteIsDark()
-        const alpha = hovered ? (dark ? 0.42 : 0.34) : (dark ? 0.30 : 0.23)
         if (urgencyState === "overdue")
-            return Qt.rgba(dark ? 0.95 : 0.82, dark ? 0.31 : 0.16, dark ? 0.31 : 0.14, alpha)
+            return dark ? Qt.rgba(0.973, 0.318, 0.286, 1) : Qt.rgba(0.812, 0.133, 0.180, 1)
         if (urgencyState === "soon")
-            return Qt.rgba(dark ? 0.96 : 0.93, dark ? 0.72 : 0.61, dark ? 0.20 : 0.08, alpha)
-        return Qt.rgba(dark ? 0.32 : 0.12, dark ? 0.78 : 0.62, dark ? 0.43 : 0.25, alpha)
+            return dark ? Qt.rgba(0.824, 0.600, 0.133, 1) : Qt.rgba(0.604, 0.404, 0.000, 1)
+        return dark ? Qt.rgba(0.247, 0.725, 0.314, 1) : Qt.rgba(0.102, 0.498, 0.216, 1)
+    }
+
+    function backgroundColor(hovered) {
+        const base = statusColor()
+        const dark = paletteIsDark()
+        return Qt.rgba(base.r, base.g, base.b,
+                       hovered ? (dark ? 0.24 : 0.16) : (dark ? 0.16 : 0.10))
     }
 
     function borderColor(hovered) {
+        const base = statusColor()
         const dark = paletteIsDark()
-        const alpha = hovered ? 0.72 : 0.48
-        if (urgencyState === "overdue")
-            return Qt.rgba(dark ? 1.0 : 0.72, dark ? 0.42 : 0.12, dark ? 0.42 : 0.10, alpha)
-        if (urgencyState === "soon")
-            return Qt.rgba(dark ? 1.0 : 0.78, dark ? 0.80 : 0.52, dark ? 0.30 : 0.04, alpha)
-        return Qt.rgba(dark ? 0.43 : 0.08, dark ? 0.88 : 0.52, dark ? 0.55 : 0.20, alpha)
+        return Qt.rgba(base.r, base.g, base.b,
+                       hovered ? (dark ? 0.72 : 0.55) : (dark ? 0.46 : 0.34))
     }
 
     function segmentsForRange() {
@@ -97,9 +100,10 @@ Item {
         delegate: Rectangle {
             id: segmentBackground
             required property var modelData
-            x: modelData.x - 3
+            readonly property real horizontalPadding: root.editor.editorView.touchMode ? 2.5 : 2
+            x: modelData.x - horizontalPadding
             y: modelData.y + 1
-            width: modelData.width + 6
+            width: modelData.width + 2 * horizontalPadding
             height: Math.max(2, modelData.height - 2)
             radius: Math.min(6, height / 3)
             color: root.backgroundColor(segmentMouse.containsMouse)
