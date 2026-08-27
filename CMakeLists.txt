@@ -190,7 +190,16 @@ set(ANYKEEP_QCA_IS_BUNDLED FALSE)
 set(_anykeep_qca_native_target "")
 
 if(ANYKEEP_QCA_SDK_ROOT)
-  find_package(Qca3-qt6 CONFIG REQUIRED PATHS "${ANYKEEP_QCA_SDK_ROOT}" NO_DEFAULT_PATH)
+  set(_anykeep_qca_package_dir "${ANYKEEP_QCA_SDK_ROOT}/lib/cmake/Qca3-qt6")
+  if(NOT EXISTS "${_anykeep_qca_package_dir}/Qca3-qt6Config.cmake")
+    message(FATAL_ERROR "QCA SDK CMake package missing: ${_anykeep_qca_package_dir}")
+  endif()
+  # Cross toolchains such as Android normally re-root package searches. An
+  # explicit SDK root is already a target SDK, so never apply the sysroot to it.
+  find_package(Qca3-qt6 CONFIG REQUIRED
+               PATHS "${_anykeep_qca_package_dir}"
+               NO_DEFAULT_PATH
+               NO_CMAKE_FIND_ROOT_PATH)
   if(NOT TARGET Qca3::Qca)
     message(FATAL_ERROR "QCA SDK did not provide Qca3::Qca: ${ANYKEEP_QCA_SDK_ROOT}")
   endif()
@@ -198,6 +207,7 @@ if(ANYKEEP_QCA_SDK_ROOT)
   set(ANYKEEP_QCA_MAJOR 3)
   set(_anykeep_qca_native_target Qca3::Qca)
   message(STATUS "QCA: using prebuilt QCA 3 SDK (${ANYKEEP_QCA_SDK_ROOT})")
+  unset(_anykeep_qca_package_dir)
 elseif(ANYKEEP_BUILD_BUNDLED_QCA AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
   message(STATUS "QCA: using bundled QCA 3")
   include(BundledQca)
@@ -291,11 +301,19 @@ else()
   # dependency fallbacks are enabled. System/package Iris is used whenever QCA
   # itself is not a private bundled build.
   if(ANYKEEP_IRIS_SDK_ROOT)
-    find_package(Iris CONFIG REQUIRED PATHS "${ANYKEEP_IRIS_SDK_ROOT}" NO_DEFAULT_PATH)
+    set(_anykeep_iris_package_dir "${ANYKEEP_IRIS_SDK_ROOT}/lib/cmake/Iris")
+    if(NOT EXISTS "${_anykeep_iris_package_dir}/IrisConfig.cmake")
+      message(FATAL_ERROR "Iris SDK CMake package missing: ${_anykeep_iris_package_dir}")
+    endif()
+    find_package(Iris CONFIG REQUIRED
+                 PATHS "${_anykeep_iris_package_dir}"
+                 NO_DEFAULT_PATH
+                 NO_CMAKE_FIND_ROOT_PATH)
     if(NOT TARGET Iris::Iris)
       message(FATAL_ERROR "Iris SDK did not provide Iris::Iris: ${ANYKEEP_IRIS_SDK_ROOT}")
     endif()
     message(STATUS "XMPP backend: prebuilt Iris SDK (${ANYKEEP_IRIS_SDK_ROOT})")
+    unset(_anykeep_iris_package_dir)
   elseif(ANYKEEP_IRIS_SOURCE_DIR)
     if(NOT ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
       message(FATAL_ERROR
