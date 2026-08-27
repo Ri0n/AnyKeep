@@ -13,7 +13,6 @@ Item {
     property date today: startOfDay(new Date())
     property int pendingDateShortcutStart: -1
     property bool datePickerAddsSeparator: false
-    property bool repairingDateBoundary: false
     property bool inlineCaretOn: true
     property bool normalizingCursor: false
     property int lastCursorPosition: -1
@@ -127,37 +126,28 @@ Item {
         ++layoutRevision
     }
 
-    function repairDateBoundaryAfterInput() {
-        if (!editor || repairingDateBoundary || editor.selectionStart !== editor.selectionEnd)
+    function insertTransientDateSeparator(position) {
+        if (!editor)
+            return false
+        const plain = editor.currentPlainText()
+        const boundedPosition = Math.max(0, Math.min(plain.length, Number(position)))
+        if (boundedPosition !== plain.length)
             return false
 
-        const plain = editor.currentPlainText()
-        const cursor = Number(editor.cursorPosition)
-        for (const element of elements) {
-            if (!element || element.type !== "date"
-                    || element.start < 0 || element.end > plain.length)
-                continue
-            if (plain.substring(element.start, element.end) !== element.dateText)
-                continue
-
-            const characterAfterDate = element.end < plain.length ? plain.charAt(element.end) : ""
-            if (!characterAfterDate || isDateBoundary(characterAfterDate))
-                continue
-
-            // TextArea may emit textChanged immediately before or immediately
-            // after advancing the cursor for the newly typed character. Limit
-            // the repair to input that happened exactly at the widget edge.
-            if (cursor !== element.end && cursor !== element.end + 1)
-                continue
-
-            repairingDateBoundary = true
-            editor.insert(element.end, " ")
-            if (cursor >= element.end)
-                editor.cursorPosition = cursor + 1
-            repairingDateBoundary = false
-            return true
+        // Keep a normal separator in the live QTextDocument so the user can
+        // immediately continue typing after a shortcut date. Do not commit a
+        // trailing Markdown space by itself: the model already contains the
+        // date, and the next real character will commit "date text" normally.
+        const previousSyncing = Boolean(editor.syncingSourceText)
+        editor.syncingSourceText = true
+        try {
+            editor.insert(boundedPosition, " ")
+            editor.cursorPosition = boundedPosition + 1
+        } finally {
+            editor.syncingSourceText = previousSyncing
         }
-        return false
+        editor.rememberPlainText()
+        return true
     }
 
     function dateAtCursor(position, backspace) {
@@ -349,8 +339,13 @@ Item {
             editor.rememberPlainText()
             return true
         })
-        if (handled)
+        if (handled) {
+            if (Boolean(addSeparator) && characterAfter.length === 0
+                    && suffix.length === 0 && existingSeparatorAdvance === 0) {
+                root.insertTransientDateSeparator(boundedStart + replacement.length)
+            }
             Qt.callLater(root.refresh)
+        }
         return Boolean(handled)
     }
 
@@ -429,10 +424,6 @@ Item {
     Connections {
         target: root.editor
         ignoreUnknownSignals: true
-        function onTextChanged() {
-            if (!root.repairingDateBoundary)
-                root.repairDateBoundaryAfterInput()
-        }
         function onCursorPositionChanged() {
             if (!root.normalizingCursor)
                 root.normalizeCursorAndSelection()
