@@ -12,22 +12,22 @@ Item {
 
     function backgroundColor(hovered) {
         if (urgencyState === "overdue")
-            return hovered ? "#f27d7d" : "#ef6c6c"
+            return hovered ? "#ef5350" : "#e53935"
         if (urgencyState === "soon")
             return hovered ? "#ffe082" : "#ffd54f"
-        return hovered ? "#93d497" : "#81c784"
+        return hovered ? "#66bb6a" : "#43a047"
     }
 
     function borderColor() {
         if (urgencyState === "overdue")
-            return "#b94343"
+            return "#b71c1c"
         if (urgencyState === "soon")
             return "#c59a17"
-        return "#4f8f58"
+        return "#2e7d32"
     }
 
     function foregroundColor() {
-        return "#1a1a1a"
+        return urgencyState === "soon" ? "#1a1a1a" : "#ffffff"
     }
 
     function segmentsForRange() {
@@ -89,20 +89,17 @@ Item {
     }
 
     readonly property var segments: segmentsForRange()
-    readonly property bool caretImmediatelyAfter: editor.activeFocus
-                                                 && editor.selectionStart === editor.selectionEnd
-                                                 && editor.cursorPosition === element.end
 
     Repeater {
         model: root.segments
         delegate: Rectangle {
             id: segmentBackground
             required property var modelData
-            readonly property real horizontalPadding: root.editor.editorView.touchMode ? 4 : 3.5
-            readonly property real rightPadding: root.caretImmediatelyAfter ? 0 : horizontalPadding
-            x: modelData.x - horizontalPadding
+            // Stay inside the QTextDocument range. Extending a chip into the
+            // neighbouring space hides both the visual gap and its caret.
+            x: modelData.x
             y: modelData.y
-            width: modelData.width + horizontalPadding + rightPadding
+            width: modelData.width
             height: Math.max(2, modelData.height)
             radius: Math.min(6, height / 3)
             color: root.backgroundColor(segmentMouse.containsMouse)
@@ -111,12 +108,14 @@ Item {
 
             Text {
                 anchors.fill: parent
-                leftPadding: segmentBackground.horizontalPadding
-                rightPadding: segmentBackground.rightPadding
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 text: root.editor.getText(parent.modelData.start, parent.modelData.end)
                 font: root.editor.font
+                // The layout width is still the ten source characters. A
+                // slightly compact label creates real visual padding without
+                // stealing width from surrounding Markdown whitespace.
+                scale: root.editor.editorView.touchMode ? 0.94 : 0.92
                 color: root.foregroundColor()
                 elide: Text.ElideNone
             }
