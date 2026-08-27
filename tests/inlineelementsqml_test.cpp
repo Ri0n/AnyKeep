@@ -215,6 +215,60 @@ private slots:
         QTRY_VERIFY(!editor.text().contains(dateText));
     }
 
+    void shortcutReplacementAddsSeparatorAndMovesCaret()
+    {
+        const QString dateText = QStringLiteral("2030-12-31");
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("before //"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 320);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QObject *layer = nullptr;
+        QTRY_VERIFY((layer = inlineLayer(body)));
+
+        const int shortcutStart = currentPlainText(body).indexOf(QStringLiteral("//"));
+        QVERIFY(shortcutStart >= 0);
+        QVariant dateValue;
+        QVERIFY(QMetaObject::invokeMethod(layer, "dateFromIso", Q_RETURN_ARG(QVariant, dateValue),
+                                          Q_ARG(QVariant, QVariant(dateText))));
+        QVERIFY(dateValue.isValid());
+
+        QVariant handled;
+        QVERIFY(QMetaObject::invokeMethod(layer, "replaceRangeWithDate", Q_RETURN_ARG(QVariant, handled),
+                                          Q_ARG(QVariant, QVariant(shortcutStart)),
+                                          Q_ARG(QVariant, QVariant(shortcutStart + 2)),
+                                          Q_ARG(QVariant, dateValue), Q_ARG(QVariant, QVariant(true))));
+        QVERIFY(handled.toBool());
+        QTRY_COMPARE(editor.text(), QStringLiteral("before 2030-12-31 "));
+
+        body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31 "));
+        QCOMPARE(body->property("cursorPosition").toInt(), currentPlainText(body).size());
+
+        layer = nullptr;
+        QTRY_VERIFY((layer = inlineLayer(body)));
+        refreshInlineLayer(layer);
+        QTRY_COMPARE(int(inlineElements(layer).size()), 1);
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        body->setProperty("cursorPosition", currentPlainText(body).size());
+        QTRY_VERIFY(body->hasActiveFocus());
+
+        handled = {};
+        QVERIFY(QMetaObject::invokeMethod(layer, "deleteDateAtCursor", Q_RETURN_ARG(QVariant, handled),
+                                          Q_ARG(QVariant, QVariant(true))));
+        QVERIFY(handled.toBool());
+        QTRY_COMPARE(editor.text(), QStringLiteral("before "));
+    }
+
     void tableCellsUseTheSameInlineDateLayer()
     {
         Note note(new NoteData(nullptr));
