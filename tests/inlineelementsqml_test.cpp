@@ -219,7 +219,7 @@ private slots:
     {
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("title"));
-        note.setText(QStringLiteral("| Date |\n| --- |\n| 2030-12-31 |"), Note::Markdown);
+        note.setText(QStringLiteral("| Date | Other |\n| --- | --- |\n| 2030-12-31 | value |"), Note::Markdown);
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor            editor(note, drafts);
         DesktopNoteEditorHost host(&editor);
@@ -232,10 +232,10 @@ private slots:
         QList<QQuickItem *> cells;
         QTRY_VERIFY(([&]() {
             cells = tableCellEditors(root, 1);
-            return cells.size() == 2;
+            return cells.size() == 4;
         })());
 
-        QObject *layer = inlineLayer(cells.constLast());
+        QObject *layer = inlineLayer(cells.at(2));
         QVERIFY(layer);
         refreshInlineLayer(layer);
         QTRY_COMPARE(int(inlineElements(layer).size()), 1);
