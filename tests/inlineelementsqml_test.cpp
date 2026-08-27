@@ -160,6 +160,54 @@ private slots:
         QCOMPARE(state.toString(), QStringLiteral("future"));
     }
 
+    void cursorNavigationTreatsDateAsAtomic()
+    {
+        const QString dateText = QStringLiteral("2030-12-31");
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("before %1 after").arg(dateText), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 320);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QObject *layer = nullptr;
+        QTRY_VERIFY((layer = inlineLayer(body)));
+        refreshInlineLayer(layer);
+        QTRY_COMPARE(int(inlineElements(layer).size()), 1);
+
+        const int start = currentPlainText(body).indexOf(dateText);
+        QVERIFY(start >= 0);
+        const int end = start + dateText.size();
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(body->hasActiveFocus());
+
+        QVariant handled;
+        body->setProperty("cursorPosition", start);
+        QVERIFY(QMetaObject::invokeMethod(layer, "moveAcrossDate", Q_RETURN_ARG(QVariant, handled),
+                                          Q_ARG(QVariant, QVariant(1))));
+        QVERIFY(handled.toBool());
+        QCOMPARE(body->property("cursorPosition").toInt(), end);
+
+        handled = {};
+        QVERIFY(QMetaObject::invokeMethod(layer, "moveAcrossDate", Q_RETURN_ARG(QVariant, handled),
+                                          Q_ARG(QVariant, QVariant(-1))));
+        QVERIFY(handled.toBool());
+        QCOMPARE(body->property("cursorPosition").toInt(), start);
+
+        body->setProperty("cursorPosition", start + 4);
+        handled = {};
+        QVERIFY(QMetaObject::invokeMethod(layer, "moveAcrossDate", Q_RETURN_ARG(QVariant, handled),
+                                          Q_ARG(QVariant, QVariant(1))));
+        QVERIFY(handled.toBool());
+        QCOMPARE(body->property("cursorPosition").toInt(), end);
+    }
+
     void backspaceAndDeleteTreatDateAsAtomic()
     {
         const QString dateText = QStringLiteral("2030-12-31");
