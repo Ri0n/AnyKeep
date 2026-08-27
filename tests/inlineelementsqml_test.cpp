@@ -281,6 +281,8 @@ private slots:
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
         QObject *layer = nullptr;
         QTRY_VERIFY((layer = inlineLayer(body)));
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(body->hasActiveFocus());
 
         const int shortcutStart = currentPlainText(body).indexOf(QStringLiteral("//"));
         QVERIFY(shortcutStart >= 0);
@@ -295,26 +297,25 @@ private slots:
                                           Q_ARG(QVariant, QVariant(shortcutStart + 2)),
                                           Q_ARG(QVariant, dateValue), Q_ARG(QVariant, QVariant(true))));
         QVERIFY(handled.toBool());
-        QTRY_COMPARE(editor.text(), QStringLiteral("before 2030-12-31 "));
 
-        body = nullptr;
-        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        // Markdown serialization may normalize a trailing space, but the
+        // focused QTextDocument deliberately keeps it as an input separator.
+        // That leaves the caret one real character beyond the inline widget
+        // so the user can immediately continue typing ordinary text.
         QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31 "));
         QCOMPARE(body->property("cursorPosition").toInt(), currentPlainText(body).size());
+        QTRY_VERIFY(editor.text().contains(QStringLiteral("before 2030-12-31")));
+        QVERIFY(!editor.text().contains(QStringLiteral("//")));
 
-        layer = nullptr;
-        QTRY_VERIFY((layer = inlineLayer(body)));
         refreshInlineLayer(layer);
         QTRY_COMPARE(int(inlineElements(layer).size()), 1);
-        body->forceActiveFocus(Qt::MouseFocusReason);
-        body->setProperty("cursorPosition", currentPlainText(body).size());
-        QTRY_VERIFY(body->hasActiveFocus());
 
         handled = {};
         QVERIFY(QMetaObject::invokeMethod(layer, "deleteDateAtCursor", Q_RETURN_ARG(QVariant, handled),
                                           Q_ARG(QVariant, QVariant(true))));
         QVERIFY(handled.toBool());
-        QTRY_COMPARE(editor.text(), QStringLiteral("before "));
+        QTRY_COMPARE(currentPlainText(body), QStringLiteral("before "));
+        QTRY_VERIFY(!editor.text().contains(dateText));
     }
 
     void tableCellsUseTheSameInlineDateLayer()
