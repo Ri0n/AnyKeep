@@ -312,7 +312,7 @@ private slots:
         QTRY_VERIFY(!editor.text().contains(dateText));
     }
 
-    void shortcutReplacementAtEndKeepsSeparatorForTyping()
+    void shortcutReplacementSeparatesFirstTypedCharacter()
     {
         const QString dateText = QStringLiteral("2030-12-31");
         Note note(new NoteData(nullptr));
@@ -347,10 +347,8 @@ private slots:
                                           Q_ARG(QVariant, dateValue), Q_ARG(QVariant, QVariant(true))));
         QVERIFY(handled.toBool());
 
-        // Keep the continuation separator only in the live QTextDocument.
-        // The model already contains the date, so an otherwise meaningless
-        // trailing Markdown space is not persisted by itself.
-        QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31 "));
+        // EOL stays clean: no transient trailing space is required.
+        QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31"));
         QCOMPARE(body->property("cursorPosition").toInt(), currentPlainText(body).size());
         QTRY_VERIFY(editor.text().contains(QStringLiteral("before 2030-12-31")));
         QVERIFY(!editor.text().contains(QStringLiteral("//")));
@@ -358,9 +356,44 @@ private slots:
         refreshInlineLayer(layer);
         QTRY_COMPARE(int(inlineElements(layer).size()), 1);
 
+        // The first ordinary character is intercepted before TextArea inserts
+        // it. Separator + character are inserted atomically, so the date never
+        // turns into the invalid token "2030-12-31x".
         QTest::keyClicks(host.quickWidget(), QStringLiteral("x"));
         QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31 x"));
         QTRY_VERIFY(editor.text().contains(QStringLiteral("before 2030-12-31 x")));
+        refreshInlineLayer(layer);
+        QTRY_COMPARE(int(inlineElements(layer).size()), 1);
+    }
+
+    void punctuationAfterDateNeedsNoSeparator()
+    {
+        const QString dateText = QStringLiteral("2030-12-31");
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("before %1").arg(dateText), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 320);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QObject *layer = nullptr;
+        QTRY_VERIFY((layer = inlineLayer(body)));
+        refreshInlineLayer(layer);
+        QTRY_COMPARE(int(inlineElements(layer).size()), 1);
+
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(body->hasActiveFocus());
+        body->setProperty("cursorPosition", currentPlainText(body).size());
+
+        QTest::keyClicks(host.quickWidget(), QStringLiteral(","));
+        QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31,"));
+        QTRY_VERIFY(editor.text().contains(QStringLiteral("before 2030-12-31,")));
         refreshInlineLayer(layer);
         QTRY_COMPARE(int(inlineElements(layer).size()), 1);
     }
