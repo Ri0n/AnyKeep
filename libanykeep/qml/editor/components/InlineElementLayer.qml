@@ -13,8 +13,7 @@ Item {
     property date today: startOfDay(new Date())
     property int pendingDateShortcutStart: -1
     property bool datePickerAddsSeparator: false
-    property int pendingDateContinuationPosition: -1
-    property bool materializingDateSeparator: false
+    property bool repairingDateBoundary: false
     property bool inlineCaretOn: true
     property bool normalizingCursor: false
     property int lastCursorPosition: -1
@@ -128,35 +127,37 @@ Item {
         ++layoutRevision
     }
 
-    function materializePendingDateSeparator() {
-        if (!editor || materializingDateSeparator || pendingDateContinuationPosition < 0)
+    function repairDateBoundaryAfterInput() {
+        if (!editor || repairingDateBoundary || editor.selectionStart !== editor.selectionEnd)
             return false
-        if (!editor.activeFocus || editor.selectionStart !== editor.selectionEnd) {
-            pendingDateContinuationPosition = -1
-            return false
-        }
 
         const plain = editor.currentPlainText()
-        const position = pendingDateContinuationPosition
-        if (position >= plain.length)
-            return false
-
-        const characterAfterDate = plain.charAt(position)
-        if (isDateBoundary(characterAfterDate)) {
-            // The user supplied a real separator (space/newline) or typed
-            // punctuation that is already a valid standalone-date boundary.
-            pendingDateContinuationPosition = -1
-            return false
-        }
-
         const cursor = Number(editor.cursorPosition)
-        pendingDateContinuationPosition = -1
-        materializingDateSeparator = true
-        editor.insert(position, " ")
-        if (cursor >= position)
-            editor.cursorPosition = cursor + 1
-        materializingDateSeparator = false
-        return true
+        for (const element of elements) {
+            if (!element || element.type !== "date"
+                    || element.start < 0 || element.end > plain.length)
+                continue
+            if (plain.substring(element.start, element.end) !== element.dateText)
+                continue
+
+            const characterAfterDate = element.end < plain.length ? plain.charAt(element.end) : ""
+            if (!characterAfterDate || isDateBoundary(characterAfterDate))
+                continue
+
+            // TextArea may emit textChanged immediately before or immediately
+            // after advancing the cursor for the newly typed character. Limit
+            // the repair to input that happened exactly at the widget edge.
+            if (cursor !== element.end && cursor !== element.end + 1)
+                continue
+
+            repairingDateBoundary = true
+            editor.insert(element.end, " ")
+            if (cursor >= element.end)
+                editor.cursorPosition = cursor + 1
+            repairingDateBoundary = false
+            return true
+        }
+        return false
     }
 
     function dateAtCursor(position, backspace) {
@@ -339,7 +340,6 @@ Item {
                 suffix = " "
         }
 
-        pendingDateContinuationPosition = -1
         const handled = editorView.runEditTransaction("set-date", function() {
             editor.remove(boundedStart, boundedEnd)
             editor.insert(boundedStart, replacement + suffix)
@@ -349,15 +349,8 @@ Item {
             editor.rememberPlainText()
             return true
         })
-        if (handled) {
-            // At EOL (or immediately before punctuation/newline) a literal
-            // trailing space would be normalized away. Remember the widget
-            // boundary instead and materialize a separator only if the next
-            // actual input is ordinary text.
-            if (Boolean(addSeparator) && suffix.length === 0 && existingSeparatorAdvance === 0)
-                pendingDateContinuationPosition = boundedStart + replacement.length
+        if (handled)
             Qt.callLater(root.refresh)
-        }
         return Boolean(handled)
     }
 
@@ -437,8 +430,8 @@ Item {
         target: root.editor
         ignoreUnknownSignals: true
         function onTextChanged() {
-            if (!root.materializingDateSeparator && root.pendingDateContinuationPosition >= 0)
-                Qt.callLater(root.materializePendingDateSeparator)
+            if (!root.repairingDateBoundary)
+                root.repairDateBoundaryAfterInput()
         }
         function onCursorPositionChanged() {
             if (!root.normalizingCursor)
@@ -452,8 +445,6 @@ Item {
             if (root.editor && root.editor.activeFocus) {
                 root.lastCursorPosition = Number(root.editor.cursorPosition)
                 Qt.callLater(root.normalizeCursorAndSelection)
-            } else {
-                root.pendingDateContinuationPosition = -1
             }
         }
     }
