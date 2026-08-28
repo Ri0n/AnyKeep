@@ -2,7 +2,7 @@ Source: anykeep
 Section: text
 Priority: optional
 Maintainer: Sergei Ilinykh <rion4ik@gmail.com>
-Build-Depends: cmake (>= 3.25.0), dh-cmake, dh-cmake-compat (= 1), dh-sequence-cmake, debhelper (>= 11), qt6-base-dev, qt6-base-dev-tools, qt6-tools-dev, qt6-declarative-dev, qt6-multimedia-dev, libqca-qt6-dev, qtkeychain-qt6-dev, libqxmppqt6-dev, qcoro-qt6-dev, extra-cmake-modules, libplasma-dev, libkf6config-dev, libkf6coreaddons-dev, libkf6globalaccel-dev, libkf6windowsystem-dev, libkf6notifications-dev, libhunspell-dev, libx11-dev, pkgconf
+Build-Depends: cmake (>= 3.25.0), dh-cmake, dh-cmake-compat (= 1), dh-sequence-cmake, debhelper (>= 11), qt6-base-dev, qt6-base-dev-tools, qt6-tools-dev, qt6-tools-dev-tools, qt6-declarative-dev, qt6-multimedia-dev, qt6-svg-dev, libqca3-qt6-dev, libiris-qt6-dev, qtkeychain-qt6-dev, extra-cmake-modules, libplasma-dev, libkf6config-dev, libkf6coreaddons-dev, libkf6globalaccel-dev, libkf6windowsystem-dev, libkf6notifications-dev, libhunspell-dev, libx11-dev, pkgconf
 Standards-Version: 4.5.1
 Homepage: https://anykeep.net
 Vcs-Git: https://github.com/Ri0n/AnyKeep.git
