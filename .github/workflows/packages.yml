@@ -111,6 +111,11 @@ jobs:
             qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-l10n-tools \
             qt6-multimedia-dev qt6-svg-dev qt6-tools-dev qt6-tools-dev-tools \
             qtkeychain-qt6-dev
+          if [[ "${{ matrix.ubuntu-version }}" == "26.04" ]]; then
+            sudo apt-get install -y --no-install-recommends \
+              extra-cmake-modules libplasma-dev libkf6config-dev libkf6coreaddons-dev \
+              libkf6globalaccel-dev libkf6windowsystem-dev libkf6notifications-dev
+          fi
           if apt-cache show qt6-svg-plugins >/dev/null 2>&1; then
             sudo apt-get install -y --no-install-recommends qt6-svg-plugins
           fi
