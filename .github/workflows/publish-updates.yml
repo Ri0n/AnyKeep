@@ -20,7 +20,7 @@ jobs:
       ANYKEEP_UPD_PRIVKEY: ${{ secrets.ANYKEEP_UPD_PRIVKEY }}
       ANYKEEP_NET_PORT: ${{ secrets.ANYKEEP_NET_PORT }}
       ANYKEEP_NET_USER: ${{ secrets.ANYKEEP_NET_USER }}
-      ANYKEEP_NET_HOST: anykeep.net
+      ANYKEEP_NET_HOST: ${{ secrets.ANYKEEP_NET_HOST }}
 
     steps:
       - name: Download Windows package artifact
@@ -105,14 +105,15 @@ jobs:
           : "${ANYKEEP_UPD_PRIVKEY:?ANYKEEP_UPD_PRIVKEY is not configured}"
           : "${ANYKEEP_NET_PORT:?ANYKEEP_NET_PORT is not configured}"
           : "${ANYKEEP_NET_USER:?ANYKEEP_NET_USER is not configured}"
+          : "${ANYKEEP_NET_HOST:?ANYKEEP_NET_HOST is not configured}"
 
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$ANYKEEP_UPD_PRIVKEY" > "$HOME/.ssh/anykeep_updates"
           chmod 600 "$HOME/.ssh/anykeep_updates"
 
-          # The deployment host is public anykeep.net. Pin the key for this run
-          # before sending credentials; a dedicated host-key secret can replace
-          # ssh-keyscan later if we want out-of-band host-key pinning.
+          # Pin the configured deployment host key for this run before sending
+          # credentials; a dedicated host-key secret can replace ssh-keyscan
+          # later if we want out-of-band host-key pinning.
           ssh-keyscan -T 10 -p "$ANYKEEP_NET_PORT" -H "$ANYKEEP_NET_HOST" \
             > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
