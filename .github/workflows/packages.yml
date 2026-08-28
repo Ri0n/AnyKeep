@@ -98,27 +98,16 @@ jobs:
           iris-tag: ${{ env.IRIS_TAG }}
           github-token: ${{ github.token }}
 
-      - name: Install build dependencies
+      - name: Install build dependencies from Debian profile
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake debhelper dh-cmake dh-cmake-compat dh-sequence-cmake \
-            dpkg-dev fakeroot libhunspell-dev libx11-dev pkgconf \
-            qml6-module-qtqml-workerscript qml6-module-qtquick \
-            qml6-module-qtquick-controls qml6-module-qtquick-layouts \
-            qml6-module-qtquick-templates qml6-module-qtquick-window \
-            qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-l10n-tools \
-            qt6-multimedia-dev qt6-svg-dev qt6-tools-dev qt6-tools-dev-tools \
-            qtkeychain-qt6-dev
-          if [[ "${{ matrix.ubuntu-version }}" == "26.04" ]]; then
-            sudo apt-get install -y --no-install-recommends \
-              extra-cmake-modules libplasma-dev libkf6config-dev libkf6coreaddons-dev \
-              libkf6globalaccel-dev libkf6windowsystem-dev libkf6notifications-dev
-          fi
-          if apt-cache show qt6-svg-plugins >/dev/null 2>&1; then
-            sudo apt-get install -y --no-install-recommends qt6-svg-plugins
-          fi
+          # build-essential is an implicit Debian build dependency and therefore
+          # does not belong in Build-Depends. Everything project-specific comes
+          # from the exact control profile used by dpkg-buildpackage below.
+          sudo apt-get install -y --no-install-recommends build-essential dpkg-dev fakeroot
+          ./packaging/build-deb "sdk-ubuntu-${{ matrix.ubuntu-version }}" -- \
+            sudo apt-get build-dep -y --no-install-recommends ./
 
       - name: Build Debian packages
         shell: bash
