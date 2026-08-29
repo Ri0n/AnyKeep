@@ -9,7 +9,7 @@ set(ANYKEEP_BUNDLED_IRIS_GIT_REPOSITORY
     CACHE STRING "Iris git repository")
 # Keep the repository's default Iris revision source-controlled. A cache entry for the default pin silently survives
 # source updates and can make a clean checkout build an older Iris revision.
-set(_anykeep_iris_git_tag "1248d83ae5d41890e61e4f3b25ec74f5580c45e3")
+set(_anykeep_iris_git_tag "4b5a566a6de6161353c0cd65f9ad7c2dbf95f373")
 set(ANYKEEP_IRIS_GIT_TAG
     ""
     CACHE STRING "Override the Iris git tag, branch, or commit")
