@@ -80,6 +80,8 @@ Item {
     readonly property real dragStartPointerX: reorderController.startPointerX
     readonly property int previewCount: reorderController.previewCount
     readonly property var selectedNotes: selectionController.selectedNotes
+    readonly property bool selectionMode: touchActions
+                                          && Object.keys(selectedNotes || ({})).length > 0
     property var directDropTarget: null
     // A hierarchy-aware view may expose the resolved target depth while a
     // group is being reordered.  Rows use it only for the insertion marker;
@@ -418,7 +420,7 @@ Item {
         if (typeof fallbackIconProvider === "function")
             return String(fallbackIconProvider(item))
         return item.groupKind === "folder" || item.groupKind === "unsorted"
-                ? "folder-symbolic" : "anykeep-symbolic"
+                ? "folder-symbolic.svg" : "anykeep-symbolic.svg"
     }
 
     function groupCanCollapse(item) {
@@ -450,6 +452,22 @@ Item {
     }
 
     function activateNote(item) {
+        if (touchActions) {
+            // A normal mobile tap is navigation. Selection is entered by a
+            // long press (requestContextMenu()) and remains explicit until the
+            // final selected row is toggled off.
+            if (selectionMode) {
+                setNoteSelected(item, !noteIsSelected(item.storageId, item.noteId))
+                return
+            }
+            if (selectionController && typeof selectionController.clear === "function")
+                selectionController.clear()
+            if (typeof noteSelectionHandler === "function")
+                noteSelectionHandler(item)
+            if (typeof noteActivateHandler === "function")
+                noteActivateHandler(item)
+            return
+        }
         selectionController.select(item, Qt.NoModifier, visibleItems())
         if (typeof noteSelectionHandler === "function")
             noteSelectionHandler(item)

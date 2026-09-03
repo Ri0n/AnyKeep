@@ -158,6 +158,12 @@ add_anykeep_test(xmpppayloadxml_test xmpppayloadxml_test.cpp ../plugins/xmpppubs
 target_include_directories(xmpppayloadxml_test PRIVATE ../plugins/xmpppubsub)
 target_link_libraries(xmpppayloadxml_test PRIVATE Qt6::Xml)
 
+if(TARGET xmpppubsub)
+  add_anykeep_test(xmppstorage_test xmppstorage_test.cpp)
+  target_include_directories(xmppstorage_test PRIVATE ../plugins/xmpppubsub)
+  target_link_libraries(xmppstorage_test PRIVATE xmpppubsub)
+endif()
+
 add_executable(xmppkeyresolutioncontroller_test xmppkeyresolutioncontroller_test.cpp
                                                 ../plugins/xmpppubsub/xmppkeyresolutioncontroller.cpp)
 target_include_directories(xmppkeyresolutioncontroller_test PRIVATE ../plugins/xmpppubsub)
@@ -240,6 +246,9 @@ set_tests_properties(ptfstorage_test notesindex_test fileremotecachestore_test s
 set_tests_properties(nextcloudcategory_test nextcloudworker_test nextcloudstorage_test PROPERTIES LABELS
                                                                                                   "nextcloud;storage")
 set_tests_properties(xmppnotecodec_test xmpppayloadxml_test PROPERTIES LABELS "storage;xmpp")
+if(TARGET xmppstorage_test)
+  set_tests_properties(xmppstorage_test PROPERTIES LABELS "storage;xmpp")
+endif()
 foreach(
   xmpp_test_target
   privatenotespubsubitem_test

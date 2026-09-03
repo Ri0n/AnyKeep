@@ -46,22 +46,20 @@ function(anykeep_configure_prebuilt_sdk_runtime_target target)
     message(FATAL_ERROR "CMAKE_ANDROID_ARCH_ABI is required to package prebuilt QCA Android plugins")
   endif()
 
-  # QCA discovers providers by scanning <Qt library path>/crypto. Android cannot
-  # preserve arbitrary subdirectories in the native library directory, so
-  # package providers as proper Qt Android plugins. androiddeployqt decodes the
-  # libplugins_<type>_<name>_<abi>.so naming convention back to the "crypto"
-  # plugin type at runtime, making it visible through QCoreApplication's library
-  # paths and therefore through QCA::pluginPaths().
-  set(_anykeep_qca_plugin_root "${CMAKE_BINARY_DIR}/_deps/qca-android-plugins/plugins")
-  set(_anykeep_qca_plugin_dir "${_anykeep_qca_plugin_root}/qca")
-  file(MAKE_DIRECTORY "${_anykeep_qca_plugin_dir}")
+  # Android cannot preserve QCA's qca3-qt6/crypto subdirectory in the native
+  # library directory. Stage providers with Qt's Android plugin filename
+  # convention; androiddeployqt then copies them to the ABI directory, where
+  # QCA's Android plugin scan can identify the "crypto" prefix.
+  set(_anykeep_qca_plugin_root "${CMAKE_BINARY_DIR}/_deps/qca-android-plugins/plugins/qca")
+  file(MAKE_DIRECTORY "${_anykeep_qca_plugin_root}")
   foreach(_anykeep_qca_plugin IN LISTS _anykeep_qca_plugins)
     get_filename_component(_anykeep_qca_plugin_name "${_anykeep_qca_plugin}" NAME_WE)
     string(REGEX REPLACE "^lib" "" _anykeep_qca_plugin_name "${_anykeep_qca_plugin_name}")
+    string(REPLACE "-" "_" _anykeep_qca_plugin_name "${_anykeep_qca_plugin_name}")
     set(_anykeep_qca_android_name
         "libplugins_crypto_${_anykeep_qca_plugin_name}_${CMAKE_ANDROID_ARCH_ABI}.so")
     configure_file("${_anykeep_qca_plugin}"
-                   "${_anykeep_qca_plugin_dir}/${_anykeep_qca_android_name}" COPYONLY)
+                   "${_anykeep_qca_plugin_root}/${_anykeep_qca_android_name}" COPYONLY)
   endforeach()
 
   get_target_property(_anykeep_android_extra_plugins ${target} QT_ANDROID_EXTRA_PLUGINS)

@@ -352,7 +352,7 @@ Item {
                     enabled: root.workspace.folderCatalogAvailable
                     contentItem: ThemedIcon {
                         themeName: "__bundled__"
-                        fallbackName: "folder-symbolic"
+                        fallbackName: "folder-symbolic.svg"
                         recolorFallback: true
                         fallbackTintMode: "auto"
                         pixelSize: 24
@@ -368,7 +368,7 @@ Item {
                     enabled: root.workspace.folderCatalogAvailable
                     contentItem: ThemedIcon {
                         themeName: "__bundled__"
-                        fallbackName: "go-next-symbolic"
+                        fallbackName: "go-next-symbolic.svg"
                         recolorFallback: true
                         fallbackTintMode: "auto"
                         pixelSize: 24

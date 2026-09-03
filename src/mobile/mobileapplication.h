@@ -8,6 +8,7 @@
 
 #include <QAbstractItemModel>
 #include <QObject>
+#include <QPalette>
 #include <QPointer>
 #include <QUrl>
 #include <QVariantList>
@@ -37,6 +38,8 @@ class MobileApplication final : public QObject {
     Q_PROPERTY(bool askBeforeDelete READ askBeforeDelete WRITE setAskBeforeDelete NOTIFY askBeforeDeleteChanged)
     Q_PROPERTY(int notesPerPage READ notesPerPage WRITE setNotesPerPage NOTIFY notesPerPageChanged)
     Q_PROPERTY(qreal editorFontSize READ editorFontSize WRITE setEditorFontSize NOTIFY editorFontSizeChanged)
+    Q_PROPERTY(int colorScheme READ colorScheme WRITE setColorScheme NOTIFY colorSchemeChanged)
+    Q_PROPERTY(bool darkColorScheme READ darkColorScheme NOTIFY colorSchemeChanged)
     Q_PROPERTY(bool androidSpeechEnabled READ androidSpeechEnabled WRITE setAndroidSpeechEnabled NOTIFY
                    androidSpeechEnabledChanged)
     Q_PROPERTY(bool androidSpeechAvailable READ androidSpeechAvailable CONSTANT)
@@ -70,6 +73,8 @@ public:
     bool           askBeforeDelete() const;
     int            notesPerPage() const;
     qreal          editorFontSize() const;
+    int            colorScheme() const;
+    bool           darkColorScheme() const;
     bool           androidSpeechEnabled() const;
     bool           androidSpeechAvailable() const;
     bool           audioRecordingAvailable() const;
@@ -103,6 +108,7 @@ public slots:
     void setAskBeforeDelete(bool value);
     void setNotesPerPage(int value);
     void setEditorFontSize(qreal value);
+    void setColorScheme(int value);
     void setAndroidSpeechEnabled(bool value);
     void setMicrophoneMode(VoiceInputMode mode);
 
@@ -111,6 +117,7 @@ signals:
     void currentNoteEditorChanged();
     void notesPerPageChanged();
     void editorFontSizeChanged();
+    void colorSchemeChanged();
     void androidSpeechEnabledChanged();
     void voiceInputStateChanged();
     void recoverableDraftsChanged();
@@ -126,6 +133,7 @@ private:
     void           applyAndroidSpeechEnabled(bool enabled);
     VoiceInputMode effectiveVoiceInputMode() const;
     void           refreshSpeechProvider();
+    void           applyColorScheme();
 
     AndroidPlatformServices     *platformServices_ { nullptr };
     SpeechRecognitionController *speechController_ { nullptr };
@@ -143,6 +151,8 @@ private:
     VoiceInputMode               microphoneMode_ { AndroidSpeech };
     int                          notesPerPage_ { 30 };
     qreal                        editorFontSize_ { 16.0 };
+    QPalette                     systemPalette_;
+    int                          colorScheme_ { 0 }; // 0: system, 1: light, 2: dark
 };
 
 } // namespace AnyKeep

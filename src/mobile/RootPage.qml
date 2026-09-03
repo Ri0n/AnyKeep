@@ -10,6 +10,7 @@ Page {
     readonly property int headerButtonSize: 29
 
     header: ToolBar {
+        background: Rectangle { color: palette.window }
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 14

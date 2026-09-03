@@ -23,7 +23,9 @@ if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
          iris/iristruststorage.cpp
          iris/iristruststorage.h
          iris/iriskeysynctask.cpp
-         iris/iriskeysynctask.h)
+         iris/iriskeysynctask.h
+         iris/irisjinglepublicationprovider.cpp
+         iris/irisjinglepublicationprovider.h)
   endif()
 else()
   if(NOT TARGET QCoro::Core)
@@ -64,6 +66,7 @@ set(xmpppubsub_sources
     PROTOXEP.md
     INTEROPERABILITY.md
     README.md
+    xmppbackend.cpp
     xmppbackend.h
     xmppbackendfactory.cpp
     xmppbackendfactory.h

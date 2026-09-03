@@ -14,15 +14,21 @@ namespace XMPP {
 class AdvancedConnector;
 class Client;
 class ClientStream;
+class Jid;
 class OmemoEncryption;
 class PubSubManager;
 class QCATLSHandler;
 class Task;
+namespace Jingle {
+    class Session;
+}
 }
 
 namespace AnyKeep {
 
 class IrisKeySyncTask;
+struct IrisJingleCapability;
+class IrisJinglePublicationProvider;
 class IrisOmemoStorage;
 class IrisTrustStorage;
 
@@ -64,6 +70,7 @@ public:
     void rejectKeySyncRequest(QString requestId) override;
 
 private:
+    friend class IrisJinglePublicationProvider;
     struct ConnectionAttempt;
     struct ReadyAttempt;
 
@@ -75,18 +82,21 @@ private:
     void ensureOmemoReadyAsync(StatusCallback callback);
     void ensureReadyAsync(StatusCallback callback);
     void verifyPrivateStorageSupportAsync(StatusCallback callback);
-    void ensureNodeAsync(QString nodeName, StatusCallback callback);
+    void ensureNodeAsync(QString nodeName, StatusCallback callback, QString payloadType = {});
     void verifyNodeAsync(QString nodeName, StatusCallback callback);
 
-    void requestIndexAsync(QString id, quint64 generation, NoteCallback callback);
-    void requestNoteAsync(QString id, quint64 generation, NoteCallback callback, int attempt = 1);
-    void prepareMediaAsync(XmppRemoteNote note, quint64 generation,
-                           std::function<void(XmppRemoteNote, XmppStatusResult)> callback);
-    void hydrateMediaAsync(XmppRemoteNote note, quint64 generation,
-                           std::function<void(XmppRemoteNote, XmppStatusResult)> callback);
-    void downloadMediaAsync(XmppRemoteMedia media, quint64 generation,
-                            std::function<void(XmppRemoteMedia, XmppStatusResult)> callback);
-    void publishNoteAsync(XmppRemoteNote note, quint64 generation, NoteCallback callback);
+    void                   requestIndexAsync(QString id, quint64 generation, NoteCallback callback);
+    void                   requestNoteAsync(QString id, quint64 generation, NoteCallback callback, int attempt = 1);
+    void                   prepareMediaAsync(XmppRemoteNote note, quint64 generation,
+                                             std::function<void(XmppRemoteNote, XmppStatusResult)> callback);
+    void                   hydrateMediaAsync(XmppRemoteNote note, quint64 generation,
+                                             std::function<void(XmppRemoteNote, XmppStatusResult)> callback);
+    void                   downloadMediaAsync(XmppRemoteMedia media, quint64 generation,
+                                              std::function<void(XmppRemoteMedia, XmppStatusResult)> callback);
+    void                   retractPublishedMediaForNoteAsync(QString noteId, StatusCallback callback);
+    XMPP::Jingle::Session *createPublishedMediaSession(const IrisJingleCapability &capability,
+                                                       const XMPP::Jid            &requester);
+    void                   publishNoteAsync(XmppRemoteNote note, quint64 generation, NoteCallback callback);
 
     void listNodeItemIdsAsync(QString nodeName, std::function<void(QStringList, XmppStatusResult)> callback);
     void fetchPayloadAsync(QString nodeName, QString id,
@@ -112,15 +122,16 @@ private:
 
     XmppConfig config_;
 
-    XMPP::AdvancedConnector *connector_ { nullptr };
-    XMPP::QCATLSHandler     *tlsHandler_ { nullptr };
-    XMPP::ClientStream      *stream_ { nullptr };
-    XMPP::Client            *client_ { nullptr };
-    XMPP::PubSubManager     *pubSub_ { nullptr };
-    IrisKeySyncTask         *keySyncTask_ { nullptr };
-    IrisOmemoStorage        *omemoStorage_ { nullptr };
-    IrisTrustStorage        *trustStorage_ { nullptr };
-    XMPP::OmemoEncryption   *omemo_ { nullptr };
+    XMPP::AdvancedConnector       *connector_ { nullptr };
+    XMPP::QCATLSHandler           *tlsHandler_ { nullptr };
+    XMPP::ClientStream            *stream_ { nullptr };
+    XMPP::Client                  *client_ { nullptr };
+    XMPP::PubSubManager           *pubSub_ { nullptr };
+    IrisKeySyncTask               *keySyncTask_ { nullptr };
+    IrisJinglePublicationProvider *jinglePublicationProvider_ { nullptr };
+    IrisOmemoStorage              *omemoStorage_ { nullptr };
+    IrisTrustStorage              *trustStorage_ { nullptr };
+    XMPP::OmemoEncryption         *omemo_ { nullptr };
 
     bool    acceptingWork_ { true };
     bool    connected_ { false };
@@ -138,8 +149,6 @@ private:
         bool       trustBootstrap { false };
     };
     QHash<QString, PendingInboundKeyRequest> pendingInboundKeyRequests_;
-    /** Current-resource XEP-0358 publications keyed by AnyKeep attachment UUID. */
-    QHash<QUuid, QString> publishedMediaIds_;
 };
 
 } // namespace AnyKeep

@@ -243,3 +243,39 @@ else()
   endif()
 endif()
 add_dependencies(Qca3::Qca anykeep_bundled_qca)
+
+function(anykeep_configure_bundled_qca_android_plugins target)
+  if(NOT ANDROID OR NOT ANYKEEP_BUNDLED_QCA_SHARED)
+    return()
+  endif()
+  if(NOT TARGET ${target})
+    message(FATAL_ERROR "Cannot attach bundled QCA Android plugins to missing target: ${target}")
+  endif()
+  if(NOT CMAKE_ANDROID_ARCH_ABI)
+    message(FATAL_ERROR "CMAKE_ANDROID_ARCH_ABI is required to package bundled QCA Android plugins")
+  endif()
+
+  # Android's native library directory cannot retain QCA's qca3-qt6/crypto
+  # layout. Stage the provider with Qt's Android plugin filename convention;
+  # androiddeployqt then copies it to the ABI directory, where QCA's Android
+  # plugin scan can identify the "crypto" prefix.
+  set(_qca_android_plugin_root "${CMAKE_BINARY_DIR}/_deps/qca-android-plugins/plugins/qca")
+  set(_qca_android_plugin
+      "${_qca_android_plugin_root}/libplugins_crypto_qcaossl_${CMAKE_ANDROID_ARCH_ABI}.so")
+  file(MAKE_DIRECTORY "${_qca_android_plugin_root}")
+  add_custom_command(
+    OUTPUT "${_qca_android_plugin}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${ANYKEEP_QCA_OSSL_PLUGIN}" "${_qca_android_plugin}"
+    DEPENDS anykeep_bundled_qca "${ANYKEEP_QCA_OSSL_PLUGIN}"
+    VERBATIM)
+  add_custom_target(${target}_bundled_qca_android_plugins DEPENDS "${_qca_android_plugin}")
+  add_dependencies(${target} ${target}_bundled_qca_android_plugins)
+
+  get_target_property(_qca_android_extra_plugins ${target} QT_ANDROID_EXTRA_PLUGINS)
+  if(NOT _qca_android_extra_plugins OR _qca_android_extra_plugins MATCHES "-NOTFOUND$")
+    set(_qca_android_extra_plugins)
+  endif()
+  list(APPEND _qca_android_extra_plugins "${_qca_android_plugin_root}")
+  list(REMOVE_DUPLICATES _qca_android_extra_plugins)
+  set_property(TARGET ${target} PROPERTY QT_ANDROID_EXTRA_PLUGINS "${_qca_android_extra_plugins}")
+endfunction()

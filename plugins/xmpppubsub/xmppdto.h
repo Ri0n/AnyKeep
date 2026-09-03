@@ -50,6 +50,7 @@ struct XmppConfig {
 
     QString indexNodeName() const { return nodeName + QStringLiteral(":index"); }
     QString contentNodeName() const { return nodeName + QStringLiteral(":content"); }
+    QString jinglePubNodeName() const { return nodeName + QStringLiteral(":jinglepub"); }
 };
 
 /** XEP-0447 descriptor plus the AnyKeep attachment it represents. */

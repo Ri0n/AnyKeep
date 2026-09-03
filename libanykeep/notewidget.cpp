@@ -135,7 +135,7 @@ NoteWidget::NoteWidget(const Note &note, const QUuid &draftId) : ui(new Ui::Note
     if (pinIcon.isNull())
         pinIcon = QIcon::fromTheme(QLatin1String("window-pin"));
     if (pinIcon.isNull())
-        pinIcon = IconUtils::symbolicIcon(QLatin1String(":/svg/pin"));
+        pinIcon = IconUtils::symbolicIcon(QLatin1String(":/svg/pin.svg"));
     auto *pinButton = new QToolButton(tbar);
     pinButton->setIcon(pinIcon);
     pinButton->setText(tr("Pin"));

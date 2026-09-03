@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 
 ApplicationWindow {
     id: window
@@ -10,6 +11,7 @@ ApplicationWindow {
     height: 760
     visible: true
     title: qsTr("AnyKeep")
+    Material.theme: mobileApp.darkColorScheme ? Material.Dark : Material.Light
 
     StackView {
         id: navigation

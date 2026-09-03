@@ -89,6 +89,120 @@ void NotesManagerQmlTest::recentNoteSwipeClosesEveryDeleteAction()
     QTRY_VERIFY(action->opacity() < 0.01);
 }
 
+void NotesManagerQmlTest::touchNoteCollectionUsesHandleAndSelectionMode()
+{
+    QQuickWidget quick;
+    quick.setResizeMode(QQuickWidget::SizeRootObjectToView);
+    quick.resize(360, 220);
+    installThemedIconImageProvider(quick.engine());
+
+    QStandardItemModel notesModel;
+    notesModel.setItemRoleNames({
+        { Qt::UserRole + 1, "storageId" },
+        { Qt::UserRole + 2, "noteId" },
+        { Qt::UserRole + 3, "itemType" },
+        { Qt::UserRole + 4, "title" },
+    });
+    for (const auto &id : { QStringLiteral("first"), QStringLiteral("second") }) {
+        auto *item = new QStandardItem;
+        item->setData(QStringLiteral("storage"), Qt::UserRole + 1);
+        item->setData(id, Qt::UserRole + 2);
+        item->setData(1, Qt::UserRole + 3);
+        item->setData(id, Qt::UserRole + 4);
+        notesModel.appendRow(item);
+    }
+    quick.rootContext()->setContextProperty(QStringLiteral("touchSelectionNotesModel"), &notesModel);
+
+    QQmlComponent component(quick.engine());
+    component.setData(R"QML(
+        import QtQuick
+        import QtQuick.Controls
+        import "notelist" as NoteList
+
+        Item {
+            id: harness
+            property int activationCount: 0
+            property int contextCount: 0
+
+            NoteList.NoteCollectionView {
+                id: notes
+                objectName: "touchSelectionCollection"
+                anchors.fill: parent
+                model: touchSelectionNotesModel
+                nativeModelHierarchy: false
+                flatNoteRows: true
+                touchActions: true
+                allowNoteDrag: true
+                allowGroupDrag: false
+                rowObjectNameProvider: function(item) {
+                    return "touchSelectionRow-" + item.noteId
+                }
+                noteActivateHandler: function(item) { ++harness.activationCount }
+                noteContextHandler: function(item, position) { ++harness.contextCount }
+            }
+        }
+    )QML",
+                      QUrl(QStringLiteral("qrc:/qml/TouchSelectionHarness.qml")));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QObject *root = component.create();
+    QVERIFY2(root, qPrintable(component.errorString()));
+    quick.setContent(QUrl(QStringLiteral("qrc:/qml/TouchSelectionHarness.qml")), &component, root);
+    quick.show();
+
+    auto       *rootItem   = qobject_cast<QQuickItem *>(root);
+    QQuickItem *collection = nullptr;
+    QQuickItem *first      = nullptr;
+    QQuickItem *second     = nullptr;
+    QQuickItem *firstCheck = nullptr;
+    QQuickItem *firstGrip  = nullptr;
+    QTRY_VERIFY((collection = quickItemByName(rootItem, QStringLiteral("touchSelectionCollection"))));
+    QTRY_VERIFY((first = quickItemByName(rootItem, QStringLiteral("touchSelectionRow-first"))));
+    QTRY_VERIFY((second = quickItemByName(rootItem, QStringLiteral("touchSelectionRow-second"))));
+    QTRY_VERIFY((firstCheck = quickItemByName(rootItem, QStringLiteral("noteSelectionCheckBox-storage-first"))));
+    QTRY_VERIFY((firstGrip = quickItemByName(rootItem, QStringLiteral("noteReorderHandle-storage-first"))));
+
+    QVERIFY(!collection->property("selectionMode").toBool());
+    QVERIFY(!first->property("selectionCheckBoxVisible").toBool());
+    QVERIFY(!firstCheck->isVisible());
+    QVERIFY(first->property("touchReorderHandleVisible").toBool());
+    QVERIFY(firstGrip->isVisible());
+
+    const auto invokeWithItem = [](QObject *target, const char *method, QObject *item) {
+        return QMetaObject::invokeMethod(target, method,
+                                         Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(item))));
+    };
+
+    // A plain touch activation opens the note and does not leave a selected
+    // row (or permanent checkbox column) behind.
+    QVERIFY(invokeWithItem(collection, "activateNote", first));
+    QTRY_COMPARE(root->property("activationCount").toInt(), 1);
+    QCOMPARE(collection->property("selectedNotes").toMap().size(), 0);
+    QVERIFY(!collection->property("selectionMode").toBool());
+    QVERIFY(!firstCheck->isVisible());
+
+    // The long-press path selects the context row. Once one note is selected,
+    // all row checkboxes become available and taps toggle the selection.
+    QVERIFY(QMetaObject::invokeMethod(collection, "requestContextMenu",
+                                      Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(first))),
+                                      Q_ARG(QVariant, QVariant())));
+    QTRY_COMPARE(root->property("contextCount").toInt(), 1);
+    QTRY_VERIFY(collection->property("selectionMode").toBool());
+    QTRY_COMPARE(collection->property("selectedNotes").toMap().size(), 1);
+    QTRY_VERIFY(firstCheck->isVisible());
+    QTRY_VERIFY(second->property("selectionCheckBoxVisible").toBool());
+
+    QVERIFY(invokeWithItem(collection, "activateNote", second));
+    QTRY_COMPARE(collection->property("selectedNotes").toMap().size(), 2);
+    QCOMPARE(root->property("activationCount").toInt(), 1);
+
+    QVERIFY(invokeWithItem(collection, "activateNote", first));
+    QTRY_COMPARE(collection->property("selectedNotes").toMap().size(), 1);
+    QVERIFY(invokeWithItem(collection, "activateNote", second));
+    QTRY_COMPARE(collection->property("selectedNotes").toMap().size(), 0);
+    QTRY_VERIFY(!collection->property("selectionMode").toBool());
+    QTRY_VERIFY(!firstCheck->isVisible());
+}
+
 void NotesManagerQmlTest::notesManagerOutsideDropRecyclesOrPermanentlyDeletes()
 {
     QQuickWidget quick;

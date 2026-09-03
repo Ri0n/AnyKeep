@@ -19,6 +19,8 @@
 #include <QGuiApplication>
 #include <QLocale>
 #include <QLoggingCategory>
+#include <QPalette>
+#include <QStyleHints>
 #if (defined(Q_OS_ANDROID) || defined(Q_OS_IOS)) && QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
 #include <QPermissions>
 #endif
@@ -27,6 +29,11 @@
 #include <QUrlQuery>
 #include <QVariantMap>
 
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#include <QtCore/qcoreapplication_platform.h>
+#endif
+
 #include <algorithm>
 
 namespace AnyKeep {
@@ -34,6 +41,45 @@ namespace AnyKeep {
 Q_LOGGING_CATEGORY(logMobilePersistence, "anykeep.persistence.mobile")
 
 namespace {
+#ifdef Q_OS_ANDROID
+    void applyAndroidNavigationBar(const QColor &background, bool darkBackground)
+    {
+        const jint color     = jint(background.rgba());
+        const bool darkIcons = !darkBackground;
+        QNativeInterface::QAndroidApplication::runOnAndroidMainThread([color, darkIcons] {
+            const QJniObject activity = QNativeInterface::QAndroidApplication::context();
+            if (!activity.isValid())
+                return;
+            const QJniObject window = activity.callObjectMethod("getWindow", "()Landroid/view/Window;");
+            if (!window.isValid())
+                return;
+
+            window.callMethod<void>("setNavigationBarColor", "(I)V", color);
+            const int sdk = QNativeInterface::QAndroidApplication::sdkVersion();
+            if (sdk >= 28)
+                window.callMethod<void>("setNavigationBarDividerColor", "(I)V", color);
+            if (sdk >= 29)
+                window.callMethod<void>("setNavigationBarContrastEnforced", "(Z)V", jboolean(false));
+
+            constexpr jint LightNavigationBars = 0x10;
+            if (sdk >= 30) {
+                const QJniObject controller
+                    = window.callObjectMethod("getInsetsController", "()Landroid/view/WindowInsetsController;");
+                if (controller.isValid())
+                    controller.callMethod<void>("setSystemBarsAppearance", "(II)V", darkIcons ? LightNavigationBars : 0,
+                                                LightNavigationBars);
+            } else {
+                const QJniObject decor = window.callObjectMethod("getDecorView", "()Landroid/view/View;");
+                if (decor.isValid()) {
+                    jint flags = decor.callMethod<jint>("getSystemUiVisibility", "()I");
+                    flags      = darkIcons ? flags | LightNavigationBars : flags & ~LightNavigationBars;
+                    decor.callMethod<void>("setSystemUiVisibility", "(I)V", flags);
+                }
+            }
+        });
+    }
+#endif
+
     const char *applicationStateName(Qt::ApplicationState state)
     {
         switch (state) {
@@ -54,6 +100,7 @@ MobileApplication::MobileApplication(QObject *parent) :
     QObject(parent), platformServices_(new AndroidPlatformServices(this)), dialogs_(new DialogService(this)),
     bundledPlugins_(this), plugins_(&bundledPlugins_, this), storages_(this)
 {
+    systemPalette_ = QGuiApplication::palette();
     qCInfo(logMobilePersistence) << "Mobile persistence diagnostics started: pid="
                                  << QCoreApplication::applicationPid();
     workspace_             = new NotesWorkspaceController(this);
@@ -108,6 +155,14 @@ MobileApplication::MobileApplication(QObject *parent) :
                int(AudioRecording)));
     workspace_->sourceModel()->setPageSize(notesPerPage_);
     editorFontSize_ = settings.value(QStringLiteral("mobile.editor-font-size"), 16.0).toReal();
+    colorScheme_    = qBound(0, settings.value(QStringLiteral("mobile.color-scheme"), 0).toInt(), 2);
+    applyColorScheme();
+    connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this] {
+        if (colorScheme_ == 0) {
+            applyColorScheme();
+            emit colorSchemeChanged();
+        }
+    });
 
     if (androidSpeechEnabled_ && !androidSpeechAvailable()) {
         androidSpeechEnabled_ = false;
@@ -148,9 +203,20 @@ QObject            *MobileApplication::dialogs() const { return dialogs_; }
 bool  MobileApplication::askBeforeDelete() const { return askBeforeDelete_; }
 int   MobileApplication::notesPerPage() const { return notesPerPage_; }
 qreal MobileApplication::editorFontSize() const { return editorFontSize_; }
-bool  MobileApplication::androidSpeechEnabled() const { return androidSpeechEnabled_; }
-bool  MobileApplication::androidSpeechAvailable() const { return platformServices_->speechRecognitionAvailable(); }
-bool  MobileApplication::audioRecordingAvailable() const
+int   MobileApplication::colorScheme() const { return colorScheme_; }
+bool  MobileApplication::darkColorScheme() const
+{
+    if (colorScheme_ == 2)
+        return true;
+    if (colorScheme_ == 1)
+        return false;
+    const auto scheme = QGuiApplication::styleHints()->colorScheme();
+    return scheme == Qt::ColorScheme::Dark
+        || (scheme == Qt::ColorScheme::Unknown && systemPalette_.color(QPalette::Window).lightness() < 128);
+}
+bool MobileApplication::androidSpeechEnabled() const { return androidSpeechEnabled_; }
+bool MobileApplication::androidSpeechAvailable() const { return platformServices_->speechRecognitionAvailable(); }
+bool MobileApplication::audioRecordingAvailable() const
 {
     const auto *editor = workspace_ ? workspace_->editor() : nullptr;
     return editor && speechController_ && speechController_->audioRecordingAvailable();
@@ -612,6 +678,46 @@ void MobileApplication::setEditorFontSize(qreal value)
     editorFontSize_ = value;
     QSettings().setValue(QStringLiteral("mobile.editor-font-size"), value);
     emit editorFontSizeChanged();
+}
+
+void MobileApplication::setColorScheme(int value)
+{
+    value = qBound(0, value, 2);
+    if (colorScheme_ == value)
+        return;
+    colorScheme_ = value;
+    QSettings().setValue(QStringLiteral("mobile.color-scheme"), value);
+    applyColorScheme();
+    emit colorSchemeChanged();
+}
+
+void MobileApplication::applyColorScheme()
+{
+    const bool   dark = darkColorScheme();
+    QPalette     palette;
+    const QColor window   = dark ? QColor(QStringLiteral("#202124")) : QColor(QStringLiteral("#fafafa"));
+    const QColor base     = dark ? QColor(QStringLiteral("#303030")) : QColor(Qt::white);
+    const QColor text     = dark ? QColor(QStringLiteral("#f5f5f5")) : QColor(QStringLiteral("#202124"));
+    const QColor muted    = dark ? QColor(QStringLiteral("#b8bec7")) : QColor(QStringLiteral("#667085"));
+    const QColor border   = dark ? QColor(QStringLiteral("#555a63")) : QColor(QStringLiteral("#d0d5dd"));
+    const QColor selected = dark ? QColor(QStringLiteral("#5f6368")) : QColor(QStringLiteral("#dfe3e8"));
+    for (const auto group : { QPalette::Active, QPalette::Inactive, QPalette::Disabled }) {
+        palette.setColor(group, QPalette::Window, window);
+        palette.setColor(group, QPalette::Base, base);
+        palette.setColor(group, QPalette::AlternateBase, window);
+        palette.setColor(group, QPalette::Button, window);
+        palette.setColor(group, QPalette::Text, text);
+        palette.setColor(group, QPalette::WindowText, text);
+        palette.setColor(group, QPalette::ButtonText, text);
+        palette.setColor(group, QPalette::PlaceholderText, muted);
+        palette.setColor(group, QPalette::Mid, border);
+        palette.setColor(group, QPalette::Highlight, selected);
+        palette.setColor(group, QPalette::HighlightedText, text);
+    }
+    QGuiApplication::setPalette(palette);
+#ifdef Q_OS_ANDROID
+    applyAndroidNavigationBar(window, dark);
+#endif
 }
 
 } // namespace AnyKeep

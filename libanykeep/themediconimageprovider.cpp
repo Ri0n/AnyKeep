@@ -55,7 +55,7 @@ namespace {
             if (themeName != QStringLiteral("__bundled__"))
                 icon = QIcon::fromTheme(themeName);
 
-            const bool usingFallback = icon.isNull();
+            bool usingFallback = icon.isNull();
             if (usingFallback)
                 icon = QIcon(fallbackPath);
             if (icon.isNull())
@@ -66,7 +66,14 @@ namespace {
             // raster pixmaps; fractional display scaling could then select a
             // neighbouring size and resample it a second time.
             QImage image = icon.pixmap(target, QIcon::Normal, QIcon::Off).toImage();
-            if (usingFallback && recolorFallback && !image.isNull()) {
+            if (image.isNull() && !usingFallback) {
+                icon          = QIcon(fallbackPath);
+                usingFallback = true;
+                image         = icon.pixmap(target, QIcon::Normal, QIcon::Off).toImage();
+            }
+            if (image.isNull())
+                return {};
+            if (usingFallback && recolorFallback) {
                 const QColor effectiveTint
                     = tint.isValid() ? tint : QGuiApplication::palette().color(QPalette::WindowText);
                 QPainter painter(&image);

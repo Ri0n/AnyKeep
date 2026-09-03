@@ -12,8 +12,8 @@ encoder/decoder instructions, fixed vectors and the Rust smoke test are in the
 
 The cross-storage attachment model is documented in
 [Media storage architecture](../../docs/media-storage-architecture.md). The Iris
-backend implements the XMPP mapping with XEP-0447/XEP-0448, persistent XEP-0363
-HTTP sources, and XEP-0358/XEP-0234 direct Jingle sources.
+backend implements the XMPP mapping with XEP-0447/XEP-0448,
+XEP-0358/XEP-0234 direct Jingle sources, and optional XEP-0363 HTTP sources.
 
 The XMPP server stores encrypted note records and routes synchronization
 events. Note plaintext and the AnyKeep storage master key are not published to
@@ -26,9 +26,11 @@ the storage key during device onboarding.
 - stores the encrypted note index and content in separate nodes;
 - lists notes in batches using backend-specific item-ID discovery with a direct PubSub fallback;
 - creates, loads, updates, and retracts notes asynchronously;
-- publishes encrypted media attachments with a persistent HTTP source and a
-  preferred direct Jingle source, and verifies ciphertext and plaintext hashes
-  when receiving them;
+- publishes encrypted media attachments through a persistent private catalog
+  of direct Jingle offers, optionally adds an HTTP source, and verifies
+  ciphertext and plaintext hashes when receiving them;
+- restores Jingle serving capabilities from an encrypted local cache, but
+  activates them only after their exact PubSub items have been verified;
 - propagates publish, retract, purge, and node invalidation events;
 - detects optimistic revision conflicts before publishing an update;
 - keeps note publication and deletion operations in an encrypted persistent
@@ -115,16 +117,18 @@ the initial experimental protocol version. It expands to:
 - `urn:xmpp:private-notes:0:index` — encrypted title, tags, optional folder
   path, timestamp, format, index revision, parent revision, and origin;
 - `urn:xmpp:private-notes:0:content` — encrypted note body bound to the same
-  note ID and content revision. Folder-only moves publish a fresh index while
-  keeping the existing body revision through a required encrypted extension,
-  so they do not upload the body again.
+  note ID and content revision. Folder changes and manual reordering publish a
+  fresh index while keeping the existing body revision through a required
+  encrypted extension, so they do not upload the body again;
+- `urn:xmpp:private-notes:0:jinglepub` — private persistent XEP-0358 offers
+  for attachment ciphertext held by individual AnyKeep installations.
 
 The same namespace is used by the outer encrypted element and authenticated
 plaintext. There are no separate `wire`, `schema`, or minor-version fields. Compatible optional
 extensions use their own XML namespaces; incompatible changes use a new major
 namespace and new nodes.
 
-Both nodes must be persistent, payload-delivering, and allowlist-only. The
+All three nodes must be persistent, payload-delivering, and allowlist-only. The
 plugin refuses to use a server that does not advertise a PEP identity and
 PubSub `publish-options`.
 
@@ -178,7 +182,8 @@ graph TD;
 | `XmppStorage` | AnyKeep `NoteStorage` adapter, configuration, in-memory cache, job completion, UI-facing errors |
 | `XmppBackend` | backend-neutral asynchronous CRUD, lifecycle, OMEMO, audit, and key-sync contract |
 | `XmppWorker` | QXmpp implementation; connection, PEP, PubSub, OMEMO, and QCoro flows |
-| `IrisXmppBackend` | Iris implementation of the same lifecycle, PEP/PubSub, OMEMO, audit, and key-sync contract |
+| `IrisXmppBackend` | Iris implementation of the same lifecycle, PEP/PubSub, OMEMO, audit, key-sync, and media-transfer contract |
+| `IrisJinglePublicationProvider` | encrypted local Jingle capability cache and bridge to Iris's authoritative XEP-0358 publication manager |
 | `XmppPepExtension` | incoming PubSub event filtering and conversion to backend signals |
 | `XmppKeySyncExtension` | `urn:xmpp:private-notes:key-sync:0` IQ parsing, request tracking, and replies |
 | `XmppNoteCodec` | encryption/decryption and binding index/content records to the PubSub node and item ID |
@@ -220,7 +225,7 @@ graph TD;
     TEMPORARY --> BACKOFF["Keep outbox and wait before retry"];
     CONNECTED --> OMEMO["Load or create local OMEMO device"];
     OMEMO --> PEP["Discover PEP and publish-options"];
-    PEP --> NODES["Create or verify private note nodes"];
+    PEP --> NODES["Create or verify index, content, and Jingle-offer nodes"];
     NODES --> IDS["Request index item IDs"];
     IDS --> BATCH["Fetch encrypted indexes in batches"];
     IDS --> FALLBACK["Fallback to one possibly partial page"];
@@ -312,25 +317,33 @@ index-plus-content read before making a conflict decision.
 ### Delete
 
 Deletion is also durable. AnyKeep first writes a `Delete` record to the encrypted
-outbox, then retracts the index and content items asynchronously. Successful or
-already-missing items complete the operation. A temporary error retains the
-record and retries with a delay capped at five minutes.
+outbox, then retracts the index, content, and this installation's attachment
+offer items asynchronously. Successful or already-missing items complete the
+operation. Retracting the index first makes the note disappear promptly;
+removing offers last avoids making its media unavailable before the note itself
+is gone. A temporary error retains the record and retries with a delay capped
+at five minutes.
 
 ```mermaid
 graph TD;
     REQUEST["User deletes note"] --> RECORD["Persist encrypted Delete operation"];
     RECORD --> INDEX["Retract index item"];
     INDEX --> CONTENT["Retract content item"];
-    CONTENT --> SUCCESS["Success or item-not-found"];
+    CONTENT --> OFFERS["Retract this installation's Jingle offers"];
+    OFFERS --> SUCCESS["Success or item-not-found"];
     SUCCESS --> DONE["Remove outbox record"];
     INDEX --> TEMP1["Temporary index error"];
     CONTENT --> TEMP2["Temporary content error"];
+    OFFERS --> TEMP3["Temporary offer error"];
     TEMP1 --> RETRY["Keep operation and retry with bounded backoff"];
     TEMP2 --> RETRY;
+    TEMP3 --> RETRY;
     INDEX --> PERM1["Permanent index error"];
     CONTENT --> PERM2["Permanent content error"];
+    OFFERS --> PERM3["Permanent offer error"];
     PERM1 --> HOLD["Keep operation for diagnosis"];
     PERM2 --> HOLD;
+    PERM3 --> HOLD;
 ```
 
 ## Storage-key exchange between own devices
@@ -427,16 +440,17 @@ The server can still observe:
 
 - the account and connected resources;
 - PEP node names and item UUIDs;
-- ciphertext sizes, update timing, and deletion timing;
+- full resource JIDs of Jingle providers, ciphertext sizes and hashes, update
+  timing, and deletion timing;
 - OMEMO device IDs, labels, and public bundles.
 
 It cannot derive note titles, bodies, tags, formats, revisions, or timestamps
 from the encrypted AnyKeep payload without the storage master key.
 
-Local drafts, pending deletions, the storage key, and OMEMO state are also
-protected at rest. The storage key and OMEMO-state wrapping key are kept in the
-platform keychain; encrypted draft/outbox and OMEMO state files live in the
-AnyKeep data directory.
+Local drafts, pending deletions, Jingle serving capabilities, the storage key,
+and OMEMO state are also protected at rest. The storage key and state-wrapping
+key are kept in the platform keychain; encrypted draft/outbox, Jingle
+capability, and OMEMO state files live in the AnyKeep data directory.
 
 ## Iris integration
 
@@ -453,10 +467,15 @@ The Iris backend uses the QCA generation selected by AnyKeep; bundled Iris never
 builds a second QCA copy. No private-notes wire format depends on how Iris is
 provided.
 
-Iris also exposes Jingle file transfer and SXE. They are intentionally not part
-of the current `XmppBackend` storage contract yet; selecting the Iris backend
-puts those facilities in the same XMPP runtime so the notes manager can adopt
-them without first replacing the synchronization backend.
+The Iris backend uses `Jingle::PublicationManager` for XEP-0358 authority and
+request queuing. `IrisJinglePublicationProvider` registers before connection,
+restores encrypted local factories as unverified, and lets Iris activate them
+only after targeted PubSub verification. Incoming `<start/>` requests that
+arrive during synchronization remain queued. A retract, purge, confirmed
+absence, or failed exact comparison disables serving and never triggers an
+automatic republish. After downloading and verifying an attachment from
+another installation, AnyKeep publishes its own independently addressable
+offer for the same ciphertext.
 
 ## Current limitations
 
@@ -471,8 +490,12 @@ them without first replacing the synchronization backend.
   publication, and index publication;
 - backend selection is currently a build-time choice; one binary does not switch
   between QXmpp and Iris at runtime;
-- Jingle file transfer and SXE are available from the Iris dependency but are
-  not yet wired into the notes-manager UI;
+- direct Jingle media publication is currently implemented only by the Iris
+  backend; the QXmpp backend still needs an equivalent publication provider;
+- if an installation is offline for the entire lifetime of a note-deletion
+  event, cleanup of that installation's now-orphaned offers requires an
+  explicit authoritative reconciliation path; a possibly partial PubSub page
+  is deliberately never treated as a deletion list;
 - servers that reject item-ID discovery fall back to one page, which may be
   partial when the server does not expose a usable continuation API.
 
@@ -488,3 +511,10 @@ them without first replacing the synchronization backend.
 8. Different storage keys: audit, choose canonical key, and re-encrypt notes.
 9. Missing historical key: verify inaccessible notes are reported and preserved.
 10. Server without item-ID discovery: verify partial-page warning behavior.
+11. No HTTP Upload service: save and load media through Jingle only.
+12. Restart a provider: send `<start/>` before and after targeted PubSub
+    verification and confirm that the early request waits.
+13. Retract an offer from another own device and verify that the local cache
+    neither serves nor republishes it.
+14. Download on a second installation, take the original provider offline, and
+    verify that the second installation's offer can still serve the ciphertext.

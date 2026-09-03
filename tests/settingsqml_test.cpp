@@ -90,6 +90,12 @@ private slots:
         }
         QVERIFY(foundRedPixel);
 
+        // The mobile navigation uses these exact fallback assets.  Keep the
+        // extension in the resource URL: QIcon uses it to select the SVG
+        // handler, whereas extensionless aliases can yield a null pixmap.
+        QVERIFY(!request(missingTheme + QStringLiteral("pin.svg/auto")).isNull());
+        QVERIFY(!request(missingTheme + QStringLiteral("anykeep-symbolic.svg/auto")).isNull());
+
         QImage expectedAtFractionalScale
             = QIcon(QStringLiteral(":/svg/preferences-system-symbolic.svg")).pixmap(QSize(25, 25)).toImage();
         {

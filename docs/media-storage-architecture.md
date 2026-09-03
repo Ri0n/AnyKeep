@@ -315,40 +315,54 @@ bytes.
 flowchart TD
     LOCAL["LocalMediaStore plaintext"]
     ESFS["XEP-0448 AES-256-GCM<br/>ciphertext + SHA-256"]
-    HTTP["XEP-0363 HTTP Upload<br/>required durable source"]
-    JP["XEP-0358 jinglepub<br/>required live publication"]
+    CATALOG["Private persistent PEP catalog<br/>XEP-0358 offers"]
+    HTTP["XEP-0363 HTTP Upload<br/>optional store-and-forward source"]
+    JP["Current installation's<br/>XEP-0358 offer"]
     JFT["XEP-0234 Jingle File Transfer"]
     TRANSPORT["IBB / S5B / WebRTC DataChannel / other Jingle transport"]
     NOTE["Encrypted Private Notes content record<br/>XEP-0447 descriptor + key/IV"]
 
     LOCAL --> ESFS
+    ESFS --> CATALOG
     ESFS --> HTTP
-    ESFS --> JP --> JFT --> TRANSPORT
+    CATALOG --> JP --> JFT --> TRANSPORT
     ESFS --> NOTE
 ```
 
-The durable HTTP source is required for note publication. A Jingle publication
-is intentionally only an additional source: it disappears when the publishing
-resource goes offline, while a note must remain recoverable later. On save, an
-unchanged attachment reuses its existing HTTP object and XEP-0448 key/IV and
-refreshes only the current-resource Jingle publication.
+HTTP Upload is optional. Durability comes from the private persistent catalog
+of Jingle offers and from allowing every installation that has verified and
+stored the ciphertext to become another provider. Each offer is a direct
+XEP-0358 item identified by an opaque UUID and a stable full resource JID. On
+save, an unchanged attachment reuses its XEP-0448 key/IV and existing HTTP URL,
+if any, while publishing the current installation's offer for those exact
+ciphertext bytes.
 
-The XEP-0448 key, IV, ciphertext hash, durable URL, and Jingle publication are
-stored inside the already authenticated and encrypted Private Notes content
-record. Consequently an untrusted HTTP server, IBB/S5B proxy path, or other
+Serving requires more than the note's embedded descriptor. Before publishing,
+the Iris backend persists an encrypted local capability containing the blob
+identity, key, IV, cipher size, and cipher hash. After restart that capability
+is unverified. Iris checks its exact PubSub item before allowing the factory to
+serve; an early XEP-0358 `<start/>` waits for this synchronization. A remote
+retract or confirmed absence disables the capability without resurrecting the
+item from disk.
+
+The XEP-0448 key, IV, ciphertext hash, optional URL, and embedded Jingle
+reference are stored inside the already authenticated and encrypted Private
+Notes content record. Consequently an untrusted HTTP server, IBB/S5B proxy path, or other
 transport sees only ciphertext. WebRTC/DTLS may provide transport security as
 well, but AnyKeep does not depend on that for attachment E2E confidentiality.
 This is why the attachment layer does not use `EncryptionController::DataStream`
 or XEP-0391/JET in the current profile: doing so would create a second,
-transport-specific encryption identity and would not cover the persistent HTTP
-fallback with the same bytes.
+transport-specific encryption identity and would not cover every source with
+the same bytes.
 
-On receive, AnyKeep prefers the live XEP-0358 Jingle source when it belongs to
-the same bare JID. The offered Jingle file must match the expected ciphertext
-size and SHA-256. If Jingle negotiation or transfer is unavailable, the client
-falls back to the HTTP source. Before installing an attachment locally it
+On receive, AnyKeep tries the embedded offer and then every catalog offer from
+the same bare JID whose ciphertext size and SHA-256 match. Failed negotiation,
+transfer, or integrity validation advances to the next provider; an HTTP URL,
+when present, is the final fallback. Before installing an attachment locally it
 verifies ciphertext SHA-256, authenticates XEP-0448 decryption, and verifies the
-plaintext size and SHA-256 from XEP-0446 metadata.
+plaintext size and SHA-256 from XEP-0446 metadata. A successful downloader
+persists and publishes its own serving capability, so the original provider
+does not remain a single point of availability.
 The first implementation hydrates all attachments when a specific note is explicitly opened;
 background index/body warming does not download media. Lazy hydration of large arbitrary
 attachments can be added later together with a remote-only media-reference state.

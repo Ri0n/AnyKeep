@@ -1,6 +1,5 @@
 <RCC>
     <qresource prefix="/icons">
-        <file alias="new">images/new.png</file>
         <file alias="options">images/options22.png</file>
         <file alias="trash">images/trash22.png</file>
         <file alias="exit">images/exit22.png</file>
@@ -14,13 +13,12 @@
     </qresource>
     <qresource prefix="/svg">
         <file alias="anykeep">images/anykeep.svg</file>
-        <file alias="anykeep-symbolic">images/anykeep-symbolic.svg</file>
+        <file alias="anykeep-symbolic.svg">images/anykeep-symbolic.svg</file>
         <file alias="copy22.png">images/copy22.png</file>
-        <file alias="folder-symbolic">images/folder-symbolic.svg</file>
-        <file alias="go-next-symbolic">images/go-next-symbolic.svg</file>
-        <file alias="download">images/download.svg</file>
-        <file alias="microphone">images/microphone.svg</file>
-        <file alias="pin">images/pin.svg</file>
+        <file alias="folder-symbolic.svg">images/folder-symbolic.svg</file>
+        <file alias="download.svg">images/download.svg</file>
+        <file alias="microphone.svg">images/microphone.svg</file>
+        <file alias="pin.svg">images/pin.svg</file>
     </qresource>
     <qresource prefix="/qml">
         <file alias="NoteBlockEditor.qml">qml/NoteBlockEditor.qml</file>

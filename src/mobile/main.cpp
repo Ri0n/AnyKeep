@@ -12,9 +12,14 @@
 
 int main(int argc, char *argv[])
 {
+#ifdef ANYKEEP_ANDROID_FORCE_XMPP_XML_LOG
+    // Android cannot conveniently inject an environment variable into an app
+    // spawned by Zygote. Keep the existing sanitizer and enable this only for
+    // an explicitly configured debug APK.
+    qputenv("ANYKEEP_XMPP_XML_LOG", "1");
+#endif
+    QGuiApplication         application(argc, argv);
     AnyKeep::QcaInitializer qca;
-
-    QGuiApplication application(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("R-Soft"));
     QCoreApplication::setApplicationName(QStringLiteral("AnyKeep"));
     QGuiApplication::setApplicationDisplayName(QStringLiteral("AnyKeep"));

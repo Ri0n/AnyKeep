@@ -48,7 +48,11 @@ public:
     virtual void listNotesAsync(ListCallback callback)                     = 0;
     virtual void getNoteAsync(QString id, NoteCallback callback)           = 0;
     virtual void saveNoteAsync(XmppRemoteNote note, NoteCallback callback) = 0;
-    /** Republishes metadata in the encrypted index without uploading note content. */
+    /**
+     * Republishes metadata in the encrypted index without uploading note
+     * content.  A request with preserveModified set keeps its supplied
+     * timestamp; otherwise the update receives the current time.
+     */
     virtual void           updateNoteIndexAsync(XmppRemoteNote note, NoteCallback callback)                 = 0;
     virtual void           deleteNoteAsync(QString id, StatusCallback callback)                             = 0;
     virtual XmppDeviceInfo ownOmemoDevice() const                                                           = 0;
@@ -79,6 +83,11 @@ signals:
     void backendError(const QString &error);
     /// Requests user approval for bootstrapping trust in an OMEMO key.
     void keySyncTrustRequested(const QString &requestId, const QByteArray &keyId);
+
+protected:
+    /** Applies the backend-independent revision semantics of an index-only update. */
+    static XmppRemoteNote makeIndexUpdate(XmppRemoteNote current, const XmppRemoteNote &requested, QString newRevision,
+                                          QString originId);
 };
 
 } // namespace AnyKeep

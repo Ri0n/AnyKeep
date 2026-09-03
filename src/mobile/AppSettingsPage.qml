@@ -33,6 +33,14 @@ Page {
                 onToggled: mobileApp.askBeforeDelete = checked
             }
 
+            Label { text: qsTr("Color theme") }
+            ComboBox {
+                Layout.fillWidth: true
+                model: [qsTr("Follow system"), qsTr("Light"), qsTr("Dark")]
+                currentIndex: mobileApp.colorScheme
+                onActivated: index => mobileApp.colorScheme = index
+            }
+
             ColumnLayout {
                 Layout.fillWidth: true
                 visible: mobileApp.androidSpeechAvailable

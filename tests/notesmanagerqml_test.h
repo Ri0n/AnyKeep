@@ -12,6 +12,7 @@ private slots:
     void notesManagerInternalDragsWork();
     void notesManagerVirtualizedDragsWork();
     void recentNoteSwipeClosesEveryDeleteAction();
+    void touchNoteCollectionUsesHandleAndSelectionMode();
     void notesManagerOutsideDropRecyclesOrPermanentlyDeletes();
     void flatNoteCollectionUsesSharedTreeDragAnimation();
     void genericReorderUsesOutsideDropHandler();

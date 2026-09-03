@@ -40,13 +40,16 @@ The default leaf nodes are:
 ```text
 urn:xmpp:private-notes:0:index
 urn:xmpp:private-notes:0:content
+urn:xmpp:private-notes:0:jinglepub
 ```
 
 There are no `wire`, `schema`, `kind`, or minor-version fields in the XML.
-The actual PubSub node selects index versus content and therefore also selects
-the HKDF domain. Compatible changes are represented by optional XML in a
-separate namespace. An incompatible change uses a new namespace and new nodes,
-for example `urn:xmpp:private-notes:1`.
+The index or content PubSub node selects its corresponding HKDF domain. The
+Jingle catalog is different: its items are direct `urn:xmpp:jinglepub:1`
+payloads, contain no Private Notes encrypted envelope, and are outside the
+HKDF/vector format documented here. Compatible changes are represented by
+optional XML in a separate namespace. An incompatible change uses a new
+namespace and new nodes, for example `urn:xmpp:private-notes:1`.
 
 The JSON field named `kind` in the reference tools is only a local API argument
 that tells the test harness which node role and HKDF domain to use. It is never

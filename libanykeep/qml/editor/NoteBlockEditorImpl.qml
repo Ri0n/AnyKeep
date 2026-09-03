@@ -9,6 +9,10 @@ ListView {
     property var editorBackend: typeof noteEditor !== "undefined" ? noteEditor : null
     property var platformBackend: typeof qmlNoteEditor !== "undefined" ? qmlNoteEditor : null
     property var audioTranscriptionController: null
+    readonly property color documentTextColor: palette.text
+    readonly property color documentSecondaryTextColor: palette.placeholderText
+    readonly property color documentCardColor: palette.alternateBase
+    readonly property color documentCardBorderColor: palette.mid
     property alias activeEditor: focusController.activeEditor
     property alias activeTagLineIndex: focusController.activeTagLineIndex
     property alias selectedImageIndex: mediaNavigationController.selectedImageIndex

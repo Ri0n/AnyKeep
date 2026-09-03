@@ -165,14 +165,20 @@ NotesModel::NotesModel(FolderCatalogManager *folderCatalogManager, DraftManager 
     connect(manager->notesIndex(), &NotesIndex::storageNotesChanged, this, &NotesModel::storageIndexChanged);
     connect(manager->notesIndex(), &NotesIndex::storageStateChanged, this, &NotesModel::storageIndexStateChanged);
     connect(draftManager_, &DraftManager::draftsChanged, this, &NotesModel::draftsChanged);
-    connect(folderCatalogManager_, &FolderCatalogManager::catalogChanged, this, [this] {
+    const auto refreshFolderProjection = [this] {
         for (auto *item : std::as_const(storages_)) {
             const int total   = projectedNoteCount(item);
             const int desired = searchActive_ ? total : qMax(item->children.size(), pageSize_);
             replaceVisibleNotes(item, desired);
         }
         emit statsChanged();
-    });
+    };
+    connect(folderCatalogManager_, &FolderCatalogManager::catalogChanged, this, refreshFolderProjection);
+    // A loaded catalog can already contain recycle-bin assignments. Refresh
+    // even when loading it only changes availability, otherwise a model that
+    // was created during startup can keep presenting those notes.
+    connect(folderCatalogManager_, &FolderCatalogManager::availabilityChanged, this,
+            [refreshFolderProjection](bool) { refreshFolderProjection(); });
     draftsChanged();
 }
 
@@ -273,6 +279,9 @@ QVariant NotesModel::data(const QModelIndex &modelIndex, int role) const
         return !storage ? item->draftState : QString();
     case DraftErrorRole:
         return !storage ? item->draftError : QString();
+    case RecycledRole:
+        return !storage && !item->pendingDraft && folderCatalogManager_ && folderCatalogManager_->isAvailable()
+            && folderCatalogManager_->catalog().isRecycled(item->parent->id, item->id);
     default:
         return {};
     }
@@ -309,6 +318,7 @@ QHash<int, QByteArray> NotesModel::roleNames() const
         { PendingDraftRole, "pendingDraft" },
         { DraftStateRole, "draftState" },
         { DraftErrorRole, "draftError" },
+        { RecycledRole, "recycled" },
     };
 }
 

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "../../shared" as Shared
 
 FocusScope {
     id: audioRoot
@@ -112,13 +113,11 @@ FocusScope {
                    ? Qt.rgba(playButton.palette.highlight.r,
                              playButton.palette.highlight.g,
                              playButton.palette.highlight.b, 0.18)
-                   : playButton.palette.alternateBase
+                   : audioRoot.editorView.documentCardColor
             border.width: audioRoot.selected ? 2 : 1
             border.color: audioRoot.selected
                           ? playButton.palette.highlight
-                          : Qt.rgba(playButton.palette.text.r,
-                                    playButton.palette.text.g,
-                                    playButton.palette.text.b, 0.32)
+                          : audioRoot.editorView.documentCardBorderColor
 
             RowLayout {
                 anchors.fill: parent
@@ -155,6 +154,7 @@ FocusScope {
                               ? audioRoot.block.alt : qsTr("Audio recording")
                         elide: Text.ElideMiddle
                         font.bold: audioRoot.selected
+                        color: audioRoot.editorView.documentTextColor
                     }
 
                     TextField {
@@ -165,6 +165,8 @@ FocusScope {
                         selectByMouse: true
                         font: audioRoot.editorView.editorFont
                         placeholderText: qsTr("Audio recording title")
+                        color: audioRoot.editorView.documentTextColor
+                        placeholderTextColor: audioRoot.editorView.documentSecondaryTextColor
                         onAccepted: audioRoot.finishRename()
                         onActiveFocusChanged: {
                             if (!activeFocus && audioRoot.renaming)
@@ -194,6 +196,7 @@ FocusScope {
                     text: audioRoot.formatTime(audioRoot.current ? audioRoot.playback.position : 0)
                           + " / " + audioRoot.formatTime(audioRoot.knownDuration)
                     font.pixelSize: Math.max(10, audioRoot.editorView.editorFontMetricsHeight * 0.65)
+                    color: audioRoot.editorView.documentSecondaryTextColor
                 }
 
                 ToolButton {
@@ -239,11 +242,16 @@ FocusScope {
                     Layout.preferredWidth: audioRoot.editorView.touchMode ? 40 : 30
                     Layout.preferredHeight: Layout.preferredWidth
                     focusPolicy: Qt.NoFocus
-                    text: "⋮"
-                    font.pixelSize: audioRoot.editorView.touchMode ? 20 : 17
+                    display: AbstractButton.IconOnly
                     Accessible.name: qsTr("Audio recording actions")
                     ToolTip.visible: hovered
                     ToolTip.text: Accessible.name
+                    contentItem: Shared.ThemedIconImpl {
+                        themeName: "__bundled__"
+                        fallbackName: "overflow-menu-symbolic.svg"
+                        recolorFallback: true
+                        pixelSize: audioRoot.editorView.touchMode ? 20 : 17
+                    }
                     onClicked: {
                         audioRoot.selectAndFocus()
                         audioMenu.popup()
@@ -270,11 +278,9 @@ FocusScope {
                      && audioRoot.block.audioTranscript.length > 0
             implicitHeight: visible ? transcriptText.implicitHeight + 16 : 0
             radius: 5
-            color: playButton.palette.alternateBase
+            color: audioRoot.editorView.documentCardColor
             border.width: 1
-            border.color: Qt.rgba(playButton.palette.text.r,
-                                  playButton.palette.text.g,
-                                  playButton.palette.text.b, 0.24)
+            border.color: audioRoot.editorView.documentCardBorderColor
 
             TextArea {
                 id: transcriptText
@@ -285,6 +291,7 @@ FocusScope {
                 wrapMode: TextEdit.Wrap
                 selectByMouse: !audioRoot.editorView.touchMode
                 background: null
+                color: audioRoot.editorView.documentTextColor
                 Accessible.name: qsTr("Audio transcript")
             }
         }

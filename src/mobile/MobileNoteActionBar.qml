@@ -18,7 +18,25 @@ ToolBar {
     signal voiceCancelRequested()
     signal voiceModeRequested(int mode)
 
+    function openInsertMenu(button) {
+        if (!Overlay.overlay) {
+            insertMenu.open()
+            return
+        }
+        const point = button.mapToItem(Overlay.overlay, button.width, 0)
+        const inset = 8
+        const menuWidth = Math.max(insertMenu.width, insertMenu.implicitWidth)
+        const menuHeight = Math.max(insertMenu.height, insertMenu.implicitHeight)
+        const x = Math.max(inset, Math.min(Overlay.overlay.width - menuWidth - inset,
+                                           point.x - menuWidth))
+        const y = Math.max(inset, point.y - menuHeight - 6)
+        insertMenu.popup(Overlay.overlay, x, y)
+    }
+
     implicitHeight: 58
+    background: Rectangle {
+        color: root.palette.window
+    }
 
     component ActionButton: ToolButton {
         id: actionButton
@@ -107,30 +125,28 @@ ToolBar {
             Accessible.name: qsTr("More insert actions")
             themeName: "overflow-menu-symbolic"
             fallbackName: "overflow-menu-symbolic.svg"
-            onClicked: insertMenu.popup()
+            onClicked: root.openInsertMenu(this)
 
             Menu {
                 id: insertMenu
-                y: -implicitHeight
+                parent: Overlay.overlay
 
-                Menu {
-                    title: qsTr("Voice button")
+                MenuItem {
+                    text: qsTr("Voice input: Audio recording")
                     visible: root.voiceModeSwitchVisible
-                    enabled: visible
-                    MenuItem {
-                        text: qsTr("Audio recording")
-                        checkable: true
-                        checked: root.voiceMode === 1
-                        onTriggered: root.voiceModeRequested(1)
-                    }
-                    MenuItem {
-                        text: qsTr("Speech to text")
-                        checkable: true
-                        checked: root.voiceMode === 0
-                        onTriggered: root.voiceModeRequested(0)
-                    }
+                    height: visible ? implicitHeight : 0
+                    checkable: true
+                    checked: root.voiceMode === 1
+                    onTriggered: root.voiceModeRequested(1)
                 }
-                MenuSeparator { visible: root.voiceModeSwitchVisible }
+                MenuItem {
+                    text: qsTr("Voice input: Speech to text")
+                    visible: root.voiceModeSwitchVisible
+                    height: visible ? implicitHeight : 0
+                    checkable: true
+                    checked: root.voiceMode === 0
+                    onTriggered: root.voiceModeRequested(0)
+                }
                 MenuItem { text: qsTr("Bullet list"); onTriggered: root.actions.insertList(root.actions.bulletListType) }
                 MenuItem { text: qsTr("Numbered list"); onTriggered: root.actions.insertList(root.actions.numberedListType) }
                 MenuItem { text: qsTr("Block quote"); onTriggered: root.actions.insertBlockQuote() }

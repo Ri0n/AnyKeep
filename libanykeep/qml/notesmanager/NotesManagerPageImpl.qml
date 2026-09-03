@@ -42,6 +42,8 @@ Item {
     property var contextMenuNotes: []
     property bool dontAskAgainForPermanentDeletion: false
     readonly property var selectedNotes: noteSelection.selectedNotes
+    readonly property bool selectionMode: touchActions
+                                          && Object.keys(selectedNotes || ({})).length > 0
     readonly property var activeDragDelegate: groupedNotes.activePayload
     readonly property var dropBoundary: groupedNotes.dropBoundary
     readonly property var dropTargetDelegate: dropBoundary

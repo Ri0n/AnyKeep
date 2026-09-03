@@ -41,6 +41,7 @@ public:
         PendingDraftRole,
         DraftStateRole,
         DraftErrorRole,
+        RecycledRole,
     };
     Q_ENUM(DataRole)
 

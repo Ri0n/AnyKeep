@@ -190,15 +190,18 @@ void NotesWorkspaceFoldersTest::recycleBinHidesNotesUntilRestored()
 
     NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
     QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 1);
+    QTRY_COMPARE(workspace.recentNotesModel()->rowCount(), 1);
     QVERIFY(workspace.trashNote(raw->systemName(), QStringLiteral("note")));
     QVERIFY(workspace.canUndoTrash());
     QCOMPARE(workspace.lastTrashedItemName(), QStringLiteral("Recyclable note"));
     QVERIFY(catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("note")));
     QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 0);
+    QTRY_COMPARE(workspace.recentNotesModel()->rowCount(), 0);
     QVERIFY(workspace.undoTrash());
     QVERIFY(!workspace.canUndoTrash());
     QVERIFY(!catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("note")));
     QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 1);
+    QTRY_COMPARE(workspace.recentNotesModel()->rowCount(), 1);
 
     QVERIFY(workspace.trashNote(raw->systemName(), QStringLiteral("note")));
     QVERIFY(workspace.canUndoTrash());

@@ -19,6 +19,128 @@ namespace AnyKeep {
 
 using namespace XmppStoragePrivate;
 
+class XmppStorage::ReorderOperation final : public QObject {
+public:
+    ReorderOperation(XmppStorage *storage, NoteReorderJob *job, QList<NoteReorderChange> changes) :
+        QObject(job), storage_(storage), job_(job), changes_(std::move(changes)),
+        config_(storage ? storage->config_ : XmppConfig {}), epoch_(storage ? storage->configEpoch_ : 0)
+    {
+    }
+
+    void startNext()
+    {
+        if (!job_ || job_->isFinished())
+            return;
+        if (!storage_ || storage_->shuttingDown_ || epoch_ != storage_->configEpoch_) {
+            job_->cancel();
+            return;
+        }
+        if (next_ >= changes_.size()) {
+            job_->complete();
+            return;
+        }
+
+        const auto &change  = changes_.at(next_);
+        Note        desired = change.note;
+        desired.setLastChangeUTC(change.modified);
+        desired.setBackendValue(QString::fromLatin1(RequestedModificationTimeBackendKey), change.modified);
+
+        XmppRemoteNote local;
+        QString        conversionError;
+        if (!storage_->toRemote(desired, &local, &conversionError)) {
+            job_->fail({ StorageError::Other,
+                         conversionError.isEmpty() ? tr("Could not prepare the reordered note index") : conversionError,
+                         false });
+            return;
+        }
+        if (local.id.isEmpty() || local.revision.isEmpty()) {
+            job_->fail(
+                { StorageError::NotFound, tr("The note selected for reordering is no longer available"), false });
+            return;
+        }
+
+        auto                      *backend = storage_->backend_;
+        QPointer<ReorderOperation> guard(this);
+        QMetaObject::invokeMethod(
+            backend,
+            [backend, guard, config = config_, local = std::move(local)]() mutable {
+                if (!guard)
+                    return;
+                backend->setConfig(config);
+                backend->updateNoteIndexAsync(std::move(local), [guard](XmppNoteResult result) mutable {
+                    if (!guard || !guard->storage_)
+                        return;
+                    QMetaObject::invokeMethod(
+                        guard->storage_,
+                        [guard, result = std::move(result)]() mutable {
+                            if (guard)
+                                guard->handleResult(std::move(result));
+                        },
+                        Qt::QueuedConnection);
+                });
+            },
+            Qt::QueuedConnection);
+    }
+
+private:
+    void handleResult(XmppNoteResult result)
+    {
+        if (!job_ || job_->isFinished())
+            return;
+        if (!storage_ || storage_->shuttingDown_ || epoch_ != storage_->configEpoch_) {
+            job_->cancel();
+            return;
+        }
+
+        const auto noteId = changes_.at(next_).note.id();
+        if (!result.ok) {
+            if (result.remoteOnConflict) {
+                storage_->reconcileRemoteFolders({ *result.remoteOnConflict });
+                auto       conflicting = storage_->fromRemote(*result.remoteOnConflict);
+                const auto previous    = storage_->cache_.value(noteId);
+                if (!previous.isNull() && previous.isLoaded() && !conflicting.isLoaded()) {
+                    conflicting.setText(previous.text(), previous.format());
+                    conflicting.setMedia(previous.media());
+                }
+                storage_->cache_.insert(result.remoteOnConflict->id, conflicting);
+                storage_->persistCache();
+            }
+            job_->fail(storageError(result, result.conflict ? StorageError::Conflict : StorageError::Network));
+            return;
+        }
+        if (result.note.id != noteId) {
+            job_->fail(
+                { StorageError::Other, tr("The XMPP server returned a different note while reordering"), false });
+            return;
+        }
+
+        storage_->reconcileRemoteFolders({ result.note });
+        auto       changed  = storage_->fromRemote(result.note);
+        const auto previous = storage_->cache_.value(noteId);
+        if (!previous.isNull() && previous.isLoaded()) {
+            changed.setText(previous.text(), previous.format());
+            changed.setMedia(previous.media());
+        }
+        storage_->cache_.insert(noteId, changed);
+        storage_->cacheValid_ = storage_->accessible_ = true;
+        storage_->persistCache();
+        emit storage_->noteModified(changed);
+
+        ++next_;
+        QTimer::singleShot(0, this, [guard = QPointer<ReorderOperation>(this)]() {
+            if (guard)
+                guard->startNext();
+        });
+    }
+
+    QPointer<XmppStorage>    storage_;
+    QPointer<NoteReorderJob> job_;
+    QList<NoteReorderChange> changes_;
+    XmppConfig               config_;
+    quint64                  epoch_ { 0 };
+    qsizetype                next_ { 0 };
+};
+
 QList<Note> XmppStorage::noteList(int limit)
 {
     auto notes = cache_.values();
@@ -320,6 +442,32 @@ NoteSaveJob *XmppStorage::saveNoteAsync(const Note &note, QObject *owner)
             });
         },
         Qt::QueuedConnection);
+    return job;
+}
+
+NoteReorderJob *XmppStorage::reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId, QObject *owner)
+{
+    auto *job = new NoteReorderJob(owner ? owner : this);
+    job->start();
+    if (shuttingDown_ || errorState_ || !backend_) {
+        job->fail({ StorageError::Unavailable, errorState_ ? errorStateMessage_ : tr("The XMPP storage is unavailable"),
+                    false });
+        return job;
+    }
+
+    StorageError error;
+    auto         changes = noteReorderChanges(noteIds, afterNoteId, &error);
+    if (error) {
+        job->fail(error);
+        return job;
+    }
+    if (changes.isEmpty()) {
+        job->complete();
+        return job;
+    }
+
+    auto *operation = new ReorderOperation(this, job, std::move(changes));
+    QTimer::singleShot(0, operation, [operation]() { operation->startNext(); });
     return job;
 }
 

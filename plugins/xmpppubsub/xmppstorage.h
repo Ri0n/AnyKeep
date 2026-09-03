@@ -64,6 +64,8 @@ public:
     bool                loadNote(Note &note) override;
     bool                saveNote(const Note &note) override;
     NoteSaveJob        *saveNoteAsync(const Note &note, QObject *owner = nullptr) override;
+    NoteReorderJob     *reorderNotesAsync(const QStringList &noteIds, const QString &afterNoteId,
+                                          QObject *owner = nullptr) override;
     void                removeNote(const QString &noteId) override;
     NoteRemoveJob      *removeNoteAsync(const QString &noteId, QObject *owner = nullptr) override;
 
@@ -87,6 +89,8 @@ private slots:
     void onConnectionChanged(bool connected);
 
 private:
+    class ReorderOperation;
+
     struct RefreshWaiter {
         QPointer<NoteListJob> job;
         int                   limit { 0 };

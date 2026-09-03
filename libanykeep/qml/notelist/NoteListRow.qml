@@ -71,7 +71,10 @@ SwipeDelegate {
                                                  + Math.max(0, collection.groupDropTargetDepth) * 18
     readonly property bool dragHovered: directTarget || dropBefore || dropAfter
     readonly property bool storageDropHovered: directTarget && groupKind === "storage"
-    readonly property bool selectionCheckBoxVisible: collection.touchActions && noteRow
+    readonly property bool selectionCheckBoxVisible: collection.selectionMode && noteRow
+    readonly property bool touchReorderHandleVisible: collection.touchActions
+                                                       && !editing
+                                                       && collection.dragEnabled(row)
     readonly property bool swipeDeleteAvailable: collection.touchActions
                                                   && collection.swipeDeleteEnabled
                                                   && noteRow
@@ -100,7 +103,10 @@ SwipeDelegate {
                  && (currentNoteHighlighted || selectedGroup)
     transform: Translate { y: row.reorderOffset }
 
-    ToolTip.visible: !collection.dragSelectionSuppressed && hovered
+    // A touch scroll keeps the delegate hovered long enough for Controls to
+    // show this tooltip.  That turns note excerpts into distracting popups
+    // while merely moving through the list; keep hover hints desktop-only.
+    ToolTip.visible: !collection.touchActions && !collection.dragSelectionSuppressed && hovered
                      && (draftError.length > 0 || errorString.length > 0 || preview.length > 0)
     ToolTip.text: draftError.length > 0 ? draftError
                   : (errorString.length > 0 ? errorString : preview)
@@ -214,6 +220,64 @@ SwipeDelegate {
         }
 
         Item {
+            id: touchReorderHandle
+
+            objectName: "noteReorderHandle-" + row.storageId + "-" + row.noteId
+            visible: row.touchReorderHandleVisible
+            Layout.preferredWidth: visible ? 28 : 0
+            Layout.fillHeight: true
+            Accessible.role: Accessible.Button
+            Accessible.name: row.noteRow ? qsTr("Reorder %1").arg(row.title)
+                                          : qsTr("Reorder group %1").arg(row.title)
+
+            Grid {
+                anchors.centerIn: parent
+                columns: 2
+                spacing: 3
+                opacity: touchDrag.active ? 1.0 : 0.68
+
+                Repeater {
+                    model: 6
+
+                    Rectangle {
+                        width: 3
+                        height: 3
+                        radius: 1.5
+                        color: row.highlighted ? row.palette.highlightedText
+                                               : row.palette.placeholderText
+                    }
+                }
+            }
+
+            DragHandler {
+                id: touchDrag
+
+                target: null
+                enabled: touchReorderHandle.visible
+                acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Stylus
+                onActiveTranslationChanged: {
+                    if (active && row.collection)
+                        row.collection.moveDrag(row, activeTranslation.x, activeTranslation.y)
+                }
+                onActiveChanged: {
+                    if (!row.collection) {
+                        row.internalDragActive = false
+                        return
+                    }
+                    if (active) {
+                        row.claimInteractionFocus()
+                        const press = touchReorderHandle.mapToItem(
+                                        row, centroid.pressPosition.x,
+                                        centroid.pressPosition.y)
+                        row.collection.beginDrag(row, press.x, press.y)
+                    } else if (row.internalDragActive) {
+                        row.collection.finishDrag(row)
+                    }
+                }
+            }
+        }
+
+        Item {
             Layout.preferredWidth: 20
             Layout.preferredHeight: 20
             Layout.alignment: Qt.AlignVCenter
@@ -261,7 +325,7 @@ SwipeDelegate {
 
                 contentItem: App.ThemedIcon {
                     themeName: "go-next-symbolic"
-                    fallbackName: "go-next-symbolic"
+                    fallbackName: "go-next-symbolic.svg"
                     recolorFallback: true
                     fallbackTintMode: String(row.highlighted
                                              ? row.palette.highlightedText
@@ -322,7 +386,7 @@ SwipeDelegate {
             Layout.preferredHeight: 18
             Layout.rightMargin: visible ? 6 : 0
             themeName: "emblem-favorite-symbolic"
-            fallbackName: "pin"
+            fallbackName: "pin.svg"
             recolorFallback: true
             fallbackTintMode: String(row.highlighted
                                      ? row.palette.highlightedText
@@ -333,7 +397,7 @@ SwipeDelegate {
 
         CheckBox {
             objectName: "noteSelectionCheckBox-" + row.storageId + "-" + row.noteId
-            visible: collection.touchActions && row.noteRow
+            visible: row.selectionCheckBoxVisible
             checked: collection.noteIsSelected(row.storageId, row.noteId)
             Accessible.name: qsTr("Select %1").arg(row.title)
             onClicked: collection.setNoteSelected(row, checked)
@@ -409,7 +473,7 @@ SwipeDelegate {
         enabled: Boolean(row.collection)
                  && typeof row.collection.dragEnabled === "function"
                  && row.collection.dragEnabled(row) && !row.editing
-        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad | PointerDevice.TouchScreen
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onActiveTranslationChanged: {
             if (active && row.collection)
                 row.collection.moveDrag(row, activeTranslation.x, activeTranslation.y)

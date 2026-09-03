@@ -17,7 +17,7 @@ Item {
     height: editorView.contentHeight
     z: 50000
     visible: formatEnabled && !reorderController.dragging
-    enabled: formatEnabled && !editorView.touchMode && !reorderController.dragging
+    enabled: formatEnabled && !reorderController.dragging
 
     Repeater {
         model: Math.max(0, editorView.count - 1)
@@ -43,6 +43,7 @@ Item {
             MouseArea {
                 id: gapMouse
                 anchors.fill: parent
+                enabled: !editorView.touchMode
                 acceptedButtons: Qt.LeftButton
                 hoverEnabled: true
                 preventStealing: true
@@ -79,6 +80,13 @@ Item {
                         editorView.insertParagraphAtBoundary(gapTarget.boundaryRow)
                 }
                 onCanceled: editorView.cancelBlankAreaSelection()
+            }
+
+            TapHandler {
+                enabled: editorView.touchMode
+                acceptedButtons: Qt.LeftButton
+                gesturePolicy: TapHandler.DragThreshold
+                onTapped: editorView.insertParagraphAtBoundary(gapTarget.boundaryRow)
             }
 
             Timer {

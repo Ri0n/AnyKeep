@@ -16,7 +16,26 @@ ToolBar {
     signal deleteRequested()
     signal addToHomeScreenRequested()
 
+    function openNoteMenu(button) {
+        if (!Overlay.overlay) {
+            noteMenu.open()
+            return
+        }
+        const point = button.mapToItem(Overlay.overlay, button.width, button.height)
+        const inset = 8
+        const menuWidth = Math.max(noteMenu.width, noteMenu.implicitWidth)
+        const menuHeight = Math.max(noteMenu.height, noteMenu.implicitHeight)
+        const x = Math.max(inset, Math.min(Overlay.overlay.width - menuWidth - inset,
+                                           point.x - menuWidth))
+        const y = Math.max(inset, Math.min(Overlay.overlay.height - menuHeight - inset,
+                                           point.y + 6))
+        noteMenu.popup(Overlay.overlay, x, y)
+    }
+
     implicitHeight: 52
+    background: Rectangle {
+        color: root.palette.window
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -27,10 +46,16 @@ ToolBar {
         ToolButton {
             Layout.preferredWidth: 44
             Layout.preferredHeight: 44
-            text: "‹"
-            font.pixelSize: 30
             padding: 0
+            display: AbstractButton.IconOnly
             Accessible.name: qsTr("Back")
+            contentItem: ThemedIcon {
+                themeName: "__bundled__"
+                fallbackName: "go-next-symbolic.svg"
+                recolorFallback: true
+                pixelSize: 22
+                rotation: 180
+            }
             onClicked: root.backRequested()
         }
 
@@ -53,36 +78,54 @@ ToolBar {
         ToolButton {
             Layout.preferredWidth: 44
             Layout.preferredHeight: 44
-            text: "↶"
-            font.pixelSize: 23
+            padding: 0
+            display: AbstractButton.IconOnly
             enabled: root.editorBackend && root.editorBackend.canUndo
             Accessible.name: root.editorBackend && root.editorBackend.undoText.length > 0
                              ? qsTr("Undo %1").arg(root.editorBackend.undoText) : qsTr("Undo")
+            contentItem: ThemedIcon {
+                themeName: "__bundled__"
+                fallbackName: "edit-undo-symbolic.svg"
+                recolorFallback: true
+                pixelSize: 22
+            }
             onClicked: root.editorBackend.undo()
         }
 
         ToolButton {
             Layout.preferredWidth: 44
             Layout.preferredHeight: 44
-            text: "↷"
-            font.pixelSize: 23
+            padding: 0
+            display: AbstractButton.IconOnly
             enabled: root.editorBackend && root.editorBackend.canRedo
             Accessible.name: root.editorBackend && root.editorBackend.redoText.length > 0
                              ? qsTr("Redo %1").arg(root.editorBackend.redoText) : qsTr("Redo")
+            contentItem: ThemedIcon {
+                themeName: "__bundled__"
+                fallbackName: "edit-redo-symbolic.svg"
+                recolorFallback: true
+                pixelSize: 22
+            }
             onClicked: root.editorBackend.redo()
         }
 
         ToolButton {
             Layout.preferredWidth: 44
             Layout.preferredHeight: 44
-            text: "⋮"
-            font.pixelSize: 26
+            padding: 0
+            display: AbstractButton.IconOnly
             Accessible.name: qsTr("More note actions")
-            onClicked: noteMenu.popup()
+            contentItem: ThemedIcon {
+                themeName: "__bundled__"
+                fallbackName: "overflow-menu-symbolic.svg"
+                recolorFallback: true
+                pixelSize: 22
+            }
+            onClicked: root.openNoteMenu(this)
 
             Menu {
                 id: noteMenu
-                y: parent.height
+                parent: Overlay.overlay
 
                 MenuItem { text: qsTr("Find in note"); onTriggered: root.findRequested() }
                 MenuItem { text: qsTr("Copy note"); onTriggered: root.actions.copyDocument() }

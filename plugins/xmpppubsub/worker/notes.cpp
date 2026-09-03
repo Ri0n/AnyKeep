@@ -582,19 +582,13 @@ QCoro::Task<XmppNoteResult> XmppWorker::updateNoteIndexTask(XmppRemoteNote note)
         XmppNoteResult conflict;
         conflict.conflict         = true;
         conflict.remoteOnConflict = std::move(server.note);
-        conflict.error = QStringLiteral("The note was modified on another XMPP resource; the folder was not published");
+        conflict.error
+            = QStringLiteral("The note was modified on another XMPP resource; the metadata update was not published");
         co_return conflict;
     }
 
-    auto updated           = std::move(server.note);
-    updated.folderPath     = std::move(note.folderPath);
-    updated.parentRevision = updated.revision;
-    updated.revision       = newUuid();
-    updated.originId       = config_.originId;
-    updated.modified       = QDateTime::currentDateTimeUtc();
-    updated.format         = QStringLiteral("markdown");
-    updated.contentPresent = false;
-    auto payload           = XmppNoteCodec::encodeIndex(updated, config_.masterKey, config_.indexNodeName());
+    auto updated = makeIndexUpdate(std::move(server.note), note, newUuid(), config_.originId);
+    auto payload = XmppNoteCodec::encodeIndex(updated, config_.masterKey, config_.indexNodeName());
     if (!payload) {
         XmppNoteResult output;
         output.error = payload.error.message;

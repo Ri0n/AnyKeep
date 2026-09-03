@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/icons">
+        <file alias="new">images/new.png</file>
         <file alias="trayicon">images/anykeep24.png</file>
     </qresource>
     <qresource prefix="/qml">
@@ -23,6 +24,7 @@
         <file alias="insert-link-symbolic.svg">images/insert-link-symbolic.svg</file>
         <file alias="user-trash-full-symbolic.svg">images/user-trash-full-symbolic.svg</file>
         <file alias="folder-symbolic.svg">images/folder-symbolic.svg</file>
+        <file alias="go-next-symbolic.svg">images/go-next-symbolic.svg</file>
         <file alias="attachment-symbolic.svg">images/attachment-symbolic.svg</file>
         <file alias="task-list-symbolic.svg">images/task-list-symbolic.svg</file>
         <file alias="media-record-symbolic.svg">images/media-record-symbolic.svg</file>

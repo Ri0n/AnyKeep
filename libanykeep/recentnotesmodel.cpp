@@ -46,6 +46,7 @@ QHash<int, QByteArray> RecentNotesModel::roleNames() const
         { NotesModel::PendingDraftRole, "pendingDraft" },
         { NotesModel::DraftStateRole, "draftState" },
         { NotesModel::DraftErrorRole, "draftError" },
+        { NotesModel::RecycledRole, "recycled" },
     };
 }
 
@@ -80,8 +81,10 @@ void RecentNotesModel::rebuild()
             const int         noteCount    = sourceModel_->rowCount(storageIndex);
             for (int noteRow = 0; noteRow < noteCount; ++noteRow) {
                 const QModelIndex noteIndex = sourceModel_->index(noteRow, 0, storageIndex);
-                if (sourceModel_->data(noteIndex, NotesModel::ItemTypeRole).toInt() == NotesModel::ItemNote)
+                if (sourceModel_->data(noteIndex, NotesModel::ItemTypeRole).toInt() == NotesModel::ItemNote
+                    && !sourceModel_->data(noteIndex, NotesModel::RecycledRole).toBool()) {
                     next.append(QPersistentModelIndex(noteIndex));
+                }
             }
         }
 

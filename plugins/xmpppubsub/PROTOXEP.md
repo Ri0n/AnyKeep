@@ -1,7 +1,7 @@
 # Private Encrypted Notes over XMPP
 
 Status: **ProtoXEP / implementation draft**
-Version: **0.7**
+Version: **0.8**
 Namespaces: `urn:xmpp:private-notes:0`, `urn:xmpp:private-notes:folders:0`, `urn:xmpp:private-notes:content:0`, `urn:xmpp:private-notes:media:0`, `urn:xmpp:private-notes:key-sync:0`
 
 > This document describes the protocol implemented by Private Notes. It has not been
@@ -43,9 +43,10 @@ An implementation of this protocol depends on:
 - OMEMO Encryption (XEP-0384) for storage-key transport;
 - File Metadata Element (XEP-0446), Stateless File Sharing (XEP-0447), and
   Stateless File Sharing Encryption (XEP-0448) for note attachments;
-- HTTP File Upload (XEP-0363) for a persistent attachment source;
+- HTTP File Upload (XEP-0363) for an optional store-and-forward attachment
+  source;
 - Jingle File Transfer (XEP-0234) and Publishing Available Jingle Sessions
-  (XEP-0358) for an optional direct attachment source;
+  (XEP-0358) for the direct attachment source and its persistent PEP catalog;
 - AES-256-GCM, HKDF-SHA-256, SHA-256, and a cryptographically secure random
   number generator.
 
@@ -61,24 +62,27 @@ urn:xmpp:private-notes:0
 ```
 
 The same identifier is the default configured base node and the XML namespace
-for all core note-storage elements. Two leaf nodes are derived from it:
+for all core note-storage elements. Three leaf nodes are derived from it:
 
 | Purpose | Node |
 | --- | --- |
 | Search/list metadata | `<base>:index` |
 | Note body | `<base>:content` |
+| Published Jingle offers | `<base>:jinglepub` |
 
 The default nodes are therefore:
 
 ```text
 urn:xmpp:private-notes:0:index
 urn:xmpp:private-notes:0:content
+urn:xmpp:private-notes:0:jinglepub
 ```
 
 The final `0` identifies this initial experimental protocol version. An
 incompatible change requires a new namespace and new nodes, for example
-`urn:xmpp:private-notes:1`, `urn:xmpp:private-notes:1:index`, and
-`urn:xmpp:private-notes:1:content`. No minor-version field is defined.
+`urn:xmpp:private-notes:1`, `urn:xmpp:private-notes:1:index`,
+`urn:xmpp:private-notes:1:content`, and
+`urn:xmpp:private-notes:1:jinglepub`. No minor-version field is defined.
 Compatible additions use optional XML in separate namespaces or authenticated
 `required` feature declarations as described below.
 
@@ -116,9 +120,16 @@ The index node notification feature is advertised as the node followed by
 <feature var='urn:xmpp:private-notes:0:index+notify'/>
 ```
 
+An installation supporting Jingle media publication MUST likewise advertise
+the Jingle catalog notification feature before its initial presence:
+
+```xml
+<feature var='urn:xmpp:private-notes:0:jinglepub+notify'/>
+```
+
 ## PEP node configuration
 
-Both nodes MUST be leaf nodes and MUST be configured with at least:
+All three nodes MUST be leaf nodes and MUST be configured with at least:
 
 | PubSub option | Required value |
 | --- | --- |
@@ -127,7 +138,11 @@ Both nodes MUST be leaf nodes and MUST be configured with at least:
 | `pubsub#max_items` | `max`, or the largest safe server value |
 | `pubsub#deliver_payloads` | `true` |
 | `pubsub#notify_retract` | `true` |
-| `pubsub#type` | `urn:xmpp:private-notes:0` |
+| `pubsub#type` | payload namespace for that node |
+
+The index and content nodes use `urn:xmpp:private-notes:0` as their payload
+type. The Jingle catalog uses `urn:xmpp:jinglepub:1`. All nodes remain
+allowlist-only and persistent; the catalog is not a public file index.
 
 A client MUST verify the effective access model and persistence after creating
 or repairing a node. It MUST refuse to publish private note data if the node is
@@ -417,18 +432,36 @@ media type.
 
 The attachment payload MUST be represented by exactly one XEP-0448 encrypted
 source. The encrypted source MUST contain a SHA-256 hash of the complete
-ciphertext representation and MUST contain at least one persistent XEP-0363
-`url-data` source. The current profile uses AES-256-GCM. The XEP-0448 key and
-IV are therefore note metadata and are protected by the authenticated and
-encrypted Private Notes content record; they MUST NOT be published separately
-in cleartext application metadata.
+ciphertext representation. The current profile uses AES-256-GCM. The XEP-0448
+key and IV are therefore note metadata and are protected by the authenticated
+and encrypted Private Notes content record; they MUST NOT be published
+separately in cleartext application metadata.
 
-A sender MUST additionally include an XEP-0358 `jinglepub` source describing
-XEP-0234 file transfer. The HTTP and Jingle sources MUST serve the same XEP-0448
-ciphertext bytes. This permits a receiver to prefer direct Jingle transfer but
-fall back to HTTP without changing the attachment's cryptographic identity.
-The Jingle transfer advertises the ciphertext size and ciphertext SHA-256, not
-the plaintext metadata.
+A sender MUST include an XEP-0358 `jinglepub` source describing XEP-0234 file
+transfer. It MAY additionally include one or more XEP-0363 `url-data` sources.
+Every source MUST serve the same XEP-0448 ciphertext bytes. HTTP is therefore a
+store-and-forward optimization, not a prerequisite for publishing a note or
+recovering an attachment while one of its Jingle providers is online. The
+Jingle transfer advertises the ciphertext size and ciphertext SHA-256, not the
+plaintext metadata.
+
+The embedded `jinglepub` is a reference to a direct payload item in the private
+`<base>:jinglepub` PEP node. For this profile:
+
+- the PubSub item ID and the `jinglepub` `id` are the same opaque UUID;
+- `from` is the stable full JID of the installation that can initiate the
+  transfer;
+- `uri` is `urn:uuid:<attachment-id>` and identifies the attachment group;
+- the XEP-0234 description contains the ciphertext size and SHA-256;
+- neither the XEP-0448 key nor IV occurs in the catalog item.
+
+The PEP item is authoritative for whether an offer exists. A copy embedded in
+a note does not by itself authorize a provider to serve bytes. A receiver MAY
+discover additional catalog items with the same ciphertext size and SHA-256
+and SHOULD try those providers before falling back to HTTP. Consequently, a
+second installation that has successfully downloaded and verified an
+attachment SHOULD persist its own serving capability and publish a distinct
+offer for the same ciphertext.
 
 Example, with Base64 values shortened for readability:
 
@@ -458,6 +491,7 @@ Example, with Base64 values shortened for readability:
           <jinglepub xmlns='urn:xmpp:jinglepub:1'
                      from='romeo@example.net/AnyKeep-device'
                      id='published-session-id'>
+            <uri>urn:uuid:45b22c0e-956d-4c65-9a77-7d52ef142c1d</uri>
             <description xmlns='urn:xmpp:jingle:apps:file-transfer:5'/>
           </jinglepub>
         </sources>
@@ -466,6 +500,37 @@ Example, with Base64 values shortened for readability:
   </file-sharing>
 </note>
 ```
+
+The corresponding private catalog item is:
+
+```xml
+<item id='published-session-id'>
+  <jinglepub xmlns='urn:xmpp:jinglepub:1'
+             from='romeo@example.net/AnyKeep-device'
+             id='published-session-id'>
+    <uri>urn:uuid:45b22c0e-956d-4c65-9a77-7d52ef142c1d</uri>
+    <description xmlns='urn:xmpp:jingle:apps:file-transfer:5'>
+      <file>
+        <hash xmlns='urn:xmpp:hashes:2' algo='sha-256'>...</hash>
+        <media-type>application/octet-stream</media-type>
+        <name>diagram.png.encrypted</name>
+        <size>123472</size>
+      </file>
+    </description>
+  </jinglepub>
+</item>
+```
+
+Before publishing this item, an installation MUST durably retain enough local
+encrypted capability state to reproduce exactly that ciphertext: attachment
+blob identity, cipher, key, IV, ciphertext size, and ciphertext hash. On
+reconnect, restored factories start as unverified. The client MUST positively
+verify their exact catalog items before accepting a `<start/>` request. A
+request received while this verification is in progress MAY remain pending;
+it MUST NOT activate the local cache speculatively. Retraction, purge, or
+confirmed absence disables the offer and MUST NOT cause automatic
+republication. Only an explicit unfinished publish operation may retry the
+same item ID.
 
 A receiver MUST verify the encrypted SHA-256 before decryption, authenticate
 XEP-0448 decryption, then verify the plaintext size and SHA-256 before installing
@@ -518,7 +583,10 @@ with its local base revision. On success it sets the old index revision as
 `parentRevision`, creates a fresh index revision, preserves the current content
 revision through the required extension, and publishes only the index item.
 It MUST NOT publish the unchanged content item merely to change a folder or
-other index metadata.
+other index metadata. Ordinary metadata changes set `modified` to the current
+UTC time. A manual reorder MAY instead supply an explicit UTC `modified` value
+used as its ordering key; the writer MUST preserve that value in the new index
+revision.
 
 A pending full-body edit MAY rebase over one direct index-only update made by
 the same installation. This exception is safe only when the server index has
@@ -589,18 +657,30 @@ Example index publication:
 
 ### Deleting
 
-Deletion retracts the index item first, then the content item, with subscriber
+Deletion retracts the index item first, then the content item, and finally the
+deleting installation's Jingle catalog items for that note, with subscriber
 notification requested. This makes the note disappear from normal listings as
-soon as possible. `item-not-found` is idempotent success. A client MUST retain
-and retry the second retraction after a transient failure; it SHOULD eventually
-clean up orphaned content.
+soon as possible without first removing its remaining media source.
+`item-not-found` is idempotent success. A client MUST retain and retry an
+unfinished retraction after a transient failure; it SHOULD eventually clean up
+orphaned content and offers.
+
+An online installation that observes the index retraction SHOULD retract its
+own offers for that note. It MUST NOT infer deletions by subtracting a possibly
+partial, paged, failed, or otherwise incomplete index snapshot from a local
+cache. Cleaning offers missed while an installation was offline therefore
+requires either a positively complete snapshot or targeted authoritative
+lookups; this draft does not define a tombstone protocol.
 
 ### Events
 
-Clients process publish and retract events only for the configured index node
-and only when they originate from the user's own PEP service. A server MAY omit
-the service JID where the PEP context is unambiguous. A purge or node deletion
-invalidates the complete local view and requires a fresh synchronization.
+Clients process note publish/retract events for the configured index node and
+Jingle authority events for the configured catalog node only when they
+originate from the user's own PEP service. A server MAY omit the service JID
+where the PEP context is unambiguous. An index purge or deletion invalidates
+the complete note view and requires a fresh synchronization. A catalog purge
+or deletion immediately disables affected serving factories; it does not
+authorize their recreation from local cache.
 
 ```xml
 <message type='headline' from='romeo@example.net'
@@ -822,14 +902,24 @@ persist enough encrypted operation state to resume after restart. It MUST NOT
 discard an acknowledged conflict and MUST NOT convert a partial list into
 deletions.
 
+An implementation MAY retain encrypted local Jingle capabilities across
+restart, but those records are not authority. Until the exact catalog item has
+been positively verified, the corresponding factory MUST remain unavailable.
+An allowed `<start/>` received while catalog synchronization is pending MAY be
+queued without a response. If authority synchronization fails, the responder
+SHOULD return `service-unavailable`; if it completes and the item is absent, it
+SHOULD return `not-acceptable`.
+
 ## Security considerations
 
 ### Server-visible metadata
 
-Encryption does not hide the account JID, node names, note IDs, record count,
-item sizes, update timing, device IDs, device labels, OMEMO bundles, or the fact
-that key synchronization occurs. Applications needing resistance to this
-traffic analysis require padding, batching, and possibly a different transport.
+Encryption does not hide the account JID, node names, note and offer IDs,
+record count, item sizes, Jingle provider resource JIDs, attachment ciphertext
+sizes and hashes, update timing, device IDs, device labels, OMEMO bundles, or
+the fact that key synchronization occurs. Applications needing resistance to
+this traffic analysis require padding, batching, and possibly a different
+transport.
 
 ### Trust bootstrap
 
@@ -922,7 +1012,10 @@ type.
 Private Notes's `xmpppubsub` plugin implements this draft, including private-node
 verification, index/content synchronization, optimistic conflicts, persistent
 retryable publication/deletion operations, OMEMO trust bootstrap, storage-key
-transfer, key audit, and canonical-key migration.
+transfer, key audit, canonical-key migration, optional HTTP media, and the
+Iris-backed persistent Jingle catalog. Iris keeps publication authority in a
+dedicated `Jingle::PublicationManager`; application providers supply durable
+factories and observe catalog changes.
 
 Known protocol-level limitations are:
 
@@ -930,6 +1023,9 @@ Known protocol-level limitations are:
 - rejection is currently represented by timeout rather than an explicit IQ
   error;
 - responder-side pending requests do not yet have an explicit expiry timer;
+- direct Jingle media publication is not yet implemented by the QXmpp backend;
+- an installation that was offline for an entire note-deletion event does not
+  yet have a tombstone-based cleanup path for its own orphaned offers;
 - the fallback path for servers without item-ID discovery can return a partial
   list;
 - reference XML Schemas, Python vectors, and a minimal Rust decryption conformance consumer are included, but no independently maintained full second implementation exists yet.
@@ -944,5 +1040,11 @@ Known protocol-level limitations are:
 - [XEP-0060: Publish-Subscribe](https://xmpp.org/extensions/xep-0060.html)
 - [XEP-0163: Personal Eventing Protocol](https://xmpp.org/extensions/xep-0163.html)
 - [XEP-0223: Persistent Storage of Private Data via PubSub](https://xmpp.org/extensions/xep-0223.html)
+- [XEP-0234: Jingle File Transfer](https://xmpp.org/extensions/xep-0234.html)
+- [XEP-0358: Publishing Available Jingle Sessions](https://xmpp.org/extensions/xep-0358.html)
+- [XEP-0363: HTTP File Upload](https://xmpp.org/extensions/xep-0363.html)
 - [XEP-0384: OMEMO Encryption](https://xmpp.org/extensions/xep-0384.html)
 - [XEP-0420: Stanza Content Encryption](https://xmpp.org/extensions/xep-0420.html)
+- [XEP-0446: File Metadata Element](https://xmpp.org/extensions/xep-0446.html)
+- [XEP-0447: Stateless File Sharing](https://xmpp.org/extensions/xep-0447.html)
+- [XEP-0448: Stateless File Sharing Encryption](https://xmpp.org/extensions/xep-0448.html)

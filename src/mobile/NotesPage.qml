@@ -25,6 +25,7 @@ Page {
 
     RoundButton {
         id: addButton
+        objectName: "addNoteButton"
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: 20
@@ -32,6 +33,8 @@ Page {
         width: 58
         height: 58
         z: 20
+        visible: !manager.selectionMode
+        enabled: visible
         text: qsTr("+")
         font.pixelSize: 30
         Accessible.name: qsTr("Add note")

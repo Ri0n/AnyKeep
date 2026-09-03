@@ -5,6 +5,10 @@ project(
   VERSION ${ANYKEEP_VERSION}
   LANGUAGES CXX)
 
+option(ANYKEEP_ANDROID_FORCE_XMPP_XML_LOG
+       "Enable sanitized XMPP XML logging inside the Android debug process"
+       OFF)
+
 find_package(Qt6 6.11 REQUIRED COMPONENTS Network Multimedia)
 if(ANDROID)
   find_package(Qt6 6.11 REQUIRED COMPONENTS CorePrivate)
@@ -43,6 +47,11 @@ set(anykeep_mobile_notesmanager_qml
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/notesmanager/NotesManagerActionController.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/notesmanager/NotesManagerDragController.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/notesmanager/NotesManagerPageImpl.qml")
+set(anykeep_mobile_notelist_qml
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/notelist/NoteCollectionView.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/notelist/NoteListRow.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/notelist/NoteSelectionController.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/notelist/TreeNoteListRow.qml")
 set(anykeep_mobile_editor_qml
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/EditorContextMenu.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/EditorReorderController.qml"
@@ -88,8 +97,12 @@ set(anykeep_mobile_editor_block_qml
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/TagLineBlock.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/TextBlock.qml")
 set(anykeep_mobile_reorder_qml
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/reorder/BlockReorderHandle.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/reorder/DragPreviewLayer.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/reorder/FlatListReorderController.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/reorder/GenericReorderController.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/reorder/HierarchyDropPolicy.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/reorder/HierarchyRange.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/reorder/LinearReorderLayout.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/reorder/ReorderDisplacement.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/reorder/ReorderDragHandle.qml"
@@ -107,6 +120,11 @@ foreach(anykeep_mobile_qml_file IN LISTS anykeep_mobile_notesmanager_qml)
   get_filename_component(anykeep_mobile_qml_alias "${anykeep_mobile_qml_file}" NAME)
   set_source_files_properties("${anykeep_mobile_qml_file}" PROPERTIES QT_RESOURCE_ALIAS
                                                                       "notesmanager/${anykeep_mobile_qml_alias}")
+endforeach()
+foreach(anykeep_mobile_qml_file IN LISTS anykeep_mobile_notelist_qml)
+  get_filename_component(anykeep_mobile_qml_alias "${anykeep_mobile_qml_file}" NAME)
+  set_source_files_properties("${anykeep_mobile_qml_file}" PROPERTIES QT_RESOURCE_ALIAS
+                                                                      "notelist/${anykeep_mobile_qml_alias}")
 endforeach()
 foreach(anykeep_mobile_qml_file IN LISTS anykeep_mobile_editor_qml)
   get_filename_component(anykeep_mobile_qml_alias "${anykeep_mobile_qml_file}" NAME)
@@ -141,6 +159,16 @@ endforeach()
 
 qt_add_executable(anykeep_mobile main.cpp)
 
+# The mobile target does not link libanykeep's desktop main.qrc.  Keep every
+# fallback used by its image provider in this target as well, under the same
+# stable resource paths as the desktop application.
+qt_add_resources(anykeep_mobile anykeep_mobile_icon_fallbacks
+  PREFIX "/svg"
+  BASE "${CMAKE_SOURCE_DIR}/libanykeep/images"
+  FILES
+    "${CMAKE_SOURCE_DIR}/libanykeep/images/anykeep-symbolic.svg"
+    "${CMAKE_SOURCE_DIR}/libanykeep/images/pin.svg")
+
 qt_add_qml_module(
   anykeep_mobile
   URI
@@ -164,6 +192,7 @@ qt_add_qml_module(
   ${anykeep_mobile_shared_qml}
   ${anykeep_mobile_shared_impl_qml}
   ${anykeep_mobile_notesmanager_qml}
+  ${anykeep_mobile_notelist_qml}
   ${anykeep_mobile_editor_qml}
   ${anykeep_mobile_editor_component_qml}
   ${anykeep_mobile_editor_controller_qml}
@@ -215,8 +244,14 @@ if(anykeep_mobile_xmpp_available)
 endif()
 
 if(ANDROID)
+  if(ANYKEEP_ANDROID_FORCE_XMPP_XML_LOG)
+    target_compile_definitions(anykeep_mobile PRIVATE ANYKEEP_ANDROID_FORCE_XMPP_XML_LOG)
+  endif()
   include(AndroidOpenSSL)
   anykeep_deploy_android_openssl(anykeep_mobile)
+  if(COMMAND anykeep_configure_bundled_qca_android_plugins)
+    anykeep_configure_bundled_qca_android_plugins(anykeep_mobile)
+  endif()
   if(ANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME)
     include(PrebuiltSdkRuntime)
     anykeep_configure_prebuilt_sdk_runtime_target(anykeep_mobile)
