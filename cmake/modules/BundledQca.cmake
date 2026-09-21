@@ -5,13 +5,19 @@ endif()
 include(ExternalProject)
 include(GNUInstallDirs)
 include(ProcessorCount)
+include(DependencyVersions)
 
 set(ANYKEEP_BUNDLED_QCA_GIT_REPOSITORY
     "https://github.com/psi-im/qca.git"
     CACHE STRING "Bundled QCA git repository")
 set(ANYKEEP_BUNDLED_QCA_GIT_TAG
-    "master"
-    CACHE STRING "Bundled QCA git tag or branch")
+    ""
+    CACHE STRING "Override the bundled QCA git tag, branch, or commit")
+if(ANYKEEP_BUNDLED_QCA_GIT_TAG)
+  set(_qca_git_tag "${ANYKEEP_BUNDLED_QCA_GIT_TAG}")
+else()
+  set(_qca_git_tag "${ANYKEEP_DEP_QCA_COMMIT}")
+endif()
 set(ANYKEEP_QCA_SOURCE_DIR
     ""
     CACHE PATH "Local QCA source directory (avoids cloning the repository)")
@@ -99,7 +105,7 @@ if(ANYKEEP_QCA_SOURCE_DIR)
   endif()
   set(_qca_source_args SOURCE_DIR "${ANYKEEP_QCA_SOURCE_DIR}" DOWNLOAD_COMMAND "" UPDATE_COMMAND "")
 else()
-  set(_qca_source_args GIT_REPOSITORY "${ANYKEEP_BUNDLED_QCA_GIT_REPOSITORY}" GIT_TAG "${ANYKEEP_BUNDLED_QCA_GIT_TAG}"
+  set(_qca_source_args GIT_REPOSITORY "${ANYKEEP_BUNDLED_QCA_GIT_REPOSITORY}" GIT_TAG "${_qca_git_tag}"
                        UPDATE_COMMAND "")
 endif()
 

@@ -3,13 +3,14 @@ if(DEFINED ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS AND NOT ANYKEEP_ALLOW_SOURC
 endif()
 
 include(FetchContent)
+include(DependencyVersions)
 
 set(ANYKEEP_BUNDLED_IRIS_GIT_REPOSITORY
     "https://github.com/psi-im/iris.git"
     CACHE STRING "Iris git repository")
 # Keep the repository's default Iris revision source-controlled. A cache entry for the default pin silently survives
 # source updates and can make a clean checkout build an older Iris revision.
-set(_anykeep_iris_git_tag "f02591f5c12edfb983971b542f0fbaae9ee83a69")
+set(_anykeep_iris_git_tag "${ANYKEEP_DEP_IRIS_COMMIT}")
 set(ANYKEEP_IRIS_GIT_TAG
     ""
     CACHE STRING "Override the Iris git tag, branch, or commit")
