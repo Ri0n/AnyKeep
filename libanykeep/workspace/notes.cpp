@@ -261,28 +261,6 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
         }
     }
 
-    // Resolve the published identity before discarding the local draft. A
-    // pending cross-storage move has no destination note id yet: until the
-    // destination acknowledges publication, the logical note still lives at
-    // removeSource*. Deleting such a row must delete that source, never a
-    // presentation UUID used by the Drafts overlay.
-    QString remoteStorageId = storageId;
-    QString remoteNoteId    = noteId;
-    bool    hasRemoteObject = storageId != DraftManager::draftsStorageId();
-    if (hasPendingRecord) {
-        if (!pendingRecord.remoteNoteId.isEmpty()) {
-            remoteStorageId = pendingRecord.storageId;
-            remoteNoteId    = pendingRecord.remoteNoteId;
-            hasRemoteObject = !remoteStorageId.isEmpty();
-        } else if (!pendingRecord.removeSourceStorageId.isEmpty() && !pendingRecord.removeSourceNoteId.isEmpty()) {
-            remoteStorageId = pendingRecord.removeSourceStorageId;
-            remoteNoteId    = pendingRecord.removeSourceNoteId;
-            hasRemoteObject = true;
-        } else {
-            hasRemoteObject = false;
-        }
-    }
-
     auto closeError = storageId == DraftManager::draftsStorageId()
         ? draftManager_->discardEditingSessionsForDraft(pendingDraftId)
         : draftManager_->discardEditingSessionsForNote(storageId, noteId);
@@ -296,26 +274,32 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
     }
 
     if (!pendingDraftId.isNull()) {
-        const auto error = draftManager_->discard(pendingDraftId);
+        // DraftManager owns the persistent transfer state machine. A
+        // post-ACK transfer can temporarily have both a destination object and
+        // an undeleted source; queueDraftDeletion() turns every such identity
+        // into a durable Delete record before dropping the transfer draft.
+        const auto error = draftManager_->queueDraftDeletion(pendingDraftId);
         if (error) {
             setError(error.message);
             return false;
         }
+
+        if (hasPendingRecord) {
+            if (!pendingRecord.storageId.isEmpty() && !pendingRecord.remoteNoteId.isEmpty())
+                removeNoteTrashUndo(pendingRecord.storageId, pendingRecord.remoteNoteId);
+            if (!pendingRecord.removeSourceStorageId.isEmpty() && !pendingRecord.removeSourceNoteId.isEmpty())
+                removeNoteTrashUndo(pendingRecord.removeSourceStorageId, pendingRecord.removeSourceNoteId);
+        }
+        draftManager_->publishPending();
+        return true;
     }
 
-    // Dropping a draft only removes its persisted reference graph. Media blobs
-    // are content-addressed and may be shared by other notes/drafts, so physical
-    // reclamation belongs to the media-store reachability GC rather than this
-    // operation.
-    if (!hasRemoteObject)
-        return true;
-
-    const auto error = draftManager_->queueRemoval(remoteStorageId, remoteNoteId);
+    const auto error = draftManager_->queueRemoval(storageId, noteId);
     if (error) {
         setError(error.message);
         return false;
     }
-    removeNoteTrashUndo(remoteStorageId, remoteNoteId);
+    removeNoteTrashUndo(storageId, noteId);
     draftManager_->publishPending();
     return true;
 }
@@ -359,16 +343,34 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
             setError(closeError.message);
             return false;
         }
+        const bool destinationAcknowledged = !record.remoteNoteId.isEmpty();
+        const bool sourceStillPending = !record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty()
+            && (record.removeSourceStorageId != record.storageId || record.removeSourceNoteId != record.remoteNoteId);
+        if (destinationAcknowledged && sourceStillPending) {
+            // The destination already exists, but the transfer still carries a
+            // source-cleanup obligation. Make that delete intent durable before
+            // discarding the transfer draft and recycling the destination.
+            if (const auto removalError
+                = draftManager_->queueRemoval(record.removeSourceStorageId, record.removeSourceNoteId)) {
+                setError(removalError.message);
+                return false;
+            }
+        }
+
         if (const auto discardError = draftManager_->discard(record.id)) {
             setError(discardError.message);
             return false;
         }
 
         // An unpublished draft has no storage object to recycle.
-        if (recycleStorageId.isEmpty() || recycleNoteId.isEmpty())
+        if (recycleStorageId.isEmpty() || recycleNoteId.isEmpty()) {
+            draftManager_->publishPending();
             return true;
+        }
 
-        return trashNote(recycleStorageId, recycleNoteId);
+        const bool recycled = trashNote(recycleStorageId, recycleNoteId);
+        draftManager_->publishPending();
+        return recycled;
     }
 
     if (noteId.isEmpty()) {
