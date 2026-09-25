@@ -255,6 +255,7 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
 #endif
 
     connect(draftManager, &DraftManager::publicationAbandoned, this, &Main::notifyError);
+    connect(draftManager, &DraftManager::recoveryNotice, this, &Main::notifyError);
     connect(draftManager, &DraftManager::conflictResolved, this, &Main::notifyError);
     connect(draftManager, &DraftManager::draftPublished, this, [](const QUuid &draftId, const Note &note) {
         // A new note has no stable note id while its window is closing. The compositor
@@ -1236,7 +1237,6 @@ void Main::setActionNotificationImpl(ActionNotificationInterface *notifier) { d-
 void Main::registerStorage(std::unique_ptr<NoteStorage> storage)
 {
     auto *storagePtr = storage.get();
-    connect(storagePtr, SIGNAL(noteRemoved(Note)), SLOT(note_removed(Note)));
     connect(storagePtr, SIGNAL(storageErorr(QString)), SLOT(notifyError(QString)));
     NoteManager::instance()->registerStorage(std::move(storage));
 }
@@ -1357,22 +1357,6 @@ void Main::createNewNoteFromSelection()
     }
 }
 
-void Main::note_removed(const Note &note)
-{
-    auto *drafts = DraftManager::instance();
-    if (!drafts->liveEditorForNote(note.storageId(), note.id()))
-        return; // Our own lifecycle already closed its views before removal.
-
-    const auto error = drafts->preserveLiveNoteAfterExternalRemoval(note.storageId(), note.id());
-    if (error) {
-        notifyError(error.message.isEmpty()
-                        ? tr("The note was removed from its storage while open and its local recovery copy could not be saved.")
-                        : error.message);
-        return;
-    }
-
-    notifyError(tr("The note was removed from its storage while open. The local editing copy was preserved."));
-}
 
 } // namespace AnyKeep
 
