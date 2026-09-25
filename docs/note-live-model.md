@@ -89,6 +89,19 @@ separately. The live model may therefore show a destination storage with no
 remote note ID while still retaining enough durable state to cancel the move or
 delete the source later.
 
+## Remote removal
+
+Storage-originated removal is not treated like an explicit local Delete command.
+The live model is preserved first.
+
+When its current persisted object disappears, the model becomes storage-detached
+and the durable draft becomes unrouted recovery state. When only a pending
+transfer source disappears, the shared model keeps its destination and the
+source cleanup obligation is cleared.
+
+This distinction prevents both stale-view data loss and silent resurrection of
+a note deleted on another device.
+
 ## Delete/recycle
 
 Explicit delete/recycle owns lifecycle. DraftManager resolves live models by
