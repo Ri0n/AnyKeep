@@ -216,9 +216,6 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
     if (storageId.isEmpty() || noteId.isEmpty())
         return false;
     setError({});
-    if (!ensureNoteIdentityChangeAllowed(storageId, noteId,
-                                         tr("The note is open in another editor and cannot be deleted yet")))
-        return false;
 
     QUuid       pendingDraftId;
     DraftRecord pendingRecord;
@@ -271,32 +268,12 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
         }
     }
 
-    if (!pendingDraftId.isNull() && draftManager_->editingSessionCount(pendingDraftId) > 0
-        && (!currentEditor_ || currentEditor_->draftId() != pendingDraftId)) {
-        setError(tr("The note is open in another editor and cannot be deleted yet"));
+    const auto closeError = storageId == DraftManager::draftsStorageId()
+        ? draftManager_->discardEditingSessionsForDraft(pendingDraftId)
+        : draftManager_->discardEditingSessionsForNote(storageId, noteId);
+    if (closeError) {
+        setError(closeError.message);
         return false;
-    }
-
-    if (!pendingDraftId.isNull() && currentEditor_ && currentEditor_->draftId() == pendingDraftId) {
-        if (!draftManager_->isLastEditingSession(pendingDraftId)) {
-            setError(tr("The note is open in another editor and cannot be deleted yet"));
-            return false;
-        }
-        if (!currentEditor_->discardAndClose()) {
-            setError(currentEditor_->errorString());
-            return false;
-        }
-        clearCurrentEditor();
-        pendingDraftId = {}; // discardAndClose() already removed it.
-    }
-
-    if (pendingDraftId.isNull() && currentEditor_ && currentEditor_->storageId() == storageId
-        && currentEditor_->noteId() == noteId) {
-        if (!currentEditor_->discardAndClose()) {
-            setError(currentEditor_->errorString());
-            return false;
-        }
-        clearCurrentEditor();
     }
 
     if (!pendingDraftId.isNull()) {
@@ -329,9 +306,6 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
     if (storageId.isEmpty())
         return false;
     setError({});
-    if (!ensureNoteIdentityChangeAllowed(
-            storageId, noteId, tr("The note is open in another editor and cannot be moved to the recycle bin yet")))
-        return false;
 
     if (storageId == DraftManager::draftsStorageId()) {
         if (noteId.isEmpty())
@@ -348,34 +322,33 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
             pending = std::move(presentedDraft);
     }
     if (pending) {
-        if (draftManager_->editingSessionCount(pending.value.id) > 0
-            && (!currentEditor_ || currentEditor_->draftId() != pending.value.id)) {
-            setError(tr("The note is open in another editor and cannot be moved to the recycle bin yet"));
+        const auto record = pending.value;
+
+        QString recycleStorageId = record.storageId;
+        QString recycleNoteId    = record.remoteNoteId;
+        if (recycleNoteId.isEmpty() && !record.removeSourceStorageId.isEmpty()
+            && !record.removeSourceNoteId.isEmpty()) {
+            recycleStorageId = record.removeSourceStorageId;
+            recycleNoteId    = record.removeSourceNoteId;
+        }
+
+        const auto closeError = !noteId.isEmpty()
+            ? draftManager_->discardEditingSessionsForNote(storageId, noteId)
+            : draftManager_->discardEditingSessionsForDraft(record.id);
+        if (closeError) {
+            setError(closeError.message);
             return false;
         }
-        if (!ensureFolderCatalogAvailable())
-            return false;
-        if (currentEditor_ && currentEditor_->draftId() == pending.value.id) {
-            if (!draftManager_->isLastEditingSession(pending.value.id)) {
-                setError(tr("The note is open in another editor and cannot be moved to the recycle bin yet"));
-                return false;
-            }
-            if (!currentEditor_->close()) {
-                setError(currentEditor_->errorString());
-                return false;
-            }
-            clearCurrentEditor();
-        }
-        if (const auto folderError
-            = draftManager_->setDraftFolder(pending.value.id, FolderCatalog::recycleBinId(), true)) {
-            setError(folderError.message);
+        if (const auto discardError = draftManager_->discard(record.id)) {
+            setError(discardError.message);
             return false;
         }
-        if (const auto retryError = draftManager_->retryDraftNow(pending.value.id)) {
-            setError(retryError.message);
-            return false;
-        }
-        return true;
+
+        // An unpublished draft has no storage object to recycle.
+        if (recycleStorageId.isEmpty() || recycleNoteId.isEmpty())
+            return true;
+
+        return trashNote(recycleStorageId, recycleNoteId);
     }
 
     if (noteId.isEmpty()) {
@@ -399,16 +372,9 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
             break;
         }
     }
-    if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId) {
-        if (!draftManager_->isLastEditingSession(currentEditor_->draftId())) {
-            setError(tr("The note is open in another editor and cannot be moved to the recycle bin yet"));
-            return false;
-        }
-        if (!currentEditor_->discardAndClose()) {
-            setError(currentEditor_->errorString());
-            return false;
-        }
-        clearCurrentEditor();
+    if (const auto closeError = draftManager_->discardEditingSessionsForNote(storageId, noteId)) {
+        setError(closeError.message);
+        return false;
     }
 
     if (const auto error = folderCatalogManager_->recycleNote(storageId, noteId, previousFolderId)) {
