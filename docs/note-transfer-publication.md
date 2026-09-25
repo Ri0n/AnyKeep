@@ -98,6 +98,18 @@ persistence boundary used by manager and standalone UI:
 FolderCatalog owns the immediate recycle-bin projection/metadata; it does not
 interpret transfer fields or discard publish state.
 
+Recycle is a local two-phase commit:
+
+1. `prepareForRecycle()` checkpoints the canonical model, closes views and
+   writes the recycle folder intent into the same draft, but deliberately keeps
+   that draft `Editing`;
+2. the caller persists FolderCatalog/native folder metadata;
+3. only after that succeeds does `retryDraftNow()` move the draft to
+   `Ready`/`NeedsRouting` and allow publication.
+
+If catalog/native-folder persistence fails, the draft cannot race ahead and
+publish a recycle transition that the local catalog never committed.
+
 ## Format conversion boundary
 
 Destination compatibility is validated while selecting/retargeting a storage,
