@@ -593,4 +593,80 @@ DraftStoreError DraftManager::queueDraftDeletion(const QUuid &draftId)
     return {};
 }
 
+DraftStoreResult<QPair<QString, QString>>
+DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId, const QUuid &knownDraftId)
+{
+    if (!store_)
+        return { {}, { DraftStoreError::Locked, lastError_ } };
+
+    QUuid draftId = knownDraftId;
+    DraftStoreResult<DraftRecord> pending { {}, { DraftStoreError::NotFound, {} } };
+
+    if (!draftId.isNull()) {
+        pending = pendingDraft(draftId);
+        if (!pending && pending.error.code != DraftStoreError::NotFound)
+            return { {}, pending.error };
+    } else if (storageId == draftsStorageId()) {
+        draftId = QUuid(noteId);
+        if (draftId.isNull())
+            return { {}, { DraftStoreError::InvalidArgument, tr("The draft identifier is invalid") } };
+        pending = pendingDraft(draftId);
+        if (!pending)
+            return { {}, pending.error };
+    } else if (!storageId.isEmpty() && !noteId.isEmpty()) {
+        pending = pendingDraftForNote(storageId, noteId);
+        if (!pending && pending.error.code != DraftStoreError::NotFound)
+            return { {}, pending.error };
+
+        if (!pending) {
+            const QUuid presentedId(noteId);
+            if (!presentedId.isNull()) {
+                auto presented = pendingDraft(presentedId);
+                if (presented && presented.value.storageId == storageId) {
+                    pending = std::move(presented);
+                    draftId = presentedId;
+                }
+            }
+        } else {
+            draftId = pending.value.id;
+        }
+    }
+
+    if (!pending) {
+        // A known live draft UUID can legitimately have no persisted record
+        // yet when the note has never changed.
+        const auto closeError = !draftId.isNull() ? discardEditingSessionsForDraft(draftId)
+                                                  : discardEditingSessionsForNote(storageId, noteId);
+        if (closeError)
+            return { {}, closeError };
+        if (storageId.isEmpty() || noteId.isEmpty() || storageId == draftsStorageId())
+            return { {}, {} };
+        return { { storageId, noteId }, {} };
+    }
+
+    const auto record = pending.value;
+    QPair<QString, QString> recycleTarget;
+    if (!record.remoteNoteId.isEmpty()) {
+        recycleTarget = { record.storageId, record.remoteNoteId };
+    } else if (!record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty()) {
+        recycleTarget = { record.removeSourceStorageId, record.removeSourceNoteId };
+    }
+
+    if (const auto closeError = discardEditingSessionsForDraft(record.id))
+        return { {}, closeError };
+
+    const bool destinationAcknowledged = !record.remoteNoteId.isEmpty();
+    const bool sourceStillPending = !record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty()
+        && (record.removeSourceStorageId != record.storageId || record.removeSourceNoteId != record.remoteNoteId);
+    if (destinationAcknowledged && sourceStillPending) {
+        if (const auto removalError = queueRemoval(record.removeSourceStorageId, record.removeSourceNoteId))
+            return { {}, removalError };
+    }
+
+    if (const auto discardError = discard(record.id))
+        return { {}, discardError };
+
+    return { recycleTarget, {} };
+}
+
 } // namespace AnyKeep
