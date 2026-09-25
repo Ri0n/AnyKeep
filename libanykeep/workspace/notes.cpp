@@ -300,7 +300,8 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
             knownDraftId = currentEditor_->draftId();
     }
 
-    const auto prepared = draftManager_->prepareForRecycle(storageId, noteId, knownDraftId);
+    const auto prepared
+        = draftManager_->prepareForRecycle(storageId, noteId, FolderCatalog::recycleBinId(), knownDraftId);
     if (!prepared) {
         setError(prepared.error.message);
         return false;
