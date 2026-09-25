@@ -327,8 +327,8 @@ bool NoteDialog::trashNote()
     }
 
     auto *drafts = DraftManager::instance();
-    const auto prepared
-        = drafts->prepareForRecycle(editor_->storageId(), editor_->noteId(), editor_->draftId());
+    const auto prepared = drafts->prepareForRecycle(editor_->storageId(), editor_->noteId(),
+                                                     FolderCatalog::recycleBinId(), editor_->draftId());
     if (!prepared) {
         emit operationFailed(prepared.error.message);
         return false;
