@@ -119,6 +119,8 @@ private:
     void           storageBecameReady(NoteStorage *storage);
     void           storageAboutToBeRemoved(NoteStorage *storage);
     void           cancelPublication(const QUuid &draftId);
+    void           refreshLiveEditorAliases(NoteEditor *editor);
+    void           removeLiveEditor(NoteEditor *editor);
     static QString sourceKey(const QString &storageId, const QString &noteId);
     static QString sourceKey(const Note &note);
 
