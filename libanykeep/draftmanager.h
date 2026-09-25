@@ -121,6 +121,7 @@ private:
     void           cancelPublication(const QUuid &draftId);
     void           refreshLiveEditorAliases(NoteEditor *editor);
     void           removeLiveEditor(NoteEditor *editor);
+    QSet<QUuid>     liveDraftIdsForAlias(const QString &storageId, const QString &noteId) const;
     static QString sourceKey(const QString &storageId, const QString &noteId);
     static QString sourceKey(const Note &note);
 
