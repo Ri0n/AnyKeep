@@ -27,6 +27,14 @@ without moving those headers.
   where mobile uses the same behavior. Desktop adapters may depend on shared core.
 - Storage implementations own persistence; workspace/draft controllers own
   lifecycle and orchestration, not backend wire formats.
+- A logical note has one canonical production `NoteEditor` per process.
+  Production shells must obtain it through `DraftManager::acquireEditor()`;
+  do not create a parallel editor and synchronize it through DraftStore.
+- Only `NoteBlockEditorImpl` is an editor view for cursor/history state.
+  Window/QWidget/QML shell roots must not register as document views.
+- Retargeting changes persistence route only. It must not change the draft UUID
+  or destructively convert the canonical document; target-format conversion is
+  a publication-boundary operation.
 - Plugin-specific protocol and configuration code belongs under `plugins/`.
 
 ### `NoteBlockModel` implementation
@@ -89,9 +97,10 @@ multiple draft-manager translation units.
 
 ## Architecture references
 
-Use `docs/note-editor-architecture.md` and `docs/editor-transfer-architecture.md`
-for editor/model changes; use `docs/note-lifecycle-architecture.md` and
-`docs/media-storage-architecture.md` for drafts, storage, and media changes.
+Start with `docs/note-architecture.md`. Then use only the focused document:
+`docs/note-live-model.md`, `docs/note-transfer-publication.md`,
+`docs/note-recovery.md`, `docs/note-editor-architecture.md`, or
+`docs/media-storage-architecture.md`.
 
 ## Verification
 
