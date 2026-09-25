@@ -354,11 +354,11 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
     if (noteId.isEmpty()) {
         if (!currentEditor_ || currentEditor_->storageId() != storageId || !currentEditor_->noteId().isEmpty())
             return false;
-        if (!currentEditor_->discardAndClose()) {
-            setError(currentEditor_->errorString());
+        const auto draftId = currentEditor_->draftId();
+        if (const auto closeError = draftManager_->discardEditingSessionsForDraft(draftId)) {
+            setError(closeError.message);
             return false;
         }
-        clearCurrentEditor();
         return true;
     }
 
