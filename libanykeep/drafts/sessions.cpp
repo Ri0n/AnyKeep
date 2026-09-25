@@ -187,8 +187,9 @@ NoteEditor *DraftManager::liveEditorForNote(const QString &storageId, const QStr
     const auto key = sourceKey(storageId, noteId);
     if (key.isEmpty())
         return nullptr;
-    if (auto *editor = liveEditorsBySource_.value(key))
-        return editor;
+    const auto editor = liveEditorsBySource_.value(key);
+    if (editor)
+        return editor.data();
     const auto draftId = sourceSessions_.value(key);
     return draftId.isNull() ? nullptr : liveEditorsByDraft_.value(draftId);
 }
