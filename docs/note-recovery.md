@@ -57,8 +57,14 @@ loads the complete remote note and enters conflict resolution.
 5. New-note ACK before assigned ID is persisted: duplicate creation remains a
    known gap for backends without idempotency/reconciliation.
 6. Destination move ACK before source Delete is queued: destination identity is
-   persisted first so restart does not blindly create another copy.
-7. Media blob before manifest: orphan is GC-safe; manifest must never reference a
+   persisted first and `removeSource*` remains as the unresolved cleanup
+   obligation. If the user explicitly deletes in this state, DraftManager
+   durably queues deletion of **both** existing identities before discarding the
+   transfer record.
+7. Recovery Editing draft while target plugin is disabled: open the encrypted
+   canonical snapshot using detached NoteData; storage availability is required
+   for publication/capabilities, not for access to local user data.
+8. Media blob before manifest: orphan is GC-safe; manifest must never reference a
    non-durable blob.
 
 ## Known follow-ups
