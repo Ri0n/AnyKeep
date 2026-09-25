@@ -89,7 +89,9 @@ DesktopNoteEditorHost::DesktopNoteEditorHost(NoteEditor *editor, QWidget *parent
     layout->addWidget(quick_);
 
     platformBackend_->setDragSource(quick_);
-    editor_->registerEditorView(quick_->rootObject());
+    // The nested NoteBlockEditorImpl owns editor-view registration. Registering
+    // this shell root as well makes history restore ambiguous with multiple
+    // windows sharing one NoteEditor.
     updateFocusWindow();
 }
 
