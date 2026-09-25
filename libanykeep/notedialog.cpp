@@ -127,6 +127,10 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
         platformBackend_->reloadVisualSettings();
         speechController_->setProvider(main_->pluginManager()->speechRecognitionProvider());
     });
+    connect(editor_, &NoteEditor::externalCloseRequested, this, [this] {
+        trashRequested_ = true;
+        requestDeferredClose();
+    });
     connect(editor_, &NoteEditor::textChanged, this, &NoteDialog::updateWindowTitle);
     connect(platformBackend_, &EditorPlatformBackend::operationFailed, this, &NoteDialog::operationFailed);
     connect(desktopActions_, &DesktopNoteActions::operationFailed, this, &NoteDialog::operationFailed);
