@@ -176,6 +176,11 @@ NoteWidget::NoteWidget(const Note &note, const QUuid &draftId) : ui(new Ui::Note
         setFont(defaultFont);
     }
 
+    connect(editor, &NoteEditor::externalCloseRequested, this, [this] {
+        _autosaveTimer.stop();
+        _trashRequested = true;
+        emit trashRequested();
+    });
     connect(editor, &NoteEditor::textChanged, this, &NoteWidget::textChanged);
     connect(qmlEditor, &DesktopNoteEditorHost::focusLost, this, &NoteWidget::save);
     connect(qmlEditor, &DesktopNoteEditorHost::focusReceived, this, &NoteWidget::focusReceived, Qt::QueuedConnection);
