@@ -10,9 +10,12 @@ or draft lease rules.
 
 ## Current structure
 
-`NoteEditor` is the shared controller. It owns the logical `Note`, the draft
-editing lease, canonical text, format and media state, one `NoteBlockModel`, and
-the document-wide undo/redo history.
+`NoteEditor` is the canonical shared live model/controller. `DraftManager`
+returns it through `acquireEditor()`, so manager, standalone and other shells
+showing the same logical note bind to the same object. It owns canonical text,
+format/media state, one `NoteBlockModel`, the stable draft UUID and the
+document-wide undo/redo history. See [Live note model](note-live-model.md) for
+identity and lifetime rules.
 
 ```mermaid
 flowchart TD
@@ -118,16 +121,17 @@ same controller, model, toolbar, and block editor directly.
 
 ## Lifecycle ownership
 
-Only `NoteEditor` performs editing lifecycle transitions:
+Only the shared `NoteEditor` performs editing lifecycle transitions; individual
+shells hold view leases rather than independent editor sessions:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Open: acquireEditingSession
+    [*] --> Open: acquireEditor / view lease
     Open --> Dirty: model contents changed
     Dirty --> Editing: save checkpoint
     Editing --> Dirty: model contents changed
     Open --> Closed: close without changes
-    Editing --> Ready: last editor closes
+    Editing --> Ready: last view closes
     Ready --> Publishing: DraftManager
     Publishing --> [*]: storage accepts note or proves no-op
     Publishing --> Retry: retryable or paused failure
@@ -140,9 +144,10 @@ focus checkpoints but does not mark a draft Ready. Closing a standalone window,
 leaving an Android editor, switching the manager preview, or closing the manager
 calls the same `NoteEditor::close()` protocol.
 
-A clean editor receiving focus may call `reloadNewerDraft()`. It reads a newer
-checkpoint from the same draft UUID and never reloads the origin storage over a
-newer Editing draft. A dirty editor is not overwritten.
+All views of one logical note share the same model, so in-process focus changes
+do not synchronize independent document snapshots. `reloadNewerDraft()` remains
+a recovery/compatibility path for a clean live model when a newer durable
+checkpoint exists outside the current model lifetime.
 
 ## Shared notes manager
 
