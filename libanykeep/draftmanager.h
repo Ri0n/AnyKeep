@@ -58,6 +58,11 @@ public:
     DraftStoreResult<DraftRecord> editingDraft(const QUuid &draftId) const;
     /** Reclaims a persisted publish draft for an explicitly restored editor session. */
     DraftStoreResult<DraftRecord> resumeEditingDraft(const QUuid &draftId);
+    /**
+     * Resumes a durable draft and materializes its canonical local snapshot
+     * without requiring or reading the target storage.
+     */
+    DraftStoreResult<Note>        resumeNoteForEditingDraft(const QUuid &draftId);
     DraftStoreError               markReady(const QUuid &draftId);
     DraftStoreError               discard(const QUuid &draftId);
     /** Retarget a live Editing draft without closing its shared document. */
