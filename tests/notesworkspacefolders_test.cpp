@@ -41,8 +41,13 @@ public:
         }
         return {};
     }
-    Note createNote() override { return {}; }
-    bool saveNote(const Note &) override { return false; }
+    Note createNote() override
+    {
+        Note note(new NoteData(this));
+        note.setLastChangeUTC(QDateTime::currentDateTimeUtc());
+        return note;
+    }
+    bool saveNote(const Note &) override { return true; }
     void removeNote(const QString &) override {}
 
     Note makeNote(const QString &id, const QString &title)
@@ -72,7 +77,7 @@ private slots:
     void deletesFolderBranchesWithSessionUndo();
     void recentReorderRejectsCrossStorageMove();
     void exposesBodySearchMatchesForEditorFind();
-    void blocksMoveButClosesEditorsForDeletion();
+    void sharesLiveModelAcrossViewsAndRetargetsMove();
 };
 
 void NotesWorkspaceFoldersTest::initTestCase()
@@ -304,7 +309,7 @@ void NotesWorkspaceFoldersTest::recentReorderRejectsCrossStorageMove()
     QCOMPARE(workspace.errorString(), QStringLiteral("Recent notes can only be reordered within the same storage"));
 }
 
-void NotesWorkspaceFoldersTest::blocksMoveButClosesEditorsForDeletion()
+void NotesWorkspaceFoldersTest::sharesLiveModelAcrossViewsAndRetargetsMove()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -312,55 +317,90 @@ void NotesWorkspaceFoldersTest::blocksMoveButClosesEditorsForDeletion()
     DraftManager         drafts(makeDraftStore(directory));
     QVERIFY(catalog.initialize());
 
-    auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-live-editor"));
-    const auto note     = storage->makeNote(QStringLiteral("note"), QStringLiteral("Open elsewhere"));
-    const auto recycled = storage->makeNote(QStringLiteral("recycled"), QStringLiteral("Recycle elsewhere"));
-    storage->notes = { note, recycled };
-    auto *raw      = storage.get();
-    auto *manager  = NoteManager::instance();
-    manager->registerStorage(std::move(storage));
-    const auto cleanup = qScopeGuard([manager, raw]() {
-        if (manager->storage(raw->systemName()) == raw)
-            manager->unregisterStorage(raw);
+    auto source = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-live-editor"));
+    const auto note     = source->makeNote(QStringLiteral("note"), QStringLiteral("Shared note"));
+    const auto removed  = source->makeNote(QStringLiteral("removed"), QStringLiteral("Delete me"));
+    const auto recycled = source->makeNote(QStringLiteral("recycled"), QStringLiteral("Recycle me"));
+    source->notes = { note, removed, recycled };
+    auto *sourceRaw = source.get();
+
+    auto destination = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-destination"));
+    auto *destinationRaw = destination.get();
+
+    auto *manager = NoteManager::instance();
+    manager->registerStorage(std::move(source));
+    manager->registerStorage(std::move(destination));
+    const auto cleanup = qScopeGuard([manager, sourceRaw, destinationRaw]() {
+        if (manager->storage(destinationRaw->systemName()) == destinationRaw)
+            manager->unregisterStorage(destinationRaw);
+        if (manager->storage(sourceRaw->systemName()) == sourceRaw)
+            manager->unregisterStorage(sourceRaw);
     });
-    QTRY_VERIFY(manager->notesIndex()->hasSnapshot(raw->systemName()));
+    QTRY_VERIFY(manager->notesIndex()->hasSnapshot(sourceRaw->systemName()));
 
     NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
-    QVERIFY(workspace.openNote(raw->systemName(), note.id()));
+    QVERIFY(workspace.openNote(sourceRaw->systemName(), note.id()));
     QTRY_VERIFY(workspace.editor());
 
-    NoteEditor standalone(note, drafts);
-    QCOMPARE(workspace.editor()->draftId(), standalone.draftId());
-    QCOMPARE(drafts.editingSessionCountForNote(raw->systemName(), note.id()), 2);
-    QCOMPARE(drafts.editingSessionCount(standalone.draftId()), 2);
+    auto *shared     = workspace.editor();
+    auto *standalone = drafts.acquireEditor(note);
+    QVERIFY(standalone);
+    QCOMPARE(shared, standalone);
+    QCOMPARE(shared->viewLeaseCount(), 2);
+    QCOMPARE(drafts.editingSessionCount(shared->draftId()), 2);
 
-    QVERIFY(!workspace.moveNote(raw->systemName(), note.id(), QStringLiteral("another-storage")));
-    QVERIFY(workspace.errorString().contains(QStringLiteral("open in another editor")));
+    shared->setText(QStringLiteral("Shared note\n\nChanged through manager"));
+    QCOMPARE(standalone->text(), QStringLiteral("Shared note\n\nChanged through manager"));
 
-    // Once the manager releases its own editor, identity mutation must still
-    // remain blocked by the standalone shell's process-wide lease.
+    const auto draftId = shared->draftId();
+    QVERIFY(workspace.moveNote(sourceRaw->systemName(), note.id(), destinationRaw->systemName()));
+    QCOMPARE(workspace.editor(), shared);
+    QCOMPARE(shared->draftId(), draftId);
+    QCOMPARE(shared->storageId(), destinationRaw->systemName());
+    QVERIFY(shared->noteId().isEmpty());
+    QCOMPARE(shared->viewLeaseCount(), 2);
+    QCOMPARE(drafts.editingSessionCount(draftId), 2);
+
+    const auto moved = drafts.pendingDraft(draftId);
+    QVERIFY2(moved, qPrintable(moved.error.message));
+    QCOMPARE(moved.value.state, DraftRecord::Editing);
+    QCOMPARE(moved.value.storageId, destinationRaw->systemName());
+    QVERIFY(moved.value.remoteNoteId.isEmpty());
+    QCOMPARE(moved.value.removeSourceStorageId, sourceRaw->systemName());
+    QCOMPARE(moved.value.removeSourceNoteId, note.id());
+
+    // Closing one host releases only its lease. The same live model and draft
+    // remain active for the standalone view.
     QVERIFY(workspace.closeCurrentNote());
     QVERIFY(!workspace.editor());
-    QCOMPARE(drafts.editingSessionCountForNote(raw->systemName(), note.id()), 1);
-    QCOMPARE(drafts.editingSessionCount(standalone.draftId()), 1);
+    QCOMPARE(standalone->draftId(), draftId);
+    QCOMPARE(standalone->viewLeaseCount(), 1);
+    QCOMPARE(drafts.editingSessionCount(draftId), 1);
+    QCOMPARE(drafts.liveEditorForDraft(draftId), standalone);
 
-    QVERIFY(!workspace.moveNote(raw->systemName(), note.id(), QStringLiteral("another-storage")));
-    QVERIFY(workspace.errorString().contains(QStringLiteral("open in another editor")));
-
-    // Explicit deletion owns the lifecycle: all remaining editor sessions are
-    // discarded/closed automatically instead of making the user close them.
-    QVERIFY(workspace.deleteNote(raw->systemName(), note.id()));
-    QCOMPARE(drafts.editingSessionCountForNote(raw->systemName(), note.id()), 0);
-
-    QVERIFY(workspace.openNote(raw->systemName(), recycled.id()));
-    QTRY_VERIFY(workspace.editor());
-    NoteEditor recycledStandalone(recycled, drafts);
-    QCOMPARE(drafts.editingSessionCountForNote(raw->systemName(), recycled.id()), 2);
-
-    QVERIFY(workspace.trashNote(raw->systemName(), recycled.id()));
+    // Explicit deletion is different from move: it owns the lifecycle and
+    // closes every view for the logical note before removing the source.
+    QVERIFY(workspace.openNote(sourceRaw->systemName(), removed.id()));
+    auto *deleteShared = workspace.editor();
+    QCOMPARE(drafts.acquireEditor(removed), deleteShared);
+    QCOMPARE(deleteShared->viewLeaseCount(), 2);
+    QVERIFY(workspace.deleteNote(sourceRaw->systemName(), removed.id()));
     QVERIFY(!workspace.editor());
-    QCOMPARE(drafts.editingSessionCountForNote(raw->systemName(), recycled.id()), 0);
-    QVERIFY(catalog.catalog().isRecycled(raw->systemName(), recycled.id()));
+    QCOMPARE(drafts.editingSessionCountForNote(sourceRaw->systemName(), removed.id()), 0);
+
+    QVERIFY(workspace.openNote(sourceRaw->systemName(), recycled.id()));
+    auto *recycleShared = workspace.editor();
+    QCOMPARE(drafts.acquireEditor(recycled), recycleShared);
+    QCOMPARE(recycleShared->viewLeaseCount(), 2);
+    QVERIFY(workspace.trashNote(sourceRaw->systemName(), recycled.id()));
+    QVERIFY(!workspace.editor());
+    QCOMPARE(drafts.editingSessionCountForNote(sourceRaw->systemName(), recycled.id()), 0);
+    QVERIFY(catalog.catalog().isRecycled(sourceRaw->systemName(), recycled.id()));
+
+    // Keep the moved standalone view open until teardown; this proves that
+    // retargeting did not force publication/closure just because another view
+    // disappeared.
+    QCOMPARE(standalone->storageId(), destinationRaw->systemName());
 }
 
 QTEST_MAIN(NotesWorkspaceFoldersTest)
