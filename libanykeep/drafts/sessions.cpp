@@ -272,8 +272,23 @@ QSet<QUuid> DraftManager::liveDraftIdsForAlias(const QString &storageId, const Q
 
 int DraftManager::editingSessionCountForNote(const QString &storageId, const QString &noteId) const
 {
+    const auto key = sourceKey(storageId, noteId);
+    if (key.isEmpty())
+        return 0;
+
+    // editingSources_ is authoritative for raw/manual editing sessions and can
+    // legitimately contain several distinct draft UUIDs for the same source.
+    // Durable/live aliases add recovery/retargeted models whose Note object no
+    // longer exposes that source directly. Count the union once.
+    QSet<QUuid> draftIds;
+    for (auto it = editingSources_.cbegin(); it != editingSources_.cend(); ++it) {
+        if (it.value() == key && editingSessions_.value(it.key()) > 0)
+            draftIds.insert(it.key());
+    }
+    draftIds.unite(liveDraftIdsForAlias(storageId, noteId));
+
     int count = 0;
-    for (const auto &draftId : liveDraftIdsForAlias(storageId, noteId))
+    for (const auto &draftId : std::as_const(draftIds))
         count += editingSessions_.value(draftId);
     return count;
 }
