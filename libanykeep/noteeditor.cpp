@@ -28,6 +28,19 @@ NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draf
     audioPlayback_(new AudioPlaybackController(this, this)), history_(std::make_unique<NoteDocumentHistory>())
 {
     draftId_ = drafts_->acquireEditingSession(note_, draftId);
+    connect(drafts_, &DraftManager::discardEditorsForNoteRequested, this,
+            [this](const QString &storageId, const QString &noteId) {
+                if (sessionReleased_ || note_.storageId() != storageId || note_.id() != noteId)
+                    return;
+                if (discardAndClose())
+                    emit externalCloseRequested();
+            });
+    connect(drafts_, &DraftManager::discardEditorsForDraftRequested, this, [this](const QUuid &draftId) {
+        if (sessionReleased_ || draftId_ != draftId)
+            return;
+        if (discardAndClose())
+            emit externalCloseRequested();
+    });
     qCInfo(logEditorPersistence) << "Editor session created: draft=" << draftId_.toString(QUuid::WithoutBraces)
                                  << "storage=" << note_.storageId() << "noteIdPresent=" << !note_.id().isEmpty()
                                  << "knownDraft=" << draftId.toString(QUuid::WithoutBraces);
