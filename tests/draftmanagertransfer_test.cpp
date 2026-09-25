@@ -1104,15 +1104,26 @@ void DraftManagerTransferTest::lateAckAfterPreAckTrashRemovesOrphanDestination()
     const auto readyError = drafts.retryDraftNow(draftId);
     QVERIFY2(!readyError, qPrintable(readyError.message));
 
+    // Before the late ACK is delivered, the durable intent has already been
+    // restored to the source.
+    QVERIFY(data->records_.contains(draftId));
+    QCOMPARE(data->records_.value(draftId).storageId, sourceRaw->systemName());
+    QCOMPARE(data->records_.value(draftId).remoteNoteId, source.id());
+
     destinationRaw->completeDelayedSaves();
 
     // The stale ACK must never restore destination routing. Its created object
     // is an orphan relative to current user intent and is durably removed.
     QTRY_VERIFY(destinationRaw->note(orphanId).isNull());
 
-    const auto current = data->records_.value(draftId);
-    QCOMPARE(current.storageId, sourceRaw->systemName());
-    QCOMPARE(current.remoteNoteId, source.id());
+    // Source recycle publication may have completed by now, in which case the
+    // publish draft is correctly gone. If it is still pending, it must still
+    // point at the source; either way the source object remains authoritative.
+    if (data->records_.contains(draftId)) {
+        QCOMPARE(data->records_.value(draftId).storageId, sourceRaw->systemName());
+        QCOMPARE(data->records_.value(draftId).remoteNoteId, source.id());
+    }
+    QVERIFY(!sourceRaw->note(source.id()).isNull());
 }
 
 void DraftManagerTransferTest::lateAckOnSameTargetAdoptsRemoteIdentity()
