@@ -70,7 +70,25 @@ destination save ACK
     -> remove transfer draft
 ```
 
-Source deletion never starts before destination acknowledgement.
+Source deletion never starts before destination acknowledgement **as part of a
+continuing move**. Explicit permanent Delete is different: it cancels the move
+and owns every persisted identity of the logical note. Before ACK that means the
+source; in the post-ACK/pre-cleanup window it means both destination and source.
+DraftManager queues those Delete intents durably before it drops the transfer
+record.
+
+Recycle also cancels the move, but preserves one object instead of deleting the
+logical note. `DraftManager::prepareForRecycle()` is the shared persistence
+boundary used by manager and standalone UI:
+
+- pre-ACK transfer: discard the transfer and return the source object to recycle;
+- post-ACK transfer with source cleanup pending: queue source deletion durably,
+  discard the transfer, return the acknowledged destination to recycle;
+- ordinary draft: discard the local draft and return its persisted object;
+- unpublished draft: close/discard it and return no persisted object.
+
+FolderCatalog owns the actual recycle-bin metadata; it does not interpret
+transfer state.
 
 ## Format conversion boundary
 
