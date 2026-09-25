@@ -77,18 +77,26 @@ source; in the post-ACK/pre-cleanup window it means both destination and source.
 DraftManager queues those Delete intents durably before it drops the transfer
 record.
 
-Recycle also cancels the move, but preserves one object instead of deleting the
-logical note. `DraftManager::prepareForRecycle()` is the shared persistence
-boundary used by manager and standalone UI:
+Recycle also cancels the user's active editing lifecycle but **preserves the
+latest canonical contents**. `DraftManager::prepareForRecycle()` is the shared
+persistence boundary used by manager and standalone UI:
 
-- pre-ACK transfer: discard the transfer and return the source object to recycle;
-- post-ACK transfer with source cleanup pending: queue source deletion durably,
-  discard the transfer, return the acknowledged destination to recycle;
-- ordinary draft: discard the local draft and return its persisted object;
-- unpublished draft: close/discard it and return no persisted object.
+- first checkpoint the current shared model when one is live;
+- pre-ACK transfer: cancel the move back to the original source identity, keep
+  the source concurrency token, set the same draft's folder to Recycle Bin and
+  publish that source update;
+- post-ACK transfer with source cleanup pending: keep the acknowledged
+  destination as the target, set Recycle Bin on the same durable transfer, and
+  retain `removeSource*` until successful destination publication safely queues
+  source deletion;
+- ordinary edited draft: keep the draft, set Recycle Bin and publish current
+  content/metadata;
+- clean persisted note with no draft: recycle the existing object directly;
+- never-published local draft: close/discard it because no storage object exists
+  to place in a recycle bin.
 
-FolderCatalog owns the actual recycle-bin metadata; it does not interpret
-transfer state.
+FolderCatalog owns the immediate recycle-bin projection/metadata; it does not
+interpret transfer fields or discard publish state.
 
 ## Format conversion boundary
 
