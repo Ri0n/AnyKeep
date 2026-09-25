@@ -5,6 +5,7 @@
 #include "draftmanager.h"
 #include "noteblockmodel.h"
 #include "notedocumenthistory.h"
+#include "notemanager.h"
 #include "notestorage.h"
 
 #include <QDebug>
@@ -263,6 +264,84 @@ bool NoteEditor::save()
         draftRevision_ = draft.value.revision;
     qCInfo(logEditorPersistence) << "Editor checkpoint completed: draft=" << draftId_.toString(QUuid::WithoutBraces)
                                  << "revision=" << draftRevision_;
+    return true;
+}
+
+bool NoteEditor::retargetStorage(const QString &destinationStorageId)
+{
+    const auto destinationId = destinationStorageId.trimmed();
+    if (destinationId.isEmpty())
+        return setError(tr("A destination storage is required"));
+    if (destinationId == note_.storageId())
+        return true;
+
+    auto destinationStorage = NoteManager::instance()->storage(destinationId);
+    if (!destinationStorage || !destinationStorage->canAcceptWrites())
+        return setError(tr("The destination storage is unavailable"));
+
+    if (dirty_ && !save())
+        return false;
+
+    // Even an unchanged published note needs a durable Editing record before
+    // its persistence target changes. This record carries the original source
+    // identity until destination publication is acknowledged.
+    auto draft = drafts_->editingDraft(draftId_);
+    if (!draft) {
+        if (draft.error.code != DraftStoreError::NotFound)
+            return setError(draft.error.message);
+
+        const auto [title, body] = titleAndBody();
+        if (const auto error
+            = drafts_->saveEditing(draftId_, note_, title, body, format_, folderUserOverride_)) {
+            return setError(error.message);
+        }
+        draftPersisted_ = true;
+    }
+
+    auto moved = drafts_->retargetEditingDraft(draftId_, destinationId);
+    if (!moved)
+        return setError(moved.error.message);
+
+    auto destination = destinationStorage->createNote();
+    if (destination.isNull())
+        return setError(tr("Could not create the destination note"));
+
+    destination.setTitle(moved.value.title);
+    destination.setText(moved.value.body, moved.value.format);
+    destination.setTags(moved.value.tags);
+    destination.setFolderId(moved.value.folderId);
+    destination.setMedia(moved.value.media);
+    destination.setBackendData(moved.value.backendData);
+
+    const QString contents = moved.value.format == Note::PlainText
+        ? moved.value.title + QLatin1Char('\n') + moved.value.body
+        : moved.value.title + QLatin1String("\n\n") + moved.value.body;
+    const bool representationChanged = format_ != moved.value.format || text_ != contents;
+
+    note_                = destination;
+    folderUserOverride_  = moved.value.folderUserOverride;
+    draftPersisted_      = true;
+    draftRevision_       = moved.value.revision;
+
+    if (representationChanged)
+        loadDocument(contents, moved.value.format, LoadPolicy::RecordFormatConversion);
+
+    // The retargeted record already contains this exact snapshot. Treat it as
+    // the new persistence baseline while keeping document-wide undo history.
+    text_               = model_->contents();
+    format_             = model_->markdown() ? Note::Markdown : Note::PlainText;
+    baselineText_       = text_;
+    baselineFormat_     = format_;
+    baselineFolderId_   = note_.folderId();
+    baselineFavorite_   = note_.isFavorite();
+    setMetadataDirty(false);
+    setDirty(false);
+
+    emit identityChanged();
+    emit storageCapabilitiesChanged();
+    qCInfo(logEditorPersistence) << "Shared live note retargeted: draft="
+                                 << draftId_.toString(QUuid::WithoutBraces) << "storage=" << destinationId
+                                 << "views=" << viewLeases_;
     return true;
 }
 
