@@ -139,19 +139,27 @@ bool DraftManager::releaseEditingSession(const QUuid &draftId)
         return false;
     }
     editingSessions_.erase(it);
-    const auto key = editingSources_.take(draftId);
-    if (!key.isEmpty() && sourceSessions_.value(key) == draftId) {
-        QUuid replacement;
-        for (auto source = editingSources_.cbegin(); source != editingSources_.cend(); ++source) {
-            if (source.value() == key && editingSessions_.value(source.key()) > 0) {
-                replacement = source.key();
+    editingSources_.remove(draftId);
+    for (auto source = sourceSessions_.begin(); source != sourceSessions_.end();) {
+        if (source.value() != draftId) {
+            ++source;
+            continue;
+        }
+
+        const auto key = source.key();
+        QUuid      replacement;
+        for (auto candidate = editingSources_.cbegin(); candidate != editingSources_.cend(); ++candidate) {
+            if (candidate.value() == key && editingSessions_.value(candidate.key()) > 0) {
+                replacement = candidate.key();
                 break;
             }
         }
         if (replacement.isNull())
-            sourceSessions_.remove(key);
-        else
-            sourceSessions_[key] = replacement;
+            source = sourceSessions_.erase(source);
+        else {
+            source.value() = replacement;
+            ++source;
+        }
     }
     qCInfo(logDraftPersistence) << "Released final editing session" << draftId.toString(QUuid::WithoutBraces);
     return true;
