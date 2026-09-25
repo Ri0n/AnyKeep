@@ -231,8 +231,13 @@ void NotesWorkspaceController::setCurrentEditor(NoteEditor *editor)
     if (currentEditor_ == editor)
         return;
     currentEditor_ = editor;
-    if (editor)
+    if (editor) {
         connectEditorSignals(editor);
+        connect(editor, &NoteEditor::externalCloseRequested, this, [this, editor] {
+            if (currentEditor_ == editor)
+                clearCurrentEditor();
+        });
+    }
     emit currentEditorChanged();
     emit currentTitleChanged();
     emit currentFolderIdChanged();
