@@ -67,7 +67,8 @@ public:
      * after the destination draft is acknowledged by its storage.
      */
     DraftStoreError stageTransfer(const Note &source, const QString &destinationStorageId,
-                                  const QUuid &destinationFolderId, QUuid *draftId = nullptr);
+                                  const QUuid &destinationFolderId, QUuid *draftId = nullptr,
+                                  bool folderUserOverride = false);
     bool            hasPendingTransferFrom(const QString &storageId, const QString &noteId) const;
     void            setPrePublicationHandler(PrePublicationHandler handler);
     /** Safely converts a pending draft into a restart-safe storage transfer. */
