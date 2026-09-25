@@ -166,10 +166,9 @@ signals:
 
 private:
     struct PendingMove {
-        QString sourceStorageId;
-        QString sourceNoteId;
-        QUuid   reorderBatchId;
-        int     reorderIndex { -1 };
+        QUuid reorderBatchId;
+        int   reorderIndex { -1 };
+        bool  operationStarted { false };
     };
 
     struct PendingReorder {
