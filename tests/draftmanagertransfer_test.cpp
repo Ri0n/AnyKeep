@@ -191,6 +191,7 @@ private slots:
     void reusesDetachedRecoveryModelWhenStorageReturns();
     void closesDetachedRecoveryModelByDurableAlias();
     void recyclePreparationPreservesPostAckSourceCleanup();
+    void lifecycleViewClosureDoesNotDiscardTransferRecord();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -803,7 +804,8 @@ void DraftManagerTransferTest::closesDetachedRecoveryModelByDurableAlias()
     QCOMPARE(closeRequested.count(), 1);
     QCOMPARE(editor->viewLeaseCount(), 0);
     QCOMPARE(drafts.editingSessionCount(record.id), 0);
-    QVERIFY(!data->records_.contains(record.id));
+    QVERIFY(data->records_.contains(record.id)); // Closing views never owns DraftStore mutation.
+    QCOMPARE(data->records_.value(record.id).state, DraftRecord::Editing);
 }
 
 void DraftManagerTransferTest::recyclePreparationPreservesPostAckSourceCleanup()
@@ -850,6 +852,37 @@ void DraftManagerTransferTest::recyclePreparationPreservesPostAckSourceCleanup()
     }
     QCOMPARE(sourceDeletes, 1);
     QCOMPARE(destinationDeletes, 0); // Destination is recycled, not permanently deleted.
+}
+
+void DraftManagerTransferTest::lifecycleViewClosureDoesNotDiscardTransferRecord()
+{
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord transfer;
+    transfer.id                    = QUuid::createUuid();
+    transfer.operation             = DraftRecord::Publish;
+    transfer.state                 = DraftRecord::Editing;
+    transfer.storageId             = QStringLiteral("destination");
+    transfer.remoteNoteId.clear();
+    transfer.removeSourceStorageId = QStringLiteral("source");
+    transfer.removeSourceNoteId    = QStringLiteral("source-note");
+    transfer.title                 = QStringLiteral("Moved note");
+    transfer.body                  = QStringLiteral("Body");
+    transfer.format                = Note::Markdown;
+    data->records_.insert(transfer.id, transfer);
+
+    DraftManager drafts(std::move(store));
+    Note         detached(new NoteData(nullptr));
+    auto *editor = drafts.acquireEditor(detached, transfer.id);
+    QVERIFY(editor);
+
+    const auto closeError
+        = drafts.discardEditingSessionsForNote(transfer.removeSourceStorageId, transfer.removeSourceNoteId);
+    QVERIFY2(!closeError, qPrintable(closeError.message));
+    QCOMPARE(editor->viewLeaseCount(), 0);
+    QVERIFY(data->records_.contains(transfer.id));
+    QCOMPARE(data->records_.value(transfer.id).removeSourceStorageId, transfer.removeSourceStorageId);
+    QCOMPARE(data->records_.value(transfer.id).removeSourceNoteId, transfer.removeSourceNoteId);
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
