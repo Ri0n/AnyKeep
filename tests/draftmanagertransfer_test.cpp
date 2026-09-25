@@ -233,9 +233,10 @@ void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAl
 
 void DraftManagerTransferTest::publishesDestinationBeforeDeletingSource()
 {
-    auto       sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("transfer-source"));
-    const auto source
+    auto sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("transfer-source"));
+    auto source
         = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Source"), QStringLiteral("Body"));
+    source.setBackendValue(QStringLiteral("etag"), QStringLiteral("source-etag"));
     auto      *sourceRaw          = registerStorage(std::move(sourceStorage));
     auto       destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("transfer-destination"));
     auto      *destinationRaw     = registerStorage(std::move(destinationStorage));
@@ -261,6 +262,7 @@ void DraftManagerTransferTest::publishesDestinationBeforeDeletingSource()
     const auto staged = data->records_.value(draftId);
     QCOMPARE(staged.removeSourceStorageId, sourceRaw->systemName());
     QCOMPARE(staged.removeSourceNoteId, source.id());
+    QCOMPARE(staged.backendData, source.backendData());
     QCOMPARE(staged.folderId, folder);
 
     QTRY_COMPARE(published.count(), 1);
@@ -268,6 +270,7 @@ void DraftManagerTransferTest::publishesDestinationBeforeDeletingSource()
     QCOMPARE(destinationRaw->notes_.constFirst().title(), source.title());
     QCOMPARE(destinationRaw->notes_.constFirst().text(), source.text());
     QCOMPARE(destinationRaw->notes_.constFirst().folderId(), folder);
+    QVERIFY(!destinationRaw->notes_.constFirst().backendData().contains(QStringLiteral("etag")));
     QTRY_VERIFY(sourceRaw->note(source.id()).isNull());
     QTRY_COMPARE(sourceRaw->removeCalls_, 1);
     QTRY_VERIFY(data->records_.isEmpty());
