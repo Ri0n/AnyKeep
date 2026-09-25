@@ -323,6 +323,8 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
     for (const auto &draft : pending) {
         if (!draft.remoteNoteId.isEmpty())
             pendingRemoteNotes.insert(draft.storageId + QChar(0x1f) + draft.remoteNoteId);
+        if (!draft.removeSourceStorageId.isEmpty() && !draft.removeSourceNoteId.isEmpty())
+            pendingRemoteNotes.insert(draft.removeSourceStorageId + QChar(0x1f) + draft.removeSourceNoteId);
 
         QString title = NoteTitleResolver::displayTitle(draft.title, draft.body, draft.format);
         if (title.isEmpty())
