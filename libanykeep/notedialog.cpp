@@ -402,13 +402,6 @@ void NoteDialog::setAlwaysOnTop(bool enabled)
     emit alwaysOnTopChanged();
 }
 
-void NoteDialog::trashRequested()
-{
-    trashRequested_ = true;
-    editor_->discardAndClose();
-    requestDeferredClose();
-}
-
 void NoteDialog::closeEvent(QCloseEvent *event)
 {
     if (closing_) {
