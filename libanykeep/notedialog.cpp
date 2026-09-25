@@ -334,8 +334,8 @@ bool NoteDialog::trashNote()
         return false;
     }
 
-    const auto recycleStorageId = prepared.value.first;
-    const auto recycleNoteId    = prepared.value.second;
+    const auto recycleStorageId = prepared.value.storageId;
+    const auto recycleNoteId    = prepared.value.noteId;
     if (!recycleStorageId.isEmpty() && !recycleNoteId.isEmpty()) {
         const QUuid previousFolderId
             = folderCatalog->catalog().folderForNote(recycleStorageId, recycleNoteId);
@@ -352,7 +352,15 @@ bool NoteDialog::trashNote()
         }
     }
 
-    drafts->publishPending();
+    if (!prepared.value.draftId.isNull()) {
+        if (const auto readyError = drafts->retryDraftNow(prepared.value.draftId)) {
+            emit operationFailed(readyError.message);
+            return false;
+        }
+    } else {
+        drafts->publishPending();
+    }
+
     trashRequested_ = true;
     requestDeferredClose();
     return true;
