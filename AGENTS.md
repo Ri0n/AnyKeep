@@ -10,10 +10,14 @@
 Architecture references (use the scoped `AGENTS.md` first, then open only the
 document relevant to the change):
 
+- note architecture index: `docs/note-architecture.md`;
+- shared live model/lifetime: `docs/note-live-model.md`;
+- transfer/publication: `docs/note-transfer-publication.md`;
+- recovery/durability: `docs/note-recovery.md`;
 - editor composition: `docs/note-editor-architecture.md`;
 - undo/history: `docs/note-editor-undo-redo.md`;
 - structured clipboard and media transfer: `docs/editor-transfer-architecture.md`;
-- drafts/storage lifecycle: `docs/note-lifecycle-architecture.md`;
+- lifecycle summary/index: `docs/note-lifecycle-architecture.md`;
 - local/remote media: `docs/media-storage-architecture.md`;
 - manager and folders UI: `docs/notes-manager-architecture.md`.
 
