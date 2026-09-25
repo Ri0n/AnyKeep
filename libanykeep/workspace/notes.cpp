@@ -310,114 +310,61 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
         return false;
     setError({});
 
+    // Drafts-list deletion is intentionally permanent rather than a folder
+    // recycle operation; keep its existing semantics.
     if (storageId == DraftManager::draftsStorageId()) {
         if (noteId.isEmpty())
             return false;
         return deleteNote(storageId, noteId);
     }
 
-    auto pending = !noteId.isEmpty() ? draftManager_->pendingDraftForNote(storageId, noteId)
-                                     : DraftStoreResult<DraftRecord> { {}, { DraftStoreError::NotFound, QString() } };
-    if (!pending && !noteId.isEmpty()) {
-        const QUuid presentedDraftId(noteId);
-        auto        presentedDraft = draftManager_->pendingDraft(presentedDraftId);
-        if (presentedDraft && presentedDraft.value.storageId == storageId)
-            pending = std::move(presentedDraft);
-    }
-    if (pending) {
-        const auto record = pending.value;
-
-        QString recycleStorageId = record.storageId;
-        QString recycleNoteId    = record.remoteNoteId;
-        if (recycleNoteId.isEmpty() && !record.removeSourceStorageId.isEmpty()
-            && !record.removeSourceNoteId.isEmpty()) {
-            recycleStorageId = record.removeSourceStorageId;
-            recycleNoteId    = record.removeSourceNoteId;
-        }
-
-        auto closeError = !noteId.isEmpty() ? draftManager_->discardEditingSessionsForNote(storageId, noteId)
-                                                 : DraftStoreError {};
-        if (!closeError && draftManager_->editingSessionCount(record.id) > 0)
-            closeError = draftManager_->discardEditingSessionsForDraft(record.id);
-        if (closeError) {
-            setError(closeError.message);
-            return false;
-        }
-        const bool destinationAcknowledged = !record.remoteNoteId.isEmpty();
-        const bool sourceStillPending = !record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty()
-            && (record.removeSourceStorageId != record.storageId || record.removeSourceNoteId != record.remoteNoteId);
-        if (destinationAcknowledged && sourceStillPending) {
-            // The destination already exists, but the transfer still carries a
-            // source-cleanup obligation. Make that delete intent durable before
-            // discarding the transfer draft and recycling the destination.
-            if (const auto removalError
-                = draftManager_->queueRemoval(record.removeSourceStorageId, record.removeSourceNoteId)) {
-                setError(removalError.message);
-                return false;
-            }
-        }
-
-        if (const auto discardError = draftManager_->discard(record.id)) {
-            setError(discardError.message);
-            return false;
-        }
-
-        // An unpublished draft has no storage object to recycle.
-        if (recycleStorageId.isEmpty() || recycleNoteId.isEmpty()) {
-            draftManager_->publishPending();
-            return true;
-        }
-
-        const bool recycled = trashNote(recycleStorageId, recycleNoteId);
-        draftManager_->publishPending();
-        return recycled;
-    }
-
-    if (noteId.isEmpty()) {
-        if (!currentEditor_ || currentEditor_->storageId() != storageId || !currentEditor_->noteId().isEmpty())
-            return false;
-
-        const auto draftId = currentEditor_->draftId();
-        QString    recycleStorageId;
-        QString    recycleNoteId;
-        const auto pendingCurrent = draftManager_->pendingDraft(draftId);
-        if (pendingCurrent && !pendingCurrent.value.removeSourceStorageId.isEmpty()
-            && !pendingCurrent.value.removeSourceNoteId.isEmpty()) {
-            recycleStorageId = pendingCurrent.value.removeSourceStorageId;
-            recycleNoteId    = pendingCurrent.value.removeSourceNoteId;
-        }
-
-        if (const auto closeError = draftManager_->discardEditingSessionsForDraft(draftId)) {
-            setError(closeError.message);
-            return false;
-        }
-        if (!recycleStorageId.isEmpty() && !recycleNoteId.isEmpty())
-            return trashNote(recycleStorageId, recycleNoteId);
-        return true;
-    }
-
     if (!ensureFolderCatalogAvailable())
         return false;
-    const QUuid previousFolderId(folderIdForNote(storageId, noteId));
+
+    QUuid knownDraftId;
+    if (currentEditor_) {
+        const bool currentIdentity = currentEditor_->storageId() == storageId
+            && currentEditor_->noteId() == noteId;
+        const bool unpublishedCurrent
+            = noteId.isEmpty() && currentEditor_->storageId() == storageId && currentEditor_->noteId().isEmpty();
+        const bool presentedCurrent = QUuid(noteId) == currentEditor_->draftId();
+        if (currentIdentity || unpublishedCurrent || presentedCurrent)
+            knownDraftId = currentEditor_->draftId();
+    }
+
+    const auto prepared = draftManager_->prepareForRecycle(storageId, noteId, knownDraftId);
+    if (!prepared) {
+        setError(prepared.error.message);
+        return false;
+    }
+
+    const auto recycleStorageId = prepared.value.first;
+    const auto recycleNoteId    = prepared.value.second;
+    if (recycleStorageId.isEmpty() || recycleNoteId.isEmpty()) {
+        draftManager_->publishPending();
+        return true; // An unpublished local draft was simply discarded.
+    }
+
+    const QUuid previousFolderId(folderIdForNote(recycleStorageId, recycleNoteId));
     QString     title;
-    for (const auto &note : NoteManager::instance()->notesIndex()->notes(storageId)) {
-        if (note.id() == noteId) {
+    for (const auto &note : NoteManager::instance()->notesIndex()->notes(recycleStorageId)) {
+        if (note.id() == recycleNoteId) {
             title = note.title();
             break;
         }
     }
-    if (const auto closeError = draftManager_->discardEditingSessionsForNote(storageId, noteId)) {
-        setError(closeError.message);
-        return false;
-    }
 
-    if (const auto error = folderCatalogManager_->recycleNote(storageId, noteId, previousFolderId)) {
+    if (const auto error
+        = folderCatalogManager_->recycleNote(recycleStorageId, recycleNoteId, previousFolderId)) {
         setError(error.message);
         return false;
     }
-    const bool accepted = folderOperations_->assignNoteFolder(storageId, noteId, FolderCatalog::recycleBinId(), true);
-    trashUndoEntries_.append({ TrashUndoEntry::NoteTrash, storageId, noteId, title, {} });
+
+    const bool accepted
+        = folderOperations_->assignNoteFolder(recycleStorageId, recycleNoteId, FolderCatalog::recycleBinId(), true);
+    trashUndoEntries_.append({ TrashUndoEntry::NoteTrash, recycleStorageId, recycleNoteId, title, {} });
     emit trashUndoChanged();
+    draftManager_->publishPending();
     return accepted;
 }
 
