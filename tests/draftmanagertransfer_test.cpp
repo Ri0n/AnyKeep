@@ -831,27 +831,28 @@ void DraftManagerTransferTest::recyclePreparationPreservesPostAckSourceCleanup()
     auto *editor = drafts.acquireEditor(detached, transfer.id);
     QVERIFY(editor);
 
-    const auto prepared = drafts.prepareForRecycle({}, {}, transfer.id);
+    const auto recycleFolder = QUuid::createUuid();
+    const auto prepared = drafts.prepareForRecycle({}, {}, recycleFolder, transfer.id);
     QVERIFY2(prepared, qPrintable(prepared.error.message));
     QCOMPARE(prepared.value.first, transfer.storageId);
     QCOMPARE(prepared.value.second, transfer.remoteNoteId);
     QCOMPARE(editor->viewLeaseCount(), 0);
-    QVERIFY(!data->records_.contains(transfer.id));
 
-    int sourceDeletes      = 0;
-    int destinationDeletes = 0;
+    QVERIFY(data->records_.contains(transfer.id));
+    const auto recycledDraft = data->records_.value(transfer.id);
+    QCOMPARE(recycledDraft.operation, DraftRecord::Publish);
+    QCOMPARE(recycledDraft.state, DraftRecord::Ready);
+    QCOMPARE(recycledDraft.folderId, recycleFolder);
+    QVERIFY(recycledDraft.folderUserOverride);
+    QCOMPARE(recycledDraft.removeSourceStorageId, transfer.removeSourceStorageId);
+    QCOMPARE(recycledDraft.removeSourceNoteId, transfer.removeSourceNoteId);
+
+    int deleteRecords = 0;
     for (const auto &record : std::as_const(data->records_)) {
-        if (record.operation != DraftRecord::Delete)
-            continue;
-        if (record.storageId == transfer.removeSourceStorageId
-            && record.remoteNoteId == transfer.removeSourceNoteId) {
-            ++sourceDeletes;
-        }
-        if (record.storageId == transfer.storageId && record.remoteNoteId == transfer.remoteNoteId)
-            ++destinationDeletes;
+        if (record.operation == DraftRecord::Delete)
+            ++deleteRecords;
     }
-    QCOMPARE(sourceDeletes, 1);
-    QCOMPARE(destinationDeletes, 0); // Destination is recycled, not permanently deleted.
+    QCOMPARE(deleteRecords, 0); // Source cleanup waits for successful recycle publication.
 }
 
 void DraftManagerTransferTest::lifecycleViewClosureDoesNotDiscardTransferRecord()
