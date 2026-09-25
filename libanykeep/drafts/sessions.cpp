@@ -475,4 +475,54 @@ DraftStoreError DraftManager::queueRemoval(const QString &storageId, const QStri
     return result;
 }
 
+DraftStoreError DraftManager::queueDraftDeletion(const QUuid &draftId)
+{
+    if (!store_)
+        return { DraftStoreError::Locked, lastError_ };
+    if (draftId.isNull())
+        return { DraftStoreError::InvalidArgument, tr("Draft identifier is empty") };
+
+    const auto pending = store_->load(draftId);
+    if (!pending)
+        return pending.error;
+    if (pending.value.operation != DraftRecord::Publish)
+        return { DraftStoreError::InvalidArgument, tr("Only note drafts can be deleted") };
+
+    // Stop an in-flight save before turning its persistent state into delete
+    // intents. queueRemoval() is synchronous; its publishPending() calls are
+    // queued, so no remote callback can observe a half-converted lifecycle in
+    // this event-loop turn.
+    cancelPublication(draftId);
+
+    QList<QPair<QString, QString>> objects;
+    const auto appendObject = [&objects](const QString &storageId, const QString &noteId) {
+        if (storageId.isEmpty() || noteId.isEmpty())
+            return;
+        const QPair<QString, QString> object { storageId, noteId };
+        if (!objects.contains(object))
+            objects.append(object);
+    };
+
+    // After destination acknowledgement but before source cleanup is durable,
+    // both identities can exist. Explicit delete owns both; forgetting either
+    // one leaves a ghost duplicate after the transfer draft is discarded.
+    appendObject(pending.value.storageId, pending.value.remoteNoteId);
+    appendObject(pending.value.removeSourceStorageId, pending.value.removeSourceNoteId);
+
+    for (const auto &object : std::as_const(objects)) {
+        if (const auto error = queueRemoval(object.first, object.second))
+            return error; // Keep the publish draft as the reconciliation root.
+    }
+
+    auto removeError = store_->remove(draftId);
+    if (removeError.code == DraftStoreError::NotFound)
+        removeError = {};
+    if (removeError)
+        return removeError;
+
+    emit draftsChanged();
+    QTimer::singleShot(0, this, &DraftManager::publishPending);
+    return {};
+}
+
 } // namespace AnyKeep
