@@ -4,6 +4,7 @@
 
 #include "conflictresolver.h"
 #include "notemanager.h"
+#include "noteeditor.h"
 #include "notestorage.h"
 #include "notetransfercontroller.h"
 #include "storagejob.h"
