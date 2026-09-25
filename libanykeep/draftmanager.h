@@ -91,6 +91,11 @@ public:
     DraftStoreResult<QPair<QString, QString>> prepareForRecycle(const QString &storageId, const QString &noteId,
                                                                 const QUuid &knownDraftId = {});
     /**
+     * A storage announced that an object disappeared while its logical note is
+     * still open. Persist every matching live model before any UI reacts.
+     */
+    DraftStoreError preserveLiveNoteAfterExternalRemoval(const QString &storageId, const QString &noteId);
+    /**
      * Creates a persisted cross-storage move. The source is deleted only
      * after the destination draft is acknowledged by its storage.
      */
