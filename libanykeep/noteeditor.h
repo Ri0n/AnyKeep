@@ -173,7 +173,10 @@ public slots:
 
 signals:
     void externalCloseRequested();
+    /** All logical view leases are released; registry aliases may be dropped. */
     void allViewsClosed();
+    /** No logical leases and no registered UI object still references this model. */
+    void disposable();
     void identityChanged();
     void storageCapabilitiesChanged();
     void textChanged();
@@ -192,6 +195,7 @@ private:
     void                        loadFromNote();
     void                        adoptEditingDraft(const DraftRecord &draft);
     QObject                    *activeEditorView() const;
+    void                        emitDisposableIfUnused();
     QVariantMap                 captureEditorViewState() const;
     void                        prepareEditorViewForHistoryRestore();
     void                        scheduleEditorViewRestore(const QVariantMap &viewState);

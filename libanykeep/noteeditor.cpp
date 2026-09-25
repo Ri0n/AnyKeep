@@ -377,8 +377,10 @@ bool NoteEditor::close()
     --viewLeases_;
     qCInfo(logEditorPersistence) << "Shared editor view closed: draft="
                                  << draftId_.toString(QUuid::WithoutBraces) << "views=" << viewLeases_;
-    if (viewLeases_ == 0)
+    if (viewLeases_ == 0) {
         emit allViewsClosed();
+        emitDisposableIfUnused();
+    }
     return true;
 }
 
@@ -408,6 +410,7 @@ bool NoteEditor::discardAndClose()
     setMetadataDirty(false);
     setDirty(false);
     emit allViewsClosed();
+    emitDisposableIfUnused();
     return true;
 }
 
@@ -602,6 +605,18 @@ void NoteEditor::unregisterEditorView(QObject *view)
         else
             ++it;
     }
+    emitDisposableIfUnused();
+}
+
+void NoteEditor::emitDisposableIfUnused()
+{
+    if (viewLeases_ > 0)
+        return;
+    for (const auto &view : std::as_const(editorViews_)) {
+        if (view)
+            return;
+    }
+    emit disposable();
 }
 
 QObject *NoteEditor::activeEditorView() const

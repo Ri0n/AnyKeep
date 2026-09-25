@@ -167,10 +167,13 @@ NoteEditor *DraftManager::acquireEditor(const Note &note, const QUuid &knownDraf
         if (!currentKey.isEmpty())
             liveEditorsBySource_[currentKey] = editor;
     });
-    connect(editor, &NoteEditor::allViewsClosed, this, [editor, removeAliases] {
+    connect(editor, &NoteEditor::allViewsClosed, this, [removeAliases] {
+        // Stop new views from acquiring a model whose logical lifecycle ended,
+        // but keep the QObject alive until every already-bound QML view has
+        // actually detached from it.
         removeAliases();
-        editor->deleteLater();
     });
+    connect(editor, &NoteEditor::disposable, this, [editor] { editor->deleteLater(); });
     connect(editor, &QObject::destroyed, this, [removeAliases] { removeAliases(); });
 
     qCInfo(logDraftPersistence) << "Created canonical live editor: draft="
