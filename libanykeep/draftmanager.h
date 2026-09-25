@@ -43,6 +43,9 @@ public:
     DraftStoreError saveEditing(const QUuid &draftId, const Note &note, const QString &title, const QString &body,
                                 Note::Format format, bool folderUserOverride = false);
     QUuid           acquireEditingSession(const Note &note, const QUuid &knownDraftId = {});
+    /** Returns the process-local editing lease for a persisted note, if any. */
+    QUuid           activeEditingDraftForNote(const QString &storageId, const QString &noteId) const;
+    int             editingSessionCount(const QUuid &draftId) const;
     bool            isLastEditingSession(const QUuid &draftId) const;
     bool            releaseEditingSession(const QUuid &draftId);
     DraftStoreResult<DraftRecord> editingDraft(const QUuid &draftId) const;
@@ -99,6 +102,7 @@ private:
     void           storageBecameReady(NoteStorage *storage);
     void           storageAboutToBeRemoved(NoteStorage *storage);
     void           cancelPublication(const QUuid &draftId);
+    static QString sourceKey(const QString &storageId, const QString &noteId);
     static QString sourceKey(const Note &note);
 
     std::unique_ptr<DraftStore>        store_;
