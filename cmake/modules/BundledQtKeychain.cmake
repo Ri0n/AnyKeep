@@ -5,13 +5,19 @@ endif()
 include(ExternalProject)
 include(GNUInstallDirs)
 include(ProcessorCount)
+include(DependencyVersions)
 
 set(ANYKEEP_BUNDLED_QTKEYCHAIN_GIT_REPOSITORY
     "https://github.com/frankosterfeld/qtkeychain.git"
     CACHE STRING "Bundled QtKeychain git repository")
 set(ANYKEEP_BUNDLED_QTKEYCHAIN_GIT_TAG
-    "0.14.3"
-    CACHE STRING "Bundled QtKeychain git tag")
+    ""
+    CACHE STRING "Override the bundled QtKeychain git tag, branch, or commit")
+if(ANYKEEP_BUNDLED_QTKEYCHAIN_GIT_TAG)
+  set(_qtkeychain_git_tag "${ANYKEEP_BUNDLED_QTKEYCHAIN_GIT_TAG}")
+else()
+  set(_qtkeychain_git_tag "${ANYKEEP_DEP_QTKEYCHAIN_VERSION}")
+endif()
 set(ANYKEEP_QTKEYCHAIN_SOURCE_DIR
     ""
     CACHE PATH "Local QtKeychain source directory (avoids cloning the repository)")
@@ -45,7 +51,7 @@ if(ANYKEEP_QTKEYCHAIN_SOURCE_DIR)
   set(_qtkeychain_source_args SOURCE_DIR "${ANYKEEP_QTKEYCHAIN_SOURCE_DIR}" DOWNLOAD_COMMAND "" UPDATE_COMMAND "")
 else()
   set(_qtkeychain_source_args GIT_REPOSITORY "${ANYKEEP_BUNDLED_QTKEYCHAIN_GIT_REPOSITORY}" GIT_TAG
-                              "${ANYKEEP_BUNDLED_QTKEYCHAIN_GIT_TAG}" UPDATE_COMMAND "")
+                              "${_qtkeychain_git_tag}" UPDATE_COMMAND "")
 endif()
 
 set(_qtkeychain_cmake_args

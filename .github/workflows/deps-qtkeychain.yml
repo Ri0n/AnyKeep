@@ -6,6 +6,8 @@ on:
     branches:
       - master
     paths:
+      - dependencies.lock.json
+      - .github/actions/load-dependencies/action.yml
       - .github/workflows/deps-qtkeychain.yml
 
 permissions:
@@ -17,9 +19,6 @@ concurrency:
 
 env:
   QT_SERIES: "6.11.*"
-  QTKEYCHAIN_VERSION: "0.14.3"
-  QTKEYCHAIN_REVISION: "r1"
-  QTKEYCHAIN_TAG: "deps-qtkeychain-0.14.3-r1-qt6.11"
   ANDROID_NDK_VERSION: "r27c"
   ANDROID_API: "28"
   # Temporary until aqtinstall releases Qt 6.11+ Windows repository support.
@@ -31,6 +30,11 @@ jobs:
     outputs:
       tag: ${{ steps.vars.outputs.tag }}
     steps:
+      - uses: actions/checkout@v7
+
+      - name: Load dependency versions
+        uses: ./.github/actions/load-dependencies
+
       - id: vars
         shell: bash
         run: echo "tag=$QTKEYCHAIN_TAG" >> "$GITHUB_OUTPUT"
@@ -80,6 +84,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+
+      - name: Load dependency versions
+        uses: ./.github/actions/load-dependencies
 
       - name: Compute asset name
         id: asset

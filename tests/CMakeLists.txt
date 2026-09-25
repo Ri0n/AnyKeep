@@ -158,10 +158,10 @@ add_anykeep_test(xmpppayloadxml_test xmpppayloadxml_test.cpp ../plugins/xmpppubs
 target_include_directories(xmpppayloadxml_test PRIVATE ../plugins/xmpppubsub)
 target_link_libraries(xmpppayloadxml_test PRIVATE Qt6::Xml)
 
-if(TARGET xmpppubsub)
+if(TARGET xmpppubsub_test_support)
   add_anykeep_test(xmppstorage_test xmppstorage_test.cpp)
   target_include_directories(xmppstorage_test PRIVATE ../plugins/xmpppubsub)
-  target_link_libraries(xmppstorage_test PRIVATE xmpppubsub)
+  target_link_libraries(xmppstorage_test PRIVATE xmpppubsub_test_support)
 endif()
 
 add_executable(xmppkeyresolutioncontroller_test xmppkeyresolutioncontroller_test.cpp

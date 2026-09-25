@@ -157,3 +157,17 @@ if(TARGET xmpppubsub)
 endif()
 
 install_anykeep_plugin(xmpppubsub)
+
+# Desktop plugins are MODULE libraries on Windows and therefore cannot be linked
+# directly into unit tests. Build a private static copy of the plugin runtime
+# (without the plugin entry point) when tests are enabled. This keeps
+# xmppstorage_test cross-platform while exercising the same implementation and
+# selected XMPP backend as the real plugin.
+if(BUILD_TESTING AND TARGET xmpppubsub)
+  set(_xmpppubsub_test_support_sources ${xmpppubsub_sources})
+  list(REMOVE_ITEM _xmpppubsub_test_support_sources xmppplugin.cpp xmppplugin.h)
+  add_library(xmpppubsub_test_support STATIC ${_xmpppubsub_test_support_sources})
+  set_target_properties(xmpppubsub_test_support PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  target_link_libraries(xmpppubsub_test_support PUBLIC ${EXTRA_LINK_TARGET})
+  _anykeep_configure_xmpppubsub_target(xmpppubsub_test_support)
+endif()

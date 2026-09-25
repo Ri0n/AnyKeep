@@ -1,0 +1,30 @@
+include_guard(GLOBAL)
+
+get_filename_component(_anykeep_dependency_root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(_anykeep_dependency_lock_file "${_anykeep_dependency_root}/dependencies.lock.json")
+if(NOT EXISTS "${_anykeep_dependency_lock_file}")
+  message(FATAL_ERROR "AnyKeep dependency lock is missing: ${_anykeep_dependency_lock_file}")
+endif()
+
+file(READ "${_anykeep_dependency_lock_file}" _anykeep_dependency_lock)
+
+string(JSON ANYKEEP_DEP_IRIS_TAG GET "${_anykeep_dependency_lock}" iris tag)
+string(JSON ANYKEEP_DEP_IRIS_COMMIT GET "${_anykeep_dependency_lock}" iris commit)
+string(JSON ANYKEEP_DEP_QCA_TAG GET "${_anykeep_dependency_lock}" qca tag)
+string(JSON ANYKEEP_DEP_QCA_COMMIT GET "${_anykeep_dependency_lock}" qca commit)
+string(JSON ANYKEEP_DEP_QTKEYCHAIN_TAG GET "${_anykeep_dependency_lock}" qtkeychain tag)
+string(JSON ANYKEEP_DEP_QTKEYCHAIN_VERSION GET "${_anykeep_dependency_lock}" qtkeychain version)
+string(JSON ANYKEEP_DEP_QTKEYCHAIN_REVISION GET "${_anykeep_dependency_lock}" qtkeychain revision)
+
+foreach(_anykeep_commit IN ITEMS ANYKEEP_DEP_IRIS_COMMIT ANYKEEP_DEP_QCA_COMMIT)
+  string(LENGTH "${${_anykeep_commit}}" _anykeep_commit_length)
+  if(NOT _anykeep_commit_length EQUAL 40 OR NOT "${${_anykeep_commit}}" MATCHES "^[0-9a-f]+$")
+    message(FATAL_ERROR "${_anykeep_commit} must be a 40-character lowercase Git commit SHA")
+  endif()
+endforeach()
+
+unset(_anykeep_commit)
+unset(_anykeep_commit_length)
+unset(_anykeep_dependency_lock)
+unset(_anykeep_dependency_lock_file)
+unset(_anykeep_dependency_root)
