@@ -79,6 +79,8 @@ public:
 
     Note createNote() override
     {
+        if (failCreates_)
+            return {};
         Note result(new NoteData(this));
         result.setLastChangeUTC(QDateTime::currentDateTimeUtc());
         return result;
@@ -148,6 +150,7 @@ public:
     bool                supportsDraftSnapshotSave_ { false };
     bool                failLoads_ { false };
     bool                failSaves_ { false };
+    bool                failCreates_ { false };
     int                 saveCalls_ { 0 };
     int                 removeCalls_ { 0 };
 
@@ -183,6 +186,7 @@ private slots:
     void retriesExistingNoteFromDurableSnapshotWhenBodyLoadFails();
     void tracksAllSourceLeasesAcrossDistinctDraftIds();
     void queuesDeletionForEveryPostAckTransferIdentity();
+    void failedLiveRetargetLeavesDraftAndIdentityUnchanged();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -680,6 +684,45 @@ void DraftManagerTransferTest::queuesDeletionForEveryPostAckTransferIdentity()
     QCOMPARE(removals.size(), 2);
     QVERIFY(removals.contains({ QStringLiteral("destination"), QStringLiteral("destination-note") }));
     QVERIFY(removals.contains({ QStringLiteral("source"), QStringLiteral("source-note") }));
+}
+
+void DraftManagerTransferTest::failedLiveRetargetLeavesDraftAndIdentityUnchanged()
+{
+    auto sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("retarget-atomic-source"));
+    auto source = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Source"),
+                                           QStringLiteral("Body"));
+    source.setBackendValue(QStringLiteral("etag"), QStringLiteral("source-etag"));
+    auto *sourceRaw = registerStorage(std::move(sourceStorage));
+
+    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("retarget-atomic-destination"));
+    destinationStorage->failCreates_ = true;
+    auto *destinationRaw = registerStorage(std::move(destinationStorage));
+    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(destinationRaw->systemName()) == destinationRaw)
+            manager->unregisterStorage(destinationRaw);
+        if (manager->storage(sourceRaw->systemName()) == sourceRaw)
+            manager->unregisterStorage(sourceRaw);
+    });
+
+    auto         store = std::make_unique<MemoryDraftStore>();
+    auto        *data  = store.get();
+    DraftManager drafts(std::move(store));
+    NoteEditor   editor(source, drafts);
+    editor.setText(QStringLiteral("Source\n\nEdited body"));
+    QVERIFY(editor.save());
+
+    const auto before = data->records_.value(editor.draftId());
+    QVERIFY(!editor.retargetStorage(destinationRaw->systemName()));
+    QCOMPARE(editor.storageId(), sourceRaw->systemName());
+    QCOMPARE(editor.noteId(), source.id());
+
+    const auto after = data->records_.value(editor.draftId());
+    QCOMPARE(after.storageId, before.storageId);
+    QCOMPARE(after.remoteNoteId, before.remoteNoteId);
+    QCOMPARE(after.removeSourceStorageId, before.removeSourceStorageId);
+    QCOMPARE(after.removeSourceNoteId, before.removeSourceNoteId);
+    QCOMPARE(after.backendData, before.backendData);
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
