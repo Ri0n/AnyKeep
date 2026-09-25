@@ -38,6 +38,9 @@ without moving those headers.
 - Delete/recycle persistence resolution belongs to `DraftManager`. Shells and
   FolderCatalog must not independently interpret `remoteNoteId` versus
   `removeSource*`; use `queueDraftDeletion()` / `prepareForRecycle()`.
+- `prepareForRecycle()` must leave a draft non-publishable until FolderCatalog
+  and native-folder metadata have committed. Call `retryDraftNow()` only after
+  that local commit succeeds.
 - Plugin-specific protocol and configuration code belongs under `plugins/`.
 
 ### `NoteBlockModel` implementation
