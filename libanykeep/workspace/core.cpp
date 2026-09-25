@@ -246,6 +246,11 @@ void NotesWorkspaceController::clearCurrentEditor()
         return;
     auto *old = currentEditor_.data();
     currentEditor_.clear();
+    // Shared NoteEditor outlives this workspace while another shell still
+    // holds a view lease. Detach this workspace's observer connections now;
+    // otherwise a standalone edit can update a manager that no longer owns the
+    // view, and reopening the same model accumulates duplicate connections.
+    QObject::disconnect(old, nullptr, this, nullptr);
     if (!old->hasPersistedDraft())
         pendingFolderAssignments_.remove(old->draftId());
     emit currentEditorChanged();
