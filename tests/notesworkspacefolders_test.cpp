@@ -78,6 +78,7 @@ private slots:
     void recentReorderRejectsCrossStorageMove();
     void exposesBodySearchMatchesForEditorFind();
     void sharesLiveModelAcrossViewsAndRetargetsMove();
+    void opensDurableDraftWithoutTargetStorage();
 };
 
 void NotesWorkspaceFoldersTest::initTestCase()
@@ -407,6 +408,39 @@ void NotesWorkspaceFoldersTest::sharesLiveModelAcrossViewsAndRetargetsMove()
     QVERIFY(!drafts.liveEditorForDraft(draftId));
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     QVERIFY(movedEditor.isNull());
+}
+
+void NotesWorkspaceFoldersTest::opensDurableDraftWithoutTargetStorage()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
+    QVERIFY(catalog.initialize());
+
+    auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("offline-draft-target"));
+    auto note    = storage->makeNote(QStringLiteral("remote-note"), QStringLiteral("Original"));
+    auto *raw    = storage.get();
+    auto *manager = NoteManager::instance();
+    manager->registerStorage(std::move(storage));
+
+    const auto draftId = drafts.acquireEditingSession(note);
+    QVERIFY(!draftId.isNull());
+    const auto saved = drafts.saveEditing(draftId, note, QStringLiteral("Recovered"),
+                                          QStringLiteral("Durable body"), Note::Markdown);
+    QVERIFY2(!saved, qPrintable(saved.message));
+    QVERIFY(drafts.releaseEditingSession(draftId));
+
+    manager->unregisterStorage(raw);
+    QVERIFY(!manager->storage(QStringLiteral("offline-draft-target")));
+
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
+    QVERIFY(workspace.openNote(DraftManager::draftsStorageId(), draftId.toString(QUuid::WithoutBraces)));
+    QTRY_VERIFY(workspace.editor());
+    QCOMPARE(workspace.editor()->draftId(), draftId);
+    QCOMPARE(workspace.editor()->text(), QStringLiteral("Recovered\n\nDurable body"));
+    QVERIFY(workspace.editor()->storageId().isEmpty());
+    QVERIFY(workspace.editor()->noteId() == QStringLiteral("remote-note"));
 }
 
 QTEST_MAIN(NotesWorkspaceFoldersTest)
