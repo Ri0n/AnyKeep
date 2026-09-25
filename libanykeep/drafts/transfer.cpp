@@ -107,6 +107,34 @@ DraftStoreError DraftManager::stageTransfer(const Note &source, const QString &d
     return {};
 }
 
+DraftStoreResult<DraftRecord> DraftManager::retargetEditingDraft(const QUuid &draftId,
+                                                                              const QString &destinationStorageId)
+{
+    if (!store_)
+        return { {}, { DraftStoreError::Locked, lastError_.isEmpty() ? tr("Draft store is locked") : lastError_ } };
+
+    auto draft = store_->load(draftId);
+    if (!draft)
+        return draft;
+    if (draft.value.operation != DraftRecord::Publish || draft.value.state != DraftRecord::Editing) {
+        return { {}, { DraftStoreError::InvalidArgument, tr("Only a live editing draft can change storage") } };
+    }
+
+    if (const auto error = retargetDraftForPublication(&draft.value, destinationStorageId))
+        return { {}, error };
+
+    // retargetDraftForPublication() prepares a publishable record. A live
+    // shared document must stay Editing until its last view closes.
+    draft.value.state     = DraftRecord::Editing;
+    draft.value.updatedAt = QDateTime::currentDateTimeUtc();
+    ++draft.value.revision;
+    if (const auto error = store_->write(draft.value))
+        return { {}, error };
+
+    emit draftsChanged();
+    return draft;
+}
+
 DraftStoreError DraftManager::moveDraft(const QUuid &draftId, const QString &destinationStorageId)
 {
     if (!store_)
