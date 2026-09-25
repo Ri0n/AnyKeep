@@ -7,6 +7,7 @@
 #include "filedraftstore.h"
 #include "localdatakeystore.h"
 #include "notedata.h"
+#include "noteeditor.h"
 #include "notemanager.h"
 #include "notestorage.h"
 #include "notetransfercontroller.h"
@@ -80,7 +81,15 @@ DraftManager::DraftManager(std::unique_ptr<DraftStore> store, QObject *parent) :
     QObject(parent), store_(std::move(store)), conflictResolver_(std::make_unique<CopyConflictResolver>())
 {
 }
-DraftManager::~DraftManager() = default;
+DraftManager::~DraftManager()
+{
+    // NoteEditor releases DraftManager editing leases from its destructor.
+    // QObject would normally delete children from its base destructor, after
+    // DraftManager members have already been destroyed. Delete canonical live
+    // editors here while the session maps are still valid.
+    const auto editors = findChildren<NoteEditor *>(QString(), Qt::FindDirectChildrenOnly);
+    qDeleteAll(editors);
+}
 
 QString DraftManager::sourceKey(const QString &storageId, const QString &noteId)
 {
