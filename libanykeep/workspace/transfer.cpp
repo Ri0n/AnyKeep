@@ -99,7 +99,8 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
         Note source = currentEditor_->note();
 
         QUuid destinationDraftId;
-        if (!stageMove(source, destinationStorageId, &destinationDraftId, currentEditor_->folderUserOverride()))
+        if (!stageDurableMove(source, destinationStorageId, &destinationDraftId,
+                              currentEditor_->folderUserOverride()))
             return false;
 
         // Moving is not a normal close of the source editing session: publishing
@@ -489,6 +490,23 @@ bool NotesWorkspaceController::stageMove(const Note &source, const QString &dest
     return true;
 }
 
+bool NotesWorkspaceController::stageDurableMove(const Note &source, const QString &destinationStorageId,
+                                                QUuid *draftId, bool folderUserOverride)
+{
+    const QUuid folderId = effectiveFolderId(source);
+    const auto  error
+        = draftManager_->stageTransfer(source, destinationStorageId, folderId, draftId, folderUserOverride);
+    if (error) {
+        setError(error.message);
+        return false;
+    }
+    if (!folderId.isNull() && draftId && !draftId->isNull()) {
+        rememberPendingFolderAssignment(*draftId, folderId);
+        folderOperations_->prepareNativeFolderTree(destinationStorageId);
+    }
+    return true;
+}
+
 void NotesWorkspaceController::startStagedMove(const QUuid &draftId, const Note &source, const QUuid &reorderBatchId,
                                                int reorderIndex)
 {
@@ -501,7 +519,7 @@ bool NotesWorkspaceController::beginMove(const Note &source, const QString &dest
                                          const QUuid &reorderBatchId, int reorderIndex)
 {
     QUuid draftId;
-    if (!stageMove(source, destinationStorageId, &draftId))
+    if (!stageDurableMove(source, destinationStorageId, &draftId))
         return false;
     startStagedMove(draftId, source, reorderBatchId, reorderIndex);
     return true;
