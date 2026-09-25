@@ -200,6 +200,7 @@ signals:
 private:
     friend class DraftManager;
     void                        attachStorageContext(const Note &context);
+    void                        detachStorageContextForRecovery();
     void                        loadFromNote();
     void                        adoptEditingDraft(const DraftRecord &draft);
     QObject                    *activeEditorView() const;
