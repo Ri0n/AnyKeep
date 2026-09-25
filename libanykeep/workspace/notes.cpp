@@ -137,7 +137,12 @@ bool NotesWorkspaceController::openNote(const Note &note, const QUuid &draftId)
         return false;
     auto editorNote = note;
     editorNote.setFolderId(effectiveFolderId(note));
-    setCurrentEditor(new NoteEditor(editorNote, *draftManager_, draftId, this));
+    auto *editor = draftManager_->acquireEditor(editorNote, draftId);
+    if (!editor) {
+        setError(tr("Could not acquire the shared note model"));
+        return false;
+    }
+    setCurrentEditor(editor);
     setError({});
     return true;
 }
