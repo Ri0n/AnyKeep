@@ -71,6 +71,12 @@ public:
     DraftStoreError retryDraftNow(const QUuid &draftId);
     DraftStoreError queueRemoval(const QString &storageId, const QString &noteId);
     /**
+     * Replaces a publish/transfer draft with durable deletion intents for
+     * every remote object that may already represent that logical note.
+     * The draft is discarded only after all delete records are durable.
+     */
+    DraftStoreError queueDraftDeletion(const QUuid &draftId);
+    /**
      * Creates a persisted cross-storage move. The source is deleted only
      * after the destination draft is acknowledged by its storage.
      */
