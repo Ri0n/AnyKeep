@@ -12,6 +12,8 @@
 #include <QTimer>
 #include <QUuid>
 
+#include <utility>
+
 // Uncomment for detailed draft publication/conflict diagnostics.
 // #define ANYKEEP_ENABLE_CONFLICT_TRACE
 
