@@ -6,6 +6,7 @@
 #include "folderoperationscontroller.h"
 #include "noteeditor.h"
 #include "notemanager.h"
+#include "notedata.h"
 #include "notesindex.h"
 #include "notesmodel.h"
 #include "notessearchmodel.h"
@@ -25,6 +26,30 @@
 #include <utility>
 
 namespace AnyKeep {
+namespace {
+
+Note noteFromEditingDraft(const DraftRecord &draft)
+{
+    Note note;
+    if (!draft.storageId.isEmpty()) {
+        if (auto storage = NoteManager::instance()->storage(draft.storageId))
+            note = storage->createNote();
+    }
+    if (note.isNull())
+        note = Note(new NoteData(nullptr));
+
+    if (!draft.remoteNoteId.isEmpty())
+        note.setId(draft.remoteNoteId);
+    note.setTitle(draft.title);
+    note.setText(draft.body, draft.format);
+    note.setTags(draft.tags);
+    note.setFolderId(draft.folderId);
+    note.setBackendData(draft.backendData);
+    note.setMedia(draft.media);
+    return note;
+}
+
+} // namespace
 
 bool NotesWorkspaceController::openNote(const QString &storageId, const QString &noteId)
 {
@@ -48,23 +73,14 @@ bool NotesWorkspaceController::openNote(const QString &storageId, const QString 
             setError(resumed.error.message.isEmpty() ? tr("The draft is no longer available") : resumed.error.message);
             return false;
         }
-        effectiveStorageId = resumed.value.storageId;
-        effectiveNoteId    = resumed.value.remoteNoteId;
-        auto storage       = effectiveStorageId.isEmpty() ? NoteManager::instance()->defaultStorage()
-                                                          : NoteManager::instance()->storage(effectiveStorageId);
-        if (!storage || !storage->canAcceptWrites()) {
-            setError(tr("The storage associated with this draft is unavailable"));
+        // The encrypted draft is the authoritative working copy. Opening it
+        // must not depend on the target plugin being present/readable.
+        auto note = noteFromEditingDraft(resumed.value);
+        if (note.isNull() || !openNote(note, draftId)) {
+            setError(tr("The draft could not be opened"));
             return false;
         }
-        effectiveStorageId = storage->systemName();
-        if (effectiveNoteId.isEmpty()) {
-            auto note = storage->createNote();
-            if (note.isNull() || !openNote(note, draftId)) {
-                setError(tr("The draft could not be opened"));
-                return false;
-            }
-            return true;
-        }
+        return true;
     } else {
         if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId)
             return true;
@@ -83,21 +99,15 @@ bool NotesWorkspaceController::openNote(const QString &storageId, const QString 
                 return false;
             }
             draftId = pending.value.id;
-            if (pending.value.remoteNoteId.isEmpty()) {
-                auto storage = NoteManager::instance()->storage(pending.value.storageId);
-                if (!storage || !storage->canAcceptWrites()) {
-                    setError(tr("The storage associated with this draft is unavailable"));
-                    return false;
-                }
-                auto note = storage->createNote();
-                if (note.isNull() || !openNote(note, draftId)) {
-                    setError(tr("The pending draft could not be opened"));
-                    return false;
-                }
-                return true;
+            // Never reload an origin/target body over a durable local draft.
+            // A detached NoteData keeps recovery editable even while the
+            // target storage plugin is absent.
+            auto note = noteFromEditingDraft(resumed.value);
+            if (note.isNull() || !openNote(note, draftId)) {
+                setError(tr("The pending draft could not be opened"));
+                return false;
             }
-            effectiveStorageId = pending.value.storageId;
-            effectiveNoteId    = pending.value.remoteNoteId;
+            return true;
         }
     }
 
