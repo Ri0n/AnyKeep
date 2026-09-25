@@ -112,11 +112,108 @@ void DraftManager::cancelPublication(const QUuid &draftId)
 {
     auto job = publishJobs_.take(draftId);
     publishing_.remove(draftId);
-    if (job && !job->isFinished()) {
-        qCInfo(logDraftPersistence) << "Cancelling active draft publication: id="
+    if (!job || job->isFinished())
+        return;
+
+    // A save may already have crossed the remote side-effect boundary even
+    // though its acknowledgement has not reached us. Calling cancel() would
+    // make the local job terminally Cancelled and discard a later successful
+    // result/remote id. Retire it logically instead and let the callback
+    // reconcile its terminal outcome. Read-only loads are safe to cancel.
+    if (qobject_cast<NoteSaveJob *>(job.data())) {
+        qCInfo(logDraftPersistence) << "Retiring active save publication pending late acknowledgement: id="
                                     << draftId.toString(QUuid::WithoutBraces);
-        job->cancel();
+        return;
     }
+
+    qCInfo(logDraftPersistence) << "Cancelling active draft publication: id="
+                                << draftId.toString(QUuid::WithoutBraces);
+    job->cancel();
+}
+
+void DraftManager::reconcileStaleSaveSuccess(const DraftRecord &attempt, const Note &result)
+{
+    if (!store_ || result.isNull() || result.storageId().isEmpty() || result.id().isEmpty())
+        return;
+
+    // Updating an already-existing remote object is not an orphan-create
+    // situation: deleting it would be destructive. The important ambiguous
+    // case here is a create whose acknowledgement arrived after local intent
+    // changed.
+    if (!attempt.remoteNoteId.isEmpty())
+        return;
+
+    const auto queueOrphanRemoval = [this, &result] {
+        const auto error = queueRemoval(result.storageId(), result.id());
+        if (error) {
+            emit publicationAbandoned(
+                tr("A cancelled publication completed remotely, but cleanup could not be queued: %1")
+                    .arg(error.message));
+        } else {
+            qCWarning(logDraftPersistence)
+                << "Queued cleanup for late-acknowledged orphan: storage=" << result.storageId()
+                << "note=" << result.id();
+        }
+    };
+
+    auto current = store_->load(attempt.id);
+    if (!current || current.value.operation != DraftRecord::Publish) {
+        queueOrphanRemoval();
+        return;
+    }
+
+    // If the logical note has since moved/recycled back to another storage,
+    // the late result belongs to an abandoned target. Never let it overwrite
+    // the current route; just clean up the remote object durably.
+    if (current.value.storageId != result.storageId()) {
+        queueOrphanRemoval();
+        return;
+    }
+
+    // The target is still the same. A late create ACK can become the stable
+    // remote identity for the current canonical draft, avoiding another create.
+    if (current.value.remoteNoteId.isEmpty()) {
+        // A newer create/load attempt for this same draft may already be in
+        // flight. Retire it before adopting the first acknowledged identity;
+        // if that newer create also succeeds later, its stale callback will
+        // queue that second object for deletion.
+        cancelPublication(attempt.id);
+
+        auto adopted         = current.value;
+        adopted.remoteNoteId = result.id();
+
+        const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+        const auto favorite = adopted.backendData.value(favoriteKey);
+        adopted.backendData = result.backendData();
+        if (favorite.isValid() && !adopted.backendData.contains(favoriteKey))
+            adopted.backendData.insert(favoriteKey, favorite);
+
+        adopted.state = editingSessionCount(attempt.id) > 0
+            ? DraftRecord::Editing
+            : (adopted.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready);
+        adopted.lastError.clear();
+        adopted.retryAt   = {};
+        adopted.updatedAt = QDateTime::currentDateTimeUtc();
+
+        if (const auto error = store_->write(adopted)) {
+            emit publicationAbandoned(
+                tr("A late publication acknowledgement could not be recorded safely: %1").arg(error.message));
+            queueOrphanRemoval();
+            return;
+        }
+
+        if (auto *editor = liveEditorsByDraft_.value(attempt.id).data())
+            refreshLiveEditorAliases(editor);
+        emit draftsChanged();
+        if (adopted.state == DraftRecord::Ready)
+            QTimer::singleShot(0, this, &DraftManager::publishPending);
+        return;
+    }
+
+    // Another acknowledgement already won the identity race. Any different
+    // id from this stale create is a duplicate and must be removed.
+    if (current.value.remoteNoteId != result.id())
+        queueOrphanRemoval();
 }
 
 QList<DraftRecord> DraftManager::pendingDrafts() const
@@ -502,7 +599,10 @@ void DraftManager::publish(const DraftRecord &record)
         connect(job, &StorageJob::finished, this, [this, record, job]() {
             if (publishJobs_.value(record.id) != job) {
                 qCInfo(logDraftPersistence)
-                    << "Ignoring stale draft save job: draft=" << record.id.toString(QUuid::WithoutBraces);
+                    << "Reconciling stale draft save job: draft=" << record.id.toString(QUuid::WithoutBraces)
+                    << "state=" << int(job->state());
+                if (job->state() == StorageJob::Succeeded)
+                    reconcileStaleSaveSuccess(record, job->result());
                 job->deleteLater();
                 return;
             }
