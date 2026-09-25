@@ -1074,61 +1074,29 @@ void Main::pinNote(const Note &note, const QUuid &draftId, bool awaitingPublicat
 void Main::openNoteDialog(const QString &storageId, const QString &noteId)
 {
     auto *drafts = DraftManager::instance();
-    if (storageId == DraftManager::draftsStorageId()) {
-        const QUuid draftId(noteId);
+
+    const auto openDraft = [this, drafts](const QUuid &draftId, const QString &fallbackError) {
         if (draftId.isNull()) {
             notifyError(tr("The draft identifier is invalid"));
-            return;
+            return false;
         }
-        for (auto *dialog : NoteDialog::openDialogs()) {
-            if (dialog && dialog->editor() && dialog->editor()->draftId() == draftId) {
-                dialog->show();
-                activateWindow(dialog);
-                return;
-            }
-        }
-        const auto resumed = drafts->resumeEditingDraft(draftId);
+
+        const auto resumed = drafts->resumeNoteForEditingDraft(draftId);
         if (!resumed) {
-            notifyError(resumed.error.message.isEmpty() ? tr("The draft is no longer available")
-                                                        : resumed.error.message);
-            return;
+            notifyError(resumed.error.message.isEmpty() ? fallbackError : resumed.error.message);
+            return false;
         }
-        auto storage = resumed.value.storageId.isEmpty() ? NoteManager::instance()->defaultStorage()
-                                                         : NoteManager::instance()->storage(resumed.value.storageId);
-        if (!storage || !storage->canAcceptWrites()) {
-            notifyError(tr("The storage associated with this draft is unavailable"));
-            return;
-        }
-        if (resumed.value.remoteNoteId.isEmpty()) {
-            auto note = storage->createNote();
-            if (note.isNull()) {
-                notifyError(tr("The draft could not be opened"));
-                return;
-            }
-            auto *dialog = findOpenNoteDialog(note, draftId);
-            if (!dialog)
-                dialog = new NoteDialog(note, this, draftId);
-            dialog->show();
-            activateWindow(dialog);
-            return;
-        }
-        const QString effectiveStorageId = storage->systemName();
-        const QString effectiveNoteId    = resumed.value.remoteNoteId;
-        auto         *job = NoteManager::instance()->loadNoteAsync(effectiveStorageId, effectiveNoteId, this);
-        connect(job, &StorageJob::finished, this, [this, job, draftId]() {
-            if (job->state() != StorageJob::Succeeded) {
-                notifyError(job->error().message.isEmpty() ? tr("Failed to load note") : job->error().message);
-                job->deleteLater();
-                return;
-            }
-            const auto loaded = job->result();
-            auto      *dialog = findOpenNoteDialog(loaded, draftId);
-            if (!dialog)
-                dialog = new NoteDialog(loaded, this, draftId);
-            dialog->show();
-            activateWindow(dialog);
-            job->deleteLater();
-        });
+
+        auto *dialog = findOpenNoteDialog(resumed.value, draftId);
+        if (!dialog)
+            dialog = new NoteDialog(resumed.value, this, draftId);
+        dialog->show();
+        activateWindow(dialog);
+        return true;
+    };
+
+    if (storageId == DraftManager::draftsStorageId()) {
+        openDraft(QUuid(noteId), tr("The draft is no longer available"));
         return;
     }
 
@@ -1145,8 +1113,7 @@ void Main::openNoteDialog(const QString &storageId, const QString &noteId)
         return;
     }
 
-    QUuid draftId;
-    auto  pending = drafts->pendingDraftForNote(storageId, noteId);
+    auto pending = drafts->pendingDraftForNote(storageId, noteId);
     if (!pending) {
         // A draft which is being transferred to this storage has no remote
         // destination id until the first save succeeds. NotesModel presents it
@@ -1157,46 +1124,21 @@ void Main::openNoteDialog(const QString &storageId, const QString &noteId)
             pending = presentedDraft;
     }
     if (pending) {
-        const auto resumed = drafts->resumeEditingDraft(pending.value.id);
-        if (!resumed) {
-            notifyError(resumed.error.message.isEmpty() ? tr("The pending draft could not be opened")
-                                                        : resumed.error.message);
-            return;
-        }
-        draftId = pending.value.id;
-        if (pending.value.remoteNoteId.isEmpty()) {
-            auto storage = NoteManager::instance()->storage(pending.value.storageId);
-            if (!storage || !storage->canAcceptWrites()) {
-                notifyError(tr("The storage associated with this draft is unavailable"));
-                return;
-            }
-            auto note = storage->createNote();
-            if (note.isNull()) {
-                notifyError(tr("The pending draft could not be opened"));
-                return;
-            }
-            auto *dialog = findOpenNoteDialog(note, draftId);
-            if (!dialog)
-                dialog = new NoteDialog(note, this, draftId);
-            dialog->show();
-            activateWindow(dialog);
-            return;
-        }
+        openDraft(pending.value.id, tr("The pending draft could not be opened"));
+        return;
     }
 
-    const QString effectiveStorageId = pending ? pending.value.storageId : storageId;
-    const QString effectiveNoteId    = pending ? pending.value.remoteNoteId : noteId;
-    auto         *job = NoteManager::instance()->loadNoteAsync(effectiveStorageId, effectiveNoteId, this);
-    connect(job, &StorageJob::finished, this, [this, job, draftId]() {
+    auto *job = NoteManager::instance()->loadNoteAsync(storageId, noteId, this);
+    connect(job, &StorageJob::finished, this, [this, job]() {
         if (job->state() != StorageJob::Succeeded) {
             notifyError(job->error().message.isEmpty() ? tr("Failed to load note") : job->error().message);
             job->deleteLater();
             return;
         }
         const auto loaded = job->result();
-        auto      *dlg    = findOpenNoteDialog(loaded, draftId);
+        auto      *dlg    = findOpenNoteDialog(loaded);
         if (!dlg)
-            dlg = new NoteDialog(loaded, this, draftId);
+            dlg = new NoteDialog(loaded, this);
         dlg->show();
         activateWindow(dlg);
         job->deleteLater();
