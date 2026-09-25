@@ -175,6 +175,16 @@ NoteEditor *DraftManager::acquireEditor(const Note &note, const QUuid &knownDraf
     return editor;
 }
 
+NoteEditor *DraftManager::liveEditorForNote(const QString &storageId, const QString &noteId) const
+{
+    return liveEditorsBySource_.value(sourceKey(storageId, noteId));
+}
+
+NoteEditor *DraftManager::liveEditorForDraft(const QUuid &draftId) const
+{
+    return draftId.isNull() ? nullptr : liveEditorsByDraft_.value(draftId);
+}
+
 int DraftManager::editingSessionCountForNote(const QString &storageId, const QString &noteId) const
 {
     const auto key = sourceKey(storageId, noteId);
