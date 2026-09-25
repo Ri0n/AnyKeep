@@ -10,6 +10,8 @@
 #include <QDebug>
 #include <QLoggingCategory>
 #include <QMetaObject>
+#include <QQuickItem>
+#include <QQuickWindow>
 #include <QTimer>
 
 #include <algorithm>
@@ -30,13 +32,13 @@ NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draf
     draftId_ = drafts_->acquireEditingSession(note_, draftId);
     connect(drafts_, &DraftManager::discardEditorsForNoteRequested, this,
             [this](const QString &storageId, const QString &noteId) {
-                if (sessionReleased_ || note_.storageId() != storageId || note_.id() != noteId)
+                if (viewLeases_ == 0 || note_.storageId() != storageId || note_.id() != noteId)
                     return;
                 if (discardAndClose())
                     emit externalCloseRequested();
             });
     connect(drafts_, &DraftManager::discardEditorsForDraftRequested, this, [this](const QUuid &draftId) {
-        if (sessionReleased_ || draftId_ != draftId)
+        if (viewLeases_ == 0 || draftId_ != draftId)
             return;
         if (discardAndClose())
             emit externalCloseRequested();
@@ -102,15 +104,26 @@ NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draf
 
 NoteEditor::~NoteEditor()
 {
-    qCInfo(logEditorPersistence) << "Editor session destroyed: draft=" << draftId_.toString(QUuid::WithoutBraces)
+    qCInfo(logEditorPersistence) << "Shared editor destroyed: draft=" << draftId_.toString(QUuid::WithoutBraces)
                                  << "storage=" << note_.storageId() << "noteIdPresent=" << !note_.id().isEmpty()
-                                 << "dirty=" << dirty_ << "released=" << sessionReleased_;
+                                 << "dirty=" << dirty_ << "viewLeases=" << viewLeases_;
     // QUndoStack emits state changes while it is being destroyed. Detach the
-    // outward callback before QObject children or a registered view can enter
+    // outward callback before QObject children or registered views can enter
     // their base-class destructors.
     history_->setChangedHandler({});
-    if (!sessionReleased_)
+    while (viewLeases_ > 0) {
         drafts_->releaseEditingSession(draftId_);
+        --viewLeases_;
+    }
+}
+
+void NoteEditor::acquireViewLease()
+{
+    const auto acquired = drafts_->acquireEditingSession(note_, draftId_);
+    Q_ASSERT(acquired == draftId_);
+    ++viewLeases_;
+    qCInfo(logEditorPersistence) << "Shared editor view attached: draft=" << draftId_.toString(QUuid::WithoutBraces)
+                                 << "views=" << viewLeases_;
 }
 
 void NoteEditor::loadFromNote()
@@ -255,15 +268,16 @@ bool NoteEditor::save()
 
 bool NoteEditor::close()
 {
-    qCInfo(logEditorPersistence) << "Editor close requested: draft=" << draftId_.toString(QUuid::WithoutBraces)
-                                 << "storage=" << note_.storageId() << "noteIdPresent=" << !note_.id().isEmpty()
-                                 << "dirty=" << dirty_ << "released=" << sessionReleased_;
-    if (sessionReleased_)
+    qCInfo(logEditorPersistence) << "Shared editor view close requested: draft="
+                                 << draftId_.toString(QUuid::WithoutBraces) << "storage=" << note_.storageId()
+                                 << "noteIdPresent=" << !note_.id().isEmpty() << "dirty=" << dirty_
+                                 << "views=" << viewLeases_;
+    if (viewLeases_ <= 0)
         return true;
     if (dirty_ && !save())
         return false;
 
-    if (drafts_->isLastEditingSession(draftId_)) {
+    if (viewLeases_ == 1) {
         const auto draft = drafts_->editingDraft(draftId_);
         if (draft) {
             const auto result = drafts_->markReady(draftId_);
@@ -279,9 +293,13 @@ bool NoteEditor::close()
             return setError(draft.error.message);
         }
     }
+
     drafts_->releaseEditingSession(draftId_);
-    sessionReleased_ = true;
-    qCInfo(logEditorPersistence) << "Editor close completed" << draftId_.toString(QUuid::WithoutBraces);
+    --viewLeases_;
+    qCInfo(logEditorPersistence) << "Shared editor view closed: draft="
+                                 << draftId_.toString(QUuid::WithoutBraces) << "views=" << viewLeases_;
+    if (viewLeases_ == 0)
+        emit allViewsClosed();
     return true;
 }
 
@@ -298,16 +316,19 @@ bool NoteEditor::discardDraft()
 
 bool NoteEditor::discardAndClose()
 {
-    if (sessionReleased_)
+    if (viewLeases_ <= 0)
         return true;
     const auto result = drafts_->discard(draftId_);
     if (result && result.code != DraftStoreError::NotFound)
         return setError(result.message);
     draftPersisted_ = false;
-    drafts_->releaseEditingSession(draftId_);
-    sessionReleased_ = true;
+    while (viewLeases_ > 0) {
+        drafts_->releaseEditingSession(draftId_);
+        --viewLeases_;
+    }
     setMetadataDirty(false);
     setDirty(false);
+    emit allViewsClosed();
     return true;
 }
 
@@ -482,7 +503,41 @@ bool NoteEditor::setAudioTranscript(int row, const QString &transcript)
 
 bool NoteEditor::historyInTransaction() const { return history_->inTransaction(); }
 
-void NoteEditor::registerEditorView(QObject *view) { editorView_ = view; }
+void NoteEditor::registerEditorView(QObject *view)
+{
+    if (!view)
+        return;
+    for (const auto &registered : std::as_const(editorViews_)) {
+        if (registered == view)
+            return;
+    }
+    editorViews_.append(view);
+    connect(view, &QObject::destroyed, this, [this, view] { unregisterEditorView(view); });
+}
+
+void NoteEditor::unregisterEditorView(QObject *view)
+{
+    editorViews_.removeIf([view](const QPointer<QObject> &registered) { return !registered || registered == view; });
+}
+
+QObject *NoteEditor::activeEditorView() const
+{
+    QObject *activeWindowView = nullptr;
+    QObject *fallback         = nullptr;
+    for (const auto &registered : editorViews_) {
+        auto *view = registered.data();
+        if (!view)
+            continue;
+        fallback = view;
+        if (auto *item = qobject_cast<QQuickItem *>(view)) {
+            if (item->hasActiveFocus())
+                return view;
+            if (item->window() && item->window()->isActive())
+                activeWindowView = view;
+        }
+    }
+    return activeWindowView ? activeWindowView : fallback;
+}
 
 void NoteEditor::beginHistoryTransaction(const QString &kind, const QVariantMap &beforeView)
 {
@@ -502,8 +557,8 @@ void NoteEditor::updateHistoryViewState(const QVariantMap &viewState, bool break
 
 bool NoteEditor::undo()
 {
-    if (editorView_)
-        QMetaObject::invokeMethod(editorView_, "flushPendingEditorChanges");
+    if (auto *view = activeEditorView())
+        QMetaObject::invokeMethod(view, "flushPendingEditorChanges");
     if (!canUndo())
         return false;
     history_->undo();
@@ -512,8 +567,8 @@ bool NoteEditor::undo()
 
 bool NoteEditor::redo()
 {
-    if (editorView_)
-        QMetaObject::invokeMethod(editorView_, "flushPendingEditorChanges");
+    if (auto *view = activeEditorView())
+        QMetaObject::invokeMethod(view, "flushPendingEditorChanges");
     if (!canRedo())
         return false;
     history_->redo();
@@ -524,25 +579,27 @@ void NoteEditor::breakHistoryMerge() { history_->breakMerge(); }
 
 QVariantMap NoteEditor::captureEditorViewState() const
 {
-    if (!editorView_)
+    auto *view = activeEditorView();
+    if (!view)
         return {};
     QVariant result;
-    if (!QMetaObject::invokeMethod(editorView_, "captureEditorState", Q_RETURN_ARG(QVariant, result)))
+    if (!QMetaObject::invokeMethod(view, "captureEditorState", Q_RETURN_ARG(QVariant, result)))
         return {};
     return result.toMap();
 }
 
 void NoteEditor::prepareEditorViewForHistoryRestore()
 {
-    if (editorView_)
-        QMetaObject::invokeMethod(editorView_, "prepareForHistoryRestore");
+    if (auto *view = activeEditorView())
+        QMetaObject::invokeMethod(view, "prepareForHistoryRestore");
 }
 
 void NoteEditor::scheduleEditorViewRestore(const QVariantMap &viewState)
 {
-    QTimer::singleShot(0, this, [this, viewState] {
-        if (editorView_)
-            QMetaObject::invokeMethod(editorView_, "restoreEditorState", Q_ARG(QVariant, viewState));
+    QPointer<QObject> view(activeEditorView());
+    QTimer::singleShot(0, this, [view, viewState] {
+        if (view)
+            QMetaObject::invokeMethod(view, "restoreEditorState", Q_ARG(QVariant, viewState));
     });
 }
 
