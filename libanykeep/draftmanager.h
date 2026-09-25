@@ -126,6 +126,7 @@ signals:
     void draftPublishFailed(const QUuid &draftId, const QString &message);
     void publishingIdle();
     void publicationAbandoned(const QString &message);
+    void recoveryNotice(const QString &message);
     void conflictResolved(const QString &message);
 
 private:
@@ -138,6 +139,7 @@ private:
     void           resolveConflict(const DraftRecord &record, const StorageError &error, const Note &remoteNote = {});
     void           storageBecameReady(NoteStorage *storage);
     void           storageAboutToBeRemoved(NoteStorage *storage);
+    void           observeStorageRemovals(NoteStorage *storage);
     void           cancelPublication(const QUuid &draftId);
     void           refreshLiveEditorAliases(NoteEditor *editor);
     void           removeLiveEditor(NoteEditor *editor);
@@ -156,6 +158,7 @@ private:
     QString                            lastError_;
     std::unique_ptr<ConflictResolver>  conflictResolver_;
     PrePublicationHandler              prePublicationHandler_;
+    QSet<NoteStorage *>                 observedRemovalStorages_;
     bool                               shuttingDown_ { false };
 };
 
