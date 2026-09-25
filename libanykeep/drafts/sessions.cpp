@@ -743,7 +743,8 @@ DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId,
     return { { record.storageId, record.remoteNoteId }, {} };
 }
 
-DraftStoreError DraftManager::preserveLiveNoteAfterExternalRemoval(const QString &storageId, const QString &noteId)
+DraftStoreError DraftManager::preserveLiveNoteAfterExternalRemoval(const QString &storageId,
+                                                                    const QString &noteId)
 {
     const auto draftIds = liveDraftIdsForAlias(storageId, noteId);
     for (const auto &draftId : draftIds) {
@@ -752,14 +753,67 @@ DraftStoreError DraftManager::preserveLiveNoteAfterExternalRemoval(const QString
             continue;
 
         const Note snapshot = editor->note();
-        const auto error = saveEditing(draftId, snapshot, snapshot.title(), snapshot.text(), snapshot.format(),
-                                       editor->folderUserOverride());
-        if (error)
+        if (const auto error = saveEditing(draftId, snapshot, snapshot.title(), snapshot.text(), snapshot.format(),
+                                           editor->folderUserOverride())) {
             return error;
+        }
+
+        auto draft = store_->load(draftId);
+        if (!draft)
+            return draft.error;
+
+        const bool removedTransferSource = draft.value.removeSourceStorageId == storageId
+            && draft.value.removeSourceNoteId == noteId
+            && (draft.value.storageId != storageId || draft.value.remoteNoteId != noteId);
+        if (removedTransferSource) {
+            // The live note already targets another persistence identity. The
+            // source vanished independently, so its cleanup obligation is
+            // satisfied; do not disturb the destination/live document.
+            draft.value.removeSourceStorageId.clear();
+            draft.value.removeSourceNoteId.clear();
+            draft.value.updatedAt = QDateTime::currentDateTimeUtc();
+            if (const auto writeError = store_->write(draft.value))
+                return writeError;
+            editor->draftPersisted_ = true;
+            editor->draftRevision_  = draft.value.revision;
+            refreshLiveEditorAliases(editor);
+            emit draftsChanged();
+            continue;
+        }
+
+        const bool removedCurrentIdentity
+            = draft.value.storageId == storageId && draft.value.remoteNoteId == noteId;
+        if (!removedCurrentIdentity)
+            continue;
+
+        // A remote deletion is a concurrency event, not permission to recreate
+        // the object silently. Preserve the canonical working copy as an
+        // unrouted local draft. If a transfer source still existed, stop
+        // treating it as a deferred-delete obligation as well: it is now an
+        // independent remote object again.
+        draft.value.storageId.clear();
+        draft.value.remoteNoteId.clear();
+        draft.value.removeSourceStorageId.clear();
+        draft.value.removeSourceNoteId.clear();
+
+        QVariantMap portableData;
+        const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+        if (draft.value.backendData.contains(favoriteKey))
+            portableData.insert(favoriteKey, draft.value.backendData.value(favoriteKey));
+        draft.value.backendData = std::move(portableData);
+        draft.value.state       = DraftRecord::Editing;
+        draft.value.lastError   = tr("The remote note was removed while this local copy was open");
+        draft.value.retryAt     = {};
+        draft.value.updatedAt   = QDateTime::currentDateTimeUtc();
+
+        if (const auto writeError = store_->write(draft.value))
+            return writeError;
 
         editor->draftPersisted_ = true;
-        if (const auto draft = editingDraft(draftId); draft)
-            editor->draftRevision_ = draft.value.revision;
+        editor->draftRevision_  = draft.value.revision;
+        editor->detachStorageContextForRecovery();
+        refreshLiveEditorAliases(editor);
+        emit draftsChanged();
     }
     return {};
 }
