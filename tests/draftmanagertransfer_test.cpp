@@ -191,6 +191,7 @@ private slots:
     void reusesDetachedRecoveryModelWhenStorageReturns();
     void closesDetachedRecoveryModelByDurableAlias();
     void recyclePreparationPreservesPostAckSourceCleanup();
+    void recycleCancelsPreAckTransferBackToSource();
     void lifecycleViewClosureDoesNotDiscardTransferRecord();
 };
 
@@ -830,6 +831,7 @@ void DraftManagerTransferTest::recyclePreparationPreservesPostAckSourceCleanup()
     detached.setId(transfer.remoteNoteId);
     auto *editor = drafts.acquireEditor(detached, transfer.id);
     QVERIFY(editor);
+    editor->setText(QStringLiteral("Moved note\n\nLatest local body"));
 
     const auto recycleFolder = QUuid::createUuid();
     const auto prepared = drafts.prepareForRecycle({}, {}, recycleFolder, transfer.id);
@@ -844,6 +846,8 @@ void DraftManagerTransferTest::recyclePreparationPreservesPostAckSourceCleanup()
     QCOMPARE(recycledDraft.state, DraftRecord::Ready);
     QCOMPARE(recycledDraft.folderId, recycleFolder);
     QVERIFY(recycledDraft.folderUserOverride);
+    QCOMPARE(recycledDraft.title, QStringLiteral("Moved note"));
+    QCOMPARE(recycledDraft.body, QStringLiteral("Latest local body"));
     QCOMPARE(recycledDraft.removeSourceStorageId, transfer.removeSourceStorageId);
     QCOMPARE(recycledDraft.removeSourceNoteId, transfer.removeSourceNoteId);
 
@@ -884,6 +888,48 @@ void DraftManagerTransferTest::lifecycleViewClosureDoesNotDiscardTransferRecord(
     QVERIFY(data->records_.contains(transfer.id));
     QCOMPARE(data->records_.value(transfer.id).removeSourceStorageId, transfer.removeSourceStorageId);
     QCOMPARE(data->records_.value(transfer.id).removeSourceNoteId, transfer.removeSourceNoteId);
+}
+
+void DraftManagerTransferTest::recycleCancelsPreAckTransferBackToSource()
+{
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord transfer;
+    transfer.id                    = QUuid::createUuid();
+    transfer.operation             = DraftRecord::Publish;
+    transfer.state                 = DraftRecord::Editing;
+    transfer.storageId             = QStringLiteral("destination");
+    transfer.remoteNoteId.clear();
+    transfer.removeSourceStorageId = QStringLiteral("source");
+    transfer.removeSourceNoteId    = QStringLiteral("source-note");
+    transfer.title                 = QStringLiteral("Moved note");
+    transfer.body                  = QStringLiteral("Body");
+    transfer.format                = Note::Markdown;
+    transfer.backendData.insert(QStringLiteral("etag"), QStringLiteral("source-etag"));
+    data->records_.insert(transfer.id, transfer);
+
+    DraftManager drafts(std::move(store));
+    Note         detached(new NoteData(nullptr));
+    auto *editor = drafts.acquireEditor(detached, transfer.id);
+    QVERIFY(editor);
+    editor->setText(QStringLiteral("Moved note\n\nEdited before trash"));
+
+    const auto recycleFolder = QUuid::createUuid();
+    const auto prepared = drafts.prepareForRecycle({}, {}, recycleFolder, transfer.id);
+    QVERIFY2(prepared, qPrintable(prepared.error.message));
+    QCOMPARE(prepared.value.first, transfer.removeSourceStorageId);
+    QCOMPARE(prepared.value.second, transfer.removeSourceNoteId);
+    QCOMPARE(editor->viewLeaseCount(), 0);
+
+    const auto recycledDraft = data->records_.value(transfer.id);
+    QCOMPARE(recycledDraft.storageId, transfer.removeSourceStorageId);
+    QCOMPARE(recycledDraft.remoteNoteId, transfer.removeSourceNoteId);
+    QVERIFY(recycledDraft.removeSourceStorageId.isEmpty());
+    QVERIFY(recycledDraft.removeSourceNoteId.isEmpty());
+    QCOMPARE(recycledDraft.backendData, transfer.backendData);
+    QCOMPARE(recycledDraft.folderId, recycleFolder);
+    QCOMPARE(recycledDraft.state, DraftRecord::Ready);
+    QCOMPARE(recycledDraft.body, QStringLiteral("Edited before trash"));
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
