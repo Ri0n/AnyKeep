@@ -97,17 +97,28 @@ QUuid DraftManager::acquireEditingSession(const Note &note, const QUuid &knownDr
     if (id.isNull())
         id = QUuid::createUuid();
     ++editingSessions_[id];
-    if (!key.isEmpty())
+    if (!key.isEmpty()) {
         sourceSessions_[key] = id;
+        editingSources_[id]  = key;
+    }
     qCInfo(logDraftPersistence) << "Acquired editing session: draft=" << id.toString(QUuid::WithoutBraces)
                                 << "storage=" << note.storageId() << "noteIdPresent=" << !note.id().isEmpty()
                                 << "sessions=" << editingSessions_.value(id);
     return id;
 }
 
-QUuid DraftManager::activeEditingDraftForNote(const QString &storageId, const QString &noteId) const
+int DraftManager::editingSessionCountForNote(const QString &storageId, const QString &noteId) const
 {
-    return sourceSessions_.value(sourceKey(storageId, noteId));
+    const auto key = sourceKey(storageId, noteId);
+    if (key.isEmpty())
+        return 0;
+
+    int count = 0;
+    for (auto source = editingSources_.cbegin(); source != editingSources_.cend(); ++source) {
+        if (source.value() == key)
+            count += editingSessions_.value(source.key());
+    }
+    return count;
 }
 
 int DraftManager::editingSessionCount(const QUuid &draftId) const { return editingSessions_.value(draftId); }
@@ -128,11 +139,19 @@ bool DraftManager::releaseEditingSession(const QUuid &draftId)
         return false;
     }
     editingSessions_.erase(it);
-    for (auto source = sourceSessions_.begin(); source != sourceSessions_.end();) {
-        if (source.value() == draftId)
-            source = sourceSessions_.erase(source);
+    const auto key = editingSources_.take(draftId);
+    if (!key.isEmpty() && sourceSessions_.value(key) == draftId) {
+        QUuid replacement;
+        for (auto source = editingSources_.cbegin(); source != editingSources_.cend(); ++source) {
+            if (source.value() == key && editingSessions_.value(source.key()) > 0) {
+                replacement = source.key();
+                break;
+            }
+        }
+        if (replacement.isNull())
+            sourceSessions_.remove(key);
         else
-            ++source;
+            sourceSessions_[key] = replacement;
     }
     qCInfo(logDraftPersistence) << "Released final editing session" << draftId.toString(QUuid::WithoutBraces);
     return true;
