@@ -30,12 +30,12 @@ class ANYKEEP_EXPORT NoteEditor final : public QObject {
     Q_PROPERTY(bool dirty READ isDirty NOTIFY dirtyChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorStringChanged)
     Q_PROPERTY(QString draftId READ draftIdString CONSTANT)
-    Q_PROPERTY(QString storageId READ storageId CONSTANT)
-    Q_PROPERTY(QString noteId READ noteId CONSTANT)
+    Q_PROPERTY(QString storageId READ storageId NOTIFY identityChanged)
+    Q_PROPERTY(QString noteId READ noteId NOTIFY identityChanged)
     Q_PROPERTY(QString folderId READ folderIdString NOTIFY folderIdChanged)
     Q_PROPERTY(bool favorite READ isFavorite WRITE setFavorite NOTIFY favoriteChanged)
-    Q_PROPERTY(bool favoriteSupported READ supportsFavorite CONSTANT)
-    Q_PROPERTY(bool supportsMedia READ supportsMedia CONSTANT)
+    Q_PROPERTY(bool favoriteSupported READ supportsFavorite NOTIFY storageCapabilitiesChanged)
+    Q_PROPERTY(bool supportsMedia READ supportsMedia NOTIFY storageCapabilitiesChanged)
     Q_PROPERTY(bool canInsertImages READ canInsertImages NOTIFY formatChanged)
     Q_PROPERTY(bool canInsertAudio READ canInsertAudio NOTIFY formatChanged)
     Q_PROPERTY(bool canInsertAttachments READ canInsertAttachments NOTIFY formatChanged)
@@ -110,7 +110,12 @@ public:
     void resetHistory();
     bool reloadNewerDraft();
 
+    /** Adds another UI lease to this shared live note model. */
+    void acquireViewLease();
+    int  viewLeaseCount() const { return viewLeases_; }
+
     Q_INVOKABLE void        registerEditorView(QObject *view);
+    Q_INVOKABLE void        unregisterEditorView(QObject *view);
     Q_INVOKABLE void        beginHistoryTransaction(const QString &kind, const QVariantMap &beforeView = {});
     Q_INVOKABLE void        endHistoryTransaction(const QVariantMap &afterView = {});
     Q_INVOKABLE void        updateHistoryViewState(const QVariantMap &viewState, bool breakMerge = false);
@@ -166,6 +171,9 @@ public slots:
 
 signals:
     void externalCloseRequested();
+    void allViewsClosed();
+    void identityChanged();
+    void storageCapabilitiesChanged();
     void textChanged();
     void formatChanged();
     void dirtyChanged();
@@ -181,6 +189,7 @@ signals:
 private:
     void                        loadFromNote();
     void                        adoptEditingDraft(const DraftRecord &draft);
+    QObject                    *activeEditorView() const;
     QVariantMap                 captureEditorViewState() const;
     void                        prepareEditorViewForHistoryRestore();
     void                        scheduleEditorViewRestore(const QVariantMap &viewState);
@@ -210,11 +219,11 @@ private:
     bool                        dirty_ { false };
     bool                        draftPersisted_ { false };
     bool                        folderUserOverride_ { false };
-    bool                        sessionReleased_ { false };
+    int                         viewLeases_ { 1 };
     int                         draftRevision_ { 0 };
     QString                     errorString_;
     QList<MediaReference>       media_;
-    QPointer<QObject>           editorView_;
+    QList<QPointer<QObject>>    editorViews_;
     std::unique_ptr<NoteDocumentHistory> history_;
     bool                                 scalarHistoryChangePending_ { false };
 };
