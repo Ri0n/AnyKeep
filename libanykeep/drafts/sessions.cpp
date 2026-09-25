@@ -110,6 +110,53 @@ QUuid DraftManager::acquireEditingSession(const Note &note, const QUuid &knownDr
     return id;
 }
 
+void DraftManager::refreshLiveEditorAliases(NoteEditor *editor)
+{
+    if (!editor)
+        return;
+
+    for (auto it = liveEditorsBySource_.begin(); it != liveEditorsBySource_.end();) {
+        if (it.value() == editor)
+            it = liveEditorsBySource_.erase(it);
+        else
+            ++it;
+    }
+
+    const auto addAlias = [this, editor](const QString &storageId, const QString &noteId) {
+        const auto key = sourceKey(storageId, noteId);
+        if (!key.isEmpty())
+            liveEditorsBySource_[key] = editor;
+    };
+
+    addAlias(editor->storageId(), editor->noteId());
+    if (!store_)
+        return;
+
+    const auto draft = store_->load(editor->draftId());
+    if (!draft || draft.value.operation != DraftRecord::Publish)
+        return;
+    addAlias(draft.value.storageId, draft.value.remoteNoteId);
+    addAlias(draft.value.removeSourceStorageId, draft.value.removeSourceNoteId);
+}
+
+void DraftManager::removeLiveEditor(NoteEditor *editor)
+{
+    if (!editor)
+        return;
+    for (auto it = liveEditorsByDraft_.begin(); it != liveEditorsByDraft_.end();) {
+        if (it.value() == editor)
+            it = liveEditorsByDraft_.erase(it);
+        else
+            ++it;
+    }
+    for (auto it = liveEditorsBySource_.begin(); it != liveEditorsBySource_.end();) {
+        if (it.value() == editor)
+            it = liveEditorsBySource_.erase(it);
+        else
+            ++it;
+    }
+}
+
 NoteEditor *DraftManager::acquireEditor(const Note &note, const QUuid &knownDraftId)
 {
     const auto key = sourceKey(note);
@@ -130,6 +177,18 @@ NoteEditor *DraftManager::acquireEditor(const Note &note, const QUuid &knownDraf
     }
 
     if (editor) {
+        // Recovery can create a storage-detached model while a plugin is
+        // unavailable. When that same persisted identity later becomes
+        // available, attach only its storage/capability context; never reload
+        // remote contents over the authoritative live/durable document.
+        if (editor->storageId().isEmpty() && !note.storageId().isEmpty() && store_) {
+            const auto draft = store_->load(editor->draftId());
+            if (draft && draft.value.operation == DraftRecord::Publish && draft.value.storageId == note.storageId()
+                && draft.value.remoteNoteId == note.id()) {
+                editor->attachStorageContext(note);
+            }
+        }
+
         editor->acquireViewLease();
         qCInfo(logDraftPersistence) << "Reusing canonical live editor: draft="
                                     << editor->draftId().toString(QUuid::WithoutBraces)
@@ -140,45 +199,19 @@ NoteEditor *DraftManager::acquireEditor(const Note &note, const QUuid &knownDraf
 
     editor = new NoteEditor(note, *this, knownDraftId, this);
     liveEditorsByDraft_[editor->draftId()] = editor;
-    if (!key.isEmpty())
-        liveEditorsBySource_[key] = editor;
+    refreshLiveEditorAliases(editor);
 
-    const auto removeAliases = [this, editor] {
-        for (auto it = liveEditorsByDraft_.begin(); it != liveEditorsByDraft_.end();) {
-            if (it.value() == editor)
-                it = liveEditorsByDraft_.erase(it);
-            else
-                ++it;
-        }
-        for (auto it = liveEditorsBySource_.begin(); it != liveEditorsBySource_.end();) {
-            if (it.value() == editor)
-                it = liveEditorsBySource_.erase(it);
-            else
-                ++it;
-        }
-    };
-
-    connect(editor, &NoteEditor::identityChanged, this, [this, editor] {
-        for (auto it = liveEditorsBySource_.begin(); it != liveEditorsBySource_.end();) {
-            if (it.value() == editor)
-                it = liveEditorsBySource_.erase(it);
-            else
-                ++it;
-        }
-        const auto currentKey = sourceKey(editor->storageId(), editor->noteId());
-        if (!currentKey.isEmpty())
-            liveEditorsBySource_[currentKey] = editor;
-    });
-    connect(editor, &NoteEditor::allViewsClosed, this, [removeAliases] {
+    connect(editor, &NoteEditor::identityChanged, this, [this, editor] { refreshLiveEditorAliases(editor); });
+    connect(editor, &NoteEditor::allViewsClosed, this, [this, editor] {
         // Stop new views from acquiring a model whose logical lifecycle ended,
         // but keep the QObject alive until every already-bound QML view has
         // actually detached from it.
-        removeAliases();
+        removeLiveEditor(editor);
     });
     connect(editor, &NoteEditor::disposable, this, [editor] { editor->deleteLater(); });
-    connect(editor, &QObject::destroyed, this, [removeAliases] { removeAliases(); });
+    connect(editor, &QObject::destroyed, this, [this, editor] { removeLiveEditor(editor); });
 
-    qCInfo(logDraftPersistence) << "Created canonical live editor: draft="
+    qCInfo(logDraftPersistence) << "Registered canonical live editor: draft="
                                 << editor->draftId().toString(QUuid::WithoutBraces)
                                 << "storage=" << editor->storageId() << "noteIdPresent=" << !editor->noteId().isEmpty();
     return editor;
