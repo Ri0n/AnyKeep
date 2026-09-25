@@ -182,6 +182,7 @@ private slots:
     void movesUnpublishedDraftWithoutCreatingSourceRemoval();
     void retriesExistingNoteFromDurableSnapshotWhenBodyLoadFails();
     void tracksAllSourceLeasesAcrossDistinctDraftIds();
+    void queuesDeletionForEveryPostAckTransferIdentity();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -649,6 +650,36 @@ void DraftManagerTransferTest::tracksAllSourceLeasesAcrossDistinctDraftIds()
     QVERIFY(!drafts.releaseEditingSession(first));
     QVERIFY(drafts.releaseEditingSession(first));
     QCOMPARE(drafts.editingSessionCountForNote(storage.systemName(), note.id()), 0);
+}
+
+void DraftManagerTransferTest::queuesDeletionForEveryPostAckTransferIdentity()
+{
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord transfer;
+    transfer.id                    = QUuid::createUuid();
+    transfer.operation             = DraftRecord::Publish;
+    transfer.state                 = DraftRecord::Retry;
+    transfer.storageId             = QStringLiteral("destination");
+    transfer.remoteNoteId          = QStringLiteral("destination-note");
+    transfer.removeSourceStorageId = QStringLiteral("source");
+    transfer.removeSourceNoteId    = QStringLiteral("source-note");
+    transfer.lastError             = QStringLiteral("source cleanup was not queued");
+    data->records_.insert(transfer.id, transfer);
+
+    DraftManager drafts(std::move(store));
+    const auto   error = drafts.queueDraftDeletion(transfer.id);
+    QVERIFY2(!error, qPrintable(error.message));
+    QVERIFY(!data->records_.contains(transfer.id));
+
+    QList<QPair<QString, QString>> removals;
+    for (const auto &record : std::as_const(data->records_)) {
+        QCOMPARE(record.operation, DraftRecord::Delete);
+        removals.append({ record.storageId, record.remoteNoteId });
+    }
+    QCOMPARE(removals.size(), 2);
+    QVERIFY(removals.contains({ QStringLiteral("destination"), QStringLiteral("destination-note") }));
+    QVERIFY(removals.contains({ QStringLiteral("source"), QStringLiteral("source-note") }));
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
