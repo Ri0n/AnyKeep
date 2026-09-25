@@ -143,6 +143,11 @@ bool DraftManager::initialize(QString *errorText)
                                     << "bodyLength=" << record.body.size() << "lastError=" << record.lastError;
     }
     auto *notes = NoteManager::instance();
+    connect(notes, &NoteManager::storageAdded, this,
+            [this](NoteStorage::Ptr storage) { observeStorageRemovals(storage.data()); });
+    for (const auto &storage : notes->storages(true))
+        observeStorageRemovals(storage.data());
+
     connect(notes, &NoteManager::storageAboutToBeRemoved, this,
             [this](NoteStorage::Ptr storage) { storageAboutToBeRemoved(storage.data()); });
     connect(notes, &NoteManager::storageRemoved, this,
@@ -151,6 +156,32 @@ bool DraftManager::initialize(QString *errorText)
             [this](NoteStorage::Ptr storage) { storageBecameReady(storage.data()); });
     QTimer::singleShot(0, this, &DraftManager::publishPending);
     return true;
+}
+
+void DraftManager::observeStorageRemovals(NoteStorage *storage)
+{
+    if (!storage || observedRemovalStorages_.contains(storage))
+        return;
+    observedRemovalStorages_.insert(storage);
+
+    connect(storage, &NoteStorage::noteRemoved, this, [this](const Note &note) {
+        if (note.isNull() || note.storageId().isEmpty() || note.id().isEmpty())
+            return;
+        if (liveDraftIdsForAlias(note.storageId(), note.id()).isEmpty())
+            return;
+
+        const auto error = preserveLiveNoteAfterExternalRemoval(note.storageId(), note.id());
+        if (error) {
+            emit publicationAbandoned(error.message.isEmpty()
+                                          ? tr("A note was removed remotely and its local recovery copy could not be saved.")
+                                          : error.message);
+            return;
+        }
+
+        emit recoveryNotice(tr("A note was removed from its storage while open. "
+                               "The local editing copy was preserved for recovery."));
+    });
+    connect(storage, &QObject::destroyed, this, [this, storage] { observedRemovalStorages_.remove(storage); });
 }
 
 bool DraftManager::recreateStore(QString *errorText)
