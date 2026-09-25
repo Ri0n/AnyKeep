@@ -51,9 +51,6 @@ public:
     Q_INVOKABLE void setAlwaysOnTop(bool enabled);
     Q_INVOKABLE void reportError(const QString &message);
 
-public slots:
-    void trashRequested();
-
 signals:
     void alwaysOnTopChanged();
     void operationFailed(const QString &message);
