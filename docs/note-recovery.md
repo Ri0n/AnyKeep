@@ -37,6 +37,27 @@ after destination ACK.
 Before ACK, retarget remains reversible without changing the draft UUID or
 canonical contents.
 
+## Remote deletion while a note is open
+
+A storage `noteRemoved` event is a concurrency event, not permission to
+silently recreate the object.
+
+If the removed alias is the live draft's current persisted identity:
+
+1. checkpoint the current canonical shared model;
+2. clear `storageId`, `remoteNoteId`, backend-specific concurrency state and
+   any pending transfer-source deletion;
+3. keep the draft `Editing` while views remain;
+4. detach the live model from storage capability context;
+5. on final close, transition to `NeedsRouting`.
+
+The local user data remains recoverable, but closing the window cannot
+resurrect the remotely deleted object.
+
+If the removed alias is only `removeSource*` of a note already retargeted to a
+different destination, the disappearance satisfies the cleanup obligation:
+clear `removeSource*` and keep the destination/live model unchanged.
+
 ## XMPP split publication
 
 Private Notes publishes content then index; those PubSub writes are not atomic.
