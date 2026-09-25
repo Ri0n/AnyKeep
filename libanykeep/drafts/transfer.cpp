@@ -40,7 +40,8 @@ namespace {
 } // namespace
 
 DraftStoreError DraftManager::stageTransfer(const Note &source, const QString &destinationStorageId,
-                                            const QUuid &destinationFolderId, QUuid *draftId)
+                                            const QUuid &destinationFolderId, QUuid *draftId,
+                                            bool folderUserOverride)
 {
     if (!store_)
         return { DraftStoreError::Locked, lastError_.isEmpty() ? tr("Draft store is locked") : lastError_ };
@@ -76,7 +77,8 @@ DraftStoreError DraftManager::stageTransfer(const Note &source, const QString &d
     destination.setMedia(source.media());
 
     const QUuid transferDraftId = acquireEditingSession(destination);
-    const auto  saveError       = saveEditing(transferDraftId, destination, title, body, destinationFormat);
+    const auto  saveError
+        = saveEditing(transferDraftId, destination, title, body, destinationFormat, folderUserOverride);
     if (saveError) {
         releaseEditingSession(transferDraftId);
         return saveError;
