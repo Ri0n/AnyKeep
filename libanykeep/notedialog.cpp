@@ -94,7 +94,8 @@ QHash<QPair<QString, QString>, NoteDialog *> NoteDialog::dialogs_;
 QSet<NoteDialog *>                           NoteDialog::allDialogs_;
 
 NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode mode) :
-    QQuickView(sharedStandaloneNoteEngine(), nullptr), main_(main), editor_(new NoteEditor(note, draftId, this)),
+    QQuickView(sharedStandaloneNoteEngine(), nullptr), main_(main),
+    editor_(DraftManager::instance()->acquireEditor(note, draftId)),
     platformBackend_(new DesktopEditorPlatformBackend(editor_, this)), desktopActions_(new DesktopNoteActions(this)),
     speechController_(new SpeechRecognitionController(this)), mode_(mode)
 {
