@@ -72,6 +72,7 @@ private slots:
     void deletesFolderBranchesWithSessionUndo();
     void recentReorderRejectsCrossStorageMove();
     void exposesBodySearchMatchesForEditorFind();
+    void refusesIdentityChangesWhileNoteIsOpenOutsideWorkspace();
 };
 
 void NotesWorkspaceFoldersTest::initTestCase()
@@ -301,6 +302,41 @@ void NotesWorkspaceFoldersTest::recentReorderRejectsCrossStorageMove()
     };
     QVERIFY(!workspace.reorderRecentNotes(notes, QStringLiteral("local"), QStringLiteral("anchor"), false));
     QCOMPARE(workspace.errorString(), QStringLiteral("Recent notes can only be reordered within the same storage"));
+}
+
+void NotesWorkspaceFoldersTest::refusesIdentityChangesWhileNoteIsOpenOutsideWorkspace()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
+    QVERIFY(catalog.initialize());
+
+    auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-live-editor"));
+    const auto note = storage->makeNote(QStringLiteral("note"), QStringLiteral("Open elsewhere"));
+    storage->notes = { note };
+    auto *raw      = storage.get();
+    auto *manager  = NoteManager::instance();
+    manager->registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([manager, raw]() {
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+    QTRY_VERIFY(manager->notesIndex()->hasSnapshot(raw->systemName()));
+
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
+    NoteEditor               standalone(note, drafts);
+    QCOMPARE(drafts.activeEditingDraftForNote(raw->systemName(), note.id()), standalone.draftId());
+    QCOMPARE(drafts.editingSessionCount(standalone.draftId()), 1);
+
+    QVERIFY(!workspace.moveNote(raw->systemName(), note.id(), QStringLiteral("another-storage")));
+    QVERIFY(workspace.errorString().contains(QStringLiteral("open in another editor")));
+
+    QVERIFY(!workspace.deleteNote(raw->systemName(), note.id()));
+    QVERIFY(workspace.errorString().contains(QStringLiteral("open in another editor")));
+
+    QVERIFY(!workspace.trashNote(raw->systemName(), note.id()));
+    QVERIFY(workspace.errorString().contains(QStringLiteral("open in another editor")));
 }
 
 QTEST_MAIN(NotesWorkspaceFoldersTest)
