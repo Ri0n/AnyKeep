@@ -35,13 +35,13 @@ NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draf
             [this](const QString &storageId, const QString &noteId) {
                 if (viewLeases_ == 0 || note_.storageId() != storageId || note_.id() != noteId)
                     return;
-                if (discardAndClose())
+                if (releaseViewsForLifecycleMutation())
                     emit externalCloseRequested();
             });
     connect(drafts_, &DraftManager::discardEditorsForDraftRequested, this, [this](const QUuid &draftId) {
         if (viewLeases_ == 0 || draftId_ != draftId)
             return;
-        if (discardAndClose())
+        if (releaseViewsForLifecycleMutation())
             emit externalCloseRequested();
     });
     qCInfo(logEditorPersistence) << "Editor session created: draft=" << draftId_.toString(QUuid::WithoutBraces)
@@ -442,6 +442,25 @@ bool NoteEditor::discardAndClose()
     emitDisposableIfUnused();
     return true;
 }
+bool NoteEditor::releaseViewsForLifecycleMutation()
+{
+    if (viewLeases_ <= 0)
+        return true;
+
+    while (viewLeases_ > 0) {
+        drafts_->releaseEditingSession(draftId_);
+        --viewLeases_;
+    }
+
+    // The operation which requested the lifecycle mutation owns DraftStore.
+    // Do not mark Ready, discard, reroute or otherwise rewrite the persistent
+    // record here. The live model is simply detached from every host.
+    setMetadataDirty(false);
+    setDirty(false);
+    emit allViewsClosed();
+    return true;
+}
+
 
 void NoteEditor::setDirty(bool dirty)
 {
