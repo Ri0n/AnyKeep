@@ -619,7 +619,7 @@ DraftStoreError DraftManager::queueDraftDeletion(const QUuid &draftId)
     return {};
 }
 
-DraftStoreResult<QPair<QString, QString>>
+DraftStoreResult<DraftManager::RecyclePreparation>
 DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId, const QUuid &recycleFolderId,
                                 const QUuid &knownDraftId)
 {
@@ -690,7 +690,7 @@ DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId,
             return { {}, closeError };
         if (storageId.isEmpty() || noteId.isEmpty() || storageId == draftsStorageId())
             return { {}, {} };
-        return { { storageId, noteId }, {} };
+        return { { storageId, noteId, {} }, {} };
     }
 
     auto record = pending.value;
@@ -727,7 +727,10 @@ DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId,
 
     record.folderId           = recycleFolderId;
     record.folderUserOverride = true;
-    record.state              = record.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready;
+    // FolderCatalog is the local recycle commit point. Keep the draft
+    // non-publishable until the caller persists catalog/native-folder state,
+    // then commit with retryDraftNow(record.id).
+    record.state = DraftRecord::Editing;
     record.lastError.clear();
     record.retryAt   = {};
     record.updatedAt = QDateTime::currentDateTimeUtc();
@@ -736,11 +739,10 @@ DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId,
 
     emit draftsChanged();
 
-    // The current persisted object can be projected into Recycle Bin
-    // immediately. The draft remains durable and will publish current content
-    // plus the recycle folder; a post-ACK transfer also retains removeSource*
-    // until destination publication safely queues source deletion.
-    return { { record.storageId, record.remoteNoteId }, {} };
+    // The caller first commits FolderCatalog/native projection, then calls
+    // retryDraftNow(record.id). Until then the durable draft is intentionally
+    // Editing and cannot race ahead of local recycle metadata.
+    return { { record.storageId, record.remoteNoteId, record.id }, {} };
 }
 
 DraftStoreError DraftManager::preserveLiveNoteAfterExternalRemoval(const QString &storageId,
