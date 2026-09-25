@@ -1359,13 +1359,19 @@ void Main::createNewNoteFromSelection()
 
 void Main::note_removed(const Note &note)
 {
-    NoteDialog *dlg = NoteDialog::findDialog(note.storageId(), note.id());
-    if (dlg) {
-#ifdef MAIN_DEBUG
-        qDebug() << "Main::note_removed";
-#endif
-        dlg->trashRequested();
+    auto *drafts = DraftManager::instance();
+    if (!drafts->liveEditorForNote(note.storageId(), note.id()))
+        return; // Our own lifecycle already closed its views before removal.
+
+    const auto error = drafts->preserveLiveNoteAfterExternalRemoval(note.storageId(), note.id());
+    if (error) {
+        notifyError(error.message.isEmpty()
+                        ? tr("The note was removed from its storage while open and its local recovery copy could not be saved.")
+                        : error.message);
+        return;
     }
+
+    notifyError(tr("The note was removed from its storage while open. The local editing copy was preserved."));
 }
 
 } // namespace AnyKeep
