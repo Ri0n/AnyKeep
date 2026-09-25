@@ -187,6 +187,7 @@ private slots:
     void tracksAllSourceLeasesAcrossDistinctDraftIds();
     void queuesDeletionForEveryPostAckTransferIdentity();
     void failedLiveRetargetLeavesDraftAndIdentityUnchanged();
+    void reusesDetachedRecoveryModelWhenStorageReturns();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -723,6 +724,51 @@ void DraftManagerTransferTest::failedLiveRetargetLeavesDraftAndIdentityUnchanged
     QCOMPARE(after.removeSourceStorageId, before.removeSourceStorageId);
     QCOMPARE(after.removeSourceNoteId, before.removeSourceNoteId);
     QCOMPARE(after.backendData, before.backendData);
+}
+
+void DraftManagerTransferTest::reusesDetachedRecoveryModelWhenStorageReturns()
+{
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord record;
+    record.id           = QUuid::createUuid();
+    record.operation    = DraftRecord::Publish;
+    record.state        = DraftRecord::Editing;
+    record.storageId    = QStringLiteral("late-storage");
+    record.remoteNoteId = QStringLiteral("remote-note");
+    record.title        = QStringLiteral("Recovered title");
+    record.body         = QStringLiteral("Local durable body");
+    record.format       = Note::Markdown;
+    record.backendData.insert(QStringLiteral("etag"), QStringLiteral("base-etag"));
+    data->records_.insert(record.id, record);
+
+    DraftManager drafts(std::move(store));
+    Note         detached(new NoteData(nullptr));
+    detached.setId(record.remoteNoteId);
+    auto *first = drafts.acquireEditor(detached, record.id);
+    QVERIFY(first);
+    QCOMPARE(first->storageId(), QString());
+    QCOMPARE(first->text(), QStringLiteral("Recovered title\n\nLocal durable body"));
+
+    auto storage = std::make_unique<TransferStorage>(record.storageId);
+    const auto remote = storage->addStored(record.remoteNoteId, QStringLiteral("Stale remote title"),
+                                           QStringLiteral("Stale remote body"));
+    auto *raw = registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([raw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+
+    auto *second = drafts.acquireEditor(remote);
+    QCOMPARE(second, first);
+    QCOMPARE(first->viewLeaseCount(), 2);
+    QCOMPARE(first->storageId(), raw->systemName());
+    QCOMPARE(first->noteId(), record.remoteNoteId);
+    QCOMPARE(first->text(), QStringLiteral("Recovered title\n\nLocal durable body"));
+    QCOMPARE(first->note().backendValue(QStringLiteral("etag")).toString(), QStringLiteral("base-etag"));
+
+    QVERIFY(first->discardAndClose());
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
