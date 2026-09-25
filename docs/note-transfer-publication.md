@@ -59,6 +59,16 @@ records `removeSource*`, marks the destination Ready and lets publication run.
 Workspace `pendingMoves_` is UI/reorder bookkeeping only. Source deletion is
 owned exclusively by DraftManager.
 
+## Cancellation versus remote side effects
+
+Cancelling or retargeting a publication only changes local intent. It does not
+establish that the remote service did nothing.
+
+For a side-effecting create-save, DraftManager keeps enough attempt context to
+observe a late terminal result. A late ACK is reconciled rather than ignored:
+an abandoned destination is deleted durably, while an ACK for the still-current
+target supplies the remote identity for that same logical draft.
+
 ## Publication ordering
 
 Cross-storage move ordering is strict:
