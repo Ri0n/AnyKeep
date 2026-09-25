@@ -77,6 +77,28 @@ step fails or the process stops in that window, the canonical content and
 recycle folder intent remain durable without having changed the remote object.
 Recovery may reopen that Editing draft and retry or reroute it explicitly.
 
+## Late acknowledgements after logical cancellation
+
+`StorageJob::cancel()` is not proof that a remote save had no side effect. A
+backend can create/update an object and deliver its acknowledgement after local
+user intent has already changed.
+
+Side-effecting save jobs are therefore retired **logically**, not forcibly made
+terminally Cancelled. Their eventual success is reconciled against the current
+DraftRecord:
+
+- if the stale create target is no longer the current target, queue a durable
+  Delete for the late-created remote object;
+- if the target is still the same and the current draft has no remote ID yet,
+  adopt the acknowledged ID/token and continue from that object instead of
+  issuing another create;
+- if another acknowledgement already established a different ID, the later
+  created object is a duplicate and is durably deleted;
+- stale success never rewrites the user's newer routing/recycle/delete decision.
+
+This is required for pre-ACK move cancellation, recycle, retarget and reopening
+a draft while a create acknowledgement is still in flight.
+
 ## Important crash windows
 
 1. Before first checkpoint: only uncheckpointed edits are at risk.
