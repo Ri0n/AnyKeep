@@ -695,4 +695,25 @@ DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId,
     return { recycleTarget, {} };
 }
 
+DraftStoreError DraftManager::preserveLiveNoteAfterExternalRemoval(const QString &storageId, const QString &noteId)
+{
+    const auto draftIds = liveDraftIdsForAlias(storageId, noteId);
+    for (const auto &draftId : draftIds) {
+        auto *editor = liveEditorsByDraft_.value(draftId).data();
+        if (!editor || editor->viewLeaseCount() <= 0)
+            continue;
+
+        const Note snapshot = editor->note();
+        const auto error = saveEditing(draftId, snapshot, snapshot.title(), snapshot.text(), snapshot.format(),
+                                       editor->folderUserOverride());
+        if (error)
+            return error;
+
+        editor->draftPersisted_ = true;
+        if (const auto draft = editingDraft(draftId); draft)
+            editor->draftRevision_ = draft.value.revision;
+    }
+    return {};
+}
+
 } // namespace AnyKeep
