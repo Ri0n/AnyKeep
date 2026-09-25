@@ -97,7 +97,11 @@ DraftStoreError DraftManager::stageTransfer(const Note &source, const QString &d
     transfer.value.tags                  = source.tags();
     transfer.value.removeSourceStorageId = source.storageId();
     transfer.value.removeSourceNoteId    = source.id();
-    transfer.value.updatedAt             = QDateTime::currentDateTimeUtc();
+    // The transfer's base token belongs to the persisted source, not to the
+    // newly-created destination Note placeholder. Retaining it makes pre-ACK
+    // retargeting back to the source concurrency-safe.
+    transfer.value.backendData = source.backendData();
+    transfer.value.updatedAt   = QDateTime::currentDateTimeUtc();
     if (const auto writeError = store_->write(transfer.value)) {
         releaseEditingSession(transferDraftId);
         return writeError;
@@ -178,7 +182,11 @@ DraftStoreError DraftManager::copyDraft(const QUuid &draftId, const QString &des
     copy.removeSourceStorageId.clear();
     copy.removeSourceNoteId.clear();
     copy.remoteNoteId.clear();
-    copy.backendData.clear();
+    QVariantMap portableData;
+    const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+    if (copy.backendData.contains(favoriteKey))
+        portableData.insert(favoriteKey, copy.backendData.value(favoriteKey));
+    copy.backendData = std::move(portableData);
     copy.state = DraftRecord::Ready;
     copy.lastError.clear();
     copy.retryAt  = {};
