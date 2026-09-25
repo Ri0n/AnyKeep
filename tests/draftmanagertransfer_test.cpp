@@ -89,7 +89,10 @@ public:
             return NoteStorage::loadNoteAsync(id, owner);
         auto *job = new NoteLoadJob(owner ? owner : this);
         job->start();
-        job->fail({ StorageError::Network, QStringLiteral("inconsistent remote snapshot"), true });
+        QTimer::singleShot(0, job, [job]() {
+            if (!job->isFinished())
+                job->fail({ StorageError::Network, QStringLiteral("inconsistent remote snapshot"), true });
+        });
         return job;
     }
 
