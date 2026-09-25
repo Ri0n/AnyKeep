@@ -45,6 +45,8 @@ public:
     QUuid           acquireEditingSession(const Note &note, const QUuid &knownDraftId = {});
     int             editingSessionCountForNote(const QString &storageId, const QString &noteId) const;
     int             editingSessionCount(const QUuid &draftId) const;
+    DraftStoreError discardEditingSessionsForNote(const QString &storageId, const QString &noteId);
+    DraftStoreError discardEditingSessionsForDraft(const QUuid &draftId);
     bool            isLastEditingSession(const QUuid &draftId) const;
     bool            releaseEditingSession(const QUuid &draftId);
     DraftStoreResult<DraftRecord> editingDraft(const QUuid &draftId) const;
@@ -84,6 +86,8 @@ public:
     void resolveConcurrentEdit(const Note &localVersion, const Note &remoteVersion, const QString &message);
 
 signals:
+    void discardEditorsForNoteRequested(const QString &storageId, const QString &noteId);
+    void discardEditorsForDraftRequested(const QUuid &draftId);
     void draftsChanged();
     void draftPublished(const QUuid &draftId, const Note &note);
     void draftPublishFailed(const QUuid &draftId, const QString &message);
