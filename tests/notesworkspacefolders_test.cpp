@@ -72,7 +72,7 @@ private slots:
     void deletesFolderBranchesWithSessionUndo();
     void recentReorderRejectsCrossStorageMove();
     void exposesBodySearchMatchesForEditorFind();
-    void refusesIdentityChangesWhileNoteIsOpenOutsideWorkspace();
+    void blocksMoveButClosesEditorsForDeletion();
 };
 
 void NotesWorkspaceFoldersTest::initTestCase()
@@ -304,7 +304,7 @@ void NotesWorkspaceFoldersTest::recentReorderRejectsCrossStorageMove()
     QCOMPARE(workspace.errorString(), QStringLiteral("Recent notes can only be reordered within the same storage"));
 }
 
-void NotesWorkspaceFoldersTest::refusesIdentityChangesWhileNoteIsOpenOutsideWorkspace()
+void NotesWorkspaceFoldersTest::blocksMoveButClosesEditorsForDeletion()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -313,8 +313,9 @@ void NotesWorkspaceFoldersTest::refusesIdentityChangesWhileNoteIsOpenOutsideWork
     QVERIFY(catalog.initialize());
 
     auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-live-editor"));
-    const auto note = storage->makeNote(QStringLiteral("note"), QStringLiteral("Open elsewhere"));
-    storage->notes = { note };
+    const auto note     = storage->makeNote(QStringLiteral("note"), QStringLiteral("Open elsewhere"));
+    const auto recycled = storage->makeNote(QStringLiteral("recycled"), QStringLiteral("Recycle elsewhere"));
+    storage->notes = { note, recycled };
     auto *raw      = storage.get();
     auto *manager  = NoteManager::instance();
     manager->registerStorage(std::move(storage));
@@ -346,11 +347,20 @@ void NotesWorkspaceFoldersTest::refusesIdentityChangesWhileNoteIsOpenOutsideWork
     QVERIFY(!workspace.moveNote(raw->systemName(), note.id(), QStringLiteral("another-storage")));
     QVERIFY(workspace.errorString().contains(QStringLiteral("open in another editor")));
 
-    QVERIFY(!workspace.deleteNote(raw->systemName(), note.id()));
-    QVERIFY(workspace.errorString().contains(QStringLiteral("open in another editor")));
+    // Explicit deletion owns the lifecycle: all remaining editor sessions are
+    // discarded/closed automatically instead of making the user close them.
+    QVERIFY(workspace.deleteNote(raw->systemName(), note.id()));
+    QCOMPARE(drafts.editingSessionCountForNote(raw->systemName(), note.id()), 0);
 
-    QVERIFY(!workspace.trashNote(raw->systemName(), note.id()));
-    QVERIFY(workspace.errorString().contains(QStringLiteral("open in another editor")));
+    QVERIFY(workspace.openNote(raw->systemName(), recycled.id()));
+    QTRY_VERIFY(workspace.editor());
+    NoteEditor recycledStandalone(recycled, drafts);
+    QCOMPARE(drafts.editingSessionCountForNote(raw->systemName(), recycled.id()), 2);
+
+    QVERIFY(workspace.trashNote(raw->systemName(), recycled.id()));
+    QVERIFY(!workspace.editor());
+    QCOMPARE(drafts.editingSessionCountForNote(raw->systemName(), recycled.id()), 0);
+    QVERIFY(catalog.catalog().isRecycled(raw->systemName(), recycled.id()));
 }
 
 QTEST_MAIN(NotesWorkspaceFoldersTest)
