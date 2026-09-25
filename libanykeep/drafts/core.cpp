@@ -82,12 +82,14 @@ DraftManager::DraftManager(std::unique_ptr<DraftStore> store, QObject *parent) :
 }
 DraftManager::~DraftManager() = default;
 
-QString DraftManager::sourceKey(const Note &note)
+QString DraftManager::sourceKey(const QString &storageId, const QString &noteId)
 {
-    if (note.storageId().isEmpty() || note.id().isEmpty())
+    if (storageId.isEmpty() || noteId.isEmpty())
         return {};
-    return note.storageId() + QChar(0x1f) + note.id();
+    return storageId + QChar(0x1f) + noteId;
 }
+
+QString DraftManager::sourceKey(const Note &note) { return sourceKey(note.storageId(), note.id()); }
 
 QString DraftManager::draftsStorageId() { return QStringLiteral("anykeep-local-drafts"); }
 
