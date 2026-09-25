@@ -5,6 +5,7 @@
 #include "conflictresolver.h"
 #include "notedata.h"
 #include "noteeditor.h"
+#include "notemanager.h"
 #include "notestorage.h"
 
 #include <QDateTime>
@@ -433,6 +434,31 @@ void DraftManager::resolveConcurrentEdit(const Note &localVersion, const Note &r
 
     StorageError error { StorageError::Conflict, message, false };
     resolveConflict(record, error, remoteVersion);
+}
+
+DraftStoreResult<Note> DraftManager::resumeNoteForEditingDraft(const QUuid &draftId)
+{
+    const auto draft = resumeEditingDraft(draftId);
+    if (!draft)
+        return { {}, draft.error };
+
+    Note note;
+    if (!draft.value.storageId.isEmpty()) {
+        if (auto storage = NoteManager::instance()->storage(draft.value.storageId))
+            note = storage->createNote();
+    }
+    if (note.isNull())
+        note = Note(new NoteData(nullptr));
+
+    if (!draft.value.remoteNoteId.isEmpty())
+        note.setId(draft.value.remoteNoteId);
+    note.setTitle(draft.value.title);
+    note.setText(draft.value.body, draft.value.format);
+    note.setTags(draft.value.tags);
+    note.setFolderId(draft.value.folderId);
+    note.setBackendData(draft.value.backendData);
+    note.setMedia(draft.value.media);
+    return { note, {} };
 }
 
 DraftStoreError DraftManager::markReady(const QUuid &draftId)
