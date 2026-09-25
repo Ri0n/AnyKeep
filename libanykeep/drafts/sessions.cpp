@@ -113,14 +113,18 @@ NoteEditor *DraftManager::acquireEditor(const Note &note, const QUuid &knownDraf
     const auto key = sourceKey(note);
 
     NoteEditor *editor = nullptr;
-    if (!knownDraftId.isNull())
+    if (!knownDraftId.isNull()) {
+        // An explicit draft UUID is a stronger identity than the remote
+        // storage alias. Distinct recovery/conflict drafts for the same source
+        // must never be silently merged into one live document.
         editor = liveEditorsByDraft_.value(knownDraftId);
-    if (!editor && !key.isEmpty())
+    } else if (!key.isEmpty()) {
         editor = liveEditorsBySource_.value(key);
-    if (!editor && !key.isEmpty()) {
-        const auto existingDraftId = sourceSessions_.value(key);
-        if (!existingDraftId.isNull())
-            editor = liveEditorsByDraft_.value(existingDraftId);
+        if (!editor) {
+            const auto existingDraftId = sourceSessions_.value(key);
+            if (!existingDraftId.isNull())
+                editor = liveEditorsByDraft_.value(existingDraftId);
+        }
     }
 
     if (editor) {
