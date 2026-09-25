@@ -14,6 +14,7 @@ namespace AnyKeep {
 
 class ConflictResolver;
 class FileDraftStore;
+class NoteEditor;
 class NoteSaveJob;
 class NoteStorage;
 class StorageJob;
@@ -43,6 +44,8 @@ public:
     DraftStoreError saveEditing(const QUuid &draftId, const Note &note, const QString &title, const QString &body,
                                 Note::Format format, bool folderUserOverride = false);
     QUuid           acquireEditingSession(const Note &note, const QUuid &knownDraftId = {});
+    /** Returns the canonical in-process live model for this logical note. */
+    NoteEditor      *acquireEditor(const Note &note, const QUuid &knownDraftId = {});
     int             editingSessionCountForNote(const QString &storageId, const QString &noteId) const;
     int             editingSessionCount(const QUuid &draftId) const;
     DraftStoreError discardEditingSessionsForNote(const QString &storageId, const QString &noteId);
@@ -115,6 +118,8 @@ private:
     QHash<QUuid, int>                  editingSessions_;
     QHash<QString, QUuid>              sourceSessions_;
     QHash<QUuid, QString>              editingSources_;
+    QHash<QUuid, QPointer<NoteEditor>> liveEditorsByDraft_;
+    QHash<QString, QPointer<NoteEditor>> liveEditorsBySource_;
     QString                            lastError_;
     std::unique_ptr<ConflictResolver>  conflictResolver_;
     PrePublicationHandler              prePublicationHandler_;
