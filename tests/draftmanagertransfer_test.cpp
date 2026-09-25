@@ -190,6 +190,7 @@ private slots:
     void failedLiveRetargetLeavesDraftAndIdentityUnchanged();
     void reusesDetachedRecoveryModelWhenStorageReturns();
     void closesDetachedRecoveryModelByDurableAlias();
+    void recyclePreparationPreservesPostAckSourceCleanup();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -803,6 +804,52 @@ void DraftManagerTransferTest::closesDetachedRecoveryModelByDurableAlias()
     QCOMPARE(editor->viewLeaseCount(), 0);
     QCOMPARE(drafts.editingSessionCount(record.id), 0);
     QVERIFY(!data->records_.contains(record.id));
+}
+
+void DraftManagerTransferTest::recyclePreparationPreservesPostAckSourceCleanup()
+{
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord transfer;
+    transfer.id                    = QUuid::createUuid();
+    transfer.operation             = DraftRecord::Publish;
+    transfer.state                 = DraftRecord::Retry;
+    transfer.storageId             = QStringLiteral("destination");
+    transfer.remoteNoteId          = QStringLiteral("destination-note");
+    transfer.removeSourceStorageId = QStringLiteral("source");
+    transfer.removeSourceNoteId    = QStringLiteral("source-note");
+    transfer.title                 = QStringLiteral("Moved note");
+    transfer.body                  = QStringLiteral("Body");
+    transfer.format                = Note::Markdown;
+    data->records_.insert(transfer.id, transfer);
+
+    DraftManager drafts(std::move(store));
+    Note         detached(new NoteData(nullptr));
+    detached.setId(transfer.remoteNoteId);
+    auto *editor = drafts.acquireEditor(detached, transfer.id);
+    QVERIFY(editor);
+
+    const auto prepared = drafts.prepareForRecycle({}, {}, transfer.id);
+    QVERIFY2(prepared, qPrintable(prepared.error.message));
+    QCOMPARE(prepared.value.first, transfer.storageId);
+    QCOMPARE(prepared.value.second, transfer.remoteNoteId);
+    QCOMPARE(editor->viewLeaseCount(), 0);
+    QVERIFY(!data->records_.contains(transfer.id));
+
+    int sourceDeletes      = 0;
+    int destinationDeletes = 0;
+    for (const auto &record : std::as_const(data->records_)) {
+        if (record.operation != DraftRecord::Delete)
+            continue;
+        if (record.storageId == transfer.removeSourceStorageId
+            && record.remoteNoteId == transfer.removeSourceNoteId) {
+            ++sourceDeletes;
+        }
+        if (record.storageId == transfer.storageId && record.remoteNoteId == transfer.remoteNoteId)
+            ++destinationDeletes;
+    }
+    QCOMPARE(sourceDeletes, 1);
+    QCOMPARE(destinationDeletes, 0); // Destination is recycled, not permanently deleted.
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
