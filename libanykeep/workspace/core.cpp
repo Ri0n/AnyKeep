@@ -98,14 +98,11 @@ NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderC
         if (!pendingMoves_.contains(draftId))
             return;
         const auto move = pendingMoves_.take(draftId);
-        if (!move.sourceStorageId.isEmpty() && !move.sourceNoteId.isEmpty()) {
-            const auto error = drafts->queueRemoval(move.sourceStorageId, move.sourceNoteId);
-            if (error)
-                setError(error.message);
-            drafts->publishPending();
-        }
+        // DraftManager owns the durable two-phase transfer, including source
+        // deletion after destination acknowledgement. Workspace state is only
+        // presentation/reorder bookkeeping and must never queue deletion again.
         completePendingReorderMove(move.reorderBatchId, move.reorderIndex, note.id());
-        if (!move.sourceStorageId.isEmpty())
+        if (move.operationStarted)
             endOperation();
     });
     connect(drafts, &DraftManager::draftPublishFailed, this, [this](const QUuid &draftId, const QString &message) {
@@ -116,7 +113,7 @@ NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderC
         const auto move = pendingMoves_.take(draftId);
         completePendingReorderMove(move.reorderBatchId, move.reorderIndex, {});
         setError(message);
-        if (!move.sourceStorageId.isEmpty())
+        if (move.operationStarted)
             endOperation();
     });
 }
