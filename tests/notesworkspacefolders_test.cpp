@@ -330,7 +330,7 @@ void NotesWorkspaceFoldersTest::refusesIdentityChangesWhileNoteIsOpenOutsideWork
 
     NoteEditor standalone(note, drafts);
     QCOMPARE(workspace.editor()->draftId(), standalone.draftId());
-    QCOMPARE(drafts.activeEditingDraftForNote(raw->systemName(), note.id()), standalone.draftId());
+    QCOMPARE(drafts.editingSessionCountForNote(raw->systemName(), note.id()), 2);
     QCOMPARE(drafts.editingSessionCount(standalone.draftId()), 2);
 
     QVERIFY(!workspace.moveNote(raw->systemName(), note.id(), QStringLiteral("another-storage")));
@@ -340,6 +340,7 @@ void NotesWorkspaceFoldersTest::refusesIdentityChangesWhileNoteIsOpenOutsideWork
     // remain blocked by the standalone shell's process-wide lease.
     QVERIFY(workspace.closeCurrentNote());
     QVERIFY(!workspace.editor());
+    QCOMPARE(drafts.editingSessionCountForNote(raw->systemName(), note.id()), 1);
     QCOMPARE(drafts.editingSessionCount(standalone.draftId()), 1);
 
     QVERIFY(!workspace.moveNote(raw->systemName(), note.id(), QStringLiteral("another-storage")));
