@@ -6,7 +6,6 @@
 #include "folderoperationscontroller.h"
 #include "noteeditor.h"
 #include "notemanager.h"
-#include "notedata.h"
 #include "notesindex.h"
 #include "notesmodel.h"
 #include "notessearchmodel.h"
@@ -26,30 +25,6 @@
 #include <utility>
 
 namespace AnyKeep {
-namespace {
-
-Note noteFromEditingDraft(const DraftRecord &draft)
-{
-    Note note;
-    if (!draft.storageId.isEmpty()) {
-        if (auto storage = NoteManager::instance()->storage(draft.storageId))
-            note = storage->createNote();
-    }
-    if (note.isNull())
-        note = Note(new NoteData(nullptr));
-
-    if (!draft.remoteNoteId.isEmpty())
-        note.setId(draft.remoteNoteId);
-    note.setTitle(draft.title);
-    note.setText(draft.body, draft.format);
-    note.setTags(draft.tags);
-    note.setFolderId(draft.folderId);
-    note.setBackendData(draft.backendData);
-    note.setMedia(draft.media);
-    return note;
-}
-
-} // namespace
 
 bool NotesWorkspaceController::openNote(const QString &storageId, const QString &noteId)
 {
@@ -68,15 +43,12 @@ bool NotesWorkspaceController::openNote(const QString &storageId, const QString 
         }
         if (currentEditor_ && currentEditor_->draftId() == draftId)
             return true;
-        const auto resumed = draftManager_->resumeEditingDraft(draftId);
+        const auto resumed = draftManager_->resumeNoteForEditingDraft(draftId);
         if (!resumed) {
             setError(resumed.error.message.isEmpty() ? tr("The draft is no longer available") : resumed.error.message);
             return false;
         }
-        // The encrypted draft is the authoritative working copy. Opening it
-        // must not depend on the target plugin being present/readable.
-        auto note = noteFromEditingDraft(resumed.value);
-        if (note.isNull() || !openNote(note, draftId)) {
+        if (!openNote(resumed.value, draftId)) {
             setError(tr("The draft could not be opened"));
             return false;
         }
@@ -92,18 +64,14 @@ bool NotesWorkspaceController::openNote(const QString &storageId, const QString 
                 pending = std::move(presentedDraft);
         }
         if (pending) {
-            const auto resumed = draftManager_->resumeEditingDraft(pending.value.id);
+            draftId = pending.value.id;
+            const auto resumed = draftManager_->resumeNoteForEditingDraft(draftId);
             if (!resumed) {
                 setError(resumed.error.message.isEmpty() ? tr("The pending draft could not be opened")
                                                          : resumed.error.message);
                 return false;
             }
-            draftId = pending.value.id;
-            // Never reload an origin/target body over a durable local draft.
-            // A detached NoteData keeps recovery editable even while the
-            // target storage plugin is absent.
-            auto note = noteFromEditingDraft(resumed.value);
-            if (note.isNull() || !openNote(note, draftId)) {
+            if (!openNote(resumed.value, draftId)) {
                 setError(tr("The pending draft could not be opened"));
                 return false;
             }
