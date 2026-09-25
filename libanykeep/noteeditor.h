@@ -109,6 +109,8 @@ public:
     void resetContent(const QString &text, Note::Format format);
     void resetHistory();
     bool reloadNewerDraft();
+    /** Changes persistence target while keeping the same live document/draft identity. */
+    bool retargetStorage(const QString &destinationStorageId);
 
     /** Adds another UI lease to this shared live note model. */
     void acquireViewLease();
