@@ -379,6 +379,10 @@ void NotesWorkspaceFoldersTest::sharesLiveModelAcrossViewsAndRetargetsMove()
     QCOMPARE(drafts.editingSessionCount(draftId), 1);
     QCOMPARE(drafts.liveEditorForDraft(draftId), standalone);
 
+    QSignalSpy detachedTitleChanges(&workspace, &NotesWorkspaceController::currentTitleChanged);
+    standalone->setText(QStringLiteral("Shared note\n\nStandalone keeps editing"));
+    QCOMPARE(detachedTitleChanges.count(), 0);
+
     // Explicit deletion is different from move: it owns the lifecycle and
     // closes every view for the logical note before removing the source.
     QVERIFY(workspace.openNote(sourceRaw->systemName(), removed.id()));
