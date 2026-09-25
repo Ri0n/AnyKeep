@@ -667,20 +667,8 @@ DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId,
     if (!draftId.isNull()) {
         if (auto *editor = liveEditorsByDraft_.value(draftId).data(); editor && editor->viewLeaseCount() > 0) {
             const Note snapshot = editor->note();
-            const auto [title, body] = [&snapshot] {
-                if (snapshot.format() == Note::PlainText) {
-                    const auto text = snapshot.title().isEmpty() ? snapshot.text()
-                                                                : snapshot.title() + QLatin1Char('\n') + snapshot.text();
-                    const auto newline = text.indexOf(QLatin1Char('\n'));
-                    return QPair<QString, QString> {
-                        newline < 0 ? text : text.left(newline),
-                        newline < 0 ? QString() : text.mid(newline + 1)
-                    };
-                }
-                return QPair<QString, QString> { snapshot.title(), snapshot.text() };
-            }();
-            if (const auto checkpoint
-                = saveEditing(draftId, snapshot, title, body, snapshot.format(), editor->folderUserOverride())) {
+            if (const auto checkpoint = saveEditing(draftId, snapshot, snapshot.title(), snapshot.text(),
+                                                    snapshot.format(), editor->folderUserOverride())) {
                 return { {}, checkpoint };
             }
             editor->draftPersisted_ = true;
