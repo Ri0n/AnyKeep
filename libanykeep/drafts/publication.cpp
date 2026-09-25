@@ -12,6 +12,7 @@
 #include <QDebug>
 #include <QTimer>
 
+#include <algorithm>
 #include <optional>
 #include <utility>
 
