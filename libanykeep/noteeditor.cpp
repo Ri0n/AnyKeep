@@ -596,7 +596,12 @@ void NoteEditor::registerEditorView(QObject *view)
 
 void NoteEditor::unregisterEditorView(QObject *view)
 {
-    editorViews_.removeIf([view](const QPointer<QObject> &registered) { return !registered || registered == view; });
+    for (auto it = editorViews_.begin(); it != editorViews_.end();) {
+        if (!*it || it->data() == view)
+            it = editorViews_.erase(it);
+        else
+            ++it;
+    }
 }
 
 QObject *NoteEditor::activeEditorView() const
