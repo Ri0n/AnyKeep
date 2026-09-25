@@ -838,14 +838,15 @@ void DraftManagerTransferTest::recyclePreparationPreservesPostAckSourceCleanup()
     const auto recycleFolder = QUuid::createUuid();
     const auto prepared = drafts.prepareForRecycle({}, {}, recycleFolder, transfer.id);
     QVERIFY2(prepared, qPrintable(prepared.error.message));
-    QCOMPARE(prepared.value.first, transfer.storageId);
-    QCOMPARE(prepared.value.second, transfer.remoteNoteId);
+    QCOMPARE(prepared.value.storageId, transfer.storageId);
+    QCOMPARE(prepared.value.noteId, transfer.remoteNoteId);
     QCOMPARE(editor->viewLeaseCount(), 0);
 
     QVERIFY(data->records_.contains(transfer.id));
     const auto recycledDraft = data->records_.value(transfer.id);
     QCOMPARE(recycledDraft.operation, DraftRecord::Publish);
-    QCOMPARE(recycledDraft.state, DraftRecord::Ready);
+    QCOMPARE(recycledDraft.state, DraftRecord::Editing);
+    QCOMPARE(prepared.value.draftId, transfer.id);
     QCOMPARE(recycledDraft.folderId, recycleFolder);
     QVERIFY(recycledDraft.folderUserOverride);
     QCOMPARE(recycledDraft.title, QStringLiteral("Moved note"));
@@ -919,8 +920,8 @@ void DraftManagerTransferTest::recycleCancelsPreAckTransferBackToSource()
     const auto recycleFolder = QUuid::createUuid();
     const auto prepared = drafts.prepareForRecycle({}, {}, recycleFolder, transfer.id);
     QVERIFY2(prepared, qPrintable(prepared.error.message));
-    QCOMPARE(prepared.value.first, transfer.removeSourceStorageId);
-    QCOMPARE(prepared.value.second, transfer.removeSourceNoteId);
+    QCOMPARE(prepared.value.storageId, transfer.removeSourceStorageId);
+    QCOMPARE(prepared.value.noteId, transfer.removeSourceNoteId);
     QCOMPARE(editor->viewLeaseCount(), 0);
 
     const auto recycledDraft = data->records_.value(transfer.id);
@@ -930,8 +931,13 @@ void DraftManagerTransferTest::recycleCancelsPreAckTransferBackToSource()
     QVERIFY(recycledDraft.removeSourceNoteId.isEmpty());
     QCOMPARE(recycledDraft.backendData, transfer.backendData);
     QCOMPARE(recycledDraft.folderId, recycleFolder);
-    QCOMPARE(recycledDraft.state, DraftRecord::Ready);
+    QCOMPARE(recycledDraft.state, DraftRecord::Editing);
+    QCOMPARE(prepared.value.draftId, transfer.id);
     QCOMPARE(recycledDraft.body, QStringLiteral("Edited before trash"));
+
+    const auto readyError = drafts.retryDraftNow(prepared.value.draftId);
+    QVERIFY2(!readyError, qPrintable(readyError.message));
+    QCOMPARE(data->records_.value(transfer.id).state, DraftRecord::Ready);
 }
 
 void DraftManagerTransferTest::externalRemovalCreatesUnroutedRecoveryCopy()
