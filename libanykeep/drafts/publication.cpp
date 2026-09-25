@@ -549,7 +549,8 @@ void DraftManager::publish(const DraftRecord &record)
 
     auto *job = storage->loadNoteAsync(record.remoteNoteId, this);
     publishJobs_.insert(record.id, job);
-    connect(job, &StorageJob::finished, this, [this, record, storage, job, save]() mutable {
+    connect(job, &StorageJob::finished, this,
+            [this, record, storage, job, save, snapshot = *snapshot]() mutable {
         if (publishJobs_.value(record.id) != job) {
             qCInfo(logDraftPersistence) << "Ignoring stale draft load job: draft="
                                         << record.id.toString(QUuid::WithoutBraces);
@@ -564,7 +565,7 @@ void DraftManager::publish(const DraftRecord &record)
             // not with a full second snapshot in every DraftRecord. It is also
             // safe when the remote changed concurrently but now has identical
             // contents: keeping that remote version is the desired no-op.
-            if (hasSamePublishedContents(record, *snapshot, note)) {
+            if (hasSamePublishedContents(record, snapshot, note)) {
                 publishing_.remove(record.id);
                 finishPublishedDraft(record, note);
                 job->deleteLater();
