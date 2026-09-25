@@ -4,6 +4,7 @@
 
 #include "conflictresolver.h"
 #include "notedata.h"
+#include "noteeditor.h"
 #include "notestorage.h"
 
 #include <QDateTime>
@@ -105,6 +106,73 @@ QUuid DraftManager::acquireEditingSession(const Note &note, const QUuid &knownDr
                                 << "storage=" << note.storageId() << "noteIdPresent=" << !note.id().isEmpty()
                                 << "sessions=" << editingSessions_.value(id);
     return id;
+}
+
+NoteEditor *DraftManager::acquireEditor(const Note &note, const QUuid &knownDraftId)
+{
+    const auto key = sourceKey(note);
+
+    NoteEditor *editor = nullptr;
+    if (!knownDraftId.isNull())
+        editor = liveEditorsByDraft_.value(knownDraftId);
+    if (!editor && !key.isEmpty())
+        editor = liveEditorsBySource_.value(key);
+    if (!editor && !key.isEmpty()) {
+        const auto existingDraftId = sourceSessions_.value(key);
+        if (!existingDraftId.isNull())
+            editor = liveEditorsByDraft_.value(existingDraftId);
+    }
+
+    if (editor) {
+        editor->acquireViewLease();
+        qCInfo(logDraftPersistence) << "Reusing canonical live editor: draft="
+                                    << editor->draftId().toString(QUuid::WithoutBraces)
+                                    << "storage=" << editor->storageId() << "noteIdPresent=" << !editor->noteId().isEmpty()
+                                    << "views=" << editor->viewLeaseCount();
+        return editor;
+    }
+
+    editor = new NoteEditor(note, *this, knownDraftId, this);
+    liveEditorsByDraft_[editor->draftId()] = editor;
+    if (!key.isEmpty())
+        liveEditorsBySource_[key] = editor;
+
+    const auto removeAliases = [this, editor] {
+        for (auto it = liveEditorsByDraft_.begin(); it != liveEditorsByDraft_.end();) {
+            if (it.value() == editor)
+                it = liveEditorsByDraft_.erase(it);
+            else
+                ++it;
+        }
+        for (auto it = liveEditorsBySource_.begin(); it != liveEditorsBySource_.end();) {
+            if (it.value() == editor)
+                it = liveEditorsBySource_.erase(it);
+            else
+                ++it;
+        }
+    };
+
+    connect(editor, &NoteEditor::identityChanged, this, [this, editor] {
+        for (auto it = liveEditorsBySource_.begin(); it != liveEditorsBySource_.end();) {
+            if (it.value() == editor)
+                it = liveEditorsBySource_.erase(it);
+            else
+                ++it;
+        }
+        const auto currentKey = sourceKey(editor->storageId(), editor->noteId());
+        if (!currentKey.isEmpty())
+            liveEditorsBySource_[currentKey] = editor;
+    });
+    connect(editor, &NoteEditor::allViewsClosed, this, [editor, removeAliases] {
+        removeAliases();
+        editor->deleteLater();
+    });
+    connect(editor, &QObject::destroyed, this, [removeAliases] { removeAliases(); });
+
+    qCInfo(logDraftPersistence) << "Created canonical live editor: draft="
+                                << editor->draftId().toString(QUuid::WithoutBraces)
+                                << "storage=" << editor->storageId() << "noteIdPresent=" << !editor->noteId().isEmpty();
+    return editor;
 }
 
 int DraftManager::editingSessionCountForNote(const QString &storageId, const QString &noteId) const
