@@ -356,7 +356,7 @@ bool NoteEditor::close()
     if (dirty_ && !save())
         return false;
 
-    if (viewLeases_ == 1) {
+    if (viewLeases_ == 1 && drafts_->isLastEditingSession(draftId_)) {
         const auto draft = drafts_->editingDraft(draftId_);
         if (draft) {
             const auto result = drafts_->markReady(draftId_);

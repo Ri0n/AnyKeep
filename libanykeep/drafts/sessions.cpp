@@ -181,7 +181,13 @@ NoteEditor *DraftManager::acquireEditor(const Note &note, const QUuid &knownDraf
 
 NoteEditor *DraftManager::liveEditorForNote(const QString &storageId, const QString &noteId) const
 {
-    return liveEditorsBySource_.value(sourceKey(storageId, noteId));
+    const auto key = sourceKey(storageId, noteId);
+    if (key.isEmpty())
+        return nullptr;
+    if (auto *editor = liveEditorsBySource_.value(key))
+        return editor;
+    const auto draftId = sourceSessions_.value(key);
+    return draftId.isNull() ? nullptr : liveEditorsByDraft_.value(draftId);
 }
 
 NoteEditor *DraftManager::liveEditorForDraft(const QUuid &draftId) const
@@ -211,7 +217,18 @@ DraftStoreError DraftManager::discardEditingSessionsForNote(const QString &stora
 {
     if (storageId.isEmpty() || noteId.isEmpty())
         return {};
+
+    const auto key     = sourceKey(storageId, noteId);
+    const auto draftId = sourceSessions_.value(key);
     emit discardEditorsForNoteRequested(storageId, noteId);
+
+    // A live document that has been retargeted already exposes its destination
+    // identity, while sourceSessions_ deliberately retains the original alias
+    // until the two-phase transfer completes. Close that same document by its
+    // stable draft UUID as a fallback.
+    if (editingSessionCountForNote(storageId, noteId) > 0 && !draftId.isNull())
+        emit discardEditorsForDraftRequested(draftId);
+
     if (editingSessionCountForNote(storageId, noteId) > 0) {
         return { DraftStoreError::Io, tr("Could not close all editors for the note") };
     }

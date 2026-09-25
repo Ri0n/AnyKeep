@@ -62,6 +62,9 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
         }
     }
 
+    if (!liveEditor && !pendingDraftId.isNull())
+        liveEditor = draftManager_->liveEditorForDraft(pendingDraftId);
+
     // A live note has one canonical in-process model. Moving it is only a
     // persistence-target change for that model; no view closes and no second
     // destination editor/draft is created.
@@ -159,8 +162,14 @@ bool NotesWorkspaceController::copyNote(const QString &sourceStorageId, const QS
         }
     }
     if (!pendingDraftId.isNull()) {
-        if (currentEditor_ && currentEditor_->draftId() == pendingDraftId && !saveCurrentNote())
+        if (auto *liveEditor = draftManager_->liveEditorForDraft(pendingDraftId)) {
+            if (!liveEditor->save()) {
+                setError(liveEditor->errorString());
+                return false;
+            }
+        } else if (currentEditor_ && currentEditor_->draftId() == pendingDraftId && !saveCurrentNote()) {
             return false;
+        }
         const auto error = draftManager_->copyDraft(pendingDraftId, destinationStorageId);
         if (error) {
             setError(error.message);

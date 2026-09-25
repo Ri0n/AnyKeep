@@ -364,11 +364,23 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
     if (noteId.isEmpty()) {
         if (!currentEditor_ || currentEditor_->storageId() != storageId || !currentEditor_->noteId().isEmpty())
             return false;
+
         const auto draftId = currentEditor_->draftId();
+        QString    recycleStorageId;
+        QString    recycleNoteId;
+        const auto pendingCurrent = draftManager_->pendingDraft(draftId);
+        if (pendingCurrent && !pendingCurrent.value.removeSourceStorageId.isEmpty()
+            && !pendingCurrent.value.removeSourceNoteId.isEmpty()) {
+            recycleStorageId = pendingCurrent.value.removeSourceStorageId;
+            recycleNoteId    = pendingCurrent.value.removeSourceNoteId;
+        }
+
         if (const auto closeError = draftManager_->discardEditingSessionsForDraft(draftId)) {
             setError(closeError.message);
             return false;
         }
+        if (!recycleStorageId.isEmpty() && !recycleNoteId.isEmpty())
+            return trashNote(recycleStorageId, recycleNoteId);
         return true;
     }
 

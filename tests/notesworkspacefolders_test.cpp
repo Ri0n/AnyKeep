@@ -381,6 +381,7 @@ void NotesWorkspaceFoldersTest::sharesLiveModelAcrossViewsAndRetargetsMove()
     // Explicit deletion is different from move: it owns the lifecycle and
     // closes every view for the logical note before removing the source.
     QVERIFY(workspace.openNote(sourceRaw->systemName(), removed.id()));
+    QTRY_VERIFY(workspace.editor());
     auto *deleteShared = workspace.editor();
     QCOMPARE(drafts.acquireEditor(removed), deleteShared);
     QCOMPARE(deleteShared->viewLeaseCount(), 2);
@@ -389,6 +390,7 @@ void NotesWorkspaceFoldersTest::sharesLiveModelAcrossViewsAndRetargetsMove()
     QCOMPARE(drafts.editingSessionCountForNote(sourceRaw->systemName(), removed.id()), 0);
 
     QVERIFY(workspace.openNote(sourceRaw->systemName(), recycled.id()));
+    QTRY_VERIFY(workspace.editor());
     auto *recycleShared = workspace.editor();
     QCOMPARE(drafts.acquireEditor(recycled), recycleShared);
     QCOMPARE(recycleShared->viewLeaseCount(), 2);
@@ -397,10 +399,14 @@ void NotesWorkspaceFoldersTest::sharesLiveModelAcrossViewsAndRetargetsMove()
     QCOMPARE(drafts.editingSessionCountForNote(sourceRaw->systemName(), recycled.id()), 0);
     QVERIFY(catalog.catalog().isRecycled(sourceRaw->systemName(), recycled.id()));
 
-    // Keep the moved standalone view open until teardown; this proves that
-    // retargeting did not force publication/closure just because another view
-    // disappeared.
+    // Retargeting did not force publication/closure when the manager view
+    // disappeared. Release the final test lease before unregistering storages.
     QCOMPARE(standalone->storageId(), destinationRaw->systemName());
+    QPointer<NoteEditor> movedEditor(standalone);
+    QVERIFY(standalone->close());
+    QVERIFY(!drafts.liveEditorForDraft(draftId));
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QVERIFY(movedEditor.isNull());
 }
 
 QTEST_MAIN(NotesWorkspaceFoldersTest)
