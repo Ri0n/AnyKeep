@@ -69,6 +69,14 @@ publication without first reading a consistent remote body. Both XMPP backends
 check concurrency from the index first. A genuine index revision mismatch still
 loads the complete remote note and enters conflict resolution.
 
+## Recycle preparation recovery
+
+Recycle preparation can close views before FolderCatalog commit, but the draft
+remains `Editing` and therefore non-publishable. If the catalog/native-folder
+step fails or the process stops in that window, the canonical content and
+recycle folder intent remain durable without having changed the remote object.
+Recovery may reopen that Editing draft and retry or reroute it explicitly.
+
 ## Important crash windows
 
 1. Before first checkpoint: only uncheckpointed edits are at risk.
