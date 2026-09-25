@@ -175,6 +175,7 @@ private slots:
     void retargetsPublishedDraftWithoutLosingSourceIdentity();
     void movesUnpublishedDraftWithoutCreatingSourceRemoval();
     void retriesExistingNoteFromDurableSnapshotWhenBodyLoadFails();
+    void tracksAllSourceLeasesAcrossDistinctDraftIds();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -519,6 +520,29 @@ void DraftManagerTransferTest::retriesExistingNoteFromDurableSnapshotWhenBodyLoa
     QCOMPARE(recovered.title(), record.title);
     QCOMPARE(recovered.text(), record.body);
     QCOMPARE(recovered.backendValue(QStringLiteral("revision")).toString(), QStringLiteral("base-revision"));
+}
+
+void DraftManagerTransferTest::tracksAllSourceLeasesAcrossDistinctDraftIds()
+{
+    TransferStorage storage(QStringLiteral("lease-source"));
+    const auto note
+        = storage.addStored(QStringLiteral("note"), QStringLiteral("Lease note"), QStringLiteral("Body"));
+    DraftManager drafts(std::make_unique<MemoryDraftStore>());
+
+    const auto first  = drafts.acquireEditingSession(note);
+    const auto second = drafts.acquireEditingSession(note, QUuid::createUuid());
+    QVERIFY(first != second);
+    QCOMPARE(drafts.editingSessionCountForNote(storage.systemName(), note.id()), 2);
+
+    QVERIFY(drafts.releaseEditingSession(second));
+    QCOMPARE(drafts.editingSessionCountForNote(storage.systemName(), note.id()), 1);
+
+    const auto joined = drafts.acquireEditingSession(note);
+    QCOMPARE(joined, first);
+    QCOMPARE(drafts.editingSessionCount(first), 2);
+    QVERIFY(!drafts.releaseEditingSession(first));
+    QVERIFY(drafts.releaseEditingSession(first));
+    QCOMPARE(drafts.editingSessionCountForNote(storage.systemName(), note.id()), 0);
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
