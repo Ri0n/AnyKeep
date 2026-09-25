@@ -60,9 +60,16 @@ from origin metadata is a future schema cleanup.
 8. Draft and cache manifests may share immutable media blobs, but publication
    state never owns or duplicates the media bytes themselves.
 9. A persisted storage/note identity held by a live editor lease may not be
-   moved, permanently deleted, or recycled from another shell. Identity-changing
-   operations are coordinated through the process-wide `DraftManager` lease,
-   not through whichever editor happens to be selected in the note manager.
+   moved to another storage from a different shell. Cross-storage identity
+   changes are coordinated through the process-wide `DraftManager` lease, not
+   through whichever editor happens to be selected in the note manager.
+10. Explicit user deletion/recycle owns the note lifecycle instead of being
+    blocked by live editors. `DraftManager` synchronously tells every
+    `NoteEditor` for that source identity (or draft UUID) to discard its local
+    editing session, each host closes its view, and only then may the workspace
+    remove/recycle the persisted note. This prevents a stale editor from
+    resurrecting a source after deletion while preserving the expected
+    "delete closes all open views" UX.
 
 ## Components and ownership
 
