@@ -59,6 +59,10 @@ from origin metadata is a future schema cleanup.
    removes a publish draft.
 8. Draft and cache manifests may share immutable media blobs, but publication
    state never owns or duplicates the media bytes themselves.
+9. A persisted storage/note identity held by a live editor lease may not be
+   moved, permanently deleted, or recycled from another shell. Identity-changing
+   operations are coordinated through the process-wide `DraftManager` lease,
+   not through whichever editor happens to be selected in the note manager.
 
 ## Components and ownership
 
