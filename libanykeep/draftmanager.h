@@ -89,6 +89,7 @@ public:
      * the logical note had no persisted object to recycle.
      */
     DraftStoreResult<QPair<QString, QString>> prepareForRecycle(const QString &storageId, const QString &noteId,
+                                                                const QUuid &recycleFolderId,
                                                                 const QUuid &knownDraftId = {});
     /**
      * A storage announced that an object disappeared while its logical note is
