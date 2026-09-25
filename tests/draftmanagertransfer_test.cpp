@@ -65,6 +65,7 @@ public:
     QList<Note::Format> availableFormats() const override { return formats_; }
     bool                supportsMedia() const override { return supportsMedia_; }
     bool                supportsFavorite() const override { return supportsFavorite_; }
+    bool                supportsDraftSnapshotSave() const override { return supportsDraftSnapshotSave_; }
     QList<Note>         noteList(int limit = 0) override { return limit > 0 ? notes_.mid(0, limit) : notes_; }
     Note                note(const QString &id) override
     {
@@ -80,6 +81,16 @@ public:
         Note result(new NoteData(this));
         result.setLastChangeUTC(QDateTime::currentDateTimeUtc());
         return result;
+    }
+
+    NoteLoadJob *loadNoteAsync(const QString &id, QObject *owner = nullptr) override
+    {
+        if (!failLoads_)
+            return NoteStorage::loadNoteAsync(id, owner);
+        auto *job = new NoteLoadJob(owner ? owner : this);
+        job->start();
+        job->fail({ StorageError::Network, QStringLiteral("inconsistent remote snapshot"), true });
+        return job;
     }
 
     bool saveNote(const Note &note) override
@@ -130,6 +141,8 @@ public:
     QList<Note>         notes_;
     bool                supportsMedia_ { true };
     bool                supportsFavorite_ { false };
+    bool                supportsDraftSnapshotSave_ { false };
+    bool                failLoads_ { false };
     bool                failSaves_ { false };
     int                 saveCalls_ { 0 };
     int                 removeCalls_ { 0 };
@@ -161,6 +174,7 @@ private slots:
     void publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval();
     void retargetsPublishedDraftWithoutLosingSourceIdentity();
     void movesUnpublishedDraftWithoutCreatingSourceRemoval();
+    void retriesExistingNoteFromDurableSnapshotWhenBodyLoadFails();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -464,6 +478,47 @@ void DraftManagerTransferTest::movesUnpublishedDraftWithoutCreatingSourceRemoval
     QVERIFY(moved.removeSourceStorageId.isEmpty());
     QVERIFY(moved.removeSourceNoteId.isEmpty());
     QCOMPARE(moved.state, DraftRecord::Ready);
+}
+
+void DraftManagerTransferTest::retriesExistingNoteFromDurableSnapshotWhenBodyLoadFails()
+{
+    auto storage                         = std::make_unique<TransferStorage>(QStringLiteral("snapshot-recovery"));
+    storage->supportsDraftSnapshotSave_ = true;
+    storage->failLoads_                 = true;
+    auto *raw                           = registerStorage(std::move(storage));
+    const auto cleanup                  = qScopeGuard([raw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+
+    raw->addStored(QStringLiteral("note"), QStringLiteral("Old title"), QStringLiteral("Old body"));
+
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord record;
+    record.id           = QUuid::createUuid();
+    record.operation    = DraftRecord::Publish;
+    record.state        = DraftRecord::Ready;
+    record.storageId    = raw->systemName();
+    record.remoteNoteId = QStringLiteral("note");
+    record.title        = QStringLiteral("Recovered title");
+    record.body         = QStringLiteral("Recovered body");
+    record.format       = Note::Markdown;
+    record.backendData.insert(QStringLiteral("revision"), QStringLiteral("base-revision"));
+    record.revision  = 3;
+    record.updatedAt = QDateTime::currentDateTimeUtc();
+    data->records_.insert(record.id, record);
+
+    DraftManager drafts(std::move(store));
+    drafts.publishPending();
+
+    QTRY_COMPARE(raw->saveCalls_, 1);
+    QTRY_VERIFY(data->records_.isEmpty());
+    const auto recovered = raw->note(QStringLiteral("note"));
+    QCOMPARE(recovered.title(), record.title);
+    QCOMPARE(recovered.text(), record.body);
+    QCOMPARE(recovered.backendValue(QStringLiteral("revision")).toString(), QStringLiteral("base-revision"));
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
