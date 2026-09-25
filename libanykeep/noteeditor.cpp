@@ -279,6 +279,13 @@ bool NoteEditor::retargetStorage(const QString &destinationStorageId)
     if (!destinationStorage || !destinationStorage->canAcceptWrites())
         return setError(tr("The destination storage is unavailable"));
 
+    // Creating the destination Note is validation/preparation, not the
+    // persistent move itself. Do it before touching DraftStore so any backend
+    // failure leaves both the live identity and durable route unchanged.
+    auto destination = destinationStorage->createNote();
+    if (destination.isNull())
+        return setError(tr("Could not create the destination note"));
+
     if (dirty_ && !save())
         return false;
 
@@ -301,10 +308,6 @@ bool NoteEditor::retargetStorage(const QString &destinationStorageId)
     auto moved = drafts_->retargetEditingDraft(draftId_, destinationId);
     if (!moved)
         return setError(moved.error.message);
-
-    auto destination = destinationStorage->createNote();
-    if (destination.isNull())
-        return setError(tr("Could not create the destination note"));
 
     destination.setTitle(moved.value.title);
     destination.setText(moved.value.body, moved.value.format);
