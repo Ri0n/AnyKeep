@@ -268,9 +268,13 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
         }
     }
 
-    const auto closeError = storageId == DraftManager::draftsStorageId()
+    auto closeError = storageId == DraftManager::draftsStorageId()
         ? draftManager_->discardEditingSessionsForDraft(pendingDraftId)
         : draftManager_->discardEditingSessionsForNote(storageId, noteId);
+    if (!closeError && storageId != DraftManager::draftsStorageId() && !pendingDraftId.isNull()
+        && draftManager_->editingSessionCount(pendingDraftId) > 0) {
+        closeError = draftManager_->discardEditingSessionsForDraft(pendingDraftId);
+    }
     if (closeError) {
         setError(closeError.message);
         return false;
@@ -332,9 +336,10 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
             recycleNoteId    = record.removeSourceNoteId;
         }
 
-        const auto closeError = !noteId.isEmpty()
-            ? draftManager_->discardEditingSessionsForNote(storageId, noteId)
-            : draftManager_->discardEditingSessionsForDraft(record.id);
+        auto closeError = !noteId.isEmpty() ? draftManager_->discardEditingSessionsForNote(storageId, noteId)
+                                                 : DraftStoreError {};
+        if (!closeError && draftManager_->editingSessionCount(record.id) > 0)
+            closeError = draftManager_->discardEditingSessionsForDraft(record.id);
         if (closeError) {
             setError(closeError.message);
             return false;
