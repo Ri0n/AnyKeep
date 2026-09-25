@@ -46,6 +46,8 @@ public:
     QUuid           acquireEditingSession(const Note &note, const QUuid &knownDraftId = {});
     /** Returns the canonical in-process live model for this logical note. */
     NoteEditor      *acquireEditor(const Note &note, const QUuid &knownDraftId = {});
+    NoteEditor      *liveEditorForNote(const QString &storageId, const QString &noteId) const;
+    NoteEditor      *liveEditorForDraft(const QUuid &draftId) const;
     int             editingSessionCountForNote(const QString &storageId, const QString &noteId) const;
     int             editingSessionCount(const QUuid &draftId) const;
     DraftStoreError discardEditingSessionsForNote(const QString &storageId, const QString &noteId);
@@ -57,6 +59,8 @@ public:
     DraftStoreResult<DraftRecord> resumeEditingDraft(const QUuid &draftId);
     DraftStoreError               markReady(const QUuid &draftId);
     DraftStoreError               discard(const QUuid &draftId);
+    /** Retarget a live Editing draft without closing its shared document. */
+    DraftStoreResult<DraftRecord> retargetEditingDraft(const QUuid &draftId, const QString &destinationStorageId);
     /** Cancel an in-flight publication, retarget the same persisted draft and publish it at the new storage. */
     DraftStoreError moveDraft(const QUuid &draftId, const QString &destinationStorageId);
     /** Publish a copy of the same local draft contents to another storage. */
