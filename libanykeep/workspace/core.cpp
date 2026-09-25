@@ -271,6 +271,25 @@ void NotesWorkspaceController::setError(const QString &error)
     emit errorStringChanged();
 }
 
+bool NotesWorkspaceController::ensureNoteIdentityChangeAllowed(const QString &storageId, const QString &noteId,
+                                                               const QString &message)
+{
+    if (storageId.isEmpty() || noteId.isEmpty() || storageId == DraftManager::draftsStorageId())
+        return true;
+
+    const auto liveDraftId = draftManager_->activeEditingDraftForNote(storageId, noteId);
+    if (liveDraftId.isNull())
+        return true;
+
+    const bool ownedByCurrentEditor = currentEditor_ && currentEditor_->draftId() == liveDraftId
+        && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId;
+    if (ownedByCurrentEditor && draftManager_->editingSessionCount(liveDraftId) == 1)
+        return true;
+
+    setError(message);
+    return false;
+}
+
 void NotesWorkspaceController::beginOperation()
 {
     const bool oldBusy = busy();
