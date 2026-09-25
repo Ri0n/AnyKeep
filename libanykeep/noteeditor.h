@@ -170,6 +170,12 @@ public slots:
     bool close();
     bool discardDraft();
     bool discardAndClose();
+    /**
+     * Closes every view lease for an external lifecycle operation without
+     * mutating DraftStore. DraftManager remains the sole owner of the pending
+     * publish/transfer/delete record.
+     */
+    bool releaseViewsForLifecycleMutation();
 
 signals:
     void externalCloseRequested();
