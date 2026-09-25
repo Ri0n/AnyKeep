@@ -35,6 +35,9 @@ without moving those headers.
 - Retargeting changes persistence route only. It must not change the draft UUID
   or destructively convert the canonical document; target-format conversion is
   a publication-boundary operation.
+- Delete/recycle persistence resolution belongs to `DraftManager`. Shells and
+  FolderCatalog must not independently interpret `remoteNoteId` versus
+  `removeSource*`; use `queueDraftDeletion()` / `prepareForRecycle()`.
 - Plugin-specific protocol and configuration code belongs under `plugins/`.
 
 ### `NoteBlockModel` implementation
