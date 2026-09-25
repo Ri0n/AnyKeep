@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 using namespace AnyKeep;
 
@@ -188,6 +189,7 @@ private slots:
     void queuesDeletionForEveryPostAckTransferIdentity();
     void failedLiveRetargetLeavesDraftAndIdentityUnchanged();
     void reusesDetachedRecoveryModelWhenStorageReturns();
+    void closesDetachedRecoveryModelByDurableAlias();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -769,6 +771,38 @@ void DraftManagerTransferTest::reusesDetachedRecoveryModelWhenStorageReturns()
     QCOMPARE(first->note().backendValue(QStringLiteral("etag")).toString(), QStringLiteral("base-etag"));
 
     QVERIFY(first->discardAndClose());
+}
+
+void DraftManagerTransferTest::closesDetachedRecoveryModelByDurableAlias()
+{
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord record;
+    record.id           = QUuid::createUuid();
+    record.operation    = DraftRecord::Publish;
+    record.state        = DraftRecord::Editing;
+    record.storageId    = QStringLiteral("offline-source");
+    record.remoteNoteId = QStringLiteral("remote-note");
+    record.title        = QStringLiteral("Recovered");
+    record.body         = QStringLiteral("Body");
+    record.format       = Note::Markdown;
+    data->records_.insert(record.id, record);
+
+    DraftManager drafts(std::move(store));
+    Note         detached(new NoteData(nullptr));
+    detached.setId(record.remoteNoteId);
+    auto *editor = drafts.acquireEditor(detached, record.id);
+    QVERIFY(editor);
+    QCOMPARE(editor->storageId(), QString());
+    QCOMPARE(drafts.editingSessionCountForNote(record.storageId, record.remoteNoteId), 1);
+
+    QSignalSpy closeRequested(editor, &NoteEditor::externalCloseRequested);
+    const auto error = drafts.discardEditingSessionsForNote(record.storageId, record.remoteNoteId);
+    QVERIFY2(!error, qPrintable(error.message));
+    QCOMPARE(closeRequested.count(), 1);
+    QCOMPARE(editor->viewLeaseCount(), 0);
+    QCOMPARE(drafts.editingSessionCount(record.id), 0);
+    QVERIFY(!data->records_.contains(record.id));
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
