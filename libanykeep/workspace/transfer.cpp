@@ -39,6 +39,9 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
         return false;
     }
     setError({});
+    if (!ensureNoteIdentityChangeAllowed(sourceStorageId, noteId,
+                                         tr("The note is open in another editor and cannot be moved yet")))
+        return false;
 
     QUuid pendingDraftId;
     if (sourceStorageId == DraftManager::draftsStorageId()) {
@@ -60,6 +63,11 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
     }
 
     if (!pendingDraftId.isNull()) {
+        const int liveSessions = draftManager_->editingSessionCount(pendingDraftId);
+        if (liveSessions > 0 && (!currentEditor_ || currentEditor_->draftId() != pendingDraftId)) {
+            setError(tr("The note is open in another editor and cannot be moved yet"));
+            return false;
+        }
         if (currentEditor_ && currentEditor_->draftId() == pendingDraftId) {
             if (!draftManager_->isLastEditingSession(pendingDraftId)) {
                 setError(tr("The note is open in another editor and cannot be moved yet"));
