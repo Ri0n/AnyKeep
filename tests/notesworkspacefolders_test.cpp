@@ -325,8 +325,21 @@ void NotesWorkspaceFoldersTest::refusesIdentityChangesWhileNoteIsOpenOutsideWork
     QTRY_VERIFY(manager->notesIndex()->hasSnapshot(raw->systemName()));
 
     NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
-    NoteEditor               standalone(note, drafts);
+    QVERIFY(workspace.openNote(raw->systemName(), note.id()));
+    QTRY_VERIFY(workspace.editor());
+
+    NoteEditor standalone(note, drafts);
+    QCOMPARE(workspace.editor()->draftId(), standalone.draftId());
     QCOMPARE(drafts.activeEditingDraftForNote(raw->systemName(), note.id()), standalone.draftId());
+    QCOMPARE(drafts.editingSessionCount(standalone.draftId()), 2);
+
+    QVERIFY(!workspace.moveNote(raw->systemName(), note.id(), QStringLiteral("another-storage")));
+    QVERIFY(workspace.errorString().contains(QStringLiteral("open in another editor")));
+
+    // Once the manager releases its own editor, identity mutation must still
+    // remain blocked by the standalone shell's process-wide lease.
+    QVERIFY(workspace.closeCurrentNote());
+    QVERIFY(!workspace.editor());
     QCOMPARE(drafts.editingSessionCount(standalone.draftId()), 1);
 
     QVERIFY(!workspace.moveNote(raw->systemName(), note.id(), QStringLiteral("another-storage")));
