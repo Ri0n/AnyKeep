@@ -105,7 +105,14 @@ QUuid DraftManager::acquireEditingSession(const Note &note, const QUuid &knownDr
     return id;
 }
 
-bool DraftManager::isLastEditingSession(const QUuid &draftId) const { return editingSessions_.value(draftId, 1) <= 1; }
+QUuid DraftManager::activeEditingDraftForNote(const QString &storageId, const QString &noteId) const
+{
+    return sourceSessions_.value(sourceKey(storageId, noteId));
+}
+
+int DraftManager::editingSessionCount(const QUuid &draftId) const { return editingSessions_.value(draftId); }
+
+bool DraftManager::isLastEditingSession(const QUuid &draftId) const { return editingSessionCount(draftId) <= 1; }
 
 bool DraftManager::releaseEditingSession(const QUuid &draftId)
 {
