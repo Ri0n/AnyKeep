@@ -100,6 +100,46 @@ public:
         return job;
     }
 
+    NoteSaveJob *saveNoteAsync(const Note &note, QObject *owner = nullptr) override
+    {
+        if (!delaySaveCompletions_)
+            return NoteStorage::saveNoteAsync(note, owner);
+
+        auto *job = new NoteSaveJob(owner ? owner : this);
+        job->start();
+
+        auto saved = note;
+        if (saved.id().isEmpty())
+            saved.setId(QStringLiteral("%1-%2").arg(id_).arg(++nextId_));
+        saved.setLastChangeUTC(QDateTime::currentDateTimeUtc());
+
+        bool replaced = false;
+        for (auto &candidate : notes_) {
+            if (candidate.id() != saved.id())
+                continue;
+            candidate = saved;
+            emit noteModified(saved);
+            replaced = true;
+            break;
+        }
+        if (!replaced) {
+            notes_.append(saved);
+            emit noteAdded(saved);
+        }
+        ++saveCalls_;
+        delayedSaves_.append({ job, saved });
+        return job;
+    }
+
+    void completeDelayedSaves()
+    {
+        const auto pending = std::exchange(delayedSaves_, {});
+        for (const auto &[job, note] : pending) {
+            if (job && !job->isFinished())
+                job->complete(note);
+        }
+    }
+
     bool saveNote(const Note &note) override
     {
         if (failSaves_)
@@ -152,6 +192,8 @@ public:
     bool                failLoads_ { false };
     bool                failSaves_ { false };
     bool                failCreates_ { false };
+    bool                delaySaveCompletions_ { false };
+    QList<QPair<QPointer<NoteSaveJob>, Note>> delayedSaves_;
     int                 saveCalls_ { 0 };
     int                 removeCalls_ { 0 };
 
@@ -195,6 +237,8 @@ private slots:
     void lifecycleViewClosureDoesNotDiscardTransferRecord();
     void externalRemovalCreatesUnroutedRecoveryCopy();
     void externalRemovalOfTransferSourceKeepsDestination();
+    void lateAckAfterPreAckTrashRemovesOrphanDestination();
+    void lateAckOnSameTargetAdoptsRemoteIdentity();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -1017,6 +1061,109 @@ void DraftManagerTransferTest::externalRemovalOfTransferSourceKeepsDestination()
     QVERIFY(updated.removeSourceNoteId.isEmpty());
     QCOMPARE(updated.body, QStringLiteral("Destination edits"));
     QCOMPARE(editor->viewLeaseCount(), 1);
+}
+
+void DraftManagerTransferTest::lateAckAfterPreAckTrashRemovesOrphanDestination()
+{
+    auto sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("late-ack-source"));
+    const auto source
+        = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Source"), QStringLiteral("Body"));
+    auto *sourceRaw = registerStorage(std::move(sourceStorage));
+
+    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("late-ack-destination"));
+    destinationStorage->delaySaveCompletions_ = true;
+    auto *destinationRaw = registerStorage(std::move(destinationStorage));
+    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(destinationRaw->systemName()) == destinationRaw)
+            manager->unregisterStorage(destinationRaw);
+        if (manager->storage(sourceRaw->systemName()) == sourceRaw)
+            manager->unregisterStorage(sourceRaw);
+    });
+
+    auto         store = std::make_unique<MemoryDraftStore>();
+    auto        *data  = store.get();
+    DraftManager drafts(std::move(store));
+
+    QUuid draftId;
+    const auto stageError = drafts.stageTransfer(source, destinationRaw->systemName(), {}, &draftId);
+    QVERIFY2(!stageError, qPrintable(stageError.message));
+    QTRY_COMPARE(destinationRaw->saveCalls_, 1);
+    QCOMPARE(destinationRaw->notes_.size(), 1); // Remote create happened; ACK is still delayed.
+    const auto orphanId = destinationRaw->notes_.constFirst().id();
+
+    const auto recycleFolder = QUuid::createUuid();
+    const auto prepared
+        = drafts.prepareForRecycle(destinationRaw->systemName(), draftId.toString(QUuid::WithoutBraces),
+                                   recycleFolder, draftId);
+    QVERIFY2(prepared, qPrintable(prepared.error.message));
+    QCOMPARE(prepared.value.storageId, sourceRaw->systemName());
+    QCOMPARE(prepared.value.noteId, source.id());
+    QCOMPARE(prepared.value.draftId, draftId);
+
+    const auto readyError = drafts.retryDraftNow(draftId);
+    QVERIFY2(!readyError, qPrintable(readyError.message));
+
+    destinationRaw->completeDelayedSaves();
+
+    // The stale ACK must never restore destination routing. Its created object
+    // is an orphan relative to current user intent and is durably removed.
+    QTRY_VERIFY(destinationRaw->note(orphanId).isNull());
+
+    const auto current = data->records_.value(draftId);
+    QCOMPARE(current.storageId, sourceRaw->systemName());
+    QCOMPARE(current.remoteNoteId, source.id());
+}
+
+void DraftManagerTransferTest::lateAckOnSameTargetAdoptsRemoteIdentity()
+{
+    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("late-ack-same-target"));
+    destinationStorage->delaySaveCompletions_ = true;
+    auto *destinationRaw = registerStorage(std::move(destinationStorage));
+    const auto cleanup = qScopeGuard([destinationRaw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(destinationRaw->systemName()) == destinationRaw)
+            manager->unregisterStorage(destinationRaw);
+    });
+
+    auto         store = std::make_unique<MemoryDraftStore>();
+    auto        *data  = store.get();
+    DraftManager drafts(std::move(store));
+
+    Note local = destinationRaw->createNote();
+    local.setTitle(QStringLiteral("New note"));
+    local.setText(QStringLiteral("First body"), Note::Markdown);
+    const auto draftId = drafts.acquireEditingSession(local);
+    QVERIFY(!draftId.isNull());
+    QVERIFY(!drafts.saveEditing(draftId, local, local.title(), local.text(), local.format()));
+    QVERIFY(!drafts.markReady(draftId));
+    QVERIFY(drafts.releaseEditingSession(draftId));
+
+    QTRY_COMPARE(destinationRaw->saveCalls_, 1);
+    QCOMPARE(destinationRaw->notes_.size(), 1);
+    const auto acknowledgedId = destinationRaw->notes_.constFirst().id();
+
+    // Reopen while the remote create has happened but its ACK is still in
+    // flight. This logically retires the publication without cancelling the
+    // side-effecting job.
+    const auto resumed = drafts.resumeNoteForEditingDraft(draftId);
+    QVERIFY2(resumed, qPrintable(resumed.error.message));
+    auto *editor = drafts.acquireEditor(resumed.value, draftId);
+    QVERIFY(editor);
+    editor->setText(QStringLiteral("New note\n\nSecond body"));
+    QVERIFY(editor->save());
+
+    destinationRaw->completeDelayedSaves();
+
+    QTRY_VERIFY(data->records_.contains(draftId));
+    const auto adopted = data->records_.value(draftId);
+    QCOMPARE(adopted.storageId, destinationRaw->systemName());
+    QCOMPARE(adopted.remoteNoteId, acknowledgedId);
+    QCOMPARE(adopted.state, DraftRecord::Editing);
+    QCOMPARE(adopted.body, QStringLiteral("Second body"));
+    QCOMPARE(destinationRaw->notes_.size(), 1);
+
+    QVERIFY(editor->discardAndClose());
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
