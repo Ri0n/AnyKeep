@@ -179,7 +179,7 @@ NoteWidget::NoteWidget(const Note &note, const QUuid &draftId) : ui(new Ui::Note
     connect(editor, &NoteEditor::externalCloseRequested, this, [this] {
         _autosaveTimer.stop();
         _trashRequested = true;
-        emit trashRequested();
+        close();
     });
     connect(editor, &NoteEditor::textChanged, this, &NoteWidget::textChanged);
     connect(qmlEditor, &DesktopNoteEditorHost::focusLost, this, &NoteWidget::save);
