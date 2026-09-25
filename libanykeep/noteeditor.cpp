@@ -311,29 +311,31 @@ bool NoteEditor::retargetStorage(const QString &destinationStorageId)
     destination.setTags(moved.value.tags);
     destination.setFolderId(moved.value.folderId);
     destination.setMedia(moved.value.media);
-    destination.setBackendData(moved.value.backendData);
 
-    const QString contents = moved.value.format == Note::PlainText
-        ? moved.value.title + QLatin1Char('\n') + moved.value.body
-        : moved.value.title + QLatin1String("\n\n") + moved.value.body;
-    const bool representationChanged = format_ != moved.value.format || text_ != contents;
+    // A pre-ACK move back to the persisted source restores its exact remote
+    // identity and source concurrency token. A move to a different target has
+    // no remote identity yet and must not expose the source token as if it
+    // belonged to that target.
+    if (!moved.value.remoteNoteId.isEmpty()) {
+        destination.setId(moved.value.remoteNoteId);
+        destination.setBackendData(moved.value.backendData);
+    } else if (destinationStorage->supportsFavorite()) {
+        const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+        if (moved.value.backendData.contains(favoriteKey))
+            destination.setFavorite(moved.value.backendData.value(favoriteKey).toBool());
+    }
 
-    note_                = destination;
-    folderUserOverride_  = moved.value.folderUserOverride;
-    draftPersisted_      = true;
-    draftRevision_       = moved.value.revision;
+    note_               = destination;
+    folderUserOverride_ = moved.value.folderUserOverride;
+    draftPersisted_     = true;
+    draftRevision_      = moved.value.revision;
 
-    if (representationChanged)
-        loadDocument(contents, moved.value.format, LoadPolicy::RecordFormatConversion);
-
-    // The retargeted record already contains this exact snapshot. Treat it as
-    // the new persistence baseline while keeping document-wide undo history.
-    text_               = model_->contents();
-    format_             = model_->markdown() ? Note::Markdown : Note::PlainText;
-    baselineText_       = text_;
-    baselineFormat_     = format_;
-    baselineFolderId_   = note_.folderId();
-    baselineFavorite_   = note_.isFavorite();
+    // Retargeting is a persistence-route change, never a document conversion.
+    // The canonical model/text/format and undo stack remain untouched.
+    baselineText_     = text_;
+    baselineFormat_   = format_;
+    baselineFolderId_ = note_.folderId();
+    baselineFavorite_ = note_.isFavorite();
     setMetadataDirty(false);
     setDirty(false);
 
