@@ -43,8 +43,7 @@ public:
     DraftStoreError saveEditing(const QUuid &draftId, const Note &note, const QString &title, const QString &body,
                                 Note::Format format, bool folderUserOverride = false);
     QUuid           acquireEditingSession(const Note &note, const QUuid &knownDraftId = {});
-    /** Returns the process-local editing lease for a persisted note, if any. */
-    QUuid           activeEditingDraftForNote(const QString &storageId, const QString &noteId) const;
+    int             editingSessionCountForNote(const QString &storageId, const QString &noteId) const;
     int             editingSessionCount(const QUuid &draftId) const;
     bool            isLastEditingSession(const QUuid &draftId) const;
     bool            releaseEditingSession(const QUuid &draftId);
@@ -111,6 +110,7 @@ private:
     QHash<QUuid, QPointer<StorageJob>> publishJobs_;
     QHash<QUuid, int>                  editingSessions_;
     QHash<QString, QUuid>              sourceSessions_;
+    QHash<QUuid, QString>              editingSources_;
     QString                            lastError_;
     std::unique_ptr<ConflictResolver>  conflictResolver_;
     PrePublicationHandler              prePublicationHandler_;
