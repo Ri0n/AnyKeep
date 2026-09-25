@@ -165,6 +165,7 @@ public slots:
     bool discardAndClose();
 
 signals:
+    void externalCloseRequested();
     void textChanged();
     void formatChanged();
     void dirtyChanged();
