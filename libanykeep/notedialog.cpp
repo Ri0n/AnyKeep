@@ -166,8 +166,8 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
     qDebug() << "Standalone note QML instantiated in" << qmlLoadTimer.elapsed() << "ms";
     if (status() == QQuickView::Error)
         qWarning() << "Failed to create standalone note QML window" << errors();
-    if (rootObject())
-        editor_->registerEditorView(rootObject());
+    // NoteBlockEditorImpl registers the actual document view. The window root
+    // is a shell and must not participate in cursor/history view selection.
     // The editor starts with already-loaded text, so no textChanged signal is
     // emitted while this view is being constructed. Set the native window
     // decoration title explicitly instead of waiting for the first edit.
