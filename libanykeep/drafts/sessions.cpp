@@ -620,10 +620,13 @@ DraftStoreError DraftManager::queueDraftDeletion(const QUuid &draftId)
 }
 
 DraftStoreResult<QPair<QString, QString>>
-DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId, const QUuid &knownDraftId)
+DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId, const QUuid &recycleFolderId,
+                                const QUuid &knownDraftId)
 {
     if (!store_)
         return { {}, { DraftStoreError::Locked, lastError_ } };
+    if (recycleFolderId.isNull())
+        return { {}, { DraftStoreError::InvalidArgument, tr("Recycle folder identifier is empty") } };
 
     QUuid draftId = knownDraftId;
     DraftStoreResult<DraftRecord> pending { {}, { DraftStoreError::NotFound, {} } };
@@ -658,9 +661,41 @@ DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId,
         }
     }
 
+    // If a shared live model exists, checkpoint its canonical document before
+    // any view is closed. Recycle preserves current edits; it is not permanent
+    // deletion.
+    if (!draftId.isNull()) {
+        if (auto *editor = liveEditorsByDraft_.value(draftId).data(); editor && editor->viewLeaseCount() > 0) {
+            const Note snapshot = editor->note();
+            const auto [title, body] = [&snapshot] {
+                if (snapshot.format() == Note::PlainText) {
+                    const auto text = snapshot.title().isEmpty() ? snapshot.text()
+                                                                : snapshot.title() + QLatin1Char('\n') + snapshot.text();
+                    const auto newline = text.indexOf(QLatin1Char('\n'));
+                    return QPair<QString, QString> {
+                        newline < 0 ? text : text.left(newline),
+                        newline < 0 ? QString() : text.mid(newline + 1)
+                    };
+                }
+                return QPair<QString, QString> { snapshot.title(), snapshot.text() };
+            }();
+            if (const auto checkpoint
+                = saveEditing(draftId, snapshot, title, body, snapshot.format(), editor->folderUserOverride())) {
+                return { {}, checkpoint };
+            }
+            editor->draftPersisted_ = true;
+            if (const auto refreshed = editingDraft(draftId); refreshed)
+                editor->draftRevision_ = refreshed.value.revision;
+        }
+
+        pending = pendingDraft(draftId);
+        if (!pending && pending.error.code != DraftStoreError::NotFound)
+            return { {}, pending.error };
+    }
+
+    // A clean persisted note may have no draft at all. Close its views, then
+    // let FolderCatalog move the existing remote object directly.
     if (!pending) {
-        // A known live draft UUID can legitimately have no persisted record
-        // yet when the note has never changed.
         const auto closeError = !draftId.isNull() ? discardEditingSessionsForDraft(draftId)
                                                   : discardEditingSessionsForNote(storageId, noteId);
         if (closeError)
@@ -670,29 +705,54 @@ DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId,
         return { { storageId, noteId }, {} };
     }
 
-    const auto record = pending.value;
-    QPair<QString, QString> recycleTarget;
-    if (!record.remoteNoteId.isEmpty()) {
-        recycleTarget = { record.storageId, record.remoteNoteId };
-    } else if (!record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty()) {
-        recycleTarget = { record.removeSourceStorageId, record.removeSourceNoteId };
+    auto record = pending.value;
+
+    // A note which has never existed remotely has nothing to place into a
+    // storage recycle bin. Explicit trash discards that local-only draft after
+    // closing every view, preserving the historic UX for unpublished notes.
+    const bool hasCurrentRemote = !record.remoteNoteId.isEmpty();
+    const bool hasTransferSource = !record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty();
+    if (!hasCurrentRemote && !hasTransferSource) {
+        if (const auto closeError = discardEditingSessionsForDraft(record.id))
+            return { {}, closeError };
+        if (const auto discardError = discard(record.id))
+            return { {}, discardError };
+        return { {}, {} };
     }
 
+    // Pre-ACK transfer: cancel the move and recycle the original persisted
+    // object. The source token in backendData again belongs to the active
+    // identity, so no copy/delete cycle or format conversion is needed.
+    if (!hasCurrentRemote && hasTransferSource) {
+        record.storageId    = record.removeSourceStorageId;
+        record.remoteNoteId = record.removeSourceNoteId;
+        record.removeSourceStorageId.clear();
+        record.removeSourceNoteId.clear();
+    }
+
+    cancelPublication(record.id);
+
+    // Close views while the record is still Editing. If a host refuses to
+    // close, do not make the draft publishable behind its back.
     if (const auto closeError = discardEditingSessionsForDraft(record.id))
         return { {}, closeError };
 
-    const bool destinationAcknowledged = !record.remoteNoteId.isEmpty();
-    const bool sourceStillPending = !record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty()
-        && (record.removeSourceStorageId != record.storageId || record.removeSourceNoteId != record.remoteNoteId);
-    if (destinationAcknowledged && sourceStillPending) {
-        if (const auto removalError = queueRemoval(record.removeSourceStorageId, record.removeSourceNoteId))
-            return { {}, removalError };
-    }
+    record.folderId           = recycleFolderId;
+    record.folderUserOverride = true;
+    record.state              = record.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready;
+    record.lastError.clear();
+    record.retryAt   = {};
+    record.updatedAt = QDateTime::currentDateTimeUtc();
+    if (const auto writeError = store_->write(record))
+        return { {}, writeError };
 
-    if (const auto discardError = discard(record.id))
-        return { {}, discardError };
+    emit draftsChanged();
 
-    return { recycleTarget, {} };
+    // The current persisted object can be projected into Recycle Bin
+    // immediately. The draft remains durable and will publish current content
+    // plus the recycle folder; a post-ACK transfer also retains removeSource*
+    // until destination publication safely queues source deletion.
+    return { { record.storageId, record.remoteNoteId }, {} };
 }
 
 DraftStoreError DraftManager::preserveLiveNoteAfterExternalRemoval(const QString &storageId, const QString &noteId)
