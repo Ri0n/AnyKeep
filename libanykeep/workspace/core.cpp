@@ -251,7 +251,6 @@ void NotesWorkspaceController::clearCurrentEditor()
     currentEditor_.clear();
     if (!old->hasPersistedDraft())
         pendingFolderAssignments_.remove(old->draftId());
-    old->deleteLater();
     emit currentEditorChanged();
     emit currentTitleChanged();
     emit currentFolderIdChanged();
