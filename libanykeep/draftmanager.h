@@ -5,6 +5,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QPair>
 #include <QPointer>
 #include <QSet>
 #include <functional>
@@ -76,6 +77,14 @@ public:
      * The draft is discarded only after all delete records are durable.
      */
     DraftStoreError queueDraftDeletion(const QUuid &draftId);
+    /**
+     * Closes every live view and removes any local publish draft before a
+     * caller recycles the surviving persisted object. For a post-ACK transfer,
+     * unresolved source deletion is made durable first. An empty pair means
+     * the logical note had no persisted object to recycle.
+     */
+    DraftStoreResult<QPair<QString, QString>> prepareForRecycle(const QString &storageId, const QString &noteId,
+                                                                const QUuid &knownDraftId = {});
     /**
      * Creates a persisted cross-storage move. The source is deleted only
      * after the destination draft is acknowledged by its storage.
