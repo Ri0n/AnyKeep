@@ -497,7 +497,7 @@ void DraftManager::publish(const DraftRecord &record)
 
     auto *job = storage->loadNoteAsync(record.remoteNoteId, this);
     publishJobs_.insert(record.id, job);
-    connect(job, &StorageJob::finished, this, [this, record, job, save]() mutable {
+    connect(job, &StorageJob::finished, this, [this, record, storage, job, save]() mutable {
         if (publishJobs_.value(record.id) != job) {
             qCInfo(logDraftPersistence) << "Ignoring stale draft load job: draft="
                                         << record.id.toString(QUuid::WithoutBraces);
@@ -527,12 +527,31 @@ void DraftManager::publish(const DraftRecord &record)
             save(note);
             return;
         }
+        const auto loadError = job->error();
+        if (!shuttingDown_ && loadError.retryable && storage->supportsDraftSnapshotSave()) {
+            // The encrypted draft is the durable local working copy. A provider
+            // whose metadata and body are stored independently can temporarily
+            // be unable to read a consistent remote body after a partially
+            // acknowledged write. Rebuild the save input from the draft and
+            // let the provider validate the captured concurrency token.
+            qCWarning(logDraftPersistence)
+                << "Retrying draft from durable snapshot after remote body load failed: draft="
+                << record.id.toString(QUuid::WithoutBraces) << "storage=" << record.storageId
+                << "message=" << loadError.message;
+            auto note = storage->createNote();
+            if (!note.isNull())
+                note.setId(record.remoteNoteId);
+            job->deleteLater();
+            save(note);
+            return;
+        }
+
         publishing_.remove(record.id);
         if (shuttingDown_ && job->state() == StorageJob::Cancelled) {
             qCInfo(logDraftPersistence) << "Ignoring note-load cancellation caused by application shutdown: draft="
                                         << record.id.toString(QUuid::WithoutBraces);
         } else {
-            retry(record, job->error().message, job->error().retryable);
+            retry(record, loadError.message, loadError.retryable);
         }
         job->deleteLater();
         if (publishing_.isEmpty())
