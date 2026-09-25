@@ -146,6 +146,7 @@ private:
     void           storageAboutToBeRemoved(NoteStorage *storage);
     void           observeStorageRemovals(NoteStorage *storage);
     void           cancelPublication(const QUuid &draftId);
+    void           reconcileStaleSaveSuccess(const DraftRecord &attempt, const Note &result);
     void           refreshLiveEditorAliases(NoteEditor *editor);
     void           removeLiveEditor(NoteEditor *editor);
     QSet<QUuid>     liveDraftIdsForAlias(const QString &storageId, const QString &noteId) const;
