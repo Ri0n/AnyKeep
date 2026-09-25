@@ -132,6 +132,17 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
         trashRequested_ = true;
         requestDeferredClose();
     });
+    connect(editor_, &NoteEditor::identityChanged, this, [this] {
+        if (!registryKey_.first.isEmpty() && !registryKey_.second.isEmpty()
+            && dialogs_.value(registryKey_) == this) {
+            dialogs_.remove(registryKey_);
+        }
+        registryKey_ = {};
+        if (!editor_->storageId().isEmpty() && !editor_->noteId().isEmpty()) {
+            registryKey_ = { editor_->storageId(), editor_->noteId() };
+            dialogs_.insert(registryKey_, this);
+        }
+    });
     connect(editor_, &NoteEditor::textChanged, this, &NoteDialog::updateWindowTitle);
     connect(platformBackend_, &EditorPlatformBackend::operationFailed, this, &NoteDialog::operationFailed);
     connect(desktopActions_, &DesktopNoteActions::operationFailed, this, &NoteDialog::operationFailed);
@@ -162,9 +173,10 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
     // decoration title explicitly instead of waiting for the first edit.
     updateWindowTitle();
 
-    if (!note.id().isEmpty()) {
-        Q_ASSERT(!findDialog(note.storageId(), note.id()));
-        dialogs_.insert({ note.storageId(), note.id() }, this);
+    if (!editor_->noteId().isEmpty()) {
+        Q_ASSERT(!findDialog(editor_->storageId(), editor_->noteId()));
+        registryKey_ = { editor_->storageId(), editor_->noteId() };
+        dialogs_.insert(registryKey_, this);
     }
 
     const auto storage = note.storage();
@@ -523,8 +535,9 @@ void NoteDialog::saveGeometryState(bool remove)
 void NoteDialog::removeFromRegistry()
 {
     allDialogs_.remove(this);
-    if (editor_ && !editor_->noteId().isEmpty())
-        dialogs_.remove({ editor_->storageId(), editor_->noteId() });
+    if (!registryKey_.first.isEmpty() && !registryKey_.second.isEmpty() && dialogs_.value(registryKey_) == this)
+        dialogs_.remove(registryKey_);
+    registryKey_ = {};
 }
 
 void NoteDialog::flushEditorChanges()
