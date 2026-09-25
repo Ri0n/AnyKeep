@@ -127,6 +127,30 @@ void NoteEditor::acquireViewLease()
                                  << "views=" << viewLeases_;
 }
 
+void NoteEditor::attachStorageContext(const Note &context)
+{
+    if (context.isNull() || !context.storage() || context.storageId().isEmpty())
+        return;
+    if (note_.storage() == context.storage() && note_.id() == context.id())
+        return;
+
+    auto replacement = context;
+    const auto [title, body] = titleAndBody();
+    replacement.setTitle(title);
+    replacement.setText(body, format_);
+    replacement.setTags(note_.tags());
+    replacement.setFolderId(note_.folderId());
+    replacement.setBackendData(note_.backendData());
+    replacement.setMedia(media_);
+    note_ = std::move(replacement);
+
+    emit identityChanged();
+    emit storageCapabilitiesChanged();
+    qCInfo(logEditorPersistence) << "Attached storage context to shared live note: draft="
+                                 << draftId_.toString(QUuid::WithoutBraces) << "storage=" << note_.storageId()
+                                 << "noteIdPresent=" << !note_.id().isEmpty();
+}
+
 void NoteEditor::loadFromNote()
 {
     if (note_.isNull()) {
