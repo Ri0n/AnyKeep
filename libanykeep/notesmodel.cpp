@@ -599,6 +599,13 @@ void NotesModel::replaceVisibleNotes(NMMItem *storageItem, int desiredCount)
 
     QList<NMMItem *> projected;
     const auto       pending = draftManager_ ? draftManager_->pendingDrafts() : QList<DraftRecord> {};
+    QSet<QString>    movedSourceIds;
+    if (!storageItem->syntheticStorage) {
+        for (const auto &draft : pending) {
+            if (draft.removeSourceStorageId == storageItem->id && !draft.removeSourceNoteId.isEmpty())
+                movedSourceIds.insert(draft.removeSourceNoteId);
+        }
+    }
     if (storageItem->syntheticStorage) {
         for (const auto &draft : pending) {
             if (!isUnpublishedDraft(draft))
@@ -619,6 +626,8 @@ void NotesModel::replaceVisibleNotes(NMMItem *storageItem, int desiredCount)
 
         QSet<QString> presented;
         for (const auto &note : indexedNotes(storageItem->id)) {
+            if (movedSourceIds.contains(note.id()))
+                continue;
             auto      *item  = new NMMItem(note, storageItem);
             const auto draft = draftByNote.constFind(note.id());
             if (draft != draftByNote.cend())
@@ -736,6 +745,8 @@ int NotesModel::projectedNoteCount(const NMMItem *storageItem) const
     for (const auto &note : notes)
         ids.insert(note.id());
     for (const auto &draft : pending) {
+        if (draft.removeSourceStorageId == storageItem->id && !draft.removeSourceNoteId.isEmpty())
+            ids.remove(draft.removeSourceNoteId);
         if (draft.storageId != storageItem->id || isUnpublishedDraft(draft))
             continue;
         ids.insert(draft.remoteNoteId.isEmpty() ? draft.id.toString(QUuid::WithoutBraces) : draft.remoteNoteId);
