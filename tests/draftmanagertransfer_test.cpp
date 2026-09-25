@@ -3,6 +3,7 @@
 #include "notedata.h"
 #include "noteeditor.h"
 #include "notemanager.h"
+#include "notetransfercontroller.h"
 
 #include <QScopeGuard>
 #include <QSignalSpy>
@@ -176,6 +177,8 @@ private slots:
     void exposesPendingPublicationDrafts();
     void publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval();
     void retargetsPublishedDraftWithoutLosingSourceIdentity();
+    void retargetBackToSourceCancelsTransferLosslessly();
+    void convertsFormatOnlyAtPublicationBoundary();
     void movesUnpublishedDraftWithoutCreatingSourceRemoval();
     void retriesExistingNoteFromDurableSnapshotWhenBodyLoadFails();
     void tracksAllSourceLeasesAcrossDistinctDraftIds();
@@ -448,6 +451,103 @@ void DraftManagerTransferTest::retargetsPublishedDraftWithoutLosingSourceIdentit
     QCOMPARE(moved.state, DraftRecord::Ready);
     QVERIFY(moved.lastError.isEmpty());
     QVERIFY(!moved.retryAt.isValid());
+}
+
+void DraftManagerTransferTest::retargetBackToSourceCancelsTransferLosslessly()
+{
+    auto sourceStorage      = std::make_unique<TransferStorage>(QStringLiteral("retarget-source"));
+    auto *sourceRaw         = registerStorage(std::move(sourceStorage));
+    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("retarget-plain"));
+    destinationStorage->formats_ = { Note::PlainText };
+    auto *destinationRaw = registerStorage(std::move(destinationStorage));
+    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(destinationRaw->systemName()) == destinationRaw)
+            manager->unregisterStorage(destinationRaw);
+        if (manager->storage(sourceRaw->systemName()) == sourceRaw)
+            manager->unregisterStorage(sourceRaw);
+    });
+
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord record;
+    record.id           = QUuid::createUuid();
+    record.operation    = DraftRecord::Publish;
+    record.state        = DraftRecord::Retry;
+    record.storageId    = sourceRaw->systemName();
+    record.remoteNoteId = QStringLiteral("source-note");
+    record.title        = QStringLiteral("# Canonical title");
+    record.body         = QStringLiteral("**Canonical** body");
+    record.format       = Note::Markdown;
+    record.backendData.insert(QStringLiteral("etag"), QStringLiteral("source-etag"));
+    data->records_.insert(record.id, record);
+
+    DraftManager drafts(std::move(store));
+    auto         error = drafts.moveDraft(record.id, destinationRaw->systemName());
+    QVERIFY2(!error, qPrintable(error.message));
+
+    auto moved = data->records_.value(record.id);
+    QCOMPARE(moved.storageId, destinationRaw->systemName());
+    QVERIFY(moved.remoteNoteId.isEmpty());
+    QCOMPARE(moved.removeSourceStorageId, sourceRaw->systemName());
+    QCOMPARE(moved.removeSourceNoteId, record.remoteNoteId);
+    QCOMPARE(moved.backendData, record.backendData);
+    QCOMPARE(moved.title, record.title);
+    QCOMPARE(moved.body, record.body);
+    QCOMPARE(moved.format, Note::Markdown);
+
+    error = drafts.moveDraft(record.id, sourceRaw->systemName());
+    QVERIFY2(!error, qPrintable(error.message));
+
+    const auto restored = data->records_.value(record.id);
+    QCOMPARE(restored.storageId, sourceRaw->systemName());
+    QCOMPARE(restored.remoteNoteId, record.remoteNoteId);
+    QVERIFY(restored.removeSourceStorageId.isEmpty());
+    QVERIFY(restored.removeSourceNoteId.isEmpty());
+    QCOMPARE(restored.backendData, record.backendData);
+    QCOMPARE(restored.title, record.title);
+    QCOMPARE(restored.body, record.body);
+    QCOMPARE(restored.format, Note::Markdown);
+}
+
+void DraftManagerTransferTest::convertsFormatOnlyAtPublicationBoundary()
+{
+    auto sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("format-source"));
+    const auto source  = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Title"),
+                                                   QStringLiteral("**Bold** body"));
+    auto *sourceRaw    = registerStorage(std::move(sourceStorage));
+
+    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("format-destination"));
+    destinationStorage->formats_ = { Note::PlainText };
+    auto *destinationRaw = registerStorage(std::move(destinationStorage));
+    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(destinationRaw->systemName()) == destinationRaw)
+            manager->unregisterStorage(destinationRaw);
+        if (manager->storage(sourceRaw->systemName()) == sourceRaw)
+            manager->unregisterStorage(sourceRaw);
+    });
+
+    auto         store = std::make_unique<MemoryDraftStore>();
+    auto        *data  = store.get();
+    DraftManager drafts(std::move(store));
+    QUuid        draftId;
+    const auto   error = drafts.stageTransfer(source, destinationRaw->systemName(), {}, &draftId);
+    QVERIFY2(!error, qPrintable(error.message));
+
+    const auto staged = data->records_.value(draftId);
+    QCOMPARE(staged.title, source.title());
+    QCOMPARE(staged.body, source.text());
+    QCOMPARE(staged.format, Note::Markdown);
+
+    QTRY_COMPARE(destinationRaw->notes_.size(), 1);
+    const auto published = destinationRaw->notes_.constFirst();
+    QCOMPARE(published.format(), Note::PlainText);
+    QCOMPARE(published.title(),
+             NoteTransferController::convertTextFormat(source.title(), Note::Markdown, Note::PlainText));
+    QCOMPARE(published.text(),
+             NoteTransferController::convertTextFormat(source.text(), Note::Markdown, Note::PlainText));
+    QTRY_VERIFY(sourceRaw->note(source.id()).isNull());
 }
 
 void DraftManagerTransferTest::movesUnpublishedDraftWithoutCreatingSourceRemoval()
