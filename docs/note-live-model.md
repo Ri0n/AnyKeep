@@ -91,10 +91,18 @@ delete the source later.
 
 ## Delete/recycle
 
-Explicit delete/recycle owns lifecycle. DraftManager asks the shared model to
-discard/release all editing leases; every host receives the close request; only
-then is the persisted note removed/recycled. A stale view cannot resurrect the
-deleted source.
+Explicit delete/recycle owns lifecycle. DraftManager resolves live models by
+durable aliases (current persisted identity and pending transfer source), not
+only by `Note::storageId()`. This matters for a recovery model opened while its
+storage plugin is unavailable: the live Note may be storage-detached while its
+DraftRecord still identifies the remote source.
+
+DraftManager asks every matching shared model to discard/release all editing
+leases; every host receives the close request; only then is persisted
+delete/recycle work allowed. Manager and standalone recycle both use
+`prepareForRecycle()` rather than interpreting transfer fields separately. A
+stale view therefore cannot survive deletion and checkpoint the old source back
+into existence.
 
 ## Production rule
 
