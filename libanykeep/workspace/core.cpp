@@ -310,6 +310,10 @@ void NotesWorkspaceController::endOperation()
 void NotesWorkspaceController::connectEditorSignals(NoteEditor *editor)
 {
     connect(editor, &NoteEditor::textChanged, this, &NotesWorkspaceController::currentTitleChanged);
+    connect(editor, &NoteEditor::identityChanged, this, [this, editor] {
+        if (currentEditor_ == editor)
+            emit currentEditorChanged();
+    });
     connect(editor, &NoteEditor::folderIdChanged, this, &NotesWorkspaceController::currentFolderIdChanged);
     connect(editor, &NoteEditor::errorStringChanged, this, [this, editor]() { setError(editor->errorString()); });
 }
