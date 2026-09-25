@@ -193,6 +193,8 @@ private slots:
     void recyclePreparationPreservesPostAckSourceCleanup();
     void recycleCancelsPreAckTransferBackToSource();
     void lifecycleViewClosureDoesNotDiscardTransferRecord();
+    void externalRemovalCreatesUnroutedRecoveryCopy();
+    void externalRemovalOfTransferSourceKeepsDestination();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -930,6 +932,85 @@ void DraftManagerTransferTest::recycleCancelsPreAckTransferBackToSource()
     QCOMPARE(recycledDraft.folderId, recycleFolder);
     QCOMPARE(recycledDraft.state, DraftRecord::Ready);
     QCOMPARE(recycledDraft.body, QStringLiteral("Edited before trash"));
+}
+
+void DraftManagerTransferTest::externalRemovalCreatesUnroutedRecoveryCopy()
+{
+    auto storage = std::make_unique<TransferStorage>(QStringLiteral("external-removal"));
+    auto note = storage->addStored(QStringLiteral("remote-note"), QStringLiteral("Remote"),
+                                   QStringLiteral("Original body"));
+    note.setBackendValue(QStringLiteral("etag"), QStringLiteral("remote-etag"));
+    auto *raw = registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([raw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+
+    auto         store = std::make_unique<MemoryDraftStore>();
+    auto        *data  = store.get();
+    DraftManager drafts(std::move(store));
+    auto        *editor = drafts.acquireEditor(note);
+    QVERIFY(editor);
+    editor->setText(QStringLiteral("Recovered\n\nLatest local body"));
+
+    const auto error = drafts.preserveLiveNoteAfterExternalRemoval(raw->systemName(), note.id());
+    QVERIFY2(!error, qPrintable(error.message));
+
+    const auto draft = data->records_.value(editor->draftId());
+    QCOMPARE(draft.state, DraftRecord::Editing);
+    QVERIFY(draft.storageId.isEmpty());
+    QVERIFY(draft.remoteNoteId.isEmpty());
+    QVERIFY(draft.removeSourceStorageId.isEmpty());
+    QVERIFY(draft.removeSourceNoteId.isEmpty());
+    QVERIFY(!draft.backendData.contains(QStringLiteral("etag")));
+    QCOMPARE(draft.title, QStringLiteral("Recovered"));
+    QCOMPARE(draft.body, QStringLiteral("Latest local body"));
+
+    QVERIFY(editor->storageId().isEmpty());
+    QVERIFY(editor->noteId().isEmpty());
+    QCOMPARE(editor->text(), QStringLiteral("Recovered\n\nLatest local body"));
+
+    QVERIFY(editor->close());
+    const auto closed = data->records_.value(editor->draftId());
+    QCOMPARE(closed.state, DraftRecord::NeedsRouting);
+}
+
+void DraftManagerTransferTest::externalRemovalOfTransferSourceKeepsDestination()
+{
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord transfer;
+    transfer.id                    = QUuid::createUuid();
+    transfer.operation             = DraftRecord::Publish;
+    transfer.state                 = DraftRecord::Editing;
+    transfer.storageId             = QStringLiteral("destination");
+    transfer.remoteNoteId.clear();
+    transfer.removeSourceStorageId = QStringLiteral("source");
+    transfer.removeSourceNoteId    = QStringLiteral("source-note");
+    transfer.title                 = QStringLiteral("Moved");
+    transfer.body                  = QStringLiteral("Body");
+    transfer.format                = Note::Markdown;
+    transfer.backendData.insert(QStringLiteral("etag"), QStringLiteral("source-etag"));
+    data->records_.insert(transfer.id, transfer);
+
+    DraftManager drafts(std::move(store));
+    Note         detached(new NoteData(nullptr));
+    auto *editor = drafts.acquireEditor(detached, transfer.id);
+    QVERIFY(editor);
+    editor->setText(QStringLiteral("Moved\n\nDestination edits"));
+
+    const auto error
+        = drafts.preserveLiveNoteAfterExternalRemoval(transfer.removeSourceStorageId, transfer.removeSourceNoteId);
+    QVERIFY2(!error, qPrintable(error.message));
+
+    const auto updated = data->records_.value(transfer.id);
+    QCOMPARE(updated.storageId, transfer.storageId);
+    QVERIFY(updated.remoteNoteId.isEmpty());
+    QVERIFY(updated.removeSourceStorageId.isEmpty());
+    QVERIFY(updated.removeSourceNoteId.isEmpty());
+    QCOMPARE(updated.body, QStringLiteral("Destination edits"));
+    QCOMPARE(editor->viewLeaseCount(), 1);
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
