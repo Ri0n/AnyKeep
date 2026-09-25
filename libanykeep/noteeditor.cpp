@@ -5,6 +5,7 @@
 #include "draftmanager.h"
 #include "noteblockmodel.h"
 #include "notedocumenthistory.h"
+#include "notedata.h"
 #include "notemanager.h"
 #include "notestorage.h"
 
@@ -149,6 +150,31 @@ void NoteEditor::attachStorageContext(const Note &context)
     qCInfo(logEditorPersistence) << "Attached storage context to shared live note: draft="
                                  << draftId_.toString(QUuid::WithoutBraces) << "storage=" << note_.storageId()
                                  << "noteIdPresent=" << !note_.id().isEmpty();
+}
+
+void NoteEditor::detachStorageContextForRecovery()
+{
+    const Note current = note();
+
+    Note detached(new NoteData(nullptr));
+    detached.setTitle(current.title());
+    detached.setText(current.text(), current.format());
+    detached.setTags(current.tags());
+    detached.setFolderId(current.folderId());
+    detached.setMedia(current.media());
+
+    QVariantMap portableData;
+    const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+    if (current.backendData().contains(favoriteKey))
+        portableData.insert(favoriteKey, current.backendData().value(favoriteKey));
+    detached.setBackendData(std::move(portableData));
+
+    note_ = std::move(detached);
+    emit identityChanged();
+    emit storageCapabilitiesChanged();
+
+    qCWarning(logEditorPersistence) << "Detached live note from removed remote identity: draft="
+                                    << draftId_.toString(QUuid::WithoutBraces);
 }
 
 void NoteEditor::loadFromNote()
