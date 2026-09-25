@@ -234,17 +234,46 @@ NoteEditor *DraftManager::liveEditorForDraft(const QUuid &draftId) const
     return draftId.isNull() ? nullptr : liveEditorsByDraft_.value(draftId);
 }
 
+QSet<QUuid> DraftManager::liveDraftIdsForAlias(const QString &storageId, const QString &noteId) const
+{
+    QSet<QUuid> result;
+    const auto  key = sourceKey(storageId, noteId);
+    if (key.isEmpty())
+        return result;
+
+    if (const auto direct = sourceSessions_.value(key); !direct.isNull())
+        result.insert(direct);
+    if (const auto editor = liveEditorsBySource_.value(key); editor)
+        result.insert(editor->draftId());
+
+    // Detached recovery models and pre-ACK transfers may not expose their
+    // durable source through Note::storageId(). The encrypted record is the
+    // authoritative alias set, so include both its current persisted identity
+    // and its unresolved transfer source.
+    if (store_) {
+        for (auto it = liveEditorsByDraft_.cbegin(); it != liveEditorsByDraft_.cend(); ++it) {
+            auto *editor = it.value().data();
+            if (!editor)
+                continue;
+            const auto draft = store_->load(editor->draftId());
+            if (!draft || draft.value.operation != DraftRecord::Publish)
+                continue;
+            const bool currentMatches
+                = draft.value.storageId == storageId && draft.value.remoteNoteId == noteId;
+            const bool sourceMatches = draft.value.removeSourceStorageId == storageId
+                && draft.value.removeSourceNoteId == noteId;
+            if (currentMatches || sourceMatches)
+                result.insert(editor->draftId());
+        }
+    }
+    return result;
+}
+
 int DraftManager::editingSessionCountForNote(const QString &storageId, const QString &noteId) const
 {
-    const auto key = sourceKey(storageId, noteId);
-    if (key.isEmpty())
-        return 0;
-
     int count = 0;
-    for (auto source = editingSources_.cbegin(); source != editingSources_.cend(); ++source) {
-        if (source.value() == key)
-            count += editingSessions_.value(source.key());
-    }
+    for (const auto &draftId : liveDraftIdsForAlias(storageId, noteId))
+        count += editingSessions_.value(draftId);
     return count;
 }
 
@@ -252,25 +281,29 @@ int DraftManager::editingSessionCount(const QUuid &draftId) const { return editi
 
 bool DraftManager::isLastEditingSession(const QUuid &draftId) const { return editingSessionCount(draftId) <= 1; }
 
-DraftStoreError DraftManager::discardEditingSessionsForNote(const QString &storageId, const QString &noteId)
+DraftStoreError DraftManager::discardEditingSessionsForNote(const QString &storageId,
+                                                                      const QString &noteId)
 {
     if (storageId.isEmpty() || noteId.isEmpty())
         return {};
 
-    const auto key     = sourceKey(storageId, noteId);
-    const auto draftId = sourceSessions_.value(key);
+    const auto matchingDrafts = liveDraftIdsForAlias(storageId, noteId);
+
+    // Keep this signal for directly-constructed/test editors which are not in
+    // the canonical registry. Registry-owned models are also closed by stable
+    // draft UUID below, which covers detached recovery and retargeted views.
     emit discardEditorsForNoteRequested(storageId, noteId);
-
-    // A live document that has been retargeted already exposes its destination
-    // identity, while sourceSessions_ deliberately retains the original alias
-    // until the two-phase transfer completes. Close that same document by its
-    // stable draft UUID as a fallback.
-    if (editingSessionCountForNote(storageId, noteId) > 0 && !draftId.isNull())
-        emit discardEditorsForDraftRequested(draftId);
-
-    if (editingSessionCountForNote(storageId, noteId) > 0) {
-        return { DraftStoreError::Io, tr("Could not close all editors for the note") };
+    for (const auto &draftId : matchingDrafts) {
+        if (editingSessionCount(draftId) > 0)
+            emit discardEditorsForDraftRequested(draftId);
     }
+
+    for (const auto &draftId : matchingDrafts) {
+        if (editingSessionCount(draftId) > 0)
+            return { DraftStoreError::Io, tr("Could not close all editors for the note") };
+    }
+    if (editingSessionCountForNote(storageId, noteId) > 0)
+        return { DraftStoreError::Io, tr("Could not close all editors for the note") };
     return {};
 }
 
