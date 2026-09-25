@@ -24,6 +24,11 @@ struct StorageError;
 class ANYKEEP_EXPORT DraftManager final : public QObject {
     Q_OBJECT
 public:
+    struct RecyclePreparation {
+        QString storageId;
+        QString noteId;
+        QUuid   draftId; // Commit with retryDraftNow() after catalog mutation succeeds.
+    };
     /**
      * Runs after a draft has left an editor and before its first publication
      * attempt. The handler may set folder metadata or change its publication
@@ -88,9 +93,9 @@ public:
      * unresolved source deletion is made durable first. An empty pair means
      * the logical note had no persisted object to recycle.
      */
-    DraftStoreResult<QPair<QString, QString>> prepareForRecycle(const QString &storageId, const QString &noteId,
-                                                                const QUuid &recycleFolderId,
-                                                                const QUuid &knownDraftId = {});
+    DraftStoreResult<RecyclePreparation> prepareForRecycle(const QString &storageId, const QString &noteId,
+                                                           const QUuid &recycleFolderId,
+                                                           const QUuid &knownDraftId = {});
     /**
      * A storage announced that an object disappeared while its logical note is
      * still open. Persist every matching live model before any UI reacts.
