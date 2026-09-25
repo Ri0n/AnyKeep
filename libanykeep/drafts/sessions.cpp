@@ -125,6 +125,27 @@ int DraftManager::editingSessionCount(const QUuid &draftId) const { return editi
 
 bool DraftManager::isLastEditingSession(const QUuid &draftId) const { return editingSessionCount(draftId) <= 1; }
 
+DraftStoreError DraftManager::discardEditingSessionsForNote(const QString &storageId, const QString &noteId)
+{
+    if (storageId.isEmpty() || noteId.isEmpty())
+        return {};
+    emit discardEditorsForNoteRequested(storageId, noteId);
+    if (editingSessionCountForNote(storageId, noteId) > 0) {
+        return { DraftStoreError::Io, tr("Could not close all editors for the note") };
+    }
+    return {};
+}
+
+DraftStoreError DraftManager::discardEditingSessionsForDraft(const QUuid &draftId)
+{
+    if (draftId.isNull())
+        return {};
+    emit discardEditorsForDraftRequested(draftId);
+    if (editingSessionCount(draftId) > 0)
+        return { DraftStoreError::Io, tr("Could not close all editors for the draft") };
+    return {};
+}
+
 bool DraftManager::releaseEditingSession(const QUuid &draftId)
 {
     auto it = editingSessions_.find(draftId);
