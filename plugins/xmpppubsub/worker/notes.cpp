@@ -515,15 +515,16 @@ QCoro::Task<XmppNoteResult> XmppWorker::saveNoteTask(XmppRemoteNote note)
     if (note.id.isEmpty()) {
         note.id = newUuid();
     } else {
-        auto server = co_await requestNoteTask(note.id, generation);
+        auto serverIndex = co_await requestIndexTask(note.id, generation);
         if (generation != clientGeneration_)
             co_return configurationChangedResult<XmppNoteResult>();
-        if (!server.ok)
-            co_return server;
+        if (!serverIndex.ok)
+            co_return serverIndex;
         qInfo().noquote() << "Conflict trace: XMPP revision check note=" << note.id << "local=" << note.revision
-                          << "server=" << server.note.revision << "server-parent=" << server.note.parentRevision
-                          << "server-origin=" << server.note.originId;
-        if (server.note.revision != note.revision) {
+                          << "server=" << serverIndex.note.revision
+                          << "server-parent=" << serverIndex.note.parentRevision
+                          << "server-origin=" << serverIndex.note.originId;
+        if (serverIndex.note.revision != note.revision) {
             // A folder tree rename/reparent can publish an index-only update
             // while this editor still holds the preceding note revision. That
             // update has no body change, is a direct child of this local
@@ -531,11 +532,21 @@ QCoro::Task<XmppNoteResult> XmppWorker::saveNoteTask(XmppRemoteNote note)
             // pending full save over exactly that case; every other revision
             // mismatch remains a real optimistic-concurrency conflict.
             const auto localContentRevision = note.contentRevision.isEmpty() ? note.revision : note.contentRevision;
-            const auto serverContentRevision
-                = server.note.contentRevision.isEmpty() ? server.note.revision : server.note.contentRevision;
-            const bool ownIndexOnlyUpdate = server.note.originId == config_.originId
-                && server.note.parentRevision == note.revision && serverContentRevision == localContentRevision;
+            const auto serverContentRevision = serverIndex.note.contentRevision.isEmpty()
+                ? serverIndex.note.revision
+                : serverIndex.note.contentRevision;
+            const bool ownIndexOnlyUpdate = serverIndex.note.originId == config_.originId
+                && serverIndex.note.parentRevision == note.revision && serverContentRevision == localContentRevision;
             if (!ownIndexOnlyUpdate) {
+                // A complete body is needed only for the conflict resolver. If
+                // another publication currently left index/content out of
+                // sync, preserve that as a retryable read failure rather than
+                // blocking repair of our durable draft.
+                auto server = co_await requestNoteTask(note.id, generation);
+                if (generation != clientGeneration_)
+                    co_return configurationChangedResult<XmppNoteResult>();
+                if (!server.ok)
+                    co_return server;
                 qInfo().noquote() << "Conflict trace: XMPP optimistic conflict note=" << note.id
                                   << "local=" << note.revision << "server=" << server.note.revision;
                 XmppNoteResult conflict;
@@ -547,8 +558,8 @@ QCoro::Task<XmppNoteResult> XmppWorker::saveNoteTask(XmppRemoteNote note)
             }
 
             qInfo().noquote() << "Conflict trace: XMPP rebasing local save over own index-only update note=" << note.id
-                              << "local=" << note.revision << "server=" << server.note.revision;
-            note.revision        = server.note.revision;
+                              << "local=" << note.revision << "server=" << serverIndex.note.revision;
+            note.revision        = serverIndex.note.revision;
             note.contentRevision = serverContentRevision;
         }
     }
