@@ -209,8 +209,6 @@ private:
     bool    startStorageReorder(NoteStorage *storage, const QStringList &noteIds, const QString &afterNoteId);
     void    completePendingReorderMove(const QUuid &batchId, int index, const QString &destinationNoteId);
     void    connectEditorSignals(NoteEditor *editor);
-    bool    ensureNoteIdentityChangeAllowed(const QString &storageId, const QString &noteId,
-                                            const QString &message);
     bool    ensureFolderCatalogAvailable();
     bool    parseFolderId(const QString &text, QUuid *folderId);
     QUuid   effectiveFolderId(const Note &note) const;
