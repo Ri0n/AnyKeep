@@ -54,6 +54,8 @@ cmake --build build/Desktop-Debug --target xmppnotecodec_test privatenotespubsub
 ctest --test-dir build/Desktop-Debug -R '^(xmpp.*|privatenotespubsubitem)_test$' --output-on-failure
 ```
 
-QXmpp/OMEMO targets are conditional. There are currently no direct
-`XmppWorker`/`XmppStorage` tests, so changes to them also require the full suite
-and explicit review of offline cache, retry, generation, and shutdown paths.
+QXmpp/OMEMO targets are conditional. `xmppstorage_test` exercises the
+backend-neutral storage adapter with a fake backend, but there is still no
+direct `XmppWorker` integration harness. Worker/backend changes therefore
+require the full suite plus explicit review of offline cache, retry, generation,
+partial publication, and shutdown paths.
