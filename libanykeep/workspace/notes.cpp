@@ -307,8 +307,8 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
         return false;
     }
 
-    const auto recycleStorageId = prepared.value.first;
-    const auto recycleNoteId    = prepared.value.second;
+    const auto recycleStorageId = prepared.value.storageId;
+    const auto recycleNoteId    = prepared.value.noteId;
     if (recycleStorageId.isEmpty() || recycleNoteId.isEmpty()) {
         draftManager_->publishPending();
         return true; // An unpublished local draft was simply discarded.
@@ -333,8 +333,18 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
         = folderOperations_->assignNoteFolder(recycleStorageId, recycleNoteId, FolderCatalog::recycleBinId(), true);
     trashUndoEntries_.append({ TrashUndoEntry::NoteTrash, recycleStorageId, recycleNoteId, title, {} });
     emit trashUndoChanged();
-    draftManager_->publishPending();
-    return accepted;
+    if (!accepted)
+        return false;
+
+    if (!prepared.value.draftId.isNull()) {
+        if (const auto readyError = draftManager_->retryDraftNow(prepared.value.draftId)) {
+            setError(readyError.message);
+            return false;
+        }
+    } else {
+        draftManager_->publishPending();
+    }
+    return true;
 }
 
 bool NotesWorkspaceController::restoreRecycledNote(const QString &storageId, const QString &noteId)
