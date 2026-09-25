@@ -317,43 +317,55 @@ bool NoteDialog::trashNote()
         requestDeferredClose();
         return true;
     }
+
     flushEditorChanges();
-    if (editor_->noteId().isEmpty()) {
-        // A never-published note has no remote object to recycle.  Autosave
-        // may already have created an Editing draft, so explicitly discard it
-        // before closing; otherwise startup recovery resurrects the deleted
-        // window even though the recycle bin has no corresponding note.
-        if (!editor_->discardAndClose()) {
-            emit operationFailed(editor_->errorString());
-            return false;
-        }
-    } else {
+    auto *drafts  = DraftManager::instance();
+    const auto id = editor_->draftId();
+
+    QString storageId = editor_->storageId();
+    QString noteId    = editor_->noteId();
+    const auto pending = drafts->pendingDraft(id);
+    if (pending && !pending.value.removeSourceStorageId.isEmpty() && !pending.value.removeSourceNoteId.isEmpty()) {
+        // A retargeted live note has no destination remote ID yet. Until the
+        // destination is acknowledged, the original persisted object is the
+        // object that can actually be recycled.
+        storageId = pending.value.removeSourceStorageId;
+        noteId    = pending.value.removeSourceNoteId;
+    }
+
+    if (!noteId.isEmpty()) {
         auto *folderCatalog = FolderCatalogManager::instance();
         if (!folderCatalog->isAvailable()) {
             emit operationFailed(tr("The encrypted folder catalog is unavailable"));
             return false;
         }
-        if (!DraftManager::instance()->isLastEditingSession(editor_->draftId())) {
-            emit operationFailed(tr("The note is open in another editor and cannot be moved to the recycle bin yet"));
+
+        const QUuid previousFolderId = folderCatalog->catalog().folderForNote(storageId, noteId);
+        const auto  closeError       = drafts->discardEditingSessionsForDraft(id);
+        if (closeError) {
+            emit operationFailed(closeError.message);
             return false;
         }
-        const QUuid previousFolderId = folderCatalog->catalog().folderForNote(editor_->storageId(), editor_->noteId());
-        if (!editor_->discardAndClose()) {
-            emit operationFailed(editor_->errorString());
-            return false;
-        }
-        const auto error = folderCatalog->recycleNote(editor_->storageId(), editor_->noteId(), previousFolderId);
+
+        const auto error = folderCatalog->recycleNote(storageId, noteId, previousFolderId);
         if (error) {
             emit operationFailed(error.message);
             return false;
         }
         auto *folderOperations = FolderOperationsController::instance();
-        if (!folderOperations->assignNoteFolder(editor_->storageId(), editor_->noteId(), FolderCatalog::recycleBinId(),
-                                                true)) {
+        if (!folderOperations->assignNoteFolder(storageId, noteId, FolderCatalog::recycleBinId(), true)) {
             emit operationFailed(folderOperations->errorString());
             return false;
         }
+    } else {
+        // A never-published note has no storage object to recycle.
+        const auto closeError = drafts->discardEditingSessionsForDraft(id);
+        if (closeError) {
+            emit operationFailed(closeError.message);
+            return false;
+        }
     }
+
     trashRequested_ = true;
     requestDeferredClose();
     return true;
