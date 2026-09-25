@@ -81,6 +81,7 @@ private:
     SpeechRecognitionController  *speechController_ { nullptr };
     QString                       windowGeometryKey_;
     QString                       alwaysOnTopKey_;
+    QPair<QString, QString>       registryKey_;
     bool                          trashRequested_ { false };
     bool                          pinning_ { false };
     bool                          closing_ { false };
