@@ -5,12 +5,14 @@
 #include "conflictresolver.h"
 #include "notemanager.h"
 #include "notestorage.h"
+#include "notetransfercontroller.h"
 #include "storagejob.h"
 
 #include <QDateTime>
 #include <QDebug>
 #include <QTimer>
 
+#include <optional>
 #include <utility>
 
 // Uncomment for detailed draft publication/conflict diagnostics.
@@ -37,9 +39,41 @@ namespace {
             && left.checksum == right.checksum && left.remoteData == right.remoteData;
     }
 
-    bool hasSamePublishedContents(const DraftRecord &draft, const Note &note)
+    struct PublicationSnapshot {
+        QString      title;
+        QString      body;
+        Note::Format format { Note::PlainText };
+    };
+
+    std::optional<PublicationSnapshot> publicationSnapshot(const DraftRecord &draft, const NoteStorage *storage)
     {
-        if (draft.title != note.title() || draft.body != note.text() || draft.format != note.format()
+        if (!storage)
+            return std::nullopt;
+
+        const auto formats = storage->availableFormats();
+        Note::Format targetFormat = draft.format;
+        if (!formats.contains(targetFormat)) {
+            const QList<Note::Format> preference { Note::Markdown, Note::PlainText, Note::Html };
+            const auto supported
+                = std::find_if(preference.cbegin(), preference.cend(),
+                               [&formats](Note::Format format) { return formats.contains(format); });
+            if (supported == preference.cend())
+                return std::nullopt;
+            targetFormat = *supported;
+        }
+
+        PublicationSnapshot snapshot;
+        snapshot.format = targetFormat;
+        snapshot.title
+            = NoteTransferController::convertTextFormat(draft.title, draft.format, targetFormat);
+        snapshot.body
+            = NoteTransferController::convertTextFormat(draft.body, draft.format, targetFormat);
+        return snapshot;
+    }
+
+    bool hasSamePublishedContents(const DraftRecord &draft, const PublicationSnapshot &snapshot, const Note &note)
+    {
+        if (snapshot.title != note.title() || snapshot.body != note.text() || snapshot.format != note.format()
             || draft.folderId != note.folderId()
             || draft.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool() != note.isFavorite()
             || draft.media.size() != note.media().size())
@@ -422,24 +456,41 @@ void DraftManager::publish(const DraftRecord &record)
         retry(record, tr("Target storage is unavailable"));
         return;
     }
+    const auto snapshot = publicationSnapshot(record, storage.data());
+    if (!snapshot) {
+        retry(record, tr("The target storage does not support a compatible note format"), false);
+        return;
+    }
     auto publishing  = record;
     publishing.state = DraftRecord::Publishing;
     if (store_->write(publishing))
         return;
     publishing_.insert(record.id);
 
-    const auto save = [this, record, storage](Note note) {
+    const auto save = [this, record, storage, snapshot = *snapshot](Note note) {
         if (note.isNull()) {
             publishing_.remove(record.id);
             retry(record, tr("Target note could not be created or loaded"));
             return;
         }
-        // Restore the captured concurrency token. New-note drafts may also
-        // carry one-shot storage hints such as a requested modification time.
-        if (!record.backendData.isEmpty())
+
+        const bool crossStorageNewTarget = record.remoteNoteId.isEmpty()
+            && !record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty();
+
+        // backendData is the base concurrency token for the current persisted
+        // identity. During a cross-storage move it still belongs to the source
+        // so that retargeting back before destination ACK remains lossless.
+        // Never leak that token wholesale into a different backend.
+        if (!record.backendData.isEmpty() && !crossStorageNewTarget) {
             note.setBackendData(record.backendData);
-        note.setTitle(record.title);
-        note.setText(record.body, record.format);
+        } else if (crossStorageNewTarget && storage->supportsFavorite()) {
+            const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+            if (record.backendData.contains(favoriteKey))
+                note.setFavorite(record.backendData.value(favoriteKey).toBool());
+        }
+
+        note.setTitle(snapshot.title);
+        note.setText(snapshot.body, snapshot.format);
         note.setTags(record.tags);
         note.setFolderId(record.folderId);
         note.setMedia(record.media);
@@ -512,7 +563,7 @@ void DraftManager::publish(const DraftRecord &record)
             // not with a full second snapshot in every DraftRecord. It is also
             // safe when the remote changed concurrently but now has identical
             // contents: keeping that remote version is the desired no-op.
-            if (hasSamePublishedContents(record, note)) {
+            if (hasSamePublishedContents(record, *snapshot, note)) {
                 publishing_.remove(record.id);
                 finishPublishedDraft(record, note);
                 job->deleteLater();
