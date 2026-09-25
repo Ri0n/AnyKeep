@@ -277,13 +277,13 @@ bool NotesWorkspaceController::ensureNoteIdentityChangeAllowed(const QString &st
     if (storageId.isEmpty() || noteId.isEmpty() || storageId == DraftManager::draftsStorageId())
         return true;
 
-    const auto liveDraftId = draftManager_->activeEditingDraftForNote(storageId, noteId);
-    if (liveDraftId.isNull())
+    const int liveSessions = draftManager_->editingSessionCountForNote(storageId, noteId);
+    if (liveSessions == 0)
         return true;
 
-    const bool ownedByCurrentEditor = currentEditor_ && currentEditor_->draftId() == liveDraftId
-        && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId;
-    if (ownedByCurrentEditor && draftManager_->editingSessionCount(liveDraftId) == 1)
+    const bool ownedByCurrentEditor
+        = currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId;
+    if (ownedByCurrentEditor && liveSessions == 1)
         return true;
 
     setError(message);
