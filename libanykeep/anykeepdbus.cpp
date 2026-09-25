@@ -167,7 +167,10 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
     QHash<QString, DraftRecord> pendingByNote;
     QList<DraftRecord>          localDrafts;
     QList<DraftRecord>          pendingTransfers;
+    QSet<QString>               movedSources;
     for (const auto &draft : draftRecords) {
+        if (!draft.removeSourceStorageId.isEmpty() && !draft.removeSourceNoteId.isEmpty())
+            movedSources.insert(draft.removeSourceStorageId + QChar(0x1f) + draft.removeSourceNoteId);
         if (isUnpublishedDraft(draft)) {
             localDrafts.append(draft);
             continue;
@@ -187,6 +190,10 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
     const auto      allNotes = NoteManager::instance()->noteList(-1);
     notes.reserve(allNotes.size() + draftRecords.size());
     for (const auto &note : allNotes) {
+        const QString key = note.storageId() + QChar(0x1f) + note.id();
+        if (movedSources.contains(key))
+            continue;
+
         const auto *folder = catalog ? menuFolder(note, *catalog) : nullptr;
         // The menu is a quick route to active notes. Archived folders are
         // deliberately hidden; Recycle Bin entries are only reachable from
@@ -194,8 +201,7 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
         if (folder && catalog->isInArchivedBranch(folder->id))
             continue;
 
-        const QString key = note.storageId() + QChar(0x1f) + note.id();
-        const auto    it  = pendingByNote.constFind(key);
+        const auto it = pendingByNote.constFind(key);
         MenuNote      entry;
         entry.storageId = note.storageId();
         entry.noteId    = note.id();
