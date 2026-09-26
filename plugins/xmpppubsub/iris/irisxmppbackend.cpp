@@ -1408,6 +1408,12 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
             capability.iv              = iv;
             capability.cipherHash      = cipherHash.data();
             capability.wireSize        = *wireSize;
+            qCDebug(lcIrisXmpp).noquote() << "Preparing durable Jingle media capability:"
+                                          << "publisher=" << capability.from
+                                          << "note-id-present=" << !capability.noteId.isEmpty()
+                                          << "content-revision-present=" << !capability.contentRevision.isEmpty()
+                                          << "plain-size=" << capability.reference.size
+                                          << "wire-size=" << capability.wireSize;
             const auto prepared        = backend->jinglePublicationProvider_->prepare(std::move(capability));
             if (!prepared.publication.isValid()) {
                 done({},
