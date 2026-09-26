@@ -94,13 +94,11 @@ QSocketNotifier *installUnixSignalHandlers(QObject *parent)
 
     auto *notifier = new QSocketNotifier(signalPipe[0], QSocketNotifier::Read, parent);
     QObject::connect(notifier, &QSocketNotifier::activated, qApp, [notifier]() {
-        qInfo() << "Unix termination signal received; requesting application quit";
         notifier->setEnabled(false);
 
         char buffer[16];
         while (::read(signalPipe[0], buffer, sizeof(buffer)) > 0) {}
 
-        qInfo() << "Unix termination signal pipe drained; calling QApplication::quit()";
         QApplication::quit();
     });
     return notifier;
@@ -222,13 +220,7 @@ int main(int argc, char *argv[])
 #endif
         a.connect(&a, &QtSingleApplication::messageReceived, &anykeep, &AnyKeep::Main::appMessageReceived);
         anykeep.parseAppArguments(a.arguments().mid(1));
-        QObject::connect(&a, &QCoreApplication::aboutToQuit, &a, []() {
-            qInfo() << "Application aboutToQuit entered";
-        });
-        qInfo() << "Application event loop starting";
-        const int exitCode = a.exec();
-        qInfo() << "Application event loop exited with code" << exitCode;
-        return exitCode;
+        return a.exec();
     }
     return 1;
 }
