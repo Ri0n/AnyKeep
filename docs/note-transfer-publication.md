@@ -69,6 +69,44 @@ observe a late terminal result. A late ACK is reconciled rather than ignored:
 an abandoned destination is deleted durably, while an ACK for the still-current
 target supplies the remote identity for that same logical draft.
 
+## Routing evaluation boundary
+
+Routing is evaluated when an editing lifecycle is committed, not at periodic
+autosave/focus-loss checkpoints.
+
+An `Editing` draft is durable but semantically provisional. In particular,
+routing may depend on the user's final:
+
+- tags;
+- title/body or other structured content;
+- folder and metadata;
+- attachments or capabilities;
+- additional routing inputs introduced in the future.
+
+Routing must not be modeled as merely "choose a storage". Retargeting to another
+storage is one possible routing action, but the routing pipeline may perform
+multiple actions and will grow independently of storage selection.
+
+Therefore an autosave checkpoint must **not** enter the routing/publication
+pipeline. Doing so could evaluate incomplete tags or other provisional state,
+publish to the wrong destination, or trigger actions which would then need to be
+undone when the user keeps editing.
+
+The normal commit boundary is final logical close:
+
+```text
+Editing + open views
+    -> autosave/checkpoint (still Editing)
+    -> final view closes
+    -> Ready / NeedsRouting
+    -> evaluate routing from final canonical state
+    -> publication transaction
+```
+
+Explicit lifecycle commands (Move, Copy, Trash, Delete) are separate user
+decisions with their own transaction rules. They do not weaken the rule that a
+periodic editing checkpoint is non-publishable.
+
 ## Publication ordering
 
 Cross-storage move ordering is strict:
