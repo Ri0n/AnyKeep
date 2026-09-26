@@ -147,6 +147,7 @@ private:
     void           observeStorageRemovals(NoteStorage *storage);
     void           cancelPublication(const QUuid &draftId);
     void           reconcileStaleSaveSuccess(const DraftRecord &attempt, const Note &result);
+    bool           recoverMissingRemoteIdentity(const DraftRecord &record, const StorageError &error);
     void           refreshLiveEditorAliases(NoteEditor *editor);
     void           removeLiveEditor(NoteEditor *editor);
     QSet<QUuid>     liveDraftIdsForAlias(const QString &storageId, const QString &noteId) const;
