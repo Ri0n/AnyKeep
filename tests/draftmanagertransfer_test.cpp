@@ -227,6 +227,7 @@ private slots:
     void convertsFormatOnlyAtPublicationBoundary();
     void movesUnpublishedDraftWithoutCreatingSourceRemoval();
     void retriesExistingNoteFromDurableSnapshotWhenBodyLoadFails();
+    void recoveredEditingDraftPublishesAfterLastViewCloses();
     void tracksAllSourceLeasesAcrossDistinctDraftIds();
     void queuesDeletionForEveryPostAckTransferIdentity();
     void failedLiveRetargetLeavesDraftAndIdentityUnchanged();
@@ -683,6 +684,61 @@ void DraftManagerTransferTest::retriesExistingNoteFromDurableSnapshotWhenBodyLoa
     QCOMPARE(recovered.title(), record.title);
     QCOMPARE(recovered.text(), record.body);
     QCOMPARE(recovered.backendValue(QStringLiteral("revision")).toString(), QStringLiteral("base-revision"));
+}
+
+void DraftManagerTransferTest::recoveredEditingDraftPublishesAfterLastViewCloses()
+{
+    auto storage                         = std::make_unique<TransferStorage>(QStringLiteral("recovered-editing"));
+    storage->supportsDraftSnapshotSave_ = true;
+    storage->failLoads_                 = true;
+    auto *raw                           = registerStorage(std::move(storage));
+    const auto cleanup                  = qScopeGuard([raw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+
+    raw->addStored(QStringLiteral("note"), QStringLiteral("Broken remote title"), QStringLiteral("Broken remote body"));
+
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
+    DraftRecord record;
+    record.id           = QUuid::createUuid();
+    record.operation    = DraftRecord::Publish;
+    record.state        = DraftRecord::Editing;
+    record.storageId    = raw->systemName();
+    record.remoteNoteId = QStringLiteral("note");
+    record.title        = QStringLiteral("Recovered title");
+    record.body         = QStringLiteral("Recovered body");
+    record.format       = Note::Markdown;
+    record.backendData.insert(QStringLiteral("revision"), QStringLiteral("base-revision"));
+    record.revision  = 3;
+    record.updatedAt = QDateTime::currentDateTimeUtc();
+    data->records_.insert(record.id, record);
+
+    DraftManager drafts(std::move(store));
+    const auto resumed = drafts.resumeNoteForEditingDraft(record.id);
+    QVERIFY2(resumed, qPrintable(resumed.error.message));
+
+    auto *editor = drafts.acquireEditor(resumed.value, record.id);
+    QVERIFY(editor);
+    QCOMPARE(editor->draftId(), record.id);
+    QCOMPARE(editor->viewLeaseCount(), 1);
+    QCOMPARE(editor->text(), QStringLiteral("Recovered title\n\nRecovered body"));
+
+    editor->setText(QStringLiteral("Recovered title\n\nRecovered body edited"));
+    QVERIFY(editor->save());
+    QVERIFY(data->records_.contains(record.id));
+    QCOMPARE(data->records_.value(record.id).state, DraftRecord::Editing);
+
+    QVERIFY(editor->close());
+
+    QTRY_COMPARE(raw->saveCalls_, 1);
+    QTRY_VERIFY(!data->records_.contains(record.id));
+    const auto published = raw->note(record.remoteNoteId);
+    QCOMPARE(published.title(), QStringLiteral("Recovered title"));
+    QCOMPARE(published.text(), QStringLiteral("Recovered body edited"));
+    QCOMPARE(published.backendValue(QStringLiteral("revision")).toString(), QStringLiteral("base-revision"));
 }
 
 void DraftManagerTransferTest::tracksAllSourceLeasesAcrossDistinctDraftIds()
