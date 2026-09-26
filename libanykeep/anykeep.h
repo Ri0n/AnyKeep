@@ -124,7 +124,6 @@ private slots:
     void showOptions();
     void createNewNote();
     void createNewNoteFromSelection();
-    void note_removed(const Note &noteItem);
     void applyPreparedUpdate();
 
 private:

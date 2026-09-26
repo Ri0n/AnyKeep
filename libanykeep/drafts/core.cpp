@@ -7,6 +7,7 @@
 #include "filedraftstore.h"
 #include "localdatakeystore.h"
 #include "notedata.h"
+#include "noteeditor.h"
 #include "notemanager.h"
 #include "notestorage.h"
 #include "notetransfercontroller.h"
@@ -41,6 +42,8 @@ namespace DraftManagerPrivate {
             return "retry";
         case DraftRecord::NeedsRouting:
             return "needs-routing";
+        case DraftRecord::Deleting:
+            return "deleting";
         }
         return "unknown";
     }
@@ -80,14 +83,24 @@ DraftManager::DraftManager(std::unique_ptr<DraftStore> store, QObject *parent) :
     QObject(parent), store_(std::move(store)), conflictResolver_(std::make_unique<CopyConflictResolver>())
 {
 }
-DraftManager::~DraftManager() = default;
-
-QString DraftManager::sourceKey(const Note &note)
+DraftManager::~DraftManager()
 {
-    if (note.storageId().isEmpty() || note.id().isEmpty())
-        return {};
-    return note.storageId() + QChar(0x1f) + note.id();
+    // NoteEditor releases DraftManager editing leases from its destructor.
+    // QObject would normally delete children from its base destructor, after
+    // DraftManager members have already been destroyed. Delete canonical live
+    // editors here while the session maps are still valid.
+    const auto editors = findChildren<NoteEditor *>(QString(), Qt::FindDirectChildrenOnly);
+    qDeleteAll(editors);
 }
+
+QString DraftManager::sourceKey(const QString &storageId, const QString &noteId)
+{
+    if (storageId.isEmpty() || noteId.isEmpty())
+        return {};
+    return storageId + QChar(0x1f) + noteId;
+}
+
+QString DraftManager::sourceKey(const Note &note) { return sourceKey(note.storageId(), note.id()); }
 
 QString DraftManager::draftsStorageId() { return QStringLiteral("anykeep-local-drafts"); }
 
@@ -132,6 +145,11 @@ bool DraftManager::initialize(QString *errorText)
                                     << "bodyLength=" << record.body.size() << "lastError=" << record.lastError;
     }
     auto *notes = NoteManager::instance();
+    connect(notes, &NoteManager::storageAdded, this,
+            [this](NoteStorage::Ptr storage) { observeStorageRemovals(storage.data()); });
+    for (const auto &storage : notes->storages(true))
+        observeStorageRemovals(storage.data());
+
     connect(notes, &NoteManager::storageAboutToBeRemoved, this,
             [this](NoteStorage::Ptr storage) { storageAboutToBeRemoved(storage.data()); });
     connect(notes, &NoteManager::storageRemoved, this,
@@ -140,6 +158,32 @@ bool DraftManager::initialize(QString *errorText)
             [this](NoteStorage::Ptr storage) { storageBecameReady(storage.data()); });
     QTimer::singleShot(0, this, &DraftManager::publishPending);
     return true;
+}
+
+void DraftManager::observeStorageRemovals(NoteStorage *storage)
+{
+    if (!storage || observedRemovalStorages_.contains(storage))
+        return;
+    observedRemovalStorages_.insert(storage);
+
+    connect(storage, &NoteStorage::noteRemoved, this, [this](const Note &note) {
+        if (note.isNull() || note.storageId().isEmpty() || note.id().isEmpty())
+            return;
+        if (liveDraftIdsForAlias(note.storageId(), note.id()).isEmpty())
+            return;
+
+        const auto error = preserveLiveNoteAfterExternalRemoval(note.storageId(), note.id());
+        if (error) {
+            emit publicationAbandoned(error.message.isEmpty()
+                                          ? tr("A note was removed remotely and its local recovery copy could not be saved.")
+                                          : error.message);
+            return;
+        }
+
+        emit recoveryNotice(tr("A note was removed from its storage while open. "
+                               "The local editing copy was preserved for recovery."));
+    });
+    connect(storage, &QObject::destroyed, this, [this, storage] { observedRemovalStorages_.remove(storage); });
 }
 
 bool DraftManager::recreateStore(QString *errorText)

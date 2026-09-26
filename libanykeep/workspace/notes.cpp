@@ -43,28 +43,16 @@ bool NotesWorkspaceController::openNote(const QString &storageId, const QString 
         }
         if (currentEditor_ && currentEditor_->draftId() == draftId)
             return true;
-        const auto resumed = draftManager_->resumeEditingDraft(draftId);
+        const auto resumed = draftManager_->resumeNoteForEditingDraft(draftId);
         if (!resumed) {
             setError(resumed.error.message.isEmpty() ? tr("The draft is no longer available") : resumed.error.message);
             return false;
         }
-        effectiveStorageId = resumed.value.storageId;
-        effectiveNoteId    = resumed.value.remoteNoteId;
-        auto storage       = effectiveStorageId.isEmpty() ? NoteManager::instance()->defaultStorage()
-                                                          : NoteManager::instance()->storage(effectiveStorageId);
-        if (!storage || !storage->canAcceptWrites()) {
-            setError(tr("The storage associated with this draft is unavailable"));
+        if (!openNote(resumed.value, draftId)) {
+            setError(tr("The draft could not be opened"));
             return false;
         }
-        effectiveStorageId = storage->systemName();
-        if (effectiveNoteId.isEmpty()) {
-            auto note = storage->createNote();
-            if (note.isNull() || !openNote(note, draftId)) {
-                setError(tr("The draft could not be opened"));
-                return false;
-            }
-            return true;
-        }
+        return true;
     } else {
         if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId)
             return true;
@@ -76,28 +64,18 @@ bool NotesWorkspaceController::openNote(const QString &storageId, const QString 
                 pending = std::move(presentedDraft);
         }
         if (pending) {
-            const auto resumed = draftManager_->resumeEditingDraft(pending.value.id);
+            draftId = pending.value.id;
+            const auto resumed = draftManager_->resumeNoteForEditingDraft(draftId);
             if (!resumed) {
                 setError(resumed.error.message.isEmpty() ? tr("The pending draft could not be opened")
                                                          : resumed.error.message);
                 return false;
             }
-            draftId = pending.value.id;
-            if (pending.value.remoteNoteId.isEmpty()) {
-                auto storage = NoteManager::instance()->storage(pending.value.storageId);
-                if (!storage || !storage->canAcceptWrites()) {
-                    setError(tr("The storage associated with this draft is unavailable"));
-                    return false;
-                }
-                auto note = storage->createNote();
-                if (note.isNull() || !openNote(note, draftId)) {
-                    setError(tr("The pending draft could not be opened"));
-                    return false;
-                }
-                return true;
+            if (!openNote(resumed.value, draftId)) {
+                setError(tr("The pending draft could not be opened"));
+                return false;
             }
-            effectiveStorageId = pending.value.storageId;
-            effectiveNoteId    = pending.value.remoteNoteId;
+            return true;
         }
     }
 
@@ -137,7 +115,12 @@ bool NotesWorkspaceController::openNote(const Note &note, const QUuid &draftId)
         return false;
     auto editorNote = note;
     editorNote.setFolderId(effectiveFolderId(note));
-    setCurrentEditor(new NoteEditor(editorNote, *draftManager_, draftId, this));
+    auto *editor = draftManager_->acquireEditor(editorNote, draftId);
+    if (!editor) {
+        setError(tr("Could not acquire the shared note model"));
+        return false;
+    }
+    setCurrentEditor(editor);
     setError({});
     return true;
 }
@@ -246,62 +229,45 @@ bool NotesWorkspaceController::deleteNote(const QString &storageId, const QStrin
         }
     }
 
-    // Resolve the published identity before discarding the local draft. A
-    // pending cross-storage move has no destination note id yet: until the
-    // destination acknowledges publication, the logical note still lives at
-    // removeSource*. Deleting such a row must delete that source, never a
-    // presentation UUID used by the Drafts overlay.
-    QString remoteStorageId = storageId;
-    QString remoteNoteId    = noteId;
-    bool    hasRemoteObject = storageId != DraftManager::draftsStorageId();
-    if (hasPendingRecord) {
-        if (!pendingRecord.remoteNoteId.isEmpty()) {
-            remoteStorageId = pendingRecord.storageId;
-            remoteNoteId    = pendingRecord.remoteNoteId;
-            hasRemoteObject = !remoteStorageId.isEmpty();
-        } else if (!pendingRecord.removeSourceStorageId.isEmpty() && !pendingRecord.removeSourceNoteId.isEmpty()) {
-            remoteStorageId = pendingRecord.removeSourceStorageId;
-            remoteNoteId    = pendingRecord.removeSourceNoteId;
-            hasRemoteObject = true;
-        } else {
-            hasRemoteObject = false;
-        }
+    auto closeError = storageId == DraftManager::draftsStorageId()
+        ? draftManager_->discardEditingSessionsForDraft(pendingDraftId)
+        : draftManager_->discardEditingSessionsForNote(storageId, noteId);
+    if (!closeError && storageId != DraftManager::draftsStorageId() && !pendingDraftId.isNull()
+        && draftManager_->editingSessionCount(pendingDraftId) > 0) {
+        closeError = draftManager_->discardEditingSessionsForDraft(pendingDraftId);
     }
-
-    if (!pendingDraftId.isNull() && currentEditor_ && currentEditor_->draftId() == pendingDraftId) {
-        if (!draftManager_->isLastEditingSession(pendingDraftId)) {
-            setError(tr("The note is open in another editor and cannot be deleted yet"));
-            return false;
-        }
-        if (!currentEditor_->discardAndClose()) {
-            setError(currentEditor_->errorString());
-            return false;
-        }
-        clearCurrentEditor();
-        pendingDraftId = {}; // discardAndClose() already removed it.
+    if (closeError) {
+        setError(closeError.message);
+        return false;
     }
 
     if (!pendingDraftId.isNull()) {
-        const auto error = draftManager_->discard(pendingDraftId);
+        // DraftManager owns the persistent transfer state machine. A
+        // post-ACK transfer can temporarily have both a destination object and
+        // an undeleted source; queueDraftDeletion() turns every such identity
+        // into a durable Delete record before dropping the transfer draft.
+        const auto error = draftManager_->queueDraftDeletion(pendingDraftId);
         if (error) {
             setError(error.message);
             return false;
         }
+
+        if (hasPendingRecord) {
+            if (!pendingRecord.storageId.isEmpty() && !pendingRecord.remoteNoteId.isEmpty())
+                removeNoteTrashUndo(pendingRecord.storageId, pendingRecord.remoteNoteId);
+            if (!pendingRecord.removeSourceStorageId.isEmpty() && !pendingRecord.removeSourceNoteId.isEmpty())
+                removeNoteTrashUndo(pendingRecord.removeSourceStorageId, pendingRecord.removeSourceNoteId);
+        }
+        draftManager_->publishPending();
+        return true;
     }
 
-    // Dropping a draft only removes its persisted reference graph. Media blobs
-    // are content-addressed and may be shared by other notes/drafts, so physical
-    // reclamation belongs to the media-store reachability GC rather than this
-    // operation.
-    if (!hasRemoteObject)
-        return true;
-
-    const auto error = draftManager_->queueRemoval(remoteStorageId, remoteNoteId);
+    const auto error = draftManager_->queueRemoval(storageId, noteId);
     if (error) {
         setError(error.message);
         return false;
     }
-    removeNoteTrashUndo(remoteStorageId, remoteNoteId);
+    removeNoteTrashUndo(storageId, noteId);
     draftManager_->publishPending();
     return true;
 }
@@ -312,87 +278,73 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
         return false;
     setError({});
 
+    // Drafts-list deletion is intentionally permanent rather than a folder
+    // recycle operation; keep its existing semantics.
     if (storageId == DraftManager::draftsStorageId()) {
         if (noteId.isEmpty())
             return false;
         return deleteNote(storageId, noteId);
     }
 
-    auto pending = !noteId.isEmpty() ? draftManager_->pendingDraftForNote(storageId, noteId)
-                                     : DraftStoreResult<DraftRecord> { {}, { DraftStoreError::NotFound, QString() } };
-    if (!pending && !noteId.isEmpty()) {
-        const QUuid presentedDraftId(noteId);
-        auto        presentedDraft = draftManager_->pendingDraft(presentedDraftId);
-        if (presentedDraft && presentedDraft.value.storageId == storageId)
-            pending = std::move(presentedDraft);
-    }
-    if (pending) {
-        if (!ensureFolderCatalogAvailable())
-            return false;
-        if (currentEditor_ && currentEditor_->draftId() == pending.value.id) {
-            if (!draftManager_->isLastEditingSession(pending.value.id)) {
-                setError(tr("The note is open in another editor and cannot be moved to the recycle bin yet"));
-                return false;
-            }
-            if (!currentEditor_->close()) {
-                setError(currentEditor_->errorString());
-                return false;
-            }
-            clearCurrentEditor();
-        }
-        if (const auto folderError
-            = draftManager_->setDraftFolder(pending.value.id, FolderCatalog::recycleBinId(), true)) {
-            setError(folderError.message);
-            return false;
-        }
-        if (const auto retryError = draftManager_->retryDraftNow(pending.value.id)) {
-            setError(retryError.message);
-            return false;
-        }
-        return true;
-    }
-
-    if (noteId.isEmpty()) {
-        if (!currentEditor_ || currentEditor_->storageId() != storageId || !currentEditor_->noteId().isEmpty())
-            return false;
-        if (!currentEditor_->discardAndClose()) {
-            setError(currentEditor_->errorString());
-            return false;
-        }
-        clearCurrentEditor();
-        return true;
-    }
-
     if (!ensureFolderCatalogAvailable())
         return false;
-    const QUuid previousFolderId(folderIdForNote(storageId, noteId));
+
+    QUuid knownDraftId;
+    if (currentEditor_) {
+        const bool currentIdentity = currentEditor_->storageId() == storageId
+            && currentEditor_->noteId() == noteId;
+        const bool unpublishedCurrent
+            = noteId.isEmpty() && currentEditor_->storageId() == storageId && currentEditor_->noteId().isEmpty();
+        const bool presentedCurrent = QUuid(noteId) == currentEditor_->draftId();
+        if (currentIdentity || unpublishedCurrent || presentedCurrent)
+            knownDraftId = currentEditor_->draftId();
+    }
+
+    const auto prepared
+        = draftManager_->prepareForRecycle(storageId, noteId, FolderCatalog::recycleBinId(), knownDraftId);
+    if (!prepared) {
+        setError(prepared.error.message);
+        return false;
+    }
+
+    const auto recycleStorageId = prepared.value.storageId;
+    const auto recycleNoteId    = prepared.value.noteId;
+    if (recycleStorageId.isEmpty() || recycleNoteId.isEmpty()) {
+        draftManager_->publishPending();
+        return true; // An unpublished local draft was simply discarded.
+    }
+
+    const QUuid previousFolderId(folderIdForNote(recycleStorageId, recycleNoteId));
     QString     title;
-    for (const auto &note : NoteManager::instance()->notesIndex()->notes(storageId)) {
-        if (note.id() == noteId) {
+    for (const auto &note : NoteManager::instance()->notesIndex()->notes(recycleStorageId)) {
+        if (note.id() == recycleNoteId) {
             title = note.title();
             break;
         }
     }
-    if (currentEditor_ && currentEditor_->storageId() == storageId && currentEditor_->noteId() == noteId) {
-        if (!draftManager_->isLastEditingSession(currentEditor_->draftId())) {
-            setError(tr("The note is open in another editor and cannot be moved to the recycle bin yet"));
-            return false;
-        }
-        if (!currentEditor_->discardAndClose()) {
-            setError(currentEditor_->errorString());
-            return false;
-        }
-        clearCurrentEditor();
-    }
 
-    if (const auto error = folderCatalogManager_->recycleNote(storageId, noteId, previousFolderId)) {
+    if (const auto error
+        = folderCatalogManager_->recycleNote(recycleStorageId, recycleNoteId, previousFolderId)) {
         setError(error.message);
         return false;
     }
-    const bool accepted = folderOperations_->assignNoteFolder(storageId, noteId, FolderCatalog::recycleBinId(), true);
-    trashUndoEntries_.append({ TrashUndoEntry::NoteTrash, storageId, noteId, title, {} });
+
+    const bool accepted
+        = folderOperations_->assignNoteFolder(recycleStorageId, recycleNoteId, FolderCatalog::recycleBinId(), true);
+    trashUndoEntries_.append({ TrashUndoEntry::NoteTrash, recycleStorageId, recycleNoteId, title, {} });
     emit trashUndoChanged();
-    return accepted;
+    if (!accepted)
+        return false;
+
+    if (!prepared.value.draftId.isNull()) {
+        if (const auto readyError = draftManager_->retryDraftNow(prepared.value.draftId)) {
+            setError(readyError.message);
+            return false;
+        }
+    } else {
+        draftManager_->publishPending();
+    }
+    return true;
 }
 
 bool NotesWorkspaceController::restoreRecycledNote(const QString &storageId, const QString &noteId)

@@ -78,7 +78,10 @@ namespace {
         QHash<QString, DraftRecord> pendingByNote;
         QList<DraftRecord>          localDrafts;
         QList<DraftRecord>          pendingTransfers;
+        QSet<QString>               movedSources;
         for (const auto &draft : draftRecords) {
+            if (!draft.removeSourceStorageId.isEmpty() && !draft.removeSourceNoteId.isEmpty())
+                movedSources.insert(draft.removeSourceStorageId + QChar(0x1f) + draft.removeSourceNoteId);
             if (isUnpublishedDraft(draft)) {
                 localDrafts.append(draft);
                 continue;
@@ -98,11 +101,13 @@ namespace {
         const auto      storageNotes   = host->noteManager()->noteList();
         const auto     *catalogManager = FolderCatalogManager::instance();
         for (const auto &note : storageNotes) {
+            const QString key = note.storageId() + QChar(0x1f) + note.id();
+            if (movedSources.contains(key))
+                continue;
             if (catalogManager->isAvailable() && catalogManager->catalog().isRecycled(note.storageId(), note.id())) {
                 continue;
             }
-            const QString key     = note.storageId() + QChar(0x1f) + note.id();
-            const auto    pending = pendingByNote.constFind(key);
+            const auto pending = pendingByNote.constFind(key);
             TrayNote      entry;
             entry.storageId = note.storageId();
             entry.noteId    = note.id();

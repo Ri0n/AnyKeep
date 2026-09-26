@@ -4,13 +4,17 @@
 
 #include "conflictresolver.h"
 #include "notemanager.h"
+#include "noteeditor.h"
 #include "notestorage.h"
+#include "notetransfercontroller.h"
 #include "storagejob.h"
 
 #include <QDateTime>
 #include <QDebug>
 #include <QTimer>
 
+#include <algorithm>
+#include <optional>
 #include <utility>
 
 // Uncomment for detailed draft publication/conflict diagnostics.
@@ -37,9 +41,41 @@ namespace {
             && left.checksum == right.checksum && left.remoteData == right.remoteData;
     }
 
-    bool hasSamePublishedContents(const DraftRecord &draft, const Note &note)
+    struct PublicationSnapshot {
+        QString      title;
+        QString      body;
+        Note::Format format { Note::PlainText };
+    };
+
+    std::optional<PublicationSnapshot> publicationSnapshot(const DraftRecord &draft, const NoteStorage *storage)
     {
-        if (draft.title != note.title() || draft.body != note.text() || draft.format != note.format()
+        if (!storage)
+            return std::nullopt;
+
+        const auto formats = storage->availableFormats();
+        Note::Format targetFormat = draft.format;
+        if (!formats.contains(targetFormat)) {
+            const QList<Note::Format> preference { Note::Markdown, Note::PlainText, Note::Html };
+            const auto supported
+                = std::find_if(preference.cbegin(), preference.cend(),
+                               [&formats](Note::Format format) { return formats.contains(format); });
+            if (supported == preference.cend())
+                return std::nullopt;
+            targetFormat = *supported;
+        }
+
+        PublicationSnapshot snapshot;
+        snapshot.format = targetFormat;
+        snapshot.title
+            = NoteTransferController::convertTextFormat(draft.title, draft.format, targetFormat);
+        snapshot.body
+            = NoteTransferController::convertTextFormat(draft.body, draft.format, targetFormat);
+        return snapshot;
+    }
+
+    bool hasSamePublishedContents(const DraftRecord &draft, const PublicationSnapshot &snapshot, const Note &note)
+    {
+        if (snapshot.title != note.title() || snapshot.body != note.text() || snapshot.format != note.format()
             || draft.folderId != note.folderId()
             || draft.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool() != note.isFavorite()
             || draft.media.size() != note.media().size())
@@ -77,11 +113,119 @@ void DraftManager::cancelPublication(const QUuid &draftId)
 {
     auto job = publishJobs_.take(draftId);
     publishing_.remove(draftId);
-    if (job && !job->isFinished()) {
-        qCInfo(logDraftPersistence) << "Cancelling active draft publication: id="
+    if (!job || job->isFinished())
+        return;
+
+    // A save may already have crossed the remote side-effect boundary even
+    // though its acknowledgement has not reached us. Calling cancel() would
+    // make the local job terminally Cancelled and discard a later successful
+    // result/remote id. Retire it logically instead and let the callback
+    // reconcile its terminal outcome. Read-only loads are safe to cancel.
+    if (qobject_cast<NoteSaveJob *>(job.data())) {
+        qCInfo(logDraftPersistence) << "Retiring active save publication pending late acknowledgement: id="
                                     << draftId.toString(QUuid::WithoutBraces);
-        job->cancel();
+        return;
     }
+
+    qCInfo(logDraftPersistence) << "Cancelling active draft publication: id="
+                                << draftId.toString(QUuid::WithoutBraces);
+    job->cancel();
+}
+
+void DraftManager::reconcileStaleSaveSuccess(const DraftRecord &attempt, const Note &result)
+{
+    if (!store_ || result.isNull() || result.storageId().isEmpty() || result.id().isEmpty())
+        return;
+
+    // Updating an already-existing remote object is not an orphan-create
+    // situation: deleting it would be destructive. The important ambiguous
+    // case here is a create whose acknowledgement arrived after local intent
+    // changed.
+    if (!attempt.remoteNoteId.isEmpty())
+        return;
+
+    const auto queueOrphanRemoval = [this, &result] {
+        const auto error = queueRemoval(result.storageId(), result.id());
+        if (error) {
+            emit publicationAbandoned(
+                tr("A cancelled publication completed remotely, but cleanup could not be queued: %1")
+                    .arg(error.message));
+        } else {
+            qCWarning(logDraftPersistence)
+                << "Queued cleanup for late-acknowledged orphan: storage=" << result.storageId()
+                << "note=" << result.id();
+        }
+    };
+
+    auto current = store_->load(attempt.id);
+    if (!current || current.value.operation != DraftRecord::Publish) {
+        queueOrphanRemoval();
+        return;
+    }
+
+    // Permanent deletion is already the durable user intent. A create that
+    // reached the backend before cancellation must never turn that root back
+    // into Ready/Editing; its late identity is only another object to remove.
+    if (current.value.state == DraftRecord::Deleting) {
+        queueOrphanRemoval();
+        return;
+    }
+
+    // If the logical note has since moved/recycled back to another storage,
+    // the late result belongs to an abandoned target. Never let it overwrite
+    // the current route; just clean up the remote object durably.
+    if (current.value.storageId != result.storageId()) {
+        queueOrphanRemoval();
+        return;
+    }
+
+    // The target is still the same. A late create ACK can become the stable
+    // remote identity for the current canonical draft, avoiding another create.
+    if (current.value.remoteNoteId.isEmpty()) {
+        // A newer create/load attempt for this same draft may already be in
+        // flight. Retire it before adopting the first acknowledged identity;
+        // if that newer create also succeeds later, its stale callback will
+        // queue that second object for deletion.
+        cancelPublication(attempt.id);
+
+        auto adopted         = current.value;
+        adopted.remoteNoteId = result.id();
+
+        const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+        const auto favorite = adopted.backendData.value(favoriteKey);
+        adopted.backendData = result.backendData();
+        // The ACK owns backend concurrency/identity metadata, but Favorite is
+        // current user-editable logical metadata. A stale create result must
+        // never roll a newer local Favorite value back.
+        if (favorite.isValid())
+            adopted.backendData.insert(favoriteKey, favorite);
+
+        adopted.state = editingSessionCount(attempt.id) > 0
+            ? DraftRecord::Editing
+            : (adopted.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready);
+        adopted.lastError.clear();
+        adopted.retryAt   = {};
+        adopted.updatedAt = QDateTime::currentDateTimeUtc();
+
+        if (const auto error = store_->write(adopted)) {
+            emit publicationAbandoned(
+                tr("A late publication acknowledgement could not be recorded safely: %1").arg(error.message));
+            queueOrphanRemoval();
+            return;
+        }
+
+        if (auto *editor = liveEditorsByDraft_.value(attempt.id).data())
+            refreshLiveEditorAliases(editor);
+        emit draftsChanged();
+        if (adopted.state == DraftRecord::Ready)
+            QTimer::singleShot(0, this, &DraftManager::publishPending);
+        return;
+    }
+
+    // Another acknowledgement already won the identity race. Any different
+    // id from this stale create is a duplicate and must be removed.
+    if (current.value.remoteNoteId != result.id())
+        queueOrphanRemoval();
 }
 
 QList<DraftRecord> DraftManager::pendingDrafts() const
@@ -235,6 +379,17 @@ void DraftManager::publishPending()
     const auto now = QDateTime::currentDateTimeUtc();
     for (const auto &storedRecord : records.value) {
         auto record = storedRecord;
+
+        // Deleting is a durable, non-publishable lifecycle root. Resume its
+        // conversion into concrete Delete records after a crash or transient
+        // DraftStore failure; never route it through process(Publish).
+        if (record.operation == DraftRecord::Publish && record.state == DraftRecord::Deleting) {
+            const auto error = queueDraftDeletion(record.id);
+            if (error)
+                qCWarning(logDraftPersistence) << "Failed to resume draft deletion:"
+                                               << record.id.toString(QUuid::WithoutBraces) << error.message;
+            continue;
+        }
         if (record.state == DraftRecord::Retry) {
             if (!record.retryAt.isValid())
                 continue;
@@ -331,6 +486,62 @@ void DraftManager::retry(const DraftRecord &record, const QString &message, bool
         QTimer::singleShot(delay * 1000, this, &DraftManager::publishPending);
 }
 
+bool DraftManager::recoverMissingRemoteIdentity(const DraftRecord &record, const StorageError &error)
+{
+    if (!store_ || error.code != StorageError::NotFound || record.operation != DraftRecord::Publish
+        || record.remoteNoteId.isEmpty()) {
+        return false;
+    }
+
+    // A post-ACK cross-storage transfer still represents two persistence
+    // identities. Do not guess which one should become authoritative when the
+    // acknowledged destination disappears; that requires explicit transfer
+    // reconciliation rather than ordinary routing recovery.
+    if (!record.removeSourceStorageId.isEmpty() || !record.removeSourceNoteId.isEmpty())
+        return false;
+
+    auto current = store_->load(record.id);
+    if (!current || current.value.operation != DraftRecord::Publish)
+        return false;
+
+    // The asynchronous lookup may belong to an identity which was superseded
+    // while it was in flight. Only detach the exact persistence identity that
+    // produced this NotFound.
+    if (current.value.storageId != record.storageId || current.value.remoteNoteId != record.remoteNoteId)
+        return false;
+
+    auto recovered = current.value;
+    recovered.remoteNoteId.clear();
+
+    // backendData is the base concurrency state of the vanished remote object.
+    // Keep only portable logical metadata which may be meaningful after routing.
+    QVariantMap portableData;
+    const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+    if (recovered.backendData.contains(favoriteKey))
+        portableData.insert(favoriteKey, recovered.backendData.value(favoriteKey));
+    recovered.backendData = std::move(portableData);
+
+    recovered.state     = DraftRecord::NeedsRouting;
+    recovered.lastError = tr("The previous remote note no longer exists; the recovered draft will be routed again");
+    recovered.retryAt   = {};
+    recovered.updatedAt = QDateTime::currentDateTimeUtc();
+
+    if (const auto writeError = store_->write(recovered)) {
+        qCWarning(logDraftPersistence)
+            << "Failed to detach missing remote identity: draft=" << record.id.toString(QUuid::WithoutBraces)
+            << writeError.message;
+        return false;
+    }
+
+    qCWarning(logDraftPersistence)
+        << "Detached missing remote identity and requeued routing: draft="
+        << record.id.toString(QUuid::WithoutBraces) << "previousStorage=" << record.storageId;
+
+    emit draftsChanged();
+    QTimer::singleShot(0, this, &DraftManager::publishPending);
+    return true;
+}
+
 void DraftManager::resolveConflict(const DraftRecord &record, const StorageError &error, const Note &remoteNote)
 {
     CONFLICT_TRACE << "Conflict trace: invoking resolver draft=" << record.id.toString(QUuid::WithoutBraces)
@@ -422,24 +633,41 @@ void DraftManager::publish(const DraftRecord &record)
         retry(record, tr("Target storage is unavailable"));
         return;
     }
+    const auto snapshot = publicationSnapshot(record, storage.data());
+    if (!snapshot) {
+        retry(record, tr("The target storage does not support a compatible note format"), false);
+        return;
+    }
     auto publishing  = record;
     publishing.state = DraftRecord::Publishing;
     if (store_->write(publishing))
         return;
     publishing_.insert(record.id);
 
-    const auto save = [this, record, storage](Note note) {
+    const auto save = [this, record, storage, snapshot = *snapshot](Note note) {
         if (note.isNull()) {
             publishing_.remove(record.id);
             retry(record, tr("Target note could not be created or loaded"));
             return;
         }
-        // Restore the captured concurrency token. New-note drafts may also
-        // carry one-shot storage hints such as a requested modification time.
-        if (!record.backendData.isEmpty())
+
+        const bool crossStorageNewTarget = record.remoteNoteId.isEmpty()
+            && !record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty();
+
+        // backendData is the base concurrency token for the current persisted
+        // identity. During a cross-storage move it still belongs to the source
+        // so that retargeting back before destination ACK remains lossless.
+        // Never leak that token wholesale into a different backend.
+        if (!record.backendData.isEmpty() && !crossStorageNewTarget) {
             note.setBackendData(record.backendData);
-        note.setTitle(record.title);
-        note.setText(record.body, record.format);
+        } else if (crossStorageNewTarget && storage->supportsFavorite()) {
+            const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+            if (record.backendData.contains(favoriteKey))
+                note.setFavorite(record.backendData.value(favoriteKey).toBool());
+        }
+
+        note.setTitle(snapshot.title);
+        note.setText(snapshot.body, snapshot.format);
         note.setTags(record.tags);
         note.setFolderId(record.folderId);
         note.setMedia(record.media);
@@ -450,7 +678,10 @@ void DraftManager::publish(const DraftRecord &record)
         connect(job, &StorageJob::finished, this, [this, record, job]() {
             if (publishJobs_.value(record.id) != job) {
                 qCInfo(logDraftPersistence)
-                    << "Ignoring stale draft save job: draft=" << record.id.toString(QUuid::WithoutBraces);
+                    << "Reconciling stale draft save job: draft=" << record.id.toString(QUuid::WithoutBraces)
+                    << "state=" << int(job->state());
+                if (job->state() == StorageJob::Succeeded)
+                    reconcileStaleSaveSuccess(record, job->result());
                 job->deleteLater();
                 return;
             }
@@ -497,7 +728,8 @@ void DraftManager::publish(const DraftRecord &record)
 
     auto *job = storage->loadNoteAsync(record.remoteNoteId, this);
     publishJobs_.insert(record.id, job);
-    connect(job, &StorageJob::finished, this, [this, record, job, save]() mutable {
+    connect(job, &StorageJob::finished, this,
+            [this, record, storage, job, save, snapshot = *snapshot]() mutable {
         if (publishJobs_.value(record.id) != job) {
             qCInfo(logDraftPersistence) << "Ignoring stale draft load job: draft="
                                         << record.id.toString(QUuid::WithoutBraces);
@@ -512,7 +744,7 @@ void DraftManager::publish(const DraftRecord &record)
             // not with a full second snapshot in every DraftRecord. It is also
             // safe when the remote changed concurrently but now has identical
             // contents: keeping that remote version is the desired no-op.
-            if (hasSamePublishedContents(record, note)) {
+            if (hasSamePublishedContents(record, snapshot, note)) {
                 publishing_.remove(record.id);
                 finishPublishedDraft(record, note);
                 job->deleteLater();
@@ -527,12 +759,31 @@ void DraftManager::publish(const DraftRecord &record)
             save(note);
             return;
         }
+        const auto loadError = job->error();
+        if (!shuttingDown_ && loadError.retryable && storage->supportsDraftSnapshotSave()) {
+            // The encrypted draft is the durable local working copy. A provider
+            // whose metadata and body are stored independently can temporarily
+            // be unable to read a consistent remote body after a partially
+            // acknowledged write. Rebuild the save input from the draft and
+            // let the provider validate the captured concurrency token.
+            qCWarning(logDraftPersistence)
+                << "Retrying draft from durable snapshot after remote body load failed: draft="
+                << record.id.toString(QUuid::WithoutBraces) << "storage=" << record.storageId
+                << "message=" << loadError.message;
+            auto note = storage->createNote();
+            if (!note.isNull())
+                note.setId(record.remoteNoteId);
+            job->deleteLater();
+            save(note);
+            return;
+        }
+
         publishing_.remove(record.id);
         if (shuttingDown_ && job->state() == StorageJob::Cancelled) {
             qCInfo(logDraftPersistence) << "Ignoring note-load cancellation caused by application shutdown: draft="
                                         << record.id.toString(QUuid::WithoutBraces);
-        } else {
-            retry(record, job->error().message, job->error().retryable);
+        } else if (!recoverMissingRemoteIdentity(record, loadError)) {
+            retry(record, loadError.message, loadError.retryable);
         }
         job->deleteLater();
         if (publishing_.isEmpty())
@@ -675,6 +926,15 @@ void DraftManager::storageAboutToBeRemoved(NoteStorage *storage)
             record.retryAt   = {};
             if (!store_->write(record))
                 ++affected;
+            continue;
+        }
+        // Deleting is the durable tombstone of an explicit permanent-delete
+        // transaction. Disabling its storage must not erase the identity still
+        // owed deletion or route the former Publish as a new note. Keep the
+        // root untouched; when this storage is available again publishPending()
+        // resumes queueDraftDeletion() from the preserved identity.
+        if (record.state == DraftRecord::Deleting) {
+            ++affected;
             continue;
         }
         if (record.state != DraftRecord::Editing)

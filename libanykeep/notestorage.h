@@ -61,6 +61,12 @@ public:
     // established, even though they are not yet readable.
     virtual bool canAcceptWrites() const { return isAccessible(); }
 
+    // A provider returning true can safely retry an existing-note save from a
+    // durable DraftRecord without first loading the remote body. The draft's
+    // backendData must carry the provider's base concurrency token, and
+    // saveNoteAsync() must validate that token before replacing remote state.
+    virtual bool supportsDraftSnapshotSave() const { return false; }
+
     virtual QList<Note::Format> availableFormats() const = 0;
     virtual bool                supportsMedia() const { return false; }
     virtual bool                supportsFavorite() const { return false; }

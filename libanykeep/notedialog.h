@@ -51,9 +51,6 @@ public:
     Q_INVOKABLE void setAlwaysOnTop(bool enabled);
     Q_INVOKABLE void reportError(const QString &message);
 
-public slots:
-    void trashRequested();
-
 signals:
     void alwaysOnTopChanged();
     void operationFailed(const QString &message);
@@ -81,6 +78,7 @@ private:
     SpeechRecognitionController  *speechController_ { nullptr };
     QString                       windowGeometryKey_;
     QString                       alwaysOnTopKey_;
+    QPair<QString, QString>       registryKey_;
     bool                          trashRequested_ { false };
     bool                          pinning_ { false };
     bool                          closing_ { false };

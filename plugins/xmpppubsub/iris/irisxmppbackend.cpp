@@ -2229,30 +2229,45 @@ void IrisXmppBackend::saveNoteAsync(XmppRemoteNote note, NoteCallback callback)
         }
 
         const auto noteId = note.id;
-        requestNoteAsync(
+        requestIndexAsync(
             noteId, generation,
-            [this, generation, note = std::move(note), callback = std::move(callback)](XmppNoteResult server) mutable {
-                if (!server.ok) {
-                    callback(std::move(server));
+            [this, generation, note = std::move(note), callback = std::move(callback)](
+                XmppNoteResult serverIndex) mutable {
+                if (!serverIndex.ok) {
+                    callback(std::move(serverIndex));
                     return;
                 }
-                if (server.note.revision != note.revision) {
+                if (serverIndex.note.revision != note.revision) {
                     const auto localContentRevision
                         = note.contentRevision.isEmpty() ? note.revision : note.contentRevision;
-                    const auto serverContentRevision
-                        = server.note.contentRevision.isEmpty() ? server.note.revision : server.note.contentRevision;
-                    const bool ownIndexOnlyUpdate = server.note.originId == config_.originId
-                        && server.note.parentRevision == note.revision && serverContentRevision == localContentRevision;
+                    const auto serverContentRevision = serverIndex.note.contentRevision.isEmpty()
+                        ? serverIndex.note.revision
+                        : serverIndex.note.contentRevision;
+                    const bool ownIndexOnlyUpdate = serverIndex.note.originId == config_.originId
+                        && serverIndex.note.parentRevision == note.revision
+                        && serverContentRevision == localContentRevision;
                     if (!ownIndexOnlyUpdate) {
-                        XmppNoteResult conflict;
-                        conflict.conflict         = true;
-                        conflict.remoteOnConflict = std::move(server.note);
-                        conflict.error            = QStringLiteral(
-                            "The note was modified on another XMPP resource; the local version was not published");
-                        callback(std::move(conflict));
+                        // A complete body is required only to resolve a real
+                        // optimistic-concurrency conflict. An inconsistent
+                        // body remains retryable and cannot block repair from
+                        // the durable local draft.
+                        requestNoteAsync(
+                            note.id, generation,
+                            [callback = std::move(callback)](XmppNoteResult server) mutable {
+                                if (!server.ok) {
+                                    callback(std::move(server));
+                                    return;
+                                }
+                                XmppNoteResult conflict;
+                                conflict.conflict         = true;
+                                conflict.remoteOnConflict = std::move(server.note);
+                                conflict.error            = QStringLiteral(
+                                    "The note was modified on another XMPP resource; the local version was not published");
+                                callback(std::move(conflict));
+                            });
                         return;
                     }
-                    note.revision        = server.note.revision;
+                    note.revision        = serverIndex.note.revision;
                     note.contentRevision = serverContentRevision;
                 }
                 publishNoteAsync(std::move(note), generation, std::move(callback));

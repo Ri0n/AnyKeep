@@ -51,6 +51,7 @@ public:
     QIcon           noteIcon() const override;
     bool            isAccessible() const override;
     bool            canAcceptWrites() const override;
+    bool            supportsDraftSnapshotSave() const override { return true; }
     bool            supportsMedia() const override;
     bool            supportsFavorite() const override { return true; }
 

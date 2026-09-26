@@ -146,12 +146,29 @@ ListView {
         return true
     }
 
+    property var registeredEditorBackend: null
+
     function registerEditorBackendView() {
-        if (editorBackend && typeof editorBackend.registerEditorView === "function")
-            editorBackend.registerEditorView(root)
+        if (registeredEditorBackend === editorBackend)
+            return
+
+        if (registeredEditorBackend
+                && typeof registeredEditorBackend.unregisterEditorView === "function")
+            registeredEditorBackend.unregisterEditorView(root)
+
+        registeredEditorBackend = editorBackend
+        if (registeredEditorBackend
+                && typeof registeredEditorBackend.registerEditorView === "function")
+            registeredEditorBackend.registerEditorView(root)
     }
 
     Component.onCompleted: registerEditorBackendView()
+    Component.onDestruction: {
+        if (registeredEditorBackend
+                && typeof registeredEditorBackend.unregisterEditorView === "function")
+            registeredEditorBackend.unregisterEditorView(root)
+        registeredEditorBackend = null
+    }
     onEditorBackendChanged: registerEditorBackendView()
 
     ScrollBar.vertical: ScrollBar {

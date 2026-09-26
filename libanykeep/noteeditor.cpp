@@ -5,11 +5,15 @@
 #include "draftmanager.h"
 #include "noteblockmodel.h"
 #include "notedocumenthistory.h"
+#include "notedata.h"
+#include "notemanager.h"
 #include "notestorage.h"
 
 #include <QDebug>
 #include <QLoggingCategory>
 #include <QMetaObject>
+#include <QQuickItem>
+#include <QQuickWindow>
 #include <QTimer>
 
 #include <algorithm>
@@ -28,6 +32,19 @@ NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draf
     audioPlayback_(new AudioPlaybackController(this, this)), history_(std::make_unique<NoteDocumentHistory>())
 {
     draftId_ = drafts_->acquireEditingSession(note_, draftId);
+    connect(drafts_, &DraftManager::discardEditorsForNoteRequested, this,
+            [this](const QString &storageId, const QString &noteId) {
+                if (viewLeases_ == 0 || note_.storageId() != storageId || note_.id() != noteId)
+                    return;
+                if (releaseViewsForLifecycleMutation())
+                    emit externalCloseRequested();
+            });
+    connect(drafts_, &DraftManager::discardEditorsForDraftRequested, this, [this](const QUuid &draftId) {
+        if (viewLeases_ == 0 || draftId_ != draftId)
+            return;
+        if (releaseViewsForLifecycleMutation())
+            emit externalCloseRequested();
+    });
     qCInfo(logEditorPersistence) << "Editor session created: draft=" << draftId_.toString(QUuid::WithoutBraces)
                                  << "storage=" << note_.storageId() << "noteIdPresent=" << !note_.id().isEmpty()
                                  << "knownDraft=" << draftId.toString(QUuid::WithoutBraces);
@@ -89,15 +106,75 @@ NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draf
 
 NoteEditor::~NoteEditor()
 {
-    qCInfo(logEditorPersistence) << "Editor session destroyed: draft=" << draftId_.toString(QUuid::WithoutBraces)
+    qCInfo(logEditorPersistence) << "Shared editor destroyed: draft=" << draftId_.toString(QUuid::WithoutBraces)
                                  << "storage=" << note_.storageId() << "noteIdPresent=" << !note_.id().isEmpty()
-                                 << "dirty=" << dirty_ << "released=" << sessionReleased_;
+                                 << "dirty=" << dirty_ << "viewLeases=" << viewLeases_;
     // QUndoStack emits state changes while it is being destroyed. Detach the
-    // outward callback before QObject children or a registered view can enter
+    // outward callback before QObject children or registered views can enter
     // their base-class destructors.
     history_->setChangedHandler({});
-    if (!sessionReleased_)
+    while (viewLeases_ > 0) {
         drafts_->releaseEditingSession(draftId_);
+        --viewLeases_;
+    }
+}
+
+void NoteEditor::acquireViewLease()
+{
+    const auto acquired = drafts_->acquireEditingSession(note_, draftId_);
+    Q_ASSERT(acquired == draftId_);
+    ++viewLeases_;
+    qCInfo(logEditorPersistence) << "Shared editor view attached: draft=" << draftId_.toString(QUuid::WithoutBraces)
+                                 << "views=" << viewLeases_;
+}
+
+void NoteEditor::attachStorageContext(const Note &context)
+{
+    if (context.isNull() || !context.storage() || context.storageId().isEmpty())
+        return;
+    if (note_.storage() == context.storage() && note_.id() == context.id())
+        return;
+
+    auto replacement = context;
+    const auto [title, body] = titleAndBody();
+    replacement.setTitle(title);
+    replacement.setText(body, format_);
+    replacement.setTags(note_.tags());
+    replacement.setFolderId(note_.folderId());
+    replacement.setBackendData(note_.backendData());
+    replacement.setMedia(media_);
+    note_ = std::move(replacement);
+
+    emit identityChanged();
+    emit storageCapabilitiesChanged();
+    qCInfo(logEditorPersistence) << "Attached storage context to shared live note: draft="
+                                 << draftId_.toString(QUuid::WithoutBraces) << "storage=" << note_.storageId()
+                                 << "noteIdPresent=" << !note_.id().isEmpty();
+}
+
+void NoteEditor::detachStorageContextForRecovery()
+{
+    const Note current = note();
+
+    Note detached(new NoteData(nullptr));
+    detached.setTitle(current.title());
+    detached.setText(current.text(), current.format());
+    detached.setTags(current.tags());
+    detached.setFolderId(current.folderId());
+    detached.setMedia(current.media());
+
+    QVariantMap portableData;
+    const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+    if (current.backendData().contains(favoriteKey))
+        portableData.insert(favoriteKey, current.backendData().value(favoriteKey));
+    detached.setBackendData(std::move(portableData));
+
+    note_ = std::move(detached);
+    emit identityChanged();
+    emit storageCapabilitiesChanged();
+
+    qCWarning(logEditorPersistence) << "Detached live note from removed remote identity: draft="
+                                    << draftId_.toString(QUuid::WithoutBraces);
 }
 
 void NoteEditor::loadFromNote()
@@ -240,17 +317,101 @@ bool NoteEditor::save()
     return true;
 }
 
+bool NoteEditor::retargetStorage(const QString &destinationStorageId)
+{
+    const auto destinationId = destinationStorageId.trimmed();
+    if (destinationId.isEmpty())
+        return setError(tr("A destination storage is required"));
+    if (destinationId == note_.storageId())
+        return true;
+
+    auto destinationStorage = NoteManager::instance()->storage(destinationId);
+    if (!destinationStorage || !destinationStorage->canAcceptWrites())
+        return setError(tr("The destination storage is unavailable"));
+
+    // Creating the destination Note is validation/preparation, not the
+    // persistent move itself. Do it before touching DraftStore so any backend
+    // failure leaves both the live identity and durable route unchanged.
+    auto destination = destinationStorage->createNote();
+    if (destination.isNull())
+        return setError(tr("Could not create the destination note"));
+
+    if (dirty_ && !save())
+        return false;
+
+    // Even an unchanged published note needs a durable Editing record before
+    // its persistence target changes. This record carries the original source
+    // identity until destination publication is acknowledged.
+    auto draft = drafts_->editingDraft(draftId_);
+    if (!draft) {
+        if (draft.error.code != DraftStoreError::NotFound)
+            return setError(draft.error.message);
+
+        const auto [title, body] = titleAndBody();
+        if (const auto error
+            = drafts_->saveEditing(draftId_, note_, title, body, format_, folderUserOverride_)) {
+            return setError(error.message);
+        }
+        draftPersisted_ = true;
+    }
+
+    auto moved = drafts_->retargetEditingDraft(draftId_, destinationId);
+    if (!moved)
+        return setError(moved.error.message);
+
+    destination.setTitle(moved.value.title);
+    destination.setText(moved.value.body, moved.value.format);
+    destination.setTags(moved.value.tags);
+    destination.setFolderId(moved.value.folderId);
+    destination.setMedia(moved.value.media);
+
+    // A pre-ACK move back to the persisted source restores its exact remote
+    // identity and source concurrency token. A move to a different target has
+    // no remote identity yet and must not expose the source token as if it
+    // belonged to that target.
+    if (!moved.value.remoteNoteId.isEmpty()) {
+        destination.setId(moved.value.remoteNoteId);
+        destination.setBackendData(moved.value.backendData);
+    } else if (destinationStorage->supportsFavorite()) {
+        const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+        if (moved.value.backendData.contains(favoriteKey))
+            destination.setFavorite(moved.value.backendData.value(favoriteKey).toBool());
+    }
+
+    note_               = destination;
+    folderUserOverride_ = moved.value.folderUserOverride;
+    draftPersisted_     = true;
+    draftRevision_      = moved.value.revision;
+
+    // Retargeting is a persistence-route change, never a document conversion.
+    // The canonical model/text/format and undo stack remain untouched.
+    baselineText_     = text_;
+    baselineFormat_   = format_;
+    baselineFolderId_ = note_.folderId();
+    baselineFavorite_ = note_.isFavorite();
+    setMetadataDirty(false);
+    setDirty(false);
+
+    emit identityChanged();
+    emit storageCapabilitiesChanged();
+    qCInfo(logEditorPersistence) << "Shared live note retargeted: draft="
+                                 << draftId_.toString(QUuid::WithoutBraces) << "storage=" << destinationId
+                                 << "views=" << viewLeases_;
+    return true;
+}
+
 bool NoteEditor::close()
 {
-    qCInfo(logEditorPersistence) << "Editor close requested: draft=" << draftId_.toString(QUuid::WithoutBraces)
-                                 << "storage=" << note_.storageId() << "noteIdPresent=" << !note_.id().isEmpty()
-                                 << "dirty=" << dirty_ << "released=" << sessionReleased_;
-    if (sessionReleased_)
+    qCInfo(logEditorPersistence) << "Shared editor view close requested: draft="
+                                 << draftId_.toString(QUuid::WithoutBraces) << "storage=" << note_.storageId()
+                                 << "noteIdPresent=" << !note_.id().isEmpty() << "dirty=" << dirty_
+                                 << "views=" << viewLeases_;
+    if (viewLeases_ <= 0)
         return true;
     if (dirty_ && !save())
         return false;
 
-    if (drafts_->isLastEditingSession(draftId_)) {
+    if (viewLeases_ == 1 && drafts_->isLastEditingSession(draftId_)) {
         const auto draft = drafts_->editingDraft(draftId_);
         if (draft) {
             const auto result = drafts_->markReady(draftId_);
@@ -266,9 +427,15 @@ bool NoteEditor::close()
             return setError(draft.error.message);
         }
     }
+
     drafts_->releaseEditingSession(draftId_);
-    sessionReleased_ = true;
-    qCInfo(logEditorPersistence) << "Editor close completed" << draftId_.toString(QUuid::WithoutBraces);
+    --viewLeases_;
+    qCInfo(logEditorPersistence) << "Shared editor view closed: draft="
+                                 << draftId_.toString(QUuid::WithoutBraces) << "views=" << viewLeases_;
+    if (viewLeases_ == 0) {
+        emit allViewsClosed();
+        emitDisposableIfUnused();
+    }
     return true;
 }
 
@@ -285,18 +452,41 @@ bool NoteEditor::discardDraft()
 
 bool NoteEditor::discardAndClose()
 {
-    if (sessionReleased_)
+    if (viewLeases_ <= 0)
         return true;
     const auto result = drafts_->discard(draftId_);
     if (result && result.code != DraftStoreError::NotFound)
         return setError(result.message);
     draftPersisted_ = false;
-    drafts_->releaseEditingSession(draftId_);
-    sessionReleased_ = true;
+    while (viewLeases_ > 0) {
+        drafts_->releaseEditingSession(draftId_);
+        --viewLeases_;
+    }
     setMetadataDirty(false);
     setDirty(false);
+    emit allViewsClosed();
+    emitDisposableIfUnused();
     return true;
 }
+bool NoteEditor::releaseViewsForLifecycleMutation()
+{
+    if (viewLeases_ <= 0)
+        return true;
+
+    while (viewLeases_ > 0) {
+        drafts_->releaseEditingSession(draftId_);
+        --viewLeases_;
+    }
+
+    // The operation which requested the lifecycle mutation owns DraftStore.
+    // Do not mark Ready, discard, reroute or otherwise rewrite the persistent
+    // record here. The live model is simply detached from every host.
+    setMetadataDirty(false);
+    setDirty(false);
+    emit allViewsClosed();
+    return true;
+}
+
 
 void NoteEditor::setDirty(bool dirty)
 {
@@ -469,7 +659,58 @@ bool NoteEditor::setAudioTranscript(int row, const QString &transcript)
 
 bool NoteEditor::historyInTransaction() const { return history_->inTransaction(); }
 
-void NoteEditor::registerEditorView(QObject *view) { editorView_ = view; }
+void NoteEditor::registerEditorView(QObject *view)
+{
+    if (!view)
+        return;
+    for (const auto &registered : std::as_const(editorViews_)) {
+        if (registered == view)
+            return;
+    }
+    editorViews_.append(view);
+    connect(view, &QObject::destroyed, this, [this, view] { unregisterEditorView(view); });
+}
+
+void NoteEditor::unregisterEditorView(QObject *view)
+{
+    for (auto it = editorViews_.begin(); it != editorViews_.end();) {
+        if (!*it || it->data() == view)
+            it = editorViews_.erase(it);
+        else
+            ++it;
+    }
+    emitDisposableIfUnused();
+}
+
+void NoteEditor::emitDisposableIfUnused()
+{
+    if (viewLeases_ > 0)
+        return;
+    for (const auto &view : std::as_const(editorViews_)) {
+        if (view)
+            return;
+    }
+    emit disposable();
+}
+
+QObject *NoteEditor::activeEditorView() const
+{
+    QObject *activeWindowView = nullptr;
+    QObject *fallback         = nullptr;
+    for (const auto &registered : editorViews_) {
+        auto *view = registered.data();
+        if (!view)
+            continue;
+        fallback = view;
+        if (auto *item = qobject_cast<QQuickItem *>(view)) {
+            if (item->hasActiveFocus())
+                return view;
+            if (item->window() && item->window()->isActive())
+                activeWindowView = view;
+        }
+    }
+    return activeWindowView ? activeWindowView : fallback;
+}
 
 void NoteEditor::beginHistoryTransaction(const QString &kind, const QVariantMap &beforeView)
 {
@@ -489,8 +730,8 @@ void NoteEditor::updateHistoryViewState(const QVariantMap &viewState, bool break
 
 bool NoteEditor::undo()
 {
-    if (editorView_)
-        QMetaObject::invokeMethod(editorView_, "flushPendingEditorChanges");
+    if (auto *view = activeEditorView())
+        QMetaObject::invokeMethod(view, "flushPendingEditorChanges");
     if (!canUndo())
         return false;
     history_->undo();
@@ -499,8 +740,8 @@ bool NoteEditor::undo()
 
 bool NoteEditor::redo()
 {
-    if (editorView_)
-        QMetaObject::invokeMethod(editorView_, "flushPendingEditorChanges");
+    if (auto *view = activeEditorView())
+        QMetaObject::invokeMethod(view, "flushPendingEditorChanges");
     if (!canRedo())
         return false;
     history_->redo();
@@ -511,25 +752,27 @@ void NoteEditor::breakHistoryMerge() { history_->breakMerge(); }
 
 QVariantMap NoteEditor::captureEditorViewState() const
 {
-    if (!editorView_)
+    auto *view = activeEditorView();
+    if (!view)
         return {};
     QVariant result;
-    if (!QMetaObject::invokeMethod(editorView_, "captureEditorState", Q_RETURN_ARG(QVariant, result)))
+    if (!QMetaObject::invokeMethod(view, "captureEditorState", Q_RETURN_ARG(QVariant, result)))
         return {};
     return result.toMap();
 }
 
 void NoteEditor::prepareEditorViewForHistoryRestore()
 {
-    if (editorView_)
-        QMetaObject::invokeMethod(editorView_, "prepareForHistoryRestore");
+    if (auto *view = activeEditorView())
+        QMetaObject::invokeMethod(view, "prepareForHistoryRestore");
 }
 
 void NoteEditor::scheduleEditorViewRestore(const QVariantMap &viewState)
 {
-    QTimer::singleShot(0, this, [this, viewState] {
-        if (editorView_)
-            QMetaObject::invokeMethod(editorView_, "restoreEditorState", Q_ARG(QVariant, viewState));
+    QPointer<QObject> view(activeEditorView());
+    QTimer::singleShot(0, this, [view, viewState] {
+        if (view)
+            QMetaObject::invokeMethod(view, "restoreEditorState", Q_ARG(QVariant, viewState));
     });
 }
 

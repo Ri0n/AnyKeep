@@ -40,14 +40,17 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
     }
     setError({});
 
-    QUuid pendingDraftId;
+    QUuid       pendingDraftId;
+    NoteEditor *liveEditor = nullptr;
     if (sourceStorageId == DraftManager::draftsStorageId()) {
         pendingDraftId = QUuid(noteId);
         if (pendingDraftId.isNull()) {
             setError(tr("The draft identifier is invalid"));
             return false;
         }
+        liveEditor = draftManager_->liveEditorForDraft(pendingDraftId);
     } else {
+        liveEditor = draftManager_->liveEditorForNote(sourceStorageId, noteId);
         const auto pending = draftManager_->pendingDraftForNote(sourceStorageId, noteId);
         if (pending) {
             pendingDraftId = pending.value.id;
@@ -59,52 +62,36 @@ bool NotesWorkspaceController::moveNoteAt(const QString &sourceStorageId, const 
         }
     }
 
-    if (!pendingDraftId.isNull()) {
-        if (currentEditor_ && currentEditor_->draftId() == pendingDraftId) {
-            if (!draftManager_->isLastEditingSession(pendingDraftId)) {
-                setError(tr("The note is open in another editor and cannot be moved yet"));
-                return false;
-            }
-            if (!currentEditor_->close()) {
-                setError(currentEditor_->errorString());
-                return false;
-            }
-            clearCurrentEditor();
+    if (!liveEditor && !pendingDraftId.isNull())
+        liveEditor = draftManager_->liveEditorForDraft(pendingDraftId);
+
+    // A live note has one canonical in-process model. Moving it is only a
+    // persistence-target change for that model; no view closes and no second
+    // destination editor/draft is created.
+    if (liveEditor) {
+        if (!liveEditor->retargetStorage(destinationStorageId)) {
+            setError(liveEditor->errorString());
+            return false;
         }
+        if (!liveEditor->folderId().isNull()) {
+            rememberPendingFolderAssignment(liveEditor->draftId(), liveEditor->folderId());
+            folderOperations_->prepareNativeFolderTree(destinationStorageId);
+        }
+        if (!reorderBatchId.isNull())
+            pendingMoves_.insert(liveEditor->draftId(), { reorderBatchId, reorderIndex, false });
+        return true;
+    }
+
+    // A persisted draft with no live view can be retargeted directly. Its
+    // existing removeSource* fields make this restart-safe.
+    if (!pendingDraftId.isNull()) {
         const auto error = draftManager_->moveDraft(pendingDraftId, destinationStorageId);
         if (error) {
             setError(error.message);
             return false;
         }
         if (!reorderBatchId.isNull())
-            pendingMoves_.insert(pendingDraftId, { {}, {}, reorderBatchId, reorderIndex });
-        return true;
-    }
-
-    if (currentEditor_ && currentEditor_->storageId() == sourceStorageId && currentEditor_->noteId() == noteId) {
-        if (!draftManager_->isLastEditingSession(currentEditor_->draftId())) {
-            setError(tr("The note is open in another editor and cannot be moved yet"));
-            return false;
-        }
-        if (!saveCurrentNote())
-            return false;
-        Note source = currentEditor_->note();
-
-        QUuid destinationDraftId;
-        if (!stageMove(source, destinationStorageId, &destinationDraftId, currentEditor_->folderUserOverride()))
-            return false;
-
-        // Moving is not a normal close of the source editing session: publishing
-        // that source draft and the destination draft concurrently could recreate
-        // the source after its queued removal. The destination is staged first so
-        // failure cannot lose local edits; only then discard the source checkpoint.
-        if (!currentEditor_->discardAndClose()) {
-            draftManager_->discard(destinationDraftId);
-            setError(currentEditor_->errorString());
-            return false;
-        }
-        clearCurrentEditor();
-        startStagedMove(destinationDraftId, source, reorderBatchId, reorderIndex);
+            pendingMoves_.insert(pendingDraftId, { reorderBatchId, reorderIndex, false });
         return true;
     }
 
@@ -136,23 +123,17 @@ bool NotesWorkspaceController::moveCurrentNote(const QString &destinationStorage
 {
     if (!currentEditor_ || destinationStorageId.isEmpty())
         return false;
-    if (!currentEditor_->noteId().isEmpty())
-        return moveNote(currentEditor_->storageId(), currentEditor_->noteId(), destinationStorageId);
+    if (currentEditor_->storageId() == destinationStorageId)
+        return true;
 
-    const QUuid draftId = currentEditor_->draftId();
-    if (!draftManager_->isLastEditingSession(draftId)) {
-        setError(tr("The note is open in another editor and cannot be moved yet"));
-        return false;
-    }
-    if (!currentEditor_->close()) {
+    setError({});
+    if (!currentEditor_->retargetStorage(destinationStorageId)) {
         setError(currentEditor_->errorString());
         return false;
     }
-    clearCurrentEditor();
-    const auto error = draftManager_->moveDraft(draftId, destinationStorageId);
-    if (error) {
-        setError(error.message);
-        return false;
+    if (!currentEditor_->folderId().isNull()) {
+        rememberPendingFolderAssignment(currentEditor_->draftId(), currentEditor_->folderId());
+        folderOperations_->prepareNativeFolderTree(destinationStorageId);
     }
     return true;
 }
@@ -181,8 +162,14 @@ bool NotesWorkspaceController::copyNote(const QString &sourceStorageId, const QS
         }
     }
     if (!pendingDraftId.isNull()) {
-        if (currentEditor_ && currentEditor_->draftId() == pendingDraftId && !saveCurrentNote())
+        if (auto *liveEditor = draftManager_->liveEditorForDraft(pendingDraftId)) {
+            if (!liveEditor->save()) {
+                setError(liveEditor->errorString());
+                return false;
+            }
+        } else if (currentEditor_ && currentEditor_->draftId() == pendingDraftId && !saveCurrentNote()) {
             return false;
+        }
         const auto error = draftManager_->copyDraft(pendingDraftId, destinationStorageId);
         if (error) {
             setError(error.message);
@@ -481,10 +468,28 @@ bool NotesWorkspaceController::stageMove(const Note &source, const QString &dest
     return true;
 }
 
+bool NotesWorkspaceController::stageDurableMove(const Note &source, const QString &destinationStorageId,
+                                                QUuid *draftId, bool folderUserOverride)
+{
+    const QUuid folderId = effectiveFolderId(source);
+    const auto  error
+        = draftManager_->stageTransfer(source, destinationStorageId, folderId, draftId, folderUserOverride);
+    if (error) {
+        setError(error.message);
+        return false;
+    }
+    if (!folderId.isNull() && draftId && !draftId->isNull()) {
+        rememberPendingFolderAssignment(*draftId, folderId);
+        folderOperations_->prepareNativeFolderTree(destinationStorageId);
+    }
+    return true;
+}
+
 void NotesWorkspaceController::startStagedMove(const QUuid &draftId, const Note &source, const QUuid &reorderBatchId,
                                                int reorderIndex)
 {
-    pendingMoves_.insert(draftId, { source.storageId(), source.id(), reorderBatchId, reorderIndex });
+    Q_UNUSED(source)
+    pendingMoves_.insert(draftId, { reorderBatchId, reorderIndex, true });
     beginOperation();
     draftManager_->publishPending();
 }
@@ -493,7 +498,7 @@ bool NotesWorkspaceController::beginMove(const Note &source, const QString &dest
                                          const QUuid &reorderBatchId, int reorderIndex)
 {
     QUuid draftId;
-    if (!stageMove(source, destinationStorageId, &draftId))
+    if (!stageDurableMove(source, destinationStorageId, &draftId))
         return false;
     startStagedMove(draftId, source, reorderBatchId, reorderIndex);
     return true;

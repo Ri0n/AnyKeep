@@ -4,12 +4,16 @@
 
 #include "conflictresolver.h"
 #include "notedata.h"
+#include "noteeditor.h"
+#include "notemanager.h"
 #include "notestorage.h"
 
 #include <QDateTime>
 #include <QDebug>
 #include <QTimer>
 #include <QUuid>
+
+#include <utility>
 
 // Uncomment for detailed draft publication/conflict diagnostics.
 // #define ANYKEEP_ENABLE_CONFLICT_TRACE
@@ -97,15 +101,237 @@ QUuid DraftManager::acquireEditingSession(const Note &note, const QUuid &knownDr
     if (id.isNull())
         id = QUuid::createUuid();
     ++editingSessions_[id];
-    if (!key.isEmpty())
+    if (!key.isEmpty()) {
         sourceSessions_[key] = id;
+        editingSources_[id]  = key;
+    }
     qCInfo(logDraftPersistence) << "Acquired editing session: draft=" << id.toString(QUuid::WithoutBraces)
                                 << "storage=" << note.storageId() << "noteIdPresent=" << !note.id().isEmpty()
                                 << "sessions=" << editingSessions_.value(id);
     return id;
 }
 
-bool DraftManager::isLastEditingSession(const QUuid &draftId) const { return editingSessions_.value(draftId, 1) <= 1; }
+void DraftManager::refreshLiveEditorAliases(NoteEditor *editor)
+{
+    if (!editor)
+        return;
+
+    for (auto it = liveEditorsBySource_.begin(); it != liveEditorsBySource_.end();) {
+        if (it.value() == editor)
+            it = liveEditorsBySource_.erase(it);
+        else
+            ++it;
+    }
+
+    const auto addAlias = [this, editor](const QString &storageId, const QString &noteId) {
+        const auto key = sourceKey(storageId, noteId);
+        if (!key.isEmpty())
+            liveEditorsBySource_[key] = editor;
+    };
+
+    addAlias(editor->storageId(), editor->noteId());
+    if (!store_)
+        return;
+
+    const auto draft = store_->load(editor->draftId());
+    if (!draft || draft.value.operation != DraftRecord::Publish)
+        return;
+    addAlias(draft.value.storageId, draft.value.remoteNoteId);
+    addAlias(draft.value.removeSourceStorageId, draft.value.removeSourceNoteId);
+}
+
+void DraftManager::removeLiveEditor(NoteEditor *editor)
+{
+    if (!editor)
+        return;
+    for (auto it = liveEditorsByDraft_.begin(); it != liveEditorsByDraft_.end();) {
+        if (it.value() == editor)
+            it = liveEditorsByDraft_.erase(it);
+        else
+            ++it;
+    }
+    for (auto it = liveEditorsBySource_.begin(); it != liveEditorsBySource_.end();) {
+        if (it.value() == editor)
+            it = liveEditorsBySource_.erase(it);
+        else
+            ++it;
+    }
+}
+
+NoteEditor *DraftManager::acquireEditor(const Note &note, const QUuid &knownDraftId)
+{
+    const auto key = sourceKey(note);
+
+    NoteEditor *editor = nullptr;
+    if (!knownDraftId.isNull()) {
+        // An explicit draft UUID is a stronger identity than the remote
+        // storage alias. Distinct recovery/conflict drafts for the same source
+        // must never be silently merged into one live document.
+        editor = liveEditorsByDraft_.value(knownDraftId);
+    } else if (!key.isEmpty()) {
+        editor = liveEditorsBySource_.value(key);
+        if (!editor) {
+            const auto existingDraftId = sourceSessions_.value(key);
+            if (!existingDraftId.isNull())
+                editor = liveEditorsByDraft_.value(existingDraftId);
+        }
+    }
+
+    if (editor) {
+        // Recovery can create a storage-detached model while a plugin is
+        // unavailable. When that same persisted identity later becomes
+        // available, attach only its storage/capability context; never reload
+        // remote contents over the authoritative live/durable document.
+        if (editor->storageId().isEmpty() && !note.storageId().isEmpty() && store_) {
+            const auto draft = store_->load(editor->draftId());
+            if (draft && draft.value.operation == DraftRecord::Publish && draft.value.storageId == note.storageId()
+                && draft.value.remoteNoteId == note.id()) {
+                editor->attachStorageContext(note);
+            }
+        }
+
+        editor->acquireViewLease();
+        qCInfo(logDraftPersistence) << "Reusing canonical live editor: draft="
+                                    << editor->draftId().toString(QUuid::WithoutBraces)
+                                    << "storage=" << editor->storageId() << "noteIdPresent=" << !editor->noteId().isEmpty()
+                                    << "views=" << editor->viewLeaseCount();
+        return editor;
+    }
+
+    editor = new NoteEditor(note, *this, knownDraftId, this);
+    liveEditorsByDraft_[editor->draftId()] = editor;
+    refreshLiveEditorAliases(editor);
+
+    connect(editor, &NoteEditor::identityChanged, this, [this, editor] { refreshLiveEditorAliases(editor); });
+    connect(editor, &NoteEditor::allViewsClosed, this, [this, editor] {
+        // Stop new views from acquiring a model whose logical lifecycle ended,
+        // but keep the QObject alive until every already-bound QML view has
+        // actually detached from it.
+        removeLiveEditor(editor);
+    });
+    connect(editor, &NoteEditor::disposable, this, [editor] { editor->deleteLater(); });
+    connect(editor, &QObject::destroyed, this, [this, editor] { removeLiveEditor(editor); });
+
+    qCInfo(logDraftPersistence) << "Registered canonical live editor: draft="
+                                << editor->draftId().toString(QUuid::WithoutBraces)
+                                << "storage=" << editor->storageId() << "noteIdPresent=" << !editor->noteId().isEmpty();
+    return editor;
+}
+
+NoteEditor *DraftManager::liveEditorForNote(const QString &storageId, const QString &noteId) const
+{
+    const auto key = sourceKey(storageId, noteId);
+    if (key.isEmpty())
+        return nullptr;
+    const auto editor = liveEditorsBySource_.value(key);
+    if (editor)
+        return editor.data();
+    const auto draftId = sourceSessions_.value(key);
+    return draftId.isNull() ? nullptr : liveEditorsByDraft_.value(draftId);
+}
+
+NoteEditor *DraftManager::liveEditorForDraft(const QUuid &draftId) const
+{
+    return draftId.isNull() ? nullptr : liveEditorsByDraft_.value(draftId);
+}
+
+QSet<QUuid> DraftManager::liveDraftIdsForAlias(const QString &storageId, const QString &noteId) const
+{
+    QSet<QUuid> result;
+    const auto  key = sourceKey(storageId, noteId);
+    if (key.isEmpty())
+        return result;
+
+    if (const auto direct = sourceSessions_.value(key); !direct.isNull())
+        result.insert(direct);
+    if (const auto editor = liveEditorsBySource_.value(key); editor)
+        result.insert(editor->draftId());
+
+    // Detached recovery models and pre-ACK transfers may not expose their
+    // durable source through Note::storageId(). The encrypted record is the
+    // authoritative alias set, so include both its current persisted identity
+    // and its unresolved transfer source.
+    if (store_) {
+        for (auto it = liveEditorsByDraft_.cbegin(); it != liveEditorsByDraft_.cend(); ++it) {
+            auto *editor = it.value().data();
+            if (!editor)
+                continue;
+            const auto draft = store_->load(editor->draftId());
+            if (!draft || draft.value.operation != DraftRecord::Publish)
+                continue;
+            const bool currentMatches
+                = draft.value.storageId == storageId && draft.value.remoteNoteId == noteId;
+            const bool sourceMatches = draft.value.removeSourceStorageId == storageId
+                && draft.value.removeSourceNoteId == noteId;
+            if (currentMatches || sourceMatches)
+                result.insert(editor->draftId());
+        }
+    }
+    return result;
+}
+
+int DraftManager::editingSessionCountForNote(const QString &storageId, const QString &noteId) const
+{
+    const auto key = sourceKey(storageId, noteId);
+    if (key.isEmpty())
+        return 0;
+
+    // editingSources_ is authoritative for raw/manual editing sessions and can
+    // legitimately contain several distinct draft UUIDs for the same source.
+    // Durable/live aliases add recovery/retargeted models whose Note object no
+    // longer exposes that source directly. Count the union once.
+    QSet<QUuid> draftIds;
+    for (auto it = editingSources_.cbegin(); it != editingSources_.cend(); ++it) {
+        if (it.value() == key && editingSessions_.value(it.key()) > 0)
+            draftIds.insert(it.key());
+    }
+    draftIds.unite(liveDraftIdsForAlias(storageId, noteId));
+
+    int count = 0;
+    for (const auto &draftId : std::as_const(draftIds))
+        count += editingSessions_.value(draftId);
+    return count;
+}
+
+int DraftManager::editingSessionCount(const QUuid &draftId) const { return editingSessions_.value(draftId); }
+
+bool DraftManager::isLastEditingSession(const QUuid &draftId) const { return editingSessionCount(draftId) <= 1; }
+
+DraftStoreError DraftManager::discardEditingSessionsForNote(const QString &storageId,
+                                                                      const QString &noteId)
+{
+    if (storageId.isEmpty() || noteId.isEmpty())
+        return {};
+
+    const auto matchingDrafts = liveDraftIdsForAlias(storageId, noteId);
+
+    // Keep this signal for directly-constructed/test editors which are not in
+    // the canonical registry. Registry-owned models are also closed by stable
+    // draft UUID below, which covers detached recovery and retargeted views.
+    emit discardEditorsForNoteRequested(storageId, noteId);
+    for (const auto &draftId : matchingDrafts) {
+        if (editingSessionCount(draftId) > 0)
+            emit discardEditorsForDraftRequested(draftId);
+    }
+
+    for (const auto &draftId : matchingDrafts) {
+        if (editingSessionCount(draftId) > 0)
+            return { DraftStoreError::Io, tr("Could not close all editors for the note") };
+    }
+    if (editingSessionCountForNote(storageId, noteId) > 0)
+        return { DraftStoreError::Io, tr("Could not close all editors for the note") };
+    return {};
+}
+
+DraftStoreError DraftManager::discardEditingSessionsForDraft(const QUuid &draftId)
+{
+    if (draftId.isNull())
+        return {};
+    emit discardEditorsForDraftRequested(draftId);
+    if (editingSessionCount(draftId) > 0)
+        return { DraftStoreError::Io, tr("Could not close all editors for the draft") };
+    return {};
+}
 
 bool DraftManager::releaseEditingSession(const QUuid &draftId)
 {
@@ -121,11 +347,27 @@ bool DraftManager::releaseEditingSession(const QUuid &draftId)
         return false;
     }
     editingSessions_.erase(it);
+    editingSources_.remove(draftId);
     for (auto source = sourceSessions_.begin(); source != sourceSessions_.end();) {
-        if (source.value() == draftId)
-            source = sourceSessions_.erase(source);
-        else
+        if (source.value() != draftId) {
             ++source;
+            continue;
+        }
+
+        const auto key = source.key();
+        QUuid      replacement;
+        for (auto candidate = editingSources_.cbegin(); candidate != editingSources_.cend(); ++candidate) {
+            if (candidate.value() == key && editingSessions_.value(candidate.key()) > 0) {
+                replacement = candidate.key();
+                break;
+            }
+        }
+        if (replacement.isNull())
+            source = sourceSessions_.erase(source);
+        else {
+            source.value() = replacement;
+            ++source;
+        }
     }
     qCInfo(logDraftPersistence) << "Released final editing session" << draftId.toString(QUuid::WithoutBraces);
     return true;
@@ -157,6 +399,8 @@ DraftStoreResult<DraftRecord> DraftManager::resumeEditingDraft(const QUuid &draf
     // for a remote response), so stop the in-flight job before handing the
     // draft back to an editor. Its completion is ignored because
     // cancelPublication() removes the job from publishJobs_.
+    if (draft.value.state == DraftRecord::Deleting)
+        return { {}, { DraftStoreError::InvalidArgument, tr("A draft being permanently deleted cannot be resumed") } };
     if (draft.value.state == DraftRecord::Publishing)
         cancelPublication(draftId);
     if (draft.value.state == DraftRecord::Editing)
@@ -209,6 +453,31 @@ void DraftManager::resolveConcurrentEdit(const Note &localVersion, const Note &r
     resolveConflict(record, error, remoteVersion);
 }
 
+DraftStoreResult<Note> DraftManager::resumeNoteForEditingDraft(const QUuid &draftId)
+{
+    const auto draft = resumeEditingDraft(draftId);
+    if (!draft)
+        return { {}, draft.error };
+
+    Note note;
+    if (!draft.value.storageId.isEmpty()) {
+        if (auto storage = NoteManager::instance()->storage(draft.value.storageId))
+            note = storage->createNote();
+    }
+    if (note.isNull())
+        note = Note(new NoteData(nullptr));
+
+    if (!draft.value.remoteNoteId.isEmpty())
+        note.setId(draft.value.remoteNoteId);
+    note.setTitle(draft.value.title);
+    note.setText(draft.value.body, draft.value.format);
+    note.setTags(draft.value.tags);
+    note.setFolderId(draft.value.folderId);
+    note.setBackendData(draft.value.backendData);
+    note.setMedia(draft.value.media);
+    return { note, {} };
+}
+
 DraftStoreError DraftManager::markReady(const QUuid &draftId)
 {
     if (!store_)
@@ -216,6 +485,8 @@ DraftStoreError DraftManager::markReady(const QUuid &draftId)
     auto draft = store_->load(draftId);
     if (!draft)
         return draft.error;
+    if (draft.value.operation != DraftRecord::Publish || draft.value.state == DraftRecord::Deleting)
+        return { DraftStoreError::InvalidArgument, tr("This draft cannot be made publishable") };
     draft.value.state = draft.value.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready;
     CONFLICT_TRACE << "Conflict trace: draft ready id=" << draftId.toString(QUuid::WithoutBraces)
                    << "note=" << draft.value.remoteNoteId << "base=" << concurrencySummary(draft.value.backendData);
@@ -274,6 +545,8 @@ DraftStoreError DraftManager::retryDraftNow(const QUuid &draftId)
         return draft.error;
     if (draft.value.operation != DraftRecord::Publish)
         return { DraftStoreError::InvalidArgument, tr("Only note drafts can be published") };
+    if (draft.value.state == DraftRecord::Deleting)
+        return { DraftStoreError::InvalidArgument, tr("A draft being permanently deleted cannot be published") };
 
     cancelPublication(draftId);
     draft.value.state = draft.value.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready;
@@ -315,6 +588,283 @@ DraftStoreError DraftManager::queueRemoval(const QString &storageId, const QStri
     if (!result)
         QTimer::singleShot(0, this, &DraftManager::publishPending);
     return result;
+}
+
+DraftStoreError DraftManager::queueDraftDeletion(const QUuid &draftId)
+{
+    if (!store_)
+        return { DraftStoreError::Locked, lastError_ };
+    if (draftId.isNull())
+        return { DraftStoreError::InvalidArgument, tr("Draft identifier is empty") };
+
+    const auto pending = store_->load(draftId);
+    if (!pending)
+        return pending.error;
+    if (pending.value.operation != DraftRecord::Publish)
+        return { DraftStoreError::InvalidArgument, tr("Only note drafts can be deleted") };
+
+    // Permanently retire the publish root before creating any delete intents.
+    // This is the durable commit point for explicit deletion: after it
+    // succeeds, neither an injected store failure nor a process crash can
+    // leave the old Publish runnable alongside a Delete. publishPending()
+    // resumes Deleting roots after restart until every removal intent is
+    // durable and the root can be discarded.
+    auto deletionRoot = pending.value;
+    if (deletionRoot.state != DraftRecord::Deleting) {
+        deletionRoot.state = DraftRecord::Deleting;
+        deletionRoot.lastError.clear();
+        deletionRoot.retryAt = {};
+        deletionRoot.updatedAt = QDateTime::currentDateTimeUtc();
+        if (const auto error = store_->write(deletionRoot))
+            return error;
+        emit draftsChanged();
+    }
+
+    // A side-effecting save may already have reached the storage. Retire its
+    // local publication ownership only after the durable Deleting state above
+    // exists; a late create ACK is then reconciled as an orphan.
+    cancelPublication(draftId);
+
+    QList<QPair<QString, QString>> objects;
+    const auto appendObject = [&objects](const QString &storageId, const QString &noteId) {
+        if (storageId.isEmpty() || noteId.isEmpty())
+            return;
+        const QPair<QString, QString> object { storageId, noteId };
+        if (!objects.contains(object))
+            objects.append(object);
+    };
+
+    // After destination acknowledgement but before source cleanup is durable,
+    // both identities can exist. Explicit delete owns both; forgetting either
+    // one leaves a ghost duplicate after the transfer draft is discarded.
+    appendObject(deletionRoot.storageId, deletionRoot.remoteNoteId);
+    appendObject(deletionRoot.removeSourceStorageId, deletionRoot.removeSourceNoteId);
+
+    for (const auto &object : std::as_const(objects)) {
+        if (const auto error = queueRemoval(object.first, object.second))
+            return error; // Keep the publish draft as the reconciliation root.
+    }
+
+    auto removeError = store_->remove(draftId);
+    if (removeError.code == DraftStoreError::NotFound)
+        removeError = {};
+    if (removeError)
+        return removeError;
+
+    emit draftsChanged();
+    QTimer::singleShot(0, this, &DraftManager::publishPending);
+    return {};
+}
+
+DraftStoreResult<DraftManager::RecyclePreparation>
+DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId, const QUuid &recycleFolderId,
+                                const QUuid &knownDraftId)
+{
+    if (!store_)
+        return { {}, { DraftStoreError::Locked, lastError_ } };
+    if (recycleFolderId.isNull())
+        return { {}, { DraftStoreError::InvalidArgument, tr("Recycle folder identifier is empty") } };
+
+    QUuid draftId = knownDraftId;
+    DraftStoreResult<DraftRecord> pending { {}, { DraftStoreError::NotFound, {} } };
+
+    if (!draftId.isNull()) {
+        pending = pendingDraft(draftId);
+        if (!pending && pending.error.code != DraftStoreError::NotFound)
+            return { {}, pending.error };
+    } else if (storageId == draftsStorageId()) {
+        draftId = QUuid(noteId);
+        if (draftId.isNull())
+            return { {}, { DraftStoreError::InvalidArgument, tr("The draft identifier is invalid") } };
+        pending = pendingDraft(draftId);
+        if (!pending)
+            return { {}, pending.error };
+    } else if (!storageId.isEmpty() && !noteId.isEmpty()) {
+        // A dirty canonical live model can exist before its first DraftStore
+        // checkpoint. Resolve that in-process identity first so recycle saves
+        // the latest document instead of closing it and recycling stale remote
+        // contents.
+        if (auto *editor = liveEditorForNote(storageId, noteId))
+            draftId = editor->draftId();
+
+        if (!draftId.isNull())
+            pending = pendingDraft(draftId);
+        else
+            pending = pendingDraftForNote(storageId, noteId);
+        if (!pending && pending.error.code != DraftStoreError::NotFound)
+            return { {}, pending.error };
+
+        if (!pending) {
+            const QUuid presentedId(noteId);
+            if (!presentedId.isNull()) {
+                auto presented = pendingDraft(presentedId);
+                if (presented && presented.value.storageId == storageId) {
+                    pending = std::move(presented);
+                    draftId = presentedId;
+                }
+            }
+        } else {
+            draftId = pending.value.id;
+        }
+    }
+
+    // If a shared live model exists, checkpoint its canonical document before
+    // any view is closed. Recycle preserves current edits; it is not permanent
+    // deletion.
+    if (!draftId.isNull()) {
+        if (auto *editor = liveEditorsByDraft_.value(draftId).data(); editor && editor->viewLeaseCount() > 0) {
+            const Note snapshot = editor->note();
+            if (const auto checkpoint = saveEditing(draftId, snapshot, snapshot.title(), snapshot.text(),
+                                                    snapshot.format(), editor->folderUserOverride())) {
+                return { {}, checkpoint };
+            }
+            editor->draftPersisted_ = true;
+            if (const auto refreshed = editingDraft(draftId); refreshed)
+                editor->draftRevision_ = refreshed.value.revision;
+        }
+
+        pending = pendingDraft(draftId);
+        if (!pending && pending.error.code != DraftStoreError::NotFound)
+            return { {}, pending.error };
+    }
+
+    // A clean persisted note may have no draft at all. Close its views, then
+    // let FolderCatalog move the existing remote object directly.
+    if (!pending) {
+        const auto closeError = !draftId.isNull() ? discardEditingSessionsForDraft(draftId)
+                                                  : discardEditingSessionsForNote(storageId, noteId);
+        if (closeError)
+            return { {}, closeError };
+        if (storageId.isEmpty() || noteId.isEmpty() || storageId == draftsStorageId())
+            return { {}, {} };
+        return { { storageId, noteId, {} }, {} };
+    }
+
+    auto record = pending.value;
+
+    // A note which has never existed remotely has nothing to place into a
+    // storage recycle bin. Explicit trash discards that local-only draft after
+    // closing every view, preserving the historic UX for unpublished notes.
+    const bool hasCurrentRemote = !record.remoteNoteId.isEmpty();
+    const bool hasTransferSource = !record.removeSourceStorageId.isEmpty() && !record.removeSourceNoteId.isEmpty();
+    if (!hasCurrentRemote && !hasTransferSource) {
+        if (const auto closeError = discardEditingSessionsForDraft(record.id))
+            return { {}, closeError };
+        if (const auto discardError = discard(record.id))
+            return { {}, discardError };
+        return { {}, {} };
+    }
+
+    // Pre-ACK transfer: cancel the move and recycle the original persisted
+    // object. The source token in backendData again belongs to the active
+    // identity, so no copy/delete cycle or format conversion is needed.
+    if (!hasCurrentRemote && hasTransferSource) {
+        record.storageId    = record.removeSourceStorageId;
+        record.remoteNoteId = record.removeSourceNoteId;
+        record.removeSourceStorageId.clear();
+        record.removeSourceNoteId.clear();
+    }
+
+    cancelPublication(record.id);
+
+    // Close views while the record is still Editing. If a host refuses to
+    // close, do not make the draft publishable behind its back.
+    if (const auto closeError = discardEditingSessionsForDraft(record.id))
+        return { {}, closeError };
+
+    record.folderId           = recycleFolderId;
+    record.folderUserOverride = true;
+    // FolderCatalog is the local recycle commit point. Keep the draft
+    // non-publishable until the caller persists catalog/native-folder state,
+    // then commit with retryDraftNow(record.id).
+    record.state = DraftRecord::Editing;
+    record.lastError.clear();
+    record.retryAt   = {};
+    record.updatedAt = QDateTime::currentDateTimeUtc();
+    if (const auto writeError = store_->write(record))
+        return { {}, writeError };
+
+    emit draftsChanged();
+
+    // The caller first commits FolderCatalog/native projection, then calls
+    // retryDraftNow(record.id). Until then the durable draft is intentionally
+    // Editing and cannot race ahead of local recycle metadata.
+    return { { record.storageId, record.remoteNoteId, record.id }, {} };
+}
+
+DraftStoreError DraftManager::preserveLiveNoteAfterExternalRemoval(const QString &storageId,
+                                                                    const QString &noteId)
+{
+    const auto draftIds = liveDraftIdsForAlias(storageId, noteId);
+    for (const auto &draftId : draftIds) {
+        auto *editor = liveEditorsByDraft_.value(draftId).data();
+        if (!editor || editor->viewLeaseCount() <= 0)
+            continue;
+
+        const Note snapshot = editor->note();
+        if (const auto error = saveEditing(draftId, snapshot, snapshot.title(), snapshot.text(), snapshot.format(),
+                                           editor->folderUserOverride())) {
+            return error;
+        }
+
+        auto draft = store_->load(draftId);
+        if (!draft)
+            return draft.error;
+
+        const bool removedTransferSource = draft.value.removeSourceStorageId == storageId
+            && draft.value.removeSourceNoteId == noteId
+            && (draft.value.storageId != storageId || draft.value.remoteNoteId != noteId);
+        if (removedTransferSource) {
+            // The live note already targets another persistence identity. The
+            // source vanished independently, so its cleanup obligation is
+            // satisfied; do not disturb the destination/live document.
+            draft.value.removeSourceStorageId.clear();
+            draft.value.removeSourceNoteId.clear();
+            draft.value.updatedAt = QDateTime::currentDateTimeUtc();
+            if (const auto writeError = store_->write(draft.value))
+                return writeError;
+            editor->draftPersisted_ = true;
+            editor->draftRevision_  = draft.value.revision;
+            refreshLiveEditorAliases(editor);
+            emit draftsChanged();
+            continue;
+        }
+
+        const bool removedCurrentIdentity
+            = draft.value.storageId == storageId && draft.value.remoteNoteId == noteId;
+        if (!removedCurrentIdentity)
+            continue;
+
+        // A remote deletion is a concurrency event, not permission to recreate
+        // the object silently. Preserve the canonical working copy as an
+        // unrouted local draft. If a transfer source still existed, stop
+        // treating it as a deferred-delete obligation as well: it is now an
+        // independent remote object again.
+        draft.value.storageId.clear();
+        draft.value.remoteNoteId.clear();
+        draft.value.removeSourceStorageId.clear();
+        draft.value.removeSourceNoteId.clear();
+
+        QVariantMap portableData;
+        const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+        if (draft.value.backendData.contains(favoriteKey))
+            portableData.insert(favoriteKey, draft.value.backendData.value(favoriteKey));
+        draft.value.backendData = std::move(portableData);
+        draft.value.state       = DraftRecord::Editing;
+        draft.value.lastError   = tr("The remote note was removed while this local copy was open");
+        draft.value.retryAt     = {};
+        draft.value.updatedAt   = QDateTime::currentDateTimeUtc();
+
+        if (const auto writeError = store_->write(draft.value))
+            return writeError;
+
+        editor->draftPersisted_ = true;
+        editor->draftRevision_  = draft.value.revision;
+        editor->detachStorageContextForRecovery();
+        refreshLiveEditorAliases(editor);
+        emit draftsChanged();
+    }
+    return {};
 }
 
 } // namespace AnyKeep

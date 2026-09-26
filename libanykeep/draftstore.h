@@ -22,7 +22,8 @@ struct ANYKEEP_EXPORT DraftRecord {
         Ready,       // Finished by the user and assigned to a storage.
         Publishing,  // A save operation is currently in progress.
         Retry,       // Publication failed temporarily and will be retried.
-        NeedsRouting // Finished, but no longer assigned to a storage; publish as a new note after routing.
+        NeedsRouting, // Finished, but no longer assigned to a storage; publish as a new note after routing.
+        Deleting      // Permanent delete owns this publish root; never publish it.
     };
 
     QUuid     id;

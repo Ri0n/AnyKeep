@@ -94,7 +94,8 @@ QHash<QPair<QString, QString>, NoteDialog *> NoteDialog::dialogs_;
 QSet<NoteDialog *>                           NoteDialog::allDialogs_;
 
 NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode mode) :
-    QQuickView(sharedStandaloneNoteEngine(), nullptr), main_(main), editor_(new NoteEditor(note, draftId, this)),
+    QQuickView(sharedStandaloneNoteEngine(), nullptr), main_(main),
+    editor_(DraftManager::instance()->acquireEditor(note, draftId)),
     platformBackend_(new DesktopEditorPlatformBackend(editor_, this)), desktopActions_(new DesktopNoteActions(this)),
     speechController_(new SpeechRecognitionController(this)), mode_(mode)
 {
@@ -127,6 +128,21 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
         platformBackend_->reloadVisualSettings();
         speechController_->setProvider(main_->pluginManager()->speechRecognitionProvider());
     });
+    connect(editor_, &NoteEditor::externalCloseRequested, this, [this] {
+        trashRequested_ = true;
+        requestDeferredClose();
+    });
+    connect(editor_, &NoteEditor::identityChanged, this, [this] {
+        if (!registryKey_.first.isEmpty() && !registryKey_.second.isEmpty()
+            && dialogs_.value(registryKey_) == this) {
+            dialogs_.remove(registryKey_);
+        }
+        registryKey_ = {};
+        if (!editor_->storageId().isEmpty() && !editor_->noteId().isEmpty()) {
+            registryKey_ = { editor_->storageId(), editor_->noteId() };
+            dialogs_.insert(registryKey_, this);
+        }
+    });
     connect(editor_, &NoteEditor::textChanged, this, &NoteDialog::updateWindowTitle);
     connect(platformBackend_, &EditorPlatformBackend::operationFailed, this, &NoteDialog::operationFailed);
     connect(desktopActions_, &DesktopNoteActions::operationFailed, this, &NoteDialog::operationFailed);
@@ -150,16 +166,17 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
     qDebug() << "Standalone note QML instantiated in" << qmlLoadTimer.elapsed() << "ms";
     if (status() == QQuickView::Error)
         qWarning() << "Failed to create standalone note QML window" << errors();
-    if (rootObject())
-        editor_->registerEditorView(rootObject());
+    // NoteBlockEditorImpl registers the actual document view. The window root
+    // is a shell and must not participate in cursor/history view selection.
     // The editor starts with already-loaded text, so no textChanged signal is
     // emitted while this view is being constructed. Set the native window
     // decoration title explicitly instead of waiting for the first edit.
     updateWindowTitle();
 
-    if (!note.id().isEmpty()) {
-        Q_ASSERT(!findDialog(note.storageId(), note.id()));
-        dialogs_.insert({ note.storageId(), note.id() }, this);
+    if (!editor_->noteId().isEmpty()) {
+        Q_ASSERT(!findDialog(editor_->storageId(), editor_->noteId()));
+        registryKey_ = { editor_->storageId(), editor_->noteId() };
+        dialogs_.insert(registryKey_, this);
     }
 
     const auto storage = note.storage();
@@ -300,43 +317,50 @@ bool NoteDialog::trashNote()
         requestDeferredClose();
         return true;
     }
+
     flushEditorChanges();
-    if (editor_->noteId().isEmpty()) {
-        // A never-published note has no remote object to recycle.  Autosave
-        // may already have created an Editing draft, so explicitly discard it
-        // before closing; otherwise startup recovery resurrects the deleted
-        // window even though the recycle bin has no corresponding note.
-        if (!editor_->discardAndClose()) {
-            emit operationFailed(editor_->errorString());
-            return false;
-        }
-    } else {
-        auto *folderCatalog = FolderCatalogManager::instance();
-        if (!folderCatalog->isAvailable()) {
-            emit operationFailed(tr("The encrypted folder catalog is unavailable"));
-            return false;
-        }
-        if (!DraftManager::instance()->isLastEditingSession(editor_->draftId())) {
-            emit operationFailed(tr("The note is open in another editor and cannot be moved to the recycle bin yet"));
-            return false;
-        }
-        const QUuid previousFolderId = folderCatalog->catalog().folderForNote(editor_->storageId(), editor_->noteId());
-        if (!editor_->discardAndClose()) {
-            emit operationFailed(editor_->errorString());
-            return false;
-        }
-        const auto error = folderCatalog->recycleNote(editor_->storageId(), editor_->noteId(), previousFolderId);
-        if (error) {
+
+    auto *folderCatalog = FolderCatalogManager::instance();
+    if (!folderCatalog->isAvailable()) {
+        emit operationFailed(tr("The encrypted folder catalog is unavailable"));
+        return false;
+    }
+
+    auto *drafts = DraftManager::instance();
+    const auto prepared = drafts->prepareForRecycle(editor_->storageId(), editor_->noteId(),
+                                                     FolderCatalog::recycleBinId(), editor_->draftId());
+    if (!prepared) {
+        emit operationFailed(prepared.error.message);
+        return false;
+    }
+
+    const auto recycleStorageId = prepared.value.storageId;
+    const auto recycleNoteId    = prepared.value.noteId;
+    if (!recycleStorageId.isEmpty() && !recycleNoteId.isEmpty()) {
+        const QUuid previousFolderId
+            = folderCatalog->catalog().folderForNote(recycleStorageId, recycleNoteId);
+        if (const auto error = folderCatalog->recycleNote(recycleStorageId, recycleNoteId, previousFolderId)) {
             emit operationFailed(error.message);
             return false;
         }
+
         auto *folderOperations = FolderOperationsController::instance();
-        if (!folderOperations->assignNoteFolder(editor_->storageId(), editor_->noteId(), FolderCatalog::recycleBinId(),
+        if (!folderOperations->assignNoteFolder(recycleStorageId, recycleNoteId, FolderCatalog::recycleBinId(),
                                                 true)) {
             emit operationFailed(folderOperations->errorString());
             return false;
         }
     }
+
+    if (!prepared.value.draftId.isNull()) {
+        if (const auto readyError = drafts->retryDraftNow(prepared.value.draftId)) {
+            emit operationFailed(readyError.message);
+            return false;
+        }
+    } else {
+        drafts->publishPending();
+    }
+
     trashRequested_ = true;
     requestDeferredClose();
     return true;
@@ -384,13 +408,6 @@ void NoteDialog::setAlwaysOnTop(bool enabled)
         main_->activateWindow(this);
     }
     emit alwaysOnTopChanged();
-}
-
-void NoteDialog::trashRequested()
-{
-    trashRequested_ = true;
-    editor_->discardAndClose();
-    requestDeferredClose();
 }
 
 void NoteDialog::closeEvent(QCloseEvent *event)
@@ -518,8 +535,9 @@ void NoteDialog::saveGeometryState(bool remove)
 void NoteDialog::removeFromRegistry()
 {
     allDialogs_.remove(this);
-    if (editor_ && !editor_->noteId().isEmpty())
-        dialogs_.remove({ editor_->storageId(), editor_->noteId() });
+    if (!registryKey_.first.isEmpty() && !registryKey_.second.isEmpty() && dialogs_.value(registryKey_) == this)
+        dialogs_.remove(registryKey_);
+    registryKey_ = {};
 }
 
 void NoteDialog::flushEditorChanges()

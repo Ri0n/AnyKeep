@@ -255,6 +255,7 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
 #endif
 
     connect(draftManager, &DraftManager::publicationAbandoned, this, &Main::notifyError);
+    connect(draftManager, &DraftManager::recoveryNotice, this, &Main::notifyError);
     connect(draftManager, &DraftManager::conflictResolved, this, &Main::notifyError);
     connect(draftManager, &DraftManager::draftPublished, this, [](const QUuid &draftId, const Note &note) {
         // A new note has no stable note id while its window is closing. The compositor
@@ -321,23 +322,23 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
                 continue;
             }
 #endif
-            // An unassigned draft is opened through the first ready storage only
-            // to obtain an editable Note shell. Its empty origin is preserved in
-            // DraftStore and it will still go through routing on publication.
             if ((!draft.storageId.isEmpty() && draft.storageId != storage->systemName())
-                || d->recoveredDraftIds.contains(draft.id))
+                || d->recoveredDraftIds.contains(draft.id)) {
                 continue;
-            auto note = draft.remoteNoteId.isEmpty() ? storage->createNote() : storage->note(draft.remoteNoteId);
-            if (note.isNull())
+            }
+
+            // DraftStore is the authoritative recovery source. Never reload
+            // the remote body (which may be exactly what is inconsistent) and
+            // never manufacture a fake storage identity for an unrouted draft.
+            const auto resumed = DraftManager::instance()->resumeNoteForEditingDraft(draft.id);
+            if (!resumed) {
+                qCWarning(logMain) << "Could not restore recovery draft" << draft.id << resumed.error.message;
                 continue;
-            note.setTitle(draft.title);
-            note.setText(draft.body, draft.format);
-            note.setFolderId(draft.folderId);
-            note.setMedia(draft.media);
-            note.setBackendData(draft.backendData);
-            auto *dialog = findOpenNoteDialog(note, draft.id);
+            }
+
+            auto *dialog = findOpenNoteDialog(resumed.value, draft.id);
             if (!dialog)
-                dialog = new NoteDialog(note, this, draft.id);
+                dialog = new NoteDialog(resumed.value, this, draft.id);
             d->recoveredDraftIds.insert(draft.id);
             dialog->show();
         }
@@ -725,6 +726,33 @@ void Main::restoreUpdateSessionForStorage(const QString &storageId)
                 continue;
             }
 
+            // If the update session owns a durable draft, restore that local
+            // snapshot first. The remote body may be stale or unreadable and
+            // must not be a prerequisite for recovering the editor.
+            if (!entry.draftId.isNull()) {
+                const auto resumed = DraftManager::instance()->resumeNoteForEditingDraft(entry.draftId);
+                if (resumed) {
+                    auto *dialog = findOpenNoteDialog(resumed.value, entry.draftId);
+                    if (!dialog)
+                        dialog = new NoteDialog(resumed.value, this, entry.draftId);
+                    if (entry.geometry.isValid()) {
+                        dialog->setGeometry(
+                            WindowGeometryUtils::constrainToCurrentScreens(entry.geometry, dialog->minimumSize()));
+                    }
+                    dialog->show();
+                    d->restoredSessionNotes.insert(key);
+                    maybeFinishUpdateSessionRestore();
+                    continue;
+                }
+                if (resumed.error.code != DraftStoreError::NotFound) {
+                    qCWarning(logMain) << "Failed to restore update-session draft" << entry.draftId
+                                       << resumed.error.message;
+                    continue;
+                }
+            }
+
+            // No durable checkpoint exists for this clean window; only then is
+            // it correct to reload the remote note.
             auto *job = NoteManager::instance()->loadNoteAsync(entry.storageId, entry.noteId, this);
             connect(job, &StorageJob::finished, this, [this, job, entry, key]() {
                 if (!d->pendingUpdateSession) {
@@ -738,9 +766,9 @@ void Main::restoreUpdateSessionForStorage(const QString &storageId)
                     return;
                 }
                 const auto loaded = job->result();
-                auto      *dialog = findOpenNoteDialog(loaded, entry.draftId);
+                auto      *dialog = findOpenNoteDialog(loaded);
                 if (!dialog)
-                    dialog = new NoteDialog(loaded, this, entry.draftId);
+                    dialog = new NoteDialog(loaded, this);
                 if (entry.geometry.isValid()) {
                     dialog->setGeometry(
                         WindowGeometryUtils::constrainToCurrentScreens(entry.geometry, dialog->minimumSize()));
@@ -816,15 +844,12 @@ void Main::restoreUpdateSessionForStorage(const QString &storageId)
                     || (!draft.storageId.isEmpty() && draft.storageId != storageId)) {
                     continue;
                 }
-                auto note = draft.remoteNoteId.isEmpty() ? storage->createNote() : storage->note(draft.remoteNoteId);
-                if (note.isNull())
-                    continue;
-                note.setTitle(draft.title);
-                note.setText(draft.body, draft.format);
-                note.setFolderId(draft.folderId);
-                note.setMedia(draft.media);
-                note.setBackendData(draft.backendData);
-                if (d->notesManagerWindow->openNote(note, draft.id)) {
+                const auto resumed = DraftManager::instance()->resumeNoteForEditingDraft(draft.id);
+                if (!resumed) {
+                    qCWarning(logMain) << "Could not restore Note Manager draft" << draft.id << resumed.error.message;
+                    break;
+                }
+                if (d->notesManagerWindow->openNote(resumed.value, draft.id)) {
                     d->recoveredDraftIds.insert(draft.id);
                     d->restoredSessionManagerNote = true;
                 }
@@ -1074,61 +1099,29 @@ void Main::pinNote(const Note &note, const QUuid &draftId, bool awaitingPublicat
 void Main::openNoteDialog(const QString &storageId, const QString &noteId)
 {
     auto *drafts = DraftManager::instance();
-    if (storageId == DraftManager::draftsStorageId()) {
-        const QUuid draftId(noteId);
+
+    const auto openDraft = [this, drafts](const QUuid &draftId, const QString &fallbackError) {
         if (draftId.isNull()) {
             notifyError(tr("The draft identifier is invalid"));
-            return;
+            return false;
         }
-        for (auto *dialog : NoteDialog::openDialogs()) {
-            if (dialog && dialog->editor() && dialog->editor()->draftId() == draftId) {
-                dialog->show();
-                activateWindow(dialog);
-                return;
-            }
-        }
-        const auto resumed = drafts->resumeEditingDraft(draftId);
+
+        const auto resumed = drafts->resumeNoteForEditingDraft(draftId);
         if (!resumed) {
-            notifyError(resumed.error.message.isEmpty() ? tr("The draft is no longer available")
-                                                        : resumed.error.message);
-            return;
+            notifyError(resumed.error.message.isEmpty() ? fallbackError : resumed.error.message);
+            return false;
         }
-        auto storage = resumed.value.storageId.isEmpty() ? NoteManager::instance()->defaultStorage()
-                                                         : NoteManager::instance()->storage(resumed.value.storageId);
-        if (!storage || !storage->canAcceptWrites()) {
-            notifyError(tr("The storage associated with this draft is unavailable"));
-            return;
-        }
-        if (resumed.value.remoteNoteId.isEmpty()) {
-            auto note = storage->createNote();
-            if (note.isNull()) {
-                notifyError(tr("The draft could not be opened"));
-                return;
-            }
-            auto *dialog = findOpenNoteDialog(note, draftId);
-            if (!dialog)
-                dialog = new NoteDialog(note, this, draftId);
-            dialog->show();
-            activateWindow(dialog);
-            return;
-        }
-        const QString effectiveStorageId = storage->systemName();
-        const QString effectiveNoteId    = resumed.value.remoteNoteId;
-        auto         *job = NoteManager::instance()->loadNoteAsync(effectiveStorageId, effectiveNoteId, this);
-        connect(job, &StorageJob::finished, this, [this, job, draftId]() {
-            if (job->state() != StorageJob::Succeeded) {
-                notifyError(job->error().message.isEmpty() ? tr("Failed to load note") : job->error().message);
-                job->deleteLater();
-                return;
-            }
-            const auto loaded = job->result();
-            auto      *dialog = findOpenNoteDialog(loaded, draftId);
-            if (!dialog)
-                dialog = new NoteDialog(loaded, this, draftId);
-            dialog->show();
-            activateWindow(dialog);
-            job->deleteLater();
-        });
+
+        auto *dialog = findOpenNoteDialog(resumed.value, draftId);
+        if (!dialog)
+            dialog = new NoteDialog(resumed.value, this, draftId);
+        dialog->show();
+        activateWindow(dialog);
+        return true;
+    };
+
+    if (storageId == DraftManager::draftsStorageId()) {
+        openDraft(QUuid(noteId), tr("The draft is no longer available"));
         return;
     }
 
@@ -1145,8 +1138,7 @@ void Main::openNoteDialog(const QString &storageId, const QString &noteId)
         return;
     }
 
-    QUuid draftId;
-    auto  pending = drafts->pendingDraftForNote(storageId, noteId);
+    auto pending = drafts->pendingDraftForNote(storageId, noteId);
     if (!pending) {
         // A draft which is being transferred to this storage has no remote
         // destination id until the first save succeeds. NotesModel presents it
@@ -1157,46 +1149,21 @@ void Main::openNoteDialog(const QString &storageId, const QString &noteId)
             pending = presentedDraft;
     }
     if (pending) {
-        const auto resumed = drafts->resumeEditingDraft(pending.value.id);
-        if (!resumed) {
-            notifyError(resumed.error.message.isEmpty() ? tr("The pending draft could not be opened")
-                                                        : resumed.error.message);
-            return;
-        }
-        draftId = pending.value.id;
-        if (pending.value.remoteNoteId.isEmpty()) {
-            auto storage = NoteManager::instance()->storage(pending.value.storageId);
-            if (!storage || !storage->canAcceptWrites()) {
-                notifyError(tr("The storage associated with this draft is unavailable"));
-                return;
-            }
-            auto note = storage->createNote();
-            if (note.isNull()) {
-                notifyError(tr("The pending draft could not be opened"));
-                return;
-            }
-            auto *dialog = findOpenNoteDialog(note, draftId);
-            if (!dialog)
-                dialog = new NoteDialog(note, this, draftId);
-            dialog->show();
-            activateWindow(dialog);
-            return;
-        }
+        openDraft(pending.value.id, tr("The pending draft could not be opened"));
+        return;
     }
 
-    const QString effectiveStorageId = pending ? pending.value.storageId : storageId;
-    const QString effectiveNoteId    = pending ? pending.value.remoteNoteId : noteId;
-    auto         *job = NoteManager::instance()->loadNoteAsync(effectiveStorageId, effectiveNoteId, this);
-    connect(job, &StorageJob::finished, this, [this, job, draftId]() {
+    auto *job = NoteManager::instance()->loadNoteAsync(storageId, noteId, this);
+    connect(job, &StorageJob::finished, this, [this, job]() {
         if (job->state() != StorageJob::Succeeded) {
             notifyError(job->error().message.isEmpty() ? tr("Failed to load note") : job->error().message);
             job->deleteLater();
             return;
         }
         const auto loaded = job->result();
-        auto      *dlg    = findOpenNoteDialog(loaded, draftId);
+        auto      *dlg    = findOpenNoteDialog(loaded);
         if (!dlg)
-            dlg = new NoteDialog(loaded, this, draftId);
+            dlg = new NoteDialog(loaded, this);
         dlg->show();
         activateWindow(dlg);
         job->deleteLater();
@@ -1294,7 +1261,6 @@ void Main::setActionNotificationImpl(ActionNotificationInterface *notifier) { d-
 void Main::registerStorage(std::unique_ptr<NoteStorage> storage)
 {
     auto *storagePtr = storage.get();
-    connect(storagePtr, SIGNAL(noteRemoved(Note)), SLOT(note_removed(Note)));
     connect(storagePtr, SIGNAL(storageErorr(QString)), SLOT(notifyError(QString)));
     NoteManager::instance()->registerStorage(std::move(storage));
 }
@@ -1415,16 +1381,6 @@ void Main::createNewNoteFromSelection()
     }
 }
 
-void Main::note_removed(const Note &note)
-{
-    NoteDialog *dlg = NoteDialog::findDialog(note.storageId(), note.id());
-    if (dlg) {
-#ifdef MAIN_DEBUG
-        qDebug() << "Main::note_removed";
-#endif
-        dlg->trashRequested();
-    }
-}
 
 } // namespace AnyKeep
 

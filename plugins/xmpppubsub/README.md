@@ -307,12 +307,19 @@ or later implement a merge UI.
 
 Publishing content and index is also not a server-side transaction. Content is
 published first and index second so readers never observe a new index pointing
-at content that has not been uploaded. A failure between the two publications
-leaves an unreferenced content revision; the durable outbox preserves the local
-draft for retry. During a successful publication another reader can briefly
-observe the old index with the new content. AnyKeep recognizes this revision
-mismatch as a transient inconsistent snapshot and repeats the complete
-index-plus-content read before making a conflict decision.
+at content that has not been uploaded. Because the content item for a note is
+replaced in place, a failure after the content write but before the index write
+can leave the old index pointing at a newer content revision. Readers treat
+that pair as a transient inconsistent snapshot and never combine it.
+
+The durable outbox is also the repair source for this state. XMPP opts into
+draft-snapshot retry: if loading the remote body fails with a retryable
+inconsistent snapshot, `DraftManager` reconstructs the save from its encrypted
+draft and captured base revision. Both XMPP backends check concurrency against
+the index alone before publishing, so the retry can safely write content and
+index again without first requiring the broken pair to be readable. A real
+index revision conflict still loads the complete remote note for the conflict
+resolver and never overwrites it silently.
 
 ### Delete
 

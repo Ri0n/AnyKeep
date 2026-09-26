@@ -23,6 +23,7 @@
 #include "defaults.h"
 #include "desktopeditorplatformbackend.h"
 #include "desktopnoteeditorhost.h"
+#include "draftmanager.h"
 #include "iconutils.h"
 #include "note.h"
 #include "noteblockmodel.h"
@@ -79,7 +80,8 @@ NoteWidget::NoteWidget(const Note &note, const QUuid &draftId) : ui(new Ui::Note
 {
     ui->setupUi(this);
 
-    editor = new NoteEditor(note, draftId, this);
+    editor = DraftManager::instance()->acquireEditor(note, draftId);
+    Q_ASSERT(editor);
 
     qmlEditor = new DesktopNoteEditorHost(editor, this);
     ui->noteLayout->insertWidget(1, qmlEditor);
@@ -176,6 +178,11 @@ NoteWidget::NoteWidget(const Note &note, const QUuid &draftId) : ui(new Ui::Note
         setFont(defaultFont);
     }
 
+    connect(editor, &NoteEditor::externalCloseRequested, this, [this] {
+        _autosaveTimer.stop();
+        _trashRequested = true;
+        close();
+    });
     connect(editor, &NoteEditor::textChanged, this, &NoteWidget::textChanged);
     connect(qmlEditor, &DesktopNoteEditorHost::focusLost, this, &NoteWidget::save);
     connect(qmlEditor, &DesktopNoteEditorHost::focusReceived, this, &NoteWidget::focusReceived, Qt::QueuedConnection);

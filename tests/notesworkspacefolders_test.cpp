@@ -41,8 +41,13 @@ public:
         }
         return {};
     }
-    Note createNote() override { return {}; }
-    bool saveNote(const Note &) override { return false; }
+    Note createNote() override
+    {
+        Note note(new NoteData(this));
+        note.setLastChangeUTC(QDateTime::currentDateTimeUtc());
+        return note;
+    }
+    bool saveNote(const Note &) override { return true; }
     void removeNote(const QString &) override {}
 
     Note makeNote(const QString &id, const QString &title)
@@ -72,6 +77,8 @@ private slots:
     void deletesFolderBranchesWithSessionUndo();
     void recentReorderRejectsCrossStorageMove();
     void exposesBodySearchMatchesForEditorFind();
+    void sharesLiveModelAcrossViewsAndRetargetsMove();
+    void opensDurableDraftWithoutTargetStorage();
 };
 
 void NotesWorkspaceFoldersTest::initTestCase()
@@ -301,6 +308,143 @@ void NotesWorkspaceFoldersTest::recentReorderRejectsCrossStorageMove()
     };
     QVERIFY(!workspace.reorderRecentNotes(notes, QStringLiteral("local"), QStringLiteral("anchor"), false));
     QCOMPARE(workspace.errorString(), QStringLiteral("Recent notes can only be reordered within the same storage"));
+}
+
+void NotesWorkspaceFoldersTest::sharesLiveModelAcrossViewsAndRetargetsMove()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
+    QVERIFY(catalog.initialize());
+
+    auto source = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-live-editor"));
+    const auto note     = source->makeNote(QStringLiteral("note"), QStringLiteral("Shared note"));
+    const auto removed  = source->makeNote(QStringLiteral("removed"), QStringLiteral("Delete me"));
+    const auto recycled = source->makeNote(QStringLiteral("recycled"), QStringLiteral("Recycle me"));
+    source->notes = { note, removed, recycled };
+    auto *sourceRaw = source.get();
+
+    auto destination = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-destination"));
+    auto *destinationRaw = destination.get();
+
+    auto *manager = NoteManager::instance();
+    manager->registerStorage(std::move(source));
+    manager->registerStorage(std::move(destination));
+    const auto cleanup = qScopeGuard([manager, sourceRaw, destinationRaw]() {
+        if (manager->storage(destinationRaw->systemName()) == destinationRaw)
+            manager->unregisterStorage(destinationRaw);
+        if (manager->storage(sourceRaw->systemName()) == sourceRaw)
+            manager->unregisterStorage(sourceRaw);
+    });
+    QTRY_VERIFY(manager->notesIndex()->hasSnapshot(sourceRaw->systemName()));
+
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
+    QVERIFY(workspace.openNote(sourceRaw->systemName(), note.id()));
+    QTRY_VERIFY(workspace.editor());
+
+    auto *shared     = workspace.editor();
+    auto *standalone = drafts.acquireEditor(note);
+    QVERIFY(standalone);
+    QCOMPARE(shared, standalone);
+    QCOMPARE(shared->viewLeaseCount(), 2);
+    QCOMPARE(drafts.editingSessionCount(shared->draftId()), 2);
+
+    shared->setText(QStringLiteral("Shared note\n\nChanged through manager"));
+    QCOMPARE(standalone->text(), QStringLiteral("Shared note\n\nChanged through manager"));
+
+    const auto draftId = shared->draftId();
+    QVERIFY(workspace.moveNote(sourceRaw->systemName(), note.id(), destinationRaw->systemName()));
+    QCOMPARE(workspace.editor(), shared);
+    QCOMPARE(shared->draftId(), draftId);
+    QCOMPARE(shared->storageId(), destinationRaw->systemName());
+    QVERIFY(shared->noteId().isEmpty());
+    QCOMPARE(shared->viewLeaseCount(), 2);
+    QCOMPARE(drafts.editingSessionCount(draftId), 2);
+
+    const auto moved = drafts.pendingDraft(draftId);
+    QVERIFY2(moved, qPrintable(moved.error.message));
+    QCOMPARE(moved.value.state, DraftRecord::Editing);
+    QCOMPARE(moved.value.storageId, destinationRaw->systemName());
+    QVERIFY(moved.value.remoteNoteId.isEmpty());
+    QCOMPARE(moved.value.removeSourceStorageId, sourceRaw->systemName());
+    QCOMPARE(moved.value.removeSourceNoteId, note.id());
+
+    // Closing one host releases only its lease. The same live model and draft
+    // remain active for the standalone view.
+    QVERIFY(workspace.closeCurrentNote());
+    QVERIFY(!workspace.editor());
+    QCOMPARE(standalone->draftId(), draftId);
+    QCOMPARE(standalone->viewLeaseCount(), 1);
+    QCOMPARE(drafts.editingSessionCount(draftId), 1);
+    QCOMPARE(drafts.liveEditorForDraft(draftId), standalone);
+
+    QSignalSpy detachedTitleChanges(&workspace, &NotesWorkspaceController::currentTitleChanged);
+    standalone->setText(QStringLiteral("Shared note\n\nStandalone keeps editing"));
+    QCOMPARE(detachedTitleChanges.count(), 0);
+
+    // Explicit deletion is different from move: it owns the lifecycle and
+    // closes every view for the logical note before removing the source.
+    QVERIFY(workspace.openNote(sourceRaw->systemName(), removed.id()));
+    QTRY_VERIFY(workspace.editor());
+    auto *deleteShared = workspace.editor();
+    QCOMPARE(drafts.acquireEditor(removed), deleteShared);
+    QCOMPARE(deleteShared->viewLeaseCount(), 2);
+    QVERIFY(workspace.deleteNote(sourceRaw->systemName(), removed.id()));
+    QVERIFY(!workspace.editor());
+    QCOMPARE(drafts.editingSessionCountForNote(sourceRaw->systemName(), removed.id()), 0);
+
+    QVERIFY(workspace.openNote(sourceRaw->systemName(), recycled.id()));
+    QTRY_VERIFY(workspace.editor());
+    auto *recycleShared = workspace.editor();
+    QCOMPARE(drafts.acquireEditor(recycled), recycleShared);
+    QCOMPARE(recycleShared->viewLeaseCount(), 2);
+    QVERIFY(workspace.trashNote(sourceRaw->systemName(), recycled.id()));
+    QVERIFY(!workspace.editor());
+    QCOMPARE(drafts.editingSessionCountForNote(sourceRaw->systemName(), recycled.id()), 0);
+    QVERIFY(catalog.catalog().isRecycled(sourceRaw->systemName(), recycled.id()));
+
+    // Retargeting did not force publication/closure when the manager view
+    // disappeared. Release the final test lease before unregistering storages.
+    QCOMPARE(standalone->storageId(), destinationRaw->systemName());
+    QPointer<NoteEditor> movedEditor(standalone);
+    QVERIFY(standalone->close());
+    QVERIFY(!drafts.liveEditorForDraft(draftId));
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QVERIFY(movedEditor.isNull());
+}
+
+void NotesWorkspaceFoldersTest::opensDurableDraftWithoutTargetStorage()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager         drafts(makeDraftStore(directory));
+    QVERIFY(catalog.initialize());
+
+    auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("offline-draft-target"));
+    auto note    = storage->makeNote(QStringLiteral("remote-note"), QStringLiteral("Original"));
+    auto *raw    = storage.get();
+    auto *manager = NoteManager::instance();
+    manager->registerStorage(std::move(storage));
+
+    const auto draftId = drafts.acquireEditingSession(note);
+    QVERIFY(!draftId.isNull());
+    const auto saved = drafts.saveEditing(draftId, note, QStringLiteral("Recovered"),
+                                          QStringLiteral("Durable body"), Note::Markdown);
+    QVERIFY2(!saved, qPrintable(saved.message));
+    QVERIFY(drafts.releaseEditingSession(draftId));
+
+    manager->unregisterStorage(raw);
+    QVERIFY(!manager->storage(QStringLiteral("offline-draft-target")));
+
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
+    QVERIFY(workspace.openNote(DraftManager::draftsStorageId(), draftId.toString(QUuid::WithoutBraces)));
+    QTRY_VERIFY(workspace.editor());
+    QCOMPARE(workspace.editor()->draftId(), draftId);
+    QCOMPARE(workspace.editor()->text(), QStringLiteral("Recovered\n\nDurable body"));
+    QVERIFY(workspace.editor()->storageId().isEmpty());
+    QVERIFY(workspace.editor()->noteId() == QStringLiteral("remote-note"));
 }
 
 QTEST_MAIN(NotesWorkspaceFoldersTest)

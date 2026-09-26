@@ -85,7 +85,7 @@ namespace {
             record.revision = 1;
         if (!readMedia(in, record.media))
             return { {}, error(DraftStoreError::Corrupt, QStringLiteral("Invalid draft media manifest")) };
-        if (in.status() != QDataStream::Ok || record.id.isNull() || state > DraftRecord::NeedsRouting
+        if (in.status() != QDataStream::Ok || record.id.isNull() || state > DraftRecord::Deleting
             || format > Note::Html || operation > DraftRecord::Delete) {
             return { {}, error(DraftStoreError::Corrupt, QStringLiteral("Invalid draft payload")) };
         }

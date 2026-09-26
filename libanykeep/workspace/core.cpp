@@ -98,14 +98,11 @@ NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderC
         if (!pendingMoves_.contains(draftId))
             return;
         const auto move = pendingMoves_.take(draftId);
-        if (!move.sourceStorageId.isEmpty() && !move.sourceNoteId.isEmpty()) {
-            const auto error = drafts->queueRemoval(move.sourceStorageId, move.sourceNoteId);
-            if (error)
-                setError(error.message);
-            drafts->publishPending();
-        }
+        // DraftManager owns the durable two-phase transfer, including source
+        // deletion after destination acknowledgement. Workspace state is only
+        // presentation/reorder bookkeeping and must never queue deletion again.
         completePendingReorderMove(move.reorderBatchId, move.reorderIndex, note.id());
-        if (!move.sourceStorageId.isEmpty())
+        if (move.operationStarted)
             endOperation();
     });
     connect(drafts, &DraftManager::draftPublishFailed, this, [this](const QUuid &draftId, const QString &message) {
@@ -116,7 +113,7 @@ NotesWorkspaceController::NotesWorkspaceController(FolderCatalogManager *folderC
         const auto move = pendingMoves_.take(draftId);
         completePendingReorderMove(move.reorderBatchId, move.reorderIndex, {});
         setError(message);
-        if (!move.sourceStorageId.isEmpty())
+        if (move.operationStarted)
             endOperation();
     });
 }
@@ -231,8 +228,13 @@ void NotesWorkspaceController::setCurrentEditor(NoteEditor *editor)
     if (currentEditor_ == editor)
         return;
     currentEditor_ = editor;
-    if (editor)
+    if (editor) {
         connectEditorSignals(editor);
+        connect(editor, &NoteEditor::externalCloseRequested, this, [this, editor] {
+            if (currentEditor_ == editor)
+                clearCurrentEditor();
+        });
+    }
     emit currentEditorChanged();
     emit currentTitleChanged();
     emit currentFolderIdChanged();
@@ -244,9 +246,13 @@ void NotesWorkspaceController::clearCurrentEditor()
         return;
     auto *old = currentEditor_.data();
     currentEditor_.clear();
+    // Shared NoteEditor outlives this workspace while another shell still
+    // holds a view lease. Detach this workspace's observer connections now;
+    // otherwise a standalone edit can update a manager that no longer owns the
+    // view, and reopening the same model accumulates duplicate connections.
+    QObject::disconnect(old, nullptr, this, nullptr);
     if (!old->hasPersistedDraft())
         pendingFolderAssignments_.remove(old->draftId());
-    old->deleteLater();
     emit currentEditorChanged();
     emit currentTitleChanged();
     emit currentFolderIdChanged();
@@ -290,6 +296,10 @@ void NotesWorkspaceController::endOperation()
 void NotesWorkspaceController::connectEditorSignals(NoteEditor *editor)
 {
     connect(editor, &NoteEditor::textChanged, this, &NotesWorkspaceController::currentTitleChanged);
+    connect(editor, &NoteEditor::identityChanged, this, [this, editor] {
+        if (currentEditor_ == editor)
+            emit currentEditorChanged();
+    });
     connect(editor, &NoteEditor::folderIdChanged, this, &NotesWorkspaceController::currentFolderIdChanged);
     connect(editor, &NoteEditor::errorStringChanged, this, [this, editor]() { setError(editor->errorString()); });
 }
