@@ -15,6 +15,11 @@ stateDiagram-v2
     Publishing --> Retry: failed/paused
     Retry --> Publishing: retry
     Publishing --> Editing: conflict preserved
+    Editing --> Deleting: permanent delete
+    Ready --> Deleting: permanent delete
+    Publishing --> Deleting: permanent delete
+    Retry --> Deleting: permanent delete
+    Deleting --> [*]: remote Delete intents durable
 ```
 
 Delete records use Ready/Publishing/Retry and never reroute to another backend.
@@ -22,7 +27,9 @@ Delete records use Ready/Publishing/Retry and never reroute to another backend.
 ## Durability rules
 
 - Editing never publishes while a live lease remains.
-- Ready/Publishing/Retry/NeedsRouting survive restart in encrypted DraftStore.
+- Ready/Publishing/Retry/NeedsRouting/Deleting survive restart in encrypted DraftStore.
+- Deleting is a durable tombstone for a former Publish root: it can only resume
+  creation of concrete Delete intents and can never be reopened or republished.
 - Backend failure never discards a draft.
 - Existing-note conditional writes reuse the captured base token; loading a
   fresh token must not silently rebase local edits.
@@ -133,15 +140,20 @@ a draft while a create acknowledgement is still in flight.
 4. Existing-note ACK before local cleanup: reconcile by identity/content/token.
 5. New-note ACK before assigned ID is persisted: duplicate creation remains a
    known gap for backends without idempotency/reconciliation.
-6. Destination move ACK before source Delete is queued: destination identity is
+6. Explicit permanent Delete first persists the Publish root as `Deleting`,
+   then durably queues concrete Delete records, then removes that root. A crash
+   or DraftStore failure between those steps leaves a non-publishable cursor
+   which resumes conversion on restart. A late create ACK while the root is
+   Deleting is treated only as an orphan requiring durable cleanup.
+7. Destination move ACK before source Delete is queued: destination identity is
    persisted first and `removeSource*` remains as the unresolved cleanup
    obligation. If the user explicitly deletes in this state, DraftManager
    durably queues deletion of **both** existing identities before discarding the
    transfer record.
-7. Recovery Editing draft while target plugin is disabled: open the encrypted
+8. Recovery Editing draft while target plugin is disabled: open the encrypted
    canonical snapshot using detached NoteData; storage availability is required
    for publication/capabilities, not for access to local user data.
-8. Media blob before manifest: orphan is GC-safe; manifest must never reference a
+9. Media blob before manifest: orphan is GC-safe; manifest must never reference a
    non-durable blob.
 
 ## Known follow-ups
