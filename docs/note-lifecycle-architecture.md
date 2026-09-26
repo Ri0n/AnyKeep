@@ -38,7 +38,12 @@ stateDiagram-v2
     Publishing --> Retry: storage/recovery failure
     Retry --> Publishing
     Publishing --> Live: conflict preserved for editing
-    Live --> [*]: explicit discard/delete
+    Live --> [*]: explicit discard
+    Live --> Deleting: permanent delete
+    Ready --> Deleting: permanent delete
+    Publishing --> Deleting: permanent delete
+    Retry --> Deleting: permanent delete
+    Deleting --> [*]: all remote Delete intents durable
 ```
 
 Multiple windows do not create multiple Live states. They are views of the same
@@ -82,9 +87,12 @@ create a new source object and later delete the old one.
 6. Source deletion follows destination ACK and is itself durable.
 7. Source concurrency metadata is retained for reversible pre-ACK retarget but
    never leaked wholesale into another backend.
-8. Delete/recycle closes all views before destroying/recycling persisted state.
-9. Failure paths preserve a recoverable draft.
-10. Remote acknowledgement followed by local failure is an ambiguous state that
+8. Permanent delete first durably retires its Publish root as `Deleting`;
+   only then are concrete remote Delete intents queued. A `Deleting` root is
+   never publishable and resumes that conversion after restart.
+9. Delete/recycle closes all views before destroying/recycling persisted state.
+10. Failure paths preserve a recoverable draft or a durable deletion obligation.
+11. Remote acknowledgement followed by local failure is an ambiguous state that
     requires reconciliation, not blind repetition.
 
 ## Persistent DraftRecord roles
@@ -92,7 +100,7 @@ create a new source object and later delete the old one.
 | Field | Role |
 | --- | --- |
 | `id` | stable draft/live identity |
-| `state` | Editing / Ready / Publishing / Retry / NeedsRouting |
+| `state` | Editing / Ready / Publishing / Retry / NeedsRouting / Deleting |
 | `storageId` | current publication target |
 | `remoteNoteId` | current target's remote ID, when known |
 | `removeSource*` | old persisted object during a two-phase move |
