@@ -42,15 +42,20 @@ live/persistent identity.
 
 1. One logical note has one canonical live `NoteEditor` per process.
 2. Views own cursor/selection/scroll; `NoteEditor` owns document/model/history.
-3. Closing one view releases one lease; only final close may publish.
-4. Moving an open note changes persistence target, not live-document identity.
-5. The canonical draft is storage-independent; format conversion occurs only at
+3. Autosave/focus loss only checkpoints the durable Editing draft. Publication
+   waits for final logical close because routing must evaluate the user's final
+   note state; routing may depend on tags, content, metadata or future factors
+   and may perform actions far beyond selecting another storage.
+4. Closing one view releases one lease; only final close may make the draft
+   publishable and enter the routing/publication pipeline.
+5. Moving an open note changes persistence target, not live-document identity.
+6. The canonical draft is storage-independent; format conversion occurs only at
    the publication boundary.
-6. Cross-storage move is destination ACK first, durable source deletion second.
-7. Pre-ACK retarget is reversible; returning to the source cancels the transfer.
-8. Explicit delete/recycle closes every view before removing persisted state.
-9. Backend failure never discards the durable draft.
-10. A concurrency token belongs to the persisted identity which produced it and
+7. Cross-storage move is destination ACK first, durable source deletion second.
+8. Pre-ACK retarget is reversible; returning to the source cancels the transfer.
+9. Explicit delete/recycle closes every view before removing persisted state.
+10. Backend failure never discards the durable draft.
+11. A concurrency token belongs to the persisted identity which produced it and
     must never be passed wholesale to a different backend.
 
 ## Ownership boundary
