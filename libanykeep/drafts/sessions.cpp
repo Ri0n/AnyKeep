@@ -399,6 +399,8 @@ DraftStoreResult<DraftRecord> DraftManager::resumeEditingDraft(const QUuid &draf
     // for a remote response), so stop the in-flight job before handing the
     // draft back to an editor. Its completion is ignored because
     // cancelPublication() removes the job from publishJobs_.
+    if (draft.value.state == DraftRecord::Deleting)
+        return { {}, { DraftStoreError::InvalidArgument, tr("A draft being permanently deleted cannot be resumed") } };
     if (draft.value.state == DraftRecord::Publishing)
         cancelPublication(draftId);
     if (draft.value.state == DraftRecord::Editing)
@@ -483,6 +485,8 @@ DraftStoreError DraftManager::markReady(const QUuid &draftId)
     auto draft = store_->load(draftId);
     if (!draft)
         return draft.error;
+    if (draft.value.operation != DraftRecord::Publish || draft.value.state == DraftRecord::Deleting)
+        return { DraftStoreError::InvalidArgument, tr("This draft cannot be made publishable") };
     draft.value.state = draft.value.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready;
     CONFLICT_TRACE << "Conflict trace: draft ready id=" << draftId.toString(QUuid::WithoutBraces)
                    << "note=" << draft.value.remoteNoteId << "base=" << concurrencySummary(draft.value.backendData);
@@ -541,6 +545,8 @@ DraftStoreError DraftManager::retryDraftNow(const QUuid &draftId)
         return draft.error;
     if (draft.value.operation != DraftRecord::Publish)
         return { DraftStoreError::InvalidArgument, tr("Only note drafts can be published") };
+    if (draft.value.state == DraftRecord::Deleting)
+        return { DraftStoreError::InvalidArgument, tr("A draft being permanently deleted cannot be published") };
 
     cancelPublication(draftId);
     draft.value.state = draft.value.storageId.isEmpty() ? DraftRecord::NeedsRouting : DraftRecord::Ready;
