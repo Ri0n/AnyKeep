@@ -597,10 +597,26 @@ DraftStoreError DraftManager::queueDraftDeletion(const QUuid &draftId)
     if (pending.value.operation != DraftRecord::Publish)
         return { DraftStoreError::InvalidArgument, tr("Only note drafts can be deleted") };
 
-    // Stop an in-flight save before turning its persistent state into delete
-    // intents. queueRemoval() is synchronous; its publishPending() calls are
-    // queued, so no remote callback can observe a half-converted lifecycle in
-    // this event-loop turn.
+    // Permanently retire the publish root before creating any delete intents.
+    // This is the durable commit point for explicit deletion: after it
+    // succeeds, neither an injected store failure nor a process crash can
+    // leave the old Publish runnable alongside a Delete. publishPending()
+    // resumes Deleting roots after restart until every removal intent is
+    // durable and the root can be discarded.
+    auto deletionRoot = pending.value;
+    if (deletionRoot.state != DraftRecord::Deleting) {
+        deletionRoot.state = DraftRecord::Deleting;
+        deletionRoot.lastError.clear();
+        deletionRoot.retryAt = {};
+        deletionRoot.updatedAt = QDateTime::currentDateTimeUtc();
+        if (const auto error = store_->write(deletionRoot))
+            return error;
+        emit draftsChanged();
+    }
+
+    // A side-effecting save may already have reached the storage. Retire its
+    // local publication ownership only after the durable Deleting state above
+    // exists; a late create ACK is then reconciled as an orphan.
     cancelPublication(draftId);
 
     QList<QPair<QString, QString>> objects;
@@ -615,8 +631,8 @@ DraftStoreError DraftManager::queueDraftDeletion(const QUuid &draftId)
     // After destination acknowledgement but before source cleanup is durable,
     // both identities can exist. Explicit delete owns both; forgetting either
     // one leaves a ghost duplicate after the transfer draft is discarded.
-    appendObject(pending.value.storageId, pending.value.remoteNoteId);
-    appendObject(pending.value.removeSourceStorageId, pending.value.removeSourceNoteId);
+    appendObject(deletionRoot.storageId, deletionRoot.remoteNoteId);
+    appendObject(deletionRoot.removeSourceStorageId, deletionRoot.removeSourceNoteId);
 
     for (const auto &object : std::as_const(objects)) {
         if (const auto error = queueRemoval(object.first, object.second))
@@ -658,7 +674,17 @@ DraftManager::prepareForRecycle(const QString &storageId, const QString &noteId,
         if (!pending)
             return { {}, pending.error };
     } else if (!storageId.isEmpty() && !noteId.isEmpty()) {
-        pending = pendingDraftForNote(storageId, noteId);
+        // A dirty canonical live model can exist before its first DraftStore
+        // checkpoint. Resolve that in-process identity first so recycle saves
+        // the latest document instead of closing it and recycling stale remote
+        // contents.
+        if (auto *editor = liveEditorForNote(storageId, noteId))
+            draftId = editor->draftId();
+
+        if (!draftId.isNull())
+            pending = pendingDraft(draftId);
+        else
+            pending = pendingDraftForNote(storageId, noteId);
         if (!pending && pending.error.code != DraftStoreError::NotFound)
             return { {}, pending.error };
 
