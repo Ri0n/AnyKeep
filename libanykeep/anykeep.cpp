@@ -322,23 +322,23 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
                 continue;
             }
 #endif
-            // An unassigned draft is opened through the first ready storage only
-            // to obtain an editable Note shell. Its empty origin is preserved in
-            // DraftStore and it will still go through routing on publication.
             if ((!draft.storageId.isEmpty() && draft.storageId != storage->systemName())
-                || d->recoveredDraftIds.contains(draft.id))
+                || d->recoveredDraftIds.contains(draft.id)) {
                 continue;
-            auto note = draft.remoteNoteId.isEmpty() ? storage->createNote() : storage->note(draft.remoteNoteId);
-            if (note.isNull())
+            }
+
+            // DraftStore is the authoritative recovery source. Never reload
+            // the remote body (which may be exactly what is inconsistent) and
+            // never manufacture a fake storage identity for an unrouted draft.
+            const auto resumed = DraftManager::instance()->resumeNoteForEditingDraft(draft.id);
+            if (!resumed) {
+                qCWarning(logMain) << "Could not restore recovery draft" << draft.id << resumed.error.message;
                 continue;
-            note.setTitle(draft.title);
-            note.setText(draft.body, draft.format);
-            note.setFolderId(draft.folderId);
-            note.setMedia(draft.media);
-            note.setBackendData(draft.backendData);
-            auto *dialog = findOpenNoteDialog(note, draft.id);
+            }
+
+            auto *dialog = findOpenNoteDialog(resumed.value, draft.id);
             if (!dialog)
-                dialog = new NoteDialog(note, this, draft.id);
+                dialog = new NoteDialog(resumed.value, this, draft.id);
             d->recoveredDraftIds.insert(draft.id);
             dialog->show();
         }
@@ -817,15 +817,12 @@ void Main::restoreUpdateSessionForStorage(const QString &storageId)
                     || (!draft.storageId.isEmpty() && draft.storageId != storageId)) {
                     continue;
                 }
-                auto note = draft.remoteNoteId.isEmpty() ? storage->createNote() : storage->note(draft.remoteNoteId);
-                if (note.isNull())
-                    continue;
-                note.setTitle(draft.title);
-                note.setText(draft.body, draft.format);
-                note.setFolderId(draft.folderId);
-                note.setMedia(draft.media);
-                note.setBackendData(draft.backendData);
-                if (d->notesManagerWindow->openNote(note, draft.id)) {
+                const auto resumed = DraftManager::instance()->resumeNoteForEditingDraft(draft.id);
+                if (!resumed) {
+                    qCWarning(logMain) << "Could not restore Note Manager draft" << draft.id << resumed.error.message;
+                    break;
+                }
+                if (d->notesManagerWindow->openNote(resumed.value, draft.id)) {
                     d->recoveredDraftIds.insert(draft.id);
                     d->restoredSessionManagerNote = true;
                 }
