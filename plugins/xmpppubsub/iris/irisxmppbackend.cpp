@@ -1508,16 +1508,12 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                 mediaFailure(QStringLiteral("Could not initialize media encryption"), XmppErrorKind::Security));
             return;
         }
-        // HttpFileUpload consumes the EncryptingDevice and Iris may clear its
-        // sensitive key/IV after the upload completes. Keep the immutable
-        // encryption parameters needed to describe and reproduce this exact
-        // ciphertext before handing the device to the uploader.
+        // HTTP Upload and Jingle must describe and serve the exact same
+        // XEP-0448 ciphertext. Snapshot its immutable encryption parameters
+        // before handing the device to the asynchronous uploader.
         const auto encryptionCipher = encrypted->cipher();
         const auto encryptionKey    = encrypted->key();
         const auto encryptionIv     = encrypted->iv();
-        qCDebug(lcIrisXmpp) << "Initialized XEP-0448 media encryption:"
-                            << "cipher=" << int(encryptionCipher) << "key-size=" << encryptionKey.size()
-                            << "iv-size=" << encryptionIv.size();
         auto finishMedia = [state, next, reference, publishCapability](XMPP::StatelessFileSharing::Cipher cipher,
                                                                        QByteArray key, QByteArray iv, XMPP::Hash hash,
                                                                        QUrl httpUrl) mutable {
