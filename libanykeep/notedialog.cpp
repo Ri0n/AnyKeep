@@ -44,18 +44,35 @@
 namespace AnyKeep {
 
 namespace {
-    QQmlEngine *sharedStandaloneNoteEngine()
+    QPointer<QQmlEngine> &sharedStandaloneNoteEngineStorage()
     {
         static QPointer<QQmlEngine> sharedEngine;
+        return sharedEngine;
+    }
+
+    QQmlEngine *sharedStandaloneNoteEngine()
+    {
+        auto &sharedEngine = sharedStandaloneNoteEngineStorage();
         if (sharedEngine)
             return sharedEngine;
 
-        sharedEngine = new QQmlEngine(QCoreApplication::instance());
+        sharedEngine = new QQmlEngine;
         installLocalMediaImageProvider(sharedEngine);
         installStorageIconImageProvider(sharedEngine);
         installThemedIconImageProvider(sharedEngine);
         installEditorCursorController(sharedEngine->rootContext());
         return sharedEngine;
+    }
+
+    void destroySharedStandaloneNoteEngine()
+    {
+        auto &sharedEngine = sharedStandaloneNoteEngineStorage();
+        if (!sharedEngine)
+            return;
+        qInfo() << "Shared standalone note QML engine destruction started";
+        delete sharedEngine.data();
+        sharedEngine = nullptr;
+        qInfo() << "Shared standalone note QML engine destruction finished";
     }
 
     void scheduleStandaloneNoteGarbageCollection()
@@ -99,6 +116,17 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
     platformBackend_(new DesktopEditorPlatformBackend(editor_, this)), desktopActions_(new DesktopNoteActions(this)),
     speechController_(new SpeechRecognitionController(this)), mode_(mode)
 {
+    static const QMetaObject::Connection shutdownConnection
+        = QObject::connect(qApp, &QCoreApplication::aboutToQuit, qApp, [] {
+              // The shared engine owns Qt Quick image-loading infrastructure.
+              // Destroy it while the application event loop is still alive;
+              // leaving it as a QApplication child can deadlock QQuickPixmapReader
+              // during QApplication destruction after a.exec() has returned.
+              if (NoteDialog::openDialogs().isEmpty())
+                  destroySharedStandaloneNoteEngine();
+          });
+    Q_UNUSED(shutdownConnection);
+
     Q_ASSERT(main_);
     allDialogs_.insert(this);
     windowGeometryKey_ = geometryKey();
