@@ -1394,7 +1394,11 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                 return;
             }
             IrisJingleCapability capability;
-            capability.from            = backend->client_->jid().full();
+            // A published Jingle session is tied to the resource which can
+            // actually serve it. client_->jid() is not a durable authority
+            // here: during publication it may still expose the configured
+            // bare JID even though the stream is bound to config_.resource.
+            capability.from            = XMPP::Jid(backend->config_.jid).withResource(backend->config_.resource).full();
             capability.node            = backend->config_.jinglePubNodeName();
             capability.noteId          = noteId;
             capability.contentRevision = contentRevision;
@@ -1404,6 +1408,12 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
             capability.iv              = iv;
             capability.cipherHash      = cipherHash.data();
             capability.wireSize        = *wireSize;
+            qCDebug(lcIrisXmpp).noquote() << "Preparing durable Jingle media capability:"
+                                          << "publisher=" << capability.from
+                                          << "note-id-present=" << !capability.noteId.isEmpty()
+                                          << "content-revision-present=" << !capability.contentRevision.isEmpty()
+                                          << "plain-size=" << capability.reference.size
+                                          << "wire-size=" << capability.wireSize;
             const auto prepared        = backend->jinglePublicationProvider_->prepare(std::move(capability));
             if (!prepared.publication.isValid()) {
                 done({},
@@ -1498,6 +1508,16 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                 mediaFailure(QStringLiteral("Could not initialize media encryption"), XmppErrorKind::Security));
             return;
         }
+        // HttpFileUpload consumes the EncryptingDevice and Iris may clear its
+        // sensitive key/IV after the upload completes. Keep the immutable
+        // encryption parameters needed to describe and reproduce this exact
+        // ciphertext before handing the device to the uploader.
+        const auto encryptionCipher = encrypted->cipher();
+        const auto encryptionKey    = encrypted->key();
+        const auto encryptionIv     = encrypted->iv();
+        qCDebug(lcIrisXmpp) << "Initialized XEP-0448 media encryption:"
+                            << "cipher=" << int(encryptionCipher) << "key-size=" << encryptionKey.size()
+                            << "iv-size=" << encryptionIv.size();
         auto finishMedia = [state, next, reference, publishCapability](XMPP::StatelessFileSharing::Cipher cipher,
                                                                        QByteArray key, QByteArray iv, XMPP::Hash hash,
                                                                        QUrl httpUrl) mutable {
@@ -1551,10 +1571,7 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
             encrypted, *wireSize, reference.id.toString(QUuid::WithoutBraces) + QStringLiteral(".bin"),
             QStringLiteral("application/octet-stream"));
         if (!upload) {
-            const auto cipher = encrypted->cipher();
-            const auto hash   = reproducibleCipherHash(reference, cipher, encrypted->key(), encrypted->iv());
-            const auto key    = encrypted->key();
-            const auto iv     = encrypted->iv();
+            const auto hash = reproducibleCipherHash(reference, encryptionCipher, encryptionKey, encryptionIv);
             plain->deleteLater();
             encrypted->deleteLater();
             if (!hash.isValid()) {
@@ -1564,14 +1581,14 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                 return;
             }
             qInfo() << "No HTTP Upload service is available; publishing a Jingle-only media offer";
-            finishMedia(cipher, key, iv, hash, {});
+            finishMedia(encryptionCipher, encryptionKey, encryptionIv, hash, {});
             return;
         }
         plain->setParent(upload);
         encrypted->setParent(upload);
         QObject::connect(
             upload, &XMPP::HttpFileUpload::finished, backend,
-            [state, upload, encrypted, reference, finishMedia]() mutable {
+            [state, upload, encrypted, reference, encryptionCipher, encryptionKey, encryptionIv, finishMedia]() mutable {
                 upload->deleteLater();
                 auto *backend = state->backend;
                 if (state->generation != backend->generation_) {
@@ -1584,7 +1601,7 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                                << upload->statusString();
                 auto hash = encrypted->encryptedHash();
                 if (jingleOnly && (!encrypted->finished() || !hash.isValid())) {
-                    hash = reproducibleCipherHash(reference, encrypted->cipher(), encrypted->key(), encrypted->iv());
+                    hash = reproducibleCipherHash(reference, encryptionCipher, encryptionKey, encryptionIv);
                 }
                 if (!hash.isValid()) {
                     state->callback(std::move(state->note),
@@ -1593,7 +1610,7 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                     return;
                 }
                 const auto url = jingleOnly ? QUrl() : QUrl(upload->getHttpSlot().get.url);
-                finishMedia(encrypted->cipher(), encrypted->key(), encrypted->iv(), hash, url);
+                finishMedia(encryptionCipher, encryptionKey, encryptionIv, hash, url);
             });
     };
     (*next)();
