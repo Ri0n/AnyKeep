@@ -1521,9 +1521,15 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
         auto finishMedia = [state, next, reference, publishCapability](XMPP::StatelessFileSharing::Cipher cipher,
                                                                        QByteArray key, QByteArray iv, XMPP::Hash hash,
                                                                        QUrl httpUrl) mutable {
+            // publishCapability and the completion lambda both need the same immutable
+            // XEP-0448 material. Do not move key/IV while evaluating another
+            // argument of the same call: argument evaluation order must not decide
+            // whether the capability sees populated encryption parameters.
+            const auto descriptorKey = key;
+            const auto descriptorIv  = iv;
             publishCapability(
                 cipher, key, iv, hash,
-                [state, next, reference, cipher, key = std::move(key), iv = std::move(iv), hash,
+                [state, next, reference, cipher, key = descriptorKey, iv = descriptorIv, hash,
                  httpUrl = std::move(httpUrl)](XMPP::Jingle::JinglePub publication, XmppStatusResult status) mutable {
                     if (!status.ok || !publication.isValid()) {
                         state->callback(std::move(state->note), std::move(status));
