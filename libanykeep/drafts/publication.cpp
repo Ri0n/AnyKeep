@@ -464,6 +464,62 @@ void DraftManager::retry(const DraftRecord &record, const QString &message, bool
         QTimer::singleShot(delay * 1000, this, &DraftManager::publishPending);
 }
 
+bool DraftManager::recoverMissingRemoteIdentity(const DraftRecord &record, const StorageError &error)
+{
+    if (!store_ || error.code != StorageError::NotFound || record.operation != DraftRecord::Publish
+        || record.remoteNoteId.isEmpty()) {
+        return false;
+    }
+
+    // A post-ACK cross-storage transfer still represents two persistence
+    // identities. Do not guess which one should become authoritative when the
+    // acknowledged destination disappears; that requires explicit transfer
+    // reconciliation rather than ordinary routing recovery.
+    if (!record.removeSourceStorageId.isEmpty() || !record.removeSourceNoteId.isEmpty())
+        return false;
+
+    auto current = store_->load(record.id);
+    if (!current || current.value.operation != DraftRecord::Publish)
+        return false;
+
+    // The asynchronous lookup may belong to an identity which was superseded
+    // while it was in flight. Only detach the exact persistence identity that
+    // produced this NotFound.
+    if (current.value.storageId != record.storageId || current.value.remoteNoteId != record.remoteNoteId)
+        return false;
+
+    auto recovered = current.value;
+    recovered.remoteNoteId.clear();
+
+    // backendData is the base concurrency state of the vanished remote object.
+    // Keep only portable logical metadata which may be meaningful after routing.
+    QVariantMap portableData;
+    const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+    if (recovered.backendData.contains(favoriteKey))
+        portableData.insert(favoriteKey, recovered.backendData.value(favoriteKey));
+    recovered.backendData = std::move(portableData);
+
+    recovered.state     = DraftRecord::NeedsRouting;
+    recovered.lastError = tr("The previous remote note no longer exists; the recovered draft will be routed again");
+    recovered.retryAt   = {};
+    recovered.updatedAt = QDateTime::currentDateTimeUtc();
+
+    if (const auto writeError = store_->write(recovered)) {
+        qCWarning(logDraftPersistence)
+            << "Failed to detach missing remote identity: draft=" << record.id.toString(QUuid::WithoutBraces)
+            << writeError.message;
+        return false;
+    }
+
+    qCWarning(logDraftPersistence)
+        << "Detached missing remote identity and requeued routing: draft="
+        << record.id.toString(QUuid::WithoutBraces) << "previousStorage=" << record.storageId;
+
+    emit draftsChanged();
+    QTimer::singleShot(0, this, &DraftManager::publishPending);
+    return true;
+}
+
 void DraftManager::resolveConflict(const DraftRecord &record, const StorageError &error, const Note &remoteNote)
 {
     CONFLICT_TRACE << "Conflict trace: invoking resolver draft=" << record.id.toString(QUuid::WithoutBraces)
@@ -704,7 +760,7 @@ void DraftManager::publish(const DraftRecord &record)
         if (shuttingDown_ && job->state() == StorageJob::Cancelled) {
             qCInfo(logDraftPersistence) << "Ignoring note-load cancellation caused by application shutdown: draft="
                                         << record.id.toString(QUuid::WithoutBraces);
-        } else {
+        } else if (!recoverMissingRemoteIdentity(record, loadError)) {
             retry(record, loadError.message, loadError.retryable);
         }
         job->deleteLater();
