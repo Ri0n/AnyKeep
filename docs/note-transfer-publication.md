@@ -59,6 +59,17 @@ records `removeSource*`, marks the destination Ready and lets publication run.
 Workspace `pendingMoves_` is UI/reorder bookkeeping only. Source deletion is
 owned exclusively by DraftManager.
 
+## Vanished existing-note target
+
+When an existing-note publication lookup returns `NotFound`, the old remote
+identity is no longer a valid publication base. For an ordinary recovered draft
+(with no unresolved transfer source), DraftManager preserves the canonical
+document, clears the stale remote identity/concurrency token, changes the draft
+to `NeedsRouting`, and runs routing again.
+
+This ensures final tags/content/metadata get a fresh routing decision instead of
+leaving the draft permanently stuck against a deleted storage object.
+
 ## Cancellation versus remote side effects
 
 Cancelling or retargeting a publication only changes local intent. It does not
