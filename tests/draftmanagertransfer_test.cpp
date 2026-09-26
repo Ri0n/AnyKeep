@@ -46,11 +46,14 @@ public:
 
     DraftStoreError remove(const QUuid &id) override
     {
+        if (failRemoveId_ == id)
+            return { DraftStoreError::Io, QStringLiteral("audit injected remove failure") };
         return records_.remove(id) ? DraftStoreError {}
                                    : DraftStoreError { DraftStoreError::NotFound, QStringLiteral("not found") };
     }
 
     QHash<QUuid, DraftRecord> records_;
+    QUuid failRemoveId_;
 };
 
 class TransferStorage final : public NoteStorage {
@@ -242,6 +245,9 @@ private slots:
     void externalRemovalOfTransferSourceKeepsDestination();
     void lateAckAfterPreAckTrashRemovesOrphanDestination();
     void lateAckOnSameTargetAdoptsRemoteIdentity();
+    void auditRecycleWithoutKnownDraft();
+    void auditDeleteFailureLeavesPublishableRecord();
+    void auditLateAckPreservesFavorite();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -1330,6 +1336,77 @@ void DraftManagerTransferTest::lateAckOnSameTargetAdoptsRemoteIdentity()
     QCOMPARE(destinationRaw->notes_.size(), 1);
 
     QVERIFY(editor->discardAndClose());
+}
+
+
+void DraftManagerTransferTest::auditRecycleWithoutKnownDraft()
+{
+    auto *raw = registerStorage(std::make_unique<TransferStorage>(QStringLiteral("audit-recycle")));
+    const auto cleanup = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
+    const auto note = raw->addStored(QStringLiteral("id"), QStringLiteral("Title"), QStringLiteral("Old"));
+    auto store = std::make_unique<MemoryDraftStore>();
+    auto *data = store.get();
+    DraftManager drafts(std::move(store));
+    auto *editor = drafts.acquireEditor(note);
+    const auto id = editor->draftId();
+    editor->setText(QStringLiteral("Title\n\nUnsaved new body"));
+    const auto prepared = drafts.prepareForRecycle(raw->systemName(), note.id(), QUuid::createUuid());
+    QVERIFY(prepared);
+    QCOMPARE(editor->viewLeaseCount(), 0);
+    QVERIFY2(data->records_.contains(id), "Recycle closed the live model without checkpointing its contents");
+    QCOMPARE(data->records_.value(id).body, QStringLiteral("Unsaved new body"));
+}
+
+void DraftManagerTransferTest::auditDeleteFailureLeavesPublishableRecord()
+{
+    auto *raw = registerStorage(std::make_unique<TransferStorage>(QStringLiteral("audit-delete")));
+    const auto cleanup = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
+    const auto note = raw->addStored(QStringLiteral("id"), QStringLiteral("Title"), QStringLiteral("Old"));
+    auto store = std::make_unique<MemoryDraftStore>();
+    auto *data = store.get();
+    DraftManager drafts(std::move(store));
+    const auto id = drafts.acquireEditingSession(note);
+    QVERIFY(!drafts.saveEditing(id, note, note.title(), QStringLiteral("New"), note.format()));
+    QVERIFY(!drafts.markReady(id));
+    drafts.releaseEditingSession(id);
+    data->failRemoveId_ = id;
+    QVERIFY(drafts.queueDraftDeletion(id));
+    bool deletionQueued = false;
+    for (const auto &record : data->records_)
+        deletionQueued |= record.operation == DraftRecord::Delete;
+    QVERIFY(deletionQueued);
+    const auto remaining = data->records_.value(id);
+    QVERIFY2(remaining.state != DraftRecord::Ready && remaining.state != DraftRecord::Publishing
+                 && remaining.state != DraftRecord::Retry,
+             "The failed Delete conversion left both Delete and Publish runnable for the same note");
+}
+
+void DraftManagerTransferTest::auditLateAckPreservesFavorite()
+{
+    auto storage = std::make_unique<TransferStorage>(QStringLiteral("audit-late-favorite"));
+    storage->delaySaveCompletions_ = true;
+    storage->supportsFavorite_ = true;
+    auto *raw = registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
+    auto store = std::make_unique<MemoryDraftStore>();
+    auto *data = store.get();
+    DraftManager drafts(std::move(store));
+    auto note = raw->createNote();
+    note.setTitle(QStringLiteral("Title"));
+    note.setText(QStringLiteral("Body"), Note::Markdown);
+    note.setFavorite(false);
+    const auto id = drafts.acquireEditingSession(note);
+    QVERIFY(!drafts.saveEditing(id, note, note.title(), note.text(), note.format()));
+    QVERIFY(!drafts.markReady(id));
+    drafts.releaseEditingSession(id);
+    QTRY_COMPARE(raw->saveCalls_, 1);
+    const auto resumed = drafts.resumeNoteForEditingDraft(id);
+    QVERIFY(resumed);
+    auto *editor = drafts.acquireEditor(resumed.value, id);
+    editor->setFavorite(true);
+    QVERIFY(editor->save());
+    raw->completeDelayedSaves();
+    QVERIFY(data->records_.value(id).backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool());
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
