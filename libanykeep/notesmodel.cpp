@@ -52,6 +52,8 @@ namespace {
             return QStringLiteral("retry");
         case DraftRecord::NeedsRouting:
             return QStringLiteral("needs-routing");
+        case DraftRecord::Deleting:
+            return QStringLiteral("deleting");
         }
         return {};
     }
