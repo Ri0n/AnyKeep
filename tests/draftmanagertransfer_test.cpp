@@ -248,6 +248,7 @@ private slots:
     void auditRecycleWithoutKnownDraft();
     void auditDeleteFailureLeavesPublishableRecord();
     void auditLateAckPreservesFavorite();
+    void lateCreateAckDuringDeleteQueuesOrphan();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -1415,6 +1416,40 @@ void DraftManagerTransferTest::auditLateAckPreservesFavorite()
     QVERIFY(editor->save());
     raw->completeDelayedSaves();
     QVERIFY(data->records_.value(id).backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool());
+}
+
+
+void DraftManagerTransferTest::lateCreateAckDuringDeleteQueuesOrphan()
+{
+    auto storage = std::make_unique<TransferStorage>(QStringLiteral("delete-late-create"));
+    storage->delaySaveCompletions_ = true;
+    auto *raw = registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
+
+    auto store = std::make_unique<MemoryDraftStore>();
+    auto *data = store.get();
+    DraftManager drafts(std::move(store));
+
+    auto note = raw->createNote();
+    note.setTitle(QStringLiteral("Delete me"));
+    note.setText(QStringLiteral("Body"), Note::Markdown);
+    const auto id = drafts.acquireEditingSession(note);
+    QVERIFY(!drafts.saveEditing(id, note, note.title(), note.text(), note.format()));
+    QVERIFY(!drafts.markReady(id));
+    drafts.releaseEditingSession(id);
+
+    QTRY_COMPARE(raw->saveCalls_, 1);
+    QCOMPARE(raw->notes_.size(), 1);
+    const auto orphanId = raw->notes_.constFirst().id();
+
+    // No remote id is known locally yet, so permanent delete can only retire
+    // the Publish root. The delayed create ACK supplies the object that must be
+    // cleaned up as an orphan.
+    QVERIFY(!drafts.queueDraftDeletion(id));
+    QVERIFY(!data->records_.contains(id));
+
+    raw->completeDelayedSaves();
+    QTRY_VERIFY(raw->note(orphanId).isNull());
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
