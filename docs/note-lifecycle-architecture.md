@@ -73,7 +73,10 @@ create a new source object and later delete the old one.
 
 1. One logical note has one canonical live model per process.
 2. A shell never owns an independent authoritative document copy.
-3. Editing drafts are not published while any view lease remains.
+3. Editing drafts are not published while any view lease remains. Autosave is
+   durability only; final close is the semantic commit point because routing
+   must evaluate the final tags/content/metadata and may perform actions beyond
+   storage retargeting.
 4. Retarget does not change draft UUID or canonical document representation.
 5. Storage-specific conversion occurs only at publication.
 6. Source deletion follows destination ACK and is itself durable.
