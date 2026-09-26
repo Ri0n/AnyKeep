@@ -186,7 +186,10 @@ void DraftManager::reconcileStaleSaveSuccess(const DraftRecord &attempt, const N
         const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
         const auto favorite = adopted.backendData.value(favoriteKey);
         adopted.backendData = result.backendData();
-        if (favorite.isValid() && !adopted.backendData.contains(favoriteKey))
+        // The ACK owns backend concurrency/identity metadata, but Favorite is
+        // current user-editable logical metadata. A stale create result must
+        // never roll a newer local Favorite value back.
+        if (favorite.isValid())
             adopted.backendData.insert(favoriteKey, favorite);
 
         adopted.state = editingSessionCount(attempt.id) > 0
@@ -368,6 +371,17 @@ void DraftManager::publishPending()
     const auto now = QDateTime::currentDateTimeUtc();
     for (const auto &storedRecord : records.value) {
         auto record = storedRecord;
+
+        // Deleting is a durable, non-publishable lifecycle root. Resume its
+        // conversion into concrete Delete records after a crash or transient
+        // DraftStore failure; never route it through process(Publish).
+        if (record.operation == DraftRecord::Publish && record.state == DraftRecord::Deleting) {
+            const auto error = queueDraftDeletion(record.id);
+            if (error)
+                qCWarning(logDraftPersistence) << "Failed to resume draft deletion:"
+                                               << record.id.toString(QUuid::WithoutBraces) << error.message;
+            continue;
+        }
         if (record.state == DraftRecord::Retry) {
             if (!record.retryAt.isValid())
                 continue;
