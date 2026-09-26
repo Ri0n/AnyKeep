@@ -68,17 +68,43 @@ namespace {
 
 } // namespace
 
-bool IrisJingleCapability::isValid() const
+QString IrisJingleCapability::invalidReason() const
 {
     const XMPP::Jid publisher(from);
-    const auto      expectedSize = reference.size >= 0
-        ? XMPP::StatelessFileSharing::encryptedSize(cipher, std::uint64_t(reference.size))
-        : std::nullopt;
-    return !publicationId.isEmpty() && !itemId.isEmpty() && publisher.isValid() && !publisher.resource().isEmpty()
-        && !node.isEmpty() && !noteId.isEmpty() && !contentRevision.isEmpty() && reference.isValid()
-        && reference.size >= 0 && reference.checksum.size() == 32
-        && cipher == XMPP::StatelessFileSharing::Cipher::Aes256Gcm && key.size() == 32 && iv.size() == 12
-        && cipherHash.size() == 32 && expectedSize && *expectedSize == wireSize;
+    if (publicationId.isEmpty())
+        return QStringLiteral("publication id is empty");
+    if (itemId.isEmpty())
+        return QStringLiteral("item id is empty");
+    if (!publisher.isValid())
+        return QStringLiteral("publisher JID is invalid");
+    if (publisher.resource().isEmpty())
+        return QStringLiteral("publisher JID has no resource");
+    if (node.isEmpty())
+        return QStringLiteral("publication node is empty");
+    if (noteId.isEmpty())
+        return QStringLiteral("note id is empty");
+    if (contentRevision.isEmpty())
+        return QStringLiteral("content revision is empty");
+    if (!reference.isValid())
+        return QStringLiteral("media reference is invalid");
+    if (reference.size < 0)
+        return QStringLiteral("media size is negative");
+    if (reference.checksum.size() != 32)
+        return QStringLiteral("media checksum is not SHA-256");
+    if (cipher != XMPP::StatelessFileSharing::Cipher::Aes256Gcm)
+        return QStringLiteral("media cipher is not AES-256-GCM");
+    if (key.size() != 32)
+        return QStringLiteral("media encryption key is not 32 bytes");
+    if (iv.size() != 12)
+        return QStringLiteral("media encryption IV is not 12 bytes");
+    if (cipherHash.size() != 32)
+        return QStringLiteral("ciphertext checksum is not SHA-256");
+    const auto expectedSize = XMPP::StatelessFileSharing::encryptedSize(cipher, std::uint64_t(reference.size));
+    if (!expectedSize)
+        return QStringLiteral("encrypted media size cannot be represented");
+    if (*expectedSize != wireSize)
+        return QStringLiteral("encrypted media size does not match the capability");
+    return {};
 }
 
 IrisJinglePublicationProvider::IrisJinglePublicationProvider(IrisXmppBackend *backend, XmppConfig config, QString path,
@@ -172,8 +198,20 @@ IrisJinglePublicationProvider::PrepareResult IrisJinglePublicationProvider::prep
         capability.publicationId = QUuid::createUuid().toString(QUuid::WithoutBraces);
         capability.itemId        = capability.publicationId;
     }
-    if (!capability.isValid())
-        return { {}, QStringLiteral("Invalid durable Jingle media capability") };
+    if (const auto reason = capability.invalidReason(); !reason.isEmpty()) {
+        qCWarning(lcIrisXmpp).noquote() << "Invalid durable Jingle media capability:" << reason
+                                       << "publisher=" << capability.from
+                                       << "note-id-present=" << !capability.noteId.isEmpty()
+                                       << "content-revision-present=" << !capability.contentRevision.isEmpty()
+                                       << "media-id=" << capability.reference.id.toString(QUuid::WithoutBraces)
+                                       << "plain-size=" << capability.reference.size
+                                       << "checksum-size=" << capability.reference.checksum.size()
+                                       << "key-size=" << capability.key.size()
+                                       << "iv-size=" << capability.iv.size()
+                                       << "cipher-hash-size=" << capability.cipherHash.size()
+                                       << "wire-size=" << capability.wireSize;
+        return { {}, QStringLiteral("Invalid durable Jingle media capability: %1").arg(reason) };
+    }
 
     const auto old    = capabilities_.value(capability.publicationId);
     const bool hadOld = capabilities_.contains(capability.publicationId);
