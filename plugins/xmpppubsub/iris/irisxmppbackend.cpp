@@ -323,10 +323,8 @@ IrisXmppBackend::IrisXmppBackend(QObject *parent) : XmppBackend(parent) { qRegis
 
 IrisXmppBackend::~IrisXmppBackend()
 {
-    qInfo() << "Iris XMPP backend destruction started";
     acceptingWork_ = false;
     resetClient();
-    qInfo() << "Iris XMPP backend destruction finished";
 }
 
 void IrisXmppBackend::start() { acceptingWork_ = true; }
@@ -349,10 +347,8 @@ void IrisXmppBackend::setConfig(const XmppConfig &config)
 
 void IrisXmppBackend::shutdown()
 {
-    qInfo() << "Iris XMPP backend shutdown started";
     acceptingWork_ = false;
     resetClient();
-    qInfo() << "Iris XMPP backend shutdown finished";
 }
 
 XmppStatusResult IrisXmppBackend::cancelledResult() const
@@ -389,9 +385,6 @@ void IrisXmppBackend::resetClient()
 
 void IrisXmppBackend::destroyClientObjects()
 {
-    qInfo() << "Iris XMPP client teardown started:"
-            << "client=" << (client_ != nullptr) << "stream=" << (stream_ != nullptr)
-            << "connector=" << (connector_ != nullptr);
     pendingInboundKeyRequests_.clear();
     jinglePublicationProvider_ = nullptr;
     keySyncTask_               = nullptr;
@@ -414,7 +407,6 @@ void IrisXmppBackend::destroyClientObjects()
     delete omemoStorage_;
     omemoStorage_        = nullptr;
     freshClientRequired_ = false;
-    qInfo() << "Iris XMPP client teardown finished";
 }
 
 void IrisXmppBackend::markDisconnected()
