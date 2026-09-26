@@ -37,6 +37,32 @@ after destination ACK.
 Before ACK, retarget remains reversible without changing the draft UUID or
 canonical contents.
 
+## Missing persisted identity during publication
+
+A recovered draft can still carry a historical `storageId + remoteNoteId` even
+when that object was already removed before recovery completed. If publication
+loads that exact existing-note identity and the storage returns
+`StorageError::NotFound`, ordinary retry is wrong: the concurrency identity no
+longer exists.
+
+For a normal publish draft with no unresolved `removeSource*` transfer leg:
+
+1. keep the canonical durable contents and draft UUID;
+2. clear `remoteNoteId`;
+3. drop backend-specific concurrency metadata while preserving portable logical
+   metadata such as Favorite;
+4. move the draft to `NeedsRouting`;
+5. evaluate routing again against the final canonical tags/content/metadata;
+6. publish as a new persisted object at the resulting target.
+
+This is deliberately different from a transient unreadable remote body (for
+example the XMPP split index/content window), where the existing identity is
+still believed to exist and durable snapshot repair is attempted.
+
+A post-ACK transfer carrying `removeSource*` is excluded from this automatic
+transition because two remote identities are involved; it requires transfer
+reconciliation rather than guessing which object should become authoritative.
+
 ## Remote deletion while a note is open
 
 A storage `noteRemoved` event is a concurrency event, not permission to
