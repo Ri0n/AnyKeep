@@ -67,7 +67,28 @@ both zero logical leases and zero registered document views.
 ## Checkpointing and close
 
 Autosave/focus loss checkpoints the same draft UUID but never publishes it.
-Only final logical close changes Editing to Ready/NeedsRouting.
+This is intentional, not merely an implementation limitation.
+
+While any editor view remains open, AnyKeep cannot assume that the note is in
+its final semantic state. The user may still change tags, title, body, folder,
+attachments or other metadata. Those values can affect publication routing.
+
+Routing is deliberately broader than storage selection. A routing rule may
+retarget the note to another storage, but routing may also perform other current
+or future actions based on the completed note. Publishing an intermediate
+autosave would therefore commit decisions derived from provisional input and
+could make later routing ambiguous or irreversible.
+
+The final logical close is the semantic commit point:
+
+1. checkpoint the canonical shared model;
+2. release the final editing lease;
+3. change `Editing` to `Ready`/`NeedsRouting`;
+4. evaluate routing against the final note state;
+5. publish the resulting transaction.
+
+An explicit user command such as Move/Trash/Delete has its own lifecycle
+transaction and does not imply that periodic autosave is publishable.
 
 Because all windows edit one `NoteBlockModel`, there is no whole-document
 last-writer-wins synchronization between windows.
