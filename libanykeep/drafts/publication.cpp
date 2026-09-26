@@ -163,6 +163,14 @@ void DraftManager::reconcileStaleSaveSuccess(const DraftRecord &attempt, const N
         return;
     }
 
+    // Permanent deletion is already the durable user intent. A create that
+    // reached the backend before cancellation must never turn that root back
+    // into Ready/Editing; its late identity is only another object to remove.
+    if (current.value.state == DraftRecord::Deleting) {
+        queueOrphanRemoval();
+        return;
+    }
+
     // If the logical note has since moved/recycled back to another storage,
     // the late result belongs to an abandoned target. Never let it overwrite
     // the current route; just clean up the remote object durably.
