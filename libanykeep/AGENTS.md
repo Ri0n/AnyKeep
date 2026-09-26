@@ -35,6 +35,11 @@ without moving those headers.
 - Retargeting changes persistence route only. It must not change the draft UUID
   or destructively convert the canonical document; target-format conversion is
   a publication-boundary operation.
+- Autosave/focus loss is a durability checkpoint only. Never make an Editing
+  draft publishable while an editor view remains open: routing must evaluate the
+  final canonical note (including tags/content/metadata and future inputs), and
+  routing actions are not limited to storage retargeting. Final logical close is
+  the normal semantic commit point for routing/publication.
 - Delete/recycle persistence resolution belongs to `DraftManager`. Shells and
   FolderCatalog must not independently interpret `remoteNoteId` versus
   `removeSource*`; use `queueDraftDeletion()` / `prepareForRecycle()`.
