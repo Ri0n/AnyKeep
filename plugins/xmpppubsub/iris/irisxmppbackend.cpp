@@ -1394,7 +1394,11 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                 return;
             }
             IrisJingleCapability capability;
-            capability.from            = backend->client_->jid().full();
+            // A published Jingle session is tied to the resource which can
+            // actually serve it. client_->jid() is not a durable authority
+            // here: during publication it may still expose the configured
+            // bare JID even though the stream is bound to config_.resource.
+            capability.from            = XMPP::Jid(backend->config_.jid).withResource(backend->config_.resource).full();
             capability.node            = backend->config_.jinglePubNodeName();
             capability.noteId          = noteId;
             capability.contentRevision = contentRevision;
