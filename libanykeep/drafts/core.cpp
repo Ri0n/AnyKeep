@@ -42,6 +42,8 @@ namespace DraftManagerPrivate {
             return "retry";
         case DraftRecord::NeedsRouting:
             return "needs-routing";
+        case DraftRecord::Deleting:
+            return "deleting";
         }
         return "unknown";
     }
