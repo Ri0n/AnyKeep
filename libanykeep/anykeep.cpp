@@ -726,6 +726,33 @@ void Main::restoreUpdateSessionForStorage(const QString &storageId)
                 continue;
             }
 
+            // If the update session owns a durable draft, restore that local
+            // snapshot first. The remote body may be stale or unreadable and
+            // must not be a prerequisite for recovering the editor.
+            if (!entry.draftId.isNull()) {
+                const auto resumed = DraftManager::instance()->resumeNoteForEditingDraft(entry.draftId);
+                if (resumed) {
+                    auto *dialog = findOpenNoteDialog(resumed.value, entry.draftId);
+                    if (!dialog)
+                        dialog = new NoteDialog(resumed.value, this, entry.draftId);
+                    if (entry.geometry.isValid()) {
+                        dialog->setGeometry(
+                            WindowGeometryUtils::constrainToCurrentScreens(entry.geometry, dialog->minimumSize()));
+                    }
+                    dialog->show();
+                    d->restoredSessionNotes.insert(key);
+                    maybeFinishUpdateSessionRestore();
+                    continue;
+                }
+                if (resumed.error.code != DraftStoreError::NotFound) {
+                    qCWarning(logMain) << "Failed to restore update-session draft" << entry.draftId
+                                       << resumed.error.message;
+                    continue;
+                }
+            }
+
+            // No durable checkpoint exists for this clean window; only then is
+            // it correct to reload the remote note.
             auto *job = NoteManager::instance()->loadNoteAsync(entry.storageId, entry.noteId, this);
             connect(job, &StorageJob::finished, this, [this, job, entry, key]() {
                 if (!d->pendingUpdateSession) {
@@ -739,9 +766,9 @@ void Main::restoreUpdateSessionForStorage(const QString &storageId)
                     return;
                 }
                 const auto loaded = job->result();
-                auto      *dialog = findOpenNoteDialog(loaded, entry.draftId);
+                auto      *dialog = findOpenNoteDialog(loaded);
                 if (!dialog)
-                    dialog = new NoteDialog(loaded, this, entry.draftId);
+                    dialog = new NoteDialog(loaded, this);
                 if (entry.geometry.isValid()) {
                     dialog->setGeometry(
                         WindowGeometryUtils::constrainToCurrentScreens(entry.geometry, dialog->minimumSize()));
