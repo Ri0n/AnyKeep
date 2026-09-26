@@ -199,7 +199,7 @@ IrisJinglePublicationProvider::PrepareResult IrisJinglePublicationProvider::prep
         capability.itemId        = capability.publicationId;
     }
     if (const auto reason = capability.invalidReason(); !reason.isEmpty()) {
-        qCWarning(lcIrisXmpp).noquote() << "Invalid durable Jingle media capability:" << reason
+        qWarning().noquote() << "Invalid durable Jingle media capability:" << reason
                                        << "publisher=" << capability.from
                                        << "note-id-present=" << !capability.noteId.isEmpty()
                                        << "content-revision-present=" << !capability.contentRevision.isEmpty()
