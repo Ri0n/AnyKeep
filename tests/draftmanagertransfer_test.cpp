@@ -228,6 +228,8 @@ private slots:
     void movesUnpublishedDraftWithoutCreatingSourceRemoval();
     void retriesExistingNoteFromDurableSnapshotWhenBodyLoadFails();
     void recoveredEditingDraftPublishesAfterLastViewCloses();
+    void missingExistingRemoteIsRoutedAgain();
+    void terminalMissingRemoteRetryRecoversAfterReopen();
     void tracksAllSourceLeasesAcrossDistinctDraftIds();
     void queuesDeletionForEveryPostAckTransferIdentity();
     void failedLiveRetargetLeavesDraftAndIdentityUnchanged();
@@ -739,6 +741,103 @@ void DraftManagerTransferTest::recoveredEditingDraftPublishesAfterLastViewCloses
     QCOMPARE(published.title(), QStringLiteral("Recovered title"));
     QCOMPARE(published.text(), QStringLiteral("Recovered body edited"));
     QCOMPARE(published.backendValue(QStringLiteral("revision")).toString(), QStringLiteral("base-revision"));
+}
+
+void DraftManagerTransferTest::missingExistingRemoteIsRoutedAgain()
+{
+    auto sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("missing-source"));
+    auto *sourceRaw = registerStorage(std::move(sourceStorage));
+
+    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("rerouted-destination"));
+    auto *destinationRaw = registerStorage(std::move(destinationStorage));
+    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(destinationRaw->systemName()) == destinationRaw)
+            manager->unregisterStorage(destinationRaw);
+        if (manager->storage(sourceRaw->systemName()) == sourceRaw)
+            manager->unregisterStorage(sourceRaw);
+    });
+
+    auto         store = std::make_unique<MemoryDraftStore>();
+    auto        *data  = store.get();
+    DraftRecord record;
+    record.id           = QUuid::createUuid();
+    record.operation    = DraftRecord::Publish;
+    record.state        = DraftRecord::Ready;
+    record.storageId    = sourceRaw->systemName();
+    record.remoteNoteId = QStringLiteral("missing-note");
+    record.title        = QStringLiteral("Recovered");
+    record.body         = QStringLiteral("Durable body");
+    record.format       = Note::Markdown;
+    record.backendData.insert(QStringLiteral("etag"), QStringLiteral("dead-etag"));
+    data->records_.insert(record.id, record);
+
+    DraftManager drafts(std::move(store));
+    drafts.setPrePublicationHandler([&drafts, destinationRaw](DraftRecord *candidate) {
+        if (candidate && candidate->state == DraftRecord::NeedsRouting)
+            return drafts.retargetDraftForPublication(candidate, destinationRaw->systemName());
+        return DraftStoreError {};
+    });
+
+    drafts.publishPending();
+
+    QTRY_COMPARE(destinationRaw->saveCalls_, 1);
+    QTRY_VERIFY(!data->records_.contains(record.id));
+    QCOMPARE(destinationRaw->notes_.size(), 1);
+    const auto published = destinationRaw->notes_.constFirst();
+    QCOMPARE(published.title(), record.title);
+    QCOMPARE(published.text(), record.body);
+    QVERIFY(!published.backendData().contains(QStringLiteral("etag")));
+}
+
+void DraftManagerTransferTest::terminalMissingRemoteRetryRecoversAfterReopen()
+{
+    auto sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("stuck-source"));
+    auto *sourceRaw = registerStorage(std::move(sourceStorage));
+
+    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("stuck-reroute"));
+    auto *destinationRaw = registerStorage(std::move(destinationStorage));
+    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+        auto *manager = NoteManager::instance();
+        if (manager->storage(destinationRaw->systemName()) == destinationRaw)
+            manager->unregisterStorage(destinationRaw);
+        if (manager->storage(sourceRaw->systemName()) == sourceRaw)
+            manager->unregisterStorage(sourceRaw);
+    });
+
+    auto         store = std::make_unique<MemoryDraftStore>();
+    auto        *data  = store.get();
+    DraftRecord record;
+    record.id           = QUuid::createUuid();
+    record.operation    = DraftRecord::Publish;
+    record.state        = DraftRecord::Retry;
+    record.storageId    = sourceRaw->systemName();
+    record.remoteNoteId = QStringLiteral("missing-note");
+    record.title        = QStringLiteral("Recovered");
+    record.body         = QStringLiteral("Edited recovery body");
+    record.format       = Note::Markdown;
+    record.lastError    = QStringLiteral("Note was not found");
+    record.retryAt      = {};
+    record.revision     = 53;
+    data->records_.insert(record.id, record);
+
+    DraftManager drafts(std::move(store));
+    drafts.setPrePublicationHandler([&drafts, destinationRaw](DraftRecord *candidate) {
+        if (candidate && candidate->state == DraftRecord::NeedsRouting)
+            return drafts.retargetDraftForPublication(candidate, destinationRaw->systemName());
+        return DraftStoreError {};
+    });
+
+    const auto resumed = drafts.resumeNoteForEditingDraft(record.id);
+    QVERIFY2(resumed, qPrintable(resumed.error.message));
+    auto *editor = drafts.acquireEditor(resumed.value, record.id);
+    QVERIFY(editor);
+    QCOMPARE(editor->text(), QStringLiteral("Recovered\n\nEdited recovery body"));
+    QVERIFY(editor->close());
+
+    QTRY_COMPARE(destinationRaw->saveCalls_, 1);
+    QTRY_VERIFY(!data->records_.contains(record.id));
+    QCOMPARE(destinationRaw->notes_.constFirst().text(), record.body);
 }
 
 void DraftManagerTransferTest::tracksAllSourceLeasesAcrossDistinctDraftIds()
