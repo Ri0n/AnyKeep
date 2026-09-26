@@ -1515,6 +1515,9 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
         const auto encryptionCipher = encrypted->cipher();
         const auto encryptionKey    = encrypted->key();
         const auto encryptionIv     = encrypted->iv();
+        qCDebug(lcIrisXmpp) << "Initialized XEP-0448 media encryption:"
+                            << "cipher=" << int(encryptionCipher) << "key-size=" << encryptionKey.size()
+                            << "iv-size=" << encryptionIv.size();
         auto finishMedia = [state, next, reference, publishCapability](XMPP::StatelessFileSharing::Cipher cipher,
                                                                        QByteArray key, QByteArray iv, XMPP::Hash hash,
                                                                        QUrl httpUrl) mutable {
