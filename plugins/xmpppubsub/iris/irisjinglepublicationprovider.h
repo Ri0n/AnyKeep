@@ -28,7 +28,8 @@ struct IrisJingleCapability {
     QByteArray                         cipherHash;
     quint64                            wireSize { 0 };
 
-    bool isValid() const;
+    QString invalidReason() const;
+    bool    isValid() const { return invalidReason().isEmpty(); }
 };
 
 class IrisJinglePublicationProvider final : public XMPP::Jingle::PublishedSessionProvider {
