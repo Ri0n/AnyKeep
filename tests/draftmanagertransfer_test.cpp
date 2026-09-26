@@ -17,6 +17,16 @@ using namespace AnyKeep;
 
 namespace {
 
+// Audit-only access to the exact handler used by the production storage-disable signal.
+struct AuditStorageRemoval {
+    using type = void (DraftManager::*)(NoteStorage *);
+    friend type auditHandler(AuditStorageRemoval);
+};
+template <typename Tag, typename Tag::type Member> struct AuditMemberAccess {
+    friend typename Tag::type auditHandler(Tag) { return Member; }
+};
+template struct AuditMemberAccess<AuditStorageRemoval, &DraftManager::storageAboutToBeRemoved>;
+
 class MemoryDraftStore final : public DraftStore {
 public:
     DraftStoreError write(const DraftRecord &record) override
@@ -53,7 +63,7 @@ public:
     }
 
     QHash<QUuid, DraftRecord> records_;
-    QUuid failRemoveId_;
+    QUuid                     failRemoveId_;
 };
 
 class TransferStorage final : public NoteStorage {
@@ -187,18 +197,18 @@ public:
         return result;
     }
 
-    QList<Note::Format> formats_ { Note::Markdown, Note::PlainText };
-    QList<Note>         notes_;
-    bool                supportsMedia_ { true };
-    bool                supportsFavorite_ { false };
-    bool                supportsDraftSnapshotSave_ { false };
-    bool                failLoads_ { false };
-    bool                failSaves_ { false };
-    bool                failCreates_ { false };
-    bool                delaySaveCompletions_ { false };
+    QList<Note::Format>                       formats_ { Note::Markdown, Note::PlainText };
+    QList<Note>                               notes_;
+    bool                                      supportsMedia_ { true };
+    bool                                      supportsFavorite_ { false };
+    bool                                      supportsDraftSnapshotSave_ { false };
+    bool                                      failLoads_ { false };
+    bool                                      failSaves_ { false };
+    bool                                      failCreates_ { false };
+    bool                                      delaySaveCompletions_ { false };
     QList<QPair<QPointer<NoteSaveJob>, Note>> delayedSaves_;
-    int                 saveCalls_ { 0 };
-    int                 removeCalls_ { 0 };
+    int                                       saveCalls_ { 0 };
+    int                                       removeCalls_ { 0 };
 
 private:
     QString id_;
@@ -249,6 +259,7 @@ private slots:
     void auditDeleteFailureLeavesPublishableRecord();
     void auditLateAckPreservesFavorite();
     void lateCreateAckDuringDeleteQueuesOrphan();
+    void auditDeletingSurvivesStorageDisable();
 };
 
 void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAllowsRemoval()
@@ -525,12 +536,12 @@ void DraftManagerTransferTest::retargetsPublishedDraftWithoutLosingSourceIdentit
 
 void DraftManagerTransferTest::retargetBackToSourceCancelsTransferLosslessly()
 {
-    auto sourceStorage      = std::make_unique<TransferStorage>(QStringLiteral("retarget-source"));
-    auto *sourceRaw         = registerStorage(std::move(sourceStorage));
-    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("retarget-plain"));
+    auto  sourceStorage          = std::make_unique<TransferStorage>(QStringLiteral("retarget-source"));
+    auto *sourceRaw              = registerStorage(std::move(sourceStorage));
+    auto  destinationStorage     = std::make_unique<TransferStorage>(QStringLiteral("retarget-plain"));
     destinationStorage->formats_ = { Note::PlainText };
-    auto *destinationRaw = registerStorage(std::move(destinationStorage));
-    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+    auto      *destinationRaw    = registerStorage(std::move(destinationStorage));
+    const auto cleanup           = qScopeGuard([sourceRaw, destinationRaw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(destinationRaw->systemName()) == destinationRaw)
             manager->unregisterStorage(destinationRaw);
@@ -582,15 +593,15 @@ void DraftManagerTransferTest::retargetBackToSourceCancelsTransferLosslessly()
 
 void DraftManagerTransferTest::convertsFormatOnlyAtPublicationBoundary()
 {
-    auto sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("format-source"));
-    const auto source  = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Title"),
-                                                   QStringLiteral("**Bold** body"));
-    auto *sourceRaw    = registerStorage(std::move(sourceStorage));
+    auto       sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("format-source"));
+    const auto source        = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Title"),
+                                                        QStringLiteral("**Bold** body"));
+    auto      *sourceRaw     = registerStorage(std::move(sourceStorage));
 
-    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("format-destination"));
+    auto destinationStorage      = std::make_unique<TransferStorage>(QStringLiteral("format-destination"));
     destinationStorage->formats_ = { Note::PlainText };
-    auto *destinationRaw = registerStorage(std::move(destinationStorage));
-    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+    auto      *destinationRaw    = registerStorage(std::move(destinationStorage));
+    const auto cleanup           = qScopeGuard([sourceRaw, destinationRaw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(destinationRaw->systemName()) == destinationRaw)
             manager->unregisterStorage(destinationRaw);
@@ -656,10 +667,10 @@ void DraftManagerTransferTest::movesUnpublishedDraftWithoutCreatingSourceRemoval
 
 void DraftManagerTransferTest::retriesExistingNoteFromDurableSnapshotWhenBodyLoadFails()
 {
-    auto storage                         = std::make_unique<TransferStorage>(QStringLiteral("snapshot-recovery"));
+    auto storage                        = std::make_unique<TransferStorage>(QStringLiteral("snapshot-recovery"));
     storage->supportsDraftSnapshotSave_ = true;
     storage->failLoads_                 = true;
-    auto *raw                           = registerStorage(std::move(storage));
+    auto      *raw                      = registerStorage(std::move(storage));
     const auto cleanup                  = qScopeGuard([raw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(raw->systemName()) == raw)
@@ -697,10 +708,10 @@ void DraftManagerTransferTest::retriesExistingNoteFromDurableSnapshotWhenBodyLoa
 
 void DraftManagerTransferTest::recoveredEditingDraftPublishesAfterLastViewCloses()
 {
-    auto storage                         = std::make_unique<TransferStorage>(QStringLiteral("recovered-editing"));
+    auto storage                        = std::make_unique<TransferStorage>(QStringLiteral("recovered-editing"));
     storage->supportsDraftSnapshotSave_ = true;
     storage->failLoads_                 = true;
-    auto *raw                           = registerStorage(std::move(storage));
+    auto      *raw                      = registerStorage(std::move(storage));
     const auto cleanup                  = qScopeGuard([raw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(raw->systemName()) == raw)
@@ -726,7 +737,7 @@ void DraftManagerTransferTest::recoveredEditingDraftPublishesAfterLastViewCloses
     data->records_.insert(record.id, record);
 
     DraftManager drafts(std::move(store));
-    const auto resumed = drafts.resumeNoteForEditingDraft(record.id);
+    const auto   resumed = drafts.resumeNoteForEditingDraft(record.id);
     QVERIFY2(resumed, qPrintable(resumed.error.message));
 
     auto *editor = drafts.acquireEditor(resumed.value, record.id);
@@ -752,12 +763,12 @@ void DraftManagerTransferTest::recoveredEditingDraftPublishesAfterLastViewCloses
 
 void DraftManagerTransferTest::missingExistingRemoteIsRoutedAgain()
 {
-    auto sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("missing-source"));
-    auto *sourceRaw = registerStorage(std::move(sourceStorage));
+    auto  sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("missing-source"));
+    auto *sourceRaw     = registerStorage(std::move(sourceStorage));
 
-    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("rerouted-destination"));
-    auto *destinationRaw = registerStorage(std::move(destinationStorage));
-    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+    auto       destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("rerouted-destination"));
+    auto      *destinationRaw     = registerStorage(std::move(destinationStorage));
+    const auto cleanup            = qScopeGuard([sourceRaw, destinationRaw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(destinationRaw->systemName()) == destinationRaw)
             manager->unregisterStorage(destinationRaw);
@@ -765,8 +776,8 @@ void DraftManagerTransferTest::missingExistingRemoteIsRoutedAgain()
             manager->unregisterStorage(sourceRaw);
     });
 
-    auto         store = std::make_unique<MemoryDraftStore>();
-    auto        *data  = store.get();
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
     DraftRecord record;
     record.id           = QUuid::createUuid();
     record.operation    = DraftRecord::Publish;
@@ -799,12 +810,12 @@ void DraftManagerTransferTest::missingExistingRemoteIsRoutedAgain()
 
 void DraftManagerTransferTest::terminalMissingRemoteRetryRecoversAfterReopen()
 {
-    auto sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("stuck-source"));
-    auto *sourceRaw = registerStorage(std::move(sourceStorage));
+    auto  sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("stuck-source"));
+    auto *sourceRaw     = registerStorage(std::move(sourceStorage));
 
-    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("stuck-reroute"));
-    auto *destinationRaw = registerStorage(std::move(destinationStorage));
-    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+    auto       destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("stuck-reroute"));
+    auto      *destinationRaw     = registerStorage(std::move(destinationStorage));
+    const auto cleanup            = qScopeGuard([sourceRaw, destinationRaw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(destinationRaw->systemName()) == destinationRaw)
             manager->unregisterStorage(destinationRaw);
@@ -812,8 +823,8 @@ void DraftManagerTransferTest::terminalMissingRemoteRetryRecoversAfterReopen()
             manager->unregisterStorage(sourceRaw);
     });
 
-    auto         store = std::make_unique<MemoryDraftStore>();
-    auto        *data  = store.get();
+    auto        store = std::make_unique<MemoryDraftStore>();
+    auto       *data  = store.get();
     DraftRecord record;
     record.id           = QUuid::createUuid();
     record.operation    = DraftRecord::Publish;
@@ -850,8 +861,7 @@ void DraftManagerTransferTest::terminalMissingRemoteRetryRecoversAfterReopen()
 void DraftManagerTransferTest::tracksAllSourceLeasesAcrossDistinctDraftIds()
 {
     TransferStorage storage(QStringLiteral("lease-source"));
-    const auto note
-        = storage.addStored(QStringLiteral("note"), QStringLiteral("Lease note"), QStringLiteral("Body"));
+    const auto   note = storage.addStored(QStringLiteral("note"), QStringLiteral("Lease note"), QStringLiteral("Body"));
     DraftManager drafts(std::make_unique<MemoryDraftStore>());
 
     const auto first  = drafts.acquireEditingSession(note);
@@ -903,15 +913,15 @@ void DraftManagerTransferTest::queuesDeletionForEveryPostAckTransferIdentity()
 void DraftManagerTransferTest::failedLiveRetargetLeavesDraftAndIdentityUnchanged()
 {
     auto sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("retarget-atomic-source"));
-    auto source = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Source"),
-                                           QStringLiteral("Body"));
+    auto source
+        = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Source"), QStringLiteral("Body"));
     source.setBackendValue(QStringLiteral("etag"), QStringLiteral("source-etag"));
     auto *sourceRaw = registerStorage(std::move(sourceStorage));
 
-    auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("retarget-atomic-destination"));
+    auto destinationStorage          = std::make_unique<TransferStorage>(QStringLiteral("retarget-atomic-destination"));
     destinationStorage->failCreates_ = true;
-    auto *destinationRaw = registerStorage(std::move(destinationStorage));
-    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+    auto      *destinationRaw        = registerStorage(std::move(destinationStorage));
+    const auto cleanup               = qScopeGuard([sourceRaw, destinationRaw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(destinationRaw->systemName()) == destinationRaw)
             manager->unregisterStorage(destinationRaw);
@@ -963,10 +973,10 @@ void DraftManagerTransferTest::reusesDetachedRecoveryModelWhenStorageReturns()
     QCOMPARE(first->storageId(), QString());
     QCOMPARE(first->text(), QStringLiteral("Recovered title\n\nLocal durable body"));
 
-    auto storage = std::make_unique<TransferStorage>(record.storageId);
-    const auto remote = storage->addStored(record.remoteNoteId, QStringLiteral("Stale remote title"),
-                                           QStringLiteral("Stale remote body"));
-    auto *raw = registerStorage(std::move(storage));
+    auto       storage = std::make_unique<TransferStorage>(record.storageId);
+    const auto remote  = storage->addStored(record.remoteNoteId, QStringLiteral("Stale remote title"),
+                                            QStringLiteral("Stale remote body"));
+    auto      *raw     = registerStorage(std::move(storage));
     const auto cleanup = qScopeGuard([raw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(raw->systemName()) == raw)
@@ -1042,7 +1052,7 @@ void DraftManagerTransferTest::recyclePreparationPreservesPostAckSourceCleanup()
     editor->setText(QStringLiteral("Moved note\n\nLatest local body"));
 
     const auto recycleFolder = QUuid::createUuid();
-    const auto prepared = drafts.prepareForRecycle({}, {}, recycleFolder, transfer.id);
+    const auto prepared      = drafts.prepareForRecycle({}, {}, recycleFolder, transfer.id);
     QVERIFY2(prepared, qPrintable(prepared.error.message));
     QCOMPARE(prepared.value.storageId, transfer.storageId);
     QCOMPARE(prepared.value.noteId, transfer.remoteNoteId);
@@ -1073,10 +1083,10 @@ void DraftManagerTransferTest::lifecycleViewClosureDoesNotDiscardTransferRecord(
     auto        store = std::make_unique<MemoryDraftStore>();
     auto       *data  = store.get();
     DraftRecord transfer;
-    transfer.id                    = QUuid::createUuid();
-    transfer.operation             = DraftRecord::Publish;
-    transfer.state                 = DraftRecord::Editing;
-    transfer.storageId             = QStringLiteral("destination");
+    transfer.id        = QUuid::createUuid();
+    transfer.operation = DraftRecord::Publish;
+    transfer.state     = DraftRecord::Editing;
+    transfer.storageId = QStringLiteral("destination");
     transfer.remoteNoteId.clear();
     transfer.removeSourceStorageId = QStringLiteral("source");
     transfer.removeSourceNoteId    = QStringLiteral("source-note");
@@ -1087,7 +1097,7 @@ void DraftManagerTransferTest::lifecycleViewClosureDoesNotDiscardTransferRecord(
 
     DraftManager drafts(std::move(store));
     Note         detached(new NoteData(nullptr));
-    auto *editor = drafts.acquireEditor(detached, transfer.id);
+    auto        *editor = drafts.acquireEditor(detached, transfer.id);
     QVERIFY(editor);
 
     const auto closeError
@@ -1104,10 +1114,10 @@ void DraftManagerTransferTest::recycleCancelsPreAckTransferBackToSource()
     auto        store = std::make_unique<MemoryDraftStore>();
     auto       *data  = store.get();
     DraftRecord transfer;
-    transfer.id                    = QUuid::createUuid();
-    transfer.operation             = DraftRecord::Publish;
-    transfer.state                 = DraftRecord::Editing;
-    transfer.storageId             = QStringLiteral("destination");
+    transfer.id        = QUuid::createUuid();
+    transfer.operation = DraftRecord::Publish;
+    transfer.state     = DraftRecord::Editing;
+    transfer.storageId = QStringLiteral("destination");
     transfer.remoteNoteId.clear();
     transfer.removeSourceStorageId = QStringLiteral("source");
     transfer.removeSourceNoteId    = QStringLiteral("source-note");
@@ -1119,12 +1129,12 @@ void DraftManagerTransferTest::recycleCancelsPreAckTransferBackToSource()
 
     DraftManager drafts(std::move(store));
     Note         detached(new NoteData(nullptr));
-    auto *editor = drafts.acquireEditor(detached, transfer.id);
+    auto        *editor = drafts.acquireEditor(detached, transfer.id);
     QVERIFY(editor);
     editor->setText(QStringLiteral("Moved note\n\nEdited before trash"));
 
     const auto recycleFolder = QUuid::createUuid();
-    const auto prepared = drafts.prepareForRecycle({}, {}, recycleFolder, transfer.id);
+    const auto prepared      = drafts.prepareForRecycle({}, {}, recycleFolder, transfer.id);
     QVERIFY2(prepared, qPrintable(prepared.error.message));
     QCOMPARE(prepared.value.storageId, transfer.removeSourceStorageId);
     QCOMPARE(prepared.value.noteId, transfer.removeSourceNoteId);
@@ -1149,10 +1159,10 @@ void DraftManagerTransferTest::recycleCancelsPreAckTransferBackToSource()
 void DraftManagerTransferTest::externalRemovalCreatesUnroutedRecoveryCopy()
 {
     auto storage = std::make_unique<TransferStorage>(QStringLiteral("external-removal"));
-    auto note = storage->addStored(QStringLiteral("remote-note"), QStringLiteral("Remote"),
-                                   QStringLiteral("Original body"));
+    auto note
+        = storage->addStored(QStringLiteral("remote-note"), QStringLiteral("Remote"), QStringLiteral("Original body"));
     note.setBackendValue(QStringLiteral("etag"), QStringLiteral("remote-etag"));
-    auto *raw = registerStorage(std::move(storage));
+    auto      *raw     = registerStorage(std::move(storage));
     const auto cleanup = qScopeGuard([raw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(raw->systemName()) == raw)
@@ -1193,10 +1203,10 @@ void DraftManagerTransferTest::externalRemovalOfTransferSourceKeepsDestination()
     auto        store = std::make_unique<MemoryDraftStore>();
     auto       *data  = store.get();
     DraftRecord transfer;
-    transfer.id                    = QUuid::createUuid();
-    transfer.operation             = DraftRecord::Publish;
-    transfer.state                 = DraftRecord::Editing;
-    transfer.storageId             = QStringLiteral("destination");
+    transfer.id        = QUuid::createUuid();
+    transfer.operation = DraftRecord::Publish;
+    transfer.state     = DraftRecord::Editing;
+    transfer.storageId = QStringLiteral("destination");
     transfer.remoteNoteId.clear();
     transfer.removeSourceStorageId = QStringLiteral("source");
     transfer.removeSourceNoteId    = QStringLiteral("source-note");
@@ -1208,7 +1218,7 @@ void DraftManagerTransferTest::externalRemovalOfTransferSourceKeepsDestination()
 
     DraftManager drafts(std::move(store));
     Note         detached(new NoteData(nullptr));
-    auto *editor = drafts.acquireEditor(detached, transfer.id);
+    auto        *editor = drafts.acquireEditor(detached, transfer.id);
     QVERIFY(editor);
     editor->setText(QStringLiteral("Moved\n\nDestination edits"));
 
@@ -1227,15 +1237,15 @@ void DraftManagerTransferTest::externalRemovalOfTransferSourceKeepsDestination()
 
 void DraftManagerTransferTest::lateAckAfterPreAckTrashRemovesOrphanDestination()
 {
-    auto sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("late-ack-source"));
+    auto       sourceStorage = std::make_unique<TransferStorage>(QStringLiteral("late-ack-source"));
     const auto source
         = sourceStorage->addStored(QStringLiteral("source-note"), QStringLiteral("Source"), QStringLiteral("Body"));
     auto *sourceRaw = registerStorage(std::move(sourceStorage));
 
     auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("late-ack-destination"));
     destinationStorage->delaySaveCompletions_ = true;
-    auto *destinationRaw = registerStorage(std::move(destinationStorage));
-    const auto cleanup = qScopeGuard([sourceRaw, destinationRaw]() {
+    auto      *destinationRaw                 = registerStorage(std::move(destinationStorage));
+    const auto cleanup                        = qScopeGuard([sourceRaw, destinationRaw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(destinationRaw->systemName()) == destinationRaw)
             manager->unregisterStorage(destinationRaw);
@@ -1247,7 +1257,7 @@ void DraftManagerTransferTest::lateAckAfterPreAckTrashRemovesOrphanDestination()
     auto        *data  = store.get();
     DraftManager drafts(std::move(store));
 
-    QUuid draftId;
+    QUuid      draftId;
     const auto stageError = drafts.stageTransfer(source, destinationRaw->systemName(), {}, &draftId);
     QVERIFY2(!stageError, qPrintable(stageError.message));
     QTRY_COMPARE(destinationRaw->saveCalls_, 1);
@@ -1255,9 +1265,8 @@ void DraftManagerTransferTest::lateAckAfterPreAckTrashRemovesOrphanDestination()
     const auto orphanId = destinationRaw->notes_.constFirst().id();
 
     const auto recycleFolder = QUuid::createUuid();
-    const auto prepared
-        = drafts.prepareForRecycle(destinationRaw->systemName(), draftId.toString(QUuid::WithoutBraces),
-                                   recycleFolder, draftId);
+    const auto prepared = drafts.prepareForRecycle(destinationRaw->systemName(), draftId.toString(QUuid::WithoutBraces),
+                                                   recycleFolder, draftId);
     QVERIFY2(prepared, qPrintable(prepared.error.message));
     QCOMPARE(prepared.value.storageId, sourceRaw->systemName());
     QCOMPARE(prepared.value.noteId, source.id());
@@ -1292,8 +1301,8 @@ void DraftManagerTransferTest::lateAckOnSameTargetAdoptsRemoteIdentity()
 {
     auto destinationStorage = std::make_unique<TransferStorage>(QStringLiteral("late-ack-same-target"));
     destinationStorage->delaySaveCompletions_ = true;
-    auto *destinationRaw = registerStorage(std::move(destinationStorage));
-    const auto cleanup = qScopeGuard([destinationRaw]() {
+    auto      *destinationRaw                 = registerStorage(std::move(destinationStorage));
+    const auto cleanup                        = qScopeGuard([destinationRaw]() {
         auto *manager = NoteManager::instance();
         if (manager->storage(destinationRaw->systemName()) == destinationRaw)
             manager->unregisterStorage(destinationRaw);
@@ -1339,17 +1348,16 @@ void DraftManagerTransferTest::lateAckOnSameTargetAdoptsRemoteIdentity()
     QVERIFY(editor->discardAndClose());
 }
 
-
 void DraftManagerTransferTest::auditRecycleWithoutKnownDraft()
 {
-    auto *raw = registerStorage(std::make_unique<TransferStorage>(QStringLiteral("audit-recycle")));
-    const auto cleanup = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
-    const auto note = raw->addStored(QStringLiteral("id"), QStringLiteral("Title"), QStringLiteral("Old"));
-    auto store = std::make_unique<MemoryDraftStore>();
-    auto *data = store.get();
+    auto        *raw     = registerStorage(std::make_unique<TransferStorage>(QStringLiteral("audit-recycle")));
+    const auto   cleanup = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
+    const auto   note    = raw->addStored(QStringLiteral("id"), QStringLiteral("Title"), QStringLiteral("Old"));
+    auto         store   = std::make_unique<MemoryDraftStore>();
+    auto        *data    = store.get();
     DraftManager drafts(std::move(store));
-    auto *editor = drafts.acquireEditor(note);
-    const auto id = editor->draftId();
+    auto        *editor = drafts.acquireEditor(note);
+    const auto   id     = editor->draftId();
     editor->setText(QStringLiteral("Title\n\nUnsaved new body"));
     const auto prepared = drafts.prepareForRecycle(raw->systemName(), note.id(), QUuid::createUuid());
     QVERIFY(prepared);
@@ -1360,13 +1368,13 @@ void DraftManagerTransferTest::auditRecycleWithoutKnownDraft()
 
 void DraftManagerTransferTest::auditDeleteFailureLeavesPublishableRecord()
 {
-    auto *raw = registerStorage(std::make_unique<TransferStorage>(QStringLiteral("audit-delete")));
-    const auto cleanup = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
-    const auto note = raw->addStored(QStringLiteral("id"), QStringLiteral("Title"), QStringLiteral("Old"));
-    auto store = std::make_unique<MemoryDraftStore>();
-    auto *data = store.get();
+    auto        *raw     = registerStorage(std::make_unique<TransferStorage>(QStringLiteral("audit-delete")));
+    const auto   cleanup = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
+    const auto   note    = raw->addStored(QStringLiteral("id"), QStringLiteral("Title"), QStringLiteral("Old"));
+    auto         store   = std::make_unique<MemoryDraftStore>();
+    auto        *data    = store.get();
     DraftManager drafts(std::move(store));
-    const auto id = drafts.acquireEditingSession(note);
+    const auto   id = drafts.acquireEditingSession(note);
     QVERIFY(!drafts.saveEditing(id, note, note.title(), QStringLiteral("New"), note.format()));
     QVERIFY(!drafts.markReady(id));
     drafts.releaseEditingSession(id);
@@ -1392,15 +1400,15 @@ void DraftManagerTransferTest::auditDeleteFailureLeavesPublishableRecord()
 
 void DraftManagerTransferTest::auditLateAckPreservesFavorite()
 {
-    auto storage = std::make_unique<TransferStorage>(QStringLiteral("audit-late-favorite"));
+    auto storage                   = std::make_unique<TransferStorage>(QStringLiteral("audit-late-favorite"));
     storage->delaySaveCompletions_ = true;
-    storage->supportsFavorite_ = true;
-    auto *raw = registerStorage(std::move(storage));
-    const auto cleanup = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
-    auto store = std::make_unique<MemoryDraftStore>();
-    auto *data = store.get();
+    storage->supportsFavorite_     = true;
+    auto        *raw               = registerStorage(std::move(storage));
+    const auto   cleanup           = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
+    auto         store             = std::make_unique<MemoryDraftStore>();
+    auto        *data              = store.get();
     DraftManager drafts(std::move(store));
-    auto note = raw->createNote();
+    auto         note = raw->createNote();
     note.setTitle(QStringLiteral("Title"));
     note.setText(QStringLiteral("Body"), Note::Markdown);
     note.setFavorite(false);
@@ -1418,16 +1426,15 @@ void DraftManagerTransferTest::auditLateAckPreservesFavorite()
     QVERIFY(data->records_.value(id).backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool());
 }
 
-
 void DraftManagerTransferTest::lateCreateAckDuringDeleteQueuesOrphan()
 {
-    auto storage = std::make_unique<TransferStorage>(QStringLiteral("delete-late-create"));
+    auto storage                   = std::make_unique<TransferStorage>(QStringLiteral("delete-late-create"));
     storage->delaySaveCompletions_ = true;
-    auto *raw = registerStorage(std::move(storage));
-    const auto cleanup = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
+    auto      *raw                 = registerStorage(std::move(storage));
+    const auto cleanup             = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
 
-    auto store = std::make_unique<MemoryDraftStore>();
-    auto *data = store.get();
+    auto         store = std::make_unique<MemoryDraftStore>();
+    auto        *data  = store.get();
     DraftManager drafts(std::move(store));
 
     auto note = raw->createNote();
@@ -1450,6 +1457,29 @@ void DraftManagerTransferTest::lateCreateAckDuringDeleteQueuesOrphan()
 
     raw->completeDelayedSaves();
     QTRY_VERIFY(raw->note(orphanId).isNull());
+}
+
+void DraftManagerTransferTest::auditDeletingSurvivesStorageDisable()
+{
+    auto        *raw     = registerStorage(std::make_unique<TransferStorage>(QStringLiteral("audit-disable-deleting")));
+    const auto   cleanup = qScopeGuard([raw] { NoteManager::instance()->unregisterStorage(raw); });
+    const auto   note    = raw->addStored(QStringLiteral("id"), QStringLiteral("Title"), QStringLiteral("Body"));
+    auto         store   = std::make_unique<MemoryDraftStore>();
+    auto        *data    = store.get();
+    DraftManager drafts(std::move(store));
+    const auto   id = drafts.acquireEditingSession(note);
+    QVERIFY(!drafts.saveEditing(id, note, note.title(), note.text(), note.format()));
+    QVERIFY(!drafts.markReady(id));
+    drafts.releaseEditingSession(id);
+    data->failRemoveId_ = id;
+    QVERIFY(drafts.queueDraftDeletion(id));
+    QCOMPARE(data->records_.value(id).state, DraftRecord::Deleting);
+
+    (drafts.*auditHandler(AuditStorageRemoval {}))(raw);
+    const auto remaining = data->records_.value(id);
+    QCOMPARE(remaining.state, DraftRecord::Deleting);
+    QCOMPARE(remaining.storageId, raw->systemName());
+    QCOMPARE(remaining.remoteNoteId, note.id());
 }
 
 QTEST_MAIN(DraftManagerTransferTest)
