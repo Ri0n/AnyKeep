@@ -928,6 +928,15 @@ void DraftManager::storageAboutToBeRemoved(NoteStorage *storage)
                 ++affected;
             continue;
         }
+        // Deleting is the durable tombstone of an explicit permanent-delete
+        // transaction. Disabling its storage must not erase the identity still
+        // owed deletion or route the former Publish as a new note. Keep the
+        // root untouched; when this storage is available again publishPending()
+        // resumes queueDraftDeletion() from the preserved identity.
+        if (record.state == DraftRecord::Deleting) {
+            ++affected;
+            continue;
+        }
         if (record.state != DraftRecord::Editing)
             record.state = DraftRecord::NeedsRouting;
         record.storageId.clear();
