@@ -1379,6 +1379,14 @@ void DraftManagerTransferTest::auditDeleteFailureLeavesPublishableRecord()
     QVERIFY2(remaining.state != DraftRecord::Ready && remaining.state != DraftRecord::Publishing
                  && remaining.state != DraftRecord::Retry,
              "The failed Delete conversion left both Delete and Publish runnable for the same note");
+    QCOMPARE(remaining.state, DraftRecord::Deleting);
+
+    // The durable non-publishable root is also the restart/retry cursor: once
+    // the injected store failure disappears, conversion is idempotently
+    // completed without making the old Publish executable again.
+    data->failRemoveId_ = {};
+    QVERIFY(!drafts.queueDraftDeletion(id));
+    QVERIFY(!data->records_.contains(id));
 }
 
 void DraftManagerTransferTest::auditLateAckPreservesFavorite()
