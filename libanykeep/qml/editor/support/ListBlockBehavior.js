@@ -2,19 +2,6 @@
 
 function handleKey(host, controller, event, cell, itemIndex) {
     const blocked = event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
-    const primaryModifier = event.modifiers & (Qt.ControlModifier | Qt.MetaModifier)
-    const listShortcut = primaryModifier && event.modifiers & Qt.ShiftModifier
-                         && !(event.modifiers & Qt.AltModifier)
-    if (listShortcut && (event.key === Qt.Key_7 || event.key === Qt.Key_Ampersand || event.key === Qt.Key_Question
-            || event.key === Qt.Key_8 || event.key === Qt.Key_Asterisk
-            || event.key === Qt.Key_9 || event.key === Qt.Key_ParenLeft)) {
-        const type = event.key === Qt.Key_7 || event.key === Qt.Key_Ampersand || event.key === Qt.Key_Question ? 5
-                   : event.key === Qt.Key_8 || event.key === Qt.Key_Asterisk ? 1 : 2
-        return controller.runEditTransaction("convert-list-level", function() {
-            controller.blockModel.convertListLevel(host.block.index, itemIndex, type)
-            return true
-        })
-    }
     if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) && !blocked) {
         let first = controller.wholeDocumentSelected ? 0 : itemIndex
         let last = controller.wholeDocumentSelected ? host.itemCount() - 1 : itemIndex
