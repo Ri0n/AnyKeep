@@ -190,8 +190,8 @@ private:
         int          columns = 0;
         QString      url;
         QString      alt;
-        int          imageWidth     = 0;
-        QString      imageAlignment = QStringLiteral("center");
+        int          mediaDisplayWidth = 0;
+        QString      mediaAlignment = QStringLiteral("center");
         int          headingLevel   = 0;
         QString      language;
         QStringList  tags;
@@ -199,8 +199,7 @@ private:
         qint64       mediaDurationMs = 0;
         int          mediaWidth = 0;
         int          mediaHeight = 0;
-        qint64       audioDurationMs = 0;
-        QString      audioTranscript;
+        QString      mediaTranscript;
         QString      attachmentMediaType;
         qint64       attachmentSize = 0;
         bool         explicitEmpty  = false;
@@ -209,11 +208,13 @@ private:
         {
             return type == other.type && text == other.text && items == other.items && indents == other.indents
                 && itemTypes == other.itemTypes && checked == other.checked && cells == other.cells
-                && columns == other.columns && url == other.url && alt == other.alt && imageWidth == other.imageWidth
-                && imageAlignment == other.imageAlignment && headingLevel == other.headingLevel
-                && language == other.language && tags == other.tags && audioTranscript == other.audioTranscript
-                && attachmentMediaType == other.attachmentMediaType && attachmentSize == other.attachmentSize
-                && audioDurationMs == other.audioDurationMs && explicitEmpty == other.explicitEmpty;
+                && columns == other.columns && url == other.url && alt == other.alt
+                && mediaDisplayWidth == other.mediaDisplayWidth && mediaAlignment == other.mediaAlignment
+                && headingLevel == other.headingLevel && language == other.language && tags == other.tags
+                && mediaType == other.mediaType && mediaDurationMs == other.mediaDurationMs
+                && mediaWidth == other.mediaWidth && mediaHeight == other.mediaHeight
+                && mediaTranscript == other.mediaTranscript && attachmentMediaType == other.attachmentMediaType
+                && attachmentSize == other.attachmentSize && explicitEmpty == other.explicitEmpty;
         }
     };
 
