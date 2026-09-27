@@ -10,9 +10,14 @@ FocusScope {
     objectName: "mediaBlockEditor-" + block.index
     required property var block
     property var playback: mediaRoot.editorView.editorBackend ? mediaRoot.editorView.editorBackend.mediaPlayback : null
+    property var transcription: mediaRoot.editorView.audioTranscriptionController
+    property bool transcriptExpanded: false
     readonly property bool timed: block.mediaType.startsWith("audio/") || block.mediaType.startsWith("video/")
     readonly property bool video: block.mediaType.startsWith("video/")
     readonly property bool audio: block.mediaType.startsWith("audio/")
+    readonly property bool canTranscribe: audio && transcription && transcription.audioTranscriptionAvailable
+    readonly property bool transcribing: canTranscribe && transcription.transcribingAudioRow === block.index
+    readonly property bool transcriptionBlocked: transcription && transcription.busy && !transcribing
     readonly property bool current: playback && playback.currentSourceUri === block.url
     readonly property bool playing: current && playback.playing
     readonly property bool loading: current && playback.loading
@@ -35,10 +40,12 @@ FocusScope {
         transientWidth >= 0 ? transientWidth
                             : (block.mediaDisplayWidth > 0 ? block.mediaDisplayWidth : naturalWidth)
     readonly property real displayWidth: Math.max(1, Math.min(width, requestedWidth))
-    readonly property real imageAspect:
+    readonly property real visualAspect:
         sourceImage.implicitWidth > 0 && sourceImage.implicitHeight > 0
-        ? sourceImage.implicitHeight / sourceImage.implicitWidth : 0.75
-    readonly property real displayHeight: visual ? Math.max(40, displayWidth * imageAspect) : 58
+        ? sourceImage.implicitHeight / sourceImage.implicitWidth
+        : (block.mediaWidth > 0 && block.mediaHeight > 0
+           ? block.mediaHeight / block.mediaWidth : 0.75)
+    readonly property real displayHeight: visual ? Math.max(40, displayWidth * visualAspect) : 58
     readonly property real imageY: individuallySelected ? altEditor.implicitHeight + 6 : 0
     readonly property real actionGap: mediaRoot.editorView.touchMode ? 12 : 8
     readonly property real alignedX:
@@ -47,9 +54,13 @@ FocusScope {
         : (width - displayWidth) / 2
     readonly property real displayX: transientX >= 0 ? transientX : alignedX
 
+    readonly property real presentationActionsHeight:
+        visual && individuallySelected ? actionGap + imageActions.height + 4 : 0
+    readonly property real baseContentHeight: imageY + displayHeight + presentationActionsHeight
+
     width: block.width
-    implicitHeight: imageY + displayHeight
-                    + (individuallySelected ? actionGap + imageActions.height + 4 : 0)
+    implicitHeight: baseContentHeight
+                    + (transcriptPanel.visible ? 6 + transcriptPanel.implicitHeight : 0)
     activeFocusOnTab: true
 
     function selectAndFocus() {
@@ -60,7 +71,7 @@ FocusScope {
     function setAlignment(value) {
         if (normalizedAlignment === value)
             return
-        mediaRoot.editorView.runEditTransaction("align-image", function() {
+        mediaRoot.editorView.runEditTransaction("align-media", function() {
             mediaRoot.editorView.blockModel.setMediaAlignment(block.index, value)
         })
     }
@@ -68,7 +79,7 @@ FocusScope {
     function resetPresentation() {
         if (block.mediaDisplayWidth === 0 && normalizedAlignment === "center")
             return
-        mediaRoot.editorView.runEditTransaction("reset-image-presentation", function() {
+        mediaRoot.editorView.runEditTransaction("reset-media-presentation", function() {
             mediaRoot.editorView.blockModel.setMediaDisplayWidth(block.index, 0)
             mediaRoot.editorView.blockModel.setMediaAlignment(block.index, "center")
         })
@@ -80,7 +91,7 @@ FocusScope {
         resizeStartX = sourceImage.x
         transientWidth = displayWidth
         transientX = sourceImage.x
-        mediaRoot.editorView.beginEditTransaction("resize-image")
+        mediaRoot.editorView.beginEditTransaction("resize-media")
     }
 
     function updateResize(delta) {
@@ -128,6 +139,13 @@ FocusScope {
             selectAndFocus()
     }
 
+    function requestTranscription() {
+        selectAndFocus()
+        if (!canTranscribe || transcriptionBlocked || transcribing)
+            return false
+        return transcription.transcribeAudio(block.index, block.url, block.mediaDuration)
+    }
+
     function formatTime(milliseconds) {
         const seconds = Math.max(0, Math.floor(Number(milliseconds) / 1000))
         const remainder = seconds % 60
@@ -140,6 +158,16 @@ FocusScope {
         if (timed && !event.modifiers && (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
             if (playback)
                 playback.toggle(block.url)
+            event.accepted = true
+            return
+        }
+        if (timed && !event.modifiers && event.key === Qt.Key_Left && playback) {
+            playback.seek(block.url, Math.max(0, (current ? playback.position : 0) - 5000))
+            event.accepted = true
+            return
+        }
+        if (timed && !event.modifiers && event.key === Qt.Key_Right && playback) {
+            playback.seek(block.url, Math.min(knownDuration, (current ? playback.position : 0) + 5000))
             event.accepted = true
             return
         }
@@ -163,7 +191,7 @@ FocusScope {
         width: Math.min(mediaRoot.width, Math.max(180, sourceImage.width))
         x: Math.max(0, Math.min(mediaRoot.width - width,
                                 sourceImage.x + (sourceImage.width - width) / 2))
-        placeholderText: qsTr("Alt text")
+        placeholderText: mediaRoot.audio || mediaRoot.video ? qsTr("Media title") : qsTr("Alt text")
         text: mediaRoot.block.alt
         selectByMouse: true
         onTextEdited: mediaRoot.editorView.blockModel.setMediaTitle(mediaRoot.block.index, text)
@@ -277,9 +305,9 @@ FocusScope {
         id: timedControls
         visible: mediaRoot.timed
         x: mediaRoot.visual ? sourceImage.x : 0
-        y: mediaRoot.visual ? sourceImage.y + sourceImage.height - height : 0
+        y: mediaRoot.visual ? sourceImage.y + sourceImage.height - height : mediaRoot.imageY
         width: mediaRoot.visual ? sourceImage.width : mediaRoot.width
-        height: mediaRoot.editorView.touchMode ? 48 : 40
+        height: mediaRoot.visual ? (mediaRoot.editorView.touchMode ? 48 : 40) : mediaRoot.displayHeight
         color: mediaRoot.editorView.documentCardColor
         opacity: 0.94
         radius: 5
@@ -300,18 +328,48 @@ FocusScope {
                     mediaRoot.playback.toggle(mediaRoot.block.url)
                 }
             }
-            Slider {
+            ColumnLayout {
                 Layout.fillWidth: true
-                from: 0
-                to: Math.max(1, mediaRoot.knownDuration)
-                value: mediaRoot.current ? mediaRoot.playback.position : 0
-                enabled: mediaRoot.playback && mediaRoot.knownDuration > 0
-                onMoved: mediaRoot.playback.seek(mediaRoot.block.url, value)
+                spacing: 1
+                Label {
+                    Layout.fillWidth: true
+                    visible: !mediaRoot.visual
+                    text: mediaRoot.block.alt.length > 0 ? mediaRoot.block.alt : qsTr("Audio recording")
+                    elide: Text.ElideMiddle
+                    font.bold: mediaRoot.selected
+                    color: mediaRoot.editorView.documentTextColor
+                }
+                Slider {
+                    Layout.fillWidth: true
+                    from: 0
+                    to: Math.max(1, mediaRoot.knownDuration)
+                    value: mediaRoot.current ? mediaRoot.playback.position : 0
+                    enabled: mediaRoot.playback && mediaRoot.knownDuration > 0
+                    onMoved: mediaRoot.playback.seek(mediaRoot.block.url, value)
+                }
             }
             Label {
                 text: mediaRoot.formatTime(mediaRoot.current ? mediaRoot.playback.position : 0)
                       + " / " + mediaRoot.formatTime(mediaRoot.knownDuration)
                 color: mediaRoot.editorView.documentSecondaryTextColor
+            }
+            ToolButton {
+                visible: mediaRoot.canTranscribe
+                Layout.preferredWidth: parent.height - 2
+                Layout.preferredHeight: Layout.preferredWidth
+                enabled: !mediaRoot.transcriptionBlocked && !mediaRoot.transcribing
+                text: mediaRoot.transcribing ? "…" : "STT"
+                Accessible.name: mediaRoot.block.mediaTranscript.length > 0
+                                 ? qsTr("Show transcript; press and hold to transcribe again")
+                                 : qsTr("Transcribe audio")
+                onPressAndHold: mediaRoot.requestTranscription()
+                onClicked: {
+                    mediaRoot.selectAndFocus()
+                    if (mediaRoot.block.mediaTranscript.length > 0)
+                        mediaRoot.transcriptExpanded = !mediaRoot.transcriptExpanded
+                    else
+                        mediaRoot.requestTranscription()
+                }
             }
         }
     }
@@ -319,10 +377,10 @@ FocusScope {
     Rectangle {
         id: selectionOutline
         objectName: "imageSelectionOutline-" + mediaRoot.block.index
-        x: sourceImage.x - 2
-        y: sourceImage.y - 2
-        width: sourceImage.width + 4
-        height: sourceImage.height + 4
+        x: (mediaRoot.visual ? sourceImage.x : timedControls.x) - 2
+        y: (mediaRoot.visual ? sourceImage.y : timedControls.y) - 2
+        width: (mediaRoot.visual ? sourceImage.width : timedControls.width) + 4
+        height: (mediaRoot.visual ? sourceImage.height : timedControls.height) + 4
         visible: mediaRoot.selected
         color: "transparent"
         border.width: 2
@@ -406,36 +464,101 @@ FocusScope {
         }
     }
 
+    Rectangle {
+        id: transcriptPanel
+        x: 0
+        y: mediaRoot.baseContentHeight + 6
+        width: mediaRoot.width
+        visible: mediaRoot.transcriptExpanded && mediaRoot.block.mediaTranscript.length > 0
+        implicitHeight: visible ? transcriptText.implicitHeight + 16 : 0
+        radius: 5
+        color: mediaRoot.editorView.documentCardColor
+        border.width: 1
+        border.color: mediaRoot.editorView.documentCardBorderColor
+
+        TextArea {
+            id: transcriptText
+            anchors.fill: parent
+            anchors.margins: 4
+            readOnly: true
+            text: mediaRoot.block.mediaTranscript
+            wrapMode: TextEdit.Wrap
+            selectByMouse: !mediaRoot.editorView.touchMode
+            background: null
+            color: mediaRoot.editorView.documentTextColor
+            Accessible.name: qsTr("Media transcript")
+        }
+    }
+
+    Connections {
+        target: mediaRoot.block
+        function onMediaTranscriptChanged() {
+            if (mediaRoot.block.mediaTranscript.length > 0)
+                mediaRoot.transcriptExpanded = true
+        }
+    }
+
     Menu {
         id: imageContextMenu
         MenuItem {
             text: qsTr("Save Image As…")
-            visible: mediaRoot.editorView.platformBackend !== null
+            visible: mediaRoot.block.mediaType.startsWith("image/")
+                     && mediaRoot.editorView.platformBackend !== null
+            height: visible ? implicitHeight : 0
             enabled: visible && mediaRoot.block.url.startsWith("anykeep-media:/")
             onTriggered: mediaRoot.editorView.platformBackend.saveImageAs(mediaRoot.block.url)
         }
-        MenuSeparator { }
+        MenuSeparator { visible: mediaRoot.visual }
         MenuItem {
             text: qsTr("Align Left")
+            visible: mediaRoot.visual
+            height: visible ? implicitHeight : 0
             onTriggered: mediaRoot.setAlignment("left")
         }
         MenuItem {
             text: qsTr("Align Center")
+            visible: mediaRoot.visual
+            height: visible ? implicitHeight : 0
             onTriggered: mediaRoot.setAlignment("center")
         }
         MenuItem {
             text: qsTr("Align Right")
+            visible: mediaRoot.visual
+            height: visible ? implicitHeight : 0
             onTriggered: mediaRoot.setAlignment("right")
         }
         MenuItem {
             text: qsTr("Reset Size and Alignment")
+            visible: mediaRoot.visual
+            height: visible ? implicitHeight : 0
             enabled: mediaRoot.block.mediaDisplayWidth > 0 || mediaRoot.normalizedAlignment !== "center"
             onTriggered: mediaRoot.resetPresentation()
         }
+        MenuSeparator { visible: mediaRoot.canTranscribe }
+        MenuItem {
+            text: mediaRoot.block.mediaTranscript.length > 0 ? qsTr("Show transcript") : qsTr("Transcribe audio")
+            visible: mediaRoot.canTranscribe
+            height: visible ? implicitHeight : 0
+            enabled: !mediaRoot.transcriptionBlocked && !mediaRoot.transcribing
+            onTriggered: {
+                if (mediaRoot.block.mediaTranscript.length > 0)
+                    mediaRoot.transcriptExpanded = true
+                else
+                    mediaRoot.requestTranscription()
+            }
+        }
+        MenuItem {
+            text: qsTr("Transcribe again")
+            visible: mediaRoot.canTranscribe && mediaRoot.block.mediaTranscript.length > 0
+            height: visible ? implicitHeight : 0
+            enabled: !mediaRoot.transcriptionBlocked && !mediaRoot.transcribing
+            onTriggered: mediaRoot.requestTranscription()
+        }
         MenuSeparator { }
         MenuItem {
-            text: qsTr("Remove Image")
+            text: qsTr("Remove Media")
             onTriggered: mediaRoot.editorView.removeMediaBlock(mediaRoot.block.index, true)
         }
     }
+
 }
