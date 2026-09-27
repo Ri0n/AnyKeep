@@ -135,7 +135,7 @@ FocusScope {
         }
         sourceComponent: blockType === NoteBlockType.BulletList || blockType === NoteBlockType.CheckList || blockType === NoteBlockType.NumberedList ? listEditorComponent
                        : blockType === NoteBlockType.Table ? tableEditorComponent
-                       : blockType === NoteBlockType.Image ? imageEditorComponent
+                       : blockType === NoteBlockType.Media ? mediaEditorComponent
                        : blockType === NoteBlockType.Heading ? headingEditorComponent
                        : blockType === NoteBlockType.BlockQuote ? blockQuoteEditorComponent
                        : blockType === NoteBlockType.CodeBlock ? codeBlockEditorComponent
