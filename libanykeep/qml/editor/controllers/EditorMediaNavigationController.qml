@@ -190,8 +190,7 @@ QtObject {
         const restoreFocus = focusAfter === undefined ? true : Boolean(focusAfter)
         return editorView.runEditTransaction("remove-media", function() {
             const oldCount = editorView.count
-            if (editorBackend && editorBackend.mediaPlayback
-                    && editorBackend.mediaPlayback.currentSourceUri === blockModel.data(blockModel.index(blockIndex, 0), NoteBlockModel.UrlRole))
+            if (editorBackend && editorBackend.mediaPlayback)
                 editorBackend.mediaPlayback.stop()
             editorView.prepareForStructuralMutation()
             blockModel.removeBlock(blockIndex)
