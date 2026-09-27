@@ -25,7 +25,7 @@ public:
 
     Q_INVOKABLE void saveImageAs(const QString &url) override;
     Q_INVOKABLE bool startImageDrag(int row) override;
-    Q_INVOKABLE bool insertImage(int row = -1) override;
+    Q_INVOKABLE bool insertMedia(int row = -1) override;
     Q_INVOKABLE bool insertAttachment(int row = -1) override;
     Q_INVOKABLE void openAttachment(const QString &url);
     Q_INVOKABLE void saveAttachmentAs(const QString &url);
