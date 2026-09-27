@@ -655,7 +655,9 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
         const HtmlAudioBlock htmlAudio = parseHtmlAudioBlock(lines[i]);
         if (htmlAudio) {
             Block block;
-            block.type            = Audio;
+            block.type            = Media;
+            block.mediaType       = QStringLiteral("audio/*");
+            block.mediaDurationMs = htmlAudio.durationMs;
             block.url             = htmlAudio.source;
             block.alt             = htmlAudio.title;
             block.audioDurationMs = htmlAudio.durationMs;
@@ -673,7 +675,11 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
         const HtmlVideoBlock htmlVideo = parseHtmlVideoBlock(lines[i]);
         if (htmlVideo) {
             Block block;
-            block.type = Video;
+            block.type = Media;
+            block.mediaType = QStringLiteral("video/*");
+            block.mediaDurationMs = htmlVideo.durationMs;
+            block.mediaWidth = htmlVideo.width;
+            block.mediaHeight = htmlVideo.height;
             block.url = htmlVideo.source;
             block.alt = htmlVideo.title;
             block.videoDurationMs = htmlVideo.durationMs;
@@ -698,7 +704,8 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
         const HtmlImageBlock htmlImage = parseHtmlImageBlock(lines[i]);
         if (htmlImage) {
             Block block;
-            block.type           = Image;
+            block.type           = Media;
+            block.mediaType      = QStringLiteral("image/*");
             block.url            = htmlImage.source;
             block.alt            = htmlImage.alt;
             block.imageWidth     = htmlImage.width;
@@ -710,7 +717,8 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
         match = image.match(lines[i]);
         if (match.hasMatch()) {
             Block block;
-            block.type = Image;
+            block.type = Media;
+            block.mediaType = QStringLiteral("image/*");
             block.alt  = match.captured(1);
             block.url  = match.captured(2);
             result.append(block);
@@ -836,21 +844,21 @@ QString NoteBlockModel::writeMarkdown(const QList<Block> &blocks)
             value += fence;
             break;
         }
-        case Image:
-            if (block.imageWidth > 0 || normalizedImageAlignment(block.imageAlignment) != QLatin1String("center")) {
+        case Media:
+            if (block.mediaType.startsWith(QLatin1String("audio/"))) {
+                value = serializeHtmlAudio(block.url, block.alt, block.mediaDurationMs, block.audioTranscript);
+            } else if (block.mediaType.startsWith(QLatin1String("video/"))) {
+                value = serializeHtmlVideo(block.url, block.alt, block.mediaDurationMs, block.mediaWidth,
+                                           block.mediaHeight);
+            } else if (block.imageWidth > 0
+                       || normalizedImageAlignment(block.imageAlignment) != QLatin1String("center")) {
                 value = serializeHtmlImage(block.url, block.alt, block.imageWidth, block.imageAlignment);
             } else {
                 value = QStringLiteral("![%1](%2)").arg(block.alt, block.url);
             }
             break;
-        case Audio:
-            value = serializeHtmlAudio(block.url, block.alt, block.audioDurationMs, block.audioTranscript);
-            break;
         case Attachment:
             value = serializeHtmlAttachment(block.url, block.alt, block.attachmentMediaType, block.attachmentSize);
-            break;
-        case Video:
-            value = serializeHtmlVideo(block.url, block.alt, block.videoDurationMs, block.videoWidth, block.videoHeight);
             break;
         }
         output.append(value);
