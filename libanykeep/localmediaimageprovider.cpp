@@ -3,6 +3,7 @@
 #include "localmediastore.h"
 
 #include <QLoggingCategory>
+#include <QFile>
 #include <QQmlEngine>
 
 namespace AnyKeep {
@@ -22,8 +23,13 @@ QImage LocalMediaImageProvider::requestImage(const QString &id, QSize *size, con
         return {};
     }
 
-    const auto loaded = LocalMediaStore::instance()->data(blobId);
-    QImage     image;
+    QImage image;
+    if (id.endsWith(QLatin1String("/poster"))) {
+        QFile poster(LocalMediaStore::instance()->derivedPosterPath(blobId));
+        if (poster.open(QIODevice::ReadOnly))
+            image.load(&poster, "JPEG");
+    }
+    const auto loaded = image.isNull() ? LocalMediaStore::instance()->data(blobId) : LocalMediaDataResult{};
     if (!loaded) {
         qCWarning(logLocalMediaImageProvider)
             << "Failed to load local image blob" << QString::fromLatin1(blobId.toHex().left(12)) << loaded.error;
