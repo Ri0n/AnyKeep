@@ -414,15 +414,25 @@ bool NoteEditor::close()
     if (viewLeases_ == 1 && drafts_->isLastEditingSession(draftId_)) {
         const auto draft = drafts_->editingDraft(draftId_);
         if (draft) {
-            const auto result = drafts_->markReady(draftId_);
+            const auto [title, body] = titleAndBody();
+            const bool hasDocumentContent = !title.trimmed().isEmpty() || !body.trimmed().isEmpty()
+                                            || !media_.isEmpty();
+            if (!hasDocumentContent && note_.id().isEmpty()) {
+                const auto result = drafts_->discard(draftId_);
+                if (result && result.code != DraftStoreError::NotFound)
+                    return setError(result.message);
+                draftPersisted_ = false;
+            } else {
+                const auto result = drafts_->markReady(draftId_);
             if (result) {
                 qCWarning(logEditorPersistence)
                     << "Failed to make editor draft publishable" << draftId_.toString(QUuid::WithoutBraces)
                     << int(result.code) << result.message;
                 return setError(result.message);
             }
-            qCInfo(logEditorPersistence) << "Editor draft marked ready for publication"
-                                         << draftId_.toString(QUuid::WithoutBraces);
+                qCInfo(logEditorPersistence) << "Editor draft marked ready for publication"
+                                             << draftId_.toString(QUuid::WithoutBraces);
+            }
         } else if (draft.error.code != DraftStoreError::NotFound) {
             return setError(draft.error.message);
         }
