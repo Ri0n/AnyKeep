@@ -358,7 +358,7 @@ void NoteBlockModelTest::serializesParsesAndTransfersTimedMediaBlocks()
     QCOMPARE(model.data(model.index(0), NoteBlockModel::MediaDurationRole).toLongLong(), qint64(91234));
     QCOMPARE(model.data(model.index(0), NoteBlockModel::MediaTranscriptRole).toString(),
              QStringLiteral("First line<br>\nSecond & final"));
-    QCOMPARE(model.contents(), html);
+    QCOMPARE(model.contents(), canonicalHtml);
 
     const NoteFragment fragment = model.extractBlockFragment(0, 0);
     QCOMPARE(fragment.blocks.size(), 1);
@@ -372,7 +372,7 @@ void NoteBlockModelTest::serializesParsesAndTransfersTimedMediaBlocks()
     transferred.load(QStringLiteral("before"), true);
     QString error;
     QVERIFY2(transferred.insertBlockFragment(1, fragment, &error), qPrintable(error));
-    QCOMPARE(transferred.contents(), QStringLiteral("before\n\n") + html);
+    QCOMPARE(transferred.contents(), QStringLiteral("before\n\n") + canonicalHtml);
 
     NoteBlockModel inserted;
     inserted.load(QStringLiteral("title"), true);
@@ -398,6 +398,16 @@ void NoteBlockModelTest::serializesParsesAndTransfersTimedMediaBlocks()
     QCOMPARE(restoredVideo.data(restoredVideo.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Media));
     QCOMPARE(restoredVideo.data(restoredVideo.index(0), NoteBlockModel::MediaTranscriptRole).toString(),
              QStringLiteral("Spoken words"));
+
+    NoteBlockModel boundedVideo;
+    boundedVideo.load(
+        QStringLiteral("<video src=\"media://bounded\" data-anykeep-duration-ms=\"999999999999\" "
+                       "data-anykeep-width=\"999999999\" data-anykeep-height=\"999999999\"></video>"),
+        true);
+    QCOMPARE(boundedVideo.data(boundedVideo.index(0), NoteBlockModel::MediaDurationRole).toLongLong(),
+             qint64(7LL * 24 * 60 * 60 * 1000));
+    QCOMPARE(boundedVideo.data(boundedVideo.index(0), NoteBlockModel::MediaWidthRole).toInt(), 16384);
+    QCOMPARE(boundedVideo.data(boundedVideo.index(0), NoteBlockModel::MediaHeightRole).toInt(), 16384);
 }
 
 void NoteBlockModelTest::serializesParsesAndTransfersAttachments()
