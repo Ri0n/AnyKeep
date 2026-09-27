@@ -721,7 +721,7 @@ bool NoteEditor::insertAttachment(const MediaReference &reference, int row)
 
 bool NoteEditor::setAudioTranscript(int row, const QString &transcript)
 {
-    return model_->setAudioTranscript(row, transcript);
+    return model_->setMediaTranscript(row, transcript);
 }
 
 bool NoteEditor::historyInTransaction() const { return history_->inTransaction(); }
@@ -919,22 +919,22 @@ void NoteEditor::restoreScalarField(int blockIndex, int role, int fieldIndex, co
         model_->setTableCell(blockIndex, fieldIndex, value);
         break;
     case NoteBlockModel::UrlRole:
-        model_->setImageUrl(blockIndex, value);
+        model_->setMediaUrl(blockIndex, value);
         break;
     case NoteBlockModel::AltRole:
-        model_->setImageAlt(blockIndex, value);
+        model_->setMediaTitle(blockIndex, value);
         break;
-    case NoteBlockModel::ImageWidthRole:
-        model_->setImageWidth(blockIndex, value.toInt());
+    case NoteBlockModel::MediaDisplayWidthRole:
+        model_->setMediaDisplayWidth(blockIndex, value.toInt());
         break;
-    case NoteBlockModel::ImageAlignmentRole:
-        model_->setImageAlignment(blockIndex, value);
+    case NoteBlockModel::MediaAlignmentRole:
+        model_->setMediaAlignment(blockIndex, value);
         break;
     case NoteBlockModel::LanguageRole:
         model_->setCodeLanguage(blockIndex, value);
         break;
-    case NoteBlockModel::AudioTranscriptRole:
-        model_->setAudioTranscript(blockIndex, value);
+    case NoteBlockModel::MediaTranscriptRole:
+        model_->setMediaTranscript(blockIndex, value);
         break;
     }
 }
