@@ -105,7 +105,6 @@ bool NoteBlockModel::moveTableColumn(int row, int from, int to)
 }
 
 void NoteBlockModel::setMediaUrl(int row, const QString &url) { setData(index(row), url, UrlRole); }
-void NoteBlockModel::setMediaTitle(int row, const QString &title) { setData(index(row), title, AltRole); }
 void NoteBlockModel::setMediaDisplayWidth(int row, int width) { setData(index(row), width, MediaDisplayWidthRole); }
 void NoteBlockModel::setMediaAlignment(int row, const QString &alignment)
 {
