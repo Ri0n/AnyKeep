@@ -496,15 +496,6 @@ TextArea {
     Component.onDestruction: editorView.unregisterEditor(blockArea)
 
     Timer {
-        id: liveCommit
-        interval: 0
-        onTriggered: {
-            if (!blockArea.syncingSourceText && blockArea.activeFocus)
-                blockArea.commitChangedText(true)
-        }
-    }
-
-    Timer {
         id: spellRefresh
         interval: 0
         onTriggered: {
@@ -538,8 +529,6 @@ TextArea {
         function onTextChanged() {
             spellRefresh.restart()
             plainLinkHoverCanvas.requestPaint()
-            if (blockArea.activeFocus && !blockArea.syncingSourceText)
-                liveCommit.restart()
         }
         function onSelectedTextChanged() {
             if (!editorView.mouseSelectionActive)
