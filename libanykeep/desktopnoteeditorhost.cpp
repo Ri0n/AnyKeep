@@ -298,6 +298,15 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
             // before QML sees the corresponding KeyPress. Never run normal
             // editor/history key handling for it: doing so can synchronize the
             // active document before the actual text key event is delivered.
+            if (keyEvent->matches(QKeySequence::SelectAll)) {
+                if (event->type() == QEvent::ShortcutOverride) {
+                    keyEvent->accept();
+                    return true;
+                }
+                if (root && invokeQmlBoolean(root, "selectAllDocument"))
+                    return true;
+            }
+
             if (event->type() == QEvent::ShortcutOverride)
                 return false;
 
