@@ -1201,25 +1201,23 @@ private:
         QVERIFY(root);
         QQuickItem *body  = nullptr;
         QQuickItem *audio = nullptr;
-        QQuickItem *card  = nullptr;
-        QQuickItem *title = nullptr;
+        QQuickItem *outline = nullptr;
+        QQuickItem *label   = nullptr;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
         QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
-        QTRY_VERIFY((card = quickItemByName(root, QStringLiteral("audioCard-2"))));
-        QTRY_VERIFY((title = quickItemByName(root, QStringLiteral("audioTitle-2"))));
+        QTRY_VERIFY((outline = quickItemByName(root, QStringLiteral("mediaSelectionOutline-2"))));
+        QTRY_VERIFY((label = quickItemByName(root, QStringLiteral("mediaLabel-2"))));
         auto *blockEditor = ancestorWithProperty(body, "currentFindText");
         QVERIFY(blockEditor);
 
-        const QColor unselectedFill = card->property("color").value<QColor>();
-        QCOMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 1);
-        QVERIFY(!QQmlProperty(title, QStringLiteral("font.bold")).read().toBool());
+        QVERIFY(!outline->isVisible());
+        QVERIFY(!QQmlProperty(label, QStringLiteral("font.bold")).read().toBool());
         QVERIFY(QMetaObject::invokeMethod(blockEditor, "selectAllDocument"));
         QTRY_VERIFY(audio->property("selected").toBool());
-        QTRY_COMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 2);
-        QTRY_VERIFY(QQmlProperty(title, QStringLiteral("font.bold")).read().toBool());
-        QTRY_VERIFY(card->property("color").value<QColor>() != unselectedFill);
+        QTRY_VERIFY(outline->isVisible());
+        QTRY_VERIFY(QQmlProperty(label, QStringLiteral("font.bold")).read().toBool());
         QVERIFY(QMetaObject::invokeMethod(blockEditor, "clearDocumentSelection"));
-        QTRY_COMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 1);
+        QTRY_VERIFY(!outline->isVisible());
 
         const QPoint trailingPoint = audio->mapToScene(QPointF(audio->width() * 0.5, audio->height() + 20)).toPoint();
         QTest::mouseClick(quick, Qt::LeftButton, Qt::NoModifier, trailingPoint);
@@ -1245,18 +1243,16 @@ private:
         QCOMPARE(editor.model()->rowCount(), 4);
         QTest::mouseMove(quick, audioPoint, 50);
         QTRY_VERIFY(audio->property("selected").toBool());
-        QTRY_COMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 2);
-        QTRY_VERIFY(QQmlProperty(title, QStringLiteral("font.bold")).read().toBool());
-        QTRY_VERIFY(card->property("color").value<QColor>() != unselectedFill);
+        QTRY_VERIFY(outline->isVisible());
+        QTRY_VERIFY(QQmlProperty(label, QStringLiteral("font.bold")).read().toBool());
         QTest::qWait(100);
         QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, audioPoint);
 
         QTRY_VERIFY(audio->property("selected").toBool());
         QTest::qWait(200);
         QVERIFY(audio->property("selected").toBool());
-        QCOMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 2);
-        QVERIFY(QQmlProperty(title, QStringLiteral("font.bold")).read().toBool());
-        QVERIFY(card->property("color").value<QColor>() != unselectedFill);
+        QVERIFY(outline->isVisible());
+        QVERIFY(QQmlProperty(label, QStringLiteral("font.bold")).read().toBool());
         QCOMPARE(editor.model()->rowCount(), 4);
 
         QVERIFY(QMetaObject::invokeMethod(blockEditor, "clearDocumentSelection"));
