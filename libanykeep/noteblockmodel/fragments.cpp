@@ -89,19 +89,12 @@ NoteFragment NoteBlockModel::extractBlockFragment(int firstRow, int lastRow) con
             destination.table.headerRows    = destination.table.rows > 0 ? 1 : 0;
             destination.table.markdownCells = source.cells;
             break;
-        case Image:
+        case Media:
             destination.type            = NoteFragmentBlockType::Image;
             destination.image.sourceUri = source.url;
             destination.image.alt       = source.alt;
             destination.image.width     = source.imageWidth;
             destination.image.alignment = source.imageAlignment;
-            break;
-        case Audio:
-            destination.type             = NoteFragmentBlockType::Audio;
-            destination.audio.sourceUri  = source.url;
-            destination.audio.title      = source.alt;
-            destination.audio.durationMs = source.audioDurationMs;
-            destination.audio.transcript = source.audioTranscript;
             break;
         case Attachment:
             destination.type                 = NoteFragmentBlockType::Attachment;
@@ -207,13 +200,13 @@ NoteFragment NoteBlockModel::extractSelectionFragment(const QList<NoteBlockSelec
                 }
                 fragment.blocks.append(block);
             }
-        } else if (source.type == Image || source.type == Audio || source.type == Attachment
+        } else if (source.type == Media || source.type == Attachment
                    || source.type == TagLine) {
             const bool wholeBlock = std::all_of(ranges.cbegin() + first, ranges.cbegin() + last,
                                                 [](const auto &range) { return range.wholeEditor; });
             if (wholeBlock) {
                 fragment.blocks.append(block);
-            } else if (source.type == Image || source.type == Audio || source.type == Attachment) {
+            } else if (source.type == Media || source.type == Attachment) {
                 NoteFragmentBlock text;
                 text.type = NoteFragmentBlockType::Text;
                 QStringList parts;
