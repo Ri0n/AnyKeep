@@ -2632,30 +2632,49 @@ private slots:
 
     void blockQuoteDoubleEnterExitsButShiftEnterDoesNot()
     {
-        Note note(new NoteData(nullptr));
-        note.setTitle(QStringLiteral("title"));
-        note.setText(QStringLiteral("> quote"), Note::Markdown);
-        DraftManager drafts(std::make_unique<MemoryDraftStore>());
-        NoteEditor editor(note, drafts);
-        DesktopNoteEditorHost host(&editor);
-        host.resize(520, 360);
-        host.show();
+        const auto makeHost = [](Note &note, std::unique_ptr<DraftManager> &drafts,
+                                 std::unique_ptr<NoteEditor> &editor,
+                                 std::unique_ptr<DesktopNoteEditorHost> &host) {
+            note = Note(new NoteData(nullptr));
+            note.setTitle(QStringLiteral("title"));
+            note.setText(QStringLiteral("> quote"), Note::Markdown);
+            drafts = std::make_unique<DraftManager>(std::make_unique<MemoryDraftStore>());
+            editor = std::make_unique<NoteEditor>(note, *drafts);
+            host = std::make_unique<DesktopNoteEditorHost>(editor.get());
+            host->resize(520, 360);
+            host->show();
+        };
 
-        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        Note note;
+        std::unique_ptr<DraftManager> drafts;
+        std::unique_ptr<NoteEditor> editor;
+        std::unique_ptr<DesktopNoteEditorHost> host;
+        makeHost(note, drafts, editor, host);
+        auto *root = qobject_cast<QQuickItem *>(host->quickWidget()->rootObject());
         QVERIFY(root);
         QQuickItem *quote = nullptr;
         QTRY_VERIFY((quote = textEditorForBlock(root, 1)));
         quote->forceActiveFocus();
         quote->setProperty("cursorPosition", quote->property("length"));
-        QTest::keyClick(host.quickWidget(), Qt::Key_Return);
-        QTRY_COMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::BlockQuote));
+        QTest::keyClick(host->quickWidget(), Qt::Key_Return);
+        QTRY_COMPARE(editor->model()->blockTypeAt(1), int(NoteBlockModel::BlockQuote));
+        QTest::keyClick(host->quickWidget(), Qt::Key_Return);
+        QTRY_VERIFY(editor->model()->rowCount() >= 3);
+        QCOMPARE(editor->model()->blockTypeAt(2), int(NoteBlockModel::Text));
 
-        QTest::keyClick(host.quickWidget(), Qt::Key_Return, Qt::ShiftModifier);
-        QTRY_COMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::BlockQuote));
-
-        QTest::keyClick(host.quickWidget(), Qt::Key_Return);
-        QTRY_VERIFY(editor.model()->rowCount() >= 3);
-        QCOMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::Text));
+        host.reset();
+        editor.reset();
+        drafts.reset();
+        makeHost(note, drafts, editor, host);
+        root = qobject_cast<QQuickItem *>(host->quickWidget()->rootObject());
+        QVERIFY(root);
+        quote = nullptr;
+        QTRY_VERIFY((quote = textEditorForBlock(root, 1)));
+        quote->forceActiveFocus();
+        quote->setProperty("cursorPosition", quote->property("length"));
+        QTest::keyClick(host->quickWidget(), Qt::Key_Return);
+        QTest::keyClick(host->quickWidget(), Qt::Key_Return, Qt::ShiftModifier);
+        QTRY_COMPARE(editor->model()->blockTypeAt(1), int(NoteBlockModel::BlockQuote));
     }
 
     void focusedPlainTextEditsUpdateDisplayTitleImmediately()
