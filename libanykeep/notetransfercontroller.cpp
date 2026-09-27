@@ -472,9 +472,9 @@ NoteTransferController::ExportResult NoteTransferController::createMimeData(cons
     if (!tsv.isNull())
         mime->setData(QString::fromLatin1(TsvMimeType), tsv.toUtf8());
 
-    if (fragment.blocks.size() == 1 && fragment.blocks.constFirst().type == NoteFragmentBlockType::Image) {
+    if (fragment.blocks.size() == 1 && fragment.blocks.constFirst().type == NoteFragmentBlockType::Media) {
         const auto media = std::find_if(fragment.media.cbegin(), fragment.media.cend(), [&fragment](const auto &item) {
-            return item.sourceUri == fragment.blocks.constFirst().image.sourceUri;
+            return item.sourceUri == fragment.blocks.constFirst().media.sourceUri;
         });
         if (media != fragment.media.cend() && !media->data.isEmpty()) {
             QImage image;
@@ -491,9 +491,9 @@ NoteTransferController::ExportResult NoteTransferController::createMimeData(cons
 
     QList<QUrl> urls;
     for (const NoteFragmentBlock &block : fragment.blocks) {
-        if (block.type != NoteFragmentBlockType::Image)
+        if (block.type != NoteFragmentBlockType::Media)
             continue;
-        const QUrl url(block.image.sourceUri);
+        const QUrl url(block.media.sourceUri);
         if (url.isValid() && url.scheme().compare(QStringLiteral("anykeep-media"), Qt::CaseInsensitive) != 0)
             urls.append(url);
     }
