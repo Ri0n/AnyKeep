@@ -1171,7 +1171,7 @@ private:
         QQuickItem *body  = nullptr;
         QQuickItem *audio = nullptr;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
-        QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("audioBlockEditor-2"))));
+        QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
         QVERIFY(!audio->property("selected").toBool());
 
         const QPoint start = body->mapToScene(QPointF(body->width() * 0.25, body->height() * 0.5)).toPoint();
@@ -1204,7 +1204,7 @@ private:
         QQuickItem *card  = nullptr;
         QQuickItem *title = nullptr;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
-        QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("audioBlockEditor-2"))));
+        QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
         QTRY_VERIFY((card = quickItemByName(root, QStringLiteral("audioCard-2"))));
         QTRY_VERIFY((title = quickItemByName(root, QStringLiteral("audioTitle-2"))));
         auto *blockEditor = ancestorWithProperty(body, "currentFindText");
@@ -1286,7 +1286,7 @@ private:
         QQuickItem *alt     = nullptr;
         QQuickItem *actions = nullptr;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
-        QTRY_VERIFY((image = quickItemByName(root, QStringLiteral("imageBlockEditor-2"))));
+        QTRY_VERIFY((image = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
         QTRY_VERIFY((outline = quickItemByName(root, QStringLiteral("mediaSelectionOutline-2"))));
         QTRY_VERIFY((alt = quickItemByName(root, QStringLiteral("mediaTitleEditor-2"))));
         QTRY_VERIFY((actions = quickItemByName(root, QStringLiteral("mediaVisualActions-2"))));
