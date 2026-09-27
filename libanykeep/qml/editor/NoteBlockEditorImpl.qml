@@ -16,8 +16,7 @@ ListView {
     readonly property color documentCardBorderColor: palette.mid
     property alias activeEditor: focusController.activeEditor
     property alias activeTagLineIndex: focusController.activeTagLineIndex
-    property alias selectedImageIndex: mediaNavigationController.selectedImageIndex
-    property alias selectedAudioIndex: mediaNavigationController.selectedAudioIndex
+    property alias selectedMediaIndex: mediaNavigationController.selectedMediaIndex
     property alias selectedAttachmentIndex: mediaNavigationController.selectedAttachmentIndex
     property alias imageAltEditorFocused: focusController.imageAltEditorFocused
     property alias pendingFocusAddress: focusController.pendingFocusAddress
@@ -313,25 +312,19 @@ ListView {
     }
     function deleteStructuredSelectionImpl(backwards) { return selectionController.deleteStructuredSelectionImpl(backwards) }
     function selectAllDocument() { return selectionController.selectAllDocument() }
-    function selectImageBlock(blockIndex) { return mediaNavigationController.selectImageBlock(blockIndex) }
-    function focusImageBlock(blockIndex) { return mediaNavigationController.focusImageBlock(blockIndex) }
-    function clearImageSelection() { return mediaNavigationController.clearImageSelection() }
-    function selectAudioBlock(blockIndex) { return mediaNavigationController.selectAudioBlock(blockIndex) }
-    function focusAudioBlock(blockIndex) { return mediaNavigationController.focusAudioBlock(blockIndex) }
-    function clearAudioSelection() { return mediaNavigationController.clearAudioSelection() }
+    function selectMediaBlock(blockIndex) { return mediaNavigationController.selectMediaBlock(blockIndex) }
+    function clearMediaSelection() { return mediaNavigationController.clearMediaSelection() }
     function selectAttachmentBlock(blockIndex) { return mediaNavigationController.selectAttachmentBlock(blockIndex) }
     function focusAttachmentBlock(blockIndex) { return mediaNavigationController.focusAttachmentBlock(blockIndex) }
     function clearAttachmentSelection() { return mediaNavigationController.clearAttachmentSelection() }
     function isMediaBlockType(type) { return mediaNavigationController.isMediaBlockType(type) }
-    function focusMediaBlock(blockIndex) { return mediaNavigationController.focusMediaBlock(blockIndex) }
+    function focusMediaBlock(blockIndex) { return mediaNavigationController.focusStructuralMediaBlock(blockIndex) }
     function focusAfterMediaRemoval(blockIndex) { return mediaNavigationController.focusAfterMediaRemoval(blockIndex) }
-    function focusAfterImageRemoval(blockIndex) { return mediaNavigationController.focusAfterImageRemoval(blockIndex) }
     function removeTableBlock(blockIndex, backwards) { return mediaNavigationController.removeTableBlock(blockIndex, backwards) }
     function focusFollowingBlock(blockIndex, appendIfMissing) { return mediaNavigationController.focusFollowingBlock(blockIndex, appendIfMissing) }
     function focusPrecedingBlock(blockIndex) { return mediaNavigationController.focusPrecedingBlock(blockIndex) }
     function hasOnlyMediaFollowing(blockIndex) { return mediaNavigationController.hasOnlyMediaFollowing(blockIndex) }
-    function removeImageBlock(blockIndex, focusAfter) { return mediaNavigationController.removeImageBlock(blockIndex, focusAfter) }
-    function removeAudioBlock(blockIndex, focusAfter) { return mediaNavigationController.removeAudioBlock(blockIndex, focusAfter) }
+    function removeMediaBlock(blockIndex, focusAfter) { return mediaNavigationController.removeMediaBlock(blockIndex, focusAfter) }
     function removeAttachmentBlock(blockIndex, focusAfter) { return mediaNavigationController.removeAttachmentBlock(blockIndex, focusAfter) }
     function handleAdjacentImageDeletion(event, editor) { return mediaNavigationController.handleAdjacentImageDeletion(event, editor) }
     function handleAdjacentTextBlockMerge(event, editor) { return mediaNavigationController.handleAdjacentTextBlockMerge(event, editor) }
@@ -402,10 +395,8 @@ ListView {
             return Number(pendingFocusAddress.blockIndex) + 1
         if (activeTagLineIndex >= 0)
             return activeTagLineIndex + 1
-        if (selectedImageIndex >= 0)
-            return selectedImageIndex + 1
-        if (selectedAudioIndex >= 0)
-            return selectedAudioIndex + 1
+        if (selectedMediaIndex >= 0)
+            return selectedMediaIndex + 1
         if (selectedAttachmentIndex >= 0)
             return selectedAttachmentIndex + 1
         return activeEditor && activeEditor.blockIndex >= 0 ? activeEditor.blockIndex + 1 : count
