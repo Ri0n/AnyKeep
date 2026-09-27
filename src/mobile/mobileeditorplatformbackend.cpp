@@ -23,16 +23,28 @@ MobileEditorPlatformBackend::MobileEditorPlatformBackend(AndroidPlatformServices
     Q_ASSERT(services_);
     connect(services_, &AndroidPlatformServices::imageSelected, this,
             [this](const QByteArray &data, const QString &name, const QString &mediaType) {
-                const int                  row             = std::exchange(pendingRow_, -1);
-                const QPointer<NoteEditor> requestedEditor = std::exchange(pendingEditor_, QPointer<NoteEditor> {});
+                const int row = std::exchange(pendingPhotoRow_, -1);
+                const QPointer<NoteEditor> requestedEditor
+                    = std::exchange(pendingPhotoEditor_, QPointer<NoteEditor> {});
                 if (!requestedEditor || requestedEditor != editor())
                     return;
-                if (!insertImageData(data, name, mediaType, row))
-                    emit operationFailed(tr("Could not insert the selected image."));
+                if (!insertMediaData(data, name, mediaType, row))
+                    emit operationFailed(tr("Could not insert the captured photo."));
             });
     connect(services_, &AndroidPlatformServices::fileSelected, this,
             [this](const QByteArray &data, const QString &name, const QString &mediaType) {
-                const int                  row = std::exchange(pendingAttachmentRow_, -1);
+                if (pendingMediaEditor_) {
+                    const int row = std::exchange(pendingMediaRow_, -1);
+                    const QPointer<NoteEditor> requestedEditor
+                        = std::exchange(pendingMediaEditor_, QPointer<NoteEditor> {});
+                    if (!requestedEditor || requestedEditor != editor())
+                        return;
+                    if (!insertMediaData(data, name, mediaType, row))
+                        emit operationFailed(tr("Could not insert the selected media."));
+                    return;
+                }
+
+                const int row = std::exchange(pendingAttachmentRow_, -1);
                 const QPointer<NoteEditor> requestedEditor
                     = std::exchange(pendingAttachmentEditor_, QPointer<NoteEditor> {});
                 if (!requestedEditor || requestedEditor != editor())
@@ -42,30 +54,32 @@ MobileEditorPlatformBackend::MobileEditorPlatformBackend(AndroidPlatformServices
             });
 }
 
-bool MobileEditorPlatformBackend::insertImage(int row)
+bool MobileEditorPlatformBackend::insertMedia(int row)
 {
-    if (!canInsertImages() || !services_)
+    if (!canInsertMedia() || !services_)
         return false;
-    pendingEditor_ = editor();
-    pendingRow_    = row;
-    if (services_->requestImage())
+    pendingAttachmentEditor_.clear();
+    pendingAttachmentRow_ = -1;
+    pendingMediaEditor_ = editor();
+    pendingMediaRow_    = row;
+    if (services_->requestFile())
         return true;
-    pendingEditor_.clear();
-    pendingRow_ = -1;
-    emit operationFailed(tr("Could not open the system image picker."));
+    pendingMediaEditor_.clear();
+    pendingMediaRow_ = -1;
+    emit operationFailed(tr("Could not open the system media picker."));
     return false;
 }
 
 bool MobileEditorPlatformBackend::insertPhoto(int row)
 {
-    if (!canInsertImages() || !services_)
+    if (!canInsertMedia() || !services_)
         return false;
-    pendingEditor_ = editor();
-    pendingRow_    = row;
+    pendingPhotoEditor_ = editor();
+    pendingPhotoRow_    = row;
     if (services_->requestPhoto())
         return true;
-    pendingEditor_.clear();
-    pendingRow_ = -1;
+    pendingPhotoEditor_.clear();
+    pendingPhotoRow_ = -1;
     emit operationFailed(tr("Could not open the system camera."));
     return false;
 }
@@ -74,6 +88,8 @@ bool MobileEditorPlatformBackend::insertAttachment(int row)
 {
     if (!canInsertAttachments() || !services_)
         return false;
+    pendingMediaEditor_.clear();
+    pendingMediaRow_ = -1;
     pendingAttachmentEditor_ = editor();
     pendingAttachmentRow_    = row;
     if (services_->requestFile())
