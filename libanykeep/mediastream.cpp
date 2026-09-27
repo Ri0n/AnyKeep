@@ -3,6 +3,7 @@
 #include "localmediastore.h"
 
 #include <cstring>
+#include <utility>
 
 namespace AnyKeep {
 
