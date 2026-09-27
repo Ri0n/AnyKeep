@@ -8,7 +8,7 @@ QtObject {
     required property var editorBackend
     property var activeEditor: null
     property int activeTagLineIndex: -1
-    property bool imageAltEditorFocused: false
+    property bool mediaTitleEditorFocused: false
     property var pendingFocusAddress: null
     property var pendingEditorState: null
     property int focusRequestGeneration: 0
@@ -132,7 +132,7 @@ QtObject {
         // TextField editors keep their native local undo stacks while focused.
         // Do not route Ctrl+Z/Ctrl+Shift+Z into document history until their
         // URL or alt-text edit has been committed back to the model.
-        return !editorView.linkEditorPopup.urlFieldFocused && !imageAltEditorFocused
+        return !editorView.linkEditorPopup.urlFieldFocused && !mediaTitleEditorFocused
     }
 
     function addressMatchesEditor(address, editor, exact) {
