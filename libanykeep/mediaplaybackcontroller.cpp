@@ -1,6 +1,8 @@
 #include "mediaplaybackcontroller.h"
 
 #include "localmediastore.h"
+
+#include "localmediastore.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
 
