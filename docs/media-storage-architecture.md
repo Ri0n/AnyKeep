@@ -378,33 +378,43 @@ Network encryption is streamed through Iris `QIODevice` adapters. The current
 separate streaming format for the local encrypted blob store rather than a
 Jingle or XEP-0448 change.
 
-## Video blocks and progressive media
+## Unified media blocks and progressive media
 
-Video is a first-class structural editor block, like image and audio. A rendered
-note may freely interleave text and video:
+Images, audio and video share one media-block architecture. The editor does not
+require the user to choose the media kind before import. A single **Insert media**
+action accepts supported image/audio/video inputs; probing validates the actual
+media type and extracts capabilities and lightweight metadata. **Attach file**
+remains a separate semantic action for cases where the user intentionally wants
+a file attachment rather than an inline media presentation.
 
-```text
-text block
-video block
-text block
-```
+The rendered block is capability-driven rather than implemented as three
+independent widgets. Typical capabilities include `hasVisual`, `hasTimeline`,
+`hasAudio`, `hasPoster`, `canTranscribe`, and `canExtractFrame`. An image normally
+has visual content without a timeline. Audio has a timeline and audio stream and
+may also have embedded cover artwork. Video has visual content and a timeline and
+may also have an audio stream. The same player controller, seek UI, transcription
+action, media selection, transfer, cache and streaming code are reused according
+to those capabilities. Controls which do not apply are simply absent. A paused
+video frame may be promoted to poster/derived image data; embedded audio artwork
+uses the same poster path.
 
-The canonical Markdown representation does not need to be an HTML `<video>`
-element merely because the rendered editor recognizes the media. An
-`anykeep-media:` reference whose manifest has a validated `video/*` MIME type
-can project to a video block. As with images, the natural presentation is used
-until the user explicitly changes the block dimensions. Only presentation
-metadata which cannot be represented by the simple media reference, such as an
-explicit user-selected size, should require extended markup.
+The structural model should converge on a first-class `Media` block rather than
+per-format Image/Audio/Video implementations. Existing Markdown remains
+backward-compatible: legacy image syntax and AnyKeep audio/video HTML forms are
+accepted and projected into the unified block. Runtime behavior is determined
+from the validated media manifest rather than from tag spelling alone.
 
-Import extracts lightweight video metadata before publication: dimensions,
-duration and a thumbnail. The thumbnail is the default poster shown by the
-inactive video block. It should use the first useful decodable frame rather than
-blindly requiring frame zero, which may be black or otherwise unsuitable.
-Thumbnail/poster data is derived media/cache state rather than part of the
-Markdown body. The inactive block displays the poster, play affordance and
-duration without constructing a decoder for the full video. Playback resources
-are created on demand and released when no longer needed.
+Import probes lightweight metadata before publication: validated MIME/container
+information, dimensions when visual, duration when timed, stream capabilities,
+and available artwork. Video thumbnail extraction uses the first useful decodable
+frame rather than blindly requiring frame zero. Embedded artwork and generated
+thumbnails are derived poster/cache state rather than part of the Markdown body.
+
+The inactive media block displays visual content or poster, title and duration as
+applicable without constructing a decoder for the full media. Playback resources
+are created on demand and released when no longer needed. Explicit user
+presentation choices such as resized visual dimensions remain presentation
+metadata and are serialized only when required.
 
 ### Metadata-first synchronization
 
@@ -513,8 +523,9 @@ monolithic AES-GCM object safely seekable.
 5. Add mark-and-sweep collection with a grace period.
 6. Implement PTF/Tomboy sidecar adapters.
 7. Implement the XMPP mapping with XEP-0447/XEP-0448, XEP-0363, and XEP-0358/Jingle.
-8. Add first-class video blocks, extracted thumbnail/duration/dimensions, and
-   natural-size rendering with explicit-size serialization only after resize.
+8. Unify image/audio/video as capability-driven media blocks; add one media-import
+   action, probing, poster/artwork extraction, duration/dimensions, shared playback
+   and transcription surfaces, while retaining backward-compatible Markdown.
 9. Introduce the ranged `MediaStream`/remote-source boundary and stream-through
    cache; make the local encrypted media store itself streaming for very large
    files.
