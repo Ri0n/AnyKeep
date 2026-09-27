@@ -604,6 +604,9 @@ void NotesModel::replaceVisibleNotes(NMMItem *storageItem, int desiredCount)
     QSet<QString>    movedSourceIds;
     if (!storageItem->syntheticStorage) {
         for (const auto &draft : pending) {
+            if ((draft.operation == DraftRecord::Delete || draft.state == DraftRecord::Deleting)
+                && draft.storageId == storageItem->id && !draft.remoteNoteId.isEmpty())
+                movedSourceIds.insert(draft.remoteNoteId);
             if (draft.removeSourceStorageId == storageItem->id && !draft.removeSourceNoteId.isEmpty())
                 movedSourceIds.insert(draft.removeSourceNoteId);
         }
@@ -749,8 +752,11 @@ int NotesModel::projectedNoteCount(const NMMItem *storageItem) const
     for (const auto &note : notes)
         ids.insert(note.id());
     for (const auto &draft : pending) {
-        if (draft.operation == DraftRecord::Delete || draft.state == DraftRecord::Deleting)
+        if ((draft.operation == DraftRecord::Delete || draft.state == DraftRecord::Deleting)
+            && draft.storageId == storageItem->id && !draft.remoteNoteId.isEmpty()) {
+            ids.remove(draft.remoteNoteId);
             continue;
+        }
         if (draft.removeSourceStorageId == storageItem->id && !draft.removeSourceNoteId.isEmpty())
             ids.remove(draft.removeSourceNoteId);
         if (draft.storageId != storageItem->id || isUnpublishedDraft(draft))
