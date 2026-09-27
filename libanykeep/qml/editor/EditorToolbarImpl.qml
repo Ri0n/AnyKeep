@@ -1,4 +1,5 @@
 import QtQuick
+import AnyKeep.Editor 1.0
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../shared" as Shared
