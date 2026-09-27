@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtMultimedia
 import "../../reorder" as Reorder
 
 FocusScope {
@@ -271,6 +272,18 @@ FocusScope {
         onPositionChanged: function(mouse) { mediaRoot.updateMarginSelection(imageRightMarginSelectionArea, mouse) }
         onReleased: function(mouse) { mediaRoot.finishMarginSelection(mouse) }
         onCanceled: mediaRoot.editorView.cancelBlankAreaSelection()
+    }
+
+    VideoOutput {
+        id: liveVideo
+        visible: mediaRoot.video && mediaRoot.current && mediaRoot.playback && mediaRoot.playback.videoSink
+        x: sourceImage.x
+        y: sourceImage.y
+        width: sourceImage.width
+        height: sourceImage.height
+        fillMode: VideoOutput.PreserveAspectFit
+        videoSink: visible ? mediaRoot.playback.videoSink : null
+        z: 3
     }
 
     Rectangle {
