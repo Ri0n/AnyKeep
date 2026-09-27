@@ -33,15 +33,15 @@ public:
         BulletList,
         CheckList,
         Table,
-        Image,
+        Media,
         NumberedList,
         Heading,
         BlockQuote,
         CodeBlock,
         TagLine,
-        Audio,
+        AudioLegacy,
         Attachment,
-        Video
+        VideoLegacy
     };
     Q_ENUM(BlockType)
     enum Role {
@@ -62,6 +62,10 @@ public:
         TagsRole,
         AudioDurationRole,
         AudioTranscriptRole,
+        MediaTypeRole,
+        MediaDurationRole,
+        MediaWidthRole,
+        MediaHeightRole,
         AttachmentMediaTypeRole,
         AttachmentSizeRole,
         VideoDurationRole,
@@ -199,6 +203,10 @@ private:
         int          headingLevel   = 0;
         QString      language;
         QStringList  tags;
+        QString      mediaType;
+        qint64       mediaDurationMs = 0;
+        int          mediaWidth = 0;
+        int          mediaHeight = 0;
         qint64       audioDurationMs = 0;
         qint64       videoDurationMs = 0;
         int          videoWidth = 0;
