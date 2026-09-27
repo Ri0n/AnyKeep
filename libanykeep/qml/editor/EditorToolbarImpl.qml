@@ -64,9 +64,15 @@ ToolBar {
         height: Math.min(620, Overlay.overlay ? Overlay.overlay.height - 32 : 620)
 
         contentItem: ScrollView {
+            id: shortcutHelpScroll
             clip: true
+            leftPadding: 16
+            rightPadding: 16
+            topPadding: 12
+            bottomPadding: 12
+
             ColumnLayout {
-                width: shortcutHelp.availableWidth
+                width: shortcutHelpScroll.availableWidth
                 spacing: 6
 
                 Label { text: qsTr("Editing"); font.bold: true; font.pointSize: root.font.pointSize + 1 }
