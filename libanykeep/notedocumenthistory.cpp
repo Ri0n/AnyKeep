@@ -32,7 +32,7 @@ namespace {
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Cut");
         else if (kind == QLatin1String("insert-text"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert text");
-        else if (kind == QLatin1String("insert-image"))
+        else if (kind == QLatin1String("insert-image") || kind == QLatin1String("insert-media"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert image");
         else if (kind == QLatin1String("remove-image") || kind == QLatin1String("remove-adjacent-image"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Remove image");
@@ -334,17 +334,17 @@ void NoteDocumentHistory::setCurrentScalar(const ScalarAddress &address, const Q
     case NoteBlockModel::AltRole:
         block.alt = value;
         break;
-    case NoteBlockModel::ImageWidthRole:
-        block.imageWidth = value.toInt();
+    case NoteBlockModel::MediaDisplayWidthRole:
+        block.mediaDisplayWidth = value.toInt();
         break;
-    case NoteBlockModel::ImageAlignmentRole:
-        block.imageAlignment = value;
+    case NoteBlockModel::MediaAlignmentRole:
+        block.mediaAlignment = value;
         break;
     case NoteBlockModel::LanguageRole:
         block.language = value;
         break;
-    case NoteBlockModel::AudioTranscriptRole:
-        block.audioTranscript = value;
+    case NoteBlockModel::MediaTranscriptRole:
+        block.mediaTranscript = value;
         break;
     }
 }
