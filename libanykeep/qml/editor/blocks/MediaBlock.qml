@@ -210,7 +210,7 @@ FocusScope {
         y: mediaRoot.imageY
         width: mediaRoot.displayWidth
         height: mediaRoot.displayHeight
-        source: mediaRoot.block.previewUrl
+        source: mediaRoot.block.mediaType.startsWith("image/") ? mediaRoot.block.previewUrl : ""
         visible: mediaRoot.visual && !(mediaRoot.video && mediaRoot.current && videoSurface.status === Loader.Ready)
         fillMode: Image.PreserveAspectFit
         smooth: true
@@ -324,6 +324,7 @@ FocusScope {
 
     Rectangle {
         id: timedControls
+        objectName: "mediaCard-" + mediaRoot.block.index
         visible: mediaRoot.timed
         x: mediaRoot.visual ? sourceImage.x : 0
         y: mediaRoot.visual ? sourceImage.y + sourceImage.height - height : mediaRoot.imageY
@@ -353,6 +354,7 @@ FocusScope {
                 Layout.fillWidth: true
                 spacing: 1
                 Label {
+                    objectName: "mediaLabel-" + mediaRoot.block.index
                     Layout.fillWidth: true
                     visible: !mediaRoot.visual
                     text: mediaRoot.block.alt.length > 0 ? mediaRoot.block.alt : qsTr("Audio recording")
