@@ -104,12 +104,12 @@ bool NoteBlockModel::moveTableColumn(int row, int from, int to)
     return true;
 }
 
-void NoteBlockModel::setImageUrl(int row, const QString &url) { setData(index(row), url, UrlRole); }
-void NoteBlockModel::setImageAlt(int row, const QString &alt) { setData(index(row), alt, AltRole); }
-void NoteBlockModel::setImageWidth(int row, int width) { setData(index(row), width, ImageWidthRole); }
-void NoteBlockModel::setImageAlignment(int row, const QString &alignment)
+void NoteBlockModel::setMediaUrl(int row, const QString &url) { setData(index(row), url, UrlRole); }
+void NoteBlockModel::setMediaTitle(int row, const QString &title) { setData(index(row), title, AltRole); }
+void NoteBlockModel::setMediaDisplayWidth(int row, int width) { setData(index(row), width, MediaDisplayWidthRole); }
+void NoteBlockModel::setMediaAlignment(int row, const QString &alignment)
 {
-    setData(index(row), alignment, ImageAlignmentRole);
+    setData(index(row), alignment, MediaAlignmentRole);
 }
 
 void NoteBlockModel::appendMedia(const QString &url, const QString &title, const QString &mediaType,
@@ -139,7 +139,7 @@ void NoteBlockModel::insertMedia(int row, const QString &url, const QString &tit
 
 bool NoteBlockModel::setMediaTranscript(int row, const QString &transcript)
 {
-    return setData(index(row), transcript, AudioTranscriptRole);
+    return setData(index(row), transcript, MediaTranscriptRole);
 }
 
 bool NoteBlockModel::setMediaTitle(int row, const QString &title)
