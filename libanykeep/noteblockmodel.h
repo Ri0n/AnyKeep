@@ -33,15 +33,13 @@ public:
         BulletList,
         CheckList,
         Table,
-        Image,
+        Media,
         NumberedList,
         Heading,
         BlockQuote,
         CodeBlock,
         TagLine,
-        Audio,
-        Attachment,
-        Video
+        Attachment
     };
     Q_ENUM(BlockType)
     enum Role {
@@ -204,8 +202,6 @@ private:
         QString      language;
         QStringList  tags;
         QString      mediaType;
-        enum class MediaSerialization { Auto, MarkdownImage, HtmlAudio, HtmlVideo };
-        MediaSerialization mediaSerialization = MediaSerialization::Auto;
         qint64       mediaDurationMs = 0;
         int          mediaWidth = 0;
         int          mediaHeight = 0;
