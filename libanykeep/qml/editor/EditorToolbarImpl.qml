@@ -75,9 +75,9 @@ ToolBar {
         }
     }
 
-    readonly property int bulletListType: 1
-    readonly property int taskListType: 2
-    readonly property int numberedListType: 5
+    readonly property int bulletListType: NoteBlockType.BulletList
+    readonly property int taskListType: NoteBlockType.CheckList
+    readonly property int numberedListType: NoteBlockType.NumberedList
 
     function runMarkdownCommand(kind, command) { return actions.runMarkdownCommand(kind, command) }
     function insertList(type) { return actions.insertList(type) }
@@ -612,7 +612,6 @@ ToolBar {
                 }
                 MenuItem { text: qsTr("Copy note"); onTriggered: root.copyDocument() }
                 MenuItem { text: qsTr("Find in note"); onTriggered: root.findRequested() }
-                MenuItem { text: qsTr("Keyboard shortcuts"); onTriggered: shortcutHelp.open() }
                 MenuItem { text: qsTr("Keyboard shortcuts"); onTriggered: shortcutHelp.open() }
                 MenuItem {
                     text: qsTr("Check spelling in note")
