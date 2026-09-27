@@ -62,8 +62,9 @@ struct ANYKEEP_EXPORT NoteFragmentMediaBlock {
     QString title;
     QString mediaType;
     qint64  durationMs { 0 };
-    int     width { 0 };
-    int     height { 0 };
+    int     pixelWidth { 0 };
+    int     pixelHeight { 0 };
+    int     displayWidth { 0 };
     QString alignment { QStringLiteral("center") };
     QString transcript;
 };
