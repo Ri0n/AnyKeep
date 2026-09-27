@@ -11,11 +11,9 @@ private slots:
     void roundTripsStructuredFragment();
     void roundTripsCodeBlock();
     void roundTripsTagLine();
-    void roundTripsAudioBlock();
+    void roundTripsTimedMediaBlock();
     void roundTripsAttachmentBlock();
-    void readsVersionOneFragments();
-    void readsVersionTwoImagesWithDefaultPresentation();
-    void readsVersionThreeImagesWithPresentation();
+    void rejectsObsoleteFragmentVersions();
     void rejectsInvalidInput();
 };
 
@@ -48,16 +46,19 @@ void NoteFragmentTest::roundTripsStructuredFragment()
         = { QStringLiteral("Name"), QStringLiteral("Status"), QStringLiteral("Alice"), QStringLiteral("**Ready**") };
     fragment.blocks.append(table);
 
-    NoteFragmentBlock image;
-    image.type            = NoteFragmentBlockType::Image;
-    image.image.sourceUri = QStringLiteral("anykeep-media:/11111111-1111-1111-1111-111111111111/picture.png");
-    image.image.alt       = QStringLiteral("Diagram");
-    image.image.width     = 360;
-    image.image.alignment = QStringLiteral("right");
-    fragment.blocks.append(image);
+    NoteFragmentBlock visual;
+    visual.type               = NoteFragmentBlockType::Media;
+    visual.media.sourceUri    = QStringLiteral("anykeep-media:/11111111-1111-1111-1111-111111111111/picture.png");
+    visual.media.title        = QStringLiteral("Diagram");
+    visual.media.mediaType    = QStringLiteral("image/png");
+    visual.media.pixelWidth   = 1280;
+    visual.media.pixelHeight  = 720;
+    visual.media.displayWidth = 360;
+    visual.media.alignment    = QStringLiteral("right");
+    fragment.blocks.append(visual);
 
     NoteFragmentMedia media;
-    media.sourceUri              = image.image.sourceUri;
+    media.sourceUri              = visual.media.sourceUri;
     media.reference.id           = QUuid(QStringLiteral("{11111111-1111-1111-1111-111111111111}"));
     media.reference.blobId       = QByteArray::fromHex("abcdef");
     media.reference.originalName = QStringLiteral("Picture.png");
@@ -81,9 +82,13 @@ void NoteFragmentTest::roundTripsStructuredFragment()
     QCOMPARE(decoded.fragment.blocks.at(1).listItems.at(1).indent, 1);
     QCOMPARE(decoded.fragment.blocks.at(1).listItems.at(1).kind, NoteFragmentListKind::Numbered);
     QCOMPARE(decoded.fragment.blocks.at(2).table.markdownCells, table.table.markdownCells);
-    QCOMPARE(decoded.fragment.blocks.at(3).image.alt, image.image.alt);
-    QCOMPARE(decoded.fragment.blocks.at(3).image.width, image.image.width);
-    QCOMPARE(decoded.fragment.blocks.at(3).image.alignment, image.image.alignment);
+    QCOMPARE(decoded.fragment.blocks.at(3).type, NoteFragmentBlockType::Media);
+    QCOMPARE(decoded.fragment.blocks.at(3).media.title, visual.media.title);
+    QCOMPARE(decoded.fragment.blocks.at(3).media.mediaType, visual.media.mediaType);
+    QCOMPARE(decoded.fragment.blocks.at(3).media.pixelWidth, visual.media.pixelWidth);
+    QCOMPARE(decoded.fragment.blocks.at(3).media.pixelHeight, visual.media.pixelHeight);
+    QCOMPARE(decoded.fragment.blocks.at(3).media.displayWidth, visual.media.displayWidth);
+    QCOMPARE(decoded.fragment.blocks.at(3).media.alignment, visual.media.alignment);
     QCOMPARE(decoded.fragment.media.size(), 1);
     QCOMPARE(decoded.fragment.media.at(0).reference.id, media.reference.id);
     QCOMPARE(decoded.fragment.media.at(0).reference.remoteData, media.reference.remoteData);
@@ -124,26 +129,28 @@ void NoteFragmentTest::roundTripsTagLine()
     QCOMPARE(decoded.fragment.blocks.constFirst().tags, tags.tags);
 }
 
-void NoteFragmentTest::roundTripsAudioBlock()
+void NoteFragmentTest::roundTripsTimedMediaBlock()
 {
     NoteFragment      fragment;
-    NoteFragmentBlock audio;
-    audio.type             = NoteFragmentBlockType::Audio;
-    audio.audio.sourceUri  = QStringLiteral("anykeep-media:/11111111-1111-1111-1111-111111111111/recording.m4a");
-    audio.audio.title      = QStringLiteral("Meeting note");
-    audio.audio.durationMs = 91234;
-    audio.audio.transcript = QStringLiteral("First line\nSecond line");
-    fragment.blocks.append(audio);
+    NoteFragmentBlock media;
+    media.type               = NoteFragmentBlockType::Media;
+    media.media.sourceUri    = QStringLiteral("anykeep-media:/11111111-1111-1111-1111-111111111111/recording.m4a");
+    media.media.title        = QStringLiteral("Meeting note");
+    media.media.mediaType    = QStringLiteral("audio/mp4");
+    media.media.durationMs   = 91234;
+    media.media.transcript   = QStringLiteral("First line\nSecond line");
+    fragment.blocks.append(media);
 
     const auto decoded = decodeNoteFragment(encodeNoteFragment(fragment));
     QVERIFY2(decoded, qPrintable(decoded.error));
     QCOMPARE(decoded.fragment.version, NoteFragment::CurrentVersion);
     QCOMPARE(decoded.fragment.blocks.size(), 1);
-    QCOMPARE(decoded.fragment.blocks.constFirst().type, NoteFragmentBlockType::Audio);
-    QCOMPARE(decoded.fragment.blocks.constFirst().audio.sourceUri, audio.audio.sourceUri);
-    QCOMPARE(decoded.fragment.blocks.constFirst().audio.title, audio.audio.title);
-    QCOMPARE(decoded.fragment.blocks.constFirst().audio.durationMs, audio.audio.durationMs);
-    QCOMPARE(decoded.fragment.blocks.constFirst().audio.transcript, audio.audio.transcript);
+    QCOMPARE(decoded.fragment.blocks.constFirst().type, NoteFragmentBlockType::Media);
+    QCOMPARE(decoded.fragment.blocks.constFirst().media.sourceUri, media.media.sourceUri);
+    QCOMPARE(decoded.fragment.blocks.constFirst().media.title, media.media.title);
+    QCOMPARE(decoded.fragment.blocks.constFirst().media.mediaType, media.media.mediaType);
+    QCOMPARE(decoded.fragment.blocks.constFirst().media.durationMs, media.media.durationMs);
+    QCOMPARE(decoded.fragment.blocks.constFirst().media.transcript, media.media.transcript);
 }
 
 void NoteFragmentTest::roundTripsAttachmentBlock()
@@ -168,58 +175,17 @@ void NoteFragmentTest::roundTripsAttachmentBlock()
     QCOMPARE(decoded.fragment.blocks.constFirst().attachment.size, attachment.attachment.size);
 }
 
-void NoteFragmentTest::readsVersionOneFragments()
+void NoteFragmentTest::rejectsObsoleteFragmentVersions()
 {
     NoteFragment fragment;
-    fragment.version = 1;
+    fragment.version = NoteFragment::CurrentVersion - 1;
     NoteFragmentBlock text;
     text.type     = NoteFragmentBlockType::Text;
     text.markdown = QStringLiteral("legacy");
     fragment.blocks.append(text);
 
-    const auto decoded = decodeNoteFragment(encodeNoteFragment(fragment));
-    QVERIFY2(decoded, qPrintable(decoded.error));
-    QCOMPARE(decoded.fragment.version, quint32(1));
-    QCOMPARE(decoded.fragment.blocks.constFirst().markdown, QStringLiteral("legacy"));
-    QVERIFY(decoded.fragment.blocks.constFirst().language.isEmpty());
-}
-
-void NoteFragmentTest::readsVersionTwoImagesWithDefaultPresentation()
-{
-    NoteFragment fragment;
-    fragment.version = 2;
-    NoteFragmentBlock image;
-    image.type            = NoteFragmentBlockType::Image;
-    image.image.sourceUri = QStringLiteral("media://legacy-image");
-    image.image.alt       = QStringLiteral("Legacy");
-    image.image.width     = 420;
-    image.image.alignment = QStringLiteral("right");
-    fragment.blocks.append(image);
-
-    const auto decoded = decodeNoteFragment(encodeNoteFragment(fragment));
-    QVERIFY2(decoded, qPrintable(decoded.error));
-    QCOMPARE(decoded.fragment.version, quint32(2));
-    QCOMPARE(decoded.fragment.blocks.constFirst().image.width, 0);
-    QCOMPARE(decoded.fragment.blocks.constFirst().image.alignment, QStringLiteral("center"));
-}
-
-void NoteFragmentTest::readsVersionThreeImagesWithPresentation()
-{
-    NoteFragment fragment;
-    fragment.version = 3;
-    NoteFragmentBlock image;
-    image.type            = NoteFragmentBlockType::Image;
-    image.image.sourceUri = QStringLiteral("media://version-three-image");
-    image.image.alt       = QStringLiteral("Version three");
-    image.image.width     = 420;
-    image.image.alignment = QStringLiteral("right");
-    fragment.blocks.append(image);
-
-    const auto decoded = decodeNoteFragment(encodeNoteFragment(fragment));
-    QVERIFY2(decoded, qPrintable(decoded.error));
-    QCOMPARE(decoded.fragment.version, quint32(3));
-    QCOMPARE(decoded.fragment.blocks.constFirst().image.width, 420);
-    QCOMPARE(decoded.fragment.blocks.constFirst().image.alignment, QStringLiteral("right"));
+    QCOMPARE(decodeNoteFragment(encodeNoteFragment(fragment)).error,
+             QStringLiteral("unsupported fragment version"));
 }
 
 void NoteFragmentTest::rejectsInvalidInput()
@@ -260,21 +226,23 @@ void NoteFragmentTest::rejectsInvalidInput()
     invalidTags.blocks = { tags };
     QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidTags)));
 
-    NoteFragment      invalidImage;
-    NoteFragmentBlock image;
-    image.type            = NoteFragmentBlockType::Image;
-    image.image.sourceUri = QStringLiteral("media://image");
-    image.image.alignment = QStringLiteral("diagonal");
-    invalidImage.blocks.append(image);
-    QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidImage)));
+    NoteFragment      invalidPresentation;
+    NoteFragmentBlock visual;
+    visual.type               = NoteFragmentBlockType::Media;
+    visual.media.sourceUri    = QStringLiteral("media://image");
+    visual.media.mediaType    = QStringLiteral("image/png");
+    visual.media.alignment    = QStringLiteral("diagonal");
+    invalidPresentation.blocks.append(visual);
+    QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidPresentation)));
 
-    NoteFragment      invalidAudio;
-    NoteFragmentBlock audio;
-    audio.type             = NoteFragmentBlockType::Audio;
-    audio.audio.sourceUri  = QStringLiteral("media://audio");
-    audio.audio.durationMs = -1;
-    invalidAudio.blocks.append(audio);
-    QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidAudio)));
+    NoteFragment      invalidDuration;
+    NoteFragmentBlock timed;
+    timed.type               = NoteFragmentBlockType::Media;
+    timed.media.sourceUri    = QStringLiteral("media://audio");
+    timed.media.mediaType    = QStringLiteral("audio/ogg");
+    timed.media.durationMs   = -1;
+    invalidDuration.blocks.append(timed);
+    QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidDuration)));
 
     NoteFragment      invalidAttachment;
     NoteFragmentBlock attachment;
