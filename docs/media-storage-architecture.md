@@ -416,6 +416,95 @@ are created on demand and released when no longer needed. Explicit user
 presentation choices such as resized visual dimensions remain presentation
 metadata and are serialized only when required.
 
+### Media state boundaries
+
+The unified block deliberately separates five kinds of state:
+
+1. **Identity and ownership** — `MediaReference.id`, blob identity, filename, MIME,
+   size/checksum and remote source metadata. This is persistent manifest state.
+2. **Probed media metadata** — duration, pixel dimensions, stream presence and
+   other bounded facts extracted from the media. These facts are persistent and
+   synchronize with the descriptor so another installation can lay out the note
+   before hydrating the full payload.
+3. **Derived visual cache** — embedded artwork, generated thumbnails and selected
+   poster frames. These are reproducible cache objects addressed independently
+   from the original blob. Losing them must not make the note invalid.
+4. **Presentation state** — user choices such as explicit rendered width/alignment
+   and a chosen poster/frame. This belongs to the document representation when it
+   changes how the author intended the note to look.
+5. **Runtime playback state** — current position, buffering, active decoder and
+   transient extracted frame. This is session state and is never serialized into
+   the note merely because playback occurred.
+
+`MediaCapabilities` is derived from validated MIME plus probing; it is not an
+authoritative user-editable bitmask. A useful conceptual shape is:
+
+```cpp
+struct MediaMetadata {
+    qint64 durationMs = 0;
+    QSize pixelSize;
+    bool hasAudio = false;
+    bool hasVideo = false;
+    bool hasEmbeddedArtwork = false;
+};
+
+struct MediaCapabilities {
+    bool hasVisual = false;
+    bool hasTimeline = false;
+    bool hasAudio = false;
+    bool hasPoster = false;
+    bool canTranscribe = false;
+    bool canExtractFrame = false;
+};
+```
+
+Unknown or partially hydrated media is valid. Capabilities may become richer
+after probing or hydration, but code must not infer that a filename extension is
+proof of a decoder stream. The validated descriptor is authoritative.
+
+### Import and presentation flow
+
+```text
+Insert media
+    |
+    v
+picker / drop / paste
+    |
+    v
+bounded probe -> validated MIME + metadata + artwork
+    |
+    +--> original immutable blob
+    +--> derived poster/artwork cache
+    |
+    v
+MediaReference + synchronized metadata
+    |
+    v
+MediaBlock -> capability-driven controls
+```
+
+Desktop and mobile platform adapters may use different pickers, but both feed the
+same import/probe API. Drag/drop and paste use that API too. There must not be a
+desktop-only video insertion path.
+
+### Shared playback and media actions
+
+A single playback controller owns `QMediaPlayer` lifecycle for timed media. Audio
+and video differ only in whether a video output is attached. Starting another
+timed media item transfers the controller to that item; inactive blocks retain no
+decoder. Seeking, buffering, duration and errors therefore have one behavior.
+
+Speech-to-text is an action on `canTranscribe`, not on an Audio block type. The
+transcription boundary receives the media source and lets the backend extract or
+decode the audio stream as necessary. Likewise, frame extraction is an action on
+`canExtractFrame`; a paused/current frame may be saved as the poster or inserted
+as a new image media item without mutating the immutable original blob.
+
+Image-specific editing remains capability-driven presentation: resize/alignment
+is available when `hasVisual`; timeline controls appear only for `hasTimeline`;
+play/pause only when the item is playable. This keeps one block component without
+forcing irrelevant controls onto static images.
+
 ### Metadata-first synchronization
 
 A note containing large media must not wait for the complete media payload
@@ -439,7 +528,7 @@ Large media is consumed through a random-access streaming abstraction rather
 than `LocalMediaStore::data()`. Conceptually:
 
 ```text
-VideoBlock / QMediaPlayer
+MediaBlock / shared QMediaPlayer
         |
         v
 seekable MediaStream / QIODevice
