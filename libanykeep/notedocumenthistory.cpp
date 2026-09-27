@@ -33,15 +33,17 @@ namespace {
         else if (kind == QLatin1String("insert-text"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert text");
         else if (kind == QLatin1String("insert-image") || kind == QLatin1String("insert-media"))
-            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert image");
-        else if (kind == QLatin1String("remove-image") || kind == QLatin1String("remove-adjacent-image"))
-            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Remove image");
-        else if (kind == QLatin1String("resize-image"))
-            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Resize image");
-        else if (kind == QLatin1String("align-image"))
-            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Align image");
-        else if (kind == QLatin1String("reset-image-presentation"))
-            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Reset image size and alignment");
+            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert media");
+        else if (kind == QLatin1String("remove-image") || kind == QLatin1String("remove-adjacent-image")
+                 || kind == QLatin1String("remove-media") || kind == QLatin1String("remove-adjacent-media"))
+            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Remove media");
+        else if (kind == QLatin1String("resize-image") || kind == QLatin1String("resize-media"))
+            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Resize media");
+        else if (kind == QLatin1String("align-image") || kind == QLatin1String("align-media"))
+            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Align media");
+        else if (kind == QLatin1String("reset-image-presentation")
+                 || kind == QLatin1String("reset-media-presentation"))
+            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Reset media size and alignment");
         else if (kind == QLatin1String("insert-table"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert table");
         else if (kind == QLatin1String("insert-code-block"))
