@@ -326,6 +326,19 @@ FocusScope {
                       + " / " + mediaRoot.formatTime(mediaRoot.knownDuration)
                 color: mediaRoot.editorView.documentSecondaryTextColor
             }
+            ToolButton {
+                visible: mediaRoot.video
+                Layout.preferredWidth: parent.height - 2
+                Layout.preferredHeight: Layout.preferredWidth
+                text: "⛶"
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Full screen")
+                Accessible.name: qsTr("Show video full screen")
+                onClicked: {
+                    mediaRoot.selectAndFocus()
+                    fullScreenVideo.open()
+                }
+            }
         }
     }
 
@@ -416,6 +429,44 @@ FocusScope {
                 font.pixelSize: Math.max(15, resetImageButton.height * 0.62)
             }
             onClicked: mediaRoot.resetPresentation()
+        }
+    }
+
+    Popup {
+        id: fullScreenVideo
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        padding: 0
+        x: 0
+        y: 0
+        width: Overlay.overlay ? Overlay.overlay.width : 0
+        height: Overlay.overlay ? Overlay.overlay.height : 0
+        closePolicy: Popup.CloseOnEscape
+
+        background: Rectangle { color: "black" }
+
+        onOpened: {
+            if (mediaRoot.playback && !mediaRoot.current)
+                mediaRoot.playback.play(mediaRoot.block.url)
+        }
+
+        VideoOutput {
+            anchors.fill: parent
+            fillMode: VideoOutput.PreserveAspectFit
+            videoSink: fullScreenVideo.opened && mediaRoot.playback ? mediaRoot.playback.videoSink : null
+        }
+
+        ToolButton {
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.margins: 16
+            text: "×"
+            z: 2
+            ToolTip.visible: hovered
+            ToolTip.text: qsTr("Exit full screen")
+            Accessible.name: qsTr("Exit full screen video")
+            onClicked: fullScreenVideo.close()
         }
     }
 
