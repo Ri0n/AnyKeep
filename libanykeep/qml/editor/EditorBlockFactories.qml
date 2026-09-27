@@ -63,18 +63,11 @@ QtObject {
         }
     }
 
-    property Component imageEditor: Component {
-        Blocks.ImageBlock {
+    property Component mediaEditor: Component {
+        Blocks.MediaBlock {
             block: parent
             editorView: factories.editorView
             reorderController: factories.reorderController
-        }
-    }
-
-    property Component audioEditor: Component {
-        Blocks.AudioBlock {
-            block: parent
-            editorView: factories.editorView
         }
     }
 
