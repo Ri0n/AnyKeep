@@ -258,7 +258,7 @@ void NoteBlockModelTest::tagLineBecomesOrdinaryTextWhenContentMovesBeforeIt()
     NoteBlockModel model;
     model.load(QStringLiteral("Title\n\n#tb\n\nbody"), true);
 
-    model.insertImage(1, QStringLiteral("media://image"), QStringLiteral("image"));
+    model.insertMedia(1, QStringLiteral("media://image"), QStringLiteral("image"), QStringLiteral("image/*"));
     QCOMPARE(model.data(model.index(2), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Text));
     QCOMPARE(model.data(model.index(2), NoteBlockModel::TextRole).toString(), QStringLiteral("#tb"));
     QVERIFY(NoteData::tagsFromText(model.contents().section(QStringLiteral("\n\n"), 1)).isEmpty());
@@ -278,7 +278,7 @@ void NoteBlockModelTest::parsesAndWritesGithubBlocks()
     QCOMPARE(model.data(model.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::BulletList));
     QCOMPARE(model.data(model.index(2), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::CheckList));
     QCOMPARE(model.data(model.index(3), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Table));
-    QCOMPARE(model.data(model.index(4), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Image));
+    QCOMPARE(model.data(model.index(4), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Media));
     QVERIFY(model.contents().contains(QStringLiteral("- [x] done")));
     QVERIFY(model.contents().contains(QStringLiteral("| Name | Value |")));
     QVERIFY(model.contents().contains(QStringLiteral("[link](https://example.org)")));
@@ -288,11 +288,11 @@ void NoteBlockModelTest::serializesAndParsesImagePresentation()
 {
     NoteBlockModel model;
     model.load(QStringLiteral("![A & B](media://image?x=1&y=2)"), true);
-    QCOMPARE(model.data(model.index(0), NoteBlockModel::ImageWidthRole).toInt(), 0);
-    QCOMPARE(model.data(model.index(0), NoteBlockModel::ImageAlignmentRole).toString(), QStringLiteral("center"));
+    QCOMPARE(model.data(model.index(0), NoteBlockModel::MediaDisplayWidthRole).toInt(), 0);
+    QCOMPARE(model.data(model.index(0), NoteBlockModel::MediaAlignmentRole).toString(), QStringLiteral("center"));
 
-    model.setImageWidth(0, 320);
-    model.setImageAlignment(0, QStringLiteral("right"));
+    model.setMediaDisplayWidth(0, 320);
+    model.setMediaAlignment(0, QStringLiteral("right"));
     const QString html = QStringLiteral(
         "<p align=\"right\"><img src=\"media://image?x=1&amp;y=2\" alt=\"A &amp; B\" width=\"320\" /></p>");
     QCOMPARE(model.contents(), html);
@@ -300,12 +300,12 @@ void NoteBlockModelTest::serializesAndParsesImagePresentation()
     NoteBlockModel restored;
     restored.load(html, true);
     QCOMPARE(restored.rowCount(), 1);
-    QCOMPARE(restored.data(restored.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Image));
+    QCOMPARE(restored.data(restored.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Media));
     QCOMPARE(restored.data(restored.index(0), NoteBlockModel::UrlRole).toString(),
              QStringLiteral("media://image?x=1&y=2"));
     QCOMPARE(restored.data(restored.index(0), NoteBlockModel::AltRole).toString(), QStringLiteral("A & B"));
-    QCOMPARE(restored.data(restored.index(0), NoteBlockModel::ImageWidthRole).toInt(), 320);
-    QCOMPARE(restored.data(restored.index(0), NoteBlockModel::ImageAlignmentRole).toString(), QStringLiteral("right"));
+    QCOMPARE(restored.data(restored.index(0), NoteBlockModel::MediaDisplayWidthRole).toInt(), 320);
+    QCOMPARE(restored.data(restored.index(0), NoteBlockModel::MediaAlignmentRole).toString(), QStringLiteral("right"));
     QCOMPARE(restored.contents(), html);
 
     const NoteFragment fragment = restored.extractBlockFragment(0, 0);
@@ -317,16 +317,16 @@ void NoteBlockModelTest::serializesAndParsesImagePresentation()
     QVERIFY2(transferred.insertBlockFragment(1, fragment, &error), qPrintable(error));
     QCOMPARE(transferred.contents(), QStringLiteral("before\n\n") + html);
 
-    restored.setImageWidth(0, 0);
-    restored.setImageAlignment(0, QStringLiteral("center"));
+    restored.setMediaDisplayWidth(0, 0);
+    restored.setMediaAlignment(0, QStringLiteral("center"));
     QCOMPARE(restored.contents(), QStringLiteral("![A & B](media://image?x=1&y=2)"));
 
-    restored.setImageAlignment(0, QStringLiteral("left"));
+    restored.setMediaAlignment(0, QStringLiteral("left"));
     QCOMPARE(restored.contents(),
              QStringLiteral("<p align=\"left\"><img src=\"media://image?x=1&amp;y=2\" "
                             "alt=\"A &amp; B\" /></p>"));
-    restored.setImageAlignment(0, QStringLiteral("unsupported"));
-    QCOMPARE(restored.data(restored.index(0), NoteBlockModel::ImageAlignmentRole).toString(), QStringLiteral("center"));
+    restored.setMediaAlignment(0, QStringLiteral("unsupported"));
+    QCOMPARE(restored.data(restored.index(0), NoteBlockModel::MediaAlignmentRole).toString(), QStringLiteral("center"));
 
     const QString spacedHtml
         = QStringLiteral("<p align=\"left\"><img src=\"media://spaced\" alt=\"A  &quot;B&quot;\" /></p>");
@@ -347,11 +347,11 @@ void NoteBlockModelTest::serializesParsesAndTransfersAudioBlocks()
     NoteBlockModel model;
     model.load(html, true);
     QCOMPARE(model.rowCount(), 1);
-    QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Audio));
+    QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Media));
     QCOMPARE(model.data(model.index(0), NoteBlockModel::UrlRole).toString(), uri);
     QCOMPARE(model.data(model.index(0), NoteBlockModel::AltRole).toString(), QStringLiteral("Meeting & notes"));
-    QCOMPARE(model.data(model.index(0), NoteBlockModel::AudioDurationRole).toLongLong(), qint64(91234));
-    QCOMPARE(model.data(model.index(0), NoteBlockModel::AudioTranscriptRole).toString(),
+    QCOMPARE(model.data(model.index(0), NoteBlockModel::MediaDurationRole).toLongLong(), qint64(91234));
+    QCOMPARE(model.data(model.index(0), NoteBlockModel::MediaTranscriptRole).toString(),
              QStringLiteral("First line<br>\nSecond & final"));
     QCOMPARE(model.contents(), html);
 
@@ -371,8 +371,8 @@ void NoteBlockModelTest::serializesParsesAndTransfersAudioBlocks()
 
     NoteBlockModel inserted;
     inserted.load(QStringLiteral("title"), true);
-    inserted.insertAudio(1, uri, QStringLiteral("Voice memo"), 2500);
-    QCOMPARE(inserted.data(inserted.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Audio));
+    inserted.insertMedia(1, uri, QStringLiteral("Voice memo"), QStringLiteral("audio/*"), 2500);
+    QCOMPARE(inserted.data(inserted.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Media));
     QVERIFY(inserted.contents().contains(QStringLiteral("title=\"Voice memo\"")));
     QVERIFY(inserted.contents().contains(QStringLiteral("data-anykeep-duration-ms=\"2500\"")));
 }
