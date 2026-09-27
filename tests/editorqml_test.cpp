@@ -2605,7 +2605,7 @@ private slots:
         const auto verify = [](Qt::Key key, Qt::KeyboardModifiers modifiers, int expectedType) {
             Note note(new NoteData(nullptr));
             note.setTitle(QStringLiteral("title"));
-            note.setText(QStringLiteral(""), Note::Markdown);
+            note.setText(QStringLiteral("body"), Note::Markdown);
             DraftManager drafts(std::make_unique<MemoryDraftStore>());
             NoteEditor editor(note, drafts);
             DesktopNoteEditorHost host(&editor);
@@ -2616,6 +2616,8 @@ private slots:
             QVERIFY(root);
             QQuickItem *body = nullptr;
             QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+            editor.model()->setBlockText(1, QString());
+            QTRY_COMPARE(body->property("length").toInt(), 0);
             body->forceActiveFocus();
             QTRY_VERIFY(body->hasActiveFocus());
 
