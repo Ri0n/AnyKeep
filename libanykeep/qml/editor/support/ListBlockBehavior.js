@@ -44,14 +44,21 @@ function handleKey(host, controller, event, cell, itemIndex) {
             && !blocked && (controller.touchMode || !(event.modifiers & Qt.ShiftModifier))) {
         return controller.runEditTransaction("split-list-item", function() {
             const position = cell.cursorPosition
-            if (cell.length === 0 && position === 0 && itemIndex + 1 === host.itemCount()) {
-                if (host.itemCount() === 1) {
-                    controller.blockModel.convertListToText(host.block.index)
-                    controller.focusBlock(host.block.index)
-                } else {
-                    controller.blockModel.removeListItem(host.block.index, itemIndex)
-                    controller.focusFollowingBlock(host.block.index, true)
-                }
+            if (cell.length === 0 && position === 0 && host.itemIndent(itemIndex) === 0) {
+                // Enter on an already-empty top-level item exits the list at
+                // that exact position. unlistListItem() preserves both sides
+                // as list blocks and places an empty text paragraph between
+                // them, so the same operation also splits a list in the
+                // middle. Removing that paragraph later coalesces the lists.
+                const textRow = controller.blockModel.unlistListItem(host.block.index, itemIndex)
+                if (textRow < 0)
+                    return false
+                controller.focusEditorAddress({
+                    blockIndex: textRow,
+                    listItemIndex: -1,
+                    tableCellIndex: -1,
+                    cursorPosition: 0
+                })
                 return true
             }
             const left = cell.markdownRange(0, position)
