@@ -235,11 +235,11 @@ QHash<int, QByteArray> NoteBlockModel::roleNames() const
              { MediaDisplayWidthRole, "mediaDisplayWidth" },
              { MediaAlignmentRole, "mediaAlignment" },
              { TagsRole, "tags" },
-                          { MediaTranscriptRole, "mediaTranscript" },
-        { MediaTypeRole, "mediaType" },
-        { MediaDurationRole, "mediaDuration" },
-        { MediaWidthRole, "mediaWidth" },
-        { MediaHeightRole, "mediaHeight" },
+             { MediaTranscriptRole, "mediaTranscript" },
+             { MediaTypeRole, "mediaType" },
+             { MediaDurationRole, "mediaDuration" },
+             { MediaWidthRole, "mediaWidth" },
+             { MediaHeightRole, "mediaHeight" },
              { AttachmentMediaTypeRole, "attachmentMediaType" },
              { AttachmentSizeRole, "attachmentSize" } };
 }
