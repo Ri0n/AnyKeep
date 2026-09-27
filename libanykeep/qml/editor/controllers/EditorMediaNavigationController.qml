@@ -379,11 +379,15 @@ QtObject {
             // QTextDocument exposes paragraph separators as U+2029 through
             // TextArea.getText(), not necessarily as '\n'. Treat an empty
             // final paragraph semantically instead of keying off one encoding.
-            const trailingBreak = before.length > 0
-                    && (before.charAt(before.length - 1) === "\n"
-                        || before.charAt(before.length - 1) === "\r"
-                        || before.charCodeAt(before.length - 1) === 0x2029)
-            if (after.length !== 0 || !trailingBreak)
+            const plain = String(editor.currentPlainText ? editor.currentPlainText() : editor.text)
+                                .replace(/\r\n/g, "\n").replace(/[\r\u2028\u2029]/g, "\n")
+            const plainCursor = Math.max(0, Math.min(editor.cursorPosition, plain.length))
+            const lineStart = plain.lastIndexOf("\n", Math.max(0, plainCursor - 1)) + 1
+            const lineEndProbe = plain.indexOf("\n", plainCursor)
+            const lineEnd = lineEndProbe < 0 ? plain.length : lineEndProbe
+            const currentLineEmpty = plain.substring(lineStart, lineEnd).trim().length === 0
+            const hasQuoteContentBefore = plain.substring(0, lineStart).trim().length > 0
+            if (after.length !== 0 || !currentLineEmpty || !hasQuoteContentBefore)
                 return false
             return editorView.runEditTransaction("exit-blockquote", function() {
                 editorView.prepareForStructuralMutation()
