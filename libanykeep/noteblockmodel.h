@@ -116,14 +116,12 @@ public:
     Q_INVOKABLE void insertTextBlock(int row);
     Q_INVOKABLE void appendTextBlock();
     Q_INVOKABLE void appendText(const QString &text);
-    Q_INVOKABLE void appendImage(const QString &url, const QString &alt);
-    Q_INVOKABLE void insertImage(int row, const QString &url, const QString &alt);
-    Q_INVOKABLE void appendAudio(const QString &url, const QString &title, qint64 durationMs);
-    Q_INVOKABLE void appendVideo(const QString &url, const QString &title, qint64 durationMs, int width, int height);
-    Q_INVOKABLE void insertAudio(int row, const QString &url, const QString &title, qint64 durationMs);
-    Q_INVOKABLE void insertVideo(int row, const QString &url, const QString &title, qint64 durationMs, int width, int height);
-    Q_INVOKABLE bool setAudioTitle(int row, const QString &title);
-    Q_INVOKABLE bool setAudioTranscript(int row, const QString &transcript);
+    Q_INVOKABLE void appendMedia(const QString &url, const QString &title, const QString &mediaType,
+                                  qint64 durationMs = 0, int width = 0, int height = 0);
+    Q_INVOKABLE void insertMedia(int row, const QString &url, const QString &title, const QString &mediaType,
+                                  qint64 durationMs = 0, int width = 0, int height = 0);
+    Q_INVOKABLE bool setMediaTitle(int row, const QString &title);
+    Q_INVOKABLE bool setMediaTranscript(int row, const QString &transcript);
     Q_INVOKABLE void appendAttachment(const QString &url, const QString &fileName, const QString &mediaType,
                                       qint64 size);
     Q_INVOKABLE void insertAttachment(int row, const QString &url, const QString &fileName, const QString &mediaType,
