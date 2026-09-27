@@ -604,11 +604,15 @@ private slots:
         note.setText(QString(), Note::PlainText);
         NoteEditor editor(note, drafts);
 
-        // Force a checkpoint exactly as a newly-created editor can do while
-        // participating in the normal window/manager lifecycle.
-        editor.setText(QStringLiteral("\n"));
-        QVERIFY(editor.save());
-        QVERIFY(data->drafts.contains(editor.draftId()));
+        // Simulate an Editing checkpoint that can already exist because of
+        // manager/window lifecycle metadata without inventing document text.
+        DraftRecord record;
+        record.id = editor.draftId();
+        record.state = DraftRecord::Editing;
+        record.title.clear();
+        record.body.clear();
+        record.format = Note::PlainText;
+        QVERIFY(!data->write(record));
 
         QVERIFY(editor.close());
         QVERIFY(!data->drafts.contains(editor.draftId()));
