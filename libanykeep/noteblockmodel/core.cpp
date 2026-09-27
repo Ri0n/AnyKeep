@@ -54,16 +54,14 @@ QVariant NoteBlockModel::data(const QModelIndex &index, int role) const
         return block.headingLevel;
     case LanguageRole:
         return block.language;
-    case ImageWidthRole:
-        return block.imageWidth;
-    case ImageAlignmentRole:
-        return block.imageAlignment;
+    case MediaDisplayWidthRole:
+        return block.mediaDisplayWidth;
+    case MediaAlignmentRole:
+        return block.mediaAlignment;
     case TagsRole:
         return block.tags;
-    case AudioDurationRole:
-        return block.audioDurationMs;
-    case AudioTranscriptRole:
-        return block.audioTranscript;
+    case MediaTranscriptRole:
+        return block.mediaTranscript;
     case MediaTypeRole:
         return block.mediaType;
     case MediaDurationRole:
@@ -76,12 +74,6 @@ QVariant NoteBlockModel::data(const QModelIndex &index, int role) const
         return block.attachmentMediaType;
     case AttachmentSizeRole:
         return block.attachmentSize;
-    case VideoDurationRole:
-        return block.videoDurationMs;
-    case VideoWidthRole:
-        return block.videoWidth;
-    case VideoHeightRole:
-        return block.videoHeight;
     default:
         return {};
     }
@@ -140,27 +132,27 @@ bool NoteBlockModel::setData(const QModelIndex &index, const QVariant &value, in
         after          = block.language;
         scalar         = true;
         break;
-    case ImageWidthRole: {
+    case MediaDisplayWidthRole: {
         if (block.type != Image)
             return false;
         const int width = qBound(0, value.toInt(), MaxSerializedImageWidth);
-        if (block.imageWidth == width)
+        if (block.mediaDisplayWidth == width)
             return false;
-        before           = QString::number(block.imageWidth);
-        block.imageWidth = width;
-        after            = QString::number(block.imageWidth);
+        before           = QString::number(block.mediaDisplayWidth);
+        block.mediaDisplayWidth = width;
+        after            = QString::number(block.mediaDisplayWidth);
         scalar           = true;
         break;
     }
-    case ImageAlignmentRole: {
+    case MediaAlignmentRole: {
         if (block.type != Image)
             return false;
         const QString alignment = normalizedImageAlignment(value.toString());
-        if (block.imageAlignment == alignment)
+        if (block.mediaAlignment == alignment)
             return false;
-        before               = block.imageAlignment;
-        block.imageAlignment = alignment;
-        after                = block.imageAlignment;
+        before               = block.mediaAlignment;
+        block.mediaAlignment = alignment;
+        after                = block.mediaAlignment;
         scalar               = true;
         break;
     }
@@ -184,12 +176,12 @@ bool NoteBlockModel::setData(const QModelIndex &index, const QVariant &value, in
             return false;
         block.mediaHeight = qMax(0, value.toInt());
         break;
-    case AudioTranscriptRole:
-        if (block.type != Media || block.audioTranscript == value.toString())
+    case MediaTranscriptRole:
+        if (block.type != Media || block.mediaTranscript == value.toString())
             return false;
-        before                = block.audioTranscript;
-        block.audioTranscript = value.toString();
-        after                 = block.audioTranscript;
+        before                = block.mediaTranscript;
+        block.mediaTranscript = value.toString();
+        after                 = block.mediaTranscript;
         scalar                = true;
         break;
     default:
@@ -234,11 +226,11 @@ QHash<int, QByteArray> NoteBlockModel::roleNames() const
              { ItemTypesRole, "itemTypes" },
              { HeadingLevelRole, "headingLevel" },
              { LanguageRole, "codeLanguage" },
-             { ImageWidthRole, "imageWidth" },
-             { ImageAlignmentRole, "imageAlignment" },
+             { MediaDisplayWidthRole, "imageWidth" },
+             { MediaAlignmentRole, "imageAlignment" },
              { TagsRole, "tags" },
              { AudioDurationRole, "audioDuration" },
-             { AudioTranscriptRole, "audioTranscript" },
+             { MediaTranscriptRole, "audioTranscript" },
         { MediaTypeRole, "mediaType" },
         { MediaDurationRole, "mediaDuration" },
         { MediaWidthRole, "mediaWidth" },
