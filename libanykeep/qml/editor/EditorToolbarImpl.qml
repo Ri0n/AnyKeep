@@ -60,7 +60,9 @@ ToolBar {
         standardButtons: Dialog.Close
         anchors.centerIn: Overlay.overlay
 
+        width: 280
         contentItem: ColumnLayout {
+            width: 240
             spacing: 8
             Label { text: qsTr("Numbered list"); font.bold: true }
             Label { text: qsTr("Ctrl+Shift+7") }
