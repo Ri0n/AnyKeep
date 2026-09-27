@@ -7,13 +7,10 @@ QtObject {
     required property var blockModel
     required property var editorBackend
     required property var focusCoordinator
-    property int selectedImageIndex: -1
-    property int selectedAudioIndex: -1
+    property int selectedMediaIndex: -1
     property int selectedAttachmentIndex: -1
 
-    function selectImageBlock(blockIndex) {
-        if (!blockModel || blockModel.blockTypeAt(blockIndex) !== 4)
-            return false
+    function prepareStructuralSelection() {
         editorView.activeTagLineIndex = -1
         ++editorView.focusRequestGeneration
         focusCoordinator.stopPendingFocusRetry()
@@ -22,52 +19,20 @@ QtObject {
         editorView.flushPendingEditorChanges()
         editorView.clearDocumentSelection()
         editorView.activeEditor = null
-        selectedAudioIndex = -1
+    }
+
+    function selectMediaBlock(blockIndex) {
+        if (!blockModel || blockModel.blockTypeAt(blockIndex) !== NoteBlockType.Media)
+            return false
+        prepareStructuralSelection()
         selectedAttachmentIndex = -1
-        selectedImageIndex = blockIndex
+        selectedMediaIndex = blockIndex
         editorView.positionViewAtIndex(blockIndex, ListView.Contain)
         return true
     }
 
-    function focusImageBlock(blockIndex) {
-        if (!selectImageBlock(blockIndex))
-            return false
-        Qt.callLater(function() {
-            const delegate = editorView.itemAtIndex(blockIndex)
-            if (delegate && delegate.item
-                    && typeof delegate.item.forceActiveFocus === "function") {
-                delegate.item.forceActiveFocus()
-            } else {
-                editorView.forceActiveFocus()
-            }
-        })
-        return true
-    }
-
-    function clearImageSelection() {
-        selectedImageIndex = -1
-    }
-
-    function selectAudioBlock(blockIndex) {
-        if (!blockModel || blockModel.blockTypeAt(blockIndex) !== 10)
-            return false
-        editorView.activeTagLineIndex = -1
-        ++editorView.focusRequestGeneration
-        focusCoordinator.stopPendingFocusRetry()
-        editorView.pendingFocusAddress = null
-        editorView.pendingEditorState = null
-        editorView.flushPendingEditorChanges()
-        editorView.clearDocumentSelection()
-        editorView.activeEditor = null
-        selectedImageIndex = -1
-        selectedAttachmentIndex = -1
-        selectedAudioIndex = blockIndex
-        editorView.positionViewAtIndex(blockIndex, ListView.Contain)
-        return true
-    }
-
-    function focusAudioBlock(blockIndex) {
-        if (!selectAudioBlock(blockIndex))
+    function focusMediaBlock(blockIndex) {
+        if (!selectMediaBlock(blockIndex))
             return false
         Qt.callLater(function() {
             const delegate = editorView.itemAtIndex(blockIndex)
@@ -80,23 +45,15 @@ QtObject {
         return true
     }
 
-    function clearAudioSelection() {
-        selectedAudioIndex = -1
+    function clearMediaSelection() {
+        selectedMediaIndex = -1
     }
 
     function selectAttachmentBlock(blockIndex) {
-        if (!blockModel || blockModel.blockTypeAt(blockIndex) !== 11)
+        if (!blockModel || blockModel.blockTypeAt(blockIndex) !== NoteBlockType.Attachment)
             return false
-        editorView.activeTagLineIndex = -1
-        ++editorView.focusRequestGeneration
-        focusCoordinator.stopPendingFocusRetry()
-        editorView.pendingFocusAddress = null
-        editorView.pendingEditorState = null
-        editorView.flushPendingEditorChanges()
-        editorView.clearDocumentSelection()
-        editorView.activeEditor = null
-        selectedImageIndex = -1
-        selectedAudioIndex = -1
+        prepareStructuralSelection()
+        selectedMediaIndex = -1
         selectedAttachmentIndex = blockIndex
         editorView.positionViewAtIndex(blockIndex, ListView.Contain)
         return true
@@ -121,25 +78,23 @@ QtObject {
     }
 
     function isMediaBlockType(type) {
-        return type === 4 || type === 10 || type === 11
+        return type === NoteBlockType.Media || type === NoteBlockType.Attachment
     }
 
-    function focusMediaBlock(blockIndex) {
+    function focusStructuralMediaBlock(blockIndex) {
         const type = blockModel.blockTypeAt(blockIndex)
-        if (type === 4)
-            return focusImageBlock(blockIndex)
-        if (type === 10)
-            return focusAudioBlock(blockIndex)
-        if (type === 11)
+        if (type === NoteBlockType.Media)
+            return focusMediaBlock(blockIndex)
+        if (type === NoteBlockType.Attachment)
             return focusAttachmentBlock(blockIndex)
         return false
     }
 
     function focusAfterMediaRemoval(blockIndex) {
         if (blockIndex < editorView.count && isMediaBlockType(blockModel.blockTypeAt(blockIndex)))
-            return focusMediaBlock(blockIndex)
+            return focusStructuralMediaBlock(blockIndex)
         if (blockIndex > 0 && isMediaBlockType(blockModel.blockTypeAt(blockIndex - 1)))
-            return focusMediaBlock(blockIndex - 1)
+            return focusStructuralMediaBlock(blockIndex - 1)
         if (blockIndex < editorView.count) {
             editorView.focusBlock(blockIndex)
             return true
@@ -149,10 +104,6 @@ QtObject {
             return true
         }
         return false
-    }
-
-    function focusAfterImageRemoval(blockIndex) {
-        return focusAfterMediaRemoval(blockIndex)
     }
 
     function removeTableBlock(blockIndex, backwards) {
@@ -172,7 +123,7 @@ QtObject {
     }
 
     function focusFollowingBlock(blockIndex, appendIfMissing) {
-        if (blockIndex + 1 < editorView.count && blockModel.blockTypeAt(blockIndex + 1) === 9)
+        if (blockIndex + 1 < editorView.count && blockModel.blockTypeAt(blockIndex + 1) === NoteBlockType.TagLine)
             return editorView.focusTagLineBlock(blockIndex + 1, false, false)
         // Media blocks have no text cursor of their own. Find the next actual editor,
         // rather than pretending the immediately following block is one.
@@ -207,7 +158,7 @@ QtObject {
     function focusPrecedingBlock(blockIndex) {
         if (blockIndex <= 0)
             return
-        if (blockModel.blockTypeAt(blockIndex - 1) === 9) {
+        if (blockModel.blockTypeAt(blockIndex - 1) === NoteBlockType.TagLine) {
             editorView.focusTagLineBlock(blockIndex - 1, true, false)
             return
         }
@@ -233,32 +184,15 @@ QtObject {
         return true
     }
 
-    function removeImageBlock(blockIndex, focusAfter) {
-        if (blockModel.blockTypeAt(blockIndex) !== 4)
+    function removeMediaBlock(blockIndex, focusAfter) {
+        if (blockModel.blockTypeAt(blockIndex) !== NoteBlockType.Media)
             return false
         const restoreFocus = focusAfter === undefined ? true : Boolean(focusAfter)
-        return editorView.runEditTransaction("remove-image", function() {
+        return editorView.runEditTransaction("remove-media", function() {
             const oldCount = editorView.count
-            editorView.prepareForStructuralMutation()
-            blockModel.removeBlock(blockIndex)
-            if (oldCount === 1) {
-                blockModel.appendTextBlock()
-                editorView.focusBlock(0)
-            } else if (restoreFocus) {
-                focusAfterImageRemoval(blockIndex)
-            }
-            return true
-        })
-    }
-
-    function removeAudioBlock(blockIndex, focusAfter) {
-        if (blockModel.blockTypeAt(blockIndex) !== 10)
-            return false
-        const restoreFocus = focusAfter === undefined ? true : Boolean(focusAfter)
-        return editorView.runEditTransaction("remove-audio", function() {
-            const oldCount = editorView.count
-            if (editorBackend && editorBackend.audioPlayback)
-                editorBackend.audioPlayback.stop()
+            if (editorBackend && editorBackend.mediaPlayback
+                    && editorBackend.mediaPlayback.currentSourceUri === blockModel.data(blockModel.index(blockIndex, 0), NoteBlockModel.UrlRole))
+                editorBackend.mediaPlayback.stop()
             editorView.prepareForStructuralMutation()
             blockModel.removeBlock(blockIndex)
             if (oldCount === 1) {
@@ -272,7 +206,7 @@ QtObject {
     }
 
     function removeAttachmentBlock(blockIndex, focusAfter) {
-        if (blockModel.blockTypeAt(blockIndex) !== 11)
+        if (blockModel.blockTypeAt(blockIndex) !== NoteBlockType.Attachment)
             return false
         const restoreFocus = focusAfter === undefined ? true : Boolean(focusAfter)
         return editorView.runEditTransaction("remove-attachment", function() {
@@ -321,7 +255,7 @@ QtObject {
             return false
 
         const mergeRow = isBackspace ? editor.blockIndex - 1 : editor.blockIndex
-        if (blockModel.blockTypeAt(mergeRow) !== 0 || blockModel.blockTypeAt(mergeRow + 1) !== 0)
+        if (blockModel.blockTypeAt(mergeRow) !== NoteBlockType.Text || blockModel.blockTypeAt(mergeRow + 1) !== NoteBlockType.Text)
             return false
 
         let cursorPosition = isDelete ? editor.cursorPosition : -1
@@ -358,7 +292,7 @@ QtObject {
         const titleSplitModifiers = modifiers
                 & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
         if (!titleSplitModifiers && editor.titleDocument && row === 0
-                && blockModel.blockTypeAt(row) === 0) {
+                && blockModel.blockTypeAt(row) === NoteBlockType.Text) {
             return editorView.runEditTransaction("split-title", function() {
                 editorView.prepareForStructuralMutation()
                 if (!blockModel.splitTitleBlock(before, after))
