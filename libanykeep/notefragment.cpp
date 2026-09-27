@@ -17,7 +17,7 @@ namespace {
     constexpr int    MaxMedia           = 1000;
     constexpr int    MaxTags            = 1000;
     constexpr int    MaxIndent          = 128;
-    constexpr qint64 MaxAudioDurationMs = 7LL * 24 * 60 * 60 * 1000;
+    constexpr qint64 MaxMediaDurationMs = 7LL * 24 * 60 * 60 * 1000;
 
     QCborMap encodeMediaReference(const MediaReference &reference)
     {
@@ -267,7 +267,7 @@ namespace {
             block->media.alignment = media.value(QStringLiteral("alignment")).toString().trimmed().toLower();
             block->media.transcript = media.value(QStringLiteral("transcript")).toString();
             if (block->media.sourceUri.isEmpty() || block->media.durationMs < 0
-                || block->media.durationMs > MaxAudioDurationMs || block->media.pixelWidth < 0
+                || block->media.durationMs > MaxMediaDurationMs || block->media.pixelWidth < 0
                 || block->media.pixelWidth > 16384 || block->media.pixelHeight < 0 || block->media.pixelHeight > 16384
                 || block->media.displayWidth < 0 || block->media.displayWidth > 16384
                 || (block->media.alignment != QLatin1String("left")
