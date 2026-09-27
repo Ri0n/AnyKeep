@@ -211,7 +211,7 @@ FocusScope {
         width: mediaRoot.displayWidth
         height: mediaRoot.displayHeight
         source: mediaRoot.block.previewUrl
-        visible: mediaRoot.visual
+        visible: mediaRoot.visual && !(mediaRoot.video && mediaRoot.current && videoSurface.status === Loader.Ready)
         fillMode: Image.PreserveAspectFit
         smooth: true
         asynchronous: true
@@ -247,7 +247,7 @@ FocusScope {
             gesturePolicy: TapHandler.DragThreshold
             onTapped: {
                 mediaRoot.selectAndFocus()
-                imageContextMenu.popup()
+                mediaContextMenu.popup()
             }
         }
         TapHandler {
@@ -256,7 +256,28 @@ FocusScope {
             gesturePolicy: TapHandler.DragThreshold
             onLongPressed: {
                 mediaRoot.selectAndFocus()
-                imageContextMenu.popup()
+                mediaContextMenu.popup()
+            }
+        }
+    }
+
+    Loader {
+        id: videoSurface
+        active: mediaRoot.video && mediaRoot.current
+                && mediaRoot.playback && mediaRoot.playback.available
+        source: active ? "MediaVideoSurface.qml" : ""
+        x: sourceImage.x
+        y: sourceImage.y
+        width: sourceImage.width
+        height: sourceImage.height
+        z: 2
+        property bool fullScreenWhenReady: false
+
+        onLoaded: {
+            item.playback = mediaRoot.playback
+            if (fullScreenWhenReady) {
+                fullScreenWhenReady = false
+                item.openFullScreen()
             }
         }
     }
@@ -370,13 +391,33 @@ FocusScope {
                 }
             }
             ToolButton {
+                visible: mediaRoot.video
+                Layout.preferredWidth: parent.height - 2
+                Layout.preferredHeight: Layout.preferredWidth
+                enabled: mediaRoot.playback && mediaRoot.playback.available
+                text: "⛶"
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Full screen")
+                Accessible.name: qsTr("Show video full screen")
+                onClicked: {
+                    mediaRoot.selectAndFocus()
+                    videoSurface.fullScreenWhenReady = true
+                    if (!mediaRoot.current)
+                        mediaRoot.playback.play(mediaRoot.block.url)
+                    else if (videoSurface.item) {
+                        videoSurface.fullScreenWhenReady = false
+                        videoSurface.item.openFullScreen()
+                    }
+                }
+            }
+            ToolButton {
                 Layout.preferredWidth: parent.height - 2
                 Layout.preferredHeight: Layout.preferredWidth
                 text: "⋮"
                 Accessible.name: qsTr("Media actions")
                 onClicked: {
                     mediaRoot.selectAndFocus()
-                    imageContextMenu.popup()
+                    mediaContextMenu.popup()
                 }
             }
         }
@@ -459,7 +500,7 @@ FocusScope {
             display: AbstractButton.IconOnly
             enabled: mediaRoot.block.mediaDisplayWidth > 0 || mediaRoot.normalizedAlignment !== "center"
             ToolTip.visible: hovered
-            ToolTip.text: qsTr("Reset image size and alignment")
+            ToolTip.text: qsTr("Reset media size and alignment")
             contentItem: Label {
                 text: "↺"
                 horizontalAlignment: Text.AlignHCenter
@@ -507,7 +548,7 @@ FocusScope {
     }
 
     Menu {
-        id: imageContextMenu
+        id: mediaContextMenu
         MenuItem {
             text: qsTr("Save Image As…")
             visible: mediaRoot.block.mediaType.startsWith("image/")
