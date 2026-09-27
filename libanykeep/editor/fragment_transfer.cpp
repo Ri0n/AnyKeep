@@ -236,27 +236,15 @@ int NoteEditor::pastePlainText(QQuickTextDocument *quickDocument, int start, int
 
 int NoteEditor::pastePrimarySelection(QQuickTextDocument *quickDocument, int start, int end)
 {
-    if (!quickDocument || !quickDocument->textDocument())
-        return -1;
     const QClipboard *clipboard = QGuiApplication::clipboard();
     const QMimeData  *mimeData
         = clipboard && clipboard->supportsSelection() ? clipboard->mimeData(QClipboard::Selection) : nullptr;
     if (!mimeData || !mimeData->hasText())
         return -1;
-
-    QString text = mimeData->text();
-    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
-    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
-
-    QTextDocument *document = quickDocument->textDocument();
-    const int      limit    = documentEnd(document);
-    start                   = qBound(0, start, limit);
-    end                     = qBound(start, end, limit);
-    QTextCursor cursor(document);
-    cursor.setPosition(start);
-    cursor.setPosition(end, QTextCursor::KeepAnchor);
-    cursor.insertText(text, QTextCharFormat());
-    return cursor.position();
+    // Primary selection is still plain-text input. Route it through the same
+    // insertion primitive as Ctrl+V so an effectively empty title gets the
+    // same leading-noise normalization.
+    return insertPlainText(quickDocument, start, end, mimeData->text());
 }
 
 void NoteEditor::normalizePastedTextFormats(QQuickTextDocument *quickDocument, int start, int end) const
