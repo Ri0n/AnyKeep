@@ -660,7 +660,6 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
             block.mediaDurationMs = htmlAudio.durationMs;
             block.url             = htmlAudio.source;
             block.alt             = htmlAudio.title;
-            block.audioDurationMs = htmlAudio.durationMs;
             ++i;
             if (i < lines.size()) {
                 const QString transcript = parseHtmlAudioTranscript(lines.at(i));
@@ -682,9 +681,6 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
             block.mediaHeight = htmlVideo.height;
             block.url = htmlVideo.source;
             block.alt = htmlVideo.title;
-            block.videoDurationMs = htmlVideo.durationMs;
-            block.videoWidth = htmlVideo.width;
-            block.videoHeight = htmlVideo.height;
             result.append(block);
             ++i;
             continue;
