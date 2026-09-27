@@ -814,17 +814,12 @@ bool EditorPlatformBackend::insertImportedMedia(const QList<MediaReference> &ref
     if (!editor_ || references.isEmpty() || !canInsertImages())
         return false;
     editor_->beginHistoryTransaction(historyKind);
-    if (!editor_->isMarkdown())
-        editor_->setMarkdown(true);
-    auto media = editor_->media();
-    media.append(references);
-    editor_->setMedia(media);
     int insertionRow = row < 0 ? editor_->model()->rowCount() : qBound(0, row, editor_->model()->rowCount());
+    bool inserted = true;
     for (const auto &reference : references)
-        editor_->model()->insertMedia(insertionRow++, reference.uri(), reference.originalName, reference.mediaType);
+        inserted = editor_->insertMedia(reference, 0, 0, 0, insertionRow++) && inserted;
     editor_->endHistoryTransaction();
-    emit mediaInserted(references);
-    return true;
+    return inserted;
 }
 
 void EditorPlatformBackend::clearRegisteredDocuments()
