@@ -391,7 +391,7 @@ QtObject {
                 return false
             return editorView.runEditTransaction("exit-blockquote", function() {
                 editorView.prepareForStructuralMutation()
-                if (!blockModel.splitStructuredBlockToText(row, before.slice(0, -1), ""))
+                if (!blockModel.splitStructuredBlockToText(row, before, ""))
                     return false
                 editorView.focusBlock(row + 1, false, 0)
                 return true
