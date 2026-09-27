@@ -232,7 +232,7 @@ QtObject {
                 Qt.callLater(function() {
                     Qt.callLater(function() {
                         if (blockModel && row < blockModel.rowCount()
-                                && blockModel.blockTypeAt(row) === 0)
+                                && blockModel.blockTypeAt(row) === NoteBlockType.Text)
                             editorView.focusBlock(row)
                         // The focus hand-off may itself retire the old first
                         // delegate.  Ignore its transient blur; later real
