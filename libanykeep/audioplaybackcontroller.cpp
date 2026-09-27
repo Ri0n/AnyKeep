@@ -94,10 +94,11 @@ public:
             return false;
         const auto media = editor->media();
         const auto it    = std::find_if(media.cbegin(), media.cend(), [&uri](const MediaReference &item) {
-            return item.uri() == uri && item.mediaType.startsWith(QLatin1String("audio/"));
+            return item.uri() == uri && (item.mediaType.startsWith(QLatin1String("audio/"))
+                                         || item.mediaType.startsWith(QLatin1String("video/")));
         });
         if (it == media.cend()) {
-            error = AudioPlaybackController::tr("The audio attachment is not present in this note.");
+            error = AudioPlaybackController::tr("The timed media is not present in this note.");
             emit owner->stateChanged();
             return false;
         }
