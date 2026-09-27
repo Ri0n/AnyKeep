@@ -40,7 +40,8 @@ public:
         CodeBlock,
         TagLine,
         Audio,
-        Attachment
+        Attachment,
+        Video
     };
     Q_ENUM(BlockType)
     enum Role {
@@ -62,7 +63,10 @@ public:
         AudioDurationRole,
         AudioTranscriptRole,
         AttachmentMediaTypeRole,
-        AttachmentSizeRole
+        AttachmentSizeRole,
+        VideoDurationRole,
+        VideoWidthRole,
+        VideoHeightRole
     };
 
     explicit NoteBlockModel(QObject *parent = nullptr);
@@ -113,7 +117,9 @@ public:
     Q_INVOKABLE void appendImage(const QString &url, const QString &alt);
     Q_INVOKABLE void insertImage(int row, const QString &url, const QString &alt);
     Q_INVOKABLE void appendAudio(const QString &url, const QString &title, qint64 durationMs);
+    Q_INVOKABLE void appendVideo(const QString &url, const QString &title, qint64 durationMs, int width, int height);
     Q_INVOKABLE void insertAudio(int row, const QString &url, const QString &title, qint64 durationMs);
+    Q_INVOKABLE void insertVideo(int row, const QString &url, const QString &title, qint64 durationMs, int width, int height);
     Q_INVOKABLE bool setAudioTitle(int row, const QString &title);
     Q_INVOKABLE bool setAudioTranscript(int row, const QString &transcript);
     Q_INVOKABLE void appendAttachment(const QString &url, const QString &fileName, const QString &mediaType,
@@ -194,6 +200,9 @@ private:
         QString      language;
         QStringList  tags;
         qint64       audioDurationMs = 0;
+        qint64       videoDurationMs = 0;
+        int          videoWidth = 0;
+        int          videoHeight = 0;
         QString      audioTranscript;
         QString      attachmentMediaType;
         qint64       attachmentSize = 0;
