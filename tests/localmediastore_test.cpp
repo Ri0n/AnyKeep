@@ -1,4 +1,6 @@
 #include "localmediastore.h"
+#include "mediasource.h"
+#include "mediastream.h"
 #include "notedata.h"
 #include "secureenvelope.h"
 #include "utils.h"
@@ -19,6 +21,7 @@ class LocalMediaStoreTest : public QObject {
 private slots:
     void encryptedRoundTripAndDeduplication();
     void concurrentReadsUseTheCachedKey();
+    void mediaStreamReadsAndSeeks();
     void portableNames();
     void markdownDisplayTitle();
     void markdownHtmlImageDisplayTitle();
@@ -78,6 +81,35 @@ void LocalMediaStoreTest::concurrentReadsUseTheCachedKey()
         QVERIFY2(result, qPrintable(result.error));
         QCOMPARE(result.value, plain);
     }
+}
+
+void LocalMediaStoreTest::mediaStreamReadsAndSeeks()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore  store(directory.path(), SecureEnvelope::generateMasterKey());
+    const QByteArray plain("0123456789abcdef");
+    const auto       imported = store.importData(plain, QStringLiteral("clip.bin"), QStringLiteral("video/mp4"));
+    QVERIFY2(imported, qPrintable(imported.error));
+
+    MediaStream stream(createLocalMediaSource(imported.value, &store));
+    QVERIFY2(stream.open(QIODevice::ReadOnly), qPrintable(stream.errorString()));
+    QCOMPARE(stream.size(), qint64(plain.size()));
+    QCOMPARE(stream.read(4), QByteArray("0123"));
+    QCOMPARE(stream.pos(), qint64(4));
+
+    QVERIFY(stream.seek(10));
+    QCOMPARE(stream.read(99), QByteArray("abcdef"));
+    QCOMPARE(stream.pos(), qint64(plain.size()));
+    QVERIFY(stream.atEnd());
+
+    QVERIFY(stream.seek(2));
+    QCOMPARE(stream.read(5), QByteArray("23456"));
+    QVERIFY(!stream.seek(plain.size() + 1));
+    QCOMPARE(stream.pos(), qint64(7));
+
+    stream.close();
+    QVERIFY(!stream.isOpen());
 }
 
 void LocalMediaStoreTest::portableNames()
