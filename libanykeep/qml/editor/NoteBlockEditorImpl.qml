@@ -464,7 +464,7 @@ ListView {
 
     function convertTextEditorToList(editor, type) {
         if (!editor || editor.blockIndex < 0 || editor.titleDocument || editor.codeDocument
-                || !editorBackend.markdown || blockModel.blockTypeAt(editor.blockIndex) !== 0)
+                || !editorBackend.markdown || blockModel.blockTypeAt(editor.blockIndex) !== NoteBlockType.Text)
             return false
         let sourceStart = editor.markdownRange(0, editor.selectionStart).length
         let sourceEnd = editor.markdownRange(0, editor.selectionEnd).length
@@ -646,7 +646,7 @@ ListView {
         if (ranges.length === 0)
             return false
         for (const range of ranges) {
-            if (Number(range.blockIndex) <= 0 || blockModel.blockTypeAt(Number(range.blockIndex)) !== 0
+            if (Number(range.blockIndex) <= 0 || blockModel.blockTypeAt(Number(range.blockIndex)) !== NoteBlockType.Text
                     || Number(range.listItemIndex) >= 0 || Number(range.tableCellIndex) >= 0) {
                 return false
             }
