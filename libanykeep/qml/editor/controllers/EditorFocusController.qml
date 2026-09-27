@@ -1,4 +1,5 @@
 import QtQuick
+import AnyKeep.Editor 1.0
 
 QtObject {
     id: controller
@@ -110,8 +111,7 @@ QtObject {
         const state = {
             active: focusAddress,
             activeTagLineIndex: activeTagLineIndex,
-            selectedImageIndex: editorView.selectedImageIndex,
-            selectedAudioIndex: editorView.selectedAudioIndex,
+            selectedMediaIndex: editorView.selectedMediaIndex,
             selectedAttachmentIndex: editorView.selectedAttachmentIndex,
             wholeDocumentSelected: editorView.wholeDocumentSelected,
             selectionSpansEditors: editorView.selectionSpansEditors,
@@ -255,26 +255,20 @@ QtObject {
         if (!state)
             return false
         const tagLineIndex = Number(state.activeTagLineIndex === undefined ? -1 : state.activeTagLineIndex)
-        if (tagLineIndex >= 0 && blockModel.blockTypeAt(tagLineIndex) === 9) {
+        if (tagLineIndex >= 0 && blockModel.blockTypeAt(tagLineIndex) === NoteBlockType.TagLine) {
             pendingEditorState = null
             focusTagLineBlock(tagLineIndex, true, true)
             return true
         }
-        const imageIndex = Number(state.selectedImageIndex === undefined ? -1 : state.selectedImageIndex)
-        if (imageIndex >= 0 && blockModel.blockTypeAt(imageIndex) === 4) {
+        const mediaIndex = Number(state.selectedMediaIndex === undefined ? -1 : state.selectedMediaIndex)
+        if (mediaIndex >= 0 && blockModel.blockTypeAt(mediaIndex) === NoteBlockType.Media) {
             pendingEditorState = null
-            editorView.focusImageBlock(imageIndex)
-            return true
-        }
-        const audioIndex = Number(state.selectedAudioIndex === undefined ? -1 : state.selectedAudioIndex)
-        if (audioIndex >= 0 && blockModel.blockTypeAt(audioIndex) === 10) {
-            pendingEditorState = null
-            editorView.focusAudioBlock(audioIndex)
+            editorView.focusMediaBlock(mediaIndex)
             return true
         }
         const attachmentIndex = Number(state.selectedAttachmentIndex === undefined
                                        ? -1 : state.selectedAttachmentIndex)
-        if (attachmentIndex >= 0 && blockModel.blockTypeAt(attachmentIndex) === 11) {
+        if (attachmentIndex >= 0 && blockModel.blockTypeAt(attachmentIndex) === NoteBlockType.Attachment) {
             pendingEditorState = null
             editorView.focusAttachmentBlock(attachmentIndex)
             return true
@@ -562,15 +556,14 @@ QtObject {
     }
 
     function focusTagLineBlock(blockIndex, atEnd, focusDraft) {
-        if (!blockModel || blockModel.blockTypeAt(blockIndex) !== 9)
+        if (!blockModel || blockModel.blockTypeAt(blockIndex) !== NoteBlockType.TagLine)
             return false
         const generation = ++focusRequestGeneration
         pendingFocusRetry.stop()
         pendingFocusAddress = null
         pendingEditorState = null
         editorView.clearDocumentSelection()
-        editorView.clearImageSelection()
-        editorView.clearAudioSelection()
+        editorView.clearMediaSelection()
         editorView.clearAttachmentSelection()
         activeEditor = null
         activeTagLineIndex = blockIndex
@@ -578,7 +571,7 @@ QtObject {
 
         function applyFocus(attempt) {
             if (generation !== editorView.focusRequestGeneration
-                    || !blockModel || blockModel.blockTypeAt(blockIndex) !== 9)
+                    || !blockModel || blockModel.blockTypeAt(blockIndex) !== NoteBlockType.TagLine)
                 return
             const delegate = editorView.itemAtIndex(blockIndex)
             const editor = delegate && delegate.item ? delegate.item : null
@@ -603,17 +596,15 @@ QtObject {
     }
 
     function focusBlock(blockIndex, atEnd, position) {
-        if (blockModel && blockModel.blockTypeAt(blockIndex) === 9)
-            return focusTagLineBlock(blockIndex, Boolean(atEnd), false)
-        if (blockModel && blockModel.blockTypeAt(blockIndex) === 4)
-            return editorView.focusImageBlock(blockIndex)
-        if (blockModel && blockModel.blockTypeAt(blockIndex) === 10)
-            return editorView.focusAudioBlock(blockIndex)
-        if (blockModel && blockModel.blockTypeAt(blockIndex) === 11)
-            return editorView.focusAttachmentBlock(blockIndex)
-        activeTagLineIndex = -1
         const type = blockModel ? blockModel.blockTypeAt(blockIndex) : -1
-        const listItemIndex = Boolean(atEnd) && (type === 1 || type === 2 || type === 5)
+        if (type === NoteBlockType.TagLine)
+            return focusTagLineBlock(blockIndex, Boolean(atEnd), false)
+        if (type === NoteBlockType.Media || type === NoteBlockType.Attachment)
+            return editorView.focusMediaBlock(blockIndex)
+        activeTagLineIndex = -1
+        const listItemIndex = Boolean(atEnd)
+                && (type === NoteBlockType.BulletList || type === NoteBlockType.CheckList
+                    || type === NoteBlockType.NumberedList)
                 ? Math.max(0, blockModel.listItemCountAt(blockIndex) - 1) : -1
         return focusEditorAddress({
             blockIndex: blockIndex,
@@ -660,7 +651,7 @@ QtObject {
         // Clicking below a structural block means "continue after it". Only
         // a final ordinary text block should absorb the click into its own
         // last line.
-        if (editorView.count > 0 && blockModel.blockTypeAt(editorView.count - 1) !== 0)
+        if (editorView.count > 0 && blockModel.blockTypeAt(editorView.count - 1) !== NoteBlockType.Text)
             return editorView.insertParagraphAtBoundary(editorView.count)
         const ordered = orderedEditors()
         if (ordered.length === 0)
