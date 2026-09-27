@@ -69,7 +69,7 @@ ToolBar {
             Label { text: qsTr("Task list"); font.bold: true }
             Label { text: qsTr("Ctrl+Shift+9") }
             Label { text: qsTr("Find in note"); font.bold: true }
-            Label { text: StandardKey.Find === undefined ? qsTr("Ctrl+F") : qsTr("Ctrl+F") }
+            Label { text: qsTr("Ctrl+F") }
         }
     }
 
