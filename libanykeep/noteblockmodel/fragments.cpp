@@ -477,7 +477,7 @@ bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Bloc
             break;
         case NoteFragmentBlockType::Media:
             if (source.media.sourceUri.isEmpty() || source.media.durationMs < 0
-                || source.media.durationMs > MaxAudioDurationMs || source.media.pixelWidth < 0
+                || source.media.durationMs > MaxMediaDurationMs || source.media.pixelWidth < 0
                 || source.media.pixelHeight < 0 || source.media.displayWidth < 0) {
                 if (error)
                     *error = QStringLiteral("media fragment is invalid");
