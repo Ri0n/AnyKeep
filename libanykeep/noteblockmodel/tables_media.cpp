@@ -148,6 +148,29 @@ void NoteBlockModel::insertAudio(int row, const QString &url, const QString &tit
     emit contentsChanged();
 }
 
+void NoteBlockModel::appendVideo(const QString &url, const QString &title, qint64 durationMs, int width, int height)
+{
+    insertVideo(blocks_.size(), url, title, durationMs, width, height);
+}
+
+void NoteBlockModel::insertVideo(int row, const QString &url, const QString &title, qint64 durationMs, int width,
+                                 int height)
+{
+    row = qBound(0, row, blocks_.size());
+    beginInsertRows({}, row, row);
+    Block block;
+    block.type            = Video;
+    block.url             = url;
+    block.alt             = title;
+    block.videoDurationMs = qMax<qint64>(0, durationMs);
+    block.videoWidth      = qMax(0, width);
+    block.videoHeight     = qMax(0, height);
+    blocks_.insert(row, block);
+    endInsertRows();
+    notifyNormalizedTagLines();
+    emit contentsChanged();
+}
+
 bool NoteBlockModel::setAudioTranscript(int row, const QString &transcript)
 {
     return setData(index(row), transcript, AudioTranscriptRole);
