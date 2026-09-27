@@ -499,10 +499,8 @@ TextArea {
         id: liveCommit
         interval: 0
         onTriggered: {
-            if (!blockArea.syncingSourceText && blockArea.activeFocus) {
-                blockArea.commitText(false)
-                blockArea.rememberPlainText()
-            }
+            if (!blockArea.syncingSourceText && blockArea.activeFocus)
+                blockArea.commitChangedText(true)
         }
     }
 
