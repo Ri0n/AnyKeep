@@ -163,44 +163,6 @@ LocalMediaDataResult LocalMediaStore::data(const QByteArray &blobId) const
     return { opened.value, {} };
 }
 
-QString LocalMediaStore::derivedPosterPath(const QByteArray &blobId) const
-{
-    const auto hex  = blobId.toHex();
-    const auto root = rootPath_.isEmpty() ? Utils::anykeepDataDir() + QStringLiteral("/media-derived") : rootPath_ + QStringLiteral("-derived");
-    return root + QLatin1Char('/') + QString::fromLatin1(hex.left(2)) + QLatin1Char('/')
-        + QString::fromLatin1(hex.mid(2, 2)) + QLatin1Char('/') + QString::fromLatin1(hex) + QStringLiteral(".poster.jpg");
-}
-
-bool LocalMediaStore::storeDerivedPoster(const QByteArray &blobId, const QImage &image, QString *error) const
-{
-    if (blobId.size() != 32 || image.isNull()) {
-        if (error)
-            *error = QStringLiteral("Invalid poster cache input");
-        return false;
-    }
-    const QString path = derivedPosterPath(blobId);
-    if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
-        if (error)
-            *error = QStringLiteral("Failed to create derived media cache directory");
-        return false;
-    }
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly)) {
-        if (error)
-            *error = file.errorString();
-        return false;
-    }
-    const QImage poster = image.scaled(QSize(1280, 720), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-    if (!poster.save(&file, "JPEG", 85) || !file.commit()) {
-        if (error)
-            *error = file.errorString();
-        return false;
-    }
-    if (error)
-        error->clear();
-    return true;
-}
-
 bool LocalMediaStore::contains(const QByteArray &blobId) const { return QFileInfo::exists(blobPath(blobId)); }
 
 } // namespace AnyKeep
