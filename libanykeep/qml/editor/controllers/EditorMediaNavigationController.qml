@@ -433,7 +433,7 @@ QtObject {
             focusFollowingBlock(
                 editor.blockIndex,
                 !event.isAutoRepeat
-                    && (editor.codeDocument || blockType === 6 || blockType === 7
+                    && (editor.codeDocument || blockType === NoteBlockType.Heading || blockType === NoteBlockType.BlockQuote
                         || hasOnlyMediaFollowing(editor.blockIndex)))
         }
         return true
