@@ -79,7 +79,7 @@ public:
         const auto *model = editor->model();
         for (int row = 0; row < model->rowCount(); ++row) {
             const QModelIndex index = model->index(row, 0);
-            if (model->data(index, NoteBlockModel::TypeRole).toInt() == NoteBlockModel::Audio
+            if (model->data(index, NoteBlockModel::TypeRole).toInt() == NoteBlockModel::Media
                 && model->data(index, NoteBlockModel::UrlRole).toString() == sourceUri) {
                 return true;
             }
