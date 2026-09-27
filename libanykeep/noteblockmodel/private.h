@@ -9,7 +9,7 @@ namespace AnyKeep::NoteBlockModelPrivate {
 
 inline const QString    TableLineBreakMarker    = QStringLiteral("ANYKEEP_TABLE_LINE_BREAK_7F3A");
 inline constexpr int    MaxSerializedImageWidth = 16384;
-inline constexpr qint64 MaxAudioDurationMs      = 7LL * 24 * 60 * 60 * 1000;
+inline constexpr qint64 MaxMediaDurationMs      = 7LL * 24 * 60 * 60 * 1000;
 
 inline QString normalizedImageAlignment(QString alignment)
 {
