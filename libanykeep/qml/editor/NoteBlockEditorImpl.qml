@@ -18,7 +18,7 @@ ListView {
     property alias activeTagLineIndex: focusController.activeTagLineIndex
     property alias selectedMediaIndex: mediaNavigationController.selectedMediaIndex
     property alias selectedAttachmentIndex: mediaNavigationController.selectedAttachmentIndex
-    property alias imageAltEditorFocused: focusController.imageAltEditorFocused
+    property alias mediaTitleEditorFocused: focusController.mediaTitleEditorFocused
     property alias pendingFocusAddress: focusController.pendingFocusAddress
     property alias pendingEditorState: focusController.pendingEditorState
     property alias focusRequestGeneration: focusController.focusRequestGeneration
