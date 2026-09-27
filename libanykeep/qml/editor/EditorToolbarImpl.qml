@@ -53,6 +53,26 @@ ToolBar {
         platformBackend: root.platformBackend
     }
 
+    Dialog {
+        id: shortcutHelp
+        title: qsTr("Keyboard shortcuts")
+        modal: true
+        standardButtons: Dialog.Close
+        anchors.centerIn: Overlay.overlay
+
+        contentItem: ColumnLayout {
+            spacing: 8
+            Label { text: qsTr("Numbered list"); font.bold: true }
+            Label { text: qsTr("Ctrl+Shift+7") }
+            Label { text: qsTr("Bullet list"); font.bold: true }
+            Label { text: qsTr("Ctrl+Shift+8") }
+            Label { text: qsTr("Task list"); font.bold: true }
+            Label { text: qsTr("Ctrl+Shift+9") }
+            Label { text: qsTr("Find in note"); font.bold: true }
+            Label { text: StandardKey.Find === undefined ? qsTr("Ctrl+F") : qsTr("Ctrl+F") }
+        }
+    }
+
     readonly property int bulletListType: 1
     readonly property int taskListType: 2
     readonly property int numberedListType: 5
@@ -590,6 +610,8 @@ ToolBar {
                 }
                 MenuItem { text: qsTr("Copy note"); onTriggered: root.copyDocument() }
                 MenuItem { text: qsTr("Find in note"); onTriggered: root.findRequested() }
+                MenuItem { text: qsTr("Keyboard shortcuts"); onTriggered: shortcutHelp.open() }
+                MenuItem { text: qsTr("Keyboard shortcuts"); onTriggered: shortcutHelp.open() }
                 MenuItem {
                     text: qsTr("Check spelling in note")
                     enabled: root.platformBackend && root.platformBackend.spellCheckEnabled
