@@ -621,3 +621,6 @@ monolithic AES-GCM object safely seekable.
 10. Define a chunked/seekable authenticated representation for large media and
     map XMPP Jingle FT ranges and HTTP Range onto it.
 11. Define transports independently for other remote-storage plugins.
+
+
+Implementation note: timed media shares one playback controller and `QVideoSink`; decoded video frames are derived poster candidates, while persistent poster images belong to the derived media cache rather than the source blob manifest.
