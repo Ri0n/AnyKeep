@@ -164,8 +164,28 @@ bool NoteBlockModel::setData(const QModelIndex &index, const QVariant &value, in
         scalar               = true;
         break;
     }
+    case MediaTypeRole:
+        if (block.type != Media || block.mediaType == value.toString())
+            return false;
+        block.mediaType = value.toString().trimmed().toLower();
+        break;
+    case MediaDurationRole:
+        if (block.type != Media || block.mediaDurationMs == qMax<qint64>(0, value.toLongLong()))
+            return false;
+        block.mediaDurationMs = qMax<qint64>(0, value.toLongLong());
+        break;
+    case MediaWidthRole:
+        if (block.type != Media || block.mediaWidth == qMax(0, value.toInt()))
+            return false;
+        block.mediaWidth = qMax(0, value.toInt());
+        break;
+    case MediaHeightRole:
+        if (block.type != Media || block.mediaHeight == qMax(0, value.toInt()))
+            return false;
+        block.mediaHeight = qMax(0, value.toInt());
+        break;
     case AudioTranscriptRole:
-        if (block.type != Audio || block.audioTranscript == value.toString())
+        if (block.type != Media || block.audioTranscript == value.toString())
             return false;
         before                = block.audioTranscript;
         block.audioTranscript = value.toString();
