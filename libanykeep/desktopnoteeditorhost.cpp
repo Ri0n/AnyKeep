@@ -82,8 +82,6 @@ DesktopNoteEditorHost::DesktopNoteEditorHost(NoteEditor *editor, QWidget *parent
     installThemedIconImageProvider(quick_->engine());
     installEditorCursorController(quick_->rootContext());
     quick_->rootContext()->setContextProperty(QStringLiteral("noteBlockModel"), editor_->model());
-    quick_->rootContext()->setContextProperty(QStringLiteral("NoteBlockType"),
-                                              QVariant::fromValue(&NoteBlockModel::staticMetaObject));
     quick_->rootContext()->setContextProperty(QStringLiteral("noteEditor"), editor_);
     quick_->rootContext()->setContextProperty(QStringLiteral("desktopEditorPlatform"), platformBackend_);
     quick_->setSource(QUrl(QStringLiteral("qrc:/qml/DesktopNoteEditor.qml")));
