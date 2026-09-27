@@ -1,4 +1,5 @@
 import QtQuick
+import AnyKeep.Editor 1.0
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../shared" as Shared
@@ -53,9 +54,65 @@ ToolBar {
         platformBackend: root.platformBackend
     }
 
-    readonly property int bulletListType: 1
-    readonly property int taskListType: 2
-    readonly property int numberedListType: 5
+    Dialog {
+        id: shortcutHelp
+        title: qsTr("Keyboard shortcuts")
+        modal: true
+        standardButtons: Dialog.Close
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(560, Overlay.overlay ? Overlay.overlay.width - 32 : 560)
+        height: Math.min(620, Overlay.overlay ? Overlay.overlay.height - 32 : 620)
+
+        contentItem: ScrollView {
+            id: shortcutHelpScroll
+            clip: true
+            leftPadding: 16
+            rightPadding: 16
+            topPadding: 12
+            bottomPadding: 12
+
+            ColumnLayout {
+                width: shortcutHelpScroll.availableWidth
+                spacing: 6
+
+                Label { text: qsTr("Editing"); font.bold: true; font.pointSize: root.font.pointSize + 1 }
+                Label { text: qsTr("Undo") + "    Ctrl+Z" }
+                Label { text: qsTr("Redo") + "    Ctrl+Shift+Z / Ctrl+Y" }
+                Label { text: qsTr("Find in note") + "    Ctrl+F" }
+                Label { text: qsTr("Select all") + "    Ctrl+A" }
+                Label { text: qsTr("Copy / Cut / Paste") + "    Ctrl+C / Ctrl+X / Ctrl+V" }
+
+                Item { Layout.preferredHeight: 6 }
+                Label { text: qsTr("Inline formatting"); font.bold: true; font.pointSize: root.font.pointSize + 1 }
+                Label { text: qsTr("Bold") + "    Ctrl+B" }
+                Label { text: qsTr("Italic") + "    Ctrl+I" }
+                Label { text: qsTr("Underline") + "    Ctrl+U" }
+                Label { text: qsTr("Strikethrough") + "    Ctrl+Shift+S" }
+                Label { text: qsTr("Inline code") + "    Ctrl+`" }
+                Label { text: qsTr("Link") + "    Ctrl+K" }
+
+                Item { Layout.preferredHeight: 6 }
+                Label { text: qsTr("Paragraphs and blocks"); font.bold: true; font.pointSize: root.font.pointSize + 1 }
+                Label { text: qsTr("Normal paragraph") + "    Ctrl+0" }
+                Label { text: qsTr("Heading 1…6") + "    Ctrl+1…6" }
+
+                Item { Layout.preferredHeight: 6 }
+                Label { text: qsTr("Lists"); font.bold: true; font.pointSize: root.font.pointSize + 1 }
+                Label { text: qsTr("Numbered list") + "    Ctrl+Shift+7" }
+                Label { text: qsTr("Bullet list") + "    Ctrl+Shift+8" }
+                Label { text: qsTr("Task list") + "    Ctrl+Shift+9" }
+                Label { text: qsTr("Indent / outdent list item") + "    Tab / Shift+Tab" }
+
+                Item { Layout.preferredHeight: 6 }
+                Label { text: qsTr("Code blocks"); font.bold: true; font.pointSize: root.font.pointSize + 1 }
+                Label { text: qsTr("Indent / outdent") + "    Tab / Shift+Tab" }
+            }
+        }
+    }
+
+    readonly property int bulletListType: NoteBlockType.BulletList
+    readonly property int taskListType: NoteBlockType.CheckList
+    readonly property int numberedListType: NoteBlockType.NumberedList
 
     function runMarkdownCommand(kind, command) { return actions.runMarkdownCommand(kind, command) }
     function insertList(type) { return actions.insertList(type) }
@@ -590,6 +647,7 @@ ToolBar {
                 }
                 MenuItem { text: qsTr("Copy note"); onTriggered: root.copyDocument() }
                 MenuItem { text: qsTr("Find in note"); onTriggered: root.findRequested() }
+                MenuItem { text: qsTr("Keyboard shortcuts"); onTriggered: shortcutHelp.open() }
                 MenuItem {
                     text: qsTr("Check spelling in note")
                     enabled: root.platformBackend && root.platformBackend.spellCheckEnabled

@@ -263,9 +263,26 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
                 dropEvent->ignore();
             }
             return true;
-        } else if (event->type() == QEvent::KeyPress) {
+        } else if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) {
             auto    *keyEvent = static_cast<QKeyEvent *>(event);
             QObject *root     = quick_->rootObject();
+
+            // ShortcutOverride is only an opportunity to reserve shortcuts
+            // before QML sees the corresponding KeyPress. Never run normal
+            // editor/history key handling for it: doing so can synchronize the
+            // active document before the actual text key event is delivered.
+            if (keyEvent->matches(QKeySequence::SelectAll)) {
+                if (event->type() == QEvent::ShortcutOverride) {
+                    keyEvent->accept();
+                    return true;
+                }
+                if (root && invokeQmlBoolean(root, "selectAllDocument"))
+                    return true;
+            }
+
+            if (event->type() == QEvent::ShortcutOverride)
+                return false;
+
             if (invokeQmlBoolean(root, "documentHistoryOwnsFocus")) {
                 const auto modifiers = keyEvent->modifiers();
                 const bool plainText = !keyEvent->text().isEmpty()

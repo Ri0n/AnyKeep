@@ -672,8 +672,21 @@ QVariantMap NoteBlockModel::convertTextRangeToList(int row, int start, int end, 
     end                = qBound(0, end, text.size());
     if (start > end)
         qSwap(start, end);
-    if (start == end)
-        return {};
+    // A collapsed cursor on an empty Markdown paragraph is still a valid
+    // structural target: toolbar/shortcut list insertion should replace that
+    // paragraph, not append a new list after the whole text block.
+    if (start == end) {
+        const bool emptyAtStart = start == 0 && (text.isEmpty() || text.startsWith(QStringLiteral("\n\n")));
+        const bool emptyAtEnd = start == text.size() && text.endsWith(QStringLiteral("\n\n"));
+        const bool emptyBetween = start >= 2 && start + 2 <= text.size()
+            && text.mid(start - 2, 4) == QStringLiteral("\n\n\n\n");
+        if (!(emptyAtStart || emptyAtEnd || emptyBetween))
+            return {};
+        if (emptyAtEnd)
+            start = end = qMax(0, start - 1);
+        else
+            end = qMin(text.size(), start + 1);
+    }
 
     const bool startsAtSeparator = text.mid(start, 2) == QStringLiteral("\n\n");
     const int  separatorBefore
@@ -803,10 +816,16 @@ void NoteBlockModel::removeBlock(int row)
 {
     if (row < 0 || row >= blocks_.size())
         return;
-    beginRemoveRows({}, row, row);
+
+    // Removing a separator can expose two list blocks. Adjacent lists are not
+    // a stable document state: keep the upper list as the resident block and
+    // reuse the normal moved-item type normalization while coalescing them.
+    beginResetModel();
     blocks_.removeAt(row);
-    endRemoveRows();
-    notifyNormalizedTagLines();
+    int trackedRow = qMin(row, blocks_.size() - 1);
+    coalesceListAtBoundary(&blocks_, row, &trackedRow);
+    normalizeTagLinePositions(&blocks_, markdown_);
+    endResetModel();
     emit contentsChanged();
 }
 

@@ -1,4 +1,5 @@
 import QtQuick
+import AnyKeep.Editor 1.0
 import QtQuick.Controls
 import "support/EditorMarkdownRendering.js" as MarkdownRendering
 import "controllers" as Controllers
@@ -337,6 +338,63 @@ ListView {
     function handleStructuredEnter(event, editor) { return mediaNavigationController.handleStructuredEnter(event, editor) }
     function handleBlockBoundaryNavigation(event, editor) { return mediaNavigationController.handleBlockBoundaryNavigation(event, editor) }
 
+    function pastePrimaryAtDocumentEnd() {
+        if (!blockModel || !editorBackend)
+            return false
+
+        // A newly-created note already owns its title text block. Clicking the
+        // trailing blank area must not manufacture a body paragraph before
+        // pasting, otherwise the first real line can never become the title.
+        // Reuse that title editor when the whole document is still empty.
+        const existingEditors = orderedEditors()
+        let emptyTitleEditor = null
+        let documentHasContent = false
+        for (const candidate of existingEditors) {
+            if (candidate && candidate.length > 0
+                    && String(candidate.currentPlainText ? candidate.currentPlainText() : candidate.text).trim().length > 0) {
+                documentHasContent = true
+                break
+            }
+            if (candidate && candidate.titleDocument)
+                emptyTitleEditor = candidate
+        }
+
+        if (!documentHasContent && emptyTitleEditor) {
+            activeEditor = emptyTitleEditor
+            emptyTitleEditor.forceActiveFocus()
+            return runEditTransaction("paste-primary", function() {
+                const end = editorBackend.pastePrimarySelection(
+                                emptyTitleEditor.textDocument, 0, emptyTitleEditor.length)
+                if (end < 0)
+                    return false
+                emptyTitleEditor.cursorPosition = end
+                emptyTitleEditor.commitText(false)
+                emptyTitleEditor.rememberPlainText()
+                return true
+            })
+        }
+
+        const boundary = count
+        if (!insertParagraphAtBoundary(boundary))
+            return false
+        Qt.callLater(function() {
+            const editor = activeEditor
+            if (!editor || editor.blockIndex < 0)
+                return
+            runEditTransaction("paste-primary", function() {
+                const end = editorBackend.pastePrimarySelection(
+                                editor.textDocument, editor.cursorPosition, editor.cursorPosition)
+                if (end < 0)
+                    return false
+                editor.cursorPosition = end
+                editor.commitText(false)
+                editor.rememberPlainText()
+                return true
+            })
+        })
+        return true
+    }
+
     function insertionBlockIndex() {
         if (pendingInsertionBoundary >= 0)
             return Math.max(0, Math.min(pendingInsertionBoundary, count))
@@ -414,7 +472,6 @@ ListView {
     function insertListBlock(type) {
         return runEditTransaction("insert-or-convert-list", function() {
             if (activeEditor && activeEditor.blockIndex >= 0 && !activeEditor.titleDocument
-                    && activeEditor.selectionStart !== activeEditor.selectionEnd
                     && !selectionSpansEditors) {
                 if (convertTextEditorToList(activeEditor, type))
                     return true
@@ -423,6 +480,13 @@ ListView {
                 const activeBlock = activeEditor.blockIndex
                 if (blockModel.convertListLevel(activeBlock, activeEditor.listItemIndex, type))
                     return true
+                if (blockModel.isExplicitEmptyTextBlock(activeBlock)) {
+                    prepareForStructuralMutation()
+                    blockModel.removeBlock(activeBlock)
+                    blockModel.insertList(activeBlock, type)
+                    focusBlock(activeBlock)
+                    return true
+                }
             }
             const row = insertionBlockIndex()
             blockModel.insertList(row, type)
@@ -433,17 +497,26 @@ ListView {
 
     function convertTextEditorToList(editor, type) {
         if (!editor || editor.blockIndex < 0 || editor.titleDocument || editor.codeDocument
-                || !editorBackend.markdown || blockModel.blockTypeAt(editor.blockIndex) !== 0)
+                || !editorBackend.markdown || blockModel.blockTypeAt(editor.blockIndex) !== NoteBlockType.Text)
             return false
         let sourceStart = editor.markdownRange(0, editor.selectionStart).length
         let sourceEnd = editor.markdownRange(0, editor.selectionEnd).length
         const sourceCursor = editor.markdownRange(0, editor.cursorPosition).length
         if (sourceStart === sourceEnd) {
             const text = blockModel.blockTextAt(editor.blockIndex)
-            if (text.length === 0)
-                return false
-            sourceStart = Math.min(sourceCursor, text.length - 1)
-            sourceEnd = sourceStart + 1
+            // Preserve a collapsed cursor for an empty paragraph. The model
+            // understands that as a structural paragraph target and replaces
+            // it in place. Non-empty paragraphs still expand to one source
+            // character so the containing paragraph can be resolved.
+            const atEmptyParagraph = text.length === 0
+                    || (sourceCursor === 0 && text.indexOf("\n\n") === 0)
+                    || (sourceCursor === text.length && text.endsWith("\n\n"))
+                    || (sourceCursor >= 2 && sourceCursor + 2 <= text.length
+                        && text.substring(sourceCursor - 2, sourceCursor + 2) === "\n\n\n\n")
+            if (!atEmptyParagraph) {
+                sourceStart = Math.min(sourceCursor, text.length - 1)
+                sourceEnd = sourceStart + 1
+            }
         }
         const converted = blockModel.convertTextRangeToList(editor.blockIndex, sourceStart, sourceEnd,
                                                               type, sourceCursor)
@@ -459,21 +532,6 @@ ListView {
             selectionEnd: Number(converted.position)
         })
         return true
-    }
-
-    function handleListShortcut(event, editor) {
-        const modifiers = event.modifiers
-        if (!(modifiers & Qt.ControlModifier) || !(modifiers & Qt.ShiftModifier)
-                || modifiers & (Qt.AltModifier | Qt.MetaModifier))
-            return false
-        const type = event.key === Qt.Key_7 || event.key === Qt.Key_Ampersand ? 5
-                   : event.key === Qt.Key_8 || event.key === Qt.Key_Asterisk ? 1
-                   : event.key === Qt.Key_9 || event.key === Qt.Key_ParenLeft ? 2 : -1
-        if (type < 0)
-            return false
-        return runEditTransaction("convert-text-to-list", function() {
-            return convertTextEditorToList(editor, type)
-        })
     }
 
     function titleEnd(editor) {
@@ -615,7 +673,7 @@ ListView {
         if (ranges.length === 0)
             return false
         for (const range of ranges) {
-            if (Number(range.blockIndex) <= 0 || blockModel.blockTypeAt(Number(range.blockIndex)) !== 0
+            if (Number(range.blockIndex) <= 0 || blockModel.blockTypeAt(Number(range.blockIndex)) !== NoteBlockType.Text
                     || Number(range.listItemIndex) >= 0 || Number(range.tableCellIndex) >= 0) {
                 return false
             }

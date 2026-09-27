@@ -27,6 +27,7 @@ Item {
     function cutActiveSelection() { return editorPane.cutActiveSelection() }
     function pasteClipboard() { return editorPane.pasteClipboard() }
     function openFind() { editorPane.openFind() }
+    function activateListShortcut(type) { return editorPane.blockEditor.insertListBlock(type) }
 
     Shortcut {
         sequences: [StandardKey.Cancel]

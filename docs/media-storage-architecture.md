@@ -378,6 +378,118 @@ Network encryption is streamed through Iris `QIODevice` adapters. The current
 separate streaming format for the local encrypted blob store rather than a
 Jingle or XEP-0448 change.
 
+## Video blocks and progressive media
+
+Video is a first-class structural editor block, like image and audio. A rendered
+note may freely interleave text and video:
+
+```text
+text block
+video block
+text block
+```
+
+The canonical Markdown representation does not need to be an HTML `<video>`
+element merely because the rendered editor recognizes the media. An
+`anykeep-media:` reference whose manifest has a validated `video/*` MIME type
+can project to a video block. As with images, the natural presentation is used
+until the user explicitly changes the block dimensions. Only presentation
+metadata which cannot be represented by the simple media reference, such as an
+explicit user-selected size, should require extended markup.
+
+Import extracts lightweight video metadata before publication: dimensions,
+duration and a thumbnail. The thumbnail is the default poster shown by the
+inactive video block. It should use the first useful decodable frame rather than
+blindly requiring frame zero, which may be black or otherwise unsuitable.
+Thumbnail/poster data is derived media/cache state rather than part of the
+Markdown body. The inactive block displays the poster, play affordance and
+duration without constructing a decoder for the full video. Playback resources
+are created on demand and released when no longer needed.
+
+### Metadata-first synchronization
+
+A note containing large media must not wait for the complete media payload
+before the note itself becomes visible on another installation. Note
+publication/synchronization publishes the document and its media descriptors
+first: stable attachment identity, MIME type, plaintext size/integrity metadata,
+video dimensions/duration, thumbnail metadata, and available remote sources.
+The receiving installation can therefore render the complete note structure and
+video poster immediately while the video bytes remain remote.
+
+Media payload availability has its own asynchronous state. Publication/recovery
+must distinguish "the note and media descriptor are durable" from "every byte
+has been replicated to every provider". A large upload or download must not
+hold the editor or ordinary note synchronization open unnecessarily. Backend
+durability rules may still require at least one confirmed remote source before a
+new local-only blob can be considered safely published.
+
+### Ranged playback and stream-through cache
+
+Large media is consumed through a random-access streaming abstraction rather
+than `LocalMediaStore::data()`. Conceptually:
+
+```text
+VideoBlock / QMediaPlayer
+        |
+        v
+seekable MediaStream / QIODevice
+        |
+        v
+ranged local cache
+        |
+        +---- local verified chunks
+        |
+        +---- remote MediaSource
+                 +---- Jingle FT ranges
+                 +---- HTTP Range
+                 +---- future backend-specific range source
+```
+
+A read is satisfied from verified local data when possible. Missing ranges are
+requested from a remote source and, while being delivered to the consumer, are
+installed into the same local cache. Streaming and downloading are therefore
+one operation with different demand patterns rather than separate copies of the
+media.
+
+Sequential playback prioritizes ranges immediately ahead of the decoder. A seek
+reprioritizes the required range instead of waiting for the complete object.
+Containers designed for progressive playback (for example fast-start MP4) can
+start as soon as their required metadata and initial samples are available.
+When a container needs metadata near the end of the object, the seekable source
+can request that range independently.
+
+The existing Iris Jingle file-transfer implementation already has negotiated
+`Range { offset, length }` support and a streaming mode; the XMPP backend should
+map MediaStream range demand onto those facilities rather than introduce a
+second XMPP streaming protocol. HTTP sources use byte-range requests when the
+server supports them. A backend/source that cannot serve ranges remains valid,
+but playback may have to wait for sufficient sequential hydration.
+
+### Chunked authenticated encryption
+
+Random access must preserve the existing end-to-end integrity guarantees.
+Serving byte ranges of one monolithic authenticated-encryption message is not
+sufficient: plaintext must never be exposed before the corresponding
+authentication unit has been verified.
+
+Large streamable blobs therefore require independently authenticated chunks (or
+an equivalent seekable authenticated-encryption construction). Each chunk has a
+well-defined plaintext range and authenticated ciphertext representation, so a
+MediaStream can map requested plaintext offsets to the minimum remote ciphertext
+ranges, verify them independently, and expose only verified plaintext. The
+manifest/encrypted descriptor must authenticate the chunking parameters and
+whole-object identity.
+
+This is a media-layer property, not a video-specific XMPP feature. The same
+ranged source/cache abstraction should later support large audio, document
+previews, and arbitrary large attachments. Small media may continue to use the
+existing whole-blob `QByteArray` path where that is simpler and bounded.
+
+The current XEP-0448 whole-object representation must therefore be treated as
+the non-random-access profile until a compatible chunked/seekable encrypted
+representation is defined. Jingle `<range/>` support alone does not make a
+monolithic AES-GCM object safely seekable.
+
 ## Failure and security rules
 
 - Validate declared size, MIME type, decoded dimensions, and integrity digest.
@@ -401,5 +513,11 @@ Jingle or XEP-0448 change.
 5. Add mark-and-sweep collection with a grace period.
 6. Implement PTF/Tomboy sidecar adapters.
 7. Implement the XMPP mapping with XEP-0447/XEP-0448, XEP-0363, and XEP-0358/Jingle.
-8. Make the local encrypted media store itself streaming for very large files.
-9. Define transports independently for other remote-storage plugins.
+8. Add first-class video blocks, extracted thumbnail/duration/dimensions, and
+   natural-size rendering with explicit-size serialization only after resize.
+9. Introduce the ranged `MediaStream`/remote-source boundary and stream-through
+   cache; make the local encrypted media store itself streaming for very large
+   files.
+10. Define a chunked/seekable authenticated representation for large media and
+    map XMPP Jingle FT ranges and HTTP Range onto it.
+11. Define transports independently for other remote-storage plugins.

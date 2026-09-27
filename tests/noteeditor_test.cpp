@@ -594,6 +594,30 @@ private slots:
                  QStringLiteral("right"));
     }
 
+    void emptyUnpublishedNoteIsDiscardedOnFinalClose()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        Note         note(new NoteData(nullptr));
+        note.setTitle(QString());
+        note.setText(QString(), Note::PlainText);
+        NoteEditor editor(note, drafts);
+
+        // Simulate an Editing checkpoint that can already exist because of
+        // manager/window lifecycle metadata without inventing document text.
+        DraftRecord record;
+        record.id = editor.draftId();
+        record.state = DraftRecord::Editing;
+        record.title.clear();
+        record.body.clear();
+        record.format = Note::PlainText;
+        QVERIFY(!data->write(record));
+
+        QVERIFY(editor.close());
+        QVERIFY(!data->drafts.contains(editor.draftId()));
+    }
+
     void sharedEditorsPublishOnlyAfterLastClose()
     {
         auto         store = std::make_unique<MemoryDraftStore>();

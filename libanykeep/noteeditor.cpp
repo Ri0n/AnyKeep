@@ -4,12 +4,14 @@
 #include "audioplaybackcontroller.h"
 #include "draftmanager.h"
 #include "noteblockmodel.h"
-#include "notedocumenthistory.h"
 #include "notedata.h"
+#include "notedocumenthistory.h"
 #include "notemanager.h"
 #include "notestorage.h"
 
 #include <QDebug>
+#include <QGuiApplication>
+#include <QKeyEvent>
 #include <QLoggingCategory>
 #include <QMetaObject>
 #include <QQuickItem>
@@ -19,6 +21,64 @@
 #include <algorithm>
 
 namespace AnyKeep {
+
+namespace {
+    // These commands address the physical number row, not the character produced
+    // by Shift/current layout (US '&' and Russian '?' are the same 7 key).
+    int listShortcutType(const QKeyEvent &event)
+    {
+        if (event.modifiers() != (Qt::ControlModifier | Qt::ShiftModifier))
+            return -1;
+        int digit = -1;
+#if defined(Q_OS_WIN)
+        if (event.nativeScanCode()) {
+            // Windows set-1 scan codes for the number row, excluding keypad keys.
+            if (event.nativeScanCode() >= 0x08 && event.nativeScanCode() <= 0x0a)
+                digit = 7 + int(event.nativeScanCode() - 0x08);
+        } else
+#elif defined(Q_OS_MACOS)
+        if (event.nativeVirtualKey()) {
+            // Cocoa exposes the hardware keyCode as nativeVirtualKey, not scanCode.
+            switch (event.nativeVirtualKey()) {
+            case 0x1a:
+                digit = 7;
+                break;
+            case 0x1c:
+                digit = 8;
+                break;
+            case 0x19:
+                digit = 9;
+                break;
+            }
+        } else
+#elif defined(Q_OS_LINUX)
+        if (event.nativeScanCode()) {
+            const auto platform = QGuiApplication::platformName();
+            // Both XCB and Qt Wayland expose XKB keycodes (evdev code + 8).
+            if (platform == QLatin1String("xcb") || platform.startsWith(QLatin1String("wayland"))) {
+                if (event.nativeScanCode() >= 16 && event.nativeScanCode() <= 18)
+                    digit = 7 + int(event.nativeScanCode() - 16);
+            }
+        } else
+#endif
+        {
+            // Synthetic/accessibility events may have no native information.
+            // Accept literal digit keys only; never guess translated punctuation.
+            if (event.key() >= Qt::Key_7 && event.key() <= Qt::Key_9)
+                digit = 7 + event.key() - Qt::Key_7;
+        }
+        switch (digit) {
+        case 7:
+            return NoteBlockModel::NumberedList;
+        case 8:
+            return NoteBlockModel::BulletList;
+        case 9:
+            return NoteBlockModel::CheckList;
+        default:
+            return -1;
+        }
+    }
+} // namespace
 
 Q_LOGGING_CATEGORY(logEditorPersistence, "anykeep.persistence.editor")
 
@@ -135,7 +195,7 @@ void NoteEditor::attachStorageContext(const Note &context)
     if (note_.storage() == context.storage() && note_.id() == context.id())
         return;
 
-    auto replacement = context;
+    auto replacement         = context;
     const auto [title, body] = titleAndBody();
     replacement.setTitle(title);
     replacement.setText(body, format_);
@@ -164,7 +224,7 @@ void NoteEditor::detachStorageContextForRecovery()
     detached.setMedia(current.media());
 
     QVariantMap portableData;
-    const auto favoriteKey = QString::fromLatin1(FavoriteBackendKey);
+    const auto  favoriteKey = QString::fromLatin1(FavoriteBackendKey);
     if (current.backendData().contains(favoriteKey))
         portableData.insert(favoriteKey, current.backendData().value(favoriteKey));
     detached.setBackendData(std::move(portableData));
@@ -348,8 +408,7 @@ bool NoteEditor::retargetStorage(const QString &destinationStorageId)
             return setError(draft.error.message);
 
         const auto [title, body] = titleAndBody();
-        if (const auto error
-            = drafts_->saveEditing(draftId_, note_, title, body, format_, folderUserOverride_)) {
+        if (const auto error = drafts_->saveEditing(draftId_, note_, title, body, format_, folderUserOverride_)) {
             return setError(error.message);
         }
         draftPersisted_ = true;
@@ -394,9 +453,8 @@ bool NoteEditor::retargetStorage(const QString &destinationStorageId)
 
     emit identityChanged();
     emit storageCapabilitiesChanged();
-    qCInfo(logEditorPersistence) << "Shared live note retargeted: draft="
-                                 << draftId_.toString(QUuid::WithoutBraces) << "storage=" << destinationId
-                                 << "views=" << viewLeases_;
+    qCInfo(logEditorPersistence) << "Shared live note retargeted: draft=" << draftId_.toString(QUuid::WithoutBraces)
+                                 << "storage=" << destinationId << "views=" << viewLeases_;
     return true;
 }
 
@@ -414,15 +472,25 @@ bool NoteEditor::close()
     if (viewLeases_ == 1 && drafts_->isLastEditingSession(draftId_)) {
         const auto draft = drafts_->editingDraft(draftId_);
         if (draft) {
-            const auto result = drafts_->markReady(draftId_);
-            if (result) {
-                qCWarning(logEditorPersistence)
-                    << "Failed to make editor draft publishable" << draftId_.toString(QUuid::WithoutBraces)
-                    << int(result.code) << result.message;
-                return setError(result.message);
+            const auto [title, body] = titleAndBody();
+            const bool hasDocumentContent
+                = !title.trimmed().isEmpty() || !body.trimmed().isEmpty() || !media_.isEmpty();
+            if (!hasDocumentContent && note_.id().isEmpty()) {
+                const auto result = drafts_->discard(draftId_);
+                if (result && result.code != DraftStoreError::NotFound)
+                    return setError(result.message);
+                draftPersisted_ = false;
+            } else {
+                const auto result = drafts_->markReady(draftId_);
+                if (result) {
+                    qCWarning(logEditorPersistence)
+                        << "Failed to make editor draft publishable" << draftId_.toString(QUuid::WithoutBraces)
+                        << int(result.code) << result.message;
+                    return setError(result.message);
+                }
+                qCInfo(logEditorPersistence)
+                    << "Editor draft marked ready for publication" << draftId_.toString(QUuid::WithoutBraces);
             }
-            qCInfo(logEditorPersistence) << "Editor draft marked ready for publication"
-                                         << draftId_.toString(QUuid::WithoutBraces);
         } else if (draft.error.code != DraftStoreError::NotFound) {
             return setError(draft.error.message);
         }
@@ -430,8 +498,8 @@ bool NoteEditor::close()
 
     drafts_->releaseEditingSession(draftId_);
     --viewLeases_;
-    qCInfo(logEditorPersistence) << "Shared editor view closed: draft="
-                                 << draftId_.toString(QUuid::WithoutBraces) << "views=" << viewLeases_;
+    qCInfo(logEditorPersistence) << "Shared editor view closed: draft=" << draftId_.toString(QUuid::WithoutBraces)
+                                 << "views=" << viewLeases_;
     if (viewLeases_ == 0) {
         emit allViewsClosed();
         emitDisposableIfUnused();
@@ -486,7 +554,6 @@ bool NoteEditor::releaseViewsForLifecycleMutation()
     emit allViewsClosed();
     return true;
 }
-
 
 void NoteEditor::setDirty(bool dirty)
 {
@@ -669,6 +736,9 @@ void NoteEditor::registerEditorView(QObject *view)
     }
     editorViews_.append(view);
     connect(view, &QObject::destroyed, this, [this, view] { unregisterEditorView(view); });
+    if (auto *item = qobject_cast<QQuickItem *>(view))
+        connect(item, &QQuickItem::windowChanged, this, &NoteEditor::updateShortcutWindows, Qt::UniqueConnection);
+    updateShortcutWindows();
 }
 
 void NoteEditor::unregisterEditorView(QObject *view)
@@ -679,7 +749,67 @@ void NoteEditor::unregisterEditorView(QObject *view)
         else
             ++it;
     }
+    updateShortcutWindows();
     emitDisposableIfUnused();
+}
+
+void NoteEditor::updateShortcutWindows()
+{
+    QList<QPointer<QQuickWindow>> windows;
+    for (const auto &view : std::as_const(editorViews_)) {
+        auto *item = qobject_cast<QQuickItem *>(view.data());
+        if (item && item->window() && !windows.contains(item->window()))
+            windows.append(item->window());
+    }
+    for (const auto &window : std::as_const(shortcutWindows_)) {
+        if (window && !windows.contains(window))
+            window->removeEventFilter(this);
+    }
+    for (const auto &window : std::as_const(windows)) {
+        if (!shortcutWindows_.contains(window))
+            window->installEventFilter(this);
+    }
+    shortcutWindows_ = std::move(windows);
+}
+
+bool NoteEditor::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() != QEvent::ShortcutOverride && event->type() != QEvent::KeyPress)
+        return false;
+    auto *window = qobject_cast<QQuickWindow *>(watched);
+    if (!window || !isMarkdown() || viewLeases_ <= 0)
+        return false;
+    const auto *key  = static_cast<QKeyEvent *>(event);
+    const int   type = listShortcutType(*key);
+    if (type < 0)
+        return false;
+
+    for (const auto &registered : std::as_const(editorViews_)) {
+        auto *view = qobject_cast<QQuickItem *>(registered.data());
+        if (!view || view->window() != window)
+            continue;
+        auto *focus = window->activeFocusItem();
+        if (!focus || (focus != view && !view->isAncestorOf(focus)))
+            continue;
+        QVariant ownsFocus;
+        if (!QMetaObject::invokeMethod(view, "documentHistoryOwnsFocus", Q_RETURN_ARG(QVariant, ownsFocus))
+            || !ownsFocus.toBool())
+            return false;
+        // Reserve the combination without modifying the document. Qt delivers
+        // the actual key press afterwards, in both QuickWidget and QuickView.
+        if (event->type() == QEvent::ShortcutOverride || key->isAutoRepeat()) {
+            event->accept();
+            return true;
+        }
+        QVariant handled;
+        if (QMetaObject::invokeMethod(view, "insertListBlock", Q_RETURN_ARG(QVariant, handled), Q_ARG(QVariant, type))
+            && handled.toBool()) {
+            event->accept();
+            return true;
+        }
+        return false;
+    }
+    return false;
 }
 
 void NoteEditor::emitDisposableIfUnused()

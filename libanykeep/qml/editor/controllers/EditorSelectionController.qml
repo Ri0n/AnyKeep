@@ -1,4 +1,5 @@
 import QtQuick
+import AnyKeep.Editor 1.0
 
 QtObject {
     id: controller
@@ -324,23 +325,36 @@ QtObject {
 
         const row = editor.blockIndex
         const type = blockModel.blockTypeAt(row)
-        const emptyTextBlock = type === 0
-        const emptyBlockQuote = type === 7
-        if (!emptyTextBlock && !emptyBlockQuote)
+        const emptyTextBlock = type === NoteBlockType.Text
+        const emptyBlockQuote = type === NoteBlockType.BlockQuote
+        const emptyCodeBlock = type === NoteBlockType.CodeBlock
+        const backwards = event.key === Qt.Key_Backspace
+        if (!emptyTextBlock && !emptyBlockQuote && !emptyCodeBlock)
+            return false
+        // Code blocks deliberately use Backspace-only removal: Delete in an
+        // empty code editor remains a normal editing key, while Backspace at
+        // the empty block boundary collapses the structural block backwards.
+        if (emptyCodeBlock && !backwards)
             return false
         if (emptyTextBlock && (editorView.count <= 1
                 || (row === 0 && !blockModel.isExplicitEmptyTextBlock(row))))
             return false
 
-        const backwards = event.key === Qt.Key_Backspace
-        return runEditTransaction(emptyBlockQuote ? "remove-empty-blockquote"
-                                                       : "remove-empty-text-block", function() {
+        const transactionKind = emptyBlockQuote ? "remove-empty-blockquote"
+                              : emptyCodeBlock ? "remove-empty-code-block"
+                                               : "remove-empty-text-block"
+        return runEditTransaction(transactionKind, function() {
             prepareForStructuralMutation()
             if (editorView.count <= 1) {
-                // A structurally empty quote still has to leave one editable
-                // paragraph behind when it is the only block.
-                blockModel.convertTextBlockToQuote(row, 0, false)
-                editorView.focusBlock(row)
+                // Removing the only structured block must still leave one
+                // editable text paragraph in the document.
+                if (emptyBlockQuote) {
+                    blockModel.convertTextBlockToQuote(row, 0, false)
+                } else {
+                    blockModel.removeBlock(row)
+                    blockModel.insertTextBlock(0, "")
+                }
+                editorView.focusBlock(0)
                 return true
             }
             blockModel.removeBlock(row)

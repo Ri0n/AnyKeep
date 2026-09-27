@@ -4,6 +4,7 @@
 #include "corestorageregistry.h"
 #include "dialogservice.h"
 #include "draftmanager.h"
+#include "foldercatalogmanager.h"
 #include "mobilebundledplugins.h"
 #include "mobileeditorplatformbackend.h"
 #include "noteeditor.h"
@@ -103,6 +104,16 @@ MobileApplication::MobileApplication(QObject *parent) :
     systemPalette_ = QGuiApplication::palette();
     qCInfo(logMobilePersistence) << "Mobile persistence diagnostics started: pid="
                                  << QCoreApplication::applicationPid();
+    // Keep the same folder/recycle projection invariant as the desktop app.
+    // NotesWorkspaceController consults FolderCatalogManager for RecycledRole,
+    // so constructing the workspace against an uninitialized catalog makes
+    // recycled notes look like ordinary notes (most visibly in Recent).
+    auto   *folderCatalog = FolderCatalogManager::instance();
+    QString folderCatalogError;
+    if (!folderCatalog->initialize(&folderCatalogError))
+        qCWarning(logMobilePersistence) << "Folder catalog recovery is required:" << folderCatalogError;
+    folderCatalog->observeNoteManager(NoteManager::instance());
+
     workspace_             = new NotesWorkspaceController(this);
     speechController_      = new SpeechRecognitionController(this);
     editorPlatformBackend_ = new MobileEditorPlatformBackend(platformServices_, this);

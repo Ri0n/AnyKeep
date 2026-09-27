@@ -1,4 +1,5 @@
 import QtQuick
+import AnyKeep.Editor 1.0
 
 QtObject {
     id: controller
@@ -367,7 +368,37 @@ QtObject {
             })
         }
 
-        if (modifiers || blockModel.blockTypeAt(row) !== 6)
+        const blockType = blockModel.blockTypeAt(row)
+        if (modifiers)
+            return false
+
+        // A quote keeps ordinary Enter as a soft line break. A second Enter
+        // on the resulting empty trailing line leaves the quote. Shift+Enter
+        // is deliberately excluded above, so it never terminates the quote.
+        if (blockType === NoteBlockType.BlockQuote) {
+            // QTextDocument exposes paragraph separators as U+2029 through
+            // TextArea.getText(), not necessarily as '\n'. Treat an empty
+            // final paragraph semantically instead of keying off one encoding.
+            const plain = String(editor.currentPlainText ? editor.currentPlainText() : editor.text)
+                                .replace(/\r\n/g, "\n").replace(/[\r\u2028\u2029]/g, "\n")
+            const plainCursor = Math.max(0, Math.min(editor.cursorPosition, plain.length))
+            const lineStart = plain.lastIndexOf("\n", Math.max(0, plainCursor - 1)) + 1
+            const lineEndProbe = plain.indexOf("\n", plainCursor)
+            const lineEnd = lineEndProbe < 0 ? plain.length : lineEndProbe
+            const currentLineEmpty = plain.substring(lineStart, lineEnd).trim().length === 0
+            const hasQuoteContentBefore = plain.substring(0, lineStart).trim().length > 0
+            if (after.length !== 0 || !currentLineEmpty || !hasQuoteContentBefore)
+                return false
+            return editorView.runEditTransaction("exit-blockquote", function() {
+                editorView.prepareForStructuralMutation()
+                if (!blockModel.splitStructuredBlockToText(row, before, ""))
+                    return false
+                editorView.focusBlock(row + 1, false, 0)
+                return true
+            })
+        }
+
+        if (blockType !== NoteBlockType.Heading)
             return false
         return editorView.runEditTransaction("exit-heading", function() {
             editorView.prepareForStructuralMutation()
@@ -407,7 +438,7 @@ QtObject {
             focusFollowingBlock(
                 editor.blockIndex,
                 !event.isAutoRepeat
-                    && (editor.codeDocument || blockType === 6 || blockType === 7
+                    && (editor.codeDocument || blockType === NoteBlockType.Heading || blockType === NoteBlockType.BlockQuote
                         || hasOnlyMediaFollowing(editor.blockIndex)))
         }
         return true

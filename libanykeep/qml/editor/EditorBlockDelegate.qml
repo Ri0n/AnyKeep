@@ -1,4 +1,5 @@
 import QtQuick
+import AnyKeep.Editor 1.0
 import "../reorder" as Reorder
 
 FocusScope {
@@ -66,11 +67,11 @@ FocusScope {
 
         objectName: "blockReorderHandle-" + blockDelegate.index
         visible: !editorView.touchMode
-                 && blockDelegate.blockType !== 1
-                 && blockDelegate.blockType !== 2
-                 && blockDelegate.blockType !== 4
-                 && blockDelegate.blockType !== 5
-                 && blockDelegate.blockType !== 9
+                 && blockDelegate.blockType !== NoteBlockType.BulletList
+                 && blockDelegate.blockType !== NoteBlockType.CheckList
+                 && blockDelegate.blockType !== NoteBlockType.Image
+                 && blockDelegate.blockType !== NoteBlockType.NumberedList
+                 && blockDelegate.blockType !== NoteBlockType.TagLine
         x: Math.max(0, blockLoader.x - width)
         y: 0
         width: editorView.listLevelHandleGutter
@@ -124,18 +125,18 @@ FocusScope {
                     return blockLoader.index
                 })
             }
-            if (blockType === 0 && index === 0 && blockText.trim().length === 0)
+            if (blockType === NoteBlockType.Text && index === 0 && blockText.trim().length === 0)
                 item.forceActiveFocus()
         }
-        sourceComponent: blockType === 1 || blockType === 2 || blockType === 5 ? listEditorComponent
-                       : blockType === 3 ? tableEditorComponent
-                       : blockType === 4 ? imageEditorComponent
-                       : blockType === 6 ? headingEditorComponent
-                       : blockType === 7 ? blockQuoteEditorComponent
-                       : blockType === 8 ? codeBlockEditorComponent
-                       : blockType === 9 ? tagLineEditorComponent
-                       : blockType === 10 ? audioEditorComponent
-                       : blockType === 11 ? attachmentEditorComponent : textEditorComponent
+        sourceComponent: blockType === NoteBlockType.BulletList || blockType === NoteBlockType.CheckList || blockType === NoteBlockType.NumberedList ? listEditorComponent
+                       : blockType === NoteBlockType.Table ? tableEditorComponent
+                       : blockType === NoteBlockType.Image ? imageEditorComponent
+                       : blockType === NoteBlockType.Heading ? headingEditorComponent
+                       : blockType === NoteBlockType.BlockQuote ? blockQuoteEditorComponent
+                       : blockType === NoteBlockType.CodeBlock ? codeBlockEditorComponent
+                       : blockType === NoteBlockType.TagLine ? tagLineEditorComponent
+                       : blockType === NoteBlockType.Audio ? audioEditorComponent
+                       : blockType === NoteBlockType.Attachment ? attachmentEditorComponent : textEditorComponent
     }
 
 }

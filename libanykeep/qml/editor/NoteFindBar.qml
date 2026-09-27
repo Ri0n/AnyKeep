@@ -78,8 +78,13 @@ Pane {
         interval: 80
         repeat: false
         onTriggered: {
-            if (searchField.text.length > 0)
+            if (searchField.text.length > 0) {
                 root.blockEditor.findNext(searchField.text, false, false)
+                // Revealing a match may instantiate/reposition an editor
+                // delegate. Live search must nevertheless keep keyboard input
+                // in the find field.
+                searchField.forceActiveFocus(Qt.ShortcutFocusReason)
+            }
         }
     }
 }

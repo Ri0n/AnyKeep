@@ -34,15 +34,10 @@ namespace AnyKeep {
 namespace {
     QIcon xmppStorageIcon()
     {
-        // Prefer the symbolic name so the icon follows light/dark palettes.
-        // Resolve it while the storage is constructed on the GUI thread; the
-        // QML image provider can then render the cached QIcon reliably.
-        auto icon = QIcon::fromTheme(QStringLiteral("im-jabber-symbolic"));
-        if (icon.isNull())
-            icon = QIcon::fromTheme(QStringLiteral("im-jabber"));
-        if (icon.isNull())
-            icon = QIcon(QStringLiteral(":/icons/xmpp-logo"));
-        return icon;
+        // Storage identity must not depend on the host icon theme: several
+        // themes provide no Jabber icon, while others provide a glyph with
+        // incompatible metrics. The plugin ships its canonical XMPP artwork.
+        return QIcon(QStringLiteral(":/icons/xmpp-logo"));
     }
 
 } // namespace

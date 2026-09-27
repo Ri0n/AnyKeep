@@ -1,4 +1,5 @@
 import QtQuick
+import AnyKeep.Editor 1.0
 
 QtObject {
     id: root
@@ -7,9 +8,9 @@ QtObject {
     required property var blockEditor
     property var platformBackend: null
 
-    readonly property int bulletListType: 1
-    readonly property int taskListType: 2
-    readonly property int numberedListType: 5
+    readonly property int bulletListType: NoteBlockType.BulletList
+    readonly property int taskListType: NoteBlockType.CheckList
+    readonly property int numberedListType: NoteBlockType.NumberedList
 
     function runMarkdownCommand(kind, command) {
         if (!root.editorBackend || !root.blockEditor)

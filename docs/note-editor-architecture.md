@@ -82,6 +82,15 @@ services for Share, Export, launcher shortcuts, and opt-in speech recognition.
 
 ## Structured list editing
 
+`Ctrl+Shift+7/8/9` selects numbered, bullet, and task lists using the physical
+number row. `NoteEditor` filters key events on the Quick windows of its
+registered document views, including the internal window of `QQuickWidget`.
+Only the focused document view handles the command. Native key codes identify
+the key independently of layout and Shift-produced punctuation; digit key
+values are a fallback for events without native information. `ShortcutOverride`
+reserves the combination and `KeyPress` invokes the view's `insertListBlock()`
+once, through the same document transaction as the toolbar.
+
 Lists keep one canonical representation in `NoteBlockModel`. The QML list
 component mirrors model roles only for delegate creation; a drag preview does
 not incrementally mutate either model. On release, one `moveListSubtree()`
