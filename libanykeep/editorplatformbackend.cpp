@@ -650,8 +650,7 @@ bool EditorPlatformBackend::insertMediaFiles(const QStringList &fileNames, int r
 {
     if (!canInsertMedia() || fileNames.isEmpty())
         return false;
-    QMimeDatabase         database;
-    QList<MediaReference> references;
+    QMimeDatabase database;
     for (const auto &fileName : fileNames) {
         const QString type = database.mimeTypeForFile(fileName, QMimeDatabase::MatchContent).name();
         if (!isInlineMediaType(type)) {
@@ -661,6 +660,10 @@ bool EditorPlatformBackend::insertMediaFiles(const QStringList &fileNames, int r
             emit operationFailed(message);
             return false;
         }
+    }
+
+    QList<MediaReference> references;
+    for (const auto &fileName : fileNames) {
         const auto imported = LocalMediaStore::instance()->importFile(fileName);
         if (!imported) {
             if (error)
