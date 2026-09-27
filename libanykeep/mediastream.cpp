@@ -59,11 +59,12 @@ QString MediaStream::errorString() const { return impl_->error; }
 
 qint64 MediaStream::readData(char *data, qint64 maxSize)
 {
-    const qint64 available = qMax<qint64>(0, size() - pos());
+    const qint64 offset = pos();
+    const qint64 available = qMax<qint64>(0, size() - offset);
     const qint64 count = qMin(maxSize, available);
     if (count <= 0)
         return 0;
-    std::memcpy(data, impl_->bytes.constData() + pos(), static_cast<size_t>(count));
+    std::memcpy(data, impl_->bytes.constData() + offset, static_cast<size_t>(count));
     return count;
 }
 
