@@ -68,6 +68,12 @@ QVariant NoteBlockModel::data(const QModelIndex &index, int role) const
         return block.attachmentMediaType;
     case AttachmentSizeRole:
         return block.attachmentSize;
+    case VideoDurationRole:
+        return block.videoDurationMs;
+    case VideoWidthRole:
+        return block.videoWidth;
+    case VideoHeightRole:
+        return block.videoHeight;
     default:
         return {};
     }
