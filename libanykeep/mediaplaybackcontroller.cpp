@@ -1,10 +1,10 @@
 #include "mediaplaybackcontroller.h"
 
 #include "localmediastore.h"
+#include "mediastream.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
 
-#include <QBuffer>
 #include <QDir>
 #include <QUrl>
 
@@ -23,7 +23,6 @@ class MediaPlaybackController::Impl {
 public:
     Impl(MediaPlaybackController *q, NoteEditor *editor) : owner(q), editor(editor)
     {
-        buffer.setBuffer(&bytes);
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
         if (editor) {
             QObject::connect(editor, &NoteEditor::mediaChanged, owner, [this](const QList<MediaReference> &media) {
@@ -119,18 +118,11 @@ public:
             emit owner->stateChanged();
             return false;
         }
-        const auto decrypted = LocalMediaStore::instance()->data(it->blobId);
-        if (!decrypted) {
-            error = decrypted.error;
-            emit owner->stateChanged();
-            return false;
-        }
-
         player->stop();
-        buffer.close();
-        bytes = decrypted.value;
-        if (!buffer.open(QIODevice::ReadOnly)) {
-            error = buffer.errorString();
+        stream = std::make_unique<MediaStream>(*it);
+        if (!stream->open(QIODevice::ReadOnly)) {
+            error = stream->errorString();
+            stream.reset();
             emit owner->stateChanged();
             return false;
         }
@@ -139,7 +131,7 @@ public:
         positionMs            = 0;
         durationMs            = 0;
         const QUrl formatHint = QUrl::fromLocalFile(QDir(QDir::tempPath()).filePath(it->portableName));
-        player->setSourceDevice(&buffer, formatHint);
+        player->setSourceDevice(stream.get(), formatHint);
         emit owner->stateChanged();
         return true;
 #else
@@ -185,8 +177,7 @@ public:
             player->setSource(QUrl());
         }
 #endif
-        buffer.close();
-        bytes.clear();
+        stream.reset();
         sourceUri.clear();
         positionMs = 0;
         durationMs = 0;
@@ -198,8 +189,7 @@ public:
     NoteEditor              *editor;
     QString                  sourceUri;
     QString                  error;
-    QByteArray               bytes;
-    QBuffer                  buffer;
+    std::unique_ptr<MediaStream> stream;
     qint64                   positionMs { 0 };
     qint64                   durationMs { 0 };
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
