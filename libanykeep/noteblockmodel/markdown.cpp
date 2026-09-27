@@ -31,6 +31,16 @@ namespace {
         explicit operator bool() const { return !source.isEmpty(); }
     };
 
+    struct HtmlVideoBlock {
+        QString source;
+        QString title;
+        qint64  durationMs { 0 };
+        int     width { 0 };
+        int     height { 0 };
+
+        explicit operator bool() const { return !source.isEmpty(); }
+    };
+
     struct HtmlAttachmentBlock {
         QString source;
         QString fileName;
@@ -150,6 +160,34 @@ namespace {
             result += QStringLiteral("\n<div data-anykeep-audio-transcript=\"1\">%1</div>").arg(escaped);
         }
         return result;
+    }
+
+    HtmlVideoBlock parseHtmlVideoBlock(const QString &line)
+    {
+        static const QRegularExpression outer(QStringLiteral(R"(^\s*<video\b([^>]*?)(?:>\s*</video>|/>)\s*$)"),
+                                              QRegularExpression::CaseInsensitiveOption);
+        const auto match = outer.match(line);
+        if (!match.hasMatch())
+            return {};
+        const auto attributes = htmlAttributes(match.captured(1));
+        HtmlVideoBlock result;
+        result.source = attributes.value(QStringLiteral("src")).trimmed();
+        result.title = attributes.value(QStringLiteral("title"));
+        bool ok = false;
+        result.durationMs = qMax<qint64>(0, attributes.value(QStringLiteral("data-anykeep-duration-ms")).toLongLong(&ok));
+        if (!ok)
+            result.durationMs = 0;
+        result.width = qMax(0, attributes.value(QStringLiteral("data-anykeep-width")).toInt());
+        result.height = qMax(0, attributes.value(QStringLiteral("data-anykeep-height")).toInt());
+        return result;
+    }
+
+    QString serializeHtmlVideo(const QString &source, const QString &title, qint64 durationMs, int width, int height)
+    {
+        return QStringLiteral("<video src=\"%1\" title=\"%2\" data-anykeep-duration-ms=\"%3\" "
+                              "data-anykeep-width=\"%4\" data-anykeep-height=\"%5\"></video>")
+            .arg(source.toHtmlEscaped(), title.toHtmlEscaped(), QString::number(qMax<qint64>(0, durationMs)),
+                 QString::number(qMax(0, width)), QString::number(qMax(0, height)));
     }
 
     HtmlAttachmentBlock parseHtmlAttachmentBlock(const QString &line)
@@ -632,6 +670,19 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
             result.append(block);
             continue;
         }
+        const HtmlVideoBlock htmlVideo = parseHtmlVideoBlock(lines[i]);
+        if (htmlVideo) {
+            Block block;
+            block.type = Video;
+            block.url = htmlVideo.source;
+            block.alt = htmlVideo.title;
+            block.videoDurationMs = htmlVideo.durationMs;
+            block.videoWidth = htmlVideo.width;
+            block.videoHeight = htmlVideo.height;
+            result.append(block);
+            ++i;
+            continue;
+        }
         const HtmlAttachmentBlock htmlAttachment = parseHtmlAttachmentBlock(lines[i]);
         if (htmlAttachment) {
             Block block;
@@ -671,7 +722,7 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
                && !bullet.match(lines[i]).hasMatch() && !numbered.match(lines[i]).hasMatch()
                && !image.match(lines[i]).hasMatch() && !heading.match(lines[i]).hasMatch()
                && !quote.match(lines[i]).hasMatch() && !parseHtmlAudioBlock(lines[i])
-               && !parseHtmlAttachmentBlock(lines[i]) && !parseHtmlImageBlock(lines[i])
+               && !parseHtmlAttachmentBlock(lines[i]) && !parseHtmlVideoBlock(lines[i]) && !parseHtmlImageBlock(lines[i])
                && !(i + 1 < lines.size() && lines[i].contains('|') && isTableSeparator(lines[i + 1])))
             paragraph.append(lines[i++]);
         const QString text = paragraph.join('\n');
@@ -797,6 +848,9 @@ QString NoteBlockModel::writeMarkdown(const QList<Block> &blocks)
             break;
         case Attachment:
             value = serializeHtmlAttachment(block.url, block.alt, block.attachmentMediaType, block.attachmentSize);
+            break;
+        case Video:
+            value = serializeHtmlVideo(block.url, block.alt, block.videoDurationMs, block.videoWidth, block.videoHeight);
             break;
         }
         output.append(value);
