@@ -28,9 +28,11 @@ namespace {
 
     bool isUsableImageFragment(const NoteFragment &fragment)
     {
-        if (fragment.blocks.size() != 1 || fragment.blocks.constFirst().type != NoteFragmentBlockType::Image)
+        if (fragment.blocks.size() != 1 || fragment.blocks.constFirst().type != NoteFragmentBlockType::Media
+            || !fragment.blocks.constFirst().media.mediaType.startsWith(QLatin1String("image/"))) {
             return false;
-        const QString sourceUri = fragment.blocks.constFirst().image.sourceUri;
+        }
+        const QString sourceUri = fragment.blocks.constFirst().media.sourceUri;
         for (const auto &media : fragment.media) {
             if (media.sourceUri == sourceUri && media.reference.isValid())
                 return true;
@@ -99,13 +101,13 @@ void DesktopEditorPlatformBackend::saveImageAs(const QString &url)
 bool DesktopEditorPlatformBackend::startImageDrag(int row)
 {
     if (!editor() || !dragSource_ || !editor()->isMarkdown()
-        || editor()->model()->blockTypeAt(row) != int(NoteBlockModel::Image)) {
+        || editor()->model()->blockTypeAt(row) != int(NoteBlockModel::Media)) {
         return false;
     }
     NoteFragment fragment = editor()->model()->extractBlockFragment(row, row);
     for (const auto &reference : editor()->media()) {
-        if (reference.isValid() && reference.uri() == fragment.blocks.constFirst().image.sourceUri) {
-            fragment.media.append({ fragment.blocks.constFirst().image.sourceUri, reference, {} });
+        if (reference.isValid() && reference.uri() == fragment.blocks.constFirst().media.sourceUri) {
+            fragment.media.append({ fragment.blocks.constFirst().media.sourceUri, reference, {} });
             break;
         }
     }
