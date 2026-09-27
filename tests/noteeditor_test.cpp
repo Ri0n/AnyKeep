@@ -529,7 +529,7 @@ private slots:
         editor.model()->insertMedia(1, source, QStringLiteral("audio.m4a"), QStringLiteral("audio/*"), 2500);
         editor.resetHistory();
 
-        QVERIFY(editor.model()->setAudioTitle(1, QStringLiteral("  Planning notes  ")));
+        QVERIFY(editor.model()->setMediaTitle(1, QStringLiteral("  Planning notes  ")));
         QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AltRole).toString(),
                  QStringLiteral("Planning notes"));
         QVERIFY(editor.canUndo());
@@ -577,8 +577,8 @@ private slots:
         editor.resetHistory();
 
         editor.beginHistoryTransaction(QStringLiteral("image-presentation"), {});
-        editor.model()->setImageWidth(1, 280);
-        editor.model()->setImageAlignment(1, QStringLiteral("right"));
+        editor.model()->setMediaDisplayWidth(1, 280);
+        editor.model()->setMediaAlignment(1, QStringLiteral("right"));
         editor.endHistoryTransaction({});
         QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaDisplayWidthRole).toInt(), 280);
         QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaAlignmentRole).toString(),
