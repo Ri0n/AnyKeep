@@ -538,7 +538,7 @@ private slots:
                  QStringLiteral("audio.m4a"));
         QVERIFY(editor.redo());
         QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AltRole).toString(),
-                 QStringLiteral("Planning notes"));
+                 QStringLiteral("  Planning notes  "));
     }
 
     void copiesSingleAudioBlockAsStructuredClipboardData()
