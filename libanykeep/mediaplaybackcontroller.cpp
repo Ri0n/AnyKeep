@@ -13,6 +13,7 @@
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
 #include <QAudioOutput>
 #include <QMediaPlayer>
+#include <QVideoSink>
 #endif
 
 namespace AnyKeep {
@@ -196,6 +197,8 @@ MediaPlaybackController::MediaPlaybackController(NoteEditor *editor, QObject *pa
 {
 }
 MediaPlaybackController::~MediaPlaybackController() = default;
+
+QObject *MediaPlaybackController::videoSink() const { return videoSink_; }
 
 bool MediaPlaybackController::available() const
 {
