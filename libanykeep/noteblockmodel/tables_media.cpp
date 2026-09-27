@@ -145,7 +145,7 @@ bool NoteBlockModel::setMediaTitle(int row, const QString &title)
 {
     if (blockTypeAt(row) != Media)
         return false;
-    return setData(index(row), title.trimmed(), AltRole);
+    return setData(index(row), title, AltRole);
 }
 
 void NoteBlockModel::appendAttachment(const QString &url, const QString &fileName, const QString &mediaType,
