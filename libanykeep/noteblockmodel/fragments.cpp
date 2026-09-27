@@ -95,9 +95,10 @@ NoteFragment NoteBlockModel::extractBlockFragment(int firstRow, int lastRow) con
             destination.media.title      = source.alt;
             destination.media.mediaType  = source.mediaType;
             destination.media.durationMs = source.mediaDurationMs;
-            destination.media.width      = source.mediaWidth;
-            destination.media.height     = source.mediaHeight;
-            destination.media.alignment  = source.mediaAlignment;
+            destination.media.pixelWidth  = source.mediaWidth;
+            destination.media.pixelHeight = source.mediaHeight;
+            destination.media.displayWidth = source.mediaDisplayWidth;
+            destination.media.alignment   = source.mediaAlignment;
             destination.media.transcript = source.mediaTranscript;
             break;
         case Attachment:
@@ -476,8 +477,8 @@ bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Bloc
             break;
         case NoteFragmentBlockType::Media:
             if (source.media.sourceUri.isEmpty() || source.media.durationMs < 0
-                || source.media.durationMs > MaxAudioDurationMs || source.media.width < 0
-                || source.media.height < 0) {
+                || source.media.durationMs > MaxAudioDurationMs || source.media.pixelWidth < 0
+                || source.media.pixelHeight < 0 || source.media.displayWidth < 0) {
                 if (error)
                     *error = QStringLiteral("media fragment is invalid");
                 return false;
@@ -487,9 +488,10 @@ bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Bloc
             destination.alt             = source.media.title;
             destination.mediaType       = source.media.mediaType;
             destination.mediaDurationMs = source.media.durationMs;
-            destination.mediaWidth      = source.media.width;
-            destination.mediaHeight     = source.media.height;
-            destination.mediaAlignment  = normalizedImageAlignment(source.media.alignment);
+            destination.mediaWidth        = source.media.pixelWidth;
+            destination.mediaHeight       = source.media.pixelHeight;
+            destination.mediaDisplayWidth = qBound(0, source.media.displayWidth, MaxSerializedImageWidth);
+            destination.mediaAlignment    = normalizedImageAlignment(source.media.alignment);
             destination.mediaTranscript = source.media.transcript;
             break;
         case NoteFragmentBlockType::Attachment:
