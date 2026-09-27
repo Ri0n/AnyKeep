@@ -295,7 +295,7 @@ void NoteBlockModelTest::serializesAndParsesImagePresentation()
     model.setMediaAlignment(0, QStringLiteral("right"));
     const QString html = QStringLiteral(
         "<p align=\"right\"><img src=\"media://image?x=1&amp;y=2\" alt=\"A &amp; B\" width=\"320\" /></p>");
-    QCOMPARE(model.contents(), html);
+    QCOMPARE(model.contents(), canonicalHtml);
 
     NoteBlockModel restored;
     restored.load(html, true);
@@ -315,7 +315,7 @@ void NoteBlockModelTest::serializesAndParsesImagePresentation()
     transferred.load(QStringLiteral("before"), true);
     QString error;
     QVERIFY2(transferred.insertBlockFragment(1, fragment, &error), qPrintable(error));
-    QCOMPARE(transferred.contents(), QStringLiteral("before\n\n") + html);
+    QCOMPARE(transferred.contents(), QStringLiteral("before\n\n") + canonicalHtml);
 
     restored.setMediaDisplayWidth(0, 0);
     restored.setMediaAlignment(0, QStringLiteral("center"));
@@ -339,13 +339,18 @@ void NoteBlockModelTest::serializesAndParsesImagePresentation()
 void NoteBlockModelTest::serializesParsesAndTransfersAudioBlocks()
 {
     const QString uri = QStringLiteral("anykeep-media:/11111111-1111-1111-1111-111111111111/recording.m4a");
-    const QString html
+    const QString legacyHtml
         = QStringLiteral("<audio controls src=\"%1\" title=\"Meeting &amp; notes\" "
                          "data-anykeep-duration-ms=\"91234\"></audio>\n"
                          "<div data-anykeep-audio-transcript=\"1\">First line&lt;br&gt;<br />Second &amp; final</div>")
               .arg(uri);
+    const QString canonicalHtml
+        = QStringLiteral("<audio controls src=\"%1\" title=\"Meeting &amp; notes\" "
+                         "data-anykeep-duration-ms=\"91234\"></audio>\n"
+                         "<div data-anykeep-media-transcript=\"1\">First line&lt;br&gt;<br />Second &amp; final</div>")
+              .arg(uri);
     NoteBlockModel model;
-    model.load(html, true);
+    model.load(legacyHtml, true);
     QCOMPARE(model.rowCount(), 1);
     QCOMPARE(model.data(model.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Media));
     QCOMPARE(model.data(model.index(0), NoteBlockModel::UrlRole).toString(), uri);
