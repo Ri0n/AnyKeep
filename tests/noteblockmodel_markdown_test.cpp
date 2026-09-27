@@ -336,7 +336,7 @@ void NoteBlockModelTest::serializesAndParsesImagePresentation()
     QCOMPARE(spaced.contents(), spacedHtml);
 }
 
-void NoteBlockModelTest::serializesParsesAndTransfersAudioBlocks()
+void NoteBlockModelTest::serializesParsesAndTransfersTimedMediaBlocks()
 {
     const QString uri = QStringLiteral("anykeep-media:/11111111-1111-1111-1111-111111111111/recording.m4a");
     const QString legacyHtml
@@ -380,6 +380,24 @@ void NoteBlockModelTest::serializesParsesAndTransfersAudioBlocks()
     QCOMPARE(inserted.data(inserted.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Media));
     QVERIFY(inserted.contents().contains(QStringLiteral("title=\"Voice memo\"")));
     QVERIFY(inserted.contents().contains(QStringLiteral("data-anykeep-duration-ms=\"2500\"")));
+
+    const QString videoUri
+        = QStringLiteral("anykeep-media:/33333333-3333-3333-3333-333333333333/clip.mp4");
+    NoteBlockModel video;
+    video.load(QString(), true);
+    video.insertMedia(0, videoUri, QStringLiteral("Clip"), QStringLiteral("video/mp4"), 3000, 1920, 1080);
+    QVERIFY(video.setMediaTranscript(0, QStringLiteral("Spoken words")));
+    const QString serializedVideo = video.contents();
+    QVERIFY(serializedVideo.contains(QStringLiteral("<video ")));
+    QVERIFY(serializedVideo.contains(QStringLiteral("data-anykeep-width=\"1920\"")));
+    QVERIFY(serializedVideo.contains(QStringLiteral("data-anykeep-height=\"1080\"")));
+    QVERIFY(serializedVideo.contains(QStringLiteral("data-anykeep-media-transcript=\"1\">Spoken words</div>")));
+
+    NoteBlockModel restoredVideo;
+    restoredVideo.load(serializedVideo, true);
+    QCOMPARE(restoredVideo.data(restoredVideo.index(0), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Media));
+    QCOMPARE(restoredVideo.data(restoredVideo.index(0), NoteBlockModel::MediaTranscriptRole).toString(),
+             QStringLiteral("Spoken words"));
 }
 
 void NoteBlockModelTest::serializesParsesAndTransfersAttachments()
