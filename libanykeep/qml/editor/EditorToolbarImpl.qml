@@ -119,7 +119,7 @@ ToolBar {
     function insertCodeBlock() { return actions.insertCodeBlock() }
     function insertTable() { return actions.insertTable() }
     function insertBlockQuote() { return actions.insertBlockQuote() }
-    function insertImage() { return actions.insertImage() }
+    function insertMedia() { return actions.insertMedia() }
     function copyDocument() { return actions.copyDocument() }
     function checkSpellingInNote() {
         if (!root.platformBackend
@@ -398,11 +398,11 @@ ToolBar {
                 fallbackTintMode: root.fallbackIconTintMode
                 pixelSize: root.iconSize
             }
-            enabled: root.platformBackend && root.editorBackend && root.editorBackend.canInsertImages
-            Accessible.name: qsTr("Insert image")
+            enabled: root.platformBackend && root.editorBackend && root.editorBackend.canInsertMedia
+            Accessible.name: qsTr("Insert media")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
-            onClicked: root.insertImage()
+            onClicked: root.insertMedia()
         }
 
         ToolButton {
@@ -668,9 +668,9 @@ ToolBar {
                     MenuItem { text: qsTr("Code block"); onTriggered: root.insertCodeBlock() }
                     MenuItem { text: qsTr("Table"); onTriggered: root.insertTable() }
                     MenuItem {
-                        text: qsTr("Image")
-                        enabled: root.platformBackend && root.editorBackend && root.editorBackend.canInsertImages
-                        onTriggered: root.insertImage()
+                        text: qsTr("Media")
+                        enabled: root.platformBackend && root.editorBackend && root.editorBackend.canInsertMedia
+                        onTriggered: root.insertMedia()
                     }
                 }
                 Menu {
@@ -765,9 +765,9 @@ ToolBar {
                     MenuItem { text: qsTr("Code block"); onTriggered: root.insertCodeBlock() }
                     MenuItem { text: qsTr("Table"); onTriggered: root.insertTable() }
                     MenuItem {
-                        text: qsTr("Image")
-                        enabled: root.platformBackend && root.editorBackend && root.editorBackend.canInsertImages
-                        onTriggered: root.insertImage()
+                        text: qsTr("Media")
+                        enabled: root.platformBackend && root.editorBackend && root.editorBackend.canInsertMedia
+                        onTriggered: root.insertMedia()
                     }
                 }
                 Menu {
