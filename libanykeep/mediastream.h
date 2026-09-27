@@ -2,17 +2,20 @@
 #define ANYKEEP_MEDIASTREAM_H
 
 #include "anykeep_export.h"
-#include "mediareference.h"
 
 #include <QIODevice>
 #include <memory>
 
 namespace AnyKeep {
 
+class MediaSource;
+struct MediaReference;
+
 class ANYKEEP_EXPORT MediaStream final : public QIODevice {
     Q_OBJECT
 public:
     explicit MediaStream(const MediaReference &reference, QObject *parent = nullptr);
+    explicit MediaStream(std::unique_ptr<MediaSource> source, QObject *parent = nullptr);
     ~MediaStream() override;
 
     bool open(OpenMode mode) override;
