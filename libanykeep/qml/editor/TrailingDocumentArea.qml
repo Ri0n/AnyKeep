@@ -15,11 +15,15 @@ Item {
     MouseArea {
         anchors.fill: parent
         enabled: !editorView.touchMode
-        acceptedButtons: Qt.LeftButton
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
         hoverEnabled: true
         preventStealing: true
         cursorShape: Qt.IBeamCursor
         onPressed: function(mouse) {
+            if (mouse.button === Qt.MiddleButton) {
+                mouse.accepted = editorView.pastePrimaryAtDocumentEnd()
+                return
+            }
             const point = mapToItem(editorView, mouse.x, mouse.y)
             editorView.beginBlankAreaSelection(editorView.count, point.x, point.y)
             mouse.accepted = true
