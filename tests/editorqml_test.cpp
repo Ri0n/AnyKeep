@@ -1287,9 +1287,9 @@ private:
         QQuickItem *actions = nullptr;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
         QTRY_VERIFY((image = quickItemByName(root, QStringLiteral("imageBlockEditor-2"))));
-        QTRY_VERIFY((outline = quickItemByName(root, QStringLiteral("imageSelectionOutline-2"))));
-        QTRY_VERIFY((alt = quickItemByName(root, QStringLiteral("imageAltEditor-2"))));
-        QTRY_VERIFY((actions = quickItemByName(root, QStringLiteral("imageActions-2"))));
+        QTRY_VERIFY((outline = quickItemByName(root, QStringLiteral("mediaSelectionOutline-2"))));
+        QTRY_VERIFY((alt = quickItemByName(root, QStringLiteral("mediaTitleEditor-2"))));
+        QTRY_VERIFY((actions = quickItemByName(root, QStringLiteral("mediaVisualActions-2"))));
         auto *blockEditor = ancestorWithProperty(body, "currentFindText");
         QVERIFY(blockEditor);
 
