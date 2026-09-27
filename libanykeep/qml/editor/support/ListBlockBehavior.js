@@ -105,7 +105,6 @@ function handleKey(host, controller, event, cell, itemIndex) {
             && cell.selectionStart === cell.selectionEnd && cell.cursorPosition === 0) {
         if (cell.length === 0) {
             return controller.runEditTransaction("remove-list-item", function() {
-                const viewportY = controller.contentY
                 controller.prepareForStructuralMutation()
                 if (host.itemCount() === 1) {
                     controller.blockModel.convertListToText(host.block.index)
@@ -141,7 +140,9 @@ function handleKey(host, controller, event, cell, itemIndex) {
                 blockIndex: textRow,
                 listItemIndex: -1,
                 tableCellIndex: -1,
-                cursorPosition: 0
+                cursorPosition: 0,
+                preserveViewport: true,
+                viewportY: viewportY
             })
             // The model keeps Markdown paragraph separators while TextArea
             // renders them as one visual line break. Resolve the position in
