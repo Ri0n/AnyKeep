@@ -1,5 +1,5 @@
 #ifndef ANYKEEP_MEDIAPLAYBACKCONTROLLER_H
-#define ANYKEEP_AUDIOPLAYBACKCONTROLLER_H
+#define ANYKEEP_MEDIAPLAYBACKCONTROLLER_H
 
 #include "anykeep_export.h"
 
@@ -21,8 +21,8 @@ class ANYKEEP_EXPORT MediaPlaybackController final : public QObject {
     Q_PROPERTY(QString errorString READ errorString NOTIFY stateChanged)
 
 public:
-    explicit AudioPlaybackController(NoteEditor *editor, QObject *parent = nullptr);
-    ~AudioPlaybackController() override;
+    explicit MediaPlaybackController(NoteEditor *editor, QObject *parent = nullptr);
+    ~MediaPlaybackController() override;
 
     bool    available() const;
     QString currentSourceUri() const;
@@ -48,4 +48,4 @@ private:
 
 } // namespace AnyKeep
 
-#endif // ANYKEEP_AUDIOPLAYBACKCONTROLLER_H
+#endif // ANYKEEP_MEDIAPLAYBACKCONTROLLER_H
