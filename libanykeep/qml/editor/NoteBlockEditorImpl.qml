@@ -891,8 +891,7 @@ ListView {
         blockQuoteEditorComponent: blockFactories.blockQuoteEditor
         listEditorComponent: blockFactories.listEditor
         tableEditorComponent: blockFactories.tableEditor
-        imageEditorComponent: blockFactories.imageEditor
-        audioEditorComponent: blockFactories.audioEditor
+        mediaEditorComponent: blockFactories.mediaEditor
         attachmentEditorComponent: blockFactories.attachmentEditor
     }
 
