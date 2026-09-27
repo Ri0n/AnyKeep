@@ -145,7 +145,7 @@ bool NoteBlockModel::setData(const QModelIndex &index, const QVariant &value, in
         break;
     }
     case MediaAlignmentRole: {
-        if (block.type != Image)
+        if (block.type != Media)
             return false;
         const QString alignment = normalizedImageAlignment(value.toString());
         if (block.mediaAlignment == alignment)
