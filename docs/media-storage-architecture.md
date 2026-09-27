@@ -626,7 +626,7 @@ monolithic AES-GCM object safely seekable.
 11. Define transports independently for other remote-storage plugins.
 
 
-Implementation note: timed media shares one playback controller. Video presentation attaches one lazy Qt Multimedia output to that player and reparents the same surface for fullscreen display; probing/poster extraction is a separate derived-cache concern and must not write frame-by-frame playback state into storage.
+Implementation note: timed media shares one playback controller. Video presentation lazily attaches an inline Qt Multimedia output to that player and switches the same player to a dedicated OS-fullscreen output while fullscreen is active; playback position and state remain unchanged. Probing/poster extraction is a separate derived-cache concern and must not write frame-by-frame playback state into storage.
 
 Integration guardrails:
 
