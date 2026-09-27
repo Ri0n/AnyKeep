@@ -165,7 +165,7 @@ namespace {
         block->markdown     = map.value(QStringLiteral("markdown")).toString();
         block->headingLevel = static_cast<int>(map.value(QStringLiteral("headingLevel")).toInteger(0));
         block->language     = map.value(QStringLiteral("language")).toString().trimmed().toLower();
-        if (version >= 4) {
+        {
             const QCborValue tagsValue = map.value(QStringLiteral("tags"));
             if (!tagsValue.isArray()) {
                 *error = QStringLiteral("block tags are not an array");
@@ -250,7 +250,7 @@ namespace {
             return false;
         }
 
-        if (version >= 7 && block->type == NoteFragmentBlockType::Media) {
+        if (block->type == NoteFragmentBlockType::Media) {
             const QCborValue mediaValue = map.value(QStringLiteral("mediaBlock"));
             if (!mediaValue.isMap()) {
                 *error = QStringLiteral("block media is not a map");
@@ -266,7 +266,10 @@ namespace {
             block->media.displayWidth = static_cast<int>(media.value(QStringLiteral("displayWidth")).toInteger(-1));
             block->media.alignment = media.value(QStringLiteral("alignment")).toString().trimmed().toLower();
             block->media.transcript = media.value(QStringLiteral("transcript")).toString();
-            if (block->media.sourceUri.isEmpty() || block->media.durationMs < 0
+            const bool supportedMediaType = block->media.mediaType.startsWith(QLatin1String("image/"))
+                || block->media.mediaType.startsWith(QLatin1String("audio/"))
+                || block->media.mediaType.startsWith(QLatin1String("video/"));
+            if (block->media.sourceUri.isEmpty() || !supportedMediaType || block->media.durationMs < 0
                 || block->media.durationMs > MaxMediaDurationMs || block->media.pixelWidth < 0
                 || block->media.pixelWidth > 16384 || block->media.pixelHeight < 0 || block->media.pixelHeight > 16384
                 || block->media.displayWidth < 0 || block->media.displayWidth > 16384
@@ -277,7 +280,7 @@ namespace {
                 return false;
             }
         }
-        if (version >= 6 && block->type == NoteFragmentBlockType::Attachment) {
+        if (block->type == NoteFragmentBlockType::Attachment) {
             const QCborValue attachmentValue = map.value(QStringLiteral("attachment"));
             if (!attachmentValue.isMap()) {
                 *error = QStringLiteral("block attachment is not a map");
