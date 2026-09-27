@@ -64,6 +64,19 @@ QVariant NoteBlockModel::data(const QModelIndex &index, int role) const
         return block.audioDurationMs;
     case AudioTranscriptRole:
         return block.audioTranscript;
+    case MediaTypeRole:
+        return block.mediaType;
+    case MediaDurationRole:
+        return block.mediaDurationMs > 0 ? block.mediaDurationMs
+             : block.type == Audio ? block.audioDurationMs
+             : block.type == Video ? block.videoDurationMs : 0;
+    case MediaWidthRole:
+        return block.mediaWidth > 0 ? block.mediaWidth
+             : block.type == Image ? block.imageWidth
+             : block.type == Video ? block.videoWidth : 0;
+    case MediaHeightRole:
+        return block.mediaHeight > 0 ? block.mediaHeight
+             : block.type == Video ? block.videoHeight : 0;
     case AttachmentMediaTypeRole:
         return block.attachmentMediaType;
     case AttachmentSizeRole:
@@ -211,6 +224,10 @@ QHash<int, QByteArray> NoteBlockModel::roleNames() const
              { TagsRole, "tags" },
              { AudioDurationRole, "audioDuration" },
              { AudioTranscriptRole, "audioTranscript" },
+        { MediaTypeRole, "mediaType" },
+        { MediaDurationRole, "mediaDuration" },
+        { MediaWidthRole, "mediaWidth" },
+        { MediaHeightRole, "mediaHeight" },
              { AttachmentMediaTypeRole, "attachmentMediaType" },
              { AttachmentSizeRole, "attachmentSize" } };
 }
