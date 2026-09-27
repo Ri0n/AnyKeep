@@ -475,25 +475,33 @@ bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Bloc
             destination.columns = source.table.columns;
             destination.cells   = source.table.markdownCells;
             break;
-        case NoteFragmentBlockType::Media:
-            if (source.media.sourceUri.isEmpty() || source.media.durationMs < 0
+        case NoteFragmentBlockType::Media: {
+            const bool supportedType = source.media.mediaType.startsWith(QLatin1String("image/"))
+                || source.media.mediaType.startsWith(QLatin1String("audio/"))
+                || source.media.mediaType.startsWith(QLatin1String("video/"));
+            const QString alignment = source.media.alignment.trimmed().toLower();
+            if (source.media.sourceUri.isEmpty() || !supportedType || source.media.durationMs < 0
                 || source.media.durationMs > MaxMediaDurationMs || source.media.pixelWidth < 0
-                || source.media.pixelHeight < 0 || source.media.displayWidth < 0) {
+                || source.media.pixelWidth > 16384 || source.media.pixelHeight < 0 || source.media.pixelHeight > 16384
+                || source.media.displayWidth < 0 || source.media.displayWidth > MaxSerializedImageWidth
+                || (alignment != QLatin1String("left") && alignment != QLatin1String("center")
+                    && alignment != QLatin1String("right"))) {
                 if (error)
                     *error = QStringLiteral("media fragment is invalid");
                 return false;
             }
-            destination.type            = Media;
-            destination.url             = source.media.sourceUri;
-            destination.alt             = source.media.title;
-            destination.mediaType       = source.media.mediaType;
-            destination.mediaDurationMs = source.media.durationMs;
+            destination.type              = Media;
+            destination.url               = source.media.sourceUri;
+            destination.alt               = source.media.title;
+            destination.mediaType         = source.media.mediaType.trimmed().toLower();
+            destination.mediaDurationMs   = source.media.durationMs;
             destination.mediaWidth        = source.media.pixelWidth;
             destination.mediaHeight       = source.media.pixelHeight;
-            destination.mediaDisplayWidth = qBound(0, source.media.displayWidth, MaxSerializedImageWidth);
-            destination.mediaAlignment    = normalizedImageAlignment(source.media.alignment);
-            destination.mediaTranscript = source.media.transcript;
+            destination.mediaDisplayWidth = source.media.displayWidth;
+            destination.mediaAlignment    = alignment;
+            destination.mediaTranscript   = source.media.transcript;
             break;
+        }
         case NoteFragmentBlockType::Attachment:
             if (source.attachment.sourceUri.isEmpty() || source.attachment.fileName.isEmpty()
                 || source.attachment.size < 0) {
