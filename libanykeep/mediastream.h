@@ -19,8 +19,8 @@ public:
     void close() override;
     bool isSequential() const override { return false; }
     qint64 size() const override;
+    qint64 bytesAvailable() const override;
     bool seek(qint64 position) override;
-    QString errorString() const;
 
 protected:
     qint64 readData(char *data, qint64 maxSize) override;
