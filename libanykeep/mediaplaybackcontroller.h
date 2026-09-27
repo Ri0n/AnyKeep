@@ -19,6 +19,7 @@ class ANYKEEP_EXPORT MediaPlaybackController final : public QObject {
     Q_PROPERTY(qint64 position READ position NOTIFY stateChanged)
     Q_PROPERTY(qint64 duration READ duration NOTIFY stateChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY stateChanged)
+    Q_PROPERTY(QObject *videoSink READ videoSink CONSTANT)
 
 public:
     explicit MediaPlaybackController(NoteEditor *editor, QObject *parent = nullptr);
