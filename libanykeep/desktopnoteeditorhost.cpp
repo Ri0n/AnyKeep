@@ -22,6 +22,7 @@
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QShowEvent>
+#include <QShortcut>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -87,6 +88,23 @@ DesktopNoteEditorHost::DesktopNoteEditorHost(NoteEditor *editor, QWidget *parent
     quick_->setSource(QUrl(QStringLiteral("qrc:/qml/DesktopNoteEditor.qml")));
     quick_->installEventFilter(this);
     layout->addWidget(quick_);
+
+    // Let Qt's shortcut machinery resolve shifted digit keys against the
+    // active keyboard layout. QKeyEvent::keyCombination() is the translated
+    // event and is not a reliable representation of Ctrl+Shift+7/8/9.
+    const struct {
+        const char *sequence;
+        int         listType;
+    } listShortcuts[] = {
+        { "Ctrl+Shift+7", NoteBlockModel::NumberedList },
+        { "Ctrl+Shift+8", NoteBlockModel::BulletList },
+        { "Ctrl+Shift+9", NoteBlockModel::CheckList },
+    };
+    for (const auto &entry : listShortcuts) {
+        auto *shortcut = new QShortcut(QKeySequence(QString::fromLatin1(entry.sequence)), this);
+        shortcut->setContext(Qt::WidgetWithChildrenShortcut);
+        connect(shortcut, &QShortcut::activated, this, [this, type = entry.listType]() { insertList(type); });
+    }
 
     platformBackend_->setDragSource(quick_);
     // The nested NoteBlockEditorImpl owns editor-view registration. Registering
@@ -266,33 +284,6 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
         } else if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) {
             auto    *keyEvent = static_cast<QKeyEvent *>(event);
             QObject *root     = quick_->rootObject();
-
-            // QKeySequence resolves the platform keyboard layout. Do not infer
-            // Ctrl+Shift+7/8/9 from the translated character produced by the
-            // current layout (which may be &, ?, *, (, or something else).
-            const struct {
-                QKeySequence sequence;
-                int listType;
-            } listShortcuts[] = {
-                { QKeySequence(QStringLiteral("Ctrl+Shift+7")), NoteBlockModel::NumberedList },
-                { QKeySequence(QStringLiteral("Ctrl+Shift+8")), NoteBlockModel::BulletList },
-                { QKeySequence(QStringLiteral("Ctrl+Shift+9")), NoteBlockModel::CheckList },
-            };
-            for (const auto &shortcut : listShortcuts) {
-                if (shortcut.sequence.matches(QKeySequence(keyEvent->keyCombination()))
-                    != QKeySequence::ExactMatch)
-                    continue;
-                if (event->type() == QEvent::ShortcutOverride) {
-                    keyEvent->accept();
-                    return true;
-                }
-                QVariant result;
-                if (root && QMetaObject::invokeMethod(root, "activateListShortcut",
-                                                      Q_RETURN_ARG(QVariant, result),
-                                                      Q_ARG(QVariant, shortcut.listType))
-                    && result.toBool())
-                    return true;
-            }
 
             // ShortcutOverride is only an opportunity to reserve shortcuts
             // before QML sees the corresponding KeyPress. Never run normal
