@@ -560,10 +560,10 @@ private slots:
         const auto             imported = controller.importMimeData(mimeData);
         QVERIFY2(imported, qPrintable(imported.error));
         QCOMPARE(imported.fragment.blocks.size(), 1);
-        QCOMPARE(imported.fragment.blocks.constFirst().type, NoteFragmentBlockType::Audio);
-        QCOMPARE(imported.fragment.blocks.constFirst().audio.sourceUri, source);
-        QCOMPARE(imported.fragment.blocks.constFirst().audio.title, QStringLiteral("Planning notes"));
-        QCOMPARE(imported.fragment.blocks.constFirst().audio.durationMs, qint64(2500));
+        QCOMPARE(imported.fragment.blocks.constFirst().type, NoteFragmentBlockType::Media);
+        QCOMPARE(imported.fragment.blocks.constFirst().media.sourceUri, source);
+        QCOMPARE(imported.fragment.blocks.constFirst().media.title, QStringLiteral("Planning notes"));
+        QCOMPARE(imported.fragment.blocks.constFirst().media.durationMs, qint64(2500));
     }
 
     void imagePresentationChangesParticipateInUndo()
