@@ -90,11 +90,15 @@ NoteFragment NoteBlockModel::extractBlockFragment(int firstRow, int lastRow) con
             destination.table.markdownCells = source.cells;
             break;
         case Media:
-            destination.type            = NoteFragmentBlockType::Image;
-            destination.image.sourceUri = source.url;
-            destination.image.alt       = source.alt;
-            destination.image.width     = source.imageWidth;
-            destination.image.alignment = source.imageAlignment;
+            destination.type             = NoteFragmentBlockType::Media;
+            destination.media.sourceUri  = source.url;
+            destination.media.title      = source.alt;
+            destination.media.mediaType  = source.mediaType;
+            destination.media.durationMs = source.mediaDurationMs;
+            destination.media.width      = source.mediaWidth;
+            destination.media.height     = source.mediaHeight;
+            destination.media.alignment  = source.mediaAlignment;
+            destination.media.transcript = source.mediaTranscript;
             break;
         case Attachment:
             destination.type                 = NoteFragmentBlockType::Attachment;
@@ -470,30 +474,23 @@ bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Bloc
             destination.columns = source.table.columns;
             destination.cells   = source.table.markdownCells;
             break;
-        case NoteFragmentBlockType::Image:
-            if (source.image.sourceUri.isEmpty()) {
+        case NoteFragmentBlockType::Media:
+            if (source.media.sourceUri.isEmpty() || source.media.durationMs < 0
+                || source.media.durationMs > MaxAudioDurationMs || source.media.width < 0
+                || source.media.height < 0) {
                 if (error)
-                    *error = QStringLiteral("image fragment has no source URI");
+                    *error = QStringLiteral("media fragment is invalid");
                 return false;
             }
-            destination.type           = Image;
-            destination.url            = source.image.sourceUri;
-            destination.alt            = source.image.alt;
-            destination.imageWidth     = qBound(0, source.image.width, MaxSerializedImageWidth);
-            destination.imageAlignment = normalizedImageAlignment(source.image.alignment);
-            break;
-        case NoteFragmentBlockType::Audio:
-            if (source.audio.sourceUri.isEmpty() || source.audio.durationMs < 0
-                || source.audio.durationMs > MaxAudioDurationMs) {
-                if (error)
-                    *error = QStringLiteral("audio fragment is invalid");
-                return false;
-            }
-            destination.type            = Audio;
-            destination.url             = source.audio.sourceUri;
-            destination.alt             = source.audio.title;
-            destination.audioDurationMs = source.audio.durationMs;
-            destination.audioTranscript = source.audio.transcript;
+            destination.type            = Media;
+            destination.url             = source.media.sourceUri;
+            destination.alt             = source.media.title;
+            destination.mediaType       = source.media.mediaType;
+            destination.mediaDurationMs = source.media.durationMs;
+            destination.mediaWidth      = source.media.width;
+            destination.mediaHeight     = source.media.height;
+            destination.mediaAlignment  = normalizedImageAlignment(source.media.alignment);
+            destination.mediaTranscript = source.media.transcript;
             break;
         case NoteFragmentBlockType::Attachment:
             if (source.attachment.sourceUri.isEmpty() || source.attachment.fileName.isEmpty()
