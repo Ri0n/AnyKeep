@@ -1,4 +1,5 @@
 import QtQuick
+import AnyKeep.Editor 1.0
 import QtQuick.Controls
 import "support/EditorMarkdownRendering.js" as MarkdownRendering
 import "controllers" as Controllers
