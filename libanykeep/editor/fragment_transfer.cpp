@@ -174,6 +174,28 @@ int NoteEditor::insertDroppedCodeBlock(int row, const QString &before, const QSt
     return model_->replaceTextBlockRangeWithFragment(row, before, after, fragment, &error);
 }
 
+namespace {
+QString stripLeadingPasteNoise(QString text)
+{
+    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+
+    int content = 0;
+    while (content < text.size()) {
+        const QChar ch = text.at(content);
+        if (ch == QLatin1Char('\n') || ch.isSpace()
+            || ch.category() == QChar::Other_Format
+            || ch.category() == QChar::Separator_Line
+            || ch.category() == QChar::Separator_Paragraph) {
+            ++content;
+            continue;
+        }
+        break;
+    }
+    return text.mid(content);
+}
+} // namespace
+
 int NoteEditor::insertPlainText(QQuickTextDocument *quickDocument, int start, int end, const QString &value)
 {
     if (!quickDocument || !quickDocument->textDocument())
@@ -183,10 +205,15 @@ int NoteEditor::insertPlainText(QQuickTextDocument *quickDocument, int start, in
     text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
     text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
 
+    // Only normalize the start of a new document/title. Whitespace pasted
+    // into an existing paragraph is intentional, and code blocks bypass this
+    // plain-title path entirely.
     QTextDocument *document = quickDocument->textDocument();
     const int      limit    = documentEnd(document);
     start                   = qBound(0, start, limit);
     end                     = qBound(start, end, limit);
+    if (start == 0 && end == limit && document->toPlainText().trimmed().isEmpty())
+        text = stripLeadingPasteNoise(std::move(text));
 
     QTextCursor cursor(document);
     cursor.setPosition(start);
