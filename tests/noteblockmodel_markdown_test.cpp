@@ -295,7 +295,7 @@ void NoteBlockModelTest::serializesAndParsesImagePresentation()
     model.setMediaAlignment(0, QStringLiteral("right"));
     const QString html = QStringLiteral(
         "<p align=\"right\"><img src=\"media://image?x=1&amp;y=2\" alt=\"A &amp; B\" width=\"320\" /></p>");
-    QCOMPARE(model.contents(), canonicalHtml);
+    QCOMPARE(model.contents(), html);
 
     NoteBlockModel restored;
     restored.load(html, true);
@@ -315,7 +315,7 @@ void NoteBlockModelTest::serializesAndParsesImagePresentation()
     transferred.load(QStringLiteral("before"), true);
     QString error;
     QVERIFY2(transferred.insertBlockFragment(1, fragment, &error), qPrintable(error));
-    QCOMPARE(transferred.contents(), QStringLiteral("before\n\n") + canonicalHtml);
+    QCOMPARE(transferred.contents(), QStringLiteral("before\n\n") + html);
 
     restored.setMediaDisplayWidth(0, 0);
     restored.setMediaAlignment(0, QStringLiteral("center"));
