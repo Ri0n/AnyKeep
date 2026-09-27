@@ -617,6 +617,8 @@ void NotesModel::replaceVisibleNotes(NMMItem *storageItem, int desiredCount)
     } else {
         QHash<QString, DraftRecord> draftByNote;
         for (const auto &draft : pending) {
+            if (draft.operation == DraftRecord::Delete || draft.state == DraftRecord::Deleting)
+                continue;
             if (draft.storageId != storageItem->id || isUnpublishedDraft(draft))
                 continue;
             const QString presentedId
@@ -747,6 +749,8 @@ int NotesModel::projectedNoteCount(const NMMItem *storageItem) const
     for (const auto &note : notes)
         ids.insert(note.id());
     for (const auto &draft : pending) {
+        if (draft.operation == DraftRecord::Delete || draft.state == DraftRecord::Deleting)
+            continue;
         if (draft.removeSourceStorageId == storageItem->id && !draft.removeSourceNoteId.isEmpty())
             ids.remove(draft.removeSourceNoteId);
         if (draft.storageId != storageItem->id || isUnpublishedDraft(draft))
