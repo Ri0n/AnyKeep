@@ -478,7 +478,7 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
         || inlineUnderline.match(protectedSource).hasMatch() || inlineCode.match(protectedSource).hasMatch();
     const bool hasHtmlMedia = std::any_of(sourceLines.cbegin(), sourceLines.cend(), [](const QString &line) {
         return bool(parseHtmlImageBlock(line)) || bool(parseHtmlAudioBlock(line))
-            || bool(parseHtmlAttachmentBlock(line));
+            || bool(parseHtmlVideoBlock(line)) || bool(parseHtmlAttachmentBlock(line));
     });
     // QTextDocument remains the Markdown reader for inline semantics, but its
     // writer wraps long paragraphs (very often around a link). Such a soft
