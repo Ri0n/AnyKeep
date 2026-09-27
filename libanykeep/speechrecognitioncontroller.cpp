@@ -71,7 +71,7 @@ SpeechRecognitionController::SpeechRecognitionController(QObject *parent) :
                 starting_         = false;
                 audioStopPending_ = false;
                 setBusy(false);
-                if (!destination || !destination->insertAudio(reference, durationMs, row, tr("Audio recording")))
+                if (!destination || !destination->insertMedia(reference, durationMs, 0, 0, row, tr("Audio recording")))
                     emit operationFailed(tr("Could not insert the audio recording into this note."));
             });
 }
@@ -378,7 +378,7 @@ bool SpeechRecognitionController::transcribeAudio(int row, const QString &source
         const bool    targetValid = destination && destinationIndex.isValid()
             && destinationIndex.model() == destination->model()
             && destination->model()->data(destinationIndex, NoteBlockModel::TypeRole).toInt() == NoteBlockModel::Media;
-        if (!value.isEmpty() && (!targetValid || !destination->setAudioTranscript(destinationIndex.row(), value)))
+        if (!value.isEmpty() && (!targetValid || !destination->setMediaTranscript(destinationIndex.row(), value)))
             emit operationFailed(tr("Could not attach the transcript to the audio recording."));
     });
     connect(job_, &SpeechRecognitionJob::failed, this, [this, guard](const QString &error) {
