@@ -1,8 +1,6 @@
 #include "mediaplaybackcontroller.h"
 
 #include "localmediastore.h"
-
-#include "localmediastore.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
 
@@ -55,6 +53,21 @@ public:
         audioOutput = std::make_unique<QAudioOutput>();
         player      = std::make_unique<QMediaPlayer>();
         player->setAudioOutput(audioOutput.get());
+        videoSink = std::make_unique<QVideoSink>();
+        player->setVideoSink(videoSink.get());
+        QObject::connect(videoSink.get(), &QVideoSink::videoFrameChanged, owner, [this](const QVideoFrame &frame) {
+            if (!frame.isValid() || sourceUri.isEmpty())
+                return;
+            const QImage image = frame.toImage();
+            if (image.isNull())
+                return;
+            const auto media = editor ? editor->media() : QList<MediaReference>{};
+            const auto it = std::find_if(media.cbegin(), media.cend(), [this](const MediaReference &item) {
+                return item.uri() == sourceUri;
+            });
+            if (it != media.cend())
+                LocalMediaStore::instance()->storeDerivedPoster(it->blobId, image);
+        });
         QObject::connect(player.get(), &QMediaPlayer::positionChanged, owner, [this](qint64 value) {
             positionMs = value;
             emit owner->stateChanged();
@@ -192,6 +205,7 @@ public:
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     std::unique_ptr<QAudioOutput> audioOutput;
     std::unique_ptr<QMediaPlayer> player;
+    std::unique_ptr<QVideoSink>   videoSink;
 #endif
 };
 
@@ -201,7 +215,14 @@ MediaPlaybackController::MediaPlaybackController(NoteEditor *editor, QObject *pa
 }
 MediaPlaybackController::~MediaPlaybackController() = default;
 
-QObject *MediaPlaybackController::videoSink() const { return videoSink_; }
+QObject *MediaPlaybackController::videoSink() const
+{
+#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+    return impl_->ensurePlayer() ? impl_->videoSink.get() : nullptr;
+#else
+    return nullptr;
+#endif
+}
 
 bool MediaPlaybackController::available() const
 {
