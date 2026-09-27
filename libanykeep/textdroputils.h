@@ -157,6 +157,12 @@ inline bool looksLikeCode(QString text)
     static const QRegularExpression operators(QStringLiteral(R"((?:==|!=|<=|>=|&&|\|\||=>|::|->))"));
     static const QRegularExpression call(QStringLiteral(R"(^\s*[A-Za-z_][A-Za-z0-9_.:-]*\s*\()"));
     static const QRegularExpression markdownList(QStringLiteral(R"(^\s*(?:[-+*]|\d+[.)])\s+)"));
+    // Application/debug logs commonly prefix most lines with a bracketed
+    // relative or wall-clock timestamp. Treat a sustained run as verbatim
+    // technical text even when it contains no programming-language syntax.
+    static const QRegularExpression logTimestamp(
+        QStringLiteral(R"(^\s*\[\s*(?:\d+(?:\.\d+)?|\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\]\s+\S)"));
+    int timestampedLogLines = 0;
 
     for (const QString &line : lines) {
         const QString trimmed = line.trimmed();
@@ -167,6 +173,8 @@ inline bool looksLikeCode(QString text)
             ++indentedLines;
         if (markdownList.match(line).hasMatch())
             ++markdownListLines;
+        if (logTimestamp.match(line).hasMatch())
+            ++timestampedLogLines;
 
         int lineScore = 0;
         if (controlFlow.match(line).hasMatch())
@@ -189,6 +197,9 @@ inline bool looksLikeCode(QString text)
     // Inline quotations and short prose snippets are never promoted. Lists
     // need especially strong evidence because indentation is part of their
     // ordinary Markdown structure.
+    if (nonEmptyLines >= 3 && timestampedLogLines >= 3
+        && timestampedLogLines * 2 >= nonEmptyLines)
+        return true;
     if (nonEmptyLines < 3 || signalLines < 2)
         return false;
     if (indentedLines * 2 >= nonEmptyLines)
