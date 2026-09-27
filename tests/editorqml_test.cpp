@@ -1671,6 +1671,34 @@ private:
         QTRY_VERIFY(editor.model()->contents().contains(QStringLiteral("plain one\nplain two")));
     }
 
+    void plainTextPasteIntoEmptyNoteStripsLeadingNoise()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QString());
+        note.setText(QString(), Note::PlainText);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+
+        host.resize(520, 360);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *title = nullptr;
+        QTRY_VERIFY((title = textEditorForBlock(root, 0)));
+        title->forceActiveFocus();
+        QTRY_VERIFY(title->hasActiveFocus());
+
+        auto *mime = new QMimeData;
+        mime->setText(QStringLiteral("\n\t\u200B\n  Pasted title\nbody"));
+        QGuiApplication::clipboard()->setMimeData(mime);
+        QTest::keyClick(host.quickWidget(), Qt::Key_V, Qt::ControlModifier);
+
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(0), NoteBlockModel::TextRole).toString(),
+                     QStringLiteral("Pasted title"));
+        QVERIFY(editor.model()->contents().contains(QStringLiteral("body")));
+    }
+
     void multilineDropIntoEmptyNoteSplitsTitleAndBody()
     {
         Note note(new NoteData(nullptr));
