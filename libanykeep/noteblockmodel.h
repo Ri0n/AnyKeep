@@ -33,13 +33,15 @@ public:
         BulletList,
         CheckList,
         Table,
-        Media,
+        Image,
         NumberedList,
         Heading,
         BlockQuote,
         CodeBlock,
         TagLine,
-        Attachment
+        Audio,
+        Attachment,
+        Video
     };
     Q_ENUM(BlockType)
     enum Role {
