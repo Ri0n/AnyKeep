@@ -505,10 +505,19 @@ ListView {
         const sourceCursor = editor.markdownRange(0, editor.cursorPosition).length
         if (sourceStart === sourceEnd) {
             const text = blockModel.blockTextAt(editor.blockIndex)
-            if (text.length === 0)
-                return false
-            sourceStart = Math.min(sourceCursor, text.length - 1)
-            sourceEnd = sourceStart + 1
+            // Preserve a collapsed cursor for an empty paragraph. The model
+            // understands that as a structural paragraph target and replaces
+            // it in place. Non-empty paragraphs still expand to one source
+            // character so the containing paragraph can be resolved.
+            const atEmptyParagraph = text.length === 0
+                    || (sourceCursor === 0 && text.indexOf("\n\n") === 0)
+                    || (sourceCursor === text.length && text.endsWith("\n\n"))
+                    || (sourceCursor >= 2 && sourceCursor + 2 <= text.length
+                        && text.substring(sourceCursor - 2, sourceCursor + 2) === "\n\n\n\n")
+            if (!atEmptyParagraph) {
+                sourceStart = Math.min(sourceCursor, text.length - 1)
+                sourceEnd = sourceStart + 1
+            }
         }
         const converted = blockModel.convertTextRangeToList(editor.blockIndex, sourceStart, sourceEnd,
                                                               type, sourceCursor)
