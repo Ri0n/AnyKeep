@@ -43,6 +43,12 @@ namespace {
 
     int documentEnd(const QTextDocument *document) { return document ? qMax(0, document->characterCount() - 1) : 0; }
 
+    bool isInlineMediaType(const QString &mediaType)
+    {
+        return mediaType.startsWith(QLatin1String("image/")) || mediaType.startsWith(QLatin1String("audio/"))
+            || mediaType.startsWith(QLatin1String("video/"));
+    }
+
     QTextCharFormat formatAt(QTextDocument *document, int position)
     {
         const int limit = documentEnd(document);
@@ -580,9 +586,7 @@ bool EditorPlatformBackend::insertMediaData(const QByteArray &data, const QStrin
     QString validatedType = database.mimeTypeForData(data).name();
     if (validatedType == QLatin1String("application/octet-stream"))
         validatedType = mediaType;
-    if (!validatedType.startsWith(QLatin1String("image/"))
-        && !validatedType.startsWith(QLatin1String("audio/"))
-        && !validatedType.startsWith(QLatin1String("video/"))) {
+    if (!isInlineMediaType(validatedType)) {
         emit operationFailed(tr("The selected file is not supported inline media."));
         return false;
     }
@@ -646,22 +650,22 @@ bool EditorPlatformBackend::insertMediaFiles(const QStringList &fileNames, int r
 {
     if (!canInsertMedia() || fileNames.isEmpty())
         return false;
+    QMimeDatabase         database;
     QList<MediaReference> references;
     for (const auto &fileName : fileNames) {
+        const QString type = database.mimeTypeForFile(fileName, QMimeDatabase::MatchContent).name();
+        if (!isInlineMediaType(type)) {
+            const QString message = tr("The selected file is not supported inline media: %1").arg(fileName);
+            if (error)
+                *error = message;
+            emit operationFailed(message);
+            return false;
+        }
         const auto imported = LocalMediaStore::instance()->importFile(fileName);
         if (!imported) {
             if (error)
                 *error = imported.error;
             emit operationFailed(imported.error);
-            return false;
-        }
-        const QString type = imported.value.mediaType;
-        if (!type.startsWith(QLatin1String("image/")) && !type.startsWith(QLatin1String("audio/"))
-            && !type.startsWith(QLatin1String("video/"))) {
-            const QString message = tr("The selected file is not supported inline media: %1").arg(fileName);
-            if (error)
-                *error = message;
-            emit operationFailed(message);
             return false;
         }
         references.append(imported.value);
