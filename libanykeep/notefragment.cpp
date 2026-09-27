@@ -126,8 +126,9 @@ namespace {
             mediaBlock.insert(QStringLiteral("title"), block.media.title);
             mediaBlock.insert(QStringLiteral("mediaType"), block.media.mediaType);
             mediaBlock.insert(QStringLiteral("durationMs"), block.media.durationMs);
-            mediaBlock.insert(QStringLiteral("width"), block.media.width);
-            mediaBlock.insert(QStringLiteral("height"), block.media.height);
+            mediaBlock.insert(QStringLiteral("pixelWidth"), block.media.pixelWidth);
+            mediaBlock.insert(QStringLiteral("pixelHeight"), block.media.pixelHeight);
+            mediaBlock.insert(QStringLiteral("displayWidth"), block.media.displayWidth);
             mediaBlock.insert(QStringLiteral("alignment"), block.media.alignment);
             mediaBlock.insert(QStringLiteral("transcript"), block.media.transcript);
             map.insert(QStringLiteral("mediaBlock"), mediaBlock);
@@ -260,13 +261,15 @@ namespace {
             block->media.title = media.value(QStringLiteral("title")).toString();
             block->media.mediaType = media.value(QStringLiteral("mediaType")).toString();
             block->media.durationMs = media.value(QStringLiteral("durationMs")).toInteger(-1);
-            block->media.width = static_cast<int>(media.value(QStringLiteral("width")).toInteger(-1));
-            block->media.height = static_cast<int>(media.value(QStringLiteral("height")).toInteger(-1));
+            block->media.pixelWidth = static_cast<int>(media.value(QStringLiteral("pixelWidth")).toInteger(-1));
+            block->media.pixelHeight = static_cast<int>(media.value(QStringLiteral("pixelHeight")).toInteger(-1));
+            block->media.displayWidth = static_cast<int>(media.value(QStringLiteral("displayWidth")).toInteger(-1));
             block->media.alignment = media.value(QStringLiteral("alignment")).toString().trimmed().toLower();
             block->media.transcript = media.value(QStringLiteral("transcript")).toString();
             if (block->media.sourceUri.isEmpty() || block->media.durationMs < 0
-                || block->media.durationMs > MaxAudioDurationMs || block->media.width < 0
-                || block->media.width > 16384 || block->media.height < 0 || block->media.height > 16384
+                || block->media.durationMs > MaxAudioDurationMs || block->media.pixelWidth < 0
+                || block->media.pixelWidth > 16384 || block->media.pixelHeight < 0 || block->media.pixelHeight > 16384
+                || block->media.displayWidth < 0 || block->media.displayWidth > 16384
                 || (block->media.alignment != QLatin1String("left")
                     && block->media.alignment != QLatin1String("center")
                     && block->media.alignment != QLatin1String("right"))) {
@@ -340,7 +343,7 @@ NoteFragmentDecodeResult decodeNoteFragment(const QByteArray &data)
         return failed(QStringLiteral("unknown fragment schema"));
 
     const qint64 version = root.value(QStringLiteral("version")).toInteger(-1);
-    if (version < 1 || version > NoteFragment::CurrentVersion)
+    if (version != NoteFragment::CurrentVersion)
         return failed(QStringLiteral("unsupported fragment version"));
 
     const qint64 kind         = root.value(QStringLiteral("kind")).toInteger(-1);
