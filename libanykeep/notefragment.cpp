@@ -120,20 +120,17 @@ namespace {
         table.insert(QStringLiteral("cells"), cells);
         map.insert(QStringLiteral("table"), table);
 
-        QCborMap image;
-        image.insert(QStringLiteral("sourceUri"), block.image.sourceUri);
-        image.insert(QStringLiteral("alt"), block.image.alt);
-        image.insert(QStringLiteral("width"), block.image.width);
-        image.insert(QStringLiteral("alignment"), block.image.alignment);
-        map.insert(QStringLiteral("image"), image);
-
-        if (block.type == NoteFragmentBlockType::Audio) {
-            QCborMap audio;
-            audio.insert(QStringLiteral("sourceUri"), block.audio.sourceUri);
-            audio.insert(QStringLiteral("title"), block.audio.title);
-            audio.insert(QStringLiteral("durationMs"), block.audio.durationMs);
-            audio.insert(QStringLiteral("transcript"), block.audio.transcript);
-            map.insert(QStringLiteral("audio"), audio);
+        if (block.type == NoteFragmentBlockType::Media) {
+            QCborMap mediaBlock;
+            mediaBlock.insert(QStringLiteral("sourceUri"), block.media.sourceUri);
+            mediaBlock.insert(QStringLiteral("title"), block.media.title);
+            mediaBlock.insert(QStringLiteral("mediaType"), block.media.mediaType);
+            mediaBlock.insert(QStringLiteral("durationMs"), block.media.durationMs);
+            mediaBlock.insert(QStringLiteral("width"), block.media.width);
+            mediaBlock.insert(QStringLiteral("height"), block.media.height);
+            mediaBlock.insert(QStringLiteral("alignment"), block.media.alignment);
+            mediaBlock.insert(QStringLiteral("transcript"), block.media.transcript);
+            map.insert(QStringLiteral("mediaBlock"), mediaBlock);
         }
         if (block.type == NoteFragmentBlockType::Attachment) {
             QCborMap attachment;
@@ -154,7 +151,8 @@ namespace {
         }
         const QCborMap map         = value.toMap();
         const qint64   type        = map.value(QStringLiteral("type")).toInteger(-1);
-        const qint64   maximumType = version >= 6 ? static_cast<qint64>(NoteFragmentBlockType::Attachment)
+        const qint64   maximumType = version >= 7 ? static_cast<qint64>(NoteFragmentBlockType::Attachment)
+            : version >= 6                        ? static_cast<qint64>(NoteFragmentBlockType::Attachment)
             : version >= 5                        ? static_cast<qint64>(NoteFragmentBlockType::Audio)
             : version >= 4                        ? static_cast<qint64>(NoteFragmentBlockType::TagLine)
             : version >= 2                        ? static_cast<qint64>(NoteFragmentBlockType::CodeBlock)
@@ -252,48 +250,28 @@ namespace {
             return false;
         }
 
-        const QCborValue imageValue = map.value(QStringLiteral("image"));
-        if (!imageValue.isMap()) {
-            *error = QStringLiteral("block image is not a map");
-            return false;
-        }
-        const QCborMap image   = imageValue.toMap();
-        block->image.sourceUri = image.value(QStringLiteral("sourceUri")).toString();
-        block->image.alt       = image.value(QStringLiteral("alt")).toString();
-        block->image.width     = 0;
-        block->image.alignment = QStringLiteral("center");
-        if (version >= 3 && block->type == NoteFragmentBlockType::Image) {
-            const qint64  width     = image.value(QStringLiteral("width")).toInteger(-1);
-            const QString alignment = image.value(QStringLiteral("alignment")).toString().trimmed().toLower();
-            if (width < 0 || width > 16384
-                || (alignment != QLatin1String("left") && alignment != QLatin1String("center")
-                    && alignment != QLatin1String("right"))) {
-                *error = QStringLiteral("image block has invalid presentation");
+        if (version >= 7 && block->type == NoteFragmentBlockType::Media) {
+            const QCborValue mediaValue = map.value(QStringLiteral("mediaBlock"));
+            if (!mediaValue.isMap()) {
+                *error = QStringLiteral("block media is not a map");
                 return false;
             }
-            block->image.width     = static_cast<int>(width);
-            block->image.alignment = alignment;
-        }
-        if (block->type == NoteFragmentBlockType::Image && block->image.sourceUri.isEmpty()) {
-            *error = QStringLiteral("image block has no source URI");
-            return false;
-        }
-
-        if (version >= 5 && block->type == NoteFragmentBlockType::Audio) {
-            const QCborValue audioValue = map.value(QStringLiteral("audio"));
-            if (!audioValue.isMap()) {
-                *error = QStringLiteral("block audio is not a map");
-                return false;
-            }
-            const QCborMap audio    = audioValue.toMap();
-            block->audio.sourceUri  = audio.value(QStringLiteral("sourceUri")).toString();
-            block->audio.title      = audio.value(QStringLiteral("title")).toString();
-            block->audio.durationMs = audio.value(QStringLiteral("durationMs")).toInteger(-1);
-            if (version >= 6)
-                block->audio.transcript = audio.value(QStringLiteral("transcript")).toString();
-            if (block->audio.sourceUri.isEmpty() || block->audio.durationMs < 0
-                || block->audio.durationMs > MaxAudioDurationMs) {
-                *error = QStringLiteral("audio block is invalid");
+            const QCborMap media = mediaValue.toMap();
+            block->media.sourceUri = media.value(QStringLiteral("sourceUri")).toString();
+            block->media.title = media.value(QStringLiteral("title")).toString();
+            block->media.mediaType = media.value(QStringLiteral("mediaType")).toString();
+            block->media.durationMs = media.value(QStringLiteral("durationMs")).toInteger(-1);
+            block->media.width = static_cast<int>(media.value(QStringLiteral("width")).toInteger(-1));
+            block->media.height = static_cast<int>(media.value(QStringLiteral("height")).toInteger(-1));
+            block->media.alignment = media.value(QStringLiteral("alignment")).toString().trimmed().toLower();
+            block->media.transcript = media.value(QStringLiteral("transcript")).toString();
+            if (block->media.sourceUri.isEmpty() || block->media.durationMs < 0
+                || block->media.durationMs > MaxAudioDurationMs || block->media.width < 0
+                || block->media.width > 16384 || block->media.height < 0 || block->media.height > 16384
+                || (block->media.alignment != QLatin1String("left")
+                    && block->media.alignment != QLatin1String("center")
+                    && block->media.alignment != QLatin1String("right"))) {
+                *error = QStringLiteral("media block is invalid");
                 return false;
             }
         }
