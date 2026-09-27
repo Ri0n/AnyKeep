@@ -14,6 +14,7 @@
 #include <QAudioOutput>
 #include <QMediaPlayer>
 #include <QVideoSink>
+#include <QVideoFrame>
 #endif
 
 namespace AnyKeep {
