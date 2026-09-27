@@ -29,6 +29,19 @@ inline QQuickItem *quickVisibleItemByName(QQuickItem *root, const QString &name)
     return nullptr;
 }
 
+inline QQuickItem *quickItemByNameAndProperty(QQuickItem *root, const QString &name, const char *property,
+                                              const QVariant &value)
+{
+    if (!root)
+        return nullptr;
+    if (root->objectName() == name && root->property(property) == value)
+        return root;
+    for (auto *child : root->childItems())
+        if (auto *match = quickItemByNameAndProperty(child, name, property, value))
+            return match;
+    return nullptr;
+}
+
 inline QQuickItem *ancestorWithProperty(QQuickItem *item, const char *propertyName)
 {
     for (auto *candidate = item; candidate; candidate = candidate->parentItem())

@@ -22,7 +22,6 @@
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QShowEvent>
-#include <QShortcut>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -88,23 +87,6 @@ DesktopNoteEditorHost::DesktopNoteEditorHost(NoteEditor *editor, QWidget *parent
     quick_->setSource(QUrl(QStringLiteral("qrc:/qml/DesktopNoteEditor.qml")));
     quick_->installEventFilter(this);
     layout->addWidget(quick_);
-
-    // Let Qt's shortcut machinery resolve shifted digit keys against the
-    // active keyboard layout. QKeyEvent::keyCombination() is the translated
-    // event and is not a reliable representation of Ctrl+Shift+7/8/9.
-    const struct {
-        const char *sequence;
-        int         listType;
-    } listShortcuts[] = {
-        { "Ctrl+Shift+7", NoteBlockModel::NumberedList },
-        { "Ctrl+Shift+8", NoteBlockModel::BulletList },
-        { "Ctrl+Shift+9", NoteBlockModel::CheckList },
-    };
-    for (const auto &entry : listShortcuts) {
-        auto *shortcut = new QShortcut(QKeySequence(QString::fromLatin1(entry.sequence)), this);
-        shortcut->setContext(Qt::WindowShortcut);
-        connect(shortcut, &QShortcut::activated, this, [this, type = entry.listType]() { insertList(type); });
-    }
 
     platformBackend_->setDragSource(quick_);
     // The nested NoteBlockEditorImpl owns editor-view registration. Registering

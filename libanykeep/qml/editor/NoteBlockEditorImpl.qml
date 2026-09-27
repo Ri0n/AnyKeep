@@ -472,7 +472,6 @@ ListView {
     function insertListBlock(type) {
         return runEditTransaction("insert-or-convert-list", function() {
             if (activeEditor && activeEditor.blockIndex >= 0 && !activeEditor.titleDocument
-                    && activeEditor.selectionStart !== activeEditor.selectionEnd
                     && !selectionSpansEditors) {
                 if (convertTextEditorToList(activeEditor, type))
                     return true

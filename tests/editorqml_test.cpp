@@ -731,7 +731,7 @@ private slots:
         QVERIFY(start >= 0);
         body->forceActiveFocus(Qt::MouseFocusReason);
         QVERIFY(QMetaObject::invokeMethod(body, "select", Q_ARG(int, start), Q_ARG(int, end)));
-        QTest::keyClick(host.quickWidget(), Qt::Key_Asterisk, Qt::ControlModifier | Qt::ShiftModifier);
+        QTest::keyClick(host.quickWidget(), Qt::Key_8, Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_COMPARE(editor.model()->rowCount(), 4);
         QCOMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::BulletList));
         QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::ItemsRole).toStringList(),
@@ -2630,22 +2630,21 @@ private slots:
 
     void blockQuoteDoubleEnterExitsButShiftEnterDoesNot()
     {
-        const auto makeHost = [](Note &note, std::unique_ptr<DraftManager> &drafts,
-                                 std::unique_ptr<NoteEditor> &editor,
+        const auto makeHost = [](Note &note, std::unique_ptr<DraftManager> &drafts, std::unique_ptr<NoteEditor> &editor,
                                  std::unique_ptr<DesktopNoteEditorHost> &host) {
             note = Note(new NoteData(nullptr));
             note.setTitle(QStringLiteral("title"));
             note.setText(QStringLiteral("> quote"), Note::Markdown);
             drafts = std::make_unique<DraftManager>(std::make_unique<MemoryDraftStore>());
             editor = std::make_unique<NoteEditor>(note, *drafts);
-            host = std::make_unique<DesktopNoteEditorHost>(editor.get());
+            host   = std::make_unique<DesktopNoteEditorHost>(editor.get());
             host->resize(520, 360);
             host->show();
         };
 
-        Note note;
-        std::unique_ptr<DraftManager> drafts;
-        std::unique_ptr<NoteEditor> editor;
+        Note                                   note;
+        std::unique_ptr<DraftManager>          drafts;
+        std::unique_ptr<NoteEditor>            editor;
         std::unique_ptr<DesktopNoteEditorHost> host;
         makeHost(note, drafts, editor, host);
         auto *root = qobject_cast<QQuickItem *>(host->quickWidget()->rootObject());
@@ -2680,8 +2679,8 @@ private slots:
         Note note(new NoteData(nullptr));
         note.setTitle(QString());
         note.setText(QString(), Note::PlainText);
-        DraftManager drafts(std::make_unique<MemoryDraftStore>());
-        NoteEditor editor(note, drafts);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
         DesktopNoteEditorHost host(&editor);
         host.resize(520, 360);
         host.show();
