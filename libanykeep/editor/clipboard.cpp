@@ -26,8 +26,7 @@ NoteFragment NoteEditor::withMedia(NoteFragment fragment) const
 {
     QSet<QString> includedUris;
     for (const NoteFragmentBlock &block : std::as_const(fragment.blocks)) {
-        const QString sourceUri = block.type == NoteFragmentBlockType::Image ? block.image.sourceUri
-            : block.type == NoteFragmentBlockType::Audio                     ? block.audio.sourceUri
+        const QString sourceUri = block.type == NoteFragmentBlockType::Media ? block.media.sourceUri
             : block.type == NoteFragmentBlockType::Attachment                ? block.attachment.sourceUri
                                                                              : QString();
         if (sourceUri.isEmpty() || includedUris.contains(sourceUri))
@@ -46,7 +45,7 @@ NoteFragment NoteEditor::withMedia(NoteFragment fragment) const
 
     // A single copied image is also useful outside AnyKeep.  Keep its PNG data
     // reasonably bounded; larger images retain their internal blob reference.
-    if (fragment.blocks.size() == 1 && fragment.blocks.constFirst().type == NoteFragmentBlockType::Image
+    if (fragment.blocks.size() == 1 && fragment.blocks.constFirst().type == NoteFragmentBlockType::Media
         && fragment.media.size() == 1
         && fragment.media.constFirst().reference.size <= NoteTransferController::PortableImageDataLimit) {
         const auto data = LocalMediaStore::instance()->data(fragment.media.constFirst().reference.blobId);
