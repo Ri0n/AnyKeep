@@ -106,7 +106,6 @@ public:
     Q_INVOKABLE void removeTableColumn(int row, int column);
     Q_INVOKABLE bool moveTableColumn(int row, int from, int to);
     Q_INVOKABLE void setMediaUrl(int row, const QString &url);
-    Q_INVOKABLE void setMediaTitle(int row, const QString &title);
     Q_INVOKABLE void setMediaDisplayWidth(int row, int width);
     Q_INVOKABLE void setMediaAlignment(int row, const QString &alignment);
     Q_INVOKABLE void insertTextBlock(int row);
