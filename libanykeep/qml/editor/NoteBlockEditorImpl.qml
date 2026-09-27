@@ -492,21 +492,6 @@ ListView {
         return true
     }
 
-    function handleListShortcut(event, editor) {
-        const modifiers = event.modifiers
-        if (!(modifiers & Qt.ControlModifier) || !(modifiers & Qt.ShiftModifier)
-                || modifiers & (Qt.AltModifier | Qt.MetaModifier))
-            return false
-        const type = event.key === Qt.Key_7 || event.key === Qt.Key_Ampersand ? 5
-                   : event.key === Qt.Key_8 || event.key === Qt.Key_Asterisk ? 1
-                   : event.key === Qt.Key_9 || event.key === Qt.Key_ParenLeft ? 2 : -1
-        if (type < 0)
-            return false
-        return runEditTransaction("convert-text-to-list", function() {
-            return convertTextEditorToList(editor, type)
-        })
-    }
-
     function titleEnd(editor) {
         if (!editor || !editor.titleDocument)
             return -1
