@@ -447,6 +447,13 @@ ListView {
                 const activeBlock = activeEditor.blockIndex
                 if (blockModel.convertListLevel(activeBlock, activeEditor.listItemIndex, type))
                     return true
+                if (blockModel.isExplicitEmptyTextBlock(activeBlock)) {
+                    prepareForStructuralMutation()
+                    blockModel.removeBlock(activeBlock)
+                    blockModel.insertList(activeBlock, type)
+                    focusBlock(activeBlock)
+                    return true
+                }
             }
             const row = insertionBlockIndex()
             blockModel.insertList(row, type)
