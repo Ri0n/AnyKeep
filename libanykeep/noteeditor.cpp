@@ -1,7 +1,7 @@
 #include "noteeditor.h"
 #include "notetitleresolver.h"
 
-#include "audioplaybackcontroller.h"
+#include "mediaplaybackcontroller.h"
 #include "draftmanager.h"
 #include "noteblockmodel.h"
 #include "notedata.h"
@@ -89,7 +89,7 @@ NoteEditor::NoteEditor(const Note &note, const QUuid &draftId, QObject *parent) 
 
 NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draftId, QObject *parent) :
     QObject(parent), note_(note), drafts_(&drafts), model_(new NoteBlockModel(this)),
-    audioPlayback_(new AudioPlaybackController(this, this)), history_(std::make_unique<NoteDocumentHistory>())
+    mediaPlayback_(new MediaPlaybackController(this, this)), history_(std::make_unique<NoteDocumentHistory>())
 {
     draftId_ = drafts_->acquireEditingSession(note_, draftId);
     connect(drafts_, &DraftManager::discardEditorsForNoteRequested, this,
@@ -639,7 +639,7 @@ void NoteEditor::markFolderPersisted(const QUuid &folderId)
 
 QObject *NoteEditor::blockModel() const { return model_; }
 
-QObject *NoteEditor::audioPlayback() const { return audioPlayback_; }
+QObject *NoteEditor::mediaPlayback() const { return mediaPlayback_; }
 
 void NoteEditor::resetContent(const QString &text, Note::Format format)
 {
