@@ -2600,6 +2600,85 @@ private slots:
         QCOMPARE(model.contents(), document);
     }
 
+    void listShortcutsCreateListsFromOrdinaryRows()
+    {
+        const auto verify = [](Qt::Key key, Qt::KeyboardModifiers modifiers, int expectedType) {
+            Note note(new NoteData(nullptr));
+            note.setTitle(QStringLiteral("title"));
+            note.setText(QStringLiteral(""), Note::Markdown);
+            DraftManager drafts(std::make_unique<MemoryDraftStore>());
+            NoteEditor editor(note, drafts);
+            DesktopNoteEditorHost host(&editor);
+            host.resize(520, 360);
+            host.show();
+
+            auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+            QVERIFY(root);
+            QQuickItem *body = nullptr;
+            QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+            body->forceActiveFocus();
+            QTRY_VERIFY(body->hasActiveFocus());
+
+            QTest::keyClick(host.quickWidget(), key, modifiers);
+            QTRY_COMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::List));
+            QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ListTypeRole).toInt(),
+                     expectedType);
+        };
+
+        verify(Qt::Key_7, Qt::ControlModifier | Qt::ShiftModifier, int(NoteBlockModel::NumberedList));
+        verify(Qt::Key_8, Qt::ControlModifier | Qt::ShiftModifier, int(NoteBlockModel::BulletList));
+        verify(Qt::Key_9, Qt::ControlModifier | Qt::ShiftModifier, int(NoteBlockModel::TaskList));
+    }
+
+    void blockQuoteDoubleEnterExitsButShiftEnterDoesNot()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("> quote"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *quote = nullptr;
+        QTRY_VERIFY((quote = textEditorForBlock(root, 1)));
+        quote->forceActiveFocus();
+        quote->setProperty("cursorPosition", quote->property("length"));
+        QTest::keyClick(host.quickWidget(), Qt::Key_Return);
+        QTRY_COMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::BlockQuote));
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_Return, Qt::ShiftModifier);
+        QTRY_COMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::BlockQuote));
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_Return);
+        QTRY_VERIFY(editor.model()->rowCount() >= 3);
+        QCOMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::Text));
+    }
+
+    void focusedPlainTextEditsUpdateDisplayTitleImmediately()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QString());
+        note.setText(QString(), Note::PlainText);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *title = nullptr;
+        QTRY_VERIFY((title = textEditorForBlock(root, 0)));
+        title->forceActiveFocus();
+        QTest::keyClicks(host.quickWidget(), QStringLiteral("Live title"));
+        QTRY_COMPARE(editor.displayTitle(), QStringLiteral("Live title"));
+        QCOMPARE(editor.note().title(), QStringLiteral("Live title"));
+    }
+
     void regressionPendingSourceSyncPreservesToolbarSelection() { pendingSourceSyncPreservesToolbarSelection(); }
 
     void regressionCodeActionConvertsMultilineTextSelectionWithoutBlankParagraphs()
