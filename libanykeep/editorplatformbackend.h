@@ -62,6 +62,8 @@ public:
     Q_INVOKABLE QStringList  customSpellingDictionary() const;
     Q_INVOKABLE void         setCustomSpellingDictionary(const QStringList &words);
     Q_INVOKABLE bool         insertClipboardImage(int row = -1);
+    Q_INVOKABLE bool         insertMediaData(const QByteArray &data, const QString &name, const QString &mediaType,
+                                             int row = -1);
     Q_INVOKABLE bool         insertImageData(const QByteArray &data, const QString &name, const QString &mediaType,
                                              int row = -1);
     Q_INVOKABLE virtual bool insertImage(int row = -1);
@@ -117,7 +119,7 @@ private:
         QString                      language;
     };
 
-    bool insertImportedImages(const QList<MediaReference> &references, int row, const QString &historyKind);
+    bool insertImportedMedia(const QList<MediaReference> &references, int row, const QString &historyKind);
     void clearRegisteredDocuments();
     void installBuiltInExtensions();
     bool isCustomSpellingWord(const QString &word) const;
