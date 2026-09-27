@@ -19,7 +19,7 @@ class QQuickWindow;
 
 namespace AnyKeep {
 
-class AudioPlaybackController;
+class MediaPlaybackController;
 class DraftManager;
 class NoteBlockModel;
 class NoteDocumentHistory;
@@ -41,7 +41,7 @@ class ANYKEEP_EXPORT NoteEditor final : public QObject {
     Q_PROPERTY(bool canInsertAudio READ canInsertAudio NOTIFY storageCapabilitiesChanged)
     Q_PROPERTY(bool canInsertAttachments READ canInsertAttachments NOTIFY storageCapabilitiesChanged)
     Q_PROPERTY(QObject *blockModel READ blockModel CONSTANT)
-    Q_PROPERTY(QObject *audioPlayback READ audioPlayback CONSTANT)
+    Q_PROPERTY(QObject *mediaPlayback READ mediaPlayback CONSTANT)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY undoStateChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY undoStateChanged)
     Q_PROPERTY(QString undoText READ undoText NOTIFY undoStateChanged)
@@ -86,7 +86,7 @@ public:
     bool                  folderUserOverride() const { return folderUserOverride_; }
     QString               errorString() const { return errorString_; }
     QObject              *blockModel() const;
-    QObject              *audioPlayback() const;
+    QObject              *mediaPlayback() const;
     NoteBlockModel       *model() const { return model_; }
     QList<MediaReference> media() const { return media_; }
     bool                  canUndo() const;
@@ -224,7 +224,7 @@ private:
     Note                          note_;
     DraftManager                 *drafts_ { nullptr };
     NoteBlockModel               *model_ { nullptr };
-    AudioPlaybackController      *audioPlayback_ { nullptr };
+    MediaPlaybackController      *mediaPlayback_ { nullptr };
     QUuid                         draftId_;
     QString                       text_;
     QString                       baselineText_;
