@@ -357,11 +357,11 @@ void NoteBlockModelTest::serializesParsesAndTransfersAudioBlocks()
 
     const NoteFragment fragment = model.extractBlockFragment(0, 0);
     QCOMPARE(fragment.blocks.size(), 1);
-    QCOMPARE(fragment.blocks.constFirst().type, NoteFragmentBlockType::Audio);
-    QCOMPARE(fragment.blocks.constFirst().audio.sourceUri, uri);
-    QCOMPARE(fragment.blocks.constFirst().audio.title, QStringLiteral("Meeting & notes"));
-    QCOMPARE(fragment.blocks.constFirst().audio.durationMs, qint64(91234));
-    QCOMPARE(fragment.blocks.constFirst().audio.transcript, QStringLiteral("First line<br>\nSecond & final"));
+    QCOMPARE(fragment.blocks.constFirst().type, NoteFragmentBlockType::Media);
+    QCOMPARE(fragment.blocks.constFirst().media.sourceUri, uri);
+    QCOMPARE(fragment.blocks.constFirst().media.title, QStringLiteral("Meeting & notes"));
+    QCOMPARE(fragment.blocks.constFirst().media.durationMs, qint64(91234));
+    QCOMPARE(fragment.blocks.constFirst().media.transcript, QStringLiteral("First line<br>\nSecond & final"));
 
     NoteBlockModel transferred;
     transferred.load(QStringLiteral("before"), true);
