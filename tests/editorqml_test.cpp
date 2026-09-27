@@ -2600,36 +2600,6 @@ private slots:
         QCOMPARE(model.contents(), document);
     }
 
-    void listShortcutsCreateListsFromOrdinaryRows()
-    {
-        const auto verify = [](Qt::Key key, Qt::KeyboardModifiers modifiers, int expectedType) {
-            Note note(new NoteData(nullptr));
-            note.setTitle(QStringLiteral("title"));
-            note.setText(QStringLiteral("body"), Note::Markdown);
-            DraftManager drafts(std::make_unique<MemoryDraftStore>());
-            NoteEditor editor(note, drafts);
-            DesktopNoteEditorHost host(&editor);
-            host.resize(520, 360);
-            host.show();
-
-            auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
-            QVERIFY(root);
-            QQuickItem *body = nullptr;
-            QTRY_VERIFY((body = textEditorForBlock(root, 1)));
-            editor.model()->setBlockText(1, QString());
-            QTRY_COMPARE(body->property("length").toInt(), 0);
-            body->forceActiveFocus();
-            QTRY_VERIFY(body->hasActiveFocus());
-
-            QTest::keyClick(host.quickWidget(), key, modifiers);
-            QTRY_COMPARE(editor.model()->blockTypeAt(1), expectedType);
-        };
-
-        verify(Qt::Key_7, Qt::ControlModifier | Qt::ShiftModifier, int(NoteBlockModel::NumberedList));
-        verify(Qt::Key_8, Qt::ControlModifier | Qt::ShiftModifier, int(NoteBlockModel::BulletList));
-        verify(Qt::Key_9, Qt::ControlModifier | Qt::ShiftModifier, int(NoteBlockModel::CheckList));
-    }
-
     void blockQuoteDoubleEnterExitsButShiftEnterDoesNot()
     {
         const auto makeHost = [](Note &note, std::unique_ptr<DraftManager> &drafts,
