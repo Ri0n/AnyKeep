@@ -4,7 +4,6 @@
 #include "anykeep_export.h"
 
 #include <QObject>
-#include <QImage>
 #include <memory>
 
 namespace AnyKeep {
@@ -21,7 +20,6 @@ class ANYKEEP_EXPORT MediaPlaybackController final : public QObject {
     Q_PROPERTY(qint64 duration READ duration NOTIFY stateChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY stateChanged)
     Q_PROPERTY(QObject *videoSink READ videoSink CONSTANT)
-    Q_PROPERTY(QImage poster READ poster NOTIFY posterChanged)
 
 public:
     explicit MediaPlaybackController(NoteEditor *editor, QObject *parent = nullptr);
@@ -34,6 +32,7 @@ public:
     qint64  position() const;
     qint64  duration() const;
     QString errorString() const;
+    QObject *videoSink() const;
 
     Q_INVOKABLE bool play(const QString &sourceUri);
     Q_INVOKABLE bool toggle(const QString &sourceUri);
@@ -43,7 +42,6 @@ public:
 
 signals:
     void stateChanged();
-    void posterChanged();
 
 private:
     class Impl;
