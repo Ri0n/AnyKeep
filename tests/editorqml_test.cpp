@@ -125,6 +125,21 @@ private slots:
         QCOMPARE(host.model(), editor.model());
     }
 
+    void loadsMediaVideoSurface()
+    {
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(plainNote(), drafts);
+        DesktopNoteEditorHost host(&editor);
+        auto                 *quick = host.quickWidget();
+        QVERIFY(quick);
+
+        QQmlComponent component(quick->engine(),
+                                QUrl(QStringLiteral("qrc:/qml/editor/blocks/MediaVideoSurface.qml")));
+        QTRY_COMPARE(component.status(), QQmlComponent::Ready);
+        std::unique_ptr<QObject> surface(component.create());
+        QVERIFY2(surface, qPrintable(component.errorString()));
+    }
+
     void favoriteButtonTracksBackendAcrossRepeatedClicks()
     {
         FavoriteEditorStorage storage;
