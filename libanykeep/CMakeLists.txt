@@ -81,7 +81,7 @@ endif()
 
 set(anykeep_CORE_SRCS
     audioattachmentrecorder.cpp
-    audioplaybackcontroller.cpp
+    mediaplaybackcontroller.cpp
     bundledpluginregistry.cpp
     conflictresolver.cpp
     corestorageregistry.cpp
@@ -164,7 +164,7 @@ set(anykeep_CORE_SRCS
     windowgeometryutils.cpp)
 set(anykeep_CORE_HDRS
     audioattachmentrecorder.h
-    audioplaybackcontroller.h
+    mediaplaybackcontroller.h
     bundledplugininterface.h
     bundledpluginregistry.h
     conflictresolver.h
