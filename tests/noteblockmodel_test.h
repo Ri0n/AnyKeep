@@ -19,7 +19,7 @@ private slots:
     void tagLineBecomesOrdinaryTextWhenContentMovesBeforeIt();
     void parsesAndWritesGithubBlocks();
     void serializesAndParsesImagePresentation();
-    void serializesParsesAndTransfersAudioBlocks();
+    void serializesParsesAndTransfersTimedMediaBlocks();
     void serializesParsesAndTransfersAttachments();
     void parsesSerializesAndTransfersBlockQuotes();
     void convertsBetweenBlockQuotesAndHeadings();
