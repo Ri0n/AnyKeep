@@ -59,19 +59,47 @@ ToolBar {
         modal: true
         standardButtons: Dialog.Close
         anchors.centerIn: Overlay.overlay
+        width: Math.min(560, Overlay.overlay ? Overlay.overlay.width - 32 : 560)
+        height: Math.min(620, Overlay.overlay ? Overlay.overlay.height - 32 : 620)
 
-        width: 280
-        contentItem: ColumnLayout {
-            width: 240
-            spacing: 8
-            Label { text: qsTr("Numbered list"); font.bold: true }
-            Label { text: qsTr("Ctrl+Shift+7") }
-            Label { text: qsTr("Bullet list"); font.bold: true }
-            Label { text: qsTr("Ctrl+Shift+8") }
-            Label { text: qsTr("Task list"); font.bold: true }
-            Label { text: qsTr("Ctrl+Shift+9") }
-            Label { text: qsTr("Find in note"); font.bold: true }
-            Label { text: qsTr("Ctrl+F") }
+        contentItem: ScrollView {
+            clip: true
+            ColumnLayout {
+                width: shortcutHelp.availableWidth
+                spacing: 6
+
+                Label { text: qsTr("Editing"); font.bold: true; font.pointSize: root.font.pointSize + 1 }
+                Label { text: qsTr("Undo") + "    Ctrl+Z" }
+                Label { text: qsTr("Redo") + "    Ctrl+Shift+Z / Ctrl+Y" }
+                Label { text: qsTr("Find in note") + "    Ctrl+F" }
+                Label { text: qsTr("Select all") + "    Ctrl+A" }
+                Label { text: qsTr("Copy / Cut / Paste") + "    Ctrl+C / Ctrl+X / Ctrl+V" }
+
+                Item { Layout.preferredHeight: 6 }
+                Label { text: qsTr("Inline formatting"); font.bold: true; font.pointSize: root.font.pointSize + 1 }
+                Label { text: qsTr("Bold") + "    Ctrl+B" }
+                Label { text: qsTr("Italic") + "    Ctrl+I" }
+                Label { text: qsTr("Underline") + "    Ctrl+U" }
+                Label { text: qsTr("Strikethrough") + "    Ctrl+Shift+S" }
+                Label { text: qsTr("Inline code") + "    Ctrl+`" }
+                Label { text: qsTr("Link") + "    Ctrl+K" }
+
+                Item { Layout.preferredHeight: 6 }
+                Label { text: qsTr("Paragraphs and blocks"); font.bold: true; font.pointSize: root.font.pointSize + 1 }
+                Label { text: qsTr("Normal paragraph") + "    Ctrl+0" }
+                Label { text: qsTr("Heading 1…6") + "    Ctrl+1…6" }
+
+                Item { Layout.preferredHeight: 6 }
+                Label { text: qsTr("Lists"); font.bold: true; font.pointSize: root.font.pointSize + 1 }
+                Label { text: qsTr("Numbered list") + "    Ctrl+Shift+7" }
+                Label { text: qsTr("Bullet list") + "    Ctrl+Shift+8" }
+                Label { text: qsTr("Task list") + "    Ctrl+Shift+9" }
+                Label { text: qsTr("Indent / outdent list item") + "    Tab / Shift+Tab" }
+
+                Item { Layout.preferredHeight: 6 }
+                Label { text: qsTr("Code blocks"); font.bold: true; font.pointSize: root.font.pointSize + 1 }
+                Label { text: qsTr("Indent / outdent") + "    Tab / Shift+Tab" }
+            }
         }
     }
 
