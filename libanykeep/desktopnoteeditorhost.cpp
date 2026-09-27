@@ -263,9 +263,36 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
                 dropEvent->ignore();
             }
             return true;
-        } else if (event->type() == QEvent::KeyPress) {
+        } else if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) {
             auto    *keyEvent = static_cast<QKeyEvent *>(event);
             QObject *root     = quick_->rootObject();
+
+            // QKeySequence resolves the platform keyboard layout. Do not infer
+            // Ctrl+Shift+7/8/9 from the translated character produced by the
+            // current layout (which may be &, ?, *, (, or something else).
+            const struct {
+                QKeySequence sequence;
+                int listType;
+            } listShortcuts[] = {
+                { QKeySequence(QStringLiteral("Ctrl+Shift+7")), 5 },
+                { QKeySequence(QStringLiteral("Ctrl+Shift+8")), 1 },
+                { QKeySequence(QStringLiteral("Ctrl+Shift+9")), 2 },
+            };
+            for (const auto &shortcut : listShortcuts) {
+                if (shortcut.sequence.matches(QKeySequence(keyEvent->keyCombination()))
+                    != QKeySequence::ExactMatch)
+                    continue;
+                if (event->type() == QEvent::ShortcutOverride) {
+                    keyEvent->accept();
+                    return true;
+                }
+                QVariant result;
+                if (root && QMetaObject::invokeMethod(root, "activateListShortcut",
+                                                      Q_RETURN_ARG(QVariant, result),
+                                                      Q_ARG(QVariant, shortcut.listType))
+                    && result.toBool())
+                    return true;
+            }
             if (invokeQmlBoolean(root, "documentHistoryOwnsFocus")) {
                 const auto modifiers = keyEvent->modifiers();
                 const bool plainText = !keyEvent->text().isEmpty()
