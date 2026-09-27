@@ -337,6 +337,30 @@ ListView {
     function handleStructuredEnter(event, editor) { return mediaNavigationController.handleStructuredEnter(event, editor) }
     function handleBlockBoundaryNavigation(event, editor) { return mediaNavigationController.handleBlockBoundaryNavigation(event, editor) }
 
+    function pastePrimaryAtDocumentEnd() {
+        if (!blockModel || !editorBackend)
+            return false
+        const boundary = count
+        if (!insertParagraphAtBoundary(boundary))
+            return false
+        Qt.callLater(function() {
+            const editor = activeEditor
+            if (!editor || editor.blockIndex < 0)
+                return
+            runEditTransaction("paste-primary", function() {
+                const end = editorBackend.pastePrimarySelection(
+                                editor.textDocument, editor.cursorPosition, editor.cursorPosition)
+                if (end < 0)
+                    return false
+                editor.cursorPosition = end
+                editor.commitText(false)
+                editor.rememberPlainText()
+                return true
+            })
+        })
+        return true
+    }
+
     function insertionBlockIndex() {
         if (pendingInsertionBoundary >= 0)
             return Math.max(0, Math.min(pendingInsertionBoundary, count))
