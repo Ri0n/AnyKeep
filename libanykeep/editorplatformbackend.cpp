@@ -821,9 +821,7 @@ bool EditorPlatformBackend::insertImportedMedia(const QList<MediaReference> &ref
     editor_->setMedia(media);
     int insertionRow = row < 0 ? editor_->model()->rowCount() : qBound(0, row, editor_->model()->rowCount());
     for (const auto &reference : references)
-        editor_->model()->insertImage(insertionRow++, reference.uri(), reference.originalName);
-        const QModelIndex index = editor_->model()->index(insertionRow - 1, 0);
-        editor_->model()->setData(index, reference.mediaType, NoteBlockModel::MediaTypeRole);
+        editor_->model()->insertMedia(insertionRow++, reference.uri(), reference.originalName, reference.mediaType);
     editor_->endHistoryTransaction();
     emit mediaInserted(references);
     return true;
