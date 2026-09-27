@@ -672,8 +672,21 @@ QVariantMap NoteBlockModel::convertTextRangeToList(int row, int start, int end, 
     end                = qBound(0, end, text.size());
     if (start > end)
         qSwap(start, end);
-    if (start == end)
-        return {};
+    // A collapsed cursor on an empty Markdown paragraph is still a valid
+    // structural target: toolbar/shortcut list insertion should replace that
+    // paragraph, not append a new list after the whole text block.
+    if (start == end) {
+        const bool emptyAtStart = start == 0 && (text.isEmpty() || text.startsWith(QStringLiteral("\n\n")));
+        const bool emptyAtEnd = start == text.size() && text.endsWith(QStringLiteral("\n\n"));
+        const bool emptyBetween = start >= 2 && start + 2 <= text.size()
+            && text.mid(start - 2, 4) == QStringLiteral("\n\n\n\n");
+        if (!(emptyAtStart || emptyAtEnd || emptyBetween))
+            return {};
+        if (emptyAtEnd)
+            start = end = qMax(0, start - 1);
+        else
+            end = qMin(text.size(), start + 1);
+    }
 
     const bool startsAtSeparator = text.mid(start, 2) == QStringLiteral("\n\n");
     const int  separatorBefore
