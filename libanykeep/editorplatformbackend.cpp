@@ -62,14 +62,15 @@ namespace {
         if (fragment.blocks.isEmpty())
             return false;
         for (const auto &block : fragment.blocks) {
-            if (block.type != NoteFragmentBlockType::Image || block.image.sourceUri.isEmpty())
+            if (block.type != NoteFragmentBlockType::Media || block.media.sourceUri.isEmpty()
+                || !block.media.mediaType.startsWith(QLatin1String("image/")))
                 return false;
-            const QUrl source(block.image.sourceUri);
+            const QUrl source(block.media.sourceUri);
             if (source.scheme().compare(QStringLiteral("anykeep-media"), Qt::CaseInsensitive) != 0)
                 continue;
             bool hasMedia = false;
             for (const auto &media : fragment.media) {
-                if (media.sourceUri == block.image.sourceUri && media.reference.isValid()) {
+                if (media.sourceUri == block.media.sourceUri && media.reference.isValid()) {
                     hasMedia = true;
                     break;
                 }
