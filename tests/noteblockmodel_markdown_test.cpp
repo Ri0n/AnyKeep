@@ -334,6 +334,8 @@ void NoteBlockModelTest::serializesAndParsesImagePresentation()
     spaced.load(spacedHtml, true);
     QCOMPARE(spaced.data(spaced.index(0), NoteBlockModel::AltRole).toString(), QStringLiteral("A  \"B\""));
     QCOMPARE(spaced.contents(), spacedHtml);
+    QVERIFY(spaced.setMediaTitle(0, QStringLiteral("  authored alt  ")));
+    QCOMPARE(spaced.data(spaced.index(0), NoteBlockModel::AltRole).toString(), QStringLiteral("  authored alt  "));
 }
 
 void NoteBlockModelTest::serializesParsesAndTransfersTimedMediaBlocks()
