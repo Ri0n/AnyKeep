@@ -664,7 +664,7 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
             if (i < lines.size()) {
                 const QString transcript = parseHtmlAudioTranscript(lines.at(i));
                 if (!transcript.isNull()) {
-                    block.audioTranscript = transcript;
+                    block.mediaTranscript = transcript;
                     ++i;
                 }
             }
@@ -704,8 +704,8 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
             block.mediaType      = QStringLiteral("image/*");
             block.url            = htmlImage.source;
             block.alt            = htmlImage.alt;
-            block.imageWidth     = htmlImage.width;
-            block.imageAlignment = htmlImage.alignment;
+            block.mediaDisplayWidth     = htmlImage.width;
+            block.mediaAlignment = htmlImage.alignment;
             result.append(block);
             ++i;
             continue;
@@ -842,13 +842,13 @@ QString NoteBlockModel::writeMarkdown(const QList<Block> &blocks)
         }
         case Media:
             if (block.mediaType.startsWith(QLatin1String("audio/"))) {
-                value = serializeHtmlAudio(block.url, block.alt, block.mediaDurationMs, block.audioTranscript);
+                value = serializeHtmlAudio(block.url, block.alt, block.mediaDurationMs, block.mediaTranscript);
             } else if (block.mediaType.startsWith(QLatin1String("video/"))) {
                 value = serializeHtmlVideo(block.url, block.alt, block.mediaDurationMs, block.mediaWidth,
                                            block.mediaHeight);
-            } else if (block.imageWidth > 0
-                       || normalizedImageAlignment(block.imageAlignment) != QLatin1String("center")) {
-                value = serializeHtmlImage(block.url, block.alt, block.imageWidth, block.imageAlignment);
+            } else if (block.mediaDisplayWidth > 0
+                       || normalizedImageAlignment(block.mediaAlignment) != QLatin1String("center")) {
+                value = serializeHtmlImage(block.url, block.alt, block.mediaDisplayWidth, block.mediaAlignment);
             } else {
                 value = QStringLiteral("![%1](%2)").arg(block.alt, block.url);
             }
