@@ -367,7 +367,28 @@ QtObject {
             })
         }
 
-        if (modifiers || blockModel.blockTypeAt(row) !== 6)
+        const blockType = blockModel.blockTypeAt(row)
+        if (modifiers)
+            return false
+
+        // A quote keeps ordinary Enter as a soft line break. A second Enter
+        // on the resulting empty trailing line leaves the quote. Shift+Enter
+        // is deliberately excluded above, so it never terminates the quote.
+        if (blockType === 7) {
+            const emptyTrailingLine = after.length === 0
+                    && (before.endsWith("\n") || before.endsWith("\r"))
+            if (!emptyTrailingLine)
+                return false
+            return editorView.runEditTransaction("exit-blockquote", function() {
+                editorView.prepareForStructuralMutation()
+                if (!blockModel.splitStructuredBlockToText(row, before.slice(0, -1), ""))
+                    return false
+                editorView.focusBlock(row + 1, false, 0)
+                return true
+            })
+        }
+
+        if (blockType !== 6)
             return false
         return editorView.runEditTransaction("exit-heading", function() {
             editorView.prepareForStructuralMutation()
