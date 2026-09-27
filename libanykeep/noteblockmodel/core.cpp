@@ -133,7 +133,7 @@ bool NoteBlockModel::setData(const QModelIndex &index, const QVariant &value, in
         scalar         = true;
         break;
     case MediaDisplayWidthRole: {
-        if (block.type != Image)
+        if (block.type != Media)
             return false;
         const int width = qBound(0, value.toInt(), MaxSerializedImageWidth);
         if (block.mediaDisplayWidth == width)
@@ -226,11 +226,10 @@ QHash<int, QByteArray> NoteBlockModel::roleNames() const
              { ItemTypesRole, "itemTypes" },
              { HeadingLevelRole, "headingLevel" },
              { LanguageRole, "codeLanguage" },
-             { MediaDisplayWidthRole, "imageWidth" },
-             { MediaAlignmentRole, "imageAlignment" },
+             { MediaDisplayWidthRole, "mediaDisplayWidth" },
+             { MediaAlignmentRole, "mediaAlignment" },
              { TagsRole, "tags" },
-             { AudioDurationRole, "audioDuration" },
-             { MediaTranscriptRole, "audioTranscript" },
+                          { MediaTranscriptRole, "mediaTranscript" },
         { MediaTypeRole, "mediaType" },
         { MediaDurationRole, "mediaDuration" },
         { MediaWidthRole, "mediaWidth" },
