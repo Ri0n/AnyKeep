@@ -95,11 +95,11 @@ NoteFragment NoteBlockModel::extractBlockFragment(int firstRow, int lastRow) con
             destination.media.title      = source.alt;
             destination.media.mediaType  = source.mediaType;
             destination.media.durationMs = source.mediaDurationMs;
-            destination.media.pixelWidth  = source.mediaWidth;
-            destination.media.pixelHeight = source.mediaHeight;
+            destination.media.pixelWidth   = source.mediaWidth;
+            destination.media.pixelHeight  = source.mediaHeight;
             destination.media.displayWidth = source.mediaDisplayWidth;
-            destination.media.alignment   = source.mediaAlignment;
-            destination.media.transcript = source.mediaTranscript;
+            destination.media.alignment    = source.mediaAlignment;
+            destination.media.transcript   = source.mediaTranscript;
             break;
         case Attachment:
             destination.type                 = NoteFragmentBlockType::Attachment;
@@ -482,7 +482,8 @@ bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Bloc
             const QString alignment = source.media.alignment.trimmed().toLower();
             if (source.media.sourceUri.isEmpty() || !supportedType || source.media.durationMs < 0
                 || source.media.durationMs > MaxMediaDurationMs || source.media.pixelWidth < 0
-                || source.media.pixelWidth > 16384 || source.media.pixelHeight < 0 || source.media.pixelHeight > 16384
+                || source.media.pixelWidth > MaxMediaPixelDimension || source.media.pixelHeight < 0
+                || source.media.pixelHeight > MaxMediaPixelDimension
                 || source.media.displayWidth < 0 || source.media.displayWidth > MaxSerializedImageWidth
                 || (alignment != QLatin1String("left") && alignment != QLatin1String("center")
                     && alignment != QLatin1String("right"))) {
