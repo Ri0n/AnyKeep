@@ -13,8 +13,7 @@ FocusScope {
     required property Component blockQuoteEditorComponent
     required property Component listEditorComponent
     required property Component tableEditorComponent
-    required property Component imageEditorComponent
-    required property Component audioEditorComponent
+    required property Component mediaEditorComponent
     required property Component attachmentEditorComponent
     required property int index
     required property int blockType
@@ -28,12 +27,15 @@ FocusScope {
     required property var table
     required property string url
     required property string alt
-    required property int imageWidth
-    required property string imageAlignment
+    required property int mediaDisplayWidth
+    required property string mediaAlignment
     required property url previewUrl
     required property var tags
-    required property real audioDuration
-    required property string audioTranscript
+    required property string mediaType
+    required property real mediaDuration
+    required property int mediaWidth
+    required property int mediaHeight
+    required property string mediaTranscript
     required property string attachmentMediaType
     required property real attachmentSize
     property alias item: blockLoader.item
@@ -69,7 +71,7 @@ FocusScope {
         visible: !editorView.touchMode
                  && blockDelegate.blockType !== NoteBlockType.BulletList
                  && blockDelegate.blockType !== NoteBlockType.CheckList
-                 && blockDelegate.blockType !== NoteBlockType.Image
+                 && blockDelegate.blockType !== NoteBlockType.Media
                  && blockDelegate.blockType !== NoteBlockType.NumberedList
                  && blockDelegate.blockType !== NoteBlockType.TagLine
         x: Math.max(0, blockLoader.x - width)
@@ -101,12 +103,15 @@ FocusScope {
         property var table: blockDelegate.table
         property string url: blockDelegate.url
         property string alt: blockDelegate.alt
-        property int imageWidth: blockDelegate.imageWidth
-        property string imageAlignment: blockDelegate.imageAlignment
+        property int mediaDisplayWidth: blockDelegate.mediaDisplayWidth
+        property string mediaAlignment: blockDelegate.mediaAlignment
         property url previewUrl: blockDelegate.previewUrl
         property var tags: blockDelegate.tags
-        property real audioDuration: blockDelegate.audioDuration
-        property string audioTranscript: blockDelegate.audioTranscript
+        property string mediaType: blockDelegate.mediaType
+        property real mediaDuration: blockDelegate.mediaDuration
+        property int mediaWidth: blockDelegate.mediaWidth
+        property int mediaHeight: blockDelegate.mediaHeight
+        property string mediaTranscript: blockDelegate.mediaTranscript
         property string attachmentMediaType: blockDelegate.attachmentMediaType
         property real attachmentSize: blockDelegate.attachmentSize
         readonly property bool structurallySelected:
@@ -135,7 +140,6 @@ FocusScope {
                        : blockType === NoteBlockType.BlockQuote ? blockQuoteEditorComponent
                        : blockType === NoteBlockType.CodeBlock ? codeBlockEditorComponent
                        : blockType === NoteBlockType.TagLine ? tagLineEditorComponent
-                       : blockType === NoteBlockType.Audio ? audioEditorComponent
                        : blockType === NoteBlockType.Attachment ? attachmentEditorComponent : textEditorComponent
     }
 
