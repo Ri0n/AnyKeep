@@ -314,7 +314,7 @@ void NoteBlockModelTest::movingStructuredBlockAwayRecombinesTextNeighbors()
     QCOMPARE(model.rowCount(), 4);
     QCOMPARE(model.data(model.index(1), NoteBlockModel::TextRole).toString(), QStringLiteral("A\n\nB"));
     QCOMPARE(model.blockTypeAt(2), int(NoteBlockModel::BulletList));
-    QCOMPARE(model.blockTypeAt(3), int(NoteBlockModel::Image));
+    QCOMPARE(model.blockTypeAt(3), int(NoteBlockModel::Media));
     QCOMPARE(model.contents(), QStringLiteral("Title\n\nA\n\nB\n\n- item\n\n![image](media://image)"));
 }
 
@@ -352,7 +352,7 @@ void NoteBlockModelTest::movingBlockAwayMergesAdjacentListsAtSourceGap()
     QCOMPARE(model.data(model.index(1), NoteBlockModel::ItemTypesRole).toList(),
              QVariantList({ int(NoteBlockModel::BulletList), int(NoteBlockModel::BulletList) }));
     QCOMPARE(model.blockTypeAt(2), int(NoteBlockModel::Text));
-    QCOMPARE(model.blockTypeAt(3), int(NoteBlockModel::Image));
+    QCOMPARE(model.blockTypeAt(3), int(NoteBlockModel::Media));
 }
 
 void NoteBlockModelTest::movingListRangeIntoListAdoptsExistingTypeAtSameLevel()
@@ -391,10 +391,10 @@ void NoteBlockModelTest::movesStyledImageBlocksWithoutChangingPresentation()
                               "alt=\"diagram\" width=\"320\" /></p>\n\nlast"),
                true);
 
-    QCOMPARE(model.data(model.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Image));
+    QCOMPARE(model.data(model.index(1), NoteBlockModel::TypeRole).toInt(), int(NoteBlockModel::Media));
     QVERIFY(model.moveBlock(1, 2));
-    QCOMPARE(model.data(model.index(2), NoteBlockModel::ImageWidthRole).toInt(), 320);
-    QCOMPARE(model.data(model.index(2), NoteBlockModel::ImageAlignmentRole).toString(), QStringLiteral("right"));
+    QCOMPARE(model.data(model.index(2), NoteBlockModel::MediaDisplayWidthRole).toInt(), 320);
+    QCOMPARE(model.data(model.index(2), NoteBlockModel::MediaAlignmentRole).toString(), QStringLiteral("right"));
     QCOMPARE(model.contents(),
              QStringLiteral("first\n\nlast\n\n<p align=\"right\"><img src=\"media://image\" "
                             "alt=\"diagram\" width=\"320\" /></p>"));
