@@ -375,9 +375,14 @@ QtObject {
         // on the resulting empty trailing line leaves the quote. Shift+Enter
         // is deliberately excluded above, so it never terminates the quote.
         if (blockType === 7) {
-            const emptyTrailingLine = after.length === 0
-                    && (before.endsWith("\n") || before.endsWith("\r"))
-            if (!emptyTrailingLine)
+            // QTextDocument exposes paragraph separators as U+2029 through
+            // TextArea.getText(), not necessarily as '\n'. Treat an empty
+            // final paragraph semantically instead of keying off one encoding.
+            const trailingBreak = before.length > 0
+                    && (before.charAt(before.length - 1) === "\n"
+                        || before.charAt(before.length - 1) === "\r"
+                        || before.charCodeAt(before.length - 1) === 0x2029)
+            if (after.length !== 0 || !trailingBreak)
                 return false
             return editorView.runEditTransaction("exit-blockquote", function() {
                 editorView.prepareForStructuralMutation()
