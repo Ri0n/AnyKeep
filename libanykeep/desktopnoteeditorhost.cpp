@@ -274,9 +274,9 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
                 QKeySequence sequence;
                 int listType;
             } listShortcuts[] = {
-                { QKeySequence(QStringLiteral("Ctrl+Shift+7")), 5 },
-                { QKeySequence(QStringLiteral("Ctrl+Shift+8")), 1 },
-                { QKeySequence(QStringLiteral("Ctrl+Shift+9")), 2 },
+                { QKeySequence(QStringLiteral("Ctrl+Shift+7")), NoteBlockModel::NumberedList },
+                { QKeySequence(QStringLiteral("Ctrl+Shift+8")), NoteBlockModel::BulletList },
+                { QKeySequence(QStringLiteral("Ctrl+Shift+9")), NoteBlockModel::CheckList },
             };
             for (const auto &shortcut : listShortcuts) {
                 if (shortcut.sequence.matches(QKeySequence(keyEvent->keyCombination()))
