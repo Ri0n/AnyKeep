@@ -96,10 +96,10 @@ public:
     bool                  historyInTransaction() const;
 
     void             setMedia(const QList<MediaReference> &media);
-    bool             insertAudio(const MediaReference &reference, qint64 durationMs, int row = -1);
-    bool             insertAudio(const MediaReference &reference, qint64 durationMs, int row, const QString &title);
+    bool             insertMedia(const MediaReference &reference, qint64 durationMs = 0, int width = 0,
+                                 int height = 0, int row = -1, const QString &title = {});
     bool             insertAttachment(const MediaReference &reference, int row = -1);
-    Q_INVOKABLE bool setAudioTranscript(int row, const QString &transcript);
+    Q_INVOKABLE bool setMediaTranscript(int row, const QString &transcript);
     void             setFolderId(const QUuid &folderId);
     void             setFavorite(bool favorite);
     /** Preserves a direct user folder choice against automatic routing rules. */
