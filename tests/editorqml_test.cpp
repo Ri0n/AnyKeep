@@ -1272,7 +1272,7 @@ private:
         DraftManager drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor   editor(note, drafts);
         editor.model()->insertMedia(editor.model()->rowCount(), QStringLiteral("qrc:/svg/anykeep"), QStringLiteral("Diagram"), QStringLiteral("image/*"));
-        editor.model()->setImageWidth(2, 240);
+        editor.model()->setMediaDisplayWidth(2, 240);
         DesktopNoteEditorHost host(&editor);
 
         host.resize(620, 440);
