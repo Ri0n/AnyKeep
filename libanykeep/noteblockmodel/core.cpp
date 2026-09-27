@@ -2,8 +2,19 @@
 #include "../notetagline.h"
 #include "private.h"
 
+#include <qqml.h>
+
 namespace AnyKeep {
 using namespace NoteBlockModelPrivate;
+
+namespace {
+// Register the enum as a real QML type. Context properties are unsuitable for
+// enum constants used by separately compiled QML components: those components
+// need a lexical type import, not a value injected into one root context.
+[[maybe_unused]] const int noteBlockTypeQmlId
+    = qmlRegisterUncreatableMetaObject(NoteBlockModel::staticMetaObject, "AnyKeep.Editor", 1, 0,
+                                       "NoteBlockType", "NoteBlockType exposes NoteBlockModel enums only");
+} // namespace
 
 NoteBlockModel::NoteBlockModel(QObject *parent) : QAbstractListModel(parent) {}
 
