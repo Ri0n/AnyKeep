@@ -816,10 +816,16 @@ void NoteBlockModel::removeBlock(int row)
 {
     if (row < 0 || row >= blocks_.size())
         return;
-    beginRemoveRows({}, row, row);
+
+    // Removing a separator can expose two list blocks. Adjacent lists are not
+    // a stable document state: keep the upper list as the resident block and
+    // reuse the normal moved-item type normalization while coalescing them.
+    beginResetModel();
     blocks_.removeAt(row);
-    endRemoveRows();
-    notifyNormalizedTagLines();
+    int trackedRow = qMin(row, blocks_.size() - 1);
+    coalesceListAtBoundary(&blocks_, row, &trackedRow);
+    normalizeTagLinePositions(&blocks_, markdown_);
+    endResetModel();
     emit contentsChanged();
 }
 
