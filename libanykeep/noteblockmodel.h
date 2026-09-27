@@ -55,20 +55,16 @@ public:
         ItemTypesRole,
         HeadingLevelRole,
         LanguageRole,
-        ImageWidthRole,
-        ImageAlignmentRole,
+        MediaDisplayWidthRole,
+        MediaAlignmentRole,
         TagsRole,
-        AudioDurationRole,
-        AudioTranscriptRole,
+        MediaTranscriptRole,
         MediaTypeRole,
         MediaDurationRole,
         MediaWidthRole,
         MediaHeightRole,
         AttachmentMediaTypeRole,
-        AttachmentSizeRole,
-        VideoDurationRole,
-        VideoWidthRole,
-        VideoHeightRole
+        AttachmentSizeRole
     };
 
     explicit NoteBlockModel(QObject *parent = nullptr);
@@ -109,10 +105,10 @@ public:
     Q_INVOKABLE void insertTableColumn(int row, int column);
     Q_INVOKABLE void removeTableColumn(int row, int column);
     Q_INVOKABLE bool moveTableColumn(int row, int from, int to);
-    Q_INVOKABLE void setImageUrl(int row, const QString &url);
-    Q_INVOKABLE void setImageAlt(int row, const QString &alt);
-    Q_INVOKABLE void setImageWidth(int row, int width);
-    Q_INVOKABLE void setImageAlignment(int row, const QString &alignment);
+    Q_INVOKABLE void setMediaUrl(int row, const QString &url);
+    Q_INVOKABLE void setMediaTitle(int row, const QString &title);
+    Q_INVOKABLE void setMediaDisplayWidth(int row, int width);
+    Q_INVOKABLE void setMediaAlignment(int row, const QString &alignment);
     Q_INVOKABLE void insertTextBlock(int row);
     Q_INVOKABLE void appendTextBlock();
     Q_INVOKABLE void appendText(const QString &text);
@@ -204,9 +200,6 @@ private:
         int          mediaWidth = 0;
         int          mediaHeight = 0;
         qint64       audioDurationMs = 0;
-        qint64       videoDurationMs = 0;
-        int          videoWidth = 0;
-        int          videoHeight = 0;
         QString      audioTranscript;
         QString      attachmentMediaType;
         qint64       attachmentSize = 0;
