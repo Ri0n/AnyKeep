@@ -185,7 +185,7 @@ FocusScope {
 
     TextField {
         id: altEditor
-        objectName: "imageAltEditor-" + mediaRoot.block.index
+        objectName: "mediaTitleEditor-" + mediaRoot.block.index
         visible: mediaRoot.individuallySelected
         opacity: visible ? 1 : 0
         width: Math.min(mediaRoot.width, Math.max(180, sourceImage.width))
@@ -195,10 +195,10 @@ FocusScope {
         text: mediaRoot.block.alt
         selectByMouse: true
         onTextEdited: mediaRoot.editorView.blockModel.setMediaTitle(mediaRoot.block.index, text)
-        onActiveFocusChanged: mediaRoot.editorView.imageAltEditorFocused = activeFocus
+        onActiveFocusChanged: mediaRoot.editorView.mediaTitleEditorFocused = activeFocus
         Component.onDestruction: {
-            if (mediaRoot.editorView.imageAltEditorFocused)
-                mediaRoot.editorView.imageAltEditorFocused = false
+            if (mediaRoot.editorView.mediaTitleEditorFocused)
+                mediaRoot.editorView.mediaTitleEditorFocused = false
         }
         Behavior on opacity { NumberAnimation { duration: 120 } }
     }
@@ -376,7 +376,7 @@ FocusScope {
 
     Rectangle {
         id: selectionOutline
-        objectName: "imageSelectionOutline-" + mediaRoot.block.index
+        objectName: "mediaSelectionOutline-" + mediaRoot.block.index
         x: (mediaRoot.visual ? sourceImage.x : timedControls.x) - 2
         y: (mediaRoot.visual ? sourceImage.y : timedControls.y) - 2
         width: (mediaRoot.visual ? sourceImage.width : timedControls.width) + 4
@@ -412,7 +412,7 @@ FocusScope {
 
     Row {
         id: imageActions
-        objectName: "imageActions-" + mediaRoot.block.index
+        objectName: "mediaVisualActions-" + mediaRoot.block.index
         visible: mediaRoot.visual && mediaRoot.individuallySelected
         spacing: 3
         height: mediaRoot.editorView.touchMode ? 36 : 28
