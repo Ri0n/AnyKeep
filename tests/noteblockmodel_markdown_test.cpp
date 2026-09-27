@@ -309,8 +309,8 @@ void NoteBlockModelTest::serializesAndParsesImagePresentation()
     QCOMPARE(restored.contents(), html);
 
     const NoteFragment fragment = restored.extractBlockFragment(0, 0);
-    QCOMPARE(fragment.blocks.constFirst().image.width, 320);
-    QCOMPARE(fragment.blocks.constFirst().image.alignment, QStringLiteral("right"));
+    QCOMPARE(fragment.blocks.constFirst().media.displayWidth, 320);
+    QCOMPARE(fragment.blocks.constFirst().media.alignment, QStringLiteral("right"));
     NoteBlockModel transferred;
     transferred.load(QStringLiteral("before"), true);
     QString error;
