@@ -13,9 +13,11 @@ namespace AnyKeep {
 class LocalMediaStore;
 struct MediaReference;
 
-// Synchronous random-access byte source consumed by MediaStream. Implementations
-// must never return unauthenticated plaintext. A remote implementation may
-// block while obtaining and authenticating the requested range.
+// Random-access source for bytes that are already available and authenticated.
+// Implementations must never return unauthenticated plaintext. Network range
+// acquisition is asynchronous cache hydration and must not turn read() into a
+// blocking remote fetch; MediaStream/cache orchestration retries after data
+// becomes available.
 class ANYKEEP_EXPORT MediaSource {
 public:
     virtual ~MediaSource() = default;
