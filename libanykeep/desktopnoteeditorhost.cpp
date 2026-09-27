@@ -102,7 +102,7 @@ DesktopNoteEditorHost::DesktopNoteEditorHost(NoteEditor *editor, QWidget *parent
     };
     for (const auto &entry : listShortcuts) {
         auto *shortcut = new QShortcut(QKeySequence(QString::fromLatin1(entry.sequence)), this);
-        shortcut->setContext(Qt::WidgetWithChildrenShortcut);
+        shortcut->setContext(Qt::WindowShortcut);
         connect(shortcut, &QShortcut::activated, this, [this, type = entry.listType]() { insertList(type); });
     }
 
