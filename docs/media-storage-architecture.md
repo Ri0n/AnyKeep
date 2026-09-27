@@ -534,19 +534,23 @@ MediaBlock / shared QMediaPlayer
 seekable MediaStream / QIODevice
         |
         v
+MediaSource / verified available bytes
+        |
+        v
 ranged local cache
         |
         +---- local verified chunks
         |
-        +---- remote MediaSource
+        +---- async range fetcher
                  +---- Jingle FT ranges
                  +---- HTTP Range
-                 +---- future backend-specific range source
+                 +---- future backend-specific range provider
 ```
 
-A read is satisfied from verified local data when possible. Missing ranges are
-requested from a remote source and, while being delivered to the consumer, are
-installed into the same local cache. Streaming and downloading are therefore
+A read is satisfied from verified local data when possible. Missing ranges are requested asynchronously by a transport-facing range fetcher and,
+after authentication, are installed into the same local cache. `MediaSource::read()`
+does not perform a blocking network request; it exposes bytes that are already
+available and verified. Streaming and downloading are therefore
 one operation with different demand patterns rather than separate copies of the
 media.
 
@@ -554,8 +558,7 @@ Sequential playback prioritizes ranges immediately ahead of the decoder. A seek
 reprioritizes the required range instead of waiting for the complete object.
 Containers designed for progressive playback (for example fast-start MP4) can
 start as soon as their required metadata and initial samples are available.
-When a container needs metadata near the end of the object, the seekable source
-can request that range independently.
+When a container needs metadata near the end of the object, the range scheduler can request that range independently.
 
 The existing Iris Jingle file-transfer implementation already has negotiated
 `Range { offset, length }` support and a streaming mode; the XMPP backend should
