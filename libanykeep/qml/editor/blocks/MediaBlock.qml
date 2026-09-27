@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtMultimedia
 import "../../reorder" as Reorder
 
 FocusScope {
@@ -20,7 +19,7 @@ FocusScope {
     readonly property real knownDuration: current && playback.duration > 0 ? playback.duration : block.mediaDuration
     readonly property bool visual: block.mediaType.startsWith("image/") || block.mediaType.startsWith("video/")
     readonly property bool individuallySelected:
-        mediaRoot.editorView.selectedImageIndex === block.index
+        mediaRoot.editorView.selectedMediaIndex === block.index
     readonly property bool selected: individuallySelected || block.structurallySelected
     property real transientWidth: -1
     property real transientX: -1
@@ -54,7 +53,7 @@ FocusScope {
     activeFocusOnTab: true
 
     function selectAndFocus() {
-        mediaRoot.editorView.selectImageBlock(block.index)
+        mediaRoot.editorView.selectMediaBlock(block.index)
         mediaRoot.forceActiveFocus()
     }
 
@@ -147,10 +146,10 @@ FocusScope {
         if (event.matches(StandardKey.Copy)) {
             event.accepted = mediaRoot.editorView.copyActiveSelection()
         } else if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) {
-            mediaRoot.editorView.removeImageBlock(block.index, true)
+            mediaRoot.editorView.removeMediaBlock(block.index, true)
             event.accepted = true
         } else if (event.key === Qt.Key_Escape) {
-            mediaRoot.editorView.clearImageSelection()
+            mediaRoot.editorView.clearMediaSelection()
             mediaRoot.editorView.forceActiveFocus()
             event.accepted = true
         }
@@ -184,7 +183,7 @@ FocusScope {
         width: mediaRoot.displayWidth
         height: mediaRoot.displayHeight
         source: mediaRoot.block.previewUrl
-        visible: mediaRoot.visual && !(mediaRoot.video && mediaRoot.current)
+        visible: mediaRoot.visual
         fillMode: Image.PreserveAspectFit
         smooth: true
         asynchronous: true
@@ -274,18 +273,6 @@ FocusScope {
         onCanceled: mediaRoot.editorView.cancelBlankAreaSelection()
     }
 
-    VideoOutput {
-        id: liveVideo
-        visible: mediaRoot.video && mediaRoot.current && mediaRoot.playback && mediaRoot.playback.videoSink
-        x: sourceImage.x
-        y: sourceImage.y
-        width: sourceImage.width
-        height: sourceImage.height
-        fillMode: VideoOutput.PreserveAspectFit
-        videoSink: visible ? mediaRoot.playback.videoSink : null
-        z: 3
-    }
-
     Rectangle {
         id: timedControls
         visible: mediaRoot.timed
@@ -326,19 +313,6 @@ FocusScope {
                       + " / " + mediaRoot.formatTime(mediaRoot.knownDuration)
                 color: mediaRoot.editorView.documentSecondaryTextColor
             }
-            ToolButton {
-                visible: mediaRoot.video
-                Layout.preferredWidth: parent.height - 2
-                Layout.preferredHeight: Layout.preferredWidth
-                text: "⛶"
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Full screen")
-                Accessible.name: qsTr("Show video full screen")
-                onClicked: {
-                    mediaRoot.selectAndFocus()
-                    fullScreenVideo.open()
-                }
-            }
         }
     }
 
@@ -358,7 +332,7 @@ FocusScope {
     }
 
     ImageResizeHandle {
-        visible: mediaRoot.individuallySelected
+        visible: mediaRoot.visual && mediaRoot.individuallySelected
         imageEditor: mediaRoot
         direction: -1
         fillColor: altEditor.palette.base
@@ -368,7 +342,7 @@ FocusScope {
     }
 
     ImageResizeHandle {
-        visible: mediaRoot.individuallySelected
+        visible: mediaRoot.visual && mediaRoot.individuallySelected
         imageEditor: mediaRoot
         direction: 1
         fillColor: altEditor.palette.base
@@ -381,7 +355,7 @@ FocusScope {
     Row {
         id: imageActions
         objectName: "imageActions-" + mediaRoot.block.index
-        visible: mediaRoot.individuallySelected
+        visible: mediaRoot.visual && mediaRoot.individuallySelected
         spacing: 3
         height: mediaRoot.editorView.touchMode ? 36 : 28
         y: sourceImage.y + sourceImage.height + mediaRoot.actionGap
@@ -432,44 +406,6 @@ FocusScope {
         }
     }
 
-    Popup {
-        id: fullScreenVideo
-        parent: Overlay.overlay
-        modal: true
-        focus: true
-        padding: 0
-        x: 0
-        y: 0
-        width: Overlay.overlay ? Overlay.overlay.width : 0
-        height: Overlay.overlay ? Overlay.overlay.height : 0
-        closePolicy: Popup.CloseOnEscape
-
-        background: Rectangle { color: "black" }
-
-        onOpened: {
-            if (mediaRoot.playback && !mediaRoot.current)
-                mediaRoot.playback.play(mediaRoot.block.url)
-        }
-
-        VideoOutput {
-            anchors.fill: parent
-            fillMode: VideoOutput.PreserveAspectFit
-            videoSink: fullScreenVideo.opened && mediaRoot.playback ? mediaRoot.playback.videoSink : null
-        }
-
-        ToolButton {
-            anchors.top: parent.top
-            anchors.right: parent.right
-            anchors.margins: 16
-            text: "×"
-            z: 2
-            ToolTip.visible: hovered
-            ToolTip.text: qsTr("Exit full screen")
-            Accessible.name: qsTr("Exit full screen video")
-            onClicked: fullScreenVideo.close()
-        }
-    }
-
     Menu {
         id: imageContextMenu
         MenuItem {
@@ -499,7 +435,7 @@ FocusScope {
         MenuSeparator { }
         MenuItem {
             text: qsTr("Remove Image")
-            onTriggered: mediaRoot.editorView.removeImageBlock(mediaRoot.block.index, true)
+            onTriggered: mediaRoot.editorView.removeMediaBlock(mediaRoot.block.index, true)
         }
     }
 }
