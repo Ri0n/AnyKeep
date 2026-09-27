@@ -161,21 +161,27 @@ bool NoteBlockModel::setData(const QModelIndex &index, const QVariant &value, in
             return false;
         block.mediaType = value.toString().trimmed().toLower();
         break;
-    case MediaDurationRole:
-        if (block.type != Media || block.mediaDurationMs == qMax<qint64>(0, value.toLongLong()))
+    case MediaDurationRole: {
+        const qint64 duration = qBound<qint64>(0, value.toLongLong(), MaxMediaDurationMs);
+        if (block.type != Media || block.mediaDurationMs == duration)
             return false;
-        block.mediaDurationMs = qMax<qint64>(0, value.toLongLong());
+        block.mediaDurationMs = duration;
         break;
-    case MediaWidthRole:
-        if (block.type != Media || block.mediaWidth == qMax(0, value.toInt()))
+    }
+    case MediaWidthRole: {
+        const int width = qBound(0, value.toInt(), MaxMediaPixelDimension);
+        if (block.type != Media || block.mediaWidth == width)
             return false;
-        block.mediaWidth = qMax(0, value.toInt());
+        block.mediaWidth = width;
         break;
-    case MediaHeightRole:
-        if (block.type != Media || block.mediaHeight == qMax(0, value.toInt()))
+    }
+    case MediaHeightRole: {
+        const int height = qBound(0, value.toInt(), MaxMediaPixelDimension);
+        if (block.type != Media || block.mediaHeight == height)
             return false;
-        block.mediaHeight = qMax(0, value.toInt());
+        block.mediaHeight = height;
         break;
+    }
     case MediaTranscriptRole:
         if (block.type != Media || block.mediaTranscript == value.toString())
             return false;
