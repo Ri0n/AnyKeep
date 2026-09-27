@@ -1160,7 +1160,7 @@ private:
         DraftManager  drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor    editor(note, drafts);
         const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
-        editor.model()->insertAudio(editor.model()->rowCount(), source, QStringLiteral("Voice memo"), 2500);
+        editor.model()->insertMedia(editor.model()->rowCount(), source, QStringLiteral("Voice memo"), QStringLiteral("audio/*"), 2500);
         DesktopNoteEditorHost host(&editor);
 
         host.resize(620, 440);
@@ -1191,7 +1191,7 @@ private:
         DraftManager  drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor    editor(note, drafts);
         const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
-        editor.model()->insertAudio(editor.model()->rowCount(), source, QStringLiteral("Voice memo"), 2500);
+        editor.model()->insertMedia(editor.model()->rowCount(), source, QStringLiteral("Voice memo"), QStringLiteral("audio/*"), 2500);
         DesktopNoteEditorHost host(&editor);
 
         host.resize(620, 440);
@@ -1271,8 +1271,7 @@ private:
         note.setText(QStringLiteral("Select this text"), Note::Markdown);
         DraftManager drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor   editor(note, drafts);
-        editor.model()->insertImage(editor.model()->rowCount(), QStringLiteral("qrc:/svg/anykeep"),
-                                    QStringLiteral("Diagram"));
+        editor.model()->insertMedia(editor.model()->rowCount(), QStringLiteral("qrc:/svg/anykeep"), QStringLiteral("Diagram"), QStringLiteral("image/*"));
         editor.model()->setImageWidth(2, 240);
         DesktopNoteEditorHost host(&editor);
 
