@@ -179,11 +179,12 @@ namespace {
         result.source = attributes.value(QStringLiteral("src")).trimmed();
         result.title = attributes.value(QStringLiteral("title"));
         bool ok = false;
-        result.durationMs = qMax<qint64>(0, attributes.value(QStringLiteral("data-anykeep-duration-ms")).toLongLong(&ok));
-        if (!ok)
-            result.durationMs = 0;
-        result.width = qMax(0, attributes.value(QStringLiteral("data-anykeep-width")).toInt());
-        result.height = qMax(0, attributes.value(QStringLiteral("data-anykeep-height")).toInt());
+        const qint64 duration = attributes.value(QStringLiteral("data-anykeep-duration-ms")).toLongLong(&ok);
+        result.durationMs = ok ? qBound<qint64>(0, duration, MaxMediaDurationMs) : 0;
+        result.width = qBound(0, attributes.value(QStringLiteral("data-anykeep-width")).toInt(),
+                              MaxMediaPixelDimension);
+        result.height = qBound(0, attributes.value(QStringLiteral("data-anykeep-height")).toInt(),
+                               MaxMediaPixelDimension);
         return result;
     }
 
@@ -194,7 +195,8 @@ namespace {
                               "data-anykeep-width=\"%4\" data-anykeep-height=\"%5\"></video>")
                    .arg(source.toHtmlEscaped(), title.toHtmlEscaped(),
                         QString::number(qBound<qint64>(0, durationMs, MaxMediaDurationMs)),
-                        QString::number(qMax(0, width)), QString::number(qMax(0, height)))
+                        QString::number(qBound(0, width, MaxMediaPixelDimension)),
+                        QString::number(qBound(0, height, MaxMediaPixelDimension)))
             + serializeHtmlMediaTranscript(transcript);
     }
 
