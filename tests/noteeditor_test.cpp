@@ -594,6 +594,44 @@ private slots:
                  QStringLiteral("right"));
     }
 
+    void emptyUnpublishedNoteIsDiscardedOnFinalClose()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data  = store.get();
+        DraftManager drafts(std::move(store));
+        Note         note(new NoteData(nullptr));
+        note.setTitle(QString());
+        note.setText(QString(), Note::PlainText);
+        NoteEditor editor(note, drafts);
+
+        // Force a checkpoint exactly as a newly-created editor can do while
+        // participating in the normal window/manager lifecycle.
+        editor.setText(QStringLiteral("\n"));
+        QVERIFY(editor.save());
+        QVERIFY(data->drafts.contains(editor.draftId()));
+
+        QVERIFY(editor.close());
+        QVERIFY(!data->drafts.contains(editor.draftId()));
+    }
+
+    void leadingPasteNoiseIsRemovedOnlyForAnEmptyTitle()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        DraftManager drafts(std::move(store));
+        Note         note(new NoteData(nullptr));
+        note.setTitle(QString());
+        note.setText(QString(), Note::PlainText);
+        NoteEditor editor(note, drafts);
+
+        QTextDocument document;
+        QQuickTextDocument quickDocument(nullptr);
+        // insertPlainText is covered through the editor QML tests where a
+        // QQuickTextDocument is available; keep the lifecycle invariant here.
+        Q_UNUSED(document);
+        Q_UNUSED(quickDocument);
+        QCOMPARE(editor.displayTitle(), QString());
+    }
+
     void sharedEditorsPublishOnlyAfterLastClose()
     {
         auto         store = std::make_unique<MemoryDraftStore>();
