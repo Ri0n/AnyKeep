@@ -374,7 +374,7 @@ QtObject {
         // A quote keeps ordinary Enter as a soft line break. A second Enter
         // on the resulting empty trailing line leaves the quote. Shift+Enter
         // is deliberately excluded above, so it never terminates the quote.
-        if (blockType === 7) {
+        if (blockType === NoteBlockType.BlockQuote) {
             // QTextDocument exposes paragraph separators as U+2029 through
             // TextArea.getText(), not necessarily as '\n'. Treat an empty
             // final paragraph semantically instead of keying off one encoding.
@@ -393,7 +393,7 @@ QtObject {
             })
         }
 
-        if (blockType !== 6)
+        if (blockType !== NoteBlockType.Heading)
             return false
         return editorView.runEditTransaction("exit-heading", function() {
             editorView.prepareForStructuralMutation()
