@@ -47,6 +47,7 @@ NoteFragment NoteEditor::withMedia(NoteFragment fragment) const
     // reasonably bounded; larger images retain their internal blob reference.
     if (fragment.blocks.size() == 1 && fragment.blocks.constFirst().type == NoteFragmentBlockType::Media
         && fragment.media.size() == 1
+        && fragment.media.constFirst().reference.mediaType.startsWith(QLatin1String("image/"))
         && fragment.media.constFirst().reference.size <= NoteTransferController::PortableImageDataLimit) {
         const auto data = LocalMediaStore::instance()->data(fragment.media.constFirst().reference.blobId);
         if (data)
