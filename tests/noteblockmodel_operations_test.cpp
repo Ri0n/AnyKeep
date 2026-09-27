@@ -369,9 +369,9 @@ void NoteBlockModelTest::equalScalarWritesAreNoOps()
     const auto image = model.index(0);
     QVERIFY(!model.setData(image, model.data(image, NoteBlockModel::UrlRole), NoteBlockModel::UrlRole));
     QVERIFY(!model.setData(image, model.data(image, NoteBlockModel::AltRole), NoteBlockModel::AltRole));
-    QVERIFY(!model.setData(image, model.data(image, NoteBlockModel::ImageWidthRole), NoteBlockModel::ImageWidthRole));
-    QVERIFY(!model.setData(image, model.data(image, NoteBlockModel::ImageAlignmentRole),
-                           NoteBlockModel::ImageAlignmentRole));
+    QVERIFY(!model.setData(image, model.data(image, NoteBlockModel::MediaDisplayWidthRole), NoteBlockModel::MediaDisplayWidthRole));
+    QVERIFY(!model.setData(image, model.data(image, NoteBlockModel::MediaAlignmentRole),
+                           NoteBlockModel::MediaAlignmentRole));
     QCOMPARE(changed.size(), 0);
 }
 
@@ -387,10 +387,10 @@ void NoteBlockModelTest::reportsScalarEditsWithoutExposingInternalState()
     model.setBlockText(0, QStringLiteral("changed"));
     model.setListItem(1, 0, QStringLiteral("second"));
     model.setTableCell(2, 2, QStringLiteral("cell"));
-    model.setImageUrl(3, QStringLiteral("media://other"));
-    model.setImageAlt(3, QStringLiteral("description"));
-    model.setImageWidth(3, 240);
-    model.setImageAlignment(3, QStringLiteral("left"));
+    model.setMediaUrl(3, QStringLiteral("media://other"));
+    model.setMediaTitle(3, QStringLiteral("description"));
+    model.setMediaDisplayWidth(3, 240);
+    model.setMediaAlignment(3, QStringLiteral("left"));
 
     QCOMPARE(edits.size(), 7);
     QCOMPARE(edits.at(0).at(1).toInt(), int(NoteBlockModel::TextRole));
@@ -400,8 +400,8 @@ void NoteBlockModelTest::reportsScalarEditsWithoutExposingInternalState()
     QCOMPARE(edits.at(2).at(2).toInt(), 2);
     QCOMPARE(edits.at(3).at(1).toInt(), int(NoteBlockModel::UrlRole));
     QCOMPARE(edits.at(4).at(1).toInt(), int(NoteBlockModel::AltRole));
-    QCOMPARE(edits.at(5).at(1).toInt(), int(NoteBlockModel::ImageWidthRole));
-    QCOMPARE(edits.at(6).at(1).toInt(), int(NoteBlockModel::ImageAlignmentRole));
+    QCOMPARE(edits.at(5).at(1).toInt(), int(NoteBlockModel::MediaDisplayWidthRole));
+    QCOMPARE(edits.at(6).at(1).toInt(), int(NoteBlockModel::MediaAlignmentRole));
 }
 
 void NoteBlockModelTest::coalescesAdjacentLinksCreatedAcrossFormatRuns()
