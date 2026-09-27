@@ -9,7 +9,14 @@ FocusScope {
     required property var reorderController
     objectName: "mediaBlockEditor-" + block.index
     required property var block
+    property var playback: mediaRoot.editorView.editorBackend ? mediaRoot.editorView.editorBackend.mediaPlayback : null
     readonly property bool timed: block.mediaType.startsWith("audio/") || block.mediaType.startsWith("video/")
+    readonly property bool video: block.mediaType.startsWith("video/")
+    readonly property bool audio: block.mediaType.startsWith("audio/")
+    readonly property bool current: playback && playback.currentSourceUri === block.url
+    readonly property bool playing: current && playback.playing
+    readonly property bool loading: current && playback.loading
+    readonly property real knownDuration: current && playback.duration > 0 ? playback.duration : block.mediaDuration
     readonly property bool visual: block.mediaType.startsWith("image/") || block.mediaType.startsWith("video/")
     readonly property bool individuallySelected:
         mediaRoot.editorView.selectedImageIndex === block.index
@@ -121,9 +128,21 @@ FocusScope {
             selectAndFocus()
     }
 
+    function formatTime(milliseconds) {
+        const seconds = Math.max(0, Math.floor(Number(milliseconds) / 1000))
+        const remainder = seconds % 60
+        return Math.floor(seconds / 60) + ":" + (remainder < 10 ? "0" : "") + remainder
+    }
+
     Keys.onPressed: function(event) {
         if (altEditor.activeFocus)
             return
+        if (timed && !event.modifiers && (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+            if (playback)
+                playback.toggle(block.url)
+            event.accepted = true
+            return
+        }
         if (event.matches(StandardKey.Copy)) {
             event.accepted = mediaRoot.editorView.copyActiveSelection()
         } else if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) {
@@ -252,6 +271,49 @@ FocusScope {
         onPositionChanged: function(mouse) { mediaRoot.updateMarginSelection(imageRightMarginSelectionArea, mouse) }
         onReleased: function(mouse) { mediaRoot.finishMarginSelection(mouse) }
         onCanceled: mediaRoot.editorView.cancelBlankAreaSelection()
+    }
+
+    Rectangle {
+        id: timedControls
+        visible: mediaRoot.timed
+        x: mediaRoot.visual ? sourceImage.x : 0
+        y: mediaRoot.visual ? sourceImage.y + sourceImage.height - height : 0
+        width: mediaRoot.visual ? sourceImage.width : mediaRoot.width
+        height: mediaRoot.editorView.touchMode ? 48 : 40
+        color: mediaRoot.editorView.documentCardColor
+        opacity: 0.94
+        radius: 5
+        z: 4
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 4
+            spacing: 6
+            ToolButton {
+                Layout.preferredWidth: parent.height - 2
+                Layout.preferredHeight: Layout.preferredWidth
+                enabled: mediaRoot.playback && mediaRoot.playback.available
+                text: mediaRoot.loading ? "…" : (mediaRoot.playing ? "Ⅱ" : "▶")
+                Accessible.name: mediaRoot.playing ? qsTr("Pause media") : qsTr("Play media")
+                onClicked: {
+                    mediaRoot.selectAndFocus()
+                    mediaRoot.playback.toggle(mediaRoot.block.url)
+                }
+            }
+            Slider {
+                Layout.fillWidth: true
+                from: 0
+                to: Math.max(1, mediaRoot.knownDuration)
+                value: mediaRoot.current ? mediaRoot.playback.position : 0
+                enabled: mediaRoot.playback && mediaRoot.knownDuration > 0
+                onMoved: mediaRoot.playback.seek(mediaRoot.block.url, value)
+            }
+            Label {
+                text: mediaRoot.formatTime(mediaRoot.current ? mediaRoot.playback.position : 0)
+                      + " / " + mediaRoot.formatTime(mediaRoot.knownDuration)
+                color: mediaRoot.editorView.documentSecondaryTextColor
+            }
+        }
     }
 
     Rectangle {
