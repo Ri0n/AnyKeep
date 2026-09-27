@@ -120,6 +120,7 @@ void NoteBlockModel::insertImage(int row, const QString &url, const QString &alt
     beginInsertRows({}, row, row);
     Block block;
     block.type = Image;
+    block.mediaType = QStringLiteral("image/*");
     block.url  = url;
     block.alt  = alt;
     blocks_.insert(row, block);
@@ -139,6 +140,8 @@ void NoteBlockModel::insertAudio(int row, const QString &url, const QString &tit
     beginInsertRows({}, row, row);
     Block block;
     block.type            = Audio;
+    block.mediaType       = QStringLiteral("audio/*");
+    block.mediaDurationMs = qBound<qint64>(0, durationMs, MaxAudioDurationMs);
     block.url             = url;
     block.alt             = title;
     block.audioDurationMs = qBound<qint64>(0, durationMs, MaxAudioDurationMs);
@@ -160,6 +163,10 @@ void NoteBlockModel::insertVideo(int row, const QString &url, const QString &tit
     beginInsertRows({}, row, row);
     Block block;
     block.type            = Video;
+    block.mediaType       = QStringLiteral("video/*");
+    block.mediaDurationMs = qMax<qint64>(0, durationMs);
+    block.mediaWidth      = qMax(0, width);
+    block.mediaHeight     = qMax(0, height);
     block.url             = url;
     block.alt             = title;
     block.videoDurationMs = qMax<qint64>(0, durationMs);
