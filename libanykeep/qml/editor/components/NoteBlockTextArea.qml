@@ -496,6 +496,17 @@ TextArea {
     Component.onDestruction: editorView.unregisterEditor(blockArea)
 
     Timer {
+        id: liveCommit
+        interval: 0
+        onTriggered: {
+            if (!blockArea.syncingSourceText && blockArea.activeFocus) {
+                blockArea.commitText(false)
+                blockArea.rememberPlainText()
+            }
+        }
+    }
+
+    Timer {
         id: spellRefresh
         interval: 0
         onTriggered: {
@@ -529,6 +540,8 @@ TextArea {
         function onTextChanged() {
             spellRefresh.restart()
             plainLinkHoverCanvas.requestPaint()
+            if (blockArea.activeFocus && !blockArea.syncingSourceText)
+                liveCommit.restart()
         }
         function onSelectedTextChanged() {
             if (!editorView.mouseSelectionActive)
@@ -547,6 +560,21 @@ TextArea {
             primaryModifierDown = true
             editorMouseArea.refreshPlainLinkHover(event.modifiers)
             plainLinkHoverCanvas.requestPaint()
+        }
+        const primary = event.modifiers & (Qt.ControlModifier | Qt.MetaModifier)
+        const listShortcut = primary && event.modifiers & Qt.ShiftModifier
+                             && !(event.modifiers & Qt.AltModifier)
+        const numberedShortcut = event.key === Qt.Key_7 || event.key === Qt.Key_Ampersand
+                                 || event.key === Qt.Key_Question
+        const bulletShortcut = event.key === Qt.Key_8 || event.key === Qt.Key_Asterisk
+        const taskShortcut = event.key === Qt.Key_9 || event.key === Qt.Key_ParenLeft
+        if (!blockArea.codeDocument && listShortcut
+                && (numberedShortcut || bulletShortcut || taskShortcut)) {
+            const type = numberedShortcut ? 5 : bulletShortcut ? 1 : 2
+            if (editorView.insertListBlock(type)) {
+                event.accepted = true
+                return
+            }
         }
         if (event.matches(StandardKey.Find)) {
             editorView.findRequested()
