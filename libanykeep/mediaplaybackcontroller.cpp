@@ -1,6 +1,5 @@
 #include "mediaplaybackcontroller.h"
 
-#include "localmediastore.h"
 #include "mediastream.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
@@ -14,7 +13,6 @@
 #include <QAudioOutput>
 #include <QMediaPlayer>
 #include <QVideoSink>
-#include <QVideoFrame>
 #endif
 
 namespace AnyKeep {
@@ -52,21 +50,8 @@ public:
         audioOutput = std::make_unique<QAudioOutput>();
         player      = std::make_unique<QMediaPlayer>();
         player->setAudioOutput(audioOutput.get());
-        videoSink = std::make_unique<QVideoSink>();
+        videoSink   = std::make_unique<QVideoSink>();
         player->setVideoSink(videoSink.get());
-        QObject::connect(videoSink.get(), &QVideoSink::videoFrameChanged, owner, [this](const QVideoFrame &frame) {
-            if (!frame.isValid() || sourceUri.isEmpty())
-                return;
-            const QImage image = frame.toImage();
-            if (image.isNull())
-                return;
-            const auto media = editor ? editor->media() : QList<MediaReference>{};
-            const auto it = std::find_if(media.cbegin(), media.cend(), [this](const MediaReference &item) {
-                return item.uri() == sourceUri;
-            });
-            if (it != media.cend())
-                LocalMediaStore::instance()->storeDerivedPoster(it->blobId, image);
-        });
         QObject::connect(player.get(), &QMediaPlayer::positionChanged, owner, [this](qint64 value) {
             positionMs = value;
             emit owner->stateChanged();
@@ -119,6 +104,8 @@ public:
             return false;
         }
         player->stop();
+        player->setSource(QUrl());
+        stream.reset();
         stream = std::make_unique<MediaStream>(*it);
         if (!stream->open(QIODevice::ReadOnly)) {
             error = stream->errorString();
