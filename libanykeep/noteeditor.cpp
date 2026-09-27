@@ -668,9 +668,7 @@ QString NoteEditor::redoText() const { return history_->redoText(); }
 
 bool NoteEditor::supportsMedia() const { return note_.storage() && note_.storage()->supportsMedia(); }
 
-bool NoteEditor::canInsertImages() const { return supportsMedia(); }
-
-bool NoteEditor::canInsertAudio() const { return supportsMedia(); }
+bool NoteEditor::canInsertMedia() const { return supportsMedia(); }
 
 bool NoteEditor::canInsertAttachments() const { return supportsMedia(); }
 
