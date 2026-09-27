@@ -151,17 +151,17 @@ bool DesktopEditorPlatformBackend::startImageDrag(int row)
     return cursorIsOutsideWindow(dragSource_);
 }
 
-bool DesktopEditorPlatformBackend::insertImage(int row)
+bool DesktopEditorPlatformBackend::insertMedia(int row)
 {
-    if (!canInsertImages())
+    if (!canInsertMedia())
         return false;
     const QString fileName
-        = QFileDialog::getOpenFileName(dialogParent_, tr("Insert image"), QString(),
-                                       tr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg);;All files (*)"));
+        = QFileDialog::getOpenFileName(dialogParent_, tr("Insert media"), QString(),
+                                       tr("Media files (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg *.mp3 *.wav *.ogg *.flac *.m4a *.aac *.mp4 *.m4v *.webm *.mov *.mkv);;All files (*)"));
     if (fileName.isEmpty())
         return false;
     QString error;
-    return insertImageFiles({ fileName }, row, &error);
+    return insertMediaFiles({ fileName }, row, &error);
 }
 
 bool DesktopEditorPlatformBackend::insertAttachment(int row)
