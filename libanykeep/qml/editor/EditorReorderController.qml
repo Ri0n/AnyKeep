@@ -1,4 +1,5 @@
 import QtQuick
+import AnyKeep.Editor 1.0
 import "../reorder" as Reorder
 
 Item {
@@ -431,8 +432,8 @@ Item {
                 }
                 const targetRow = Math.min(sourceBlockRow, blockModel.rowCount() - 1)
                 const backwards = targetRow < sourceBlockRow
-                if (blockModel.blockTypeAt(targetRow) === 4)
-                    editorView.focusImageBlock(targetRow)
+                if (blockModel.blockTypeAt(targetRow) === NoteBlockType.Media)
+                    editorView.focusMediaBlock(targetRow)
                 else
                     editorView.focusBlock(targetRow, backwards)
             })
@@ -452,8 +453,8 @@ Item {
             resolvedRow = blockModel.moveBlockResolved(sourceBlockRow, destination)
             moved = resolvedRow >= 0
             const selectedRow = moved ? resolvedRow : sourceBlockRow
-            if (sourceBlockType === 4) {
-                editorView.focusImageBlock(selectedRow)
+            if (sourceBlockType === NoteBlockType.Media) {
+                editorView.focusMediaBlock(selectedRow)
             } else if (sourceFocusAddress) {
                 const address = Object.assign({}, sourceFocusAddress)
                 address.blockIndex = selectedRow
