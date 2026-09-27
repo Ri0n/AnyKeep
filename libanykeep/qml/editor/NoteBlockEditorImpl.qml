@@ -9,7 +9,7 @@ ListView {
     property var blockModel: typeof noteBlockModel !== "undefined" ? noteBlockModel : null
     property var editorBackend: typeof noteEditor !== "undefined" ? noteEditor : null
     property var platformBackend: typeof qmlNoteEditor !== "undefined" ? qmlNoteEditor : null
-    property var mediaTranscriptionController: null
+    property var audioTranscriptionController: null
     readonly property color documentTextColor: palette.text
     readonly property color documentSecondaryTextColor: palette.placeholderText
     readonly property color documentCardColor: palette.alternateBase
