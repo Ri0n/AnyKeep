@@ -129,7 +129,7 @@ namespace {
         return result;
     }
 
-    QString parseHtmlAudioTranscript(const QString &line)
+    QString parseHtmlMediaTranscript(const QString &line)
     {
         static const QRegularExpression outer(QStringLiteral(R"(^\s*<div\b([^>]*)>(.*)</div>\s*$)"),
                                               QRegularExpression::CaseInsensitiveOption
@@ -138,8 +138,10 @@ namespace {
         if (!match.hasMatch())
             return {};
         const auto attributes = htmlAttributes(match.captured(1));
-        if (!attributes.contains(QStringLiteral("data-anykeep-audio-transcript")))
+        if (!attributes.contains(QStringLiteral("data-anykeep-media-transcript"))
+            && !attributes.contains(QStringLiteral("data-anykeep-audio-transcript"))) {
             return {};
+        }
         QString                         text = match.captured(2);
         static const QRegularExpression breaks(QStringLiteral("<br\\s*/?>"), QRegularExpression::CaseInsensitiveOption);
         text.replace(breaks, QStringLiteral("\n"));
@@ -147,19 +149,22 @@ namespace {
         return decodeHtmlAttribute(text);
     }
 
+    QString serializeHtmlMediaTranscript(const QString &transcript)
+    {
+        if (transcript.isEmpty())
+            return {};
+        QString escaped = transcript.toHtmlEscaped();
+        escaped.replace(QLatin1Char('\n'), QStringLiteral("<br />"));
+        return QStringLiteral("\n<div data-anykeep-media-transcript=\"1\">%1</div>").arg(escaped);
+    }
+
     QString serializeHtmlAudio(const QString &source, const QString &title, qint64 durationMs,
                                const QString &transcript)
     {
-        QString result
-            = QStringLiteral("<audio controls src=\"%1\" title=\"%2\" data-anykeep-duration-ms=\"%3\"></audio>")
-                  .arg(source.toHtmlEscaped(), title.toHtmlEscaped(),
-                       QString::number(qBound<qint64>(0, durationMs, MaxMediaDurationMs)));
-        if (!transcript.isEmpty()) {
-            QString escaped = transcript.toHtmlEscaped();
-            escaped.replace(QLatin1Char('\n'), QStringLiteral("<br />"));
-            result += QStringLiteral("\n<div data-anykeep-audio-transcript=\"1\">%1</div>").arg(escaped);
-        }
-        return result;
+        return QStringLiteral("<audio controls src=\"%1\" title=\"%2\" data-anykeep-duration-ms=\"%3\"></audio>")
+                   .arg(source.toHtmlEscaped(), title.toHtmlEscaped(),
+                        QString::number(qBound<qint64>(0, durationMs, MaxMediaDurationMs)))
+            + serializeHtmlMediaTranscript(transcript);
     }
 
     HtmlVideoBlock parseHtmlVideoBlock(const QString &line)
@@ -182,12 +187,15 @@ namespace {
         return result;
     }
 
-    QString serializeHtmlVideo(const QString &source, const QString &title, qint64 durationMs, int width, int height)
+    QString serializeHtmlVideo(const QString &source, const QString &title, qint64 durationMs, int width, int height,
+                               const QString &transcript)
     {
         return QStringLiteral("<video src=\"%1\" title=\"%2\" data-anykeep-duration-ms=\"%3\" "
                               "data-anykeep-width=\"%4\" data-anykeep-height=\"%5\"></video>")
-            .arg(source.toHtmlEscaped(), title.toHtmlEscaped(), QString::number(qMax<qint64>(0, durationMs)),
-                 QString::number(qMax(0, width)), QString::number(qMax(0, height)));
+                   .arg(source.toHtmlEscaped(), title.toHtmlEscaped(),
+                        QString::number(qBound<qint64>(0, durationMs, MaxMediaDurationMs)),
+                        QString::number(qMax(0, width)), QString::number(qMax(0, height)))
+            + serializeHtmlMediaTranscript(transcript);
     }
 
     HtmlAttachmentBlock parseHtmlAttachmentBlock(const QString &line)
@@ -662,7 +670,7 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
             block.alt             = htmlAudio.title;
             ++i;
             if (i < lines.size()) {
-                const QString transcript = parseHtmlAudioTranscript(lines.at(i));
+                const QString transcript = parseHtmlMediaTranscript(lines.at(i));
                 if (!transcript.isNull()) {
                     block.mediaTranscript = transcript;
                     ++i;
@@ -681,8 +689,15 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
             block.mediaHeight = htmlVideo.height;
             block.url = htmlVideo.source;
             block.alt = htmlVideo.title;
-            result.append(block);
             ++i;
+            if (i < lines.size()) {
+                const QString transcript = parseHtmlMediaTranscript(lines.at(i));
+                if (!transcript.isNull()) {
+                    block.mediaTranscript = transcript;
+                    ++i;
+                }
+            }
+            result.append(block);
             continue;
         }
         const HtmlAttachmentBlock htmlAttachment = parseHtmlAttachmentBlock(lines[i]);
@@ -845,7 +860,7 @@ QString NoteBlockModel::writeMarkdown(const QList<Block> &blocks)
                 value = serializeHtmlAudio(block.url, block.alt, block.mediaDurationMs, block.mediaTranscript);
             } else if (block.mediaType.startsWith(QLatin1String("video/"))) {
                 value = serializeHtmlVideo(block.url, block.alt, block.mediaDurationMs, block.mediaWidth,
-                                           block.mediaHeight);
+                                           block.mediaHeight, block.mediaTranscript);
             } else if (block.mediaDisplayWidth > 0
                        || normalizedImageAlignment(block.mediaAlignment) != QLatin1String("center")) {
                 value = serializeHtmlImage(block.url, block.alt, block.mediaDisplayWidth, block.mediaAlignment);
