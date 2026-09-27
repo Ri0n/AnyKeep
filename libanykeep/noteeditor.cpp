@@ -674,16 +674,17 @@ bool NoteEditor::canInsertAudio() const { return supportsMedia(); }
 
 bool NoteEditor::canInsertAttachments() const { return supportsMedia(); }
 
-bool NoteEditor::insertAudio(const MediaReference &reference, qint64 durationMs, int row)
+bool NoteEditor::insertMedia(const MediaReference &reference, qint64 durationMs, int width, int height, int row,
+                             const QString &title)
 {
-    return insertAudio(reference, durationMs, row, reference.originalName);
-}
-
-bool NoteEditor::insertAudio(const MediaReference &reference, qint64 durationMs, int row, const QString &title)
-{
-    if (!reference.isValid() || !reference.mediaType.startsWith(QLatin1String("audio/")) || !supportsMedia())
+    if (!reference.isValid() || !supportsMedia())
         return false;
-    beginHistoryTransaction(QStringLiteral("insert-audio"));
+    const bool inlineMedia = reference.mediaType.startsWith(QLatin1String("image/"))
+        || reference.mediaType.startsWith(QLatin1String("audio/"))
+        || reference.mediaType.startsWith(QLatin1String("video/"));
+    if (!inlineMedia)
+        return false;
+    beginHistoryTransaction(QStringLiteral("insert-media"));
     if (!isMarkdown())
         setMarkdown(true);
     row                  = row < 0 ? model_->rowCount() : qBound(0, row, model_->rowCount());
@@ -693,7 +694,8 @@ bool NoteEditor::insertAudio(const MediaReference &reference, qint64 durationMs,
     if (duplicate == manifest.cend())
         manifest.append(reference);
     setMedia(manifest);
-    model_->insertAudio(row, reference.uri(), title.trimmed(), qMax<qint64>(0, durationMs));
+    model_->insertMedia(row, reference.uri(), title.isEmpty() ? reference.originalName : title.trimmed(),
+                        reference.mediaType, durationMs, width, height);
     endHistoryTransaction();
     emit mediaInserted({ reference });
     return true;
@@ -719,7 +721,7 @@ bool NoteEditor::insertAttachment(const MediaReference &reference, int row)
     return true;
 }
 
-bool NoteEditor::setAudioTranscript(int row, const QString &transcript)
+bool NoteEditor::setMediaTranscript(int row, const QString &transcript)
 {
     return model_->setMediaTranscript(row, transcript);
 }
