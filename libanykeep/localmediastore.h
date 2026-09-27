@@ -5,7 +5,6 @@
 
 #include <QByteArray>
 #include <QMutex>
-#include <QImage>
 #include <QString>
 
 namespace AnyKeep {
@@ -37,8 +36,6 @@ public:
                                     const QUuid &attachmentId = {});
     LocalMediaDataResult data(const QByteArray &blobId) const;
     bool                 contains(const QByteArray &blobId) const;
-    QString              derivedPosterPath(const QByteArray &blobId) const;
-    bool                 storeDerivedPoster(const QByteArray &blobId, const QImage &image, QString *error = nullptr) const;
 
 private:
     QByteArray masterKey(QString *error) const;
