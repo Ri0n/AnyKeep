@@ -360,15 +360,23 @@ FocusScope {
                 enabled: !mediaRoot.transcriptionBlocked && !mediaRoot.transcribing
                 text: mediaRoot.transcribing ? "…" : "STT"
                 Accessible.name: mediaRoot.block.mediaTranscript.length > 0
-                                 ? qsTr("Show transcript; press and hold to transcribe again")
-                                 : qsTr("Transcribe audio")
-                onPressAndHold: mediaRoot.requestTranscription()
+                                 ? qsTr("Show transcript") : qsTr("Transcribe audio")
                 onClicked: {
                     mediaRoot.selectAndFocus()
                     if (mediaRoot.block.mediaTranscript.length > 0)
                         mediaRoot.transcriptExpanded = !mediaRoot.transcriptExpanded
                     else
                         mediaRoot.requestTranscription()
+                }
+            }
+            ToolButton {
+                Layout.preferredWidth: parent.height - 2
+                Layout.preferredHeight: Layout.preferredWidth
+                text: "⋮"
+                Accessible.name: qsTr("Media actions")
+                onClicked: {
+                    mediaRoot.selectAndFocus()
+                    imageContextMenu.popup()
                 }
             }
         }
