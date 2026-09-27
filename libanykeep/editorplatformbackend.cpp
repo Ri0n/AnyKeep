@@ -570,17 +570,33 @@ bool EditorPlatformBackend::insertClipboardImage(int row)
     return insertImageMimeData(mimeData, row);
 }
 
-bool EditorPlatformBackend::insertImageData(const QByteArray &data, const QString &name, const QString &mediaType,
+bool EditorPlatformBackend::insertMediaData(const QByteArray &data, const QString &name, const QString &mediaType,
                                             int row)
 {
     if (!canInsertImages() || data.isEmpty())
         return false;
-    const auto imported = LocalMediaStore::instance()->importData(data, name, mediaType);
+    QMimeDatabase database;
+    QString validatedType = database.mimeTypeForData(data).name();
+    if (validatedType == QLatin1String("application/octet-stream"))
+        validatedType = mediaType;
+    if (!validatedType.startsWith(QLatin1String("image/"))
+        && !validatedType.startsWith(QLatin1String("audio/"))
+        && !validatedType.startsWith(QLatin1String("video/"))) {
+        emit operationFailed(tr("The selected file is not supported inline media."));
+        return false;
+    }
+    const auto imported = LocalMediaStore::instance()->importData(data, name, validatedType);
     if (!imported) {
         emit operationFailed(imported.error);
         return false;
     }
-    return insertImportedImages({ imported.value }, row, QStringLiteral("insert-image"));
+    return insertImportedMedia({ imported.value }, row, QStringLiteral("insert-media"));
+}
+
+bool EditorPlatformBackend::insertImageData(const QByteArray &data, const QString &name, const QString &mediaType,
+                                            int row)
+{
+    return insertMediaData(data, name, mediaType, row);
 }
 
 bool EditorPlatformBackend::insertImage(int row)
@@ -646,7 +662,7 @@ bool EditorPlatformBackend::insertImageFiles(const QStringList &fileNames, int r
         }
         references.append(imported.value);
     }
-    return insertImportedImages(references, row, QStringLiteral("insert-images"));
+    return insertImportedMedia(references, row, QStringLiteral("insert-images"));
 }
 
 bool EditorPlatformBackend::canAcceptImageMimeData(const QMimeData *mimeData) const
@@ -792,7 +808,7 @@ void EditorPlatformBackend::reloadVisualSettings()
     setTitleHighlightColor(configured);
 }
 
-bool EditorPlatformBackend::insertImportedImages(const QList<MediaReference> &references, int row,
+bool EditorPlatformBackend::insertImportedMedia(const QList<MediaReference> &references, int row,
                                                  const QString &historyKind)
 {
     if (!editor_ || references.isEmpty() || !canInsertImages())
@@ -806,6 +822,8 @@ bool EditorPlatformBackend::insertImportedImages(const QList<MediaReference> &re
     int insertionRow = row < 0 ? editor_->model()->rowCount() : qBound(0, row, editor_->model()->rowCount());
     for (const auto &reference : references)
         editor_->model()->insertImage(insertionRow++, reference.uri(), reference.originalName);
+        const QModelIndex index = editor_->model()->index(insertionRow - 1, 0);
+        editor_->model()->setData(index, reference.mediaType, NoteBlockModel::MediaTypeRole);
     editor_->endHistoryTransaction();
     emit mediaInserted(references);
     return true;
