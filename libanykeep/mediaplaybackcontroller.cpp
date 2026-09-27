@@ -12,7 +12,6 @@
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
 #include <QAudioOutput>
 #include <QMediaPlayer>
-#include <QVideoSink>
 #endif
 
 namespace AnyKeep {
@@ -50,8 +49,6 @@ public:
         audioOutput = std::make_unique<QAudioOutput>();
         player      = std::make_unique<QMediaPlayer>();
         player->setAudioOutput(audioOutput.get());
-        videoSink   = std::make_unique<QVideoSink>();
-        player->setVideoSink(videoSink.get());
         QObject::connect(player.get(), &QMediaPlayer::positionChanged, owner, [this](qint64 value) {
             positionMs = value;
             emit owner->stateChanged();
@@ -181,7 +178,6 @@ public:
     qint64                   durationMs { 0 };
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     std::unique_ptr<QAudioOutput> audioOutput;
-    std::unique_ptr<QVideoSink>   videoSink;
     std::unique_ptr<QMediaPlayer> player;
 #endif
 };
@@ -192,12 +188,23 @@ MediaPlaybackController::MediaPlaybackController(NoteEditor *editor, QObject *pa
 }
 MediaPlaybackController::~MediaPlaybackController() = default;
 
-QObject *MediaPlaybackController::videoSink() const
+void MediaPlaybackController::attachVideoOutput(QObject *output)
 {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-    return impl_->ensurePlayer() ? impl_->videoSink.get() : nullptr;
+    if (output && impl_->ensurePlayer())
+        impl_->player->setVideoOutput(output);
 #else
-    return nullptr;
+    Q_UNUSED(output)
+#endif
+}
+
+void MediaPlaybackController::detachVideoOutput(QObject *output)
+{
+#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+    if (impl_->player && impl_->player->videoOutput() == output)
+        impl_->player->setVideoOutput(nullptr);
+#else
+    Q_UNUSED(output)
 #endif
 }
 
