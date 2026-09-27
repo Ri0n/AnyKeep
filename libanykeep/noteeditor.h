@@ -37,8 +37,7 @@ class ANYKEEP_EXPORT NoteEditor final : public QObject {
     Q_PROPERTY(bool favorite READ isFavorite WRITE setFavorite NOTIFY favoriteChanged)
     Q_PROPERTY(bool favoriteSupported READ supportsFavorite NOTIFY storageCapabilitiesChanged)
     Q_PROPERTY(bool supportsMedia READ supportsMedia NOTIFY storageCapabilitiesChanged)
-    Q_PROPERTY(bool canInsertImages READ canInsertImages NOTIFY storageCapabilitiesChanged)
-    Q_PROPERTY(bool canInsertAudio READ canInsertAudio NOTIFY storageCapabilitiesChanged)
+    Q_PROPERTY(bool canInsertMedia READ canInsertMedia NOTIFY storageCapabilitiesChanged)
     Q_PROPERTY(bool canInsertAttachments READ canInsertAttachments NOTIFY storageCapabilitiesChanged)
     Q_PROPERTY(QObject *blockModel READ blockModel CONSTANT)
     Q_PROPERTY(QObject *mediaPlayback READ mediaPlayback CONSTANT)
@@ -71,8 +70,7 @@ public:
         return id.isNull() ? QString() : id.toString(QUuid::WithoutBraces);
     }
     bool                  supportsMedia() const;
-    bool                  canInsertImages() const;
-    bool                  canInsertAudio() const;
+    bool                  canInsertMedia() const;
     bool                  canInsertAttachments() const;
     QString               text() const { return text_; }
     QString               displayTitle() const;
