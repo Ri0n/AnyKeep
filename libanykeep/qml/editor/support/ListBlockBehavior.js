@@ -5,10 +5,10 @@ function handleKey(host, controller, event, cell, itemIndex) {
     const primaryModifier = event.modifiers & (Qt.ControlModifier | Qt.MetaModifier)
     const listShortcut = primaryModifier && event.modifiers & Qt.ShiftModifier
                          && !(event.modifiers & Qt.AltModifier)
-    if (listShortcut && (event.key === Qt.Key_7 || event.key === Qt.Key_Ampersand
+    if (listShortcut && (event.key === Qt.Key_7 || event.key === Qt.Key_Ampersand || event.key === Qt.Key_Question
             || event.key === Qt.Key_8 || event.key === Qt.Key_Asterisk
             || event.key === Qt.Key_9 || event.key === Qt.Key_ParenLeft)) {
-        const type = event.key === Qt.Key_7 || event.key === Qt.Key_Ampersand ? 5
+        const type = event.key === Qt.Key_7 || event.key === Qt.Key_Ampersand || event.key === Qt.Key_Question ? 5
                    : event.key === Qt.Key_8 || event.key === Qt.Key_Asterisk ? 1 : 2
         return controller.runEditTransaction("convert-list-level", function() {
             controller.blockModel.convertListLevel(host.block.index, itemIndex, type)
@@ -113,15 +113,13 @@ function handleKey(host, controller, event, cell, itemIndex) {
                         blockIndex: host.block.index,
                         listItemIndex: -1,
                         tableCellIndex: -1,
-                        cursorPosition: 0,
-                        preserveViewport: true,
-                        viewportY: viewportY
+                        cursorPosition: 0
                     })
                 } else {
                     const target = itemIndex > 0 ? itemIndex - 1 : 0
                     const targetLength = itemIndex > 0 ? host.itemText(target).length : 0
                     controller.blockModel.removeListItem(host.block.index, itemIndex)
-                    host.focusItem(target, targetLength, true, viewportY)
+                    host.focusItem(target, targetLength)
                 }
                 return true
             })
@@ -143,9 +141,7 @@ function handleKey(host, controller, event, cell, itemIndex) {
                 blockIndex: textRow,
                 listItemIndex: -1,
                 tableCellIndex: -1,
-                cursorPosition: 0,
-                preserveViewport: true,
-                viewportY: viewportY
+                cursorPosition: 0
             })
             // The model keeps Markdown paragraph separators while TextArea
             // renders them as one visual line break. Resolve the position in
