@@ -127,9 +127,9 @@ void NoteBlockModel::insertMedia(int row, const QString &url, const QString &tit
     block.url             = url;
     block.alt             = title;
     block.mediaType       = mediaType.trimmed().toLower();
-    block.mediaDurationMs = qMax<qint64>(0, durationMs);
-    block.mediaWidth      = qMax(0, width);
-    block.mediaHeight     = qMax(0, height);
+    block.mediaDurationMs = qBound<qint64>(0, durationMs, MaxMediaDurationMs);
+    block.mediaWidth      = qBound(0, width, MaxMediaPixelDimension);
+    block.mediaHeight     = qBound(0, height, MaxMediaPixelDimension);
     blocks_.insert(row, block);
     endInsertRows();
     notifyNormalizedTagLines();
