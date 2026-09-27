@@ -184,7 +184,7 @@ FocusScope {
         width: mediaRoot.displayWidth
         height: mediaRoot.displayHeight
         source: mediaRoot.block.previewUrl
-        visible: mediaRoot.visual
+        visible: mediaRoot.visual && !(mediaRoot.video && mediaRoot.current && mediaRoot.playback && mediaRoot.playback.poster)
         fillMode: Image.PreserveAspectFit
         smooth: true
         asynchronous: true
@@ -272,6 +272,19 @@ FocusScope {
         onPositionChanged: function(mouse) { mediaRoot.updateMarginSelection(imageRightMarginSelectionArea, mouse) }
         onReleased: function(mouse) { mediaRoot.finishMarginSelection(mouse) }
         onCanceled: mediaRoot.editorView.cancelBlankAreaSelection()
+    }
+
+    Image {
+        id: decodedPoster
+        visible: mediaRoot.video && mediaRoot.current && mediaRoot.playback
+                 && mediaRoot.playback.poster && !mediaRoot.playing
+        x: sourceImage.x
+        y: sourceImage.y
+        width: sourceImage.width
+        height: sourceImage.height
+        source: ""
+        fillMode: Image.PreserveAspectFit
+        z: 2
     }
 
     VideoOutput {
