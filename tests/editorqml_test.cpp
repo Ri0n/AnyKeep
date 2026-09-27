@@ -2620,14 +2620,12 @@ private slots:
             QTRY_VERIFY(body->hasActiveFocus());
 
             QTest::keyClick(host.quickWidget(), key, modifiers);
-            QTRY_COMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::List));
-            QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ListTypeRole).toInt(),
-                     expectedType);
+            QTRY_COMPARE(editor.model()->blockTypeAt(1), expectedType);
         };
 
         verify(Qt::Key_7, Qt::ControlModifier | Qt::ShiftModifier, int(NoteBlockModel::NumberedList));
         verify(Qt::Key_8, Qt::ControlModifier | Qt::ShiftModifier, int(NoteBlockModel::BulletList));
-        verify(Qt::Key_9, Qt::ControlModifier | Qt::ShiftModifier, int(NoteBlockModel::TaskList));
+        verify(Qt::Key_9, Qt::ControlModifier | Qt::ShiftModifier, int(NoteBlockModel::CheckList));
     }
 
     void blockQuoteDoubleEnterExitsButShiftEnterDoesNot()
