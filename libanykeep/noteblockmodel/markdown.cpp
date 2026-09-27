@@ -125,7 +125,7 @@ namespace {
         bool         durationOk = false;
         const qint64 duration   = attributes.value(QStringLiteral("data-anykeep-duration-ms")).toLongLong(&durationOk);
         if (durationOk)
-            result.durationMs = qBound<qint64>(0, duration, MaxAudioDurationMs);
+            result.durationMs = qBound<qint64>(0, duration, MaxMediaDurationMs);
         return result;
     }
 
@@ -153,7 +153,7 @@ namespace {
         QString result
             = QStringLiteral("<audio controls src=\"%1\" title=\"%2\" data-anykeep-duration-ms=\"%3\"></audio>")
                   .arg(source.toHtmlEscaped(), title.toHtmlEscaped(),
-                       QString::number(qBound<qint64>(0, durationMs, MaxAudioDurationMs)));
+                       QString::number(qBound<qint64>(0, durationMs, MaxMediaDurationMs)));
         if (!transcript.isEmpty()) {
             QString escaped = transcript.toHtmlEscaped();
             escaped.replace(QLatin1Char('\n'), QStringLiteral("<br />"));
