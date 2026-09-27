@@ -12,7 +12,6 @@ public:
     explicit Impl(MediaReference reference) : reference(std::move(reference)) {}
     MediaReference reference;
     QByteArray bytes;
-    QString error;
 };
 
 MediaStream::MediaStream(const MediaReference &reference, QObject *parent) :
@@ -24,7 +23,7 @@ MediaStream::~MediaStream() = default;
 bool MediaStream::open(OpenMode mode)
 {
     if (mode != QIODevice::ReadOnly) {
-        impl_->error = QStringLiteral("MediaStream is read-only");
+        setErrorString(QStringLiteral("MediaStream is read-only"));
         return false;
     }
     // Whole-object authenticated local blobs are the compatibility source.
@@ -32,11 +31,11 @@ bool MediaStream::open(OpenMode mode)
     // representation so a chunk-authenticated ranged source can replace it.
     const auto loaded = LocalMediaStore::instance()->data(impl_->reference.blobId);
     if (!loaded) {
-        impl_->error = loaded.error;
+        setErrorString(loaded.error);
         return false;
     }
     impl_->bytes = loaded.value;
-    impl_->error.clear();
+    setErrorString({});
     return QIODevice::open(mode);
 }
 
@@ -48,6 +47,11 @@ void MediaStream::close()
 
 qint64 MediaStream::size() const { return impl_->bytes.size(); }
 
+qint64 MediaStream::bytesAvailable() const
+{
+    return qMax<qint64>(0, size() - pos()) + QIODevice::bytesAvailable();
+}
+
 bool MediaStream::seek(qint64 position)
 {
     if (position < 0 || position > size())
@@ -55,7 +59,6 @@ bool MediaStream::seek(qint64 position)
     return QIODevice::seek(position);
 }
 
-QString MediaStream::errorString() const { return impl_->error; }
 
 qint64 MediaStream::readData(char *data, qint64 maxSize)
 {
