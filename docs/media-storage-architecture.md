@@ -624,3 +624,10 @@ monolithic AES-GCM object safely seekable.
 
 
 Implementation note: timed media shares one playback controller. Video presentation attaches one lazy Qt Multimedia output to that player and reparents the same surface for fullscreen display; probing/poster extraction is a separate derived-cache concern and must not write frame-by-frame playback state into storage.
+
+Integration guardrails:
+
+- editor/model code uses symbolic `NoteBlockType.Media` / `NoteBlockType.Attachment`; QML must not depend on numeric enum values;
+- Qt Multimedia remains optional for the shared desktop editor. `MediaBlock.qml` therefore does not import it directly; the lazy video surface owns that import and is instantiated only when playback support is available;
+- replacing a playback source detaches the old `QIODevice` from `QMediaPlayer` before destroying it;
+- derived posters are cache artifacts produced by an explicit probe/extraction path, never persisted once per decoded playback frame.
