@@ -235,6 +235,12 @@ void NoteFragmentTest::rejectsInvalidInput()
     invalidPresentation.blocks.append(visual);
     QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidPresentation)));
 
+    NoteFragment invalidMediaType;
+    visual.media.alignment = QStringLiteral("center");
+    visual.media.mediaType = QStringLiteral("application/octet-stream");
+    invalidMediaType.blocks = { visual };
+    QVERIFY(!decodeNoteFragment(encodeNoteFragment(invalidMediaType)));
+
     NoteFragment      invalidDuration;
     NoteFragmentBlock timed;
     timed.type               = NoteFragmentBlockType::Media;
