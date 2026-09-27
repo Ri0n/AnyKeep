@@ -341,6 +341,39 @@ ListView {
     function pastePrimaryAtDocumentEnd() {
         if (!blockModel || !editorBackend)
             return false
+
+        // A newly-created note already owns its title text block. Clicking the
+        // trailing blank area must not manufacture a body paragraph before
+        // pasting, otherwise the first real line can never become the title.
+        // Reuse that title editor when the whole document is still empty.
+        const existingEditors = orderedEditors()
+        let emptyTitleEditor = null
+        let documentHasContent = false
+        for (const candidate of existingEditors) {
+            if (candidate && candidate.length > 0
+                    && String(candidate.currentPlainText ? candidate.currentPlainText() : candidate.text).trim().length > 0) {
+                documentHasContent = true
+                break
+            }
+            if (candidate && candidate.titleDocument)
+                emptyTitleEditor = candidate
+        }
+
+        if (!documentHasContent && emptyTitleEditor) {
+            activeEditor = emptyTitleEditor
+            emptyTitleEditor.forceActiveFocus()
+            return runEditTransaction("paste-primary", function() {
+                const end = editorBackend.pastePrimarySelection(
+                                emptyTitleEditor.textDocument, 0, emptyTitleEditor.length)
+                if (end < 0)
+                    return false
+                emptyTitleEditor.cursorPosition = end
+                emptyTitleEditor.commitText(false)
+                emptyTitleEditor.rememberPlainText()
+                return true
+            })
+        }
+
         const boundary = count
         if (!insertParagraphAtBoundary(boundary))
             return false
