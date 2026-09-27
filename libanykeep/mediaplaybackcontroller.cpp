@@ -181,8 +181,8 @@ public:
     qint64                   durationMs { 0 };
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     std::unique_ptr<QAudioOutput> audioOutput;
-    std::unique_ptr<QMediaPlayer> player;
     std::unique_ptr<QVideoSink>   videoSink;
+    std::unique_ptr<QMediaPlayer> player;
 #endif
 };
 
