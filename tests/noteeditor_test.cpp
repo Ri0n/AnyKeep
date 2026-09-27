@@ -500,21 +500,21 @@ private slots:
 
         editor.setMarkdown(true);
         const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
-        editor.model()->insertAudio(1, source, QStringLiteral("Voice memo"), 2500);
-        editor.model()->insertAudio(2, source, QStringLiteral("Duplicate voice memo"), 2500);
+        editor.model()->insertMedia(1, source, QStringLiteral("Voice memo"), QStringLiteral("audio/*"), 2500);
+        editor.model()->insertMedia(2, source, QStringLiteral("Duplicate voice memo"), QStringLiteral("audio/*"), 2500);
         editor.resetHistory();
 
-        QVERIFY(editor.setAudioTranscript(2, QStringLiteral("Recognized text")));
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AudioTranscriptRole).toString(),
+        QVERIFY(editor.setMediaTranscript(2, QStringLiteral("Recognized text")));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaTranscriptRole).toString(),
                  QString());
-        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AudioTranscriptRole).toString(),
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::MediaTranscriptRole).toString(),
                  QStringLiteral("Recognized text"));
         QVERIFY(editor.canUndo());
         QVERIFY(editor.undo());
-        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AudioTranscriptRole).toString(),
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::MediaTranscriptRole).toString(),
                  QString());
         QVERIFY(editor.redo());
-        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AudioTranscriptRole).toString(),
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::MediaTranscriptRole).toString(),
                  QStringLiteral("Recognized text"));
     }
 
@@ -526,7 +526,7 @@ private slots:
 
         editor.setMarkdown(true);
         const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
-        editor.model()->insertAudio(1, source, QStringLiteral("audio.m4a"), 2500);
+        editor.model()->insertMedia(1, source, QStringLiteral("audio.m4a"), QStringLiteral("audio/*"), 2500);
         editor.resetHistory();
 
         QVERIFY(editor.model()->setAudioTitle(1, QStringLiteral("  Planning notes  ")));
@@ -549,7 +549,7 @@ private slots:
 
         editor.setMarkdown(true);
         const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
-        editor.model()->insertAudio(1, source, QStringLiteral("Planning notes"), 2500);
+        editor.model()->insertMedia(1, source, QStringLiteral("Planning notes"), QStringLiteral("audio/*"), 2500);
 
         QVERIFY(editor.copyBlockToClipboard(1));
         const QMimeData *mimeData = QGuiApplication::clipboard()->mimeData();
@@ -573,24 +573,24 @@ private slots:
         NoteEditor   editor(plainNote(), drafts);
 
         editor.setMarkdown(true);
-        editor.model()->insertImage(1, QStringLiteral("media://image"), QStringLiteral("Image"));
+        editor.model()->insertMedia(1, QStringLiteral("media://image"), QStringLiteral("Image"), QStringLiteral("image/*"));
         editor.resetHistory();
 
         editor.beginHistoryTransaction(QStringLiteral("image-presentation"), {});
         editor.model()->setImageWidth(1, 280);
         editor.model()->setImageAlignment(1, QStringLiteral("right"));
         editor.endHistoryTransaction({});
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageWidthRole).toInt(), 280);
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageAlignmentRole).toString(),
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaDisplayWidthRole).toInt(), 280);
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaAlignmentRole).toString(),
                  QStringLiteral("right"));
 
         QVERIFY(editor.undo());
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageWidthRole).toInt(), 0);
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageAlignmentRole).toString(),
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaDisplayWidthRole).toInt(), 0);
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaAlignmentRole).toString(),
                  QStringLiteral("center"));
         QVERIFY(editor.redo());
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageWidthRole).toInt(), 280);
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageAlignmentRole).toString(),
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaDisplayWidthRole).toInt(), 280);
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaAlignmentRole).toString(),
                  QStringLiteral("right"));
     }
 
