@@ -518,7 +518,7 @@ private slots:
                  QStringLiteral("Recognized text"));
     }
 
-    void audioTitleChangesParticipateInUndo()
+    void mediaTitleChangesParticipateInUndo()
     {
         auto         store = std::make_unique<MemoryDraftStore>();
         DraftManager drafts(std::move(store));
@@ -531,7 +531,7 @@ private slots:
 
         QVERIFY(editor.model()->setMediaTitle(1, QStringLiteral("  Planning notes  ")));
         QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AltRole).toString(),
-                 QStringLiteral("Planning notes"));
+                 QStringLiteral("  Planning notes  "));
         QVERIFY(editor.canUndo());
         QVERIFY(editor.undo());
         QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AltRole).toString(),
