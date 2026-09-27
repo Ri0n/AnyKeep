@@ -82,9 +82,9 @@ void NoteBlockModelTest::includesUnrangedBlocksCrossedBySelection()
     QCOMPARE(fragment.blocks.size(), 3);
     QCOMPARE(fragment.blocks.at(0).type, NoteFragmentBlockType::Text);
     QCOMPARE(fragment.blocks.at(0).markdown, QStringLiteral("text"));
-    QCOMPARE(fragment.blocks.at(1).type, NoteFragmentBlockType::Image);
-    QCOMPARE(fragment.blocks.at(1).image.sourceUri, QStringLiteral("media://diagram"));
-    QCOMPARE(fragment.blocks.at(1).image.alt, QStringLiteral("diagram"));
+    QCOMPARE(fragment.blocks.at(1).type, NoteFragmentBlockType::Media);
+    QCOMPARE(fragment.blocks.at(1).media.sourceUri, QStringLiteral("media://diagram"));
+    QCOMPARE(fragment.blocks.at(1).media.title, QStringLiteral("diagram"));
     QCOMPARE(fragment.blocks.at(2).type, NoteFragmentBlockType::Text);
     QCOMPARE(fragment.blocks.at(2).markdown, QStringLiteral("after"));
 
