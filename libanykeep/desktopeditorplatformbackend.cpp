@@ -15,6 +15,7 @@
 #include <QMimeData>
 #include <QMessageBox>
 #include <QPixmap>
+#include <QPushButton>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QTemporaryDir>
