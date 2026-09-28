@@ -157,6 +157,11 @@ void LocalMediaStoreTest::externalFileReferenceStreamsVerifiedRanges()
     const auto materialized = store.data(referenced.value.blobId);
     QVERIFY2(materialized, qPrintable(materialized.error));
     QCOMPARE(materialized.value, plain);
+
+    const auto managed = store.importData(plain, QStringLiteral("managed-video.bin"), QStringLiteral("video/mp4"));
+    QVERIFY2(managed, qPrintable(managed.error));
+    QCOMPARE(managed.value.blobId, referenced.value.blobId);
+    QVERIFY(store.containsManagedBlob(referenced.value.blobId));
 }
 
 void LocalMediaStoreTest::externalFileReferenceRejectsChangedChunks()
