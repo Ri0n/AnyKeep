@@ -38,6 +38,8 @@ class ANYKEEP_EXPORT EditorPlatformBackend : public QObject {
     Q_PROPERTY(QFont editorFont READ editorFont WRITE setEditorFont NOTIFY editorFontChanged)
 
 public:
+    enum class MediaFileImportMode { CopyIntoStore, KeepInPlace };
+
     explicit EditorPlatformBackend(QObject *parent = nullptr);
     EditorPlatformBackend(NoteEditor *editor, QObject *parent = nullptr);
     ~EditorPlatformBackend() override;
@@ -72,7 +74,8 @@ public:
     Q_INVOKABLE virtual bool startImageDrag(int row);
 
     bool insertRasterImage(const QImage &image, const QString &name, int row = -1);
-    bool insertMediaFiles(const QStringList &fileNames, int row = -1, QString *error = nullptr);
+    bool insertMediaFiles(const QStringList &fileNames, int row = -1, QString *error = nullptr,
+                          MediaFileImportMode mode = MediaFileImportMode::CopyIntoStore);
     bool canAcceptImageMimeData(const QMimeData *mimeData) const;
     bool insertImageMimeData(const QMimeData *mimeData, int row = -1);
     bool canInsertImageFragment(const NoteFragment &fragment) const;
