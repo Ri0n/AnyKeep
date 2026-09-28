@@ -11,20 +11,21 @@ class NoteFragmentMediaTransferTest : public QObject {
     Q_OBJECT
 
 private slots:
-    void clonesAttachmentAndRewritesImageUri();
-    void clonesAttachmentAndRewritesAudioUri();
+    void clonesImageMediaAndRewritesUri();
+    void clonesAudioMediaAndRewritesUri();
     void clonesGenericAttachmentAndRewritesUri();
     void usesEmbeddedDataWithoutSourceStore();
-    void rejectsImageWithoutMedia();
+    void rejectsMediaWithoutTransferReference();
 };
 
 static NoteFragment imageFragment(const MediaReference &reference, const QByteArray &data = {})
 {
     NoteFragment      fragment;
     NoteFragmentBlock image;
-    image.type            = NoteFragmentBlockType::Image;
-    image.image.sourceUri = reference.uri();
-    image.image.alt       = QStringLiteral("diagram");
+    image.type             = NoteFragmentBlockType::Media;
+    image.media.sourceUri  = reference.uri();
+    image.media.title      = QStringLiteral("diagram");
+    image.media.mediaType  = QStringLiteral("image/png");
     fragment.blocks.append(image);
     NoteFragmentMedia media;
     media.sourceUri = reference.uri();
@@ -38,10 +39,11 @@ static NoteFragment audioFragment(const MediaReference &reference)
 {
     NoteFragment      fragment;
     NoteFragmentBlock audio;
-    audio.type             = NoteFragmentBlockType::Audio;
-    audio.audio.sourceUri  = reference.uri();
-    audio.audio.title      = QStringLiteral("voice note");
-    audio.audio.durationMs = 12345;
+    audio.type               = NoteFragmentBlockType::Media;
+    audio.media.sourceUri    = reference.uri();
+    audio.media.title        = QStringLiteral("voice note");
+    audio.media.mediaType    = QStringLiteral("audio/mp4");
+    audio.media.durationMs   = 12345;
     fragment.blocks.append(audio);
     NoteFragmentMedia media;
     media.sourceUri = reference.uri();
@@ -67,7 +69,7 @@ static NoteFragment attachmentFragment(const MediaReference &reference)
     return fragment;
 }
 
-void NoteFragmentMediaTransferTest::clonesAttachmentAndRewritesImageUri()
+void NoteFragmentMediaTransferTest::clonesImageMediaAndRewritesUri()
 {
     QTemporaryDir sourceDirectory;
     QTemporaryDir destinationDirectory;
@@ -86,14 +88,14 @@ void NoteFragmentMediaTransferTest::clonesAttachmentAndRewritesImageUri()
     QCOMPARE(cloned.importedMedia.size(), 1);
     QVERIFY(cloned.importedMedia.first().id != original.value.id);
     QVERIFY(cloned.importedMedia.first().remoteData.isEmpty());
-    QCOMPARE(cloned.fragment.blocks.first().image.sourceUri, cloned.importedMedia.first().uri());
-    QVERIFY(cloned.fragment.blocks.first().image.sourceUri != original.value.uri());
+    QCOMPARE(cloned.fragment.blocks.first().media.sourceUri, cloned.importedMedia.first().uri());
+    QVERIFY(cloned.fragment.blocks.first().media.sourceUri != original.value.uri());
     const auto restored = destination.data(cloned.importedMedia.first().blobId);
     QVERIFY2(restored, qPrintable(restored.error));
     QCOMPARE(restored.value, bytes);
 }
 
-void NoteFragmentMediaTransferTest::clonesAttachmentAndRewritesAudioUri()
+void NoteFragmentMediaTransferTest::clonesAudioMediaAndRewritesUri()
 {
     QTemporaryDir sourceDirectory;
     QTemporaryDir destinationDirectory;
@@ -109,9 +111,9 @@ void NoteFragmentMediaTransferTest::clonesAttachmentAndRewritesAudioUri()
         = NoteFragmentMediaTransfer::cloneForDestination(audioFragment(original.value), destination, &source);
     QVERIFY2(cloned, qPrintable(cloned.error));
     QCOMPARE(cloned.importedMedia.size(), 1);
-    QCOMPARE(cloned.fragment.blocks.first().audio.sourceUri, cloned.importedMedia.first().uri());
-    QVERIFY(cloned.fragment.blocks.first().audio.sourceUri != original.value.uri());
-    QCOMPARE(cloned.fragment.blocks.first().audio.durationMs, qint64(12345));
+    QCOMPARE(cloned.fragment.blocks.first().media.sourceUri, cloned.importedMedia.first().uri());
+    QVERIFY(cloned.fragment.blocks.first().media.sourceUri != original.value.uri());
+    QCOMPARE(cloned.fragment.blocks.first().media.durationMs, qint64(12345));
     const auto restored = destination.data(cloned.importedMedia.first().blobId);
     QVERIFY2(restored, qPrintable(restored.error));
     QCOMPARE(restored.value, bytes);
@@ -165,15 +167,16 @@ void NoteFragmentMediaTransferTest::usesEmbeddedDataWithoutSourceStore()
     QCOMPARE(restored.value, data);
 }
 
-void NoteFragmentMediaTransferTest::rejectsImageWithoutMedia()
+void NoteFragmentMediaTransferTest::rejectsMediaWithoutTransferReference()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     LocalMediaStore   destination(directory.path(), SecureEnvelope::generateMasterKey());
     NoteFragment      fragment;
     NoteFragmentBlock image;
-    image.type            = NoteFragmentBlockType::Image;
-    image.image.sourceUri = QStringLiteral("anykeep-media:/missing/image.png");
+    image.type             = NoteFragmentBlockType::Media;
+    image.media.sourceUri  = QStringLiteral("anykeep-media:/missing/image.png");
+    image.media.mediaType  = QStringLiteral("image/png");
     fragment.blocks.append(image);
 
     const auto cloned = NoteFragmentMediaTransfer::cloneForDestination(fragment, destination);

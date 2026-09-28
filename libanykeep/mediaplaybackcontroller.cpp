@@ -1,10 +1,9 @@
-#include "audioplaybackcontroller.h"
+#include "mediaplaybackcontroller.h"
 
-#include "localmediastore.h"
+#include "mediastream.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
 
-#include <QBuffer>
 #include <QDir>
 #include <QUrl>
 
@@ -17,11 +16,10 @@
 
 namespace AnyKeep {
 
-class AudioPlaybackController::Impl {
+class MediaPlaybackController::Impl {
 public:
-    Impl(AudioPlaybackController *q, NoteEditor *editor) : owner(q), editor(editor)
+    Impl(MediaPlaybackController *q, NoteEditor *editor) : owner(q), editor(editor)
     {
-        buffer.setBuffer(&bytes);
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
         if (editor) {
             QObject::connect(editor, &NoteEditor::mediaChanged, owner, [this](const QList<MediaReference> &media) {
@@ -79,7 +77,7 @@ public:
         const auto *model = editor->model();
         for (int row = 0; row < model->rowCount(); ++row) {
             const QModelIndex index = model->index(row, 0);
-            if (model->data(index, NoteBlockModel::TypeRole).toInt() == NoteBlockModel::Audio
+            if (model->data(index, NoteBlockModel::TypeRole).toInt() == NoteBlockModel::Media
                 && model->data(index, NoteBlockModel::UrlRole).toString() == sourceUri) {
                 return true;
             }
@@ -94,25 +92,21 @@ public:
             return false;
         const auto media = editor->media();
         const auto it    = std::find_if(media.cbegin(), media.cend(), [&uri](const MediaReference &item) {
-            return item.uri() == uri && item.mediaType.startsWith(QLatin1String("audio/"));
+            return item.uri() == uri && (item.mediaType.startsWith(QLatin1String("audio/"))
+                                         || item.mediaType.startsWith(QLatin1String("video/")));
         });
         if (it == media.cend()) {
-            error = AudioPlaybackController::tr("The audio attachment is not present in this note.");
+            error = MediaPlaybackController::tr("The timed media is not present in this note.");
             emit owner->stateChanged();
             return false;
         }
-        const auto decrypted = LocalMediaStore::instance()->data(it->blobId);
-        if (!decrypted) {
-            error = decrypted.error;
-            emit owner->stateChanged();
-            return false;
-        }
-
         player->stop();
-        buffer.close();
-        bytes = decrypted.value;
-        if (!buffer.open(QIODevice::ReadOnly)) {
-            error = buffer.errorString();
+        player->setSource(QUrl());
+        stream.reset();
+        stream = std::make_unique<MediaStream>(*it);
+        if (!stream->open(QIODevice::ReadOnly)) {
+            error = stream->errorString();
+            stream.reset();
             emit owner->stateChanged();
             return false;
         }
@@ -121,7 +115,7 @@ public:
         positionMs            = 0;
         durationMs            = 0;
         const QUrl formatHint = QUrl::fromLocalFile(QDir(QDir::tempPath()).filePath(it->portableName));
-        player->setSourceDevice(&buffer, formatHint);
+        player->setSourceDevice(stream.get(), formatHint);
         emit owner->stateChanged();
         return true;
 #else
@@ -167,8 +161,7 @@ public:
             player->setSource(QUrl());
         }
 #endif
-        buffer.close();
-        bytes.clear();
+        stream.reset();
         sourceUri.clear();
         positionMs = 0;
         durationMs = 0;
@@ -176,12 +169,11 @@ public:
         emit owner->stateChanged();
     }
 
-    AudioPlaybackController *owner;
+    MediaPlaybackController *owner;
     NoteEditor              *editor;
     QString                  sourceUri;
     QString                  error;
-    QByteArray               bytes;
-    QBuffer                  buffer;
+    std::unique_ptr<MediaStream> stream;
     qint64                   positionMs { 0 };
     qint64                   durationMs { 0 };
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
@@ -190,13 +182,33 @@ public:
 #endif
 };
 
-AudioPlaybackController::AudioPlaybackController(NoteEditor *editor, QObject *parent) :
+MediaPlaybackController::MediaPlaybackController(NoteEditor *editor, QObject *parent) :
     QObject(parent), impl_(std::make_unique<Impl>(this, editor))
 {
 }
-AudioPlaybackController::~AudioPlaybackController() = default;
+MediaPlaybackController::~MediaPlaybackController() = default;
 
-bool AudioPlaybackController::available() const
+void MediaPlaybackController::attachVideoOutput(QObject *output)
+{
+#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+    if (output && impl_->ensurePlayer())
+        impl_->player->setVideoOutput(output);
+#else
+    Q_UNUSED(output)
+#endif
+}
+
+void MediaPlaybackController::detachVideoOutput(QObject *output)
+{
+#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+    if (impl_->player && impl_->player->videoOutput() == output)
+        impl_->player->setVideoOutput(nullptr);
+#else
+    Q_UNUSED(output)
+#endif
+}
+
+bool MediaPlaybackController::available() const
 {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     return true;
@@ -204,8 +216,8 @@ bool AudioPlaybackController::available() const
     return false;
 #endif
 }
-QString AudioPlaybackController::currentSourceUri() const { return impl_->sourceUri; }
-bool    AudioPlaybackController::playing() const
+QString MediaPlaybackController::currentSourceUri() const { return impl_->sourceUri; }
+bool    MediaPlaybackController::playing() const
 {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     return impl_->player && impl_->player->playbackState() == QMediaPlayer::PlayingState;
@@ -213,7 +225,7 @@ bool    AudioPlaybackController::playing() const
     return false;
 #endif
 }
-bool AudioPlaybackController::loading() const
+bool MediaPlaybackController::loading() const
 {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     if (!impl_->player)
@@ -225,11 +237,11 @@ bool AudioPlaybackController::loading() const
     return false;
 #endif
 }
-qint64  AudioPlaybackController::position() const { return impl_->positionMs; }
-qint64  AudioPlaybackController::duration() const { return impl_->durationMs; }
-QString AudioPlaybackController::errorString() const { return impl_->error; }
-bool    AudioPlaybackController::play(const QString &sourceUri) { return impl_->play(sourceUri); }
-bool    AudioPlaybackController::toggle(const QString &sourceUri)
+qint64  MediaPlaybackController::position() const { return impl_->positionMs; }
+qint64  MediaPlaybackController::duration() const { return impl_->durationMs; }
+QString MediaPlaybackController::errorString() const { return impl_->error; }
+bool    MediaPlaybackController::play(const QString &sourceUri) { return impl_->play(sourceUri); }
+bool    MediaPlaybackController::toggle(const QString &sourceUri)
 {
     if (playing() && impl_->sourceUri == sourceUri) {
         pause();
@@ -237,9 +249,9 @@ bool    AudioPlaybackController::toggle(const QString &sourceUri)
     }
     return play(sourceUri);
 }
-void AudioPlaybackController::pause() { impl_->pause(); }
-void AudioPlaybackController::stop() { impl_->stop(); }
-bool AudioPlaybackController::seek(const QString &sourceUri, qint64 positionMs)
+void MediaPlaybackController::pause() { impl_->pause(); }
+void MediaPlaybackController::stop() { impl_->stop(); }
+bool MediaPlaybackController::seek(const QString &sourceUri, qint64 positionMs)
 {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     if (impl_->sourceUri != sourceUri && !impl_->load(sourceUri))

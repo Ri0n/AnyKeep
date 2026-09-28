@@ -125,6 +125,21 @@ private slots:
         QCOMPARE(host.model(), editor.model());
     }
 
+    void loadsMediaVideoSurface()
+    {
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(plainNote(), drafts);
+        DesktopNoteEditorHost host(&editor);
+        auto                 *quick = host.quickWidget();
+        QVERIFY(quick);
+
+        QQmlComponent component(quick->engine(),
+                                QUrl(QStringLiteral("qrc:/qml/editor/blocks/MediaVideoSurface.qml")));
+        QTRY_COMPARE(component.status(), QQmlComponent::Ready);
+        std::unique_ptr<QObject> surface(component.create());
+        QVERIFY2(surface, qPrintable(component.errorString()));
+    }
+
     void favoriteButtonTracksBackendAcrossRepeatedClicks()
     {
         FavoriteEditorStorage storage;
@@ -1160,7 +1175,7 @@ private:
         DraftManager  drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor    editor(note, drafts);
         const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
-        editor.model()->insertAudio(editor.model()->rowCount(), source, QStringLiteral("Voice memo"), 2500);
+        editor.model()->insertMedia(editor.model()->rowCount(), source, QStringLiteral("Voice memo"), QStringLiteral("audio/*"), 2500);
         DesktopNoteEditorHost host(&editor);
 
         host.resize(620, 440);
@@ -1171,7 +1186,7 @@ private:
         QQuickItem *body  = nullptr;
         QQuickItem *audio = nullptr;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
-        QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("audioBlockEditor-2"))));
+        QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
         QVERIFY(!audio->property("selected").toBool());
 
         const QPoint start = body->mapToScene(QPointF(body->width() * 0.25, body->height() * 0.5)).toPoint();
@@ -1191,7 +1206,7 @@ private:
         DraftManager  drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor    editor(note, drafts);
         const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
-        editor.model()->insertAudio(editor.model()->rowCount(), source, QStringLiteral("Voice memo"), 2500);
+        editor.model()->insertMedia(editor.model()->rowCount(), source, QStringLiteral("Voice memo"), QStringLiteral("audio/*"), 2500);
         DesktopNoteEditorHost host(&editor);
 
         host.resize(620, 440);
@@ -1201,25 +1216,23 @@ private:
         QVERIFY(root);
         QQuickItem *body  = nullptr;
         QQuickItem *audio = nullptr;
-        QQuickItem *card  = nullptr;
-        QQuickItem *title = nullptr;
+        QQuickItem *outline = nullptr;
+        QQuickItem *label   = nullptr;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
-        QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("audioBlockEditor-2"))));
-        QTRY_VERIFY((card = quickItemByName(root, QStringLiteral("audioCard-2"))));
-        QTRY_VERIFY((title = quickItemByName(root, QStringLiteral("audioTitle-2"))));
+        QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        QTRY_VERIFY((outline = quickItemByName(root, QStringLiteral("mediaSelectionOutline-2"))));
+        QTRY_VERIFY((label = quickItemByName(root, QStringLiteral("mediaLabel-2"))));
         auto *blockEditor = ancestorWithProperty(body, "currentFindText");
         QVERIFY(blockEditor);
 
-        const QColor unselectedFill = card->property("color").value<QColor>();
-        QCOMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 1);
-        QVERIFY(!QQmlProperty(title, QStringLiteral("font.bold")).read().toBool());
+        QVERIFY(!outline->isVisible());
+        QVERIFY(!QQmlProperty(label, QStringLiteral("font.bold")).read().toBool());
         QVERIFY(QMetaObject::invokeMethod(blockEditor, "selectAllDocument"));
         QTRY_VERIFY(audio->property("selected").toBool());
-        QTRY_COMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 2);
-        QTRY_VERIFY(QQmlProperty(title, QStringLiteral("font.bold")).read().toBool());
-        QTRY_VERIFY(card->property("color").value<QColor>() != unselectedFill);
+        QTRY_VERIFY(outline->isVisible());
+        QTRY_VERIFY(QQmlProperty(label, QStringLiteral("font.bold")).read().toBool());
         QVERIFY(QMetaObject::invokeMethod(blockEditor, "clearDocumentSelection"));
-        QTRY_COMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 1);
+        QTRY_VERIFY(!outline->isVisible());
 
         const QPoint trailingPoint = audio->mapToScene(QPointF(audio->width() * 0.5, audio->height() + 20)).toPoint();
         QTest::mouseClick(quick, Qt::LeftButton, Qt::NoModifier, trailingPoint);
@@ -1245,18 +1258,16 @@ private:
         QCOMPARE(editor.model()->rowCount(), 4);
         QTest::mouseMove(quick, audioPoint, 50);
         QTRY_VERIFY(audio->property("selected").toBool());
-        QTRY_COMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 2);
-        QTRY_VERIFY(QQmlProperty(title, QStringLiteral("font.bold")).read().toBool());
-        QTRY_VERIFY(card->property("color").value<QColor>() != unselectedFill);
+        QTRY_VERIFY(outline->isVisible());
+        QTRY_VERIFY(QQmlProperty(label, QStringLiteral("font.bold")).read().toBool());
         QTest::qWait(100);
         QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, audioPoint);
 
         QTRY_VERIFY(audio->property("selected").toBool());
         QTest::qWait(200);
         QVERIFY(audio->property("selected").toBool());
-        QCOMPARE(QQmlProperty(card, QStringLiteral("border.width")).read().toInt(), 2);
-        QVERIFY(QQmlProperty(title, QStringLiteral("font.bold")).read().toBool());
-        QVERIFY(card->property("color").value<QColor>() != unselectedFill);
+        QVERIFY(outline->isVisible());
+        QVERIFY(QQmlProperty(label, QStringLiteral("font.bold")).read().toBool());
         QCOMPARE(editor.model()->rowCount(), 4);
 
         QVERIFY(QMetaObject::invokeMethod(blockEditor, "clearDocumentSelection"));
@@ -1271,9 +1282,8 @@ private:
         note.setText(QStringLiteral("Select this text"), Note::Markdown);
         DraftManager drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor   editor(note, drafts);
-        editor.model()->insertImage(editor.model()->rowCount(), QStringLiteral("qrc:/svg/anykeep"),
-                                    QStringLiteral("Diagram"));
-        editor.model()->setImageWidth(2, 240);
+        editor.model()->insertMedia(editor.model()->rowCount(), QStringLiteral("qrc:/svg/anykeep"), QStringLiteral("Diagram"), QStringLiteral("image/*"));
+        editor.model()->setMediaDisplayWidth(2, 240);
         DesktopNoteEditorHost host(&editor);
 
         host.resize(620, 440);
@@ -1287,10 +1297,10 @@ private:
         QQuickItem *alt     = nullptr;
         QQuickItem *actions = nullptr;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
-        QTRY_VERIFY((image = quickItemByName(root, QStringLiteral("imageBlockEditor-2"))));
-        QTRY_VERIFY((outline = quickItemByName(root, QStringLiteral("imageSelectionOutline-2"))));
-        QTRY_VERIFY((alt = quickItemByName(root, QStringLiteral("imageAltEditor-2"))));
-        QTRY_VERIFY((actions = quickItemByName(root, QStringLiteral("imageActions-2"))));
+        QTRY_VERIFY((image = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        QTRY_VERIFY((outline = quickItemByName(root, QStringLiteral("mediaSelectionOutline-2"))));
+        QTRY_VERIFY((alt = quickItemByName(root, QStringLiteral("mediaTitleEditor-2"))));
+        QTRY_VERIFY((actions = quickItemByName(root, QStringLiteral("mediaVisualActions-2"))));
         auto *blockEditor = ancestorWithProperty(body, "currentFindText");
         QVERIFY(blockEditor);
 

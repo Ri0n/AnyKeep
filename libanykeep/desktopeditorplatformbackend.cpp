@@ -13,7 +13,9 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QMimeData>
+#include <QMessageBox>
 #include <QPixmap>
+#include <QPushButton>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -28,9 +30,11 @@ namespace {
 
     bool isUsableImageFragment(const NoteFragment &fragment)
     {
-        if (fragment.blocks.size() != 1 || fragment.blocks.constFirst().type != NoteFragmentBlockType::Image)
+        if (fragment.blocks.size() != 1 || fragment.blocks.constFirst().type != NoteFragmentBlockType::Media
+            || !fragment.blocks.constFirst().media.mediaType.startsWith(QLatin1String("image/"))) {
             return false;
-        const QString sourceUri = fragment.blocks.constFirst().image.sourceUri;
+        }
+        const QString sourceUri = fragment.blocks.constFirst().media.sourceUri;
         for (const auto &media : fragment.media) {
             if (media.sourceUri == sourceUri && media.reference.isValid())
                 return true;
@@ -62,6 +66,33 @@ DesktopEditorPlatformBackend::DesktopEditorPlatformBackend(NoteEditor *editor, Q
 DesktopEditorPlatformBackend::~DesktopEditorPlatformBackend() = default;
 
 void DesktopEditorPlatformBackend::setDialogParent(QWidget *parent) { dialogParent_ = parent; }
+
+bool DesktopEditorPlatformBackend::chooseFileImportMode(const QString &fileName, MediaFileImportMode *mode)
+{
+    if (!mode)
+        return false;
+
+    QMessageBox dialog(QMessageBox::Question, tr("Store file"),
+                       tr("How should AnyKeep use %1?").arg(QFileInfo(fileName).fileName()),
+                       QMessageBox::NoButton, dialogParent_);
+    dialog.setInformativeText(
+        tr("Copying into encrypted storage makes the note independent of the original file. "
+           "Keeping the file in place avoids another full copy, but the note will depend on that file remaining available and unchanged."));
+    auto *copyButton = dialog.addButton(tr("Copy into encrypted storage"), QMessageBox::AcceptRole);
+    auto *keepButton = dialog.addButton(tr("Keep file in place"), QMessageBox::ActionRole);
+    dialog.addButton(QMessageBox::Cancel);
+    dialog.exec();
+
+    if (dialog.clickedButton() == copyButton) {
+        *mode = MediaFileImportMode::CopyIntoStore;
+        return true;
+    }
+    if (dialog.clickedButton() == keepButton) {
+        *mode = MediaFileImportMode::KeepInPlace;
+        return true;
+    }
+    return false;
+}
 
 void DesktopEditorPlatformBackend::saveImageAs(const QString &url)
 {
@@ -99,13 +130,13 @@ void DesktopEditorPlatformBackend::saveImageAs(const QString &url)
 bool DesktopEditorPlatformBackend::startImageDrag(int row)
 {
     if (!editor() || !dragSource_ || !editor()->isMarkdown()
-        || editor()->model()->blockTypeAt(row) != int(NoteBlockModel::Image)) {
+        || editor()->model()->blockTypeAt(row) != int(NoteBlockModel::Media)) {
         return false;
     }
     NoteFragment fragment = editor()->model()->extractBlockFragment(row, row);
     for (const auto &reference : editor()->media()) {
-        if (reference.isValid() && reference.uri() == fragment.blocks.constFirst().image.sourceUri) {
-            fragment.media.append({ fragment.blocks.constFirst().image.sourceUri, reference, {} });
+        if (reference.isValid() && reference.uri() == fragment.blocks.constFirst().media.sourceUri) {
+            fragment.media.append({ fragment.blocks.constFirst().media.sourceUri, reference, {} });
             break;
         }
     }
@@ -149,17 +180,20 @@ bool DesktopEditorPlatformBackend::startImageDrag(int row)
     return cursorIsOutsideWindow(dragSource_);
 }
 
-bool DesktopEditorPlatformBackend::insertImage(int row)
+bool DesktopEditorPlatformBackend::insertMedia(int row)
 {
-    if (!canInsertImages())
+    if (!canInsertMedia())
         return false;
     const QString fileName
-        = QFileDialog::getOpenFileName(dialogParent_, tr("Insert image"), QString(),
-                                       tr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg);;All files (*)"));
+        = QFileDialog::getOpenFileName(dialogParent_, tr("Insert media"), QString(),
+                                       tr("Media files (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg *.mp3 *.wav *.ogg *.flac *.m4a *.aac *.mp4 *.m4v *.webm *.mov *.mkv);;All files (*)"));
     if (fileName.isEmpty())
         return false;
+    MediaFileImportMode mode;
+    if (!chooseFileImportMode(fileName, &mode))
+        return false;
     QString error;
-    return insertImageFiles({ fileName }, row, &error);
+    return insertMediaFiles({ fileName }, row, &error, mode);
 }
 
 bool DesktopEditorPlatformBackend::insertAttachment(int row)
@@ -169,7 +203,12 @@ bool DesktopEditorPlatformBackend::insertAttachment(int row)
     const QString fileName = QFileDialog::getOpenFileName(dialogParent_, tr("Attach file"));
     if (fileName.isEmpty())
         return false;
-    const auto imported = LocalMediaStore::instance()->importFile(fileName);
+    MediaFileImportMode mode;
+    if (!chooseFileImportMode(fileName, &mode))
+        return false;
+    const auto imported = mode == MediaFileImportMode::KeepInPlace
+        ? LocalMediaStore::instance()->referenceFile(fileName)
+        : LocalMediaStore::instance()->importFile(fileName);
     if (!imported) {
         emit operationFailed(imported.error);
         return false;

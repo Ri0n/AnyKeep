@@ -29,10 +29,8 @@ NoteFragmentMediaTransfer::Result NoteFragmentMediaTransfer::cloneForDestination
     }
 
     const auto blockSourceUri = [](const NoteFragmentBlock &block) {
-        if (block.type == NoteFragmentBlockType::Image)
-            return block.image.sourceUri;
-        if (block.type == NoteFragmentBlockType::Audio)
-            return block.audio.sourceUri;
+        if (block.type == NoteFragmentBlockType::Media)
+            return block.media.sourceUri;
         if (block.type == NoteFragmentBlockType::Attachment)
             return block.attachment.sourceUri;
         return QString();
@@ -76,10 +74,8 @@ NoteFragmentMediaTransfer::Result NoteFragmentMediaTransfer::cloneForDestination
     }
 
     for (NoteFragmentBlock &block : result.fragment.blocks) {
-        if (block.type == NoteFragmentBlockType::Image)
-            block.image.sourceUri = rewrittenUris.value(block.image.sourceUri, block.image.sourceUri);
-        else if (block.type == NoteFragmentBlockType::Audio)
-            block.audio.sourceUri = rewrittenUris.value(block.audio.sourceUri, block.audio.sourceUri);
+        if (block.type == NoteFragmentBlockType::Media)
+            block.media.sourceUri = rewrittenUris.value(block.media.sourceUri, block.media.sourceUri);
         else if (block.type == NoteFragmentBlockType::Attachment)
             block.attachment.sourceUri = rewrittenUris.value(block.attachment.sourceUri, block.attachment.sourceUri);
     }

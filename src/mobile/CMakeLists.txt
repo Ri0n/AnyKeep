@@ -85,12 +85,12 @@ set(anykeep_mobile_editor_support_qml
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/support/EditorMarkdownRendering.js")
 set(anykeep_mobile_editor_block_qml
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/AttachmentBlock.qml"
-    "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/AudioBlock.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/BlockQuoteBlock.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/CodeBlock.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/HeadingBlock.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/ImageAlignmentGlyph.qml"
-    "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/ImageBlock.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/MediaBlock.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/MediaVideoSurface.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/ImageResizeHandle.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/ListBlock.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/blocks/TableBlock.qml"

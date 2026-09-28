@@ -30,11 +30,10 @@ enum class NoteFragmentBlockType {
     Heading,
     List,
     Table,
-    Image,
+    Media,
     BlockQuote,
     CodeBlock,
     TagLine,
-    Audio,
     Attachment,
 };
 
@@ -58,17 +57,15 @@ struct ANYKEEP_EXPORT NoteFragmentTable {
     QStringList markdownCells;
 };
 
-struct ANYKEEP_EXPORT NoteFragmentImage {
-    QString sourceUri;
-    QString alt;
-    int     width { 0 };
-    QString alignment { QStringLiteral("center") };
-};
-
-struct ANYKEEP_EXPORT NoteFragmentAudio {
+struct ANYKEEP_EXPORT NoteFragmentMediaBlock {
     QString sourceUri;
     QString title;
+    QString mediaType;
     qint64  durationMs { 0 };
+    int     pixelWidth { 0 };
+    int     pixelHeight { 0 };
+    int     displayWidth { 0 };
+    QString alignment { QStringLiteral("center") };
     QString transcript;
 };
 
@@ -85,8 +82,7 @@ struct ANYKEEP_EXPORT NoteFragmentBlock {
     int                         headingLevel { 0 };
     QList<NoteFragmentListItem> listItems;
     NoteFragmentTable           table;
-    NoteFragmentImage           image;
-    NoteFragmentAudio           audio;
+    NoteFragmentMediaBlock      media;
     NoteFragmentAttachment      attachment;
     QString                     language;
     QStringList                 tags;
@@ -101,7 +97,7 @@ struct ANYKEEP_EXPORT NoteFragmentMedia {
 };
 
 struct ANYKEEP_EXPORT NoteFragment {
-    static constexpr quint32 CurrentVersion = 6;
+    static constexpr quint32 CurrentVersion = 7;
 
     quint32                  version { CurrentVersion };
     NoteFragmentKind         kind { NoteFragmentKind::BlockSequence };

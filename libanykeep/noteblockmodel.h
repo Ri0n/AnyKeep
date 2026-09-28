@@ -33,13 +33,12 @@ public:
         BulletList,
         CheckList,
         Table,
-        Image,
+        Media,
         NumberedList,
         Heading,
         BlockQuote,
         CodeBlock,
         TagLine,
-        Audio,
         Attachment
     };
     Q_ENUM(BlockType)
@@ -56,11 +55,14 @@ public:
         ItemTypesRole,
         HeadingLevelRole,
         LanguageRole,
-        ImageWidthRole,
-        ImageAlignmentRole,
+        MediaDisplayWidthRole,
+        MediaAlignmentRole,
         TagsRole,
-        AudioDurationRole,
-        AudioTranscriptRole,
+        MediaTranscriptRole,
+        MediaTypeRole,
+        MediaDurationRole,
+        MediaWidthRole,
+        MediaHeightRole,
         AttachmentMediaTypeRole,
         AttachmentSizeRole
     };
@@ -103,19 +105,18 @@ public:
     Q_INVOKABLE void insertTableColumn(int row, int column);
     Q_INVOKABLE void removeTableColumn(int row, int column);
     Q_INVOKABLE bool moveTableColumn(int row, int from, int to);
-    Q_INVOKABLE void setImageUrl(int row, const QString &url);
-    Q_INVOKABLE void setImageAlt(int row, const QString &alt);
-    Q_INVOKABLE void setImageWidth(int row, int width);
-    Q_INVOKABLE void setImageAlignment(int row, const QString &alignment);
+    Q_INVOKABLE void setMediaUrl(int row, const QString &url);
+    Q_INVOKABLE void setMediaDisplayWidth(int row, int width);
+    Q_INVOKABLE void setMediaAlignment(int row, const QString &alignment);
     Q_INVOKABLE void insertTextBlock(int row);
     Q_INVOKABLE void appendTextBlock();
     Q_INVOKABLE void appendText(const QString &text);
-    Q_INVOKABLE void appendImage(const QString &url, const QString &alt);
-    Q_INVOKABLE void insertImage(int row, const QString &url, const QString &alt);
-    Q_INVOKABLE void appendAudio(const QString &url, const QString &title, qint64 durationMs);
-    Q_INVOKABLE void insertAudio(int row, const QString &url, const QString &title, qint64 durationMs);
-    Q_INVOKABLE bool setAudioTitle(int row, const QString &title);
-    Q_INVOKABLE bool setAudioTranscript(int row, const QString &transcript);
+    Q_INVOKABLE void appendMedia(const QString &url, const QString &title, const QString &mediaType,
+                                  qint64 durationMs = 0, int width = 0, int height = 0);
+    Q_INVOKABLE void insertMedia(int row, const QString &url, const QString &title, const QString &mediaType,
+                                  qint64 durationMs = 0, int width = 0, int height = 0);
+    Q_INVOKABLE bool setMediaTitle(int row, const QString &title);
+    Q_INVOKABLE bool setMediaTranscript(int row, const QString &transcript);
     Q_INVOKABLE void appendAttachment(const QString &url, const QString &fileName, const QString &mediaType,
                                       qint64 size);
     Q_INVOKABLE void insertAttachment(int row, const QString &url, const QString &fileName, const QString &mediaType,
@@ -188,13 +189,16 @@ private:
         int          columns = 0;
         QString      url;
         QString      alt;
-        int          imageWidth     = 0;
-        QString      imageAlignment = QStringLiteral("center");
+        int          mediaDisplayWidth = 0;
+        QString      mediaAlignment = QStringLiteral("center");
         int          headingLevel   = 0;
         QString      language;
         QStringList  tags;
-        qint64       audioDurationMs = 0;
-        QString      audioTranscript;
+        QString      mediaType;
+        qint64       mediaDurationMs = 0;
+        int          mediaWidth = 0;
+        int          mediaHeight = 0;
+        QString      mediaTranscript;
         QString      attachmentMediaType;
         qint64       attachmentSize = 0;
         bool         explicitEmpty  = false;
@@ -203,11 +207,13 @@ private:
         {
             return type == other.type && text == other.text && items == other.items && indents == other.indents
                 && itemTypes == other.itemTypes && checked == other.checked && cells == other.cells
-                && columns == other.columns && url == other.url && alt == other.alt && imageWidth == other.imageWidth
-                && imageAlignment == other.imageAlignment && headingLevel == other.headingLevel
-                && language == other.language && tags == other.tags && audioTranscript == other.audioTranscript
-                && attachmentMediaType == other.attachmentMediaType && attachmentSize == other.attachmentSize
-                && audioDurationMs == other.audioDurationMs && explicitEmpty == other.explicitEmpty;
+                && columns == other.columns && url == other.url && alt == other.alt
+                && mediaDisplayWidth == other.mediaDisplayWidth && mediaAlignment == other.mediaAlignment
+                && headingLevel == other.headingLevel && language == other.language && tags == other.tags
+                && mediaType == other.mediaType && mediaDurationMs == other.mediaDurationMs
+                && mediaWidth == other.mediaWidth && mediaHeight == other.mediaHeight
+                && mediaTranscript == other.mediaTranscript && attachmentMediaType == other.attachmentMediaType
+                && attachmentSize == other.attachmentSize && explicitEmpty == other.explicitEmpty;
         }
     };
 

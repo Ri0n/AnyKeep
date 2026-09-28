@@ -130,6 +130,45 @@ classDiagram
     MediaReference "0..*" --> "1" LocalMediaStore : blobId
 ```
 
+## Local ownership and source policy
+
+A `MediaReference` identifies content and intentionally does **not** identify where
+that content lives on the current device. Local ownership is a separate concern.
+When a user selects a filesystem-backed media file, the desktop editor offers two
+policies:
+
+- **Copy into encrypted storage** — AnyKeep owns an immutable encrypted local blob.
+  The note remains usable if the original file is moved or deleted.
+- **Keep file in place** — AnyKeep does not duplicate the payload. It stores an
+  encrypted local source locator and fingerprints the selected file. The note
+  depends on that file remaining available and unchanged.
+
+The external locator is local-only state. It is keyed by the opaque `blobId`,
+encrypted with the profile-local media key, and never appears in
+`MediaReference`, Markdown, remote note metadata, XMPP descriptors, or clipboard
+payloads. Consequently synchronizing a note to another installation does not leak
+or pretend to synchronize a local filesystem path.
+
+Linking an external file computes the same keyed whole-object `blobId` as a
+managed import, the normal plaintext SHA-256 checksum, and fixed-size local chunk
+hashes. `ExternalFileMediaSource` maps random reads to those chunks, reads only
+the chunks required by the caller, verifies each complete chunk before exposing
+any bytes, and keeps a small verified-chunk cache for repeated decoder reads.
+Changing a byte without changing the file size is therefore detected when the
+affected range is read. Whole-object materialization also verifies every chunk
+and the complete checksum.
+
+The local source registry is a location hint/cache, not document identity. If a
+managed blob for the same `blobId` exists, the managed copy wins. An external
+source can therefore later be promoted into managed storage without rewriting
+the note or changing its media URI.
+
+Mobile document pickers currently deliver copied bytes rather than a durable
+platform document locator, so mobile insertion remains managed-copy-only until a
+platform-specific persistent-reference implementation is added. Drag/drop and
+paste also keep their existing managed-copy semantics; the explicit desktop file
+picker is where ownership is currently selected.
+
 ## Blob identity and layout
 
 The preferred blob identifier is a keyed content digest:
@@ -378,33 +417,133 @@ Network encryption is streamed through Iris `QIODevice` adapters. The current
 separate streaming format for the local encrypted blob store rather than a
 Jingle or XEP-0448 change.
 
-## Video blocks and progressive media
+## Unified media blocks and progressive media
 
-Video is a first-class structural editor block, like image and audio. A rendered
-note may freely interleave text and video:
+Images, audio and video share one media-block architecture. The editor does not
+require the user to choose the media kind before import. A single **Insert media**
+action accepts supported image/audio/video inputs; probing validates the actual
+media type and extracts capabilities and lightweight metadata. **Attach file**
+remains a separate semantic action for cases where the user intentionally wants
+a file attachment rather than an inline media presentation.
 
-```text
-text block
-video block
-text block
+The rendered block is capability-driven rather than implemented as three
+independent widgets. Typical capabilities include `hasVisual`, `hasTimeline`,
+`hasAudio`, `hasPoster`, `canTranscribe`, and `canExtractFrame`. An image normally
+has visual content without a timeline. Audio has a timeline and audio stream and
+may also have embedded cover artwork. Video has visual content and a timeline and
+may also have an audio stream. The same player controller, seek UI, transcription
+action, media selection, transfer, cache and streaming code are reused according
+to those capabilities. Controls which do not apply are simply absent. A paused
+video frame may be promoted to poster/derived image data; embedded audio artwork
+uses the same poster path.
+
+The structural model should converge on a first-class `Media` block rather than
+per-format Image/Audio/Video implementations. Existing Markdown remains
+backward-compatible: legacy image syntax and AnyKeep audio/video HTML forms are
+accepted and projected into the unified block. Runtime behavior is determined
+from the validated media manifest rather than from tag spelling alone.
+
+Import probes lightweight metadata before publication: validated MIME/container
+information, dimensions when visual, duration when timed, stream capabilities,
+and available artwork. Video thumbnail extraction uses the first useful decodable
+frame rather than blindly requiring frame zero. Embedded artwork and generated
+thumbnails are derived poster/cache state rather than part of the Markdown body.
+
+The inactive media block displays visual content or poster, title and duration as
+applicable without constructing a decoder for the full media. Playback resources
+are created on demand and released when no longer needed. Explicit user
+presentation choices such as resized visual dimensions remain presentation
+metadata and are serialized only when required.
+
+### Media state boundaries
+
+The unified block deliberately separates five kinds of state:
+
+1. **Identity and ownership** — `MediaReference.id`, blob identity, filename, MIME,
+   size/checksum and remote source metadata. This is persistent manifest state.
+2. **Probed media metadata** — duration, pixel dimensions, stream presence and
+   other bounded facts extracted from the media. These facts are persistent and
+   synchronize with the descriptor so another installation can lay out the note
+   before hydrating the full payload.
+3. **Derived visual cache** — embedded artwork, generated thumbnails and selected
+   poster frames. These are reproducible cache objects addressed independently
+   from the original blob. Losing them must not make the note invalid.
+4. **Presentation state** — user choices such as explicit rendered width/alignment
+   and a chosen poster/frame. This belongs to the document representation when it
+   changes how the author intended the note to look.
+5. **Runtime playback state** — current position, buffering, active decoder and
+   transient extracted frame. This is session state and is never serialized into
+   the note merely because playback occurred.
+
+`MediaCapabilities` is derived from validated MIME plus probing; it is not an
+authoritative user-editable bitmask. A useful conceptual shape is:
+
+```cpp
+struct MediaMetadata {
+    qint64 durationMs = 0;
+    QSize pixelSize;
+    bool hasAudio = false;
+    bool hasVideo = false;
+    bool hasEmbeddedArtwork = false;
+};
+
+struct MediaCapabilities {
+    bool hasVisual = false;
+    bool hasTimeline = false;
+    bool hasAudio = false;
+    bool hasPoster = false;
+    bool canTranscribe = false;
+    bool canExtractFrame = false;
+};
 ```
 
-The canonical Markdown representation does not need to be an HTML `<video>`
-element merely because the rendered editor recognizes the media. An
-`anykeep-media:` reference whose manifest has a validated `video/*` MIME type
-can project to a video block. As with images, the natural presentation is used
-until the user explicitly changes the block dimensions. Only presentation
-metadata which cannot be represented by the simple media reference, such as an
-explicit user-selected size, should require extended markup.
+Unknown or partially hydrated media is valid. Capabilities may become richer
+after probing or hydration, but code must not infer that a filename extension is
+proof of a decoder stream. The validated descriptor is authoritative.
 
-Import extracts lightweight video metadata before publication: dimensions,
-duration and a thumbnail. The thumbnail is the default poster shown by the
-inactive video block. It should use the first useful decodable frame rather than
-blindly requiring frame zero, which may be black or otherwise unsuitable.
-Thumbnail/poster data is derived media/cache state rather than part of the
-Markdown body. The inactive block displays the poster, play affordance and
-duration without constructing a decoder for the full video. Playback resources
-are created on demand and released when no longer needed.
+### Import and presentation flow
+
+```text
+Insert media
+    |
+    v
+picker / drop / paste
+    |
+    v
+bounded probe -> validated MIME + metadata + artwork
+    |
+    +--> managed immutable blob
+    +--> or encrypted local locator + verified external chunks
+    +--> derived poster/artwork cache
+    |
+    v
+MediaReference + synchronized metadata
+    |
+    v
+MediaBlock -> capability-driven controls
+```
+
+Desktop and mobile platform adapters may use different pickers, but both feed the
+same import/probe API. Drag/drop and paste use that API too. There must not be a
+desktop-only video insertion path.
+
+### Shared playback and media actions
+
+A single playback controller owns `QMediaPlayer` lifecycle for timed media. Audio
+and video differ only in whether a video output is attached. Starting another
+timed media item transfers the controller to that item; inactive blocks retain no
+decoder. Seeking, buffering, duration and errors therefore have one behavior.
+
+Speech-to-text is an action on `canTranscribe`, not on an Audio block type. The
+transcription boundary receives the media source and lets the backend extract or
+decode the audio stream as necessary. Likewise, frame extraction is an action on
+`canExtractFrame`; a paused/current frame may be saved as the poster or inserted
+as a new image media item without mutating the immutable original blob.
+
+Image-specific editing remains capability-driven presentation: resize/alignment
+is available when `hasVisual`; timeline controls appear only for `hasTimeline`;
+play/pause only when the item is playable. This keeps one block component without
+forcing irrelevant controls onto static images.
 
 ### Metadata-first synchronization
 
@@ -429,34 +568,41 @@ Large media is consumed through a random-access streaming abstraction rather
 than `LocalMediaStore::data()`. Conceptually:
 
 ```text
-VideoBlock / QMediaPlayer
+MediaBlock / shared QMediaPlayer
         |
         v
 seekable MediaStream / QIODevice
+        |
+        v
+MediaSource / verified available bytes
         |
         v
 ranged local cache
         |
         +---- local verified chunks
         |
-        +---- remote MediaSource
+        +---- async range fetcher
                  +---- Jingle FT ranges
                  +---- HTTP Range
-                 +---- future backend-specific range source
+                 +---- future backend-specific range provider
 ```
 
-A read is satisfied from verified local data when possible. Missing ranges are
-requested from a remote source and, while being delivered to the consumer, are
-installed into the same local cache. Streaming and downloading are therefore
-one operation with different demand patterns rather than separate copies of the
-media.
+A read is satisfied from verified local data when possible. Managed encrypted
+blobs currently use the transitional whole-object source; filesystem references
+already provide verified fixed-size random-access chunks without copying the
+payload into AnyKeep storage. Missing remote ranges are requested asynchronously
+by a transport-facing range fetcher and, after authentication, are installed
+into the same local cache. `MediaSource::read()` does not perform a blocking
+network request; it exposes bytes that are already locally available and
+verified according to that source's integrity policy. Streaming and downloading
+are therefore one operation with different demand patterns rather than separate
+copies of the media.
 
 Sequential playback prioritizes ranges immediately ahead of the decoder. A seek
 reprioritizes the required range instead of waiting for the complete object.
 Containers designed for progressive playback (for example fast-start MP4) can
 start as soon as their required metadata and initial samples are available.
-When a container needs metadata near the end of the object, the seekable source
-can request that range independently.
+When a container needs metadata near the end of the object, the range scheduler can request that range independently.
 
 The existing Iris Jingle file-transfer implementation already has negotiated
 `Range { offset, length }` support and a streaming mode; the XMPP backend should
@@ -513,11 +659,24 @@ monolithic AES-GCM object safely seekable.
 5. Add mark-and-sweep collection with a grace period.
 6. Implement PTF/Tomboy sidecar adapters.
 7. Implement the XMPP mapping with XEP-0447/XEP-0448, XEP-0363, and XEP-0358/Jingle.
-8. Add first-class video blocks, extracted thumbnail/duration/dimensions, and
-   natural-size rendering with explicit-size serialization only after resize.
+8. Unify image/audio/video as capability-driven media blocks; add one media-import
+   action, probing, poster/artwork extraction, duration/dimensions, shared playback
+   and transcription surfaces, while retaining backward-compatible Markdown.
 9. Introduce the ranged `MediaStream`/remote-source boundary and stream-through
-   cache; make the local encrypted media store itself streaming for very large
+   cache; support verified external-file references without duplicating payloads,
+   and make the managed encrypted media store itself streaming for very large
    files.
 10. Define a chunked/seekable authenticated representation for large media and
     map XMPP Jingle FT ranges and HTTP Range onto it.
 11. Define transports independently for other remote-storage plugins.
+
+
+Implementation note: timed media shares one playback controller. Video presentation lazily attaches an inline Qt Multimedia output to that player and switches the same player to a dedicated OS-fullscreen output while fullscreen is active; playback position and state remain unchanged. Probing/poster extraction is a separate derived-cache concern and must not write frame-by-frame playback state into storage.
+
+Integration guardrails:
+
+- editor/model code uses symbolic `NoteBlockType.Media` / `NoteBlockType.Attachment`; QML must not depend on numeric enum values;
+- Qt Multimedia remains optional for the shared desktop editor. `MediaBlock.qml` therefore does not import it directly; the lazy video surface owns that import and is instantiated only when playback support is available;
+- replacing a playback source detaches the old `QIODevice` from `QMediaPlayer` before destroying it;
+- derived posters are cache artifacts produced by an explicit probe/extraction path, never persisted once per decoded playback frame;
+- external-file locators and chunk fingerprints are encrypted local source-registry state and must never be serialized into portable `MediaReference` or remote media descriptors.

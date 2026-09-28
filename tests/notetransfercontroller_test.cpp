@@ -330,11 +330,12 @@ void NoteTransferControllerTest::roundTripsSingleImageAsPng()
 
     NoteFragment      fragment;
     NoteFragmentBlock block;
-    block.type            = NoteFragmentBlockType::Image;
-    block.image.sourceUri = QStringLiteral("anykeep-media:/11111111-1111-1111-1111-111111111111/image.png");
+    block.type            = NoteFragmentBlockType::Media;
+    block.media.sourceUri = QStringLiteral("anykeep-media:/11111111-1111-1111-1111-111111111111/image.png");
+    block.media.mediaType = QStringLiteral("image/png");
     fragment.blocks.append(block);
     NoteFragmentMedia media;
-    media.sourceUri              = block.image.sourceUri;
+    media.sourceUri              = block.media.sourceUri;
     media.reference.id           = QUuid(QStringLiteral("{11111111-1111-1111-1111-111111111111}"));
     media.reference.blobId       = QByteArray::fromHex("abcd");
     media.reference.portableName = QStringLiteral("image.png");

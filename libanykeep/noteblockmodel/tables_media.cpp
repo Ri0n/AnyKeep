@@ -104,60 +104,48 @@ bool NoteBlockModel::moveTableColumn(int row, int from, int to)
     return true;
 }
 
-void NoteBlockModel::setImageUrl(int row, const QString &url) { setData(index(row), url, UrlRole); }
-void NoteBlockModel::setImageAlt(int row, const QString &alt) { setData(index(row), alt, AltRole); }
-void NoteBlockModel::setImageWidth(int row, int width) { setData(index(row), width, ImageWidthRole); }
-void NoteBlockModel::setImageAlignment(int row, const QString &alignment)
+void NoteBlockModel::setMediaUrl(int row, const QString &url) { setData(index(row), url, UrlRole); }
+void NoteBlockModel::setMediaDisplayWidth(int row, int width) { setData(index(row), width, MediaDisplayWidthRole); }
+void NoteBlockModel::setMediaAlignment(int row, const QString &alignment)
 {
-    setData(index(row), alignment, ImageAlignmentRole);
+    setData(index(row), alignment, MediaAlignmentRole);
 }
 
-void NoteBlockModel::appendImage(const QString &url, const QString &alt) { insertImage(blocks_.size(), url, alt); }
+void NoteBlockModel::appendMedia(const QString &url, const QString &title, const QString &mediaType,
+                                 qint64 durationMs, int width, int height)
+{
+    insertMedia(blocks_.size(), url, title, mediaType, durationMs, width, height);
+}
 
-void NoteBlockModel::insertImage(int row, const QString &url, const QString &alt)
+void NoteBlockModel::insertMedia(int row, const QString &url, const QString &title, const QString &mediaType,
+                                 qint64 durationMs, int width, int height)
 {
     row = qBound(0, row, blocks_.size());
     beginInsertRows({}, row, row);
     Block block;
-    block.type = Image;
-    block.url  = url;
-    block.alt  = alt;
-    blocks_.insert(row, block);
-    endInsertRows();
-    notifyNormalizedTagLines();
-    emit contentsChanged();
-}
-
-void NoteBlockModel::appendAudio(const QString &url, const QString &title, qint64 durationMs)
-{
-    insertAudio(blocks_.size(), url, title, durationMs);
-}
-
-void NoteBlockModel::insertAudio(int row, const QString &url, const QString &title, qint64 durationMs)
-{
-    row = qBound(0, row, blocks_.size());
-    beginInsertRows({}, row, row);
-    Block block;
-    block.type            = Audio;
+    block.type            = Media;
     block.url             = url;
     block.alt             = title;
-    block.audioDurationMs = qBound<qint64>(0, durationMs, MaxAudioDurationMs);
+    block.mediaType       = mediaType.trimmed().toLower();
+    block.mediaDurationMs = qBound<qint64>(0, durationMs, MaxMediaDurationMs);
+    block.mediaWidth      = qBound(0, width, MaxMediaPixelDimension);
+    block.mediaHeight     = qBound(0, height, MaxMediaPixelDimension);
     blocks_.insert(row, block);
     endInsertRows();
     notifyNormalizedTagLines();
     emit contentsChanged();
 }
 
-bool NoteBlockModel::setAudioTranscript(int row, const QString &transcript)
+bool NoteBlockModel::setMediaTranscript(int row, const QString &transcript)
 {
-    return setData(index(row), transcript, AudioTranscriptRole);
+    return setData(index(row), transcript, MediaTranscriptRole);
 }
 
-bool NoteBlockModel::setAudioTitle(int row, const QString &title)
+bool NoteBlockModel::setMediaTitle(int row, const QString &title)
 {
-    if (blockTypeAt(row) != Audio)
+    if (blockTypeAt(row) != Media)
         return false;
-    return setData(index(row), title.trimmed(), AltRole);
+    return setData(index(row), title, AltRole);
 }
 
 void NoteBlockModel::appendAttachment(const QString &url, const QString &fileName, const QString &mediaType,

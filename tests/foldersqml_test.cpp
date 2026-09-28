@@ -523,7 +523,7 @@ void NotesManagerQmlTest::editorToolbarFolderPickerAssignsTheActiveNote()
                 property string redoText: ""
                 property bool canUndo: false
                 property bool canRedo: false
-                property bool canInsertImages: false
+                property bool canInsertMedia: false
                 function beginHistoryTransaction(kind, beforeView) {}
                 function endHistoryTransaction(afterView) {}
                 function copyDocumentToClipboard() {}

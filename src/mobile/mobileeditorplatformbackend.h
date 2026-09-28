@@ -18,7 +18,7 @@ class MobileEditorPlatformBackend final : public EditorPlatformBackend {
 public:
     explicit MobileEditorPlatformBackend(AndroidPlatformServices *services, QObject *parent = nullptr);
 
-    Q_INVOKABLE bool insertImage(int row = -1) override;
+    Q_INVOKABLE bool insertMedia(int row = -1) override;
     Q_INVOKABLE bool insertPhoto(int row = -1);
     Q_INVOKABLE bool insertAttachment(int row = -1) override;
     Q_INVOKABLE void openAttachment(const QString &url);
@@ -26,8 +26,10 @@ public:
 
 private:
     AndroidPlatformServices       *services_ { nullptr };
-    QPointer<NoteEditor>           pendingEditor_;
-    int                            pendingRow_ { -1 };
+    QPointer<NoteEditor>           pendingPhotoEditor_;
+    int                            pendingPhotoRow_ { -1 };
+    QPointer<NoteEditor>           pendingMediaEditor_;
+    int                            pendingMediaRow_ { -1 };
     QPointer<NoteEditor>           pendingAttachmentEditor_;
     int                            pendingAttachmentRow_ { -1 };
     std::unique_ptr<QTemporaryDir> attachmentOpenDirectory_;
