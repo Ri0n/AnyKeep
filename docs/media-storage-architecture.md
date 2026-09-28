@@ -130,6 +130,45 @@ classDiagram
     MediaReference "0..*" --> "1" LocalMediaStore : blobId
 ```
 
+## Local ownership and source policy
+
+A `MediaReference` identifies content and intentionally does **not** identify where
+that content lives on the current device. Local ownership is a separate concern.
+When a user selects a filesystem-backed media file, the desktop editor offers two
+policies:
+
+- **Copy into encrypted storage** — AnyKeep owns an immutable encrypted local blob.
+  The note remains usable if the original file is moved or deleted.
+- **Keep file in place** — AnyKeep does not duplicate the payload. It stores an
+  encrypted local source locator and fingerprints the selected file. The note
+  depends on that file remaining available and unchanged.
+
+The external locator is local-only state. It is keyed by the opaque `blobId`,
+encrypted with the profile-local media key, and never appears in
+`MediaReference`, Markdown, remote note metadata, XMPP descriptors, or clipboard
+payloads. Consequently synchronizing a note to another installation does not leak
+or pretend to synchronize a local filesystem path.
+
+Linking an external file computes the same keyed whole-object `blobId` as a
+managed import, the normal plaintext SHA-256 checksum, and fixed-size local chunk
+hashes. `ExternalFileMediaSource` maps random reads to those chunks, reads only
+the chunks required by the caller, verifies each complete chunk before exposing
+any bytes, and keeps a small verified-chunk cache for repeated decoder reads.
+Changing a byte without changing the file size is therefore detected when the
+affected range is read. Whole-object materialization also verifies every chunk
+and the complete checksum.
+
+The local source registry is a location hint/cache, not document identity. If a
+managed blob for the same `blobId` exists, the managed copy wins. An external
+source can therefore later be promoted into managed storage without rewriting
+the note or changing its media URI.
+
+Mobile document pickers currently deliver copied bytes rather than a durable
+platform document locator, so mobile insertion remains managed-copy-only until a
+platform-specific persistent-reference implementation is added. Drag/drop and
+paste also keep their existing managed-copy semantics; the explicit desktop file
+picker is where ownership is currently selected.
+
 ## Blob identity and layout
 
 The preferred blob identifier is a keyed content digest:
@@ -473,7 +512,8 @@ picker / drop / paste
     v
 bounded probe -> validated MIME + metadata + artwork
     |
-    +--> original immutable blob
+    +--> managed immutable blob
+    +--> or encrypted local locator + verified external chunks
     +--> derived poster/artwork cache
     |
     v
@@ -547,12 +587,16 @@ ranged local cache
                  +---- future backend-specific range provider
 ```
 
-A read is satisfied from verified local data when possible. Missing ranges are requested asynchronously by a transport-facing range fetcher and,
-after authentication, are installed into the same local cache. `MediaSource::read()`
-does not perform a blocking network request; it exposes bytes that are already
-available and verified. Streaming and downloading are therefore
-one operation with different demand patterns rather than separate copies of the
-media.
+A read is satisfied from verified local data when possible. Managed encrypted
+blobs currently use the transitional whole-object source; filesystem references
+already provide verified fixed-size random-access chunks without copying the
+payload into AnyKeep storage. Missing remote ranges are requested asynchronously
+by a transport-facing range fetcher and, after authentication, are installed
+into the same local cache. `MediaSource::read()` does not perform a blocking
+network request; it exposes bytes that are already locally available and
+verified according to that source's integrity policy. Streaming and downloading
+are therefore one operation with different demand patterns rather than separate
+copies of the media.
 
 Sequential playback prioritizes ranges immediately ahead of the decoder. A seek
 reprioritizes the required range instead of waiting for the complete object.
@@ -619,7 +663,8 @@ monolithic AES-GCM object safely seekable.
    action, probing, poster/artwork extraction, duration/dimensions, shared playback
    and transcription surfaces, while retaining backward-compatible Markdown.
 9. Introduce the ranged `MediaStream`/remote-source boundary and stream-through
-   cache; make the local encrypted media store itself streaming for very large
+   cache; support verified external-file references without duplicating payloads,
+   and make the managed encrypted media store itself streaming for very large
    files.
 10. Define a chunked/seekable authenticated representation for large media and
     map XMPP Jingle FT ranges and HTTP Range onto it.
