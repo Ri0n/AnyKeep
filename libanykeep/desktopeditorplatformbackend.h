@@ -31,6 +31,7 @@ public:
     Q_INVOKABLE void saveAttachmentAs(const QString &url);
 
 private:
+    bool    chooseFileImportMode(const QString &fileName, MediaFileImportMode *mode);
     QString materializeDragImage(const MediaReference &reference, const QByteArray &data);
 
     QPointer<QWidget>              dialogParent_;
