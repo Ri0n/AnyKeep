@@ -169,6 +169,8 @@ LocalMediaResult LocalMediaStore::referenceFile(const QString &fileName, const Q
     if (!before.isFile())
         return { {}, QStringLiteral("The selected media source is not a regular file") };
 
+    const QString mediaType = QMimeDatabase().mimeTypeForFile(before.absoluteFilePath(), QMimeDatabase::MatchContent).name();
+
     QFile file(before.absoluteFilePath());
     if (!file.open(QIODevice::ReadOnly))
         return { {}, file.errorString() };
@@ -218,7 +220,7 @@ LocalMediaResult LocalMediaStore::referenceFile(const QString &fileName, const Q
     reference.blobId       = blobId;
     reference.originalName = after.fileName();
     reference.portableName = Utils::portableFileName(reference.originalName, QStringLiteral("attachment"));
-    reference.mediaType    = QMimeDatabase().mimeTypeForFile(source.fileName, QMimeDatabase::MatchContent).name();
+    reference.mediaType    = mediaType;
     reference.size         = source.size;
     reference.checksum     = source.checksum;
     return { reference, {} };
