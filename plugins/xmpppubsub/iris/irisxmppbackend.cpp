@@ -1497,6 +1497,16 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                                          XmppErrorKind::Security));
             return;
         }
+        if (!verifyPlainMedia(*plain, reference)) {
+            const QString sourceError = plain->errorString();
+            plain->deleteLater();
+            state->callback(
+                std::move(state->note),
+                mediaFailure(sourceError.isEmpty() ? QStringLiteral("Local media integrity check failed")
+                                                   : QStringLiteral("Local media integrity check failed: %1").arg(sourceError),
+                             XmppErrorKind::Security));
+            return;
+        }
         auto *encrypted = new XMPP::StatelessFileSharing::EncryptingDevice(plain, cipher, backend);
         if (!encrypted->open(QIODevice::ReadOnly)) {
             plain->deleteLater();
