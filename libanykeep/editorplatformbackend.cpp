@@ -646,7 +646,8 @@ bool EditorPlatformBackend::insertRasterImage(const QImage &image, const QString
     return insertMediaData(encoded, name, QStringLiteral("image/png"), row);
 }
 
-bool EditorPlatformBackend::insertMediaFiles(const QStringList &fileNames, int row, QString *error)
+bool EditorPlatformBackend::insertMediaFiles(const QStringList &fileNames, int row, QString *error,
+                                                   MediaFileImportMode mode)
 {
     if (!canInsertMedia() || fileNames.isEmpty())
         return false;
@@ -664,7 +665,9 @@ bool EditorPlatformBackend::insertMediaFiles(const QStringList &fileNames, int r
 
     QList<MediaReference> references;
     for (const auto &fileName : fileNames) {
-        const auto imported = LocalMediaStore::instance()->importFile(fileName);
+        const auto imported = mode == MediaFileImportMode::KeepInPlace
+            ? LocalMediaStore::instance()->referenceFile(fileName)
+            : LocalMediaStore::instance()->importFile(fileName);
         if (!imported) {
             if (error)
                 *error = imported.error;
