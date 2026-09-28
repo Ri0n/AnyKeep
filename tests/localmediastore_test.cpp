@@ -5,6 +5,7 @@
 #include "secureenvelope.h"
 #include "utils.h"
 
+#include <QCryptographicHash>
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
