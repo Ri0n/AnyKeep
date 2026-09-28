@@ -36,6 +36,7 @@
 #include <QtCrypto>
 
 #include <QBuffer>
+#include <QByteArrayView>
 #include <QDomDocument>
 #include <QLoggingCategory>
 #include <QNetworkAccessManager>
@@ -284,7 +285,7 @@ namespace {
             const qint64 count = stream.read(buffer.data(), buffer.size());
             if (count <= 0)
                 return false;
-            hash.addData(buffer.constData(), count);
+            hash.addData(QByteArrayView(buffer.constData(), qsizetype(count)));
             total += count;
         }
         return total == reference.size && hash.result() == reference.checksum && stream.seek(0);
