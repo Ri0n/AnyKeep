@@ -678,4 +678,5 @@ Integration guardrails:
 - editor/model code uses symbolic `NoteBlockType.Media` / `NoteBlockType.Attachment`; QML must not depend on numeric enum values;
 - Qt Multimedia remains optional for the shared desktop editor. `MediaBlock.qml` therefore does not import it directly; the lazy video surface owns that import and is instantiated only when playback support is available;
 - replacing a playback source detaches the old `QIODevice` from `QMediaPlayer` before destroying it;
-- derived posters are cache artifacts produced by an explicit probe/extraction path, never persisted once per decoded playback frame.
+- derived posters are cache artifacts produced by an explicit probe/extraction path, never persisted once per decoded playback frame;
+- external-file locators and chunk fingerprints are encrypted local source-registry state and must never be serialized into portable `MediaReference` or remote media descriptors.
