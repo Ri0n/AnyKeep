@@ -6,6 +6,7 @@
 #include "utils.h"
 
 #include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -22,6 +23,8 @@ private slots:
     void encryptedRoundTripAndDeduplication();
     void concurrentReadsUseTheCachedKey();
     void mediaStreamReadsAndSeeks();
+    void externalFileReferenceStreamsVerifiedRanges();
+    void externalFileReferenceRejectsChangedChunks();
     void portableNames();
     void markdownDisplayTitle();
     void markdownHtmlImageDisplayTitle();
@@ -110,6 +113,83 @@ void LocalMediaStoreTest::mediaStreamReadsAndSeeks()
 
     stream.close();
     QVERIFY(!stream.isOpen());
+}
+
+void LocalMediaStoreTest::externalFileReferenceStreamsVerifiedRanges()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QVERIFY(QDir(directory.path()).mkpath(QStringLiteral("store")));
+
+    QByteArray plain(int(LocalMediaStore::ExternalChunkSize + 64), 'a');
+    for (int i = 0; i < plain.size(); ++i)
+        plain[i] = char('a' + (i % 23));
+
+    const QString sourcePath = QDir(directory.path()).filePath(QStringLiteral("large-video.bin"));
+    QFile source(sourcePath);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write(plain), qint64(plain.size()));
+    source.close();
+
+    LocalMediaStore store(QDir(directory.path()).filePath(QStringLiteral("store")),
+                          SecureEnvelope::generateMasterKey());
+    const auto referenced = store.referenceFile(sourcePath);
+    QVERIFY2(referenced, qPrintable(referenced.error));
+    QVERIFY(!store.containsManagedBlob(referenced.value.blobId));
+    QVERIFY(store.contains(referenced.value.blobId));
+    QCOMPARE(referenced.value.size, qint64(plain.size()));
+    QCOMPARE(referenced.value.checksum, QCryptographicHash::hash(plain, QCryptographicHash::Sha256));
+
+    const auto external = store.externalSource(referenced.value);
+    QVERIFY2(external, qPrintable(external.error));
+    QCOMPARE(external.value.chunkSize, quint32(LocalMediaStore::ExternalChunkSize));
+    QCOMPARE(external.value.chunkHashes.size(), 2);
+
+    MediaStream stream(createLocalMediaSource(referenced.value, &store));
+    QVERIFY2(stream.open(QIODevice::ReadOnly), qPrintable(stream.errorString()));
+    const qint64 boundary = LocalMediaStore::ExternalChunkSize;
+    QVERIFY(stream.seek(boundary - 16));
+    QCOMPARE(stream.read(48), plain.mid(int(boundary - 16), 48));
+    QVERIFY(stream.seek(12345));
+    QCOMPARE(stream.read(777), plain.mid(12345, 777));
+
+    const auto materialized = store.data(referenced.value.blobId);
+    QVERIFY2(materialized, qPrintable(materialized.error));
+    QCOMPARE(materialized.value, plain);
+}
+
+void LocalMediaStoreTest::externalFileReferenceRejectsChangedChunks()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QVERIFY(QDir(directory.path()).mkpath(QStringLiteral("store")));
+
+    QByteArray plain(int(LocalMediaStore::ExternalChunkSize + 32), 'x');
+    const QString sourcePath = QDir(directory.path()).filePath(QStringLiteral("mutable-video.bin"));
+    QFile source(sourcePath);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write(plain), qint64(plain.size()));
+    source.close();
+
+    LocalMediaStore store(QDir(directory.path()).filePath(QStringLiteral("store")),
+                          SecureEnvelope::generateMasterKey());
+    const auto referenced = store.referenceFile(sourcePath);
+    QVERIFY2(referenced, qPrintable(referenced.error));
+
+    QVERIFY(source.open(QIODevice::ReadWrite));
+    QVERIFY(source.seek(LocalMediaStore::ExternalChunkSize + 7));
+    QCOMPARE(source.write("z", 1), qint64(1));
+    source.close();
+
+    MediaStream stream(createLocalMediaSource(referenced.value, &store));
+    QVERIFY2(stream.open(QIODevice::ReadOnly), qPrintable(stream.errorString()));
+    QVERIFY(stream.seek(LocalMediaStore::ExternalChunkSize));
+    QVERIFY(stream.read(16).isEmpty());
+    QVERIFY(!stream.errorString().isEmpty());
+
+    const auto materialized = store.data(referenced.value.blobId);
+    QVERIFY(!materialized);
+    QVERIFY(materialized.error.contains(QStringLiteral("changed")));
 }
 
 void LocalMediaStoreTest::portableNames()
