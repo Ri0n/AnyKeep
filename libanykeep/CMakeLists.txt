@@ -84,6 +84,7 @@ set(anykeep_CORE_SRCS
     mediaplaybackcontroller.cpp
     mediasource.cpp
     mediastream.cpp
+    mediachunkwire.cpp
     bundledpluginregistry.cpp
     conflictresolver.cpp
     corestorageregistry.cpp
@@ -169,6 +170,7 @@ set(anykeep_CORE_HDRS
     mediaplaybackcontroller.h
     mediasource.h
     mediastream.h
+    mediachunkwire.h
     bundledplugininterface.h
     bundledpluginregistry.h
     conflictresolver.h
