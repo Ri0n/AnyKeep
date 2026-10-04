@@ -17,7 +17,8 @@ enum class KeyDomain : quint8 {
     LocalRemoteCache,
     LocalMedia,
     LocalFolderCatalog,
-    LocalRuleStore
+    LocalRuleStore,
+    RemoteMediaChunk
 };
 
 /**
@@ -69,6 +70,8 @@ template <typename T> struct CryptoResult {
 class ANYKEEP_EXPORT SecureEnvelope {
 public:
     static constexpr int MasterKeySize = 32;
+    static constexpr int AeadNonceSize = 12;
+    static constexpr int AeadTagSize   = 16;
 
     static bool                     isAvailable();
     static QByteArray               generateMasterKey();
@@ -94,6 +97,17 @@ public:
                                                     KeyDomain domain);
     static CryptoResult<AeadCiphertext> encryptAead(const QByteArray &plainText, const QByteArray &masterKey,
                                                     KeyDomain domain, KeyDerivationProfile profile);
+    /**
+     * Same raw AES-GCM operation with a caller-supplied 96-bit nonce.
+     *
+     * This is for versioned protocols which define nonce uniqueness themselves.
+     * Callers MUST NOT reuse a nonce with the same derived key for different
+     * plaintext. General local storage should keep using encryptAead()/seal(),
+     * which generate random nonces internally.
+     */
+    static CryptoResult<AeadCiphertext> encryptAeadWithNonce(const QByteArray &plainText,
+                                                             const QByteArray &masterKey, KeyDomain domain,
+                                                             KeyDerivationProfile profile, const QByteArray &nonce);
     static CryptoResult<QByteArray>     decryptAead(const AeadCiphertext &encrypted, const QByteArray &masterKey,
                                                     KeyDomain domain);
     static CryptoResult<QByteArray>     decryptAead(const AeadCiphertext &encrypted, const QByteArray &masterKey,
