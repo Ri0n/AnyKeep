@@ -16,7 +16,8 @@ struct MediaReference;
 /**
  * Seekable virtual encrypted object backed by an authenticated plaintext
  * MediaSource. HTTP upload can consume it sequentially while Jingle can seek to
- * an arbitrary byte range of the exact same deterministic wire object.
+ * an arbitrary byte range of the exact same deterministic wire object. At most
+ * one generated wire record is retained between reads.
  */
 class ANYKEEP_EXPORT MediaChunkWireStream final : public QIODevice {
     Q_OBJECT
