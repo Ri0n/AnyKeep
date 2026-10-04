@@ -16,8 +16,8 @@ namespace {
     constexpr quint16 EnvelopeVersion = 1;
     constexpr quint32 AadMagic        = 0x514e4144; // QNAD
     constexpr quint16 AadVersion      = 1;
-    constexpr int     NonceSize       = 12;
-    constexpr int     TagSize         = 16;
+    constexpr int     NonceSize       = SecureEnvelope::AeadNonceSize;
+    constexpr int     TagSize         = SecureEnvelope::AeadTagSize;
 
     CryptoError error(CryptoError::Code code, const QString &message) { return { code, message }; }
 
@@ -58,6 +58,8 @@ namespace {
             return QByteArrayLiteral("local-folder-catalog");
         case KeyDomain::LocalRuleStore:
             return QByteArrayLiteral("local-rule-store");
+        case KeyDomain::RemoteMediaChunk:
+            return QByteArrayLiteral("remote-media-chunk");
         }
         return {};
     }
@@ -163,16 +165,19 @@ QByteArray SecureEnvelope::associatedData(const AeadContext &context)
     return result;
 }
 
-CryptoResult<AeadCiphertext> SecureEnvelope::encryptAead(const QByteArray &plainText, const QByteArray &masterKey,
-                                                         KeyDomain domain, KeyDerivationProfile profile)
+CryptoResult<AeadCiphertext> SecureEnvelope::encryptAeadWithNonce(const QByteArray &plainText,
+                                                                  const QByteArray &masterKey, KeyDomain domain,
+                                                                  KeyDerivationProfile profile, const QByteArray &nonce)
 {
     if (masterKey.size() != MasterKeySize)
         return { {}, error(CryptoError::InvalidArgument, QStringLiteral("Invalid encryption key")) };
+    if (nonce.size() != NonceSize)
+        return { {}, error(CryptoError::InvalidArgument, QStringLiteral("Invalid AES-GCM nonce")) };
     if (!isAvailable())
         return { {}, error(CryptoError::Unavailable, QStringLiteral("AES-256-GCM is unavailable")) };
 
     AeadCiphertext encrypted;
-    encrypted.nonce = QCA::Random::randomArray(NonceSize).toByteArray();
+    encrypted.nonce = nonce;
     const auto  key = deriveKey(masterKey, domain, profile);
     QCA::Cipher cipher(QStringLiteral("aes256"), QCA::Cipher::GCM, QCA::Cipher::NoPadding, QCA::Encode,
                        QCA::SymmetricKey(key), QCA::InitializationVector(encrypted.nonce), QCA::AuthTag(TagSize));
@@ -181,6 +186,19 @@ CryptoResult<AeadCiphertext> SecureEnvelope::encryptAead(const QByteArray &plain
     if (!cipher.ok() || encrypted.tag.size() != TagSize)
         return { {}, error(CryptoError::Unavailable, QStringLiteral("Encryption failed")) };
     return { encrypted, {} };
+}
+
+CryptoResult<AeadCiphertext> SecureEnvelope::encryptAead(const QByteArray &plainText, const QByteArray &masterKey,
+                                                         KeyDomain domain, KeyDerivationProfile profile)
+{
+    if (masterKey.size() != MasterKeySize)
+        return { {}, error(CryptoError::InvalidArgument, QStringLiteral("Invalid encryption key")) };
+    if (!isAvailable())
+        return { {}, error(CryptoError::Unavailable, QStringLiteral("AES-256-GCM is unavailable")) };
+    const QByteArray nonce = QCA::Random::randomArray(NonceSize).toByteArray();
+    if (nonce.size() != NonceSize)
+        return { {}, error(CryptoError::Unavailable, QStringLiteral("Could not generate AES-GCM nonce")) };
+    return encryptAeadWithNonce(plainText, masterKey, domain, profile, nonce);
 }
 
 CryptoResult<AeadCiphertext> SecureEnvelope::encryptAead(const QByteArray &plainText, const QByteArray &masterKey,
