@@ -500,25 +500,25 @@ private slots:
 
         editor.setMarkdown(true);
         const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
-        editor.model()->insertAudio(1, source, QStringLiteral("Voice memo"), 2500);
-        editor.model()->insertAudio(2, source, QStringLiteral("Duplicate voice memo"), 2500);
+        editor.model()->insertMedia(1, source, QStringLiteral("Voice memo"), QStringLiteral("audio/*"), 2500);
+        editor.model()->insertMedia(2, source, QStringLiteral("Duplicate voice memo"), QStringLiteral("audio/*"), 2500);
         editor.resetHistory();
 
-        QVERIFY(editor.setAudioTranscript(2, QStringLiteral("Recognized text")));
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AudioTranscriptRole).toString(),
+        QVERIFY(editor.setMediaTranscript(2, QStringLiteral("Recognized text")));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaTranscriptRole).toString(),
                  QString());
-        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AudioTranscriptRole).toString(),
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::MediaTranscriptRole).toString(),
                  QStringLiteral("Recognized text"));
         QVERIFY(editor.canUndo());
         QVERIFY(editor.undo());
-        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AudioTranscriptRole).toString(),
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::MediaTranscriptRole).toString(),
                  QString());
         QVERIFY(editor.redo());
-        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AudioTranscriptRole).toString(),
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::MediaTranscriptRole).toString(),
                  QStringLiteral("Recognized text"));
     }
 
-    void audioTitleChangesParticipateInUndo()
+    void mediaTitleChangesParticipateInUndo()
     {
         auto         store = std::make_unique<MemoryDraftStore>();
         DraftManager drafts(std::move(store));
@@ -526,19 +526,19 @@ private slots:
 
         editor.setMarkdown(true);
         const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
-        editor.model()->insertAudio(1, source, QStringLiteral("audio.m4a"), 2500);
+        editor.model()->insertMedia(1, source, QStringLiteral("audio.m4a"), QStringLiteral("audio/*"), 2500);
         editor.resetHistory();
 
-        QVERIFY(editor.model()->setAudioTitle(1, QStringLiteral("  Planning notes  ")));
+        QVERIFY(editor.model()->setMediaTitle(1, QStringLiteral("  Planning notes  ")));
         QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AltRole).toString(),
-                 QStringLiteral("Planning notes"));
+                 QStringLiteral("  Planning notes  "));
         QVERIFY(editor.canUndo());
         QVERIFY(editor.undo());
         QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AltRole).toString(),
                  QStringLiteral("audio.m4a"));
         QVERIFY(editor.redo());
         QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::AltRole).toString(),
-                 QStringLiteral("Planning notes"));
+                 QStringLiteral("  Planning notes  "));
     }
 
     void copiesSingleAudioBlockAsStructuredClipboardData()
@@ -549,7 +549,7 @@ private slots:
 
         editor.setMarkdown(true);
         const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
-        editor.model()->insertAudio(1, source, QStringLiteral("Planning notes"), 2500);
+        editor.model()->insertMedia(1, source, QStringLiteral("Planning notes"), QStringLiteral("audio/*"), 2500);
 
         QVERIFY(editor.copyBlockToClipboard(1));
         const QMimeData *mimeData = QGuiApplication::clipboard()->mimeData();
@@ -560,10 +560,10 @@ private slots:
         const auto             imported = controller.importMimeData(mimeData);
         QVERIFY2(imported, qPrintable(imported.error));
         QCOMPARE(imported.fragment.blocks.size(), 1);
-        QCOMPARE(imported.fragment.blocks.constFirst().type, NoteFragmentBlockType::Audio);
-        QCOMPARE(imported.fragment.blocks.constFirst().audio.sourceUri, source);
-        QCOMPARE(imported.fragment.blocks.constFirst().audio.title, QStringLiteral("Planning notes"));
-        QCOMPARE(imported.fragment.blocks.constFirst().audio.durationMs, qint64(2500));
+        QCOMPARE(imported.fragment.blocks.constFirst().type, NoteFragmentBlockType::Media);
+        QCOMPARE(imported.fragment.blocks.constFirst().media.sourceUri, source);
+        QCOMPARE(imported.fragment.blocks.constFirst().media.title, QStringLiteral("Planning notes"));
+        QCOMPARE(imported.fragment.blocks.constFirst().media.durationMs, qint64(2500));
     }
 
     void imagePresentationChangesParticipateInUndo()
@@ -573,24 +573,24 @@ private slots:
         NoteEditor   editor(plainNote(), drafts);
 
         editor.setMarkdown(true);
-        editor.model()->insertImage(1, QStringLiteral("media://image"), QStringLiteral("Image"));
+        editor.model()->insertMedia(1, QStringLiteral("media://image"), QStringLiteral("Image"), QStringLiteral("image/*"));
         editor.resetHistory();
 
         editor.beginHistoryTransaction(QStringLiteral("image-presentation"), {});
-        editor.model()->setImageWidth(1, 280);
-        editor.model()->setImageAlignment(1, QStringLiteral("right"));
+        editor.model()->setMediaDisplayWidth(1, 280);
+        editor.model()->setMediaAlignment(1, QStringLiteral("right"));
         editor.endHistoryTransaction({});
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageWidthRole).toInt(), 280);
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageAlignmentRole).toString(),
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaDisplayWidthRole).toInt(), 280);
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaAlignmentRole).toString(),
                  QStringLiteral("right"));
 
         QVERIFY(editor.undo());
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageWidthRole).toInt(), 0);
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageAlignmentRole).toString(),
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaDisplayWidthRole).toInt(), 0);
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaAlignmentRole).toString(),
                  QStringLiteral("center"));
         QVERIFY(editor.redo());
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageWidthRole).toInt(), 280);
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ImageAlignmentRole).toString(),
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaDisplayWidthRole).toInt(), 280);
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::MediaAlignmentRole).toString(),
                  QStringLiteral("right"));
     }
 

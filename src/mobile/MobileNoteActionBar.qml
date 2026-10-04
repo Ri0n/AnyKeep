@@ -100,9 +100,9 @@ ToolBar {
             onClicked: root.voiceRequested()
         }
         ActionButton {
-            text: qsTr("Image")
+            text: qsTr("Media")
             enabled: root.editorBackend && root.editorBackend.supportsMedia
-            Accessible.name: qsTr("Insert image or take photo")
+            Accessible.name: qsTr("Insert media or take photo")
             themeName: "insert-image-symbolic"
             fallbackName: "insert-image-symbolic.svg"
             onClicked: imageMenu.popup()
@@ -110,7 +110,7 @@ ToolBar {
             Menu {
                 id: imageMenu
                 y: -implicitHeight
-                MenuItem { text: qsTr("Choose image"); onTriggered: root.actions.insertImage() }
+                MenuItem { text: qsTr("Choose media"); onTriggered: root.actions.insertMedia() }
                 MenuItem {
                     text: qsTr("Take photo")
                     visible: root.actions.platformBackend

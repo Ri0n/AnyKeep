@@ -43,6 +43,12 @@ namespace {
 
     int documentEnd(const QTextDocument *document) { return document ? qMax(0, document->characterCount() - 1) : 0; }
 
+    bool isInlineMediaType(const QString &mediaType)
+    {
+        return mediaType.startsWith(QLatin1String("image/")) || mediaType.startsWith(QLatin1String("audio/"))
+            || mediaType.startsWith(QLatin1String("video/"));
+    }
+
     QTextCharFormat formatAt(QTextDocument *document, int position)
     {
         const int limit = documentEnd(document);
@@ -62,14 +68,15 @@ namespace {
         if (fragment.blocks.isEmpty())
             return false;
         for (const auto &block : fragment.blocks) {
-            if (block.type != NoteFragmentBlockType::Image || block.image.sourceUri.isEmpty())
+            if (block.type != NoteFragmentBlockType::Media || block.media.sourceUri.isEmpty()
+                || !block.media.mediaType.startsWith(QLatin1String("image/")))
                 return false;
-            const QUrl source(block.image.sourceUri);
+            const QUrl source(block.media.sourceUri);
             if (source.scheme().compare(QStringLiteral("anykeep-media"), Qt::CaseInsensitive) != 0)
                 continue;
             bool hasMedia = false;
             for (const auto &media : fragment.media) {
-                if (media.sourceUri == block.image.sourceUri && media.reference.isValid()) {
+                if (media.sourceUri == block.media.sourceUri && media.reference.isValid()) {
                     hasMedia = true;
                     break;
                 }
@@ -237,16 +244,16 @@ void EditorPlatformBackend::setEditor(NoteEditor *editor)
     // their QSyntaxHighlighter automatically when they are destroyed.
     if (editor_) {
         connect(editor_, &NoteEditor::formatChanged, this, [this] {
-            emit canInsertImagesChanged();
+            emit canInsertMediaChanged();
             emit canInsertAttachmentsChanged();
         });
         connect(editor_, &QObject::destroyed, this, [this] {
             editor_.clear();
-            emit canInsertImagesChanged();
+            emit canInsertMediaChanged();
             emit canInsertAttachmentsChanged();
         });
     }
-    emit canInsertImagesChanged();
+    emit canInsertMediaChanged();
     emit canInsertAttachmentsChanged();
     // NotesManager switches its reusable QML documents after this C++ signal
     // handler returns. Rehighlight on the next event-loop turn, once the new
@@ -254,7 +261,7 @@ void EditorPlatformBackend::setEditor(NoteEditor *editor)
     QTimer::singleShot(0, this, &EditorPlatformBackend::rehighlight);
 }
 
-bool EditorPlatformBackend::canInsertImages() const { return editor_ && editor_->canInsertImages(); }
+bool EditorPlatformBackend::canInsertMedia() const { return editor_ && editor_->canInsertMedia(); }
 
 bool EditorPlatformBackend::canInsertAttachments() const { return editor_ && editor_->canInsertAttachments(); }
 
@@ -546,7 +553,7 @@ void EditorPlatformBackend::saveCustomSpellingDictionary()
 
 bool EditorPlatformBackend::insertClipboardImage(int row)
 {
-    if (!canInsertImages())
+    if (!canInsertMedia())
         return false;
     const auto *mimeData = QGuiApplication::clipboard()->mimeData();
     if (!mimeData)
@@ -570,24 +577,32 @@ bool EditorPlatformBackend::insertClipboardImage(int row)
     return insertImageMimeData(mimeData, row);
 }
 
-bool EditorPlatformBackend::insertImageData(const QByteArray &data, const QString &name, const QString &mediaType,
+bool EditorPlatformBackend::insertMediaData(const QByteArray &data, const QString &name, const QString &mediaType,
                                             int row)
 {
-    if (!canInsertImages() || data.isEmpty())
+    if (!canInsertMedia() || data.isEmpty())
         return false;
-    const auto imported = LocalMediaStore::instance()->importData(data, name, mediaType);
+    QMimeDatabase database;
+    QString validatedType = database.mimeTypeForData(data).name();
+    if (validatedType == QLatin1String("application/octet-stream"))
+        validatedType = mediaType;
+    if (!isInlineMediaType(validatedType)) {
+        emit operationFailed(tr("The selected file is not supported inline media."));
+        return false;
+    }
+    const auto imported = LocalMediaStore::instance()->importData(data, name, validatedType);
     if (!imported) {
         emit operationFailed(imported.error);
         return false;
     }
-    return insertImportedImages({ imported.value }, row, QStringLiteral("insert-image"));
+    return insertImportedMedia({ imported.value }, row, QStringLiteral("insert-media"));
 }
 
-bool EditorPlatformBackend::insertImage(int row)
+bool EditorPlatformBackend::insertMedia(int row)
 {
-    if (!canInsertImages())
+    if (!canInsertMedia())
         return false;
-    emit imageInsertionRequested(row);
+    emit mediaInsertionRequested(row);
     return true;
 }
 
@@ -620,7 +635,7 @@ bool EditorPlatformBackend::startImageDrag(int) { return false; }
 
 bool EditorPlatformBackend::insertRasterImage(const QImage &image, const QString &name, int row)
 {
-    if (!canInsertImages() || image.isNull())
+    if (!canInsertMedia() || image.isNull())
         return false;
     QByteArray encoded;
     QBuffer    buffer(&encoded);
@@ -628,16 +643,31 @@ bool EditorPlatformBackend::insertRasterImage(const QImage &image, const QString
         emit operationFailed(tr("Could not encode the image."));
         return false;
     }
-    return insertImageData(encoded, name, QStringLiteral("image/png"), row);
+    return insertMediaData(encoded, name, QStringLiteral("image/png"), row);
 }
 
-bool EditorPlatformBackend::insertImageFiles(const QStringList &fileNames, int row, QString *error)
+bool EditorPlatformBackend::insertMediaFiles(const QStringList &fileNames, int row, QString *error,
+                                                   MediaFileImportMode mode)
 {
-    if (!canInsertImages() || fileNames.isEmpty())
+    if (!canInsertMedia() || fileNames.isEmpty())
         return false;
+    QMimeDatabase database;
+    for (const auto &fileName : fileNames) {
+        const QString type = database.mimeTypeForFile(fileName, QMimeDatabase::MatchContent).name();
+        if (!isInlineMediaType(type)) {
+            const QString message = tr("The selected file is not supported inline media: %1").arg(fileName);
+            if (error)
+                *error = message;
+            emit operationFailed(message);
+            return false;
+        }
+    }
+
     QList<MediaReference> references;
     for (const auto &fileName : fileNames) {
-        const auto imported = LocalMediaStore::instance()->importFile(fileName);
+        const auto imported = mode == MediaFileImportMode::KeepInPlace
+            ? LocalMediaStore::instance()->referenceFile(fileName)
+            : LocalMediaStore::instance()->importFile(fileName);
         if (!imported) {
             if (error)
                 *error = imported.error;
@@ -646,12 +676,12 @@ bool EditorPlatformBackend::insertImageFiles(const QStringList &fileNames, int r
         }
         references.append(imported.value);
     }
-    return insertImportedImages(references, row, QStringLiteral("insert-images"));
+    return insertImportedMedia(references, row, QStringLiteral("insert-media"));
 }
 
 bool EditorPlatformBackend::canAcceptImageMimeData(const QMimeData *mimeData) const
 {
-    if (!canInsertImages() || !mimeData)
+    if (!canInsertMedia() || !mimeData)
         return false;
     NoteTransferController controller;
     const auto             imported = controller.importMimeData(mimeData);
@@ -672,12 +702,12 @@ bool EditorPlatformBackend::insertImageMimeData(const QMimeData *mimeData, int r
             = QStringLiteral("Dropped_%1.png").arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
         return insertRasterImage(imported.image, name, row);
     }
-    return insertImageFiles(localImageFiles(mimeData), row);
+    return insertMediaFiles(localImageFiles(mimeData), row);
 }
 
 bool EditorPlatformBackend::canInsertImageFragment(const NoteFragment &fragment) const
 {
-    return canInsertImages() && isUsableImageFragment(fragment);
+    return canInsertMedia() && isUsableImageFragment(fragment);
 }
 
 bool EditorPlatformBackend::insertImageFragment(const NoteFragment &sourceFragment, int row)
@@ -792,23 +822,18 @@ void EditorPlatformBackend::reloadVisualSettings()
     setTitleHighlightColor(configured);
 }
 
-bool EditorPlatformBackend::insertImportedImages(const QList<MediaReference> &references, int row,
+bool EditorPlatformBackend::insertImportedMedia(const QList<MediaReference> &references, int row,
                                                  const QString &historyKind)
 {
-    if (!editor_ || references.isEmpty() || !canInsertImages())
+    if (!editor_ || references.isEmpty() || !canInsertMedia())
         return false;
     editor_->beginHistoryTransaction(historyKind);
-    if (!editor_->isMarkdown())
-        editor_->setMarkdown(true);
-    auto media = editor_->media();
-    media.append(references);
-    editor_->setMedia(media);
     int insertionRow = row < 0 ? editor_->model()->rowCount() : qBound(0, row, editor_->model()->rowCount());
+    bool inserted = true;
     for (const auto &reference : references)
-        editor_->model()->insertImage(insertionRow++, reference.uri(), reference.originalName);
+        inserted = editor_->insertMedia(reference, 0, 0, 0, insertionRow++) && inserted;
     editor_->endHistoryTransaction();
-    emit mediaInserted(references);
-    return true;
+    return inserted;
 }
 
 void EditorPlatformBackend::clearRegisteredDocuments()

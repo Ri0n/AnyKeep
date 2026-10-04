@@ -71,7 +71,7 @@ SpeechRecognitionController::SpeechRecognitionController(QObject *parent) :
                 starting_         = false;
                 audioStopPending_ = false;
                 setBusy(false);
-                if (!destination || !destination->insertAudio(reference, durationMs, row, tr("Audio recording")))
+                if (!destination || !destination->insertMedia(reference, durationMs, 0, 0, row, tr("Audio recording")))
                     emit operationFailed(tr("Could not insert the audio recording into this note."));
             });
 }
@@ -307,9 +307,9 @@ bool SpeechRecognitionController::transcribeAudio(int row, const QString &source
 
     const QModelIndex modelIndex = editor_->model()->index(row, 0);
     if (!modelIndex.isValid()
-        || editor_->model()->data(modelIndex, NoteBlockModel::TypeRole).toInt() != NoteBlockModel::Audio
+        || editor_->model()->data(modelIndex, NoteBlockModel::TypeRole).toInt() != NoteBlockModel::Media
         || editor_->model()->data(modelIndex, NoteBlockModel::UrlRole).toString() != sourceUri) {
-        emit operationFailed(tr("The selected audio block is no longer available."));
+        emit operationFailed(tr("The selected media block is no longer available."));
         return false;
     }
 
@@ -377,8 +377,8 @@ bool SpeechRecognitionController::transcribeAudio(int row, const QString &source
         const QString value       = text.trimmed();
         const bool    targetValid = destination && destinationIndex.isValid()
             && destinationIndex.model() == destination->model()
-            && destination->model()->data(destinationIndex, NoteBlockModel::TypeRole).toInt() == NoteBlockModel::Audio;
-        if (!value.isEmpty() && (!targetValid || !destination->setAudioTranscript(destinationIndex.row(), value)))
+            && destination->model()->data(destinationIndex, NoteBlockModel::TypeRole).toInt() == NoteBlockModel::Media;
+        if (!value.isEmpty() && (!targetValid || !destination->setMediaTranscript(destinationIndex.row(), value)))
             emit operationFailed(tr("Could not attach the transcript to the audio recording."));
     });
     connect(job_, &SpeechRecognitionJob::failed, this, [this, guard](const QString &error) {

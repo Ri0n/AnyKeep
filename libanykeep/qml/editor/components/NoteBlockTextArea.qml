@@ -463,9 +463,8 @@ TextArea {
                 spellRefresh.restart()
             }
             editorView.clearPendingInsertionBoundary()
-            editorView.clearImageSelection()
-            editorView.clearAudioSelection()
-            editorView.clearAttachmentSelection()
+            editorView.clearMediaSelection()
+                        editorView.clearAttachmentSelection()
             editorView.activeTagLineIndex = -1
             editorView.activeEditor = this
             rememberPlainText()

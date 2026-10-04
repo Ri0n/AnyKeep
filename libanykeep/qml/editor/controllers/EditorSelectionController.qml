@@ -232,7 +232,7 @@ QtObject {
                 Qt.callLater(function() {
                     Qt.callLater(function() {
                         if (blockModel && row < blockModel.rowCount()
-                                && blockModel.blockTypeAt(row) === 0)
+                                && blockModel.blockTypeAt(row) === NoteBlockType.Text)
                             editorView.focusBlock(row)
                         // The focus hand-off may itself retire the old first
                         // delegate.  Ignore its transient blur; later real
@@ -292,10 +292,8 @@ QtObject {
                     return false
                 if (editorView.activeEditor === editor)
                     editorView.activeEditor = null
-                if (editorView.selectedImageIndex > currentRow)
-                    --editorView.selectedImageIndex
-                if (editorView.selectedAudioIndex > currentRow)
-                    --editorView.selectedAudioIndex
+                if (editorView.selectedMediaIndex > currentRow)
+                    --editorView.selectedMediaIndex
                 if (editorView.selectedAttachmentIndex > currentRow)
                     --editorView.selectedAttachmentIndex
                 blockModel.removeBlock(currentRow)
@@ -435,8 +433,7 @@ QtObject {
         // ListView reposition the viewport before the mutation.
         flushPendingEditorChanges()
         clearDocumentSelection()
-        editorView.selectedImageIndex = -1
-        editorView.selectedAudioIndex = -1
+        editorView.selectedMediaIndex = -1
         editorView.selectedAttachmentIndex = -1
         editorView.activeTagLineIndex = -1
         editorView.activeEditor = null
@@ -453,8 +450,7 @@ QtObject {
         editorView.pendingFocusAddress = null
         editorView.pendingEditorState = null
         clearDocumentSelection()
-        editorView.selectedImageIndex = -1
-        editorView.selectedAudioIndex = -1
+        editorView.selectedMediaIndex = -1
         editorView.selectedAttachmentIndex = -1
         editorView.activeTagLineIndex = -1
         keyboardSelectionAnchorEditor = null
@@ -873,9 +869,8 @@ QtObject {
     }
 
     function copyActiveSelection() {
-        const mediaIndex = editorView.selectedImageIndex >= 0 ? selectedImageIndex
-                         : editorView.selectedAudioIndex >= 0 ? selectedAudioIndex
-                         : editorView.selectedAttachmentIndex
+        const mediaIndex = editorView.selectedMediaIndex >= 0
+                ? editorView.selectedMediaIndex : editorView.selectedAttachmentIndex
         if (mediaIndex >= 0 && editorBackend
                 && typeof editorBackend.copyBlockToClipboard === "function")
             return editorBackend.copyBlockToClipboard(mediaIndex)
@@ -883,14 +878,6 @@ QtObject {
             return false
         copyDocumentSelection()
         return true
-    }
-
-    function renameAudioBlock(blockIndex, title) {
-        if (!blockModel || blockModel.blockTypeAt(blockIndex) !== 10)
-            return false
-        return runEditTransaction("rename-audio", function() {
-            return blockModel.setAudioTitle(blockIndex, String(title || ""))
-        })
     }
 
     function pasteStructuredSelection(editor) {

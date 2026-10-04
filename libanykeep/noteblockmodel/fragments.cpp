@@ -89,19 +89,17 @@ NoteFragment NoteBlockModel::extractBlockFragment(int firstRow, int lastRow) con
             destination.table.headerRows    = destination.table.rows > 0 ? 1 : 0;
             destination.table.markdownCells = source.cells;
             break;
-        case Image:
-            destination.type            = NoteFragmentBlockType::Image;
-            destination.image.sourceUri = source.url;
-            destination.image.alt       = source.alt;
-            destination.image.width     = source.imageWidth;
-            destination.image.alignment = source.imageAlignment;
-            break;
-        case Audio:
-            destination.type             = NoteFragmentBlockType::Audio;
-            destination.audio.sourceUri  = source.url;
-            destination.audio.title      = source.alt;
-            destination.audio.durationMs = source.audioDurationMs;
-            destination.audio.transcript = source.audioTranscript;
+        case Media:
+            destination.type             = NoteFragmentBlockType::Media;
+            destination.media.sourceUri  = source.url;
+            destination.media.title      = source.alt;
+            destination.media.mediaType  = source.mediaType;
+            destination.media.durationMs = source.mediaDurationMs;
+            destination.media.pixelWidth   = source.mediaWidth;
+            destination.media.pixelHeight  = source.mediaHeight;
+            destination.media.displayWidth = source.mediaDisplayWidth;
+            destination.media.alignment    = source.mediaAlignment;
+            destination.media.transcript   = source.mediaTranscript;
             break;
         case Attachment:
             destination.type                 = NoteFragmentBlockType::Attachment;
@@ -207,13 +205,13 @@ NoteFragment NoteBlockModel::extractSelectionFragment(const QList<NoteBlockSelec
                 }
                 fragment.blocks.append(block);
             }
-        } else if (source.type == Image || source.type == Audio || source.type == Attachment
+        } else if (source.type == Media || source.type == Attachment
                    || source.type == TagLine) {
             const bool wholeBlock = std::all_of(ranges.cbegin() + first, ranges.cbegin() + last,
                                                 [](const auto &range) { return range.wholeEditor; });
             if (wholeBlock) {
                 fragment.blocks.append(block);
-            } else if (source.type == Image || source.type == Audio || source.type == Attachment) {
+            } else if (source.type == Media || source.type == Attachment) {
                 NoteFragmentBlock text;
                 text.type = NoteFragmentBlockType::Text;
                 QStringList parts;
@@ -477,31 +475,34 @@ bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Bloc
             destination.columns = source.table.columns;
             destination.cells   = source.table.markdownCells;
             break;
-        case NoteFragmentBlockType::Image:
-            if (source.image.sourceUri.isEmpty()) {
+        case NoteFragmentBlockType::Media: {
+            const bool supportedType = source.media.mediaType.startsWith(QLatin1String("image/"))
+                || source.media.mediaType.startsWith(QLatin1String("audio/"))
+                || source.media.mediaType.startsWith(QLatin1String("video/"));
+            const QString alignment = source.media.alignment.trimmed().toLower();
+            if (source.media.sourceUri.isEmpty() || !supportedType || source.media.durationMs < 0
+                || source.media.durationMs > MaxMediaDurationMs || source.media.pixelWidth < 0
+                || source.media.pixelWidth > MaxMediaPixelDimension || source.media.pixelHeight < 0
+                || source.media.pixelHeight > MaxMediaPixelDimension
+                || source.media.displayWidth < 0 || source.media.displayWidth > MaxSerializedImageWidth
+                || (alignment != QLatin1String("left") && alignment != QLatin1String("center")
+                    && alignment != QLatin1String("right"))) {
                 if (error)
-                    *error = QStringLiteral("image fragment has no source URI");
+                    *error = QStringLiteral("media fragment is invalid");
                 return false;
             }
-            destination.type           = Image;
-            destination.url            = source.image.sourceUri;
-            destination.alt            = source.image.alt;
-            destination.imageWidth     = qBound(0, source.image.width, MaxSerializedImageWidth);
-            destination.imageAlignment = normalizedImageAlignment(source.image.alignment);
+            destination.type              = Media;
+            destination.url               = source.media.sourceUri;
+            destination.alt               = source.media.title;
+            destination.mediaType         = source.media.mediaType.trimmed().toLower();
+            destination.mediaDurationMs   = source.media.durationMs;
+            destination.mediaWidth        = source.media.pixelWidth;
+            destination.mediaHeight       = source.media.pixelHeight;
+            destination.mediaDisplayWidth = source.media.displayWidth;
+            destination.mediaAlignment    = alignment;
+            destination.mediaTranscript   = source.media.transcript;
             break;
-        case NoteFragmentBlockType::Audio:
-            if (source.audio.sourceUri.isEmpty() || source.audio.durationMs < 0
-                || source.audio.durationMs > MaxAudioDurationMs) {
-                if (error)
-                    *error = QStringLiteral("audio fragment is invalid");
-                return false;
-            }
-            destination.type            = Audio;
-            destination.url             = source.audio.sourceUri;
-            destination.alt             = source.audio.title;
-            destination.audioDurationMs = source.audio.durationMs;
-            destination.audioTranscript = source.audio.transcript;
-            break;
+        }
         case NoteFragmentBlockType::Attachment:
             if (source.attachment.sourceUri.isEmpty() || source.attachment.fileName.isEmpty()
                 || source.attachment.size < 0) {

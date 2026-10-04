@@ -5,6 +5,7 @@
 #include "irisomemostorage.h"
 #include "iristruststorage.h"
 #include "localmediastore.h"
+#include "mediastream.h"
 #include "secureenvelope.h"
 #include "xmppnotecodec.h"
 #include "xmpppayloadxml.h"
@@ -35,6 +36,7 @@
 #include <QtCrypto>
 
 #include <QBuffer>
+#include <QByteArrayView>
 #include <QDomDocument>
 #include <QLoggingCategory>
 #include <QNetworkAccessManager>
@@ -272,17 +274,28 @@ namespace {
         return {};
     }
 
+    bool verifyPlainMedia(MediaStream &stream, const MediaReference &reference)
+    {
+        if (!stream.isOpen() && !stream.open(QIODevice::ReadOnly))
+            return false;
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        QByteArray buffer(64 * 1024, Qt::Uninitialized);
+        qint64 total = 0;
+        while (!stream.atEnd()) {
+            const qint64 count = stream.read(buffer.data(), buffer.size());
+            if (count <= 0)
+                return false;
+            hash.addData(QByteArrayView(buffer.constData(), qsizetype(count)));
+            total += count;
+        }
+        return total == reference.size && hash.result() == reference.checksum && stream.seek(0);
+    }
+
     XMPP::Hash reproducibleCipherHash(const MediaReference &reference, XMPP::StatelessFileSharing::Cipher cipher,
                                       const QByteArray &key, const QByteArray &iv)
     {
-        const auto local = LocalMediaStore::instance()->data(reference.blobId);
-        if (!local || local.value.size() != reference.size
-            || QCryptographicHash::hash(local.value, QCryptographicHash::Sha256) != reference.checksum) {
-            return {};
-        }
-        QBuffer plain;
-        plain.setData(local.value);
-        if (!plain.open(QIODevice::ReadOnly))
+        MediaStream plain(reference);
+        if (!verifyPlainMedia(plain, reference))
             return {};
         XMPP::StatelessFileSharing::EncryptingDevice encrypted(&plain, cipher, key, iv);
         if (!encrypted.open(QIODevice::ReadOnly))
@@ -1303,13 +1316,7 @@ XMPP::Jingle::Session *IrisXmppBackend::createPublishedMediaSession(const IrisJi
             Q_UNUSED(size)
             if (offset != 0)
                 return;
-            const auto local = LocalMediaStore::instance()->data(capability.reference.blobId);
-            if (!local || local.value.size() != capability.reference.size
-                || QCryptographicHash::hash(local.value, QCryptographicHash::Sha256) != capability.reference.checksum) {
-                return;
-            }
-            auto *plain = new QBuffer(app);
-            plain->setData(local.value);
+            auto *plain = new MediaStream(capability.reference, app);
             if (!plain->open(QIODevice::ReadOnly)) {
                 plain->deleteLater();
                 return;
@@ -1367,21 +1374,6 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                             mediaFailure(QStringLiteral("Invalid local media attachment metadata")));
             return;
         }
-        const auto local = LocalMediaStore::instance()->data(reference.blobId);
-        if (!local) {
-            state->callback(std::move(state->note),
-                            mediaFailure(QStringLiteral("Could not read local media: %1").arg(local.error),
-                                         XmppErrorKind::Security));
-            return;
-        }
-        if (local.value.size() != reference.size
-            || QCryptographicHash::hash(local.value, QCryptographicHash::Sha256) != reference.checksum) {
-            state->callback(
-                std::move(state->note),
-                mediaFailure(QStringLiteral("Local media integrity check failed"), XmppErrorKind::Security));
-            return;
-        }
-
         auto publishCapability = [backend, reference, noteId = state->note.id,
                                   contentRevision = state->note.contentRevision, generation = state->generation](
                                      XMPP::StatelessFileSharing::Cipher cipher, const QByteArray &key,
@@ -1496,9 +1488,25 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
             state->callback(std::move(state->note), mediaFailure(QStringLiteral("Media file is too large")));
             return;
         }
-        auto *plain = new QBuffer(backend);
-        plain->setData(local.value);
-        plain->open(QIODevice::ReadOnly);
+        auto *plain = new MediaStream(reference, backend);
+        if (!plain->open(QIODevice::ReadOnly)) {
+            const QString sourceError = plain->errorString();
+            plain->deleteLater();
+            state->callback(std::move(state->note),
+                            mediaFailure(QStringLiteral("Could not open local media stream: %1").arg(sourceError),
+                                         XmppErrorKind::Security));
+            return;
+        }
+        if (!verifyPlainMedia(*plain, reference)) {
+            const QString sourceError = plain->errorString();
+            plain->deleteLater();
+            state->callback(
+                std::move(state->note),
+                mediaFailure(sourceError.isEmpty() ? QStringLiteral("Local media integrity check failed")
+                                                   : QStringLiteral("Local media integrity check failed: %1").arg(sourceError),
+                             XmppErrorKind::Security));
+            return;
+        }
         auto *encrypted = new XMPP::StatelessFileSharing::EncryptingDevice(plain, cipher, backend);
         if (!encrypted->open(QIODevice::ReadOnly)) {
             plain->deleteLater();

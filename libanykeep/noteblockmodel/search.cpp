@@ -49,8 +49,7 @@ QVariantMap NoteBlockModel::findText(const QString &text, const QVariantMap &aft
             for (int cell = 0; cell < block.cells.size(); ++cell)
                 fields.append({ blockIndex, -1, cell, QStringLiteral("tableCell"), block.cells.at(cell) });
             break;
-        case Image:
-        case Audio:
+        case Media:
         case Attachment:
             // Structural media labels are not QTextDocument editors, so a
             // text-search result cannot expose a visible selection there yet.

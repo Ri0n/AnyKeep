@@ -258,10 +258,9 @@ namespace {
                 }
                 break;
             }
-            case NoteBlockModel::Image:
+            case NoteBlockModel::Media:
             case NoteBlockModel::CodeBlock:
             case NoteBlockModel::TagLine:
-            case NoteBlockModel::Audio:
             case NoteBlockModel::Attachment:
                 break;
             }

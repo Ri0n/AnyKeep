@@ -1,7 +1,7 @@
 #include "noteeditor.h"
 #include "notetitleresolver.h"
 
-#include "audioplaybackcontroller.h"
+#include "mediaplaybackcontroller.h"
 #include "draftmanager.h"
 #include "noteblockmodel.h"
 #include "notedata.h"
@@ -89,7 +89,7 @@ NoteEditor::NoteEditor(const Note &note, const QUuid &draftId, QObject *parent) 
 
 NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draftId, QObject *parent) :
     QObject(parent), note_(note), drafts_(&drafts), model_(new NoteBlockModel(this)),
-    audioPlayback_(new AudioPlaybackController(this, this)), history_(std::make_unique<NoteDocumentHistory>())
+    mediaPlayback_(new MediaPlaybackController(this, this)), history_(std::make_unique<NoteDocumentHistory>())
 {
     draftId_ = drafts_->acquireEditingSession(note_, draftId);
     connect(drafts_, &DraftManager::discardEditorsForNoteRequested, this,
@@ -639,7 +639,7 @@ void NoteEditor::markFolderPersisted(const QUuid &folderId)
 
 QObject *NoteEditor::blockModel() const { return model_; }
 
-QObject *NoteEditor::audioPlayback() const { return audioPlayback_; }
+QObject *NoteEditor::mediaPlayback() const { return mediaPlayback_; }
 
 void NoteEditor::resetContent(const QString &text, Note::Format format)
 {
@@ -668,22 +668,21 @@ QString NoteEditor::redoText() const { return history_->redoText(); }
 
 bool NoteEditor::supportsMedia() const { return note_.storage() && note_.storage()->supportsMedia(); }
 
-bool NoteEditor::canInsertImages() const { return supportsMedia(); }
-
-bool NoteEditor::canInsertAudio() const { return supportsMedia(); }
+bool NoteEditor::canInsertMedia() const { return supportsMedia(); }
 
 bool NoteEditor::canInsertAttachments() const { return supportsMedia(); }
 
-bool NoteEditor::insertAudio(const MediaReference &reference, qint64 durationMs, int row)
+bool NoteEditor::insertMedia(const MediaReference &reference, qint64 durationMs, int width, int height, int row,
+                             const QString &title)
 {
-    return insertAudio(reference, durationMs, row, reference.originalName);
-}
-
-bool NoteEditor::insertAudio(const MediaReference &reference, qint64 durationMs, int row, const QString &title)
-{
-    if (!reference.isValid() || !reference.mediaType.startsWith(QLatin1String("audio/")) || !supportsMedia())
+    if (!reference.isValid() || !supportsMedia())
         return false;
-    beginHistoryTransaction(QStringLiteral("insert-audio"));
+    const bool inlineMedia = reference.mediaType.startsWith(QLatin1String("image/"))
+        || reference.mediaType.startsWith(QLatin1String("audio/"))
+        || reference.mediaType.startsWith(QLatin1String("video/"));
+    if (!inlineMedia)
+        return false;
+    beginHistoryTransaction(QStringLiteral("insert-media"));
     if (!isMarkdown())
         setMarkdown(true);
     row                  = row < 0 ? model_->rowCount() : qBound(0, row, model_->rowCount());
@@ -693,7 +692,8 @@ bool NoteEditor::insertAudio(const MediaReference &reference, qint64 durationMs,
     if (duplicate == manifest.cend())
         manifest.append(reference);
     setMedia(manifest);
-    model_->insertAudio(row, reference.uri(), title.trimmed(), qMax<qint64>(0, durationMs));
+    model_->insertMedia(row, reference.uri(), title.isEmpty() ? reference.originalName : title.trimmed(),
+                        reference.mediaType, durationMs, width, height);
     endHistoryTransaction();
     emit mediaInserted({ reference });
     return true;
@@ -719,9 +719,9 @@ bool NoteEditor::insertAttachment(const MediaReference &reference, int row)
     return true;
 }
 
-bool NoteEditor::setAudioTranscript(int row, const QString &transcript)
+bool NoteEditor::setMediaTranscript(int row, const QString &transcript)
 {
-    return model_->setAudioTranscript(row, transcript);
+    return model_->setMediaTranscript(row, transcript);
 }
 
 bool NoteEditor::historyInTransaction() const { return history_->inTransaction(); }
@@ -919,22 +919,22 @@ void NoteEditor::restoreScalarField(int blockIndex, int role, int fieldIndex, co
         model_->setTableCell(blockIndex, fieldIndex, value);
         break;
     case NoteBlockModel::UrlRole:
-        model_->setImageUrl(blockIndex, value);
+        model_->setMediaUrl(blockIndex, value);
         break;
     case NoteBlockModel::AltRole:
-        model_->setImageAlt(blockIndex, value);
+        model_->setMediaTitle(blockIndex, value);
         break;
-    case NoteBlockModel::ImageWidthRole:
-        model_->setImageWidth(blockIndex, value.toInt());
+    case NoteBlockModel::MediaDisplayWidthRole:
+        model_->setMediaDisplayWidth(blockIndex, value.toInt());
         break;
-    case NoteBlockModel::ImageAlignmentRole:
-        model_->setImageAlignment(blockIndex, value);
+    case NoteBlockModel::MediaAlignmentRole:
+        model_->setMediaAlignment(blockIndex, value);
         break;
     case NoteBlockModel::LanguageRole:
         model_->setCodeLanguage(blockIndex, value);
         break;
-    case NoteBlockModel::AudioTranscriptRole:
-        model_->setAudioTranscript(blockIndex, value);
+    case NoteBlockModel::MediaTranscriptRole:
+        model_->setMediaTranscript(blockIndex, value);
         break;
     }
 }

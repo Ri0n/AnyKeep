@@ -29,7 +29,7 @@ FocusScope {
     activeFocusOnTab: true
     onActiveFocusChanged: {
         if (activeFocus) {
-            editorView.clearImageSelection()
+            editorView.clearMediaSelection()
             editorView.activeEditor = null
             editorView.activeTagLineIndex = blockIndex
         } else if (editorView.activeTagLineIndex === blockIndex) {

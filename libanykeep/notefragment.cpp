@@ -17,7 +17,7 @@ namespace {
     constexpr int    MaxMedia           = 1000;
     constexpr int    MaxTags            = 1000;
     constexpr int    MaxIndent          = 128;
-    constexpr qint64 MaxAudioDurationMs = 7LL * 24 * 60 * 60 * 1000;
+    constexpr qint64 MaxMediaDurationMs = 7LL * 24 * 60 * 60 * 1000;
 
     QCborMap encodeMediaReference(const MediaReference &reference)
     {
@@ -120,20 +120,18 @@ namespace {
         table.insert(QStringLiteral("cells"), cells);
         map.insert(QStringLiteral("table"), table);
 
-        QCborMap image;
-        image.insert(QStringLiteral("sourceUri"), block.image.sourceUri);
-        image.insert(QStringLiteral("alt"), block.image.alt);
-        image.insert(QStringLiteral("width"), block.image.width);
-        image.insert(QStringLiteral("alignment"), block.image.alignment);
-        map.insert(QStringLiteral("image"), image);
-
-        if (block.type == NoteFragmentBlockType::Audio) {
-            QCborMap audio;
-            audio.insert(QStringLiteral("sourceUri"), block.audio.sourceUri);
-            audio.insert(QStringLiteral("title"), block.audio.title);
-            audio.insert(QStringLiteral("durationMs"), block.audio.durationMs);
-            audio.insert(QStringLiteral("transcript"), block.audio.transcript);
-            map.insert(QStringLiteral("audio"), audio);
+        if (block.type == NoteFragmentBlockType::Media) {
+            QCborMap mediaBlock;
+            mediaBlock.insert(QStringLiteral("sourceUri"), block.media.sourceUri);
+            mediaBlock.insert(QStringLiteral("title"), block.media.title);
+            mediaBlock.insert(QStringLiteral("mediaType"), block.media.mediaType);
+            mediaBlock.insert(QStringLiteral("durationMs"), block.media.durationMs);
+            mediaBlock.insert(QStringLiteral("pixelWidth"), block.media.pixelWidth);
+            mediaBlock.insert(QStringLiteral("pixelHeight"), block.media.pixelHeight);
+            mediaBlock.insert(QStringLiteral("displayWidth"), block.media.displayWidth);
+            mediaBlock.insert(QStringLiteral("alignment"), block.media.alignment);
+            mediaBlock.insert(QStringLiteral("transcript"), block.media.transcript);
+            map.insert(QStringLiteral("mediaBlock"), mediaBlock);
         }
         if (block.type == NoteFragmentBlockType::Attachment) {
             QCborMap attachment;
@@ -154,11 +152,11 @@ namespace {
         }
         const QCborMap map         = value.toMap();
         const qint64   type        = map.value(QStringLiteral("type")).toInteger(-1);
-        const qint64   maximumType = version >= 6 ? static_cast<qint64>(NoteFragmentBlockType::Attachment)
-            : version >= 5                        ? static_cast<qint64>(NoteFragmentBlockType::Audio)
-            : version >= 4                        ? static_cast<qint64>(NoteFragmentBlockType::TagLine)
-            : version >= 2                        ? static_cast<qint64>(NoteFragmentBlockType::CodeBlock)
-                                                  : static_cast<qint64>(NoteFragmentBlockType::BlockQuote);
+        if (version != NoteFragment::CurrentVersion) {
+            *error = QStringLiteral("fragment version is not supported");
+            return false;
+        }
+        const qint64 maximumType = static_cast<qint64>(NoteFragmentBlockType::Attachment);
         if (type < static_cast<qint64>(NoteFragmentBlockType::Text) || type > maximumType) {
             *error = QStringLiteral("block has invalid type");
             return false;
@@ -167,7 +165,7 @@ namespace {
         block->markdown     = map.value(QStringLiteral("markdown")).toString();
         block->headingLevel = static_cast<int>(map.value(QStringLiteral("headingLevel")).toInteger(0));
         block->language     = map.value(QStringLiteral("language")).toString().trimmed().toLower();
-        if (version >= 4) {
+        {
             const QCborValue tagsValue = map.value(QStringLiteral("tags"));
             if (!tagsValue.isArray()) {
                 *error = QStringLiteral("block tags are not an array");
@@ -252,52 +250,37 @@ namespace {
             return false;
         }
 
-        const QCborValue imageValue = map.value(QStringLiteral("image"));
-        if (!imageValue.isMap()) {
-            *error = QStringLiteral("block image is not a map");
-            return false;
-        }
-        const QCborMap image   = imageValue.toMap();
-        block->image.sourceUri = image.value(QStringLiteral("sourceUri")).toString();
-        block->image.alt       = image.value(QStringLiteral("alt")).toString();
-        block->image.width     = 0;
-        block->image.alignment = QStringLiteral("center");
-        if (version >= 3 && block->type == NoteFragmentBlockType::Image) {
-            const qint64  width     = image.value(QStringLiteral("width")).toInteger(-1);
-            const QString alignment = image.value(QStringLiteral("alignment")).toString().trimmed().toLower();
-            if (width < 0 || width > 16384
-                || (alignment != QLatin1String("left") && alignment != QLatin1String("center")
-                    && alignment != QLatin1String("right"))) {
-                *error = QStringLiteral("image block has invalid presentation");
+        if (block->type == NoteFragmentBlockType::Media) {
+            const QCborValue mediaValue = map.value(QStringLiteral("mediaBlock"));
+            if (!mediaValue.isMap()) {
+                *error = QStringLiteral("block media is not a map");
                 return false;
             }
-            block->image.width     = static_cast<int>(width);
-            block->image.alignment = alignment;
-        }
-        if (block->type == NoteFragmentBlockType::Image && block->image.sourceUri.isEmpty()) {
-            *error = QStringLiteral("image block has no source URI");
-            return false;
-        }
-
-        if (version >= 5 && block->type == NoteFragmentBlockType::Audio) {
-            const QCborValue audioValue = map.value(QStringLiteral("audio"));
-            if (!audioValue.isMap()) {
-                *error = QStringLiteral("block audio is not a map");
-                return false;
-            }
-            const QCborMap audio    = audioValue.toMap();
-            block->audio.sourceUri  = audio.value(QStringLiteral("sourceUri")).toString();
-            block->audio.title      = audio.value(QStringLiteral("title")).toString();
-            block->audio.durationMs = audio.value(QStringLiteral("durationMs")).toInteger(-1);
-            if (version >= 6)
-                block->audio.transcript = audio.value(QStringLiteral("transcript")).toString();
-            if (block->audio.sourceUri.isEmpty() || block->audio.durationMs < 0
-                || block->audio.durationMs > MaxAudioDurationMs) {
-                *error = QStringLiteral("audio block is invalid");
+            const QCborMap media = mediaValue.toMap();
+            block->media.sourceUri = media.value(QStringLiteral("sourceUri")).toString();
+            block->media.title = media.value(QStringLiteral("title")).toString();
+            block->media.mediaType = media.value(QStringLiteral("mediaType")).toString();
+            block->media.durationMs = media.value(QStringLiteral("durationMs")).toInteger(-1);
+            block->media.pixelWidth = static_cast<int>(media.value(QStringLiteral("pixelWidth")).toInteger(-1));
+            block->media.pixelHeight = static_cast<int>(media.value(QStringLiteral("pixelHeight")).toInteger(-1));
+            block->media.displayWidth = static_cast<int>(media.value(QStringLiteral("displayWidth")).toInteger(-1));
+            block->media.alignment = media.value(QStringLiteral("alignment")).toString().trimmed().toLower();
+            block->media.transcript = media.value(QStringLiteral("transcript")).toString();
+            const bool supportedMediaType = block->media.mediaType.startsWith(QLatin1String("image/"))
+                || block->media.mediaType.startsWith(QLatin1String("audio/"))
+                || block->media.mediaType.startsWith(QLatin1String("video/"));
+            if (block->media.sourceUri.isEmpty() || !supportedMediaType || block->media.durationMs < 0
+                || block->media.durationMs > MaxMediaDurationMs || block->media.pixelWidth < 0
+                || block->media.pixelWidth > 16384 || block->media.pixelHeight < 0 || block->media.pixelHeight > 16384
+                || block->media.displayWidth < 0 || block->media.displayWidth > 16384
+                || (block->media.alignment != QLatin1String("left")
+                    && block->media.alignment != QLatin1String("center")
+                    && block->media.alignment != QLatin1String("right"))) {
+                *error = QStringLiteral("media block is invalid");
                 return false;
             }
         }
-        if (version >= 6 && block->type == NoteFragmentBlockType::Attachment) {
+        if (block->type == NoteFragmentBlockType::Attachment) {
             const QCborValue attachmentValue = map.value(QStringLiteral("attachment"));
             if (!attachmentValue.isMap()) {
                 *error = QStringLiteral("block attachment is not a map");
@@ -363,7 +346,7 @@ NoteFragmentDecodeResult decodeNoteFragment(const QByteArray &data)
         return failed(QStringLiteral("unknown fragment schema"));
 
     const qint64 version = root.value(QStringLiteral("version")).toInteger(-1);
-    if (version < 1 || version > NoteFragment::CurrentVersion)
+    if (version != NoteFragment::CurrentVersion)
         return failed(QStringLiteral("unsupported fragment version"));
 
     const qint64 kind         = root.value(QStringLiteral("kind")).toInteger(-1);

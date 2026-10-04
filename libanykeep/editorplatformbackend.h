@@ -32,12 +32,14 @@ struct NoteFragment;
 class ANYKEEP_EXPORT EditorPlatformBackend : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool spellCheckEnabled READ spellCheckEnabled WRITE setSpellCheckEnabled NOTIFY spellCheckEnabledChanged)
-    Q_PROPERTY(bool canInsertImages READ canInsertImages NOTIFY canInsertImagesChanged)
+    Q_PROPERTY(bool canInsertMedia READ canInsertMedia NOTIFY canInsertMediaChanged)
     Q_PROPERTY(bool canInsertAttachments READ canInsertAttachments NOTIFY canInsertAttachmentsChanged)
     Q_PROPERTY(QVariantList codeLanguages READ codeLanguages CONSTANT)
     Q_PROPERTY(QFont editorFont READ editorFont WRITE setEditorFont NOTIFY editorFontChanged)
 
 public:
+    enum class MediaFileImportMode { CopyIntoStore, KeepInPlace };
+
     explicit EditorPlatformBackend(QObject *parent = nullptr);
     EditorPlatformBackend(NoteEditor *editor, QObject *parent = nullptr);
     ~EditorPlatformBackend() override;
@@ -46,7 +48,7 @@ public:
     void        setEditor(NoteEditor *editor);
 
     bool  spellCheckEnabled() const { return spellCheckEnabled_; }
-    bool  canInsertImages() const;
+    bool  canInsertMedia() const;
     bool  canInsertAttachments() const;
     QFont editorFont() const { return editorFont_; }
 
@@ -62,9 +64,9 @@ public:
     Q_INVOKABLE QStringList  customSpellingDictionary() const;
     Q_INVOKABLE void         setCustomSpellingDictionary(const QStringList &words);
     Q_INVOKABLE bool         insertClipboardImage(int row = -1);
-    Q_INVOKABLE bool         insertImageData(const QByteArray &data, const QString &name, const QString &mediaType,
+    Q_INVOKABLE bool         insertMediaData(const QByteArray &data, const QString &name, const QString &mediaType,
                                              int row = -1);
-    Q_INVOKABLE virtual bool insertImage(int row = -1);
+    Q_INVOKABLE virtual bool insertMedia(int row = -1);
     Q_INVOKABLE bool         insertAttachmentData(const QByteArray &data, const QString &name, const QString &mediaType,
                                                   int row = -1);
     Q_INVOKABLE virtual bool insertAttachment(int row = -1);
@@ -72,7 +74,8 @@ public:
     Q_INVOKABLE virtual bool startImageDrag(int row);
 
     bool insertRasterImage(const QImage &image, const QString &name, int row = -1);
-    bool insertImageFiles(const QStringList &fileNames, int row = -1, QString *error = nullptr);
+    bool insertMediaFiles(const QStringList &fileNames, int row = -1, QString *error = nullptr,
+                          MediaFileImportMode mode = MediaFileImportMode::CopyIntoStore);
     bool canAcceptImageMimeData(const QMimeData *mimeData) const;
     bool insertImageMimeData(const QMimeData *mimeData, int row = -1);
     bool canInsertImageFragment(const NoteFragment &fragment) const;
@@ -88,12 +91,12 @@ public:
 signals:
     void spellCheckEnabledChanged();
     void customSpellingDictionaryChanged();
-    void canInsertImagesChanged();
+    void canInsertMediaChanged();
     void canInsertAttachmentsChanged();
     void editorFontChanged();
     void highlightingChanged();
     void mediaInserted(const QList<MediaReference> &references);
-    void imageInsertionRequested(int row);
+    void mediaInsertionRequested(int row);
     void attachmentInsertionRequested(int row);
     void operationFailed(const QString &message);
 
@@ -117,7 +120,7 @@ private:
         QString                      language;
     };
 
-    bool insertImportedImages(const QList<MediaReference> &references, int row, const QString &historyKind);
+    bool insertImportedMedia(const QList<MediaReference> &references, int row, const QString &historyKind);
     void clearRegisteredDocuments();
     void installBuiltInExtensions();
     bool isCustomSpellingWord(const QString &word) const;

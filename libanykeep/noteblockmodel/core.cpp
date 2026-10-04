@@ -54,16 +54,22 @@ QVariant NoteBlockModel::data(const QModelIndex &index, int role) const
         return block.headingLevel;
     case LanguageRole:
         return block.language;
-    case ImageWidthRole:
-        return block.imageWidth;
-    case ImageAlignmentRole:
-        return block.imageAlignment;
+    case MediaDisplayWidthRole:
+        return block.mediaDisplayWidth;
+    case MediaAlignmentRole:
+        return block.mediaAlignment;
     case TagsRole:
         return block.tags;
-    case AudioDurationRole:
-        return block.audioDurationMs;
-    case AudioTranscriptRole:
-        return block.audioTranscript;
+    case MediaTranscriptRole:
+        return block.mediaTranscript;
+    case MediaTypeRole:
+        return block.mediaType;
+    case MediaDurationRole:
+        return block.mediaDurationMs;
+    case MediaWidthRole:
+        return block.mediaWidth;
+    case MediaHeightRole:
+        return block.mediaHeight;
     case AttachmentMediaTypeRole:
         return block.attachmentMediaType;
     case AttachmentSizeRole:
@@ -126,36 +132,62 @@ bool NoteBlockModel::setData(const QModelIndex &index, const QVariant &value, in
         after          = block.language;
         scalar         = true;
         break;
-    case ImageWidthRole: {
-        if (block.type != Image)
+    case MediaDisplayWidthRole: {
+        if (block.type != Media)
             return false;
         const int width = qBound(0, value.toInt(), MaxSerializedImageWidth);
-        if (block.imageWidth == width)
+        if (block.mediaDisplayWidth == width)
             return false;
-        before           = QString::number(block.imageWidth);
-        block.imageWidth = width;
-        after            = QString::number(block.imageWidth);
+        before           = QString::number(block.mediaDisplayWidth);
+        block.mediaDisplayWidth = width;
+        after            = QString::number(block.mediaDisplayWidth);
         scalar           = true;
         break;
     }
-    case ImageAlignmentRole: {
-        if (block.type != Image)
+    case MediaAlignmentRole: {
+        if (block.type != Media)
             return false;
         const QString alignment = normalizedImageAlignment(value.toString());
-        if (block.imageAlignment == alignment)
+        if (block.mediaAlignment == alignment)
             return false;
-        before               = block.imageAlignment;
-        block.imageAlignment = alignment;
-        after                = block.imageAlignment;
+        before               = block.mediaAlignment;
+        block.mediaAlignment = alignment;
+        after                = block.mediaAlignment;
         scalar               = true;
         break;
     }
-    case AudioTranscriptRole:
-        if (block.type != Audio || block.audioTranscript == value.toString())
+    case MediaTypeRole:
+        if (block.type != Media || block.mediaType == value.toString())
             return false;
-        before                = block.audioTranscript;
-        block.audioTranscript = value.toString();
-        after                 = block.audioTranscript;
+        block.mediaType = value.toString().trimmed().toLower();
+        break;
+    case MediaDurationRole: {
+        const qint64 duration = qBound<qint64>(0, value.toLongLong(), MaxMediaDurationMs);
+        if (block.type != Media || block.mediaDurationMs == duration)
+            return false;
+        block.mediaDurationMs = duration;
+        break;
+    }
+    case MediaWidthRole: {
+        const int width = qBound(0, value.toInt(), MaxMediaPixelDimension);
+        if (block.type != Media || block.mediaWidth == width)
+            return false;
+        block.mediaWidth = width;
+        break;
+    }
+    case MediaHeightRole: {
+        const int height = qBound(0, value.toInt(), MaxMediaPixelDimension);
+        if (block.type != Media || block.mediaHeight == height)
+            return false;
+        block.mediaHeight = height;
+        break;
+    }
+    case MediaTranscriptRole:
+        if (block.type != Media || block.mediaTranscript == value.toString())
+            return false;
+        before                = block.mediaTranscript;
+        block.mediaTranscript = value.toString();
+        after                 = block.mediaTranscript;
         scalar                = true;
         break;
     default:
@@ -200,11 +232,14 @@ QHash<int, QByteArray> NoteBlockModel::roleNames() const
              { ItemTypesRole, "itemTypes" },
              { HeadingLevelRole, "headingLevel" },
              { LanguageRole, "codeLanguage" },
-             { ImageWidthRole, "imageWidth" },
-             { ImageAlignmentRole, "imageAlignment" },
+             { MediaDisplayWidthRole, "mediaDisplayWidth" },
+             { MediaAlignmentRole, "mediaAlignment" },
              { TagsRole, "tags" },
-             { AudioDurationRole, "audioDuration" },
-             { AudioTranscriptRole, "audioTranscript" },
+             { MediaTranscriptRole, "mediaTranscript" },
+             { MediaTypeRole, "mediaType" },
+             { MediaDurationRole, "mediaDuration" },
+             { MediaWidthRole, "mediaWidth" },
+             { MediaHeightRole, "mediaHeight" },
              { AttachmentMediaTypeRole, "attachmentMediaType" },
              { AttachmentSizeRole, "attachmentSize" } };
 }

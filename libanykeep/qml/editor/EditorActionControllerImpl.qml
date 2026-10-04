@@ -69,8 +69,8 @@ QtObject {
         return true
     }
 
-    function insertImage() {
-        return prepareMediaInsertion(function(row) { root.platformBackend.insertImage(row) })
+    function insertMedia() {
+        return prepareMediaInsertion(function(row) { root.platformBackend.insertMedia(row) })
     }
 
     function insertPhoto() {
