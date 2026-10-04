@@ -6,9 +6,11 @@
 #include "utils.h"
 
 #include <QCryptographicHash>
+#include <QDir>
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QMessageAuthenticationCode>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -24,6 +26,8 @@ private slots:
     void encryptedRoundTripAndDeduplication();
     void concurrentReadsUseTheCachedKey();
     void mediaStreamReadsAndSeeks();
+    void managedChunkedMediaStreamsVerifiedRanges();
+    void legacyManagedEnvelopeRemainsReadable();
     void externalFileReferenceStreamsVerifiedRanges();
     void externalFileReferenceRejectsChangedChunks();
     void portableNames();
@@ -46,6 +50,7 @@ void LocalMediaStoreTest::encryptedRoundTripAndDeduplication()
     QCOMPARE(first.value.blobId, second.value.blobId);
     QVERIFY(first.value.id != second.value.id);
     QCOMPARE(first.value.portableName, QStringLiteral("Схема_ 1.png"));
+    QVERIFY(store.isChunkedManagedBlob(first.value.blobId));
 
     QDirIterator files(directory.path(), QDir::Files, QDirIterator::Subdirectories);
     int          blobCount = 0;
@@ -114,6 +119,108 @@ void LocalMediaStoreTest::mediaStreamReadsAndSeeks()
 
     stream.close();
     QVERIFY(!stream.isOpen());
+}
+
+void LocalMediaStoreTest::managedChunkedMediaStreamsVerifiedRanges()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QByteArray masterKey = SecureEnvelope::generateMasterKey();
+    LocalMediaStore store(QDir(directory.path()).filePath(QStringLiteral("store")), masterKey);
+
+    QByteArray plain(int(LocalMediaStore::ManagedChunkSize * 2 + 137), Qt::Uninitialized);
+    for (int i = 0; i < plain.size(); ++i)
+        plain[i] = char('A' + (i % 19));
+
+    const QString sourcePath = QDir(directory.path()).filePath(QStringLiteral("large-video.bin"));
+    QFile source(sourcePath);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write(plain), qint64(plain.size()));
+    source.close();
+
+    const auto imported = store.importFile(sourcePath);
+    QVERIFY2(imported, qPrintable(imported.error));
+    QVERIFY(store.isChunkedManagedBlob(imported.value.blobId));
+    QCOMPARE(imported.value.size, qint64(plain.size()));
+
+    const qint64 boundary = LocalMediaStore::ManagedChunkSize;
+    const auto range = store.readManagedRange(imported.value.blobId, boundary - 31, 96);
+    QVERIFY2(range, qPrintable(range.error));
+    QCOMPARE(range.totalSize, qint64(plain.size()));
+    QCOMPARE(range.value, plain.mid(int(boundary - 31), 96));
+
+    MediaStream stream(createLocalMediaSource(imported.value, &store));
+    QVERIFY2(stream.open(QIODevice::ReadOnly), qPrintable(stream.errorString()));
+    QVERIFY(stream.seek(boundary * 2 - 11));
+    QCOMPARE(stream.read(64), plain.mid(int(boundary * 2 - 11), 64));
+    stream.close();
+
+    QDirIterator files(QDir(directory.path()).filePath(QStringLiteral("store")), QStringList() << QStringLiteral("*.blob"),
+                       QDir::Files, QDirIterator::Subdirectories);
+    QVERIFY(files.hasNext());
+    const QString blobPath = files.next();
+    QVERIFY(!files.hasNext());
+
+    QFile encrypted(blobPath);
+    QVERIFY(encrypted.open(QIODevice::ReadWrite));
+    QVERIFY(encrypted.size() > 32);
+    QVERIFY(encrypted.seek(encrypted.size() - 1));
+    char tail = 0;
+    QCOMPARE(encrypted.read(&tail, 1), qint64(1));
+    tail = char(uchar(tail) ^ 0x01);
+    QVERIFY(encrypted.seek(encrypted.size() - 1));
+    QCOMPARE(encrypted.write(&tail, 1), qint64(1));
+    encrypted.close();
+
+    MediaStream corrupted(createLocalMediaSource(imported.value, &store));
+    QVERIFY2(corrupted.open(QIODevice::ReadOnly), qPrintable(corrupted.errorString()));
+    QCOMPARE(corrupted.read(32), plain.left(32));
+    QVERIFY(corrupted.seek(boundary * 2));
+    QVERIFY(corrupted.read(16).isEmpty());
+    QVERIFY(!corrupted.errorString().isEmpty());
+}
+
+void LocalMediaStoreTest::legacyManagedEnvelopeRemainsReadable()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QByteArray masterKey = SecureEnvelope::generateMasterKey();
+    LocalMediaStore store(directory.path(), masterKey);
+    const QByteArray plain("legacy whole-envelope media");
+    const QByteArray idKey = SecureEnvelope::deriveKey(masterKey, KeyDomain::LocalMedia);
+    const QByteArray blobId = QMessageAuthenticationCode::hash(plain, idKey, QCryptographicHash::Sha256);
+    const QByteArray hex = blobId.toHex();
+    const QString blobPath = directory.path() + QLatin1Char('/') + QString::fromLatin1(hex.left(2)) + QLatin1Char('/')
+        + QString::fromLatin1(hex.mid(2, 2)) + QLatin1Char('/') + QString::fromLatin1(hex) + QStringLiteral(".blob");
+    QVERIFY(QDir().mkpath(QFileInfo(blobPath).absolutePath()));
+
+    const AeadContext context { KeyDomain::LocalMedia, QStringLiteral("anykeep-local-media"),
+                                QString::fromLatin1(blobId.toHex()), 1, QStringLiteral("attachment") };
+    const auto sealed = SecureEnvelope::seal(plain, masterKey, context);
+    QVERIFY2(sealed, qPrintable(sealed.error.message));
+    QFile file(blobPath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(sealed.value), qint64(sealed.value.size()));
+    file.close();
+
+    QVERIFY(store.containsManagedBlob(blobId));
+    QVERIFY(!store.isChunkedManagedBlob(blobId));
+    const auto opened = store.data(blobId);
+    QVERIFY2(opened, qPrintable(opened.error));
+    QCOMPARE(opened.value, plain);
+
+    MediaReference reference;
+    reference.id           = QUuid::createUuid();
+    reference.blobId       = blobId;
+    reference.originalName = QStringLiteral("legacy.bin");
+    reference.portableName = QStringLiteral("legacy.bin");
+    reference.mediaType    = QStringLiteral("application/octet-stream");
+    reference.size         = plain.size();
+    reference.checksum     = QCryptographicHash::hash(plain, QCryptographicHash::Sha256);
+    MediaStream stream(createLocalMediaSource(reference, &store));
+    QVERIFY2(stream.open(QIODevice::ReadOnly), qPrintable(stream.errorString()));
+    QVERIFY(stream.seek(7));
+    QCOMPARE(stream.read(5), plain.mid(7, 5));
 }
 
 void LocalMediaStoreTest::externalFileReferenceStreamsVerifiedRanges()
