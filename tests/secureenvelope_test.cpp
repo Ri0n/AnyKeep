@@ -34,7 +34,7 @@ void SecureEnvelopeTest::domainsProduceDifferentKeys()
     const auto index   = SecureEnvelope::deriveKey(master, KeyDomain::StorageIndex);
     const auto content = SecureEnvelope::deriveKey(master, KeyDomain::StorageContent);
     const auto media   = SecureEnvelope::deriveKey(master, KeyDomain::RemoteMediaChunk,
-                                                 KeyDerivationProfile::PrivateNotes);
+                                                   KeyDerivationProfile::PrivateNotes);
     QCOMPARE(draft.size(), SecureEnvelope::MasterKeySize);
     QCOMPARE(media.size(), SecureEnvelope::MasterKeySize);
     QVERIFY(draft != index);
@@ -146,17 +146,30 @@ void SecureEnvelopeTest::mediaChunkWireRoundTripAndMapping()
     QByteArray plain(2500, Qt::Uninitialized);
     for (int i = 0; i < plain.size(); ++i)
         plain[i] = char(i % 251);
-    const auto checksum = QCryptographicHash::hash(plain, QCryptographicHash::Sha256);
+    const auto checksum  = QCryptographicHash::hash(plain, QCryptographicHash::Sha256);
     const auto generated = MediaChunkWire::generate(plain.size(), checksum, 1024);
     QVERIFY(generated);
     const auto parameters = *generated;
     QCOMPARE(parameters.chunkCount(), quint64(3));
-    QCOMPARE(MediaChunkWire::wireSize(parameters), std::optional<quint64>(2740));
-    QCOMPARE(MediaChunkWire::wireChunkOffset(parameters, 0), std::optional<quint64>(0));
-    QCOMPARE(MediaChunkWire::wireChunkOffset(parameters, 1), std::optional<quint64>(1104));
-    QCOMPARE(MediaChunkWire::wireChunkOffset(parameters, 2), std::optional<quint64>(2208));
-    QCOMPARE(MediaChunkWire::wireChunkSize(parameters, 0), std::optional<quint64>(1104));
-    QCOMPARE(MediaChunkWire::wireChunkSize(parameters, 2), std::optional<quint64>(532));
+
+    const auto totalWireSize = MediaChunkWire::wireSize(parameters);
+    QVERIFY(totalWireSize);
+    QCOMPARE(*totalWireSize, quint64(2740));
+    const auto offset0 = MediaChunkWire::wireChunkOffset(parameters, 0);
+    const auto offset1 = MediaChunkWire::wireChunkOffset(parameters, 1);
+    const auto offset2 = MediaChunkWire::wireChunkOffset(parameters, 2);
+    QVERIFY(offset0);
+    QVERIFY(offset1);
+    QVERIFY(offset2);
+    QCOMPARE(*offset0, quint64(0));
+    QCOMPARE(*offset1, quint64(1104));
+    QCOMPARE(*offset2, quint64(2208));
+    const auto firstWireChunkSize = MediaChunkWire::wireChunkSize(parameters, 0);
+    const auto lastWireChunkSize  = MediaChunkWire::wireChunkSize(parameters, 2);
+    QVERIFY(firstWireChunkSize);
+    QVERIFY(lastWireChunkSize);
+    QCOMPARE(*firstWireChunkSize, quint64(1104));
+    QCOMPARE(*lastWireChunkSize, quint64(532));
 
     QByteArray wire;
     QByteArray restored;
@@ -175,12 +188,17 @@ void SecureEnvelopeTest::mediaChunkWireRoundTripAndMapping()
         restored.append(decrypted.value);
     }
     QCOMPARE(restored, plain);
-    QCOMPARE(quint64(wire.size()), *MediaChunkWire::wireSize(parameters));
-    QCOMPARE(MediaChunkWire::chunkIndexForWireOffset(parameters, 0), std::optional<quint64>(0));
-    QCOMPARE(MediaChunkWire::chunkIndexForWireOffset(parameters, 1103), std::optional<quint64>(0));
-    QCOMPARE(MediaChunkWire::chunkIndexForWireOffset(parameters, 1104), std::optional<quint64>(1));
-    QCOMPARE(MediaChunkWire::chunkIndexForWireOffset(parameters, quint64(wire.size() - 1)),
-             std::optional<quint64>(2));
+    QCOMPARE(quint64(wire.size()), *totalWireSize);
+
+    const auto index0End = MediaChunkWire::chunkIndexForWireOffset(parameters, 1103);
+    const auto index1    = MediaChunkWire::chunkIndexForWireOffset(parameters, 1104);
+    const auto indexLast = MediaChunkWire::chunkIndexForWireOffset(parameters, quint64(wire.size() - 1));
+    QVERIFY(index0End);
+    QVERIFY(index1);
+    QVERIFY(indexLast);
+    QCOMPARE(*index0End, quint64(0));
+    QCOMPARE(*index1, quint64(1));
+    QCOMPARE(*indexLast, quint64(2));
     QVERIFY(!MediaChunkWire::chunkIndexForWireOffset(parameters, quint64(wire.size())));
 }
 
@@ -191,7 +209,7 @@ void SecureEnvelopeTest::mediaChunkWireRejectsTamperingAndWrongIndex()
         = MediaChunkWire::generate(plain.size(), QCryptographicHash::hash(plain, QCryptographicHash::Sha256), 1024);
     QVERIFY(generated);
     const auto parameters = *generated;
-    const auto first = MediaChunkWire::encryptChunk(parameters, 0, plain.left(1024));
+    const auto first      = MediaChunkWire::encryptChunk(parameters, 0, plain.left(1024));
     QVERIFY2(first, qPrintable(first.error));
 
     auto tampered = first.value;
@@ -209,12 +227,14 @@ void SecureEnvelopeTest::mediaChunkWireRejectsTamperingAndWrongIndex()
 
 void SecureEnvelopeTest::mediaChunkWireRepresentsEmptyFile()
 {
-    const QByteArray checksum = QCryptographicHash::hash(QByteArray(), QCryptographicHash::Sha256);
-    const auto generated = MediaChunkWire::generate(0, checksum, 1024);
+    const QByteArray checksum  = QCryptographicHash::hash(QByteArray(), QCryptographicHash::Sha256);
+    const auto       generated = MediaChunkWire::generate(0, checksum, 1024);
     QVERIFY(generated);
     const auto parameters = *generated;
     QCOMPARE(parameters.chunkCount(), quint64(1));
-    QCOMPARE(MediaChunkWire::wireSize(parameters), std::optional<quint64>(MediaChunkWire::Overhead));
+    const auto totalWireSize = MediaChunkWire::wireSize(parameters);
+    QVERIFY(totalWireSize);
+    QCOMPARE(*totalWireSize, quint64(MediaChunkWire::Overhead));
     const auto encrypted = MediaChunkWire::encryptChunk(parameters, 0, {});
     QVERIFY2(encrypted, qPrintable(encrypted.error));
     QCOMPARE(encrypted.value.size(), qsizetype(MediaChunkWire::Overhead));
