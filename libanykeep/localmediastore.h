@@ -22,6 +22,13 @@ struct ANYKEEP_EXPORT LocalMediaDataResult {
     explicit   operator bool() const { return error.isEmpty(); }
 };
 
+struct ANYKEEP_EXPORT LocalMediaRangeResult {
+    QByteArray value;
+    qint64     totalSize { -1 };
+    QString    error;
+    explicit   operator bool() const { return error.isEmpty(); }
+};
+
 struct ANYKEEP_EXPORT LocalMediaExternalSource {
     QString           fileName;
     qint64            size { 0 };
@@ -47,6 +54,7 @@ public:
     // keychain access must never be deferred to requestImage().
     bool initialize(QString *error = nullptr) const;
 
+    static constexpr qint64 ManagedChunkSize  = 1024 * 1024;
     static constexpr qint64 ExternalChunkSize = 1024 * 1024;
 
     LocalMediaResult importFile(const QString &fileName, const QUuid &attachmentId = {});
@@ -57,9 +65,11 @@ public:
                                 const QUuid &attachmentId = {});
 
     LocalMediaDataResult           data(const QByteArray &blobId) const;
+    LocalMediaRangeResult          readManagedRange(const QByteArray &blobId, qint64 offset, qint64 maxSize) const;
     LocalMediaExternalSourceResult externalSource(const MediaReference &reference) const;
     bool                           contains(const QByteArray &blobId) const;
     bool                           containsManagedBlob(const QByteArray &blobId) const;
+    bool                           isChunkedManagedBlob(const QByteArray &blobId) const;
 
 private:
     QByteArray masterKey(QString *error) const;
