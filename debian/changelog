@@ -1,4 +1,4 @@
-anykeep (3.99.35) UNRELEASED; urgency=medium
+anykeep (3.99.93) UNRELEASED; urgency=medium
 
   * KDE plasmamoid
   * Gnome shell-extension
@@ -9,8 +9,9 @@ anykeep (3.99.35) UNRELEASED; urgency=medium
   * Added Iris XMPP backend
   * New release
   * New release
+  * New release
 
- -- Sergei Ilinykh <rion4ik@gmail.com>  Fri, 21 Aug 2026 15:10:57 +0300
+ -- Sergei Ilinykh <rion4ik@gmail.com>  Mon, 05 Oct 2026 02:22:50 +0300
 
 anykeep (3.2.99) UNRELEASED; urgency=medium
 
