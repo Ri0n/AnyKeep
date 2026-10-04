@@ -1,12 +1,53 @@
 #include "mediachunkwire.h"
+#include "mediachunkwirestream.h"
+#include "mediasource.h"
 #include "secureenvelope.h"
 
 #include <QCryptographicHash>
 #include <QtTest>
 
+#include <cstring>
+
 using namespace AnyKeep;
 
 Q_DECLARE_METATYPE(AnyKeep::AeadContext)
+
+namespace {
+class MemoryMediaSource final : public MediaSource {
+public:
+    explicit MemoryMediaSource(QByteArray bytes) : bytes_(std::move(bytes)) {}
+
+    bool open(QString *error) override
+    {
+        opened_ = true;
+        if (error)
+            error->clear();
+        return true;
+    }
+
+    void close() override { opened_ = false; }
+    qint64 size() const override { return bytes_.size(); }
+
+    qint64 read(qint64 offset, char *data, qint64 maxSize, QString *error) override
+    {
+        if (!opened_ || offset < 0 || maxSize < 0 || offset > bytes_.size() || (!data && maxSize > 0)) {
+            if (error)
+                *error = QStringLiteral("Invalid memory media read");
+            return -1;
+        }
+        const qint64 count = qMin(maxSize, qint64(bytes_.size()) - offset);
+        if (count > 0)
+            std::memcpy(data, bytes_.constData() + offset, size_t(count));
+        if (error)
+            error->clear();
+        return count;
+    }
+
+private:
+    QByteArray bytes_;
+    bool       opened_ { false };
+};
+} // namespace
 
 class SecureEnvelopeTest : public QObject {
     Q_OBJECT
@@ -19,6 +60,7 @@ private slots:
     void explicitNonceIsDeterministic();
     void privateNotesProfileRoundTrip();
     void mediaChunkWireRoundTripAndMapping();
+    void mediaChunkWireStreamIsSeekableAndStable();
     void mediaChunkWireRejectsTamperingAndWrongIndex();
     void mediaChunkWireRepresentsEmptyFile();
     void recoveryKeyRoundTrip();
@@ -200,6 +242,35 @@ void SecureEnvelopeTest::mediaChunkWireRoundTripAndMapping()
     QCOMPARE(*index1, quint64(1));
     QCOMPARE(*indexLast, quint64(2));
     QVERIFY(!MediaChunkWire::chunkIndexForWireOffset(parameters, quint64(wire.size())));
+}
+
+void SecureEnvelopeTest::mediaChunkWireStreamIsSeekableAndStable()
+{
+    QByteArray plain(2500, Qt::Uninitialized);
+    for (int i = 0; i < plain.size(); ++i)
+        plain[i] = char(17 + (i % 101));
+    const auto generated
+        = MediaChunkWire::generate(plain.size(), QCryptographicHash::hash(plain, QCryptographicHash::Sha256), 1024);
+    QVERIFY(generated);
+    const auto parameters = *generated;
+
+    MediaChunkWireStream sequential(std::make_unique<MemoryMediaSource>(plain), parameters);
+    QVERIFY2(sequential.open(QIODevice::ReadOnly), qPrintable(sequential.errorString()));
+    const QByteArray wire = sequential.readAll();
+    QCOMPARE(wire.size(), sequential.size());
+    QCOMPARE(sequential.completedWireSha256(), QCryptographicHash::hash(wire, QCryptographicHash::Sha256));
+
+    MediaChunkWireStream ranged(std::make_unique<MemoryMediaSource>(plain), parameters);
+    QVERIFY2(ranged.open(QIODevice::ReadOnly), qPrintable(ranged.errorString()));
+    const qint64 firstSpan = qint64(parameters.chunkSize + MediaChunkWire::Overhead);
+    QVERIFY(ranged.seek(firstSpan - 19));
+    const QByteArray slice = ranged.read(73);
+    QCOMPARE(slice, wire.mid(qsizetype(firstSpan - 19), 73));
+    QVERIFY(ranged.completedWireSha256().isEmpty());
+
+    QVERIFY(ranged.seek(0));
+    QCOMPARE(ranged.read(97), wire.left(97));
+    QVERIFY(ranged.completedWireSha256().isEmpty());
 }
 
 void SecureEnvelopeTest::mediaChunkWireRejectsTamperingAndWrongIndex()
