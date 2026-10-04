@@ -2,6 +2,8 @@
 
 Status: implementation in progress on `ai/chunked-media-encryption`.
 
+Implementation checkpoint: managed imports now write the `AKMC v1` container, `MediaSource` performs authenticated range reads with a one-chunk plaintext cache, and legacy whole-envelope blobs remain readable. The first CI pass exercises this local-storage boundary before remote wire-format work starts.
+
 This document refines the chunked-media stage from `media-storage-architecture.md` and separates two concerns that must not be conflated:
 
 1. **AnyKeep local managed storage** — an internal at-rest format fully controlled by AnyKeep. It can switch to independently authenticated chunks without protocol compatibility concerns.
