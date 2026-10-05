@@ -6,6 +6,7 @@
 #include "utils.h"
 
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -28,8 +29,11 @@ private slots:
     void mediaStreamReadsAndSeeks();
     void managedChunkedMediaStreamsVerifiedRanges();
     void legacyManagedEnvelopeRemainsReadable();
-    void externalFileReferenceStreamsVerifiedRanges();
+    void externalFileReferenceStreamsBeforeFingerprinting();
+    void externalFileFingerprintCachesContentIdentity();
+    void externalFileFingerprintInvalidatesOnSourceRevision();
     void externalFileReferenceRejectsChangedChunks();
+    void externalAviUsesExtensionMimeType();
     void portableNames();
     void markdownDisplayTitle();
     void markdownHtmlImageDisplayTitle();
@@ -223,7 +227,7 @@ void LocalMediaStoreTest::legacyManagedEnvelopeRemainsReadable()
     QCOMPARE(stream.read(5), plain.mid(7, 5));
 }
 
-void LocalMediaStoreTest::externalFileReferenceStreamsVerifiedRanges()
+void LocalMediaStoreTest::externalFileReferenceStreamsBeforeFingerprinting()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -243,15 +247,18 @@ void LocalMediaStoreTest::externalFileReferenceStreamsVerifiedRanges()
                           SecureEnvelope::generateMasterKey());
     const auto referenced = store.referenceFile(sourcePath);
     QVERIFY2(referenced, qPrintable(referenced.error));
-    QVERIFY(!store.containsManagedBlob(referenced.value.blobId));
-    QVERIFY(store.contains(referenced.value.blobId));
+    QVERIFY(referenced.value.isValid());
+    QVERIFY(!referenced.value.hasContentFingerprint());
+    QVERIFY(referenced.value.blobId.isEmpty());
+    QVERIFY(referenced.value.checksum.isEmpty());
     QCOMPARE(referenced.value.size, qint64(plain.size()));
-    QCOMPARE(referenced.value.checksum, QCryptographicHash::hash(plain, QCryptographicHash::Sha256));
+    QVERIFY(store.contains(referenced.value));
 
     const auto external = store.externalSource(referenced.value);
     QVERIFY2(external, qPrintable(external.error));
+    QVERIFY(!external.value.hasFingerprint());
     QCOMPARE(external.value.chunkSize, quint32(LocalMediaStore::ExternalChunkSize));
-    QCOMPARE(external.value.chunkHashes.size(), 2);
+    QVERIFY(external.value.chunkHashes.isEmpty());
 
     MediaStream stream(createLocalMediaSource(referenced.value, &store));
     QVERIFY2(stream.open(QIODevice::ReadOnly), qPrintable(stream.errorString()));
@@ -261,22 +268,90 @@ void LocalMediaStoreTest::externalFileReferenceStreamsVerifiedRanges()
     QVERIFY(stream.seek(12345));
     QCOMPARE(stream.read(777), plain.mid(12345, 777));
 
-    const auto materialized = store.data(referenced.value.blobId);
+    const auto materialized = store.data(referenced.value);
     QVERIFY2(materialized, qPrintable(materialized.error));
     QCOMPARE(materialized.value, plain);
+}
+
+void LocalMediaStoreTest::externalFileFingerprintCachesContentIdentity()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QByteArray plain(int(LocalMediaStore::ExternalChunkSize + 64), 'q');
+    const QString sourcePath = QDir(directory.path()).filePath(QStringLiteral("lazy-video.bin"));
+    QFile source(sourcePath);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write(plain), qint64(plain.size()));
+    source.close();
+
+    LocalMediaStore store(QDir(directory.path()).filePath(QStringLiteral("store")),
+                          SecureEnvelope::generateMasterKey());
+    const auto linked = store.referenceFile(sourcePath);
+    QVERIFY2(linked, qPrintable(linked.error));
+    QVERIFY(!linked.value.hasContentFingerprint());
+
+    const auto fingerprinted = store.fingerprintExternalFile(linked.value);
+    QVERIFY2(fingerprinted, qPrintable(fingerprinted.error));
+    QVERIFY(fingerprinted.value.hasContentFingerprint());
+    QCOMPARE(fingerprinted.value.id, linked.value.id);
+    QCOMPARE(fingerprinted.value.checksum, QCryptographicHash::hash(plain, QCryptographicHash::Sha256));
+
+    const auto cached = store.externalSource(fingerprinted.value);
+    QVERIFY2(cached, qPrintable(cached.error));
+    QVERIFY(cached.value.hasFingerprint());
+    QCOMPARE(cached.value.chunkHashes.size(), 2);
+    QCOMPARE(cached.value.blobId, fingerprinted.value.blobId);
+
+    // An unchanged source reuses the encrypted cached fingerprint.
+    const auto reused = store.fingerprintExternalFile(linked.value);
+    QVERIFY2(reused, qPrintable(reused.error));
+    QCOMPARE(reused.value.blobId, fingerprinted.value.blobId);
+    QCOMPARE(reused.value.checksum, fingerprinted.value.checksum);
 
     const auto managed = store.importData(plain, QStringLiteral("managed-video.bin"), QStringLiteral("video/mp4"));
     QVERIFY2(managed, qPrintable(managed.error));
-    QCOMPARE(managed.value.blobId, referenced.value.blobId);
-    QVERIFY(store.containsManagedBlob(referenced.value.blobId));
+    QCOMPARE(managed.value.blobId, fingerprinted.value.blobId);
+}
+
+void LocalMediaStoreTest::externalFileFingerprintInvalidatesOnSourceRevision()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QByteArray plain(4096, 'a');
+    const QString sourcePath = QDir(directory.path()).filePath(QStringLiteral("revision-video.bin"));
+    QFile source(sourcePath);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write(plain), qint64(plain.size()));
+    source.close();
+
+    LocalMediaStore store(QDir(directory.path()).filePath(QStringLiteral("store")),
+                          SecureEnvelope::generateMasterKey());
+    const auto linked = store.referenceFile(sourcePath);
+    QVERIFY2(linked, qPrintable(linked.error));
+    const auto first = store.fingerprintExternalFile(linked.value);
+    QVERIFY2(first, qPrintable(first.error));
+
+    QVERIFY(source.open(QIODevice::ReadWrite));
+    QVERIFY(source.seek(17));
+    QCOMPARE(source.write("b", 1), qint64(1));
+    QVERIFY(source.setFileTime(QDateTime::currentDateTimeUtc().addSecs(2), QFileDevice::FileModificationTime));
+    source.close();
+
+    const auto stale = store.externalSource(first.value);
+    QVERIFY(!stale);
+    QVERIFY(stale.error.contains(QStringLiteral("changed")));
+
+    const auto refreshed = store.fingerprintExternalFile(linked.value);
+    QVERIFY2(refreshed, qPrintable(refreshed.error));
+    QVERIFY(refreshed.value.hasContentFingerprint());
+    QVERIFY(refreshed.value.checksum != first.value.checksum);
+    QVERIFY(refreshed.value.blobId != first.value.blobId);
 }
 
 void LocalMediaStoreTest::externalFileReferenceRejectsChangedChunks()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    QVERIFY(QDir(directory.path()).mkpath(QStringLiteral("store")));
-
     QByteArray plain(int(LocalMediaStore::ExternalChunkSize + 32), 'x');
     const QString sourcePath = QDir(directory.path()).filePath(QStringLiteral("mutable-video.bin"));
     QFile source(sourcePath);
@@ -286,23 +361,46 @@ void LocalMediaStoreTest::externalFileReferenceRejectsChangedChunks()
 
     LocalMediaStore store(QDir(directory.path()).filePath(QStringLiteral("store")),
                           SecureEnvelope::generateMasterKey());
-    const auto referenced = store.referenceFile(sourcePath);
-    QVERIFY2(referenced, qPrintable(referenced.error));
+    const auto linked = store.referenceFile(sourcePath);
+    QVERIFY2(linked, qPrintable(linked.error));
+    const auto fingerprinted = store.fingerprintExternalFile(linked.value);
+    QVERIFY2(fingerprinted, qPrintable(fingerprinted.error));
+    const auto originalMtime = QFileInfo(sourcePath).lastModified();
 
+    // Preserve both cheap revision fields deliberately. The cached per-chunk
+    // SHA-256 must still detect this same-size/same-mtime content replacement.
     QVERIFY(source.open(QIODevice::ReadWrite));
     QVERIFY(source.seek(LocalMediaStore::ExternalChunkSize + 7));
     QCOMPARE(source.write("z", 1), qint64(1));
+    QVERIFY(source.setFileTime(originalMtime, QFileDevice::FileModificationTime));
     source.close();
 
-    MediaStream stream(createLocalMediaSource(referenced.value, &store));
+    MediaStream stream(createLocalMediaSource(fingerprinted.value, &store));
     QVERIFY2(stream.open(QIODevice::ReadOnly), qPrintable(stream.errorString()));
     QVERIFY(stream.seek(LocalMediaStore::ExternalChunkSize));
     QVERIFY(stream.read(16).isEmpty());
     QVERIFY(!stream.errorString().isEmpty());
 
-    const auto materialized = store.data(referenced.value.blobId);
+    const auto materialized = store.data(fingerprinted.value);
     QVERIFY(!materialized);
     QVERIFY(materialized.error.contains(QStringLiteral("changed")));
+}
+
+void LocalMediaStoreTest::externalAviUsesExtensionMimeType()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString sourcePath = QDir(directory.path()).filePath(QStringLiteral("movie.avi"));
+    QFile source(sourcePath);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write(QByteArray(128, '\x01')), qint64(128));
+    source.close();
+
+    LocalMediaStore store(QDir(directory.path()).filePath(QStringLiteral("store")),
+                          SecureEnvelope::generateMasterKey());
+    const auto linked = store.referenceFile(sourcePath);
+    QVERIFY2(linked, qPrintable(linked.error));
+    QVERIFY2(linked.value.mediaType.startsWith(QStringLiteral("video/")), qPrintable(linked.value.mediaType));
 }
 
 void LocalMediaStoreTest::portableNames()
