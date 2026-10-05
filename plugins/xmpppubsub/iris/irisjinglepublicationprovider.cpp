@@ -4,6 +4,7 @@
 #include "secureenvelope.h"
 
 #include <iris/jingle-ft.h>
+#include <iris/xmpp_client.h>
 
 #include <QDataStream>
 #include <QDir>
@@ -167,11 +168,30 @@ bool IrisJinglePublicationProvider::cacheCapability(const IrisJingleCapability &
 
 void IrisJinglePublicationProvider::restoreCachedPublishedSessions()
 {
-    if (!error_.isEmpty())
+    // The provider is attached before Client::start(). Advertise the complete
+    // Jingle surface while caps are still being assembled: base Jingle, FT5,
+    // registered transports, XEP-0358 and this provider's PEP +notify feature.
+    if (auto *publicationManager = manager()) {
+        if (auto *client = publicationManager->client()) {
+            auto features = client->features();
+            if (auto *jingleManager = publicationManager->jingleManager()) {
+                for (const auto &feature : jingleManager->discoFeatures())
+                    features.addFeature(feature);
+            }
+            client->setFeatures(features);
+        }
+    }
+
+    if (!error_.isEmpty()) {
+        qWarning().noquote() << "Could not restore durable Jingle media capabilities:" << error_;
         return;
+    }
     const auto records = capabilities_.values();
-    for (const auto &capability : records)
-        cacheCapability(capability);
+    qInfo() << "Restoring durable Jingle media capabilities:" << records.size();
+    for (const auto &capability : records) {
+        if (!cacheCapability(capability))
+            qWarning().noquote() << "Could not cache durable Jingle media capability:" << capability.publicationId;
+    }
 }
 
 void IrisJinglePublicationProvider::synchronizePublishedSessions()
@@ -200,16 +220,16 @@ IrisJinglePublicationProvider::PrepareResult IrisJinglePublicationProvider::prep
     }
     if (const auto reason = capability.invalidReason(); !reason.isEmpty()) {
         qWarning().noquote() << "Invalid durable Jingle media capability:" << reason
-                                       << "publisher=" << capability.from
-                                       << "note-id-present=" << !capability.noteId.isEmpty()
-                                       << "content-revision-present=" << !capability.contentRevision.isEmpty()
-                                       << "media-id=" << capability.reference.id.toString(QUuid::WithoutBraces)
-                                       << "plain-size=" << capability.reference.size
-                                       << "checksum-size=" << capability.reference.checksum.size()
-                                       << "key-size=" << capability.key.size()
-                                       << "iv-size=" << capability.iv.size()
-                                       << "cipher-hash-size=" << capability.cipherHash.size()
-                                       << "wire-size=" << capability.wireSize;
+                             << "publisher=" << capability.from
+                             << "note-id-present=" << !capability.noteId.isEmpty()
+                             << "content-revision-present=" << !capability.contentRevision.isEmpty()
+                             << "media-id=" << capability.reference.id.toString(QUuid::WithoutBraces)
+                             << "plain-size=" << capability.reference.size
+                             << "checksum-size=" << capability.reference.checksum.size()
+                             << "key-size=" << capability.key.size()
+                             << "iv-size=" << capability.iv.size()
+                             << "cipher-hash-size=" << capability.cipherHash.size()
+                             << "wire-size=" << capability.wireSize;
         return { {}, QStringLiteral("Invalid durable Jingle media capability: %1").arg(reason) };
     }
 
@@ -291,6 +311,12 @@ void IrisJinglePublicationProvider::publishedSessionObserved(const XMPP::Jingle:
                                                              const XMPP::Jingle::JinglePub                &publication)
 {
     observed_.insert(observedKey(endpoint, itemId), publication);
+    if (capabilities_.contains(publication.id()) && manager()) {
+        qInfo().noquote() << "Observed own durable Jingle media authority:"
+                          << "publication=" << publication.id() << "item=" << itemId
+                          << "publisher=" << publication.from().full()
+                          << "state=" << int(manager()->publishedSessionState(publication.id()));
+    }
 }
 
 void IrisJinglePublicationProvider::publishedSessionRetracted(const XMPP::Jingle::PublishedSessionEndpoint &endpoint,
