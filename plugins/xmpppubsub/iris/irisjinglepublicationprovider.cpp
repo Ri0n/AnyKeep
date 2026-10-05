@@ -1,9 +1,11 @@
 #include "irisjinglepublicationprovider.h"
 
 #include "irisxmppbackend.h"
+#include "mediachunkwirestream.h"
 #include "secureenvelope.h"
 
 #include <iris/jingle-ft.h>
+#include <iris/jingle-session.h>
 #include <iris/xmpp_client.h>
 
 #include <QDataStream>
@@ -196,16 +198,61 @@ bool IrisJinglePublicationProvider::cacheCapability(const IrisJingleCapability &
     if (!manager())
         return false;
     const QPointer<IrisJinglePublicationProvider> guard(this);
-    const auto cached = cachePublishedSession({ XMPP::Jid(config_.jid).withResource({}), capability.node, true },
-                                              capability.itemId, publication(capability),
-                                              [guard, id = capability.publicationId](const XMPP::Jid &requester) {
-                                                  if (!guard || !guard->backend_)
-                                                      return static_cast<XMPP::Jingle::Session *>(nullptr);
-                                                  const auto it = guard->capabilities_.constFind(id);
-                                                  return it == guard->capabilities_.cend()
-                                                      ? static_cast<XMPP::Jingle::Session *>(nullptr)
-                                                      : guard->backend_->createPublishedMediaSession(*it, requester);
-                                              });
+    const auto cached = cachePublishedSession(
+        { XMPP::Jid(config_.jid).withResource({}), capability.node, true }, capability.itemId, publication(capability),
+        [guard, id = capability.publicationId](const XMPP::Jid &requester) {
+            if (!guard || !guard->backend_)
+                return static_cast<XMPP::Jingle::Session *>(nullptr);
+            const auto it = guard->capabilities_.constFind(id);
+            if (it == guard->capabilities_.cend())
+                return static_cast<XMPP::Jingle::Session *>(nullptr);
+            const auto capability = *it;
+            if (capability.representation != IrisJingleMediaRepresentation::ChunkedAnyKeep)
+                return guard->backend_->createPublishedMediaSession(capability, requester);
+
+            if (!requester.compare(XMPP::Jid(guard->config_.jid).withResource({}), false))
+                return static_cast<XMPP::Jingle::Session *>(nullptr);
+            auto *publicationManager = guard->manager();
+            auto *jingleManager     = publicationManager ? publicationManager->jingleManager() : nullptr;
+            auto *session           = jingleManager ? jingleManager->newSession(requester) : nullptr;
+            if (!session)
+                return static_cast<XMPP::Jingle::Session *>(nullptr);
+            auto *app = static_cast<XMPP::Jingle::FileTransfer::Application *>(
+                session->newContent(XMPP::Jingle::FileTransfer::NS, session->role()));
+            if (!app) {
+                session->deleteLater();
+                return static_cast<XMPP::Jingle::Session *>(nullptr);
+            }
+
+            XMPP::Jingle::FileTransfer::File file;
+            file.setName(capability.reference.portableName + QStringLiteral(".encrypted"));
+            file.setMediaType(QStringLiteral("application/octet-stream"));
+            file.setSize(capability.wireSize);
+            file.addHash(XMPP::Hash(XMPP::Hash::Sha256, capability.cipherHash));
+            app->setFile(file);
+            QObject::connect(
+                app, &XMPP::Jingle::FileTransfer::Application::deviceRequested, app,
+                [app, capability](quint64 offset, std::optional<quint64> size) {
+                    const bool invalidRange
+                        = offset > capability.wireSize || (size && *size > capability.wireSize - offset);
+                    if (invalidRange) {
+                        app->setDevice(nullptr);
+                        return;
+                    }
+                    auto *wire = new MediaChunkWireStream(capability.reference, capability.chunked, app);
+                    if (!wire->open(QIODevice::ReadOnly) || !wire->seek(qint64(offset))) {
+                        wire->deleteLater();
+                        app->setDevice(nullptr);
+                        return;
+                    }
+                    // Iris owns the requested range length through its internal
+                    // bytesLeft counter, so the same seekable deterministic wire
+                    // object can serve both complete and resumed transfers.
+                    app->setDevice(wire);
+                });
+            session->addContent(app);
+            return session;
+        });
     return cached.isValid();
 }
 
