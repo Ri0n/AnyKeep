@@ -36,15 +36,17 @@
 #include <QtCrypto>
 
 #include <QBuffer>
-#include <QByteArrayView>
 #include <QDomDocument>
 #include <QLoggingCategory>
+#include <QMetaObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
 #include <QRegularExpression>
+#include <QRunnable>
 #include <QTemporaryFile>
+#include <QThreadPool>
 #include <QTimer>
 #include <QUuid>
 
@@ -274,38 +276,9 @@ namespace {
         return {};
     }
 
-    bool verifyPlainMedia(MediaStream &stream, const MediaReference &reference)
+    bool usableCipherHash(const XMPP::Hash &hash)
     {
-        if (!stream.isOpen() && !stream.open(QIODevice::ReadOnly))
-            return false;
-        QCryptographicHash hash(QCryptographicHash::Sha256);
-        QByteArray buffer(64 * 1024, Qt::Uninitialized);
-        qint64 total = 0;
-        while (!stream.atEnd()) {
-            const qint64 count = stream.read(buffer.data(), buffer.size());
-            if (count <= 0)
-                return false;
-            hash.addData(QByteArrayView(buffer.constData(), qsizetype(count)));
-            total += count;
-        }
-        return total == reference.size && hash.result() == reference.checksum && stream.seek(0);
-    }
-
-    XMPP::Hash reproducibleCipherHash(const MediaReference &reference, XMPP::StatelessFileSharing::Cipher cipher,
-                                      const QByteArray &key, const QByteArray &iv)
-    {
-        MediaStream plain(reference);
-        if (!verifyPlainMedia(plain, reference))
-            return {};
-        XMPP::StatelessFileSharing::EncryptingDevice encrypted(&plain, cipher, key, iv);
-        if (!encrypted.open(QIODevice::ReadOnly))
-            return {};
-        QByteArray discard(64 * 1024, Qt::Uninitialized);
-        while (!encrypted.atEnd()) {
-            if (encrypted.read(discard.data(), discard.size()) <= 0)
-                return {};
-        }
-        return encrypted.encryptedHash();
+        return hash.type() == XMPP::Hash::Sha256 && (hash.data().isEmpty() || hash.data().size() == 32);
     }
 
     XmppStatusResult mediaFailure(QString error, XmppErrorKind kind = XmppErrorKind::Protocol)
@@ -452,9 +425,6 @@ void IrisXmppBackend::createClient()
     connector_->setOptSSL(false);
 
     tlsHandler_ = XMPP::QCATLSHandler::createOwned(this);
-    // QCA::TLS starts with an empty trust collection.  Match Psi's TLS setup
-    // by loading the platform trust store before the handshake.  systemStore()
-    // starts the default QCA keystore provider and waits until it is ready.
     tlsHandler_->tls()->setTrustedCertificates(QCA::systemStore());
     tlsHandler_->setXMPPCertCheck(true);
     stream_ = new XMPP::ClientStream(connector_, tlsHandler_, this);
@@ -467,8 +437,6 @@ void IrisXmppBackend::createClient()
     auto *tcpPortReserver = new XMPP::TcpPortReserver(client_);
     tcpPortReserver->registerScope(QStringLiteral("s5b"), new XMPP::S5BServersProducer);
     client_->setTcpPortReserver(tcpPortReserver);
-    // PEP implicit subscriptions are driven by XEP-0115 entity capabilities.
-    // Iris only puts a <c/> element into presence when a caps node is configured.
     client_->setCaps(XMPP::CapsSpec(QStringLiteral("https://anykeep.net"), QCryptographicHash::Sha1));
     if (XmppXmlLog::isEnabled()) {
         connect(client_, &XMPP::Client::xmlIncoming, this,
@@ -593,9 +561,6 @@ void IrisXmppBackend::createClient()
         qInfo() << "Iris XMPP connection closed before or after authentication; authenticated="
                 << (stream_ && stream_->isAuthenticated());
         markDisconnected();
-        // ClientStream does not forward a clean peer close through Client::streamError().
-        // Explicitly close the Client side so every in-flight Task observes disconnected()
-        // and completes with ErrDisc instead of waiting for its timeout.
         if (client_ && client_->hasStream())
             client_->close(true);
         if (connectionAttempt_ && !connectionAttempt_->finished) {
@@ -680,11 +645,7 @@ void IrisXmppBackend::createClient()
 void IrisXmppBackend::connectToServerAsync(StatusCallback callback)
 {
     if (!acceptingWork_) {
-        callback({ false,
-                   false,
-                   false,
-                   QStringLiteral("The XMPP backend is shutting down"),
-                   {},
+        callback({ false, false, false, QStringLiteral("The XMPP backend is shutting down"), {},
                    XmppErrorKind::Configuration });
         return;
     }
@@ -700,9 +661,6 @@ void IrisXmppBackend::connectToServerAsync(StatusCallback callback)
         return;
     }
 
-    // Iris persistent push/server Tasks become terminal after Client::disconnected().
-    // Reusing Client::start() would install a second set of those tasks, so use a
-    // fresh Iris client stack for every non-resumed application-level reconnect.
     if (freshClientRequired_)
         destroyClientObjects();
     createClient();
@@ -796,11 +754,7 @@ void IrisXmppBackend::completeStatusForTask(XMPP::Task *task, StatusCallback cal
 void IrisXmppBackend::ensureOmemoReadyAsync(StatusCallback callback)
 {
     if (!acceptingWork_) {
-        callback({ false,
-                   false,
-                   false,
-                   QStringLiteral("The XMPP backend is shutting down"),
-                   {},
+        callback({ false, false, false, QStringLiteral("The XMPP backend is shutting down"), {},
                    XmppErrorKind::Configuration });
         return;
     }
@@ -839,21 +793,15 @@ void IrisXmppBackend::ensureOmemoReadyAsync(StatusCallback callback)
             return;
         }
         if (!omemoStorage_ || !omemoStorage_->isValid()) {
-            finish({ false,
-                     false,
-                     false,
+            finish({ false, false, false,
                      omemoStorage_ ? omemoStorage_->errorString() : QStringLiteral("Iris OMEMO storage is unavailable"),
-                     {},
-                     XmppErrorKind::Security });
+                     {}, XmppErrorKind::Security });
             return;
         }
         if (!trustStorage_ || !trustStorage_->isValid()) {
-            finish({ false,
-                     false,
-                     false,
+            finish({ false, false, false,
                      trustStorage_ ? trustStorage_->errorString() : QStringLiteral("Iris trust storage is unavailable"),
-                     {},
-                     XmppErrorKind::Security });
+                     {}, XmppErrorKind::Security });
             return;
         }
         if (omemo_->isReady()) {
@@ -875,11 +823,8 @@ void IrisXmppBackend::ensureOmemoReadyAsync(StatusCallback callback)
                 omemoReady_ = omemo_->isReady();
                 finish(omemoReady_
                            ? XmppStatusResult { true }
-                           : XmppStatusResult { false,
-                                                false,
-                                                false,
-                                                QStringLiteral("Iris OMEMO setup completed without a ready device"),
-                                                {},
+                           : XmppStatusResult { false, false, false,
+                                                QStringLiteral("Iris OMEMO setup completed without a ready device"), {},
                                                 XmppErrorKind::Security });
             });
     });
@@ -901,21 +846,15 @@ void IrisXmppBackend::verifyPrivateStorageSupportAsync(StatusCallback callback)
                               return id.category == QStringLiteral("pubsub") && id.type == QStringLiteral("pep");
                           });
                     if (!hasPepIdentity) {
-                        callback({ false,
-                                   false,
-                                   false,
-                                   QStringLiteral("The XMPP server does not advertise a pubsub/pep identity"),
-                                   {},
+                        callback({ false, false, false,
+                                   QStringLiteral("The XMPP server does not advertise a pubsub/pep identity"), {},
                                    XmppErrorKind::Configuration });
                         return;
                     }
                     if (!item.features().test(QLatin1String(PublishOptionsFeature))) {
-                        callback({ false,
-                                   false,
-                                   false,
+                        callback({ false, false, false,
                                    QStringLiteral("The server does not advertise PubSub publish-options; the client "
-                                                  "will not store private notes there"),
-                                   {},
+                                                  "will not store private notes there"), {},
                                    XmppErrorKind::Configuration });
                         return;
                     }
@@ -933,13 +872,10 @@ void IrisXmppBackend::verifyNodeAsync(QString nodeName, StatusCallback callback)
                         return;
                     }
                     if (!nodeConfigIsPrivate(task->options())) {
-                        callback({ false,
-                                   false,
-                                   false,
+                        callback({ false, false, false,
                                    QStringLiteral(
                                        "The private-note PEP node is not persistent and private after configuration"),
-                                   {},
-                                   XmppErrorKind::Configuration });
+                                   {}, XmppErrorKind::Configuration });
                         return;
                     }
                     callback({ true });
@@ -956,11 +892,7 @@ void IrisXmppBackend::ensureNodeAsync(QString nodeName, StatusCallback callback,
         [this, nodeName = std::move(nodeName), payloadType = std::move(payloadType),
          callback = std::move(callback)](XMPP::PubSubNodeConfigTask *task) mutable {
             if (!task) {
-                callback({ false,
-                           false,
-                           false,
-                           QStringLiteral("Could not inspect the private-note PEP node"),
-                           {},
+                callback({ false, false, false, QStringLiteral("Could not inspect the private-note PEP node"), {},
                            XmppErrorKind::Protocol });
                 return;
             }
@@ -1086,8 +1018,6 @@ void IrisXmppBackend::listNodeItemIdsAsync(QString                              
         }
         QStringList ids;
         for (const auto &item : task->items()) {
-            // XEP-0060 section 5.5 carries a published item ID in
-            // the disco#items result's name attribute.
             if (!item.name().isEmpty())
                 ids.append(item.name());
         }
@@ -1185,7 +1115,7 @@ void IrisXmppBackend::listNotesAsync(ListCallback callback)
 
         listNodeItemIdsAsync(
             config_.indexNodeName(),
-            [this, generation, decode, callback = std::move(callback)](QStringList      ids,
+            [this, generation, decode, callback = std::move(callback)](QStringList ids,
                                                                        XmppStatusResult idsStatus) mutable {
                 if (generation != generation_) {
                     XmppListResult result;
@@ -1194,8 +1124,6 @@ void IrisXmppBackend::listNotesAsync(ListCallback callback)
                     return;
                 }
                 if (!idsStatus.ok) {
-                    // Some PEP implementations do not expose disco#items. Ask for all
-                    // items directly as the compatibility path.
                     auto *all = pubSub_->items(bareJid(config_), config_.indexNodeName());
                     runIrisTask(all, this, config_.timeoutMs,
                                 [this, decode, callback = std::move(callback)](XMPP::PubSubItemsTask *task) mutable {
@@ -1369,27 +1297,81 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
 
         auto      &media     = state->note.media[state->index];
         const auto reference = media.reference;
-        if (!reference.isValid() || reference.size < 0 || reference.checksum.size() != 32) {
+        if (!reference.isValid() || reference.size < 0) {
             state->callback(std::move(state->note),
                             mediaFailure(QStringLiteral("Invalid local media attachment metadata")));
             return;
         }
+
+        auto *mediaStore = LocalMediaStore::instance();
+        const bool managed = reference.hasContentFingerprint() && mediaStore->containsManagedBlob(reference.blobId);
+        const auto external = managed ? LocalMediaExternalSourceResult {} : mediaStore->externalSource(reference);
+        if (!managed && (!reference.hasContentFingerprint() || !external)) {
+            QString initializeError;
+            if (!mediaStore->initialize(&initializeError)) {
+                state->callback(std::move(state->note),
+                                mediaFailure(QStringLiteral("Could not initialize local media storage: %1")
+                                                 .arg(initializeError),
+                                             XmppErrorKind::Security));
+                return;
+            }
+            const qsizetype mediaIndex = state->index;
+            const QPointer<IrisXmppBackend> guard(backend);
+            QThreadPool::globalInstance()->start(QRunnable::create([state, next, guard, mediaStore, reference,
+                                                                     mediaIndex]() mutable {
+                const auto fingerprinted = mediaStore->fingerprintExternalFile(reference);
+                if (!guard)
+                    return;
+                QMetaObject::invokeMethod(
+                    guard,
+                    [state, next, guard, fingerprinted, mediaIndex]() mutable {
+                        if (!guard)
+                            return;
+                        if (state->generation != guard->generation_ || !guard->client_) {
+                            state->callback(std::move(state->note), guard->cancelledResult());
+                            return;
+                        }
+                        if (!fingerprinted) {
+                            state->callback(
+                                std::move(state->note),
+                                mediaFailure(QStringLiteral("Could not fingerprint local media: %1")
+                                                 .arg(fingerprinted.error),
+                                             XmppErrorKind::Security));
+                            return;
+                        }
+                        if (state->index != mediaIndex || mediaIndex >= state->note.media.size()) {
+                            state->callback(std::move(state->note),
+                                            mediaFailure(QStringLiteral("Local media preparation was superseded"),
+                                                         XmppErrorKind::Transient));
+                            return;
+                        }
+                        state->note.media[mediaIndex].reference = fingerprinted.value;
+                        (*next)();
+                    },
+                    Qt::QueuedConnection);
+            }));
+            return;
+        }
+
+        if (!reference.hasContentFingerprint()) {
+            state->callback(std::move(state->note),
+                            mediaFailure(QStringLiteral("Local media content identity is unavailable"),
+                                         XmppErrorKind::Security));
+            return;
+        }
+
         auto publishCapability = [backend, reference, noteId = state->note.id,
                                   contentRevision = state->note.contentRevision, generation = state->generation](
                                      XMPP::StatelessFileSharing::Cipher cipher, const QByteArray &key,
                                      const QByteArray &iv, const XMPP::Hash &cipherHash,
                                      std::function<void(XMPP::Jingle::JinglePub, XmppStatusResult)> done) {
             const auto wireSize = XMPP::StatelessFileSharing::encryptedSize(cipher, std::uint64_t(reference.size));
-            if (!backend->client_ || !backend->jinglePublicationProvider_ || !wireSize || !cipherHash.isValid()
-                || cipherHash.data().size() != 32) {
+            if (!backend->client_ || !backend->jinglePublicationProvider_ || !wireSize
+                || !usableCipherHash(cipherHash)) {
                 done({}, mediaFailure(QStringLiteral("Could not prepare a durable Jingle media capability")));
                 return;
             }
             IrisJingleCapability capability;
-            // A published Jingle session is tied to the resource which can
-            // actually serve it. client_->jid() is not a durable authority
-            // here: during publication it may still expose the configured
-            // bare JID even though the stream is bound to config_.resource.
             capability.from            = XMPP::Jid(backend->config_.jid).withResource(backend->config_.resource).full();
             capability.node            = backend->config_.jinglePubNodeName();
             capability.noteId          = noteId;
@@ -1405,8 +1387,9 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                                           << "note-id-present=" << !capability.noteId.isEmpty()
                                           << "content-revision-present=" << !capability.contentRevision.isEmpty()
                                           << "plain-size=" << capability.reference.size
-                                          << "wire-size=" << capability.wireSize;
-            const auto prepared        = backend->jinglePublicationProvider_->prepare(std::move(capability));
+                                          << "wire-size=" << capability.wireSize
+                                          << "precomputed-cipher-hash=" << !capability.cipherHash.isEmpty();
+            const auto prepared = backend->jinglePublicationProvider_->prepare(std::move(capability));
             if (!prepared.publication.isValid()) {
                 done({},
                      mediaFailure(prepared.error.isEmpty() ? QStringLiteral("Could not persist the Jingle offer")
@@ -1444,16 +1427,15 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
 
         if (const auto existing = parseFileSharing(media.fileSharingXml);
             existing && existing->id() == reference.id.toString(QUuid::WithoutBraces)) {
-            const auto encrypted        = encryptedSource(*existing);
-            const auto plainHash        = sha256Hash(existing->file().computedHashes());
-            const auto cipherHash       = encrypted ? sha256Hash(encrypted->hashes()) : XMPP::Hash();
-            const auto actualCipherHash = encrypted
-                ? reproducibleCipherHash(reference, encrypted->cipher(), encrypted->key(), encrypted->iv())
-                : XMPP::Hash();
+            const auto encrypted  = encryptedSource(*existing);
+            const auto plainHash  = sha256Hash(existing->file().computedHashes());
+            const auto cipherHash = encrypted ? sha256Hash(encrypted->hashes()) : XMPP::Hash();
+            const auto transferHash = cipherHash.isValid() && cipherHash.data().size() == 32
+                ? cipherHash
+                : XMPP::Hash(XMPP::Hash::Sha256);
             if (encrypted && existing->file().size() == std::uint64_t(reference.size) && plainHash.isValid()
-                && plainHash.data() == reference.checksum && cipherHash.isValid() && actualCipherHash.isValid()
-                && cipherHash.data() == actualCipherHash.data()) {
-                publishCapability(encrypted->cipher(), encrypted->key(), encrypted->iv(), actualCipherHash,
+                && plainHash.data() == reference.checksum) {
+                publishCapability(encrypted->cipher(), encrypted->key(), encrypted->iv(), transferHash,
                                   [state, next, encrypted = *encrypted, existing = *existing](
                                       XMPP::Jingle::JinglePub publication, XmppStatusResult status) mutable {
                                       if (!status.ok || !publication.isValid()) {
@@ -1497,16 +1479,6 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                                          XmppErrorKind::Security));
             return;
         }
-        if (!verifyPlainMedia(*plain, reference)) {
-            const QString sourceError = plain->errorString();
-            plain->deleteLater();
-            state->callback(
-                std::move(state->note),
-                mediaFailure(sourceError.isEmpty() ? QStringLiteral("Local media integrity check failed")
-                                                   : QStringLiteral("Local media integrity check failed: %1").arg(sourceError),
-                             XmppErrorKind::Security));
-            return;
-        }
         auto *encrypted = new XMPP::StatelessFileSharing::EncryptingDevice(plain, cipher, backend);
         if (!encrypted->open(QIODevice::ReadOnly)) {
             plain->deleteLater();
@@ -1516,19 +1488,12 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                 mediaFailure(QStringLiteral("Could not initialize media encryption"), XmppErrorKind::Security));
             return;
         }
-        // HTTP Upload and Jingle must describe and serve the exact same
-        // XEP-0448 ciphertext. Snapshot its immutable encryption parameters
-        // before handing the device to the asynchronous uploader.
         const auto encryptionCipher = encrypted->cipher();
         const auto encryptionKey    = encrypted->key();
         const auto encryptionIv     = encrypted->iv();
         auto finishMedia = [state, next, reference, publishCapability](XMPP::StatelessFileSharing::Cipher cipher,
                                                                        QByteArray key, QByteArray iv, XMPP::Hash hash,
                                                                        QUrl httpUrl) mutable {
-            // publishCapability and the completion lambda both need the same immutable
-            // XEP-0448 material. Do not move key/IV while evaluating another
-            // argument of the same call: argument evaluation order must not decide
-            // whether the capability sees populated encryption parameters.
             const auto descriptorKey = key;
             const auto descriptorIv  = iv;
             publishCapability(
@@ -1553,7 +1518,8 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                     encryptedSource.setCipher(cipher);
                     encryptedSource.setKey(key);
                     encryptedSource.setIv(iv);
-                    encryptedSource.addHash(hash);
+                    if (!hash.data().isEmpty())
+                        encryptedSource.addHash(hash);
                     encryptedSource.setSources(nested);
                     XMPP::StatelessFileSharing::Sources sources;
                     sources.add(XMPP::StatelessFileSharing::Source::fromEncrypted(encryptedSource));
@@ -1581,24 +1547,17 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
             encrypted, *wireSize, reference.id.toString(QUuid::WithoutBraces) + QStringLiteral(".bin"),
             QStringLiteral("application/octet-stream"));
         if (!upload) {
-            const auto hash = reproducibleCipherHash(reference, encryptionCipher, encryptionKey, encryptionIv);
             plain->deleteLater();
             encrypted->deleteLater();
-            if (!hash.isValid()) {
-                state->callback(std::move(state->note),
-                                mediaFailure(QStringLiteral("Could not prepare Jingle-only encrypted media"),
-                                             XmppErrorKind::Security));
-                return;
-            }
-            qInfo() << "No HTTP Upload service is available; publishing a Jingle-only media offer";
-            finishMedia(encryptionCipher, encryptionKey, encryptionIv, hash, {});
+            qInfo() << "No HTTP Upload service is available; publishing a Jingle-only media offer without prehash";
+            finishMedia(encryptionCipher, encryptionKey, encryptionIv, XMPP::Hash(XMPP::Hash::Sha256), {});
             return;
         }
         plain->setParent(upload);
         encrypted->setParent(upload);
         QObject::connect(
             upload, &XMPP::HttpFileUpload::finished, backend,
-            [state, upload, encrypted, reference, encryptionCipher, encryptionKey, encryptionIv, finishMedia]() mutable {
+            [state, upload, encrypted, encryptionCipher, encryptionKey, encryptionIv, finishMedia]() mutable {
                 upload->deleteLater();
                 auto *backend = state->backend;
                 if (state->generation != backend->generation_) {
@@ -1609,11 +1568,8 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                 if (jingleOnly)
                     qWarning() << "HTTP media upload failed; falling back to Jingle publication:"
                                << upload->statusString();
-                auto hash = encrypted->encryptedHash();
-                if (jingleOnly && (!encrypted->finished() || !hash.isValid())) {
-                    hash = reproducibleCipherHash(reference, encryptionCipher, encryptionKey, encryptionIv);
-                }
-                if (!hash.isValid()) {
+                XMPP::Hash hash = jingleOnly ? XMPP::Hash(XMPP::Hash::Sha256) : encrypted->encryptedHash();
+                if (!jingleOnly && (!encrypted->finished() || !hash.isValid() || hash.data().size() != 32)) {
                     state->callback(std::move(state->note),
                                     mediaFailure(QStringLiteral("Encrypted media stream did not finish cleanly"),
                                                  XmppErrorKind::Security));
@@ -1644,18 +1600,20 @@ void IrisXmppBackend::downloadMediaAsync(XmppRemoteMedia media, quint64 generati
         callback(std::move(media), mediaFailure(QStringLiteral("Incomplete encrypted media metadata")));
         return;
     }
-    const auto cipherHash = sha256Hash(encrypted->hashes());
-    const auto wireSize   = XMPP::StatelessFileSharing::encryptedSize(encrypted->cipher(), *plainSize);
-    if (!cipherHash.isValid() || cipherHash.data().size() != 32 || !wireSize) {
+    const auto cipherHash    = sha256Hash(encrypted->hashes());
+    const bool hasCipherHash = cipherHash.isValid() && cipherHash.data().size() == 32;
+    const auto wireSize      = XMPP::StatelessFileSharing::encryptedSize(encrypted->cipher(), *plainSize);
+    if (!wireSize || (cipherHash.isValid() && !cipherHash.data().isEmpty() && !hasCipherHash)) {
         callback(std::move(media), mediaFailure(QStringLiteral("Unsupported encrypted media descriptor")));
         return;
     }
 
     const auto originalName = file.name().isEmpty() ? QStringLiteral("attachment") : file.name();
     const auto mediaType = file.mediaType().isEmpty() ? QStringLiteral("application/octet-stream") : file.mediaType();
-    const auto attachmentId     = media.reference.id;
-    auto       finishCiphertext = [this, media, generation, encrypted = *encrypted, plainHash, plainSize, originalName,
-                                   mediaType, attachmentId, cipherHash](QIODevice *ciphertext, auto &&done) mutable {
+    const auto attachmentId = media.reference.id;
+    auto finishCiphertext = [this, media, generation, encrypted = *encrypted, plainHash, plainSize, originalName,
+                             mediaType, attachmentId, cipherHash, hasCipherHash](QIODevice *ciphertext,
+                                                                                auto &&done) mutable {
         if (generation != generation_) {
             done(std::move(media), cancelledResult());
             return;
@@ -1664,11 +1622,13 @@ void IrisXmppBackend::downloadMediaAsync(XmppRemoteMedia media, quint64 generati
             done(std::move(media), mediaFailure(QStringLiteral("Encrypted media stream is not seekable")));
             return;
         }
-        const auto actualCipherHash = XMPP::Hash::from(XMPP::Hash::Sha256, ciphertext);
-        if (!actualCipherHash.isValid() || actualCipherHash.data() != cipherHash.data() || !ciphertext->seek(0)) {
-            done(std::move(media),
-                 mediaFailure(QStringLiteral("Encrypted media integrity check failed"), XmppErrorKind::Security));
-            return;
+        if (hasCipherHash) {
+            const auto actualCipherHash = XMPP::Hash::from(XMPP::Hash::Sha256, ciphertext);
+            if (!actualCipherHash.isValid() || actualCipherHash.data() != cipherHash.data() || !ciphertext->seek(0)) {
+                done(std::move(media),
+                     mediaFailure(QStringLiteral("Encrypted media integrity check failed"), XmppErrorKind::Security));
+                return;
+            }
         }
 
         QByteArray plaintext;
@@ -1815,7 +1775,9 @@ void IrisXmppBackend::downloadMediaAsync(XmppRemoteMedia media, quint64 generati
         state->publicationKeys.insert(key);
         state->publications.append(publication);
     };
-    const auto appendObserved = [state, addPublication, cipherHash, wireSize]() {
+    const auto appendObserved = [state, addPublication, cipherHash, wireSize, hasCipherHash]() {
+        if (!hasCipherHash)
+            return;
         auto *provider = state->backend->jinglePublicationProvider_;
         if (!provider)
             return;
@@ -1828,7 +1790,7 @@ void IrisXmppBackend::downloadMediaAsync(XmppRemoteMedia media, quint64 generati
 
     auto                                       tryNext     = std::make_shared<std::function<void()>>();
     const std::weak_ptr<std::function<void()>> weakTryNext = tryNext;
-    *tryNext = [state, weakTryNext, appendObserved, wireSize, cipherHash, complete, finishCiphertext,
+    *tryNext = [state, weakTryNext, appendObserved, wireSize, cipherHash, hasCipherHash, complete, finishCiphertext,
                 startHttp]() mutable {
         const auto tryNext = weakTryNext.lock();
         if (!tryNext || state->finished || state->httpStarted)
@@ -1894,7 +1856,7 @@ void IrisXmppBackend::downloadMediaAsync(XmppRemoteMedia media, quint64 generati
 
         state->incomingConnection = QObject::connect(
             jingleManager, &XMPP::Jingle::Manager::incomingSession, backend,
-            [state, tryNext, attempt, publication, wireSize, cipherHash, complete,
+            [state, tryNext, attempt, publication, wireSize, cipherHash, hasCipherHash, complete,
              finishCiphertext](XMPP::Jingle::Session *session) mutable {
                 if (state->finished || state->httpStarted || state->attempt != attempt || !state->request
                     || state->request->state() != XMPP::Jingle::PublishedSessionRequest::State::Succeeded
@@ -1918,9 +1880,11 @@ void IrisXmppBackend::downloadMediaAsync(XmppRemoteMedia media, quint64 generati
                 }
                 auto      *app         = apps.constFirst();
                 const auto offered     = app->file();
-                const auto offeredHash = sha256Hash(offered.computedHashes());
-                if (!offered.size() || *offered.size() != *wireSize || !offeredHash.isValid()
-                    || offeredHash.data() != cipherHash.data()) {
+                const auto offeredHash = offered.hash(XMPP::Hash::Sha256);
+                const bool hashMatches = hasCipherHash
+                    ? offeredHash.isValid() && offeredHash.data() == cipherHash.data()
+                    : offeredHash.isValid();
+                if (!offered.size() || *offered.size() != *wireSize || !hashMatches) {
                     session->terminate(XMPP::Jingle::Reason::SecurityError,
                                        QStringLiteral("Published file does not match its descriptor"));
                     QTimer::singleShot(0, state->backend, [state, tryNext, attempt]() {
@@ -2060,8 +2024,7 @@ void IrisXmppBackend::hydrateMediaAsync(XmppRemoteNote note, quint64 generation,
         }
 
         if (media.reference.isValid() && media.reference.size == qint64(*file.size())
-            && media.reference.checksum == plainHash.data()
-            && LocalMediaStore::instance()->contains(media.reference.blobId)) {
+            && media.reference.checksum == plainHash.data() && LocalMediaStore::instance()->contains(media.reference)) {
             ++state->index;
             (*next)();
             return;
@@ -2084,10 +2047,8 @@ void IrisXmppBackend::hydrateMediaAsync(XmppRemoteNote note, quint64 generation,
                     std::move(publicationNote), state->generation,
                     [state, next](XmppRemoteNote prepared, XmppStatusResult publishStatus) mutable {
                         if (!publishStatus.ok || prepared.media.size() != 1) {
-                            if (publishStatus.ok) {
-                                publishStatus
-                                    = mediaFailure(QStringLiteral("Could not retain the downloaded media offer"));
-                            }
+                            if (publishStatus.ok)
+                                publishStatus = mediaFailure(QStringLiteral("Could not retain the downloaded media offer"));
                             state->callback(std::move(state->note), std::move(publishStatus));
                             return;
                         }
@@ -2140,7 +2101,7 @@ void IrisXmppBackend::requestNoteAsync(QString id, quint64 generation, NoteCallb
                                       return;
                                   }
                                   hydrateMediaAsync(std::move(content.value), generation,
-                                                    [callback = std::move(callback)](XmppRemoteNote   note,
+                                                    [callback = std::move(callback)](XmppRemoteNote note,
                                                                                      XmppStatusResult status) mutable {
                                                         XmppNoteResult output;
                                                         if (!status.ok) {
@@ -2274,10 +2235,6 @@ void IrisXmppBackend::saveNoteAsync(XmppRemoteNote note, NoteCallback callback)
                         && serverIndex.note.parentRevision == note.revision
                         && serverContentRevision == localContentRevision;
                     if (!ownIndexOnlyUpdate) {
-                        // A complete body is required only to resolve a real
-                        // optimistic-concurrency conflict. An inconsistent
-                        // body remains retryable and cannot block repair from
-                        // the durable local draft.
                         requestNoteAsync(
                             note.id, generation,
                             [callback = std::move(callback)](XmppNoteResult server) mutable {
@@ -2495,8 +2452,6 @@ void IrisXmppBackend::refreshOwnOmemoFingerprintsAsync(std::function<void(QSet<q
                     callback(std::move(*failed), cancelledResult());
                     return;
                 }
-                // Device discovery must not build a session: an Undecided identity has to be
-                // visible to the trust UI before it can be accepted.
                 runEncryptionJob(omemo_->refreshBundle(bareJid(config_), deviceId, XMPP::OmemoProtocol::Omemo2, false),
                                  this, [deviceId, failed, next](XMPP::EncryptionJob *bundleJob) mutable {
                                      if (!bundleJob || !bundleJob->success())
@@ -2515,7 +2470,7 @@ void IrisXmppBackend::ownOmemoDevicesAsync(DevicesCallback callback)
             callback({}, ready.error);
             return;
         }
-        refreshOwnOmemoFingerprintsAsync([this, callback = std::move(callback)](QSet<quint32>    failedBundles,
+        refreshOwnOmemoFingerprintsAsync([this, callback = std::move(callback)](QSet<quint32> failedBundles,
                                                                                 XmppStatusResult status) mutable {
             if (!status.ok) {
                 callback({}, status.error);
@@ -2551,11 +2506,7 @@ void IrisXmppBackend::ownOmemoBundleValidAsync(StatusCallback callback)
         }
         const auto ownId = omemo_->ownDeviceId();
         if (!ownId || omemo_->ownIdentityKey().isEmpty()) {
-            callback({ false,
-                       false,
-                       false,
-                       QStringLiteral("The local OMEMO device is not initialized"),
-                       {},
+            callback({ false, false, false, QStringLiteral("The local OMEMO device is not initialized"), {},
                        XmppErrorKind::Security });
             return;
         }
@@ -2572,11 +2523,8 @@ void IrisXmppBackend::ownOmemoBundleValidAsync(StatusCallback callback)
                     return device.id == ownId && device.protocol == XMPP::OmemoProtocol::Omemo2 && device.active;
                 });
                 if (!announced) {
-                    callback({ false,
-                               false,
-                               false,
-                               QStringLiteral("The local OMEMO device is missing from the published device list"),
-                               {},
+                    callback({ false, false, false,
+                               QStringLiteral("The local OMEMO device is missing from the published device list"), {},
                                XmppErrorKind::Security });
                     return;
                 }
@@ -2595,13 +2543,10 @@ void IrisXmppBackend::ownOmemoBundleValidAsync(StatusCallback callback)
                                       && device.active && device.identityKey == omemo_->ownIdentityKey();
                               });
                         callback(it == devices.cend()
-                                     ? XmppStatusResult { false,
-                                                          false,
-                                                          false,
+                                     ? XmppStatusResult { false, false, false,
                                                           QStringLiteral(
                                                               "The published OMEMO bundle does not match this device"),
-                                                          {},
-                                                          XmppErrorKind::Security }
+                                                          {}, XmppErrorKind::Security }
                                      : XmppStatusResult { true });
                     });
             });
@@ -2632,20 +2577,15 @@ void IrisXmppBackend::removeOwnOmemoDeviceAsync(quint32 deviceId, StatusCallback
             return;
         }
         if (deviceId == omemo_->ownDeviceId()) {
-            callback({ false,
-                       false,
-                       false,
-                       QStringLiteral("The active OMEMO device cannot retire itself"),
-                       {},
+            callback({ false, false, false, QStringLiteral("The active OMEMO device cannot retire itself"), {},
                        XmppErrorKind::Configuration });
             return;
         }
         runEncryptionJob(omemo_->retireOwnDevice(deviceId, XMPP::OmemoProtocol::Omemo2), this,
                          [callback = std::move(callback)](XMPP::EncryptionJob *job) mutable {
-                             callback(
-                                 job && job->success()
-                                     ? XmppStatusResult { true }
-                                     : encryptionFailure(job, QStringLiteral("Could not remove the OMEMO device")));
+                             callback(job && job->success()
+                                          ? XmppStatusResult { true }
+                                          : encryptionFailure(job, QStringLiteral("Could not remove the OMEMO device")));
                          });
     });
 }
@@ -2661,8 +2601,7 @@ void IrisXmppBackend::trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback 
 
 void IrisXmppBackend::trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback)
 {
-    ensureOmemoReadyAsync([this, keyIds = std::move(keyIds),
-                           callback = std::move(callback)](XmppStatusResult ready) mutable {
+    ensureOmemoReadyAsync([this, keyIds = std::move(keyIds), callback = std::move(callback)](XmppStatusResult ready) mutable {
         if (!ready.ok) {
             callback(std::move(ready));
             return;
@@ -2695,11 +2634,7 @@ void IrisXmppBackend::trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, Status
             }
             for (const auto &keyId : keyIds) {
                 if (!omemo_->setTrustLevel(bareJid(config_), keyId, XMPP::EncryptionTrustLevel::ManuallyTrusted)) {
-                    callback({ false,
-                               false,
-                               false,
-                               QStringLiteral("Could not persist OMEMO trust"),
-                               {},
+                    callback({ false, false, false, QStringLiteral("Could not persist OMEMO trust"), {},
                                XmppErrorKind::Security });
                     return;
                 }
@@ -2782,8 +2717,8 @@ void IrisXmppBackend::requestStorageKeyFromResourceAsync(QString fullJid, AuditC
                 [this, target, callback = std::move(callback)](IrisKeySyncRequestTask *trustTask) mutable {
                     if (!trustTask || !trustTask->success() || !trustTask->trustApproved()) {
                         XmppKeyAuditResult output;
-                        output.error     = QStringLiteral("%1: OMEMO trust bootstrap failed: %2")
-                                               .arg(target.full(), firstTaskError(trustTask));
+                        output.error = QStringLiteral("%1: OMEMO trust bootstrap failed: %2")
+                                           .arg(target.full(), firstTaskError(trustTask));
                         output.errorKind = XmppErrorKind::Security;
                         callback(std::move(output));
                         return;
@@ -2851,7 +2786,7 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback)
                 if (*index >= resources.size()) {
                     listNodeItemIdsAsync(
                         config_.indexNodeName(),
-                        [this, output, errors, callback = std::move(callback)](QStringList      ids,
+                        [this, output, errors, callback = std::move(callback)](QStringList ids,
                                                                                XmppStatusResult status) mutable {
                             if (!status.ok) {
                                 static_cast<XmppStatusResult &>(*output) = std::move(status);
@@ -2950,7 +2885,7 @@ void IrisXmppBackend::scanNodeForObsoleteItemsAsync(QString nodeName, XmppEncryp
     const auto queriedNode = nodeName;
     listNodeItemIdsAsync(
         queriedNode,
-        [this, nodeName = std::move(nodeName), kind, callback = std::move(callback)](QStringList      ids,
+        [this, nodeName = std::move(nodeName), kind, callback = std::move(callback)](QStringList ids,
                                                                                      XmppStatusResult status) mutable {
             auto output = std::make_shared<XmppCleanupResult>();
             if (!status.ok) {
@@ -3210,9 +3145,9 @@ void IrisXmppBackend::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canon
                             fetchPayloadAsync(
                                 config_.contentNodeName(), id,
                                 [this, id, canonicalKey, keyring, output, next, callback,
-                                 indexPayload
-                                 = std::move(indexPayload)](std::optional<XmppEncryptedPayload> contentPayload,
-                                                            XmppStatusResult                    contentStatus) mutable {
+                                 indexPayload = std::move(indexPayload)](
+                                    std::optional<XmppEncryptedPayload> contentPayload,
+                                    XmppStatusResult                    contentStatus) mutable {
                                     if (!contentStatus.ok || !contentPayload) {
                                         if (contentStatus.notFound) {
                                             output->inaccessibleNoteIds.append(id);
@@ -3291,7 +3226,7 @@ void IrisXmppBackend::handleKeySyncTrustRequest(const QString &requestId, const 
         return;
     }
 
-    refreshOwnOmemoFingerprintsAsync([this, requestId, senderKey](QSet<quint32>    failedBundles,
+    refreshOwnOmemoFingerprintsAsync([this, requestId, senderKey](QSet<quint32> failedBundles,
                                                                   XmppStatusResult status) {
         if (!status.ok) {
             keySyncTask_->reject(requestId);
