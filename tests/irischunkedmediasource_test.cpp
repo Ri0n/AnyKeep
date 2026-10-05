@@ -10,8 +10,6 @@ using namespace AnyKeep;
 
 namespace {
 
-const QString SfsNamespace = QStringLiteral("urn:xmpp:sfs:0");
-
 QByteArray plainChecksum()
 {
     return QCryptographicHash::hash(QByteArrayLiteral("plain media payload"), QCryptographicHash::Sha256);
@@ -127,7 +125,7 @@ void IrisChunkedMediaSourceTest::rejectsNonHttpNestedTransport()
     const auto descriptor = validDescriptor();
     const auto source     = descriptor.toSource();
     const auto tampered   = mutatedSource(source, [](QDomElement &element) {
-        auto sources = directChild(element, SfsNamespace, QStringLiteral("sources"));
+        auto sources = directChild(element, XMPP::StatelessFileSharing::NS, QStringLiteral("sources"));
         QVERIFY(!sources.isNull());
         auto transport = sources.firstChildElement();
         QVERIFY(!transport.isNull());
