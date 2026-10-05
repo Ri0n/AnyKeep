@@ -17,28 +17,48 @@
 #include <QUuid>
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 namespace AnyKeep {
 namespace {
 
-    constexpr quint32 Magic       = 0x414b4a50; // AKJP
-    constexpr quint16 Version     = 1;
-    constexpr quint32 MaximumSize = 100000;
+    constexpr quint32 Magic         = 0x414b4a50; // AKJP
+    constexpr quint16 LegacyVersion = 1;
+    constexpr quint16 Version       = 2;
+    constexpr quint32 MaximumSize   = 100000;
 
     AeadContext storeContext(const XmppConfig &config)
     {
+        // Keep the outer envelope context stable so version 1 stores can be
+        // decrypted and migrated to the explicit representation format.
         return { KeyDomain::LocalRemoteCache, QStringLiteral("anykeep-jingle-publications"),
                  config.instanceId + QLatin1Char('|') + config.jid, 1, QStringLiteral("jingle-publications") };
     }
 
+    bool sameChunkedParameters(const MediaChunkWireParameters &left, const MediaChunkWireParameters &right)
+    {
+        return left.rootKey == right.rootKey && left.noncePrefix == right.noncePrefix
+            && left.plainChecksum == right.plainChecksum && left.plainSize == right.plainSize
+            && left.chunkSize == right.chunkSize;
+    }
+
     bool sameCiphertext(const IrisJingleCapability &left, const IrisJingleCapability &right)
     {
-        return left.from == right.from && left.node == right.node && left.noteId == right.noteId
-            && left.reference.id == right.reference.id && left.reference.blobId == right.reference.blobId
-            && left.reference.size == right.reference.size && left.reference.checksum == right.reference.checksum
-            && left.cipher == right.cipher && left.key == right.key && left.iv == right.iv
-            && left.cipherHash == right.cipherHash && left.wireSize == right.wireSize;
+        if (left.from != right.from || left.node != right.node || left.noteId != right.noteId
+            || left.reference.id != right.reference.id || left.reference.blobId != right.reference.blobId
+            || left.reference.size != right.reference.size || left.reference.checksum != right.reference.checksum
+            || left.representation != right.representation || left.cipherHash != right.cipherHash
+            || left.wireSize != right.wireSize) {
+            return false;
+        }
+        switch (left.representation) {
+        case IrisJingleMediaRepresentation::LegacyXep0448:
+            return left.cipher == right.cipher && left.key == right.key && left.iv == right.iv;
+        case IrisJingleMediaRepresentation::ChunkedAnyKeep:
+            return sameChunkedParameters(left.chunked, right.chunked);
+        }
+        return false;
     }
 
     bool publicationFile(const XMPP::Jingle::JinglePub &publication, XMPP::Jingle::FileTransfer::File *file)
@@ -92,20 +112,40 @@ QString IrisJingleCapability::invalidReason() const
         return QStringLiteral("media size is negative");
     if (reference.checksum.size() != 32)
         return QStringLiteral("media checksum is not SHA-256");
-    if (cipher != XMPP::StatelessFileSharing::Cipher::Aes256Gcm)
-        return QStringLiteral("media cipher is not AES-256-GCM");
-    if (key.size() != 32)
-        return QStringLiteral("media encryption key is not 32 bytes");
-    if (iv.size() != 12)
-        return QStringLiteral("media encryption IV is not 12 bytes");
     if (!cipherHash.isEmpty() && cipherHash.size() != 32)
         return QStringLiteral("ciphertext checksum is not SHA-256");
-    const auto expectedSize = XMPP::StatelessFileSharing::encryptedSize(cipher, std::uint64_t(reference.size));
-    if (!expectedSize)
-        return QStringLiteral("encrypted media size cannot be represented");
-    if (*expectedSize != wireSize)
-        return QStringLiteral("encrypted media size does not match the capability");
-    return {};
+    if (wireSize > quint64(std::numeric_limits<qint64>::max()))
+        return QStringLiteral("encrypted media size exceeds QIODevice limits");
+
+    switch (representation) {
+    case IrisJingleMediaRepresentation::LegacyXep0448: {
+        if (cipher != XMPP::StatelessFileSharing::Cipher::Aes256Gcm)
+            return QStringLiteral("media cipher is not AES-256-GCM");
+        if (key.size() != 32)
+            return QStringLiteral("media encryption key is not 32 bytes");
+        if (iv.size() != 12)
+            return QStringLiteral("media encryption IV is not 12 bytes");
+        const auto expectedSize = XMPP::StatelessFileSharing::encryptedSize(cipher, std::uint64_t(reference.size));
+        if (!expectedSize)
+            return QStringLiteral("encrypted media size cannot be represented");
+        if (*expectedSize != wireSize)
+            return QStringLiteral("encrypted media size does not match the capability");
+        return {};
+    }
+    case IrisJingleMediaRepresentation::ChunkedAnyKeep: {
+        if (cipher != XMPP::StatelessFileSharing::Cipher::Unknown || !key.isEmpty() || !iv.isEmpty())
+            return QStringLiteral("chunked media capability contains legacy cipher material");
+        if (!chunked.isValid())
+            return QStringLiteral("chunked media parameters are invalid");
+        if (chunked.plainSize != quint64(reference.size) || chunked.plainChecksum != reference.checksum)
+            return QStringLiteral("chunked media parameters do not match the plaintext reference");
+        const auto expectedSize = MediaChunkWire::wireSize(chunked);
+        if (!expectedSize || *expectedSize != wireSize)
+            return QStringLiteral("chunked media wire size does not match the capability");
+        return {};
+    }
+    }
+    return QStringLiteral("unknown media representation");
 }
 
 IrisJinglePublicationProvider::IrisJinglePublicationProvider(IrisXmppBackend *backend, XmppConfig config, QString path,
@@ -227,10 +267,13 @@ IrisJinglePublicationProvider::PrepareResult IrisJinglePublicationProvider::prep
                              << "note-id-present=" << !capability.noteId.isEmpty()
                              << "content-revision-present=" << !capability.contentRevision.isEmpty()
                              << "media-id=" << capability.reference.id.toString(QUuid::WithoutBraces)
+                             << "representation=" << int(capability.representation)
                              << "plain-size=" << capability.reference.size
                              << "checksum-size=" << capability.reference.checksum.size()
                              << "key-size=" << capability.key.size()
                              << "iv-size=" << capability.iv.size()
+                             << "chunk-key-size=" << capability.chunked.rootKey.size()
+                             << "nonce-prefix-size=" << capability.chunked.noncePrefix.size()
                              << "cipher-hash-size=" << capability.cipherHash.size()
                              << "wire-size=" << capability.wireSize;
         return { {}, QStringLiteral("Invalid durable Jingle media capability: %1").arg(reason) };
@@ -366,7 +409,7 @@ bool IrisJinglePublicationProvider::load()
     quint16 version = 0;
     quint32 count   = 0;
     in >> magic >> version >> count;
-    if (magic != Magic || version != Version || count > MaximumSize) {
+    if (magic != Magic || (version != LegacyVersion && version != Version) || count > MaximumSize) {
         error_    = QStringLiteral("Unsupported Jingle capability-store format");
         writable_ = false;
         return false;
@@ -378,8 +421,17 @@ bool IrisJinglePublicationProvider::load()
         in >> capability.publicationId >> capability.itemId >> capability.from >> capability.node >> capability.noteId
             >> capability.contentRevision >> capability.reference.id >> capability.reference.blobId
             >> capability.reference.originalName >> capability.reference.portableName >> capability.reference.mediaType
-            >> capability.reference.size >> capability.reference.checksum >> capability.reference.remoteData >> cipher
-            >> capability.key >> capability.iv >> capability.cipherHash >> capability.wireSize;
+            >> capability.reference.size >> capability.reference.checksum >> capability.reference.remoteData;
+        if (version == LegacyVersion) {
+            in >> cipher >> capability.key >> capability.iv >> capability.cipherHash >> capability.wireSize;
+            capability.representation = IrisJingleMediaRepresentation::LegacyXep0448;
+        } else {
+            quint8 representation = 0;
+            in >> representation >> cipher >> capability.key >> capability.iv >> capability.chunked.rootKey
+                >> capability.chunked.noncePrefix >> capability.chunked.plainChecksum >> capability.chunked.plainSize
+                >> capability.chunked.chunkSize >> capability.cipherHash >> capability.wireSize;
+            capability.representation = IrisJingleMediaRepresentation(representation);
+        }
         capability.cipher = XMPP::StatelessFileSharing::Cipher(cipher);
         if (!capability.isValid() || loaded.contains(capability.publicationId)) {
             error_    = QStringLiteral("Corrupt Jingle capability-store record");
@@ -411,7 +463,9 @@ bool IrisJinglePublicationProvider::persist()
             << capability.contentRevision << capability.reference.id << capability.reference.blobId
             << capability.reference.originalName << capability.reference.portableName << capability.reference.mediaType
             << capability.reference.size << capability.reference.checksum << capability.reference.remoteData
-            << quint8(capability.cipher) << capability.key << capability.iv << capability.cipherHash
+            << quint8(capability.representation) << quint8(capability.cipher) << capability.key << capability.iv
+            << capability.chunked.rootKey << capability.chunked.noncePrefix << capability.chunked.plainChecksum
+            << capability.chunked.plainSize << capability.chunked.chunkSize << capability.cipherHash
             << capability.wireSize;
     }
     const auto sealed = SecureEnvelope::seal(plain, encryptionKey_, storeContext(config_));
