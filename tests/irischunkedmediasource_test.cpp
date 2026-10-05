@@ -4,6 +4,8 @@
 #include <QDomDocument>
 #include <QtTest>
 
+#include <functional>
+
 using namespace AnyKeep;
 
 namespace {
