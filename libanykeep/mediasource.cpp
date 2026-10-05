@@ -305,12 +305,12 @@ std::unique_ptr<MediaSource> createLocalMediaSource(const MediaReference &refere
     auto *resolvedStore = store ? store : LocalMediaStore::instance();
     if (resolvedStore && !reference.blobId.isEmpty() && resolvedStore->containsManagedBlob(reference.blobId))
         return std::make_unique<LocalManagedMediaSource>(reference, resolvedStore);
-    if (resolvedStore) {
-        const auto external = resolvedStore->externalSource(reference);
-        if (external)
-            return std::make_unique<ExternalFileMediaSource>(reference, resolvedStore);
-    }
-    return std::make_unique<LocalManagedMediaSource>(reference, resolvedStore);
+
+    // A content fingerprint does not turn an external attachment into a managed
+    // blob. When no managed blob exists, preserve the external-source path so
+    // revision/integrity errors are reported by the source that owns them rather
+    // than falling through to a bogus content-addressed managed lookup.
+    return std::make_unique<ExternalFileMediaSource>(reference, resolvedStore);
 }
 
 } // namespace AnyKeep
