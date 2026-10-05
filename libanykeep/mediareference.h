@@ -21,7 +21,11 @@ struct ANYKEEP_EXPORT MediaReference {
     QVariantMap remoteData;
 
     QString uri() const;
-    bool    isValid() const { return !id.isNull() && !blobId.isEmpty() && !portableName.isEmpty(); }
+    // The attachment UUID and portable name are the stable document identity.
+    // External files may be linked before their content fingerprint has been
+    // computed, so blobId/checksum are deliberately allowed to be empty.
+    bool isValid() const { return !id.isNull() && !portableName.isEmpty(); }
+    bool hasContentFingerprint() const { return blobId.size() == 32 && checksum.size() == 32; }
 
     bool operator==(const MediaReference &other) const
     {
