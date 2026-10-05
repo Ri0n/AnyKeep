@@ -17,6 +17,11 @@ therefore have an empty `blobId` and checksum until content identity is actually
 needed for publication, promotion into managed storage, or an explicit integrity
 operation.
 
+Computing a content fingerprint does not change source ownership. An attachment
+that was linked in-place remains an external source even after `blobId` is known;
+managed-source selection requires an actual managed blob. Source factories must
+therefore not infer managed ownership from a non-empty `blobId` alone.
+
 Filesystem location and revision metadata are never portable `MediaReference`
 fields. They live in an encrypted LocalMediaStore source record keyed by the
 attachment UUID.
