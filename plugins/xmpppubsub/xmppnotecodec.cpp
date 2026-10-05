@@ -16,9 +16,11 @@ const QString XmppNoteCodec::folderNamespace          = QStringLiteral("urn:xmpp
 const QString XmppNoteCodec::favoriteNamespace        = QStringLiteral("urn:xmpp:private-notes:favorite:0");
 const QString XmppNoteCodec::contentRevisionNamespace = QStringLiteral("urn:xmpp:private-notes:content:0");
 const QString XmppNoteCodec::mediaFeature             = QStringLiteral("urn:xmpp:private-notes:media:0");
+const QString XmppNoteCodec::chunkedMediaFeature      = QStringLiteral("urn:xmpp:private-notes:media-chunks:0");
 
 namespace {
     const QString StatelessFileSharingNamespace = QStringLiteral("urn:xmpp:sfs:0");
+    const QString ChunkedMediaSourceName         = QStringLiteral("encrypted-chunks");
 
     constexpr int MaxXmlDepth      = 32;
     constexpr int MaxXmlElements   = 8192;
@@ -219,6 +221,7 @@ namespace {
         QSet<QString> unsupportedFeatures = features;
         unsupportedFeatures.remove(XmppNoteCodec::contentRevisionNamespace);
         unsupportedFeatures.remove(XmppNoteCodec::mediaFeature);
+        unsupportedFeatures.remove(XmppNoteCodec::chunkedMediaFeature);
         if (!unsupportedFeatures.isEmpty()) {
             auto list = unsupportedFeatures.values();
             std::sort(list.begin(), list.end());
@@ -258,6 +261,10 @@ namespace {
         }
         if (kind != XmppEncryptedPayload::Content && result.requiredFeatures.contains(XmppNoteCodec::mediaFeature)) {
             return { {}, corrupt(QStringLiteral("XMPP media extension is valid only for a content record")) };
+        }
+        if (kind != XmppEncryptedPayload::Content
+            && result.requiredFeatures.contains(XmppNoteCodec::chunkedMediaFeature)) {
+            return { {}, corrupt(QStringLiteral("XMPP chunked-media extension is valid only for a content record")) };
         }
         if (hasNonWhitespaceDirectText(result.root))
             return { {}, corrupt(QStringLiteral("Unexpected text in encrypted private-note XML envelope")) };
@@ -462,6 +469,26 @@ namespace {
         return locateRecord(parsed.value, kind, false);
     }
 
+    CryptoResult<bool> hasChunkedMediaSource(const QDomElement &fileSharing)
+    {
+        bool found = false;
+        const auto sourceContainers
+            = directChildren(fileSharing, StatelessFileSharingNamespace, QStringLiteral("sources"));
+        for (const auto &sources : sourceContainers) {
+            for (auto node = sources.firstChild(); !node.isNull(); node = node.nextSibling()) {
+                const auto source = node.toElement();
+                if (source.isNull() || source.namespaceURI() != XmppNoteCodec::chunkedMediaFeature)
+                    continue;
+                if (localName(source) != ChunkedMediaSourceName)
+                    return { false, corrupt(QStringLiteral("Unknown AnyKeep chunked media source element")) };
+                if (found)
+                    return { false, corrupt(QStringLiteral("XMPP media descriptor contains multiple chunked sources")) };
+                found = true;
+            }
+        }
+        return { found, {} };
+    }
+
     CryptoResult<XmppRemoteMedia> parseMediaElement(const QDomElement &element)
     {
         if (element.localName() != QStringLiteral("file-sharing")
@@ -472,6 +499,9 @@ namespace {
         const auto id     = QUuid(idText);
         if (id.isNull())
             return { {}, corrupt(QStringLiteral("XMPP media descriptor requires a UUID id")) };
+        const auto chunked = hasChunkedMediaSource(element);
+        if (!chunked)
+            return { {}, chunked.error };
 
         QDomDocument document;
         document.appendChild(document.importNode(element, true));
@@ -485,27 +515,39 @@ namespace {
     {
         const auto elements
             = directChildren(opened.record, StatelessFileSharingNamespace, QStringLiteral("file-sharing"));
-        const bool required = opened.requiredFeatures.contains(XmppNoteCodec::mediaFeature);
+        const bool mediaRequired   = opened.requiredFeatures.contains(XmppNoteCodec::mediaFeature);
+        const bool chunkedRequired = opened.requiredFeatures.contains(XmppNoteCodec::chunkedMediaFeature);
         if (elements.isEmpty()) {
-            if (required)
+            if (mediaRequired)
                 return { {}, corrupt(QStringLiteral("Required XMPP media extension has no file-sharing descriptors")) };
+            if (chunkedRequired)
+                return { {}, corrupt(QStringLiteral("Required XMPP chunked-media extension has no media descriptor")) };
             return { {}, {} };
         }
-        if (!required)
+        if (!mediaRequired)
             return { {}, corrupt(QStringLiteral("XMPP media descriptors must be declared as a required extension")) };
 
         QList<XmppRemoteMedia> result;
         QSet<QUuid>            ids;
+        bool                   hasChunked = false;
         result.reserve(elements.size());
         for (const auto &element : elements) {
             const auto parsed = parseMediaElement(element);
             if (!parsed)
                 return { {}, parsed.error };
+            const auto chunked = hasChunkedMediaSource(element);
+            if (!chunked)
+                return { {}, chunked.error };
+            hasChunked = hasChunked || chunked.value;
             if (ids.contains(parsed.value.reference.id))
                 return { {}, corrupt(QStringLiteral("Duplicate XMPP media attachment id")) };
             ids.insert(parsed.value.reference.id);
             result.append(parsed.value);
         }
+        if (hasChunked && !chunkedRequired)
+            return { {}, corrupt(QStringLiteral("XMPP chunked media sources must be declared as a required extension")) };
+        if (chunkedRequired && !hasChunked)
+            return { {}, corrupt(QStringLiteral("Required XMPP chunked-media extension has no chunked source")) };
         return { result, {} };
     }
 
@@ -557,6 +599,7 @@ namespace {
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("body"));
             removeDirectChildren(record, StatelessFileSharingNamespace, QStringLiteral("file-sharing"));
             removeRequiredFeature(root, XmppNoteCodec::mediaFeature);
+            removeRequiredFeature(root, XmppNoteCodec::chunkedMediaFeature);
         }
         return serializeXml(document);
     }
@@ -660,6 +703,7 @@ namespace {
                 createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("body"), note.content),
                 anchor);
             QSet<QUuid> mediaIds;
+            bool        hasChunkedMedia = false;
             for (const auto &media : note.media) {
                 if (mediaIds.contains(media.reference.id)) {
                     return { {},
@@ -669,9 +713,14 @@ namespace {
                 const auto imported = importMediaElement(document, media);
                 if (!imported)
                     return { {}, imported.error };
+                const auto chunked = hasChunkedMediaSource(imported.value);
+                if (!chunked)
+                    return { {}, chunked.error };
+                hasChunkedMedia = hasChunkedMedia || chunked.value;
                 mediaIds.insert(media.reference.id);
                 insertBeforeOrAppend(record, imported.value, anchor);
             }
+            setRequiredFeature(document, root, XmppNoteCodec::chunkedMediaFeature, hasChunkedMedia);
         }
 
         const auto plaintext = serializeXml(document);
