@@ -12,13 +12,16 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QImage>
+#include <QMetaObject>
 #include <QMimeData>
 #include <QMessageBox>
 #include <QPixmap>
 #include <QPushButton>
+#include <QRunnable>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QThreadPool>
 #include <QUrl>
 #include <QWidget>
 #include <QWindow>
@@ -92,6 +95,54 @@ bool DesktopEditorPlatformBackend::chooseFileImportMode(const QString &fileName,
         return true;
     }
     return false;
+}
+
+bool DesktopEditorPlatformBackend::referenceFileAsync(const QString &fileName, int row, bool attachment)
+{
+    auto *target = editor();
+    if (!target || (attachment ? !target->canInsertAttachments() : !target->canInsertMedia()))
+        return false;
+
+    auto *store = LocalMediaStore::instance();
+    QString initializeError;
+    if (!store->initialize(&initializeError)) {
+        emit operationFailed(initializeError);
+        return false;
+    }
+
+    const QPointer<DesktopEditorPlatformBackend> backend(this);
+    const QPointer<NoteEditor>                   targetEditor(target);
+    QThreadPool::globalInstance()->start(QRunnable::create([backend, targetEditor, store, fileName, row, attachment] {
+        const auto referenced = store->referenceFile(fileName);
+        if (!backend)
+            return;
+        QMetaObject::invokeMethod(
+            backend,
+            [backend, targetEditor, referenced, row, attachment]() {
+                if (!backend || !targetEditor)
+                    return;
+                if (!referenced) {
+                    emit backend->operationFailed(referenced.error);
+                    return;
+                }
+
+                if (attachment) {
+                    if (targetEditor->insertAttachment(referenced.value, row))
+                        emit backend->mediaInserted({ referenced.value });
+                    return;
+                }
+
+                if (!targetEditor->canInsertMedia())
+                    return;
+                targetEditor->beginHistoryTransaction(QStringLiteral("insert-media"));
+                const int insertionRow
+                    = row < 0 ? targetEditor->model()->rowCount() : qBound(0, row, targetEditor->model()->rowCount());
+                targetEditor->insertMedia(referenced.value, 0, 0, 0, insertionRow);
+                targetEditor->endHistoryTransaction();
+            },
+            Qt::QueuedConnection);
+    }));
+    return true;
 }
 
 void DesktopEditorPlatformBackend::saveImageAs(const QString &url)
@@ -192,6 +243,8 @@ bool DesktopEditorPlatformBackend::insertMedia(int row)
     MediaFileImportMode mode;
     if (!chooseFileImportMode(fileName, &mode))
         return false;
+    if (mode == MediaFileImportMode::KeepInPlace)
+        return referenceFileAsync(fileName, row, false);
     QString error;
     return insertMediaFiles({ fileName }, row, &error, mode);
 }
@@ -206,9 +259,9 @@ bool DesktopEditorPlatformBackend::insertAttachment(int row)
     MediaFileImportMode mode;
     if (!chooseFileImportMode(fileName, &mode))
         return false;
-    const auto imported = mode == MediaFileImportMode::KeepInPlace
-        ? LocalMediaStore::instance()->referenceFile(fileName)
-        : LocalMediaStore::instance()->importFile(fileName);
+    if (mode == MediaFileImportMode::KeepInPlace)
+        return referenceFileAsync(fileName, row, true);
+    const auto imported = LocalMediaStore::instance()->importFile(fileName);
     if (!imported) {
         emit operationFailed(imported.error);
         return false;
