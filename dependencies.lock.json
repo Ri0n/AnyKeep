@@ -1,7 +1,7 @@
 {
   "iris": {
-    "tag": "v1.1",
-    "commit": "d43fdc2a89f10240a211b14835ef9135ec2641b4"
+    "tag": "ai/export-public-api",
+    "commit": "220cf9e83c279836d58b3cbd4f5ec445eab307ab"
   },
   "qca": {
     "tag": "v3.0.7",
