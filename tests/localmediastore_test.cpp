@@ -341,6 +341,10 @@ void LocalMediaStoreTest::externalFileFingerprintInvalidatesOnSourceRevision()
     QVERIFY(!stale);
     QVERIFY(stale.error.contains(QStringLiteral("changed")));
 
+    MediaStream staleStream(createLocalMediaSource(first.value, &store));
+    QVERIFY(!staleStream.open(QIODevice::ReadOnly));
+    QVERIFY2(staleStream.errorString().contains(QStringLiteral("changed")), qPrintable(staleStream.errorString()));
+
     const auto refreshed = store.fingerprintExternalFile(linked.value);
     QVERIFY2(refreshed, qPrintable(refreshed.error));
     QVERIFY(refreshed.value.hasContentFingerprint());
@@ -359,6 +363,15 @@ void LocalMediaStoreTest::externalFileReferenceRejectsChangedChunks()
     QCOMPARE(source.write(plain), qint64(plain.size()));
     source.close();
 
+    // Normalize the source revision to whole-second precision before linking.
+    // Some CI filesystems cannot restore arbitrary millisecond mtimes exactly,
+    // but they can preserve this representable timestamp across a content edit.
+    auto stableMtime = QDateTime::currentDateTimeUtc().addSecs(-5);
+    stableMtime.setMSecsSinceEpoch((stableMtime.toMSecsSinceEpoch() / 1000) * 1000);
+    QVERIFY(source.open(QIODevice::ReadWrite));
+    QVERIFY(source.setFileTime(stableMtime, QFileDevice::FileModificationTime));
+    source.close();
+
     LocalMediaStore store(QDir(directory.path()).filePath(QStringLiteral("store")),
                           SecureEnvelope::generateMasterKey());
     const auto linked = store.referenceFile(sourcePath);
@@ -374,6 +387,7 @@ void LocalMediaStoreTest::externalFileReferenceRejectsChangedChunks()
     QCOMPARE(source.write("z", 1), qint64(1));
     QVERIFY(source.setFileTime(originalMtime, QFileDevice::FileModificationTime));
     source.close();
+    QCOMPARE(QFileInfo(sourcePath).lastModified().toMSecsSinceEpoch(), originalMtime.toMSecsSinceEpoch());
 
     MediaStream stream(createLocalMediaSource(fingerprinted.value, &store));
     QVERIFY2(stream.open(QIODevice::ReadOnly), qPrintable(stream.errorString()));
