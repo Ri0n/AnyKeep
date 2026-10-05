@@ -385,6 +385,7 @@ void LocalMediaStoreTest::externalFileReferenceRejectsChangedChunks()
     QVERIFY(source.open(QIODevice::ReadWrite));
     QVERIFY(source.seek(LocalMediaStore::ExternalChunkSize + 7));
     QCOMPARE(source.write("z", 1), qint64(1));
+    QVERIFY(source.flush());
     QVERIFY(source.setFileTime(originalMtime, QFileDevice::FileModificationTime));
     source.close();
     QCOMPARE(QFileInfo(sourcePath).lastModified().toMSecsSinceEpoch(), originalMtime.toMSecsSinceEpoch());
