@@ -154,6 +154,10 @@ add_anykeep_test(xmppnotecodec_test xmppnotecodec_test.cpp ../plugins/xmpppubsub
 target_include_directories(xmppnotecodec_test PRIVATE ../plugins/xmpppubsub)
 target_link_libraries(xmppnotecodec_test PRIVATE Qt6::Xml)
 
+add_anykeep_test(xmppchunkedmediafeature_test xmppchunkedmediafeature_test.cpp ../plugins/xmpppubsub/xmppnotecodec.cpp)
+target_include_directories(xmppchunkedmediafeature_test PRIVATE ../plugins/xmpppubsub)
+target_link_libraries(xmppchunkedmediafeature_test PRIVATE Qt6::Xml)
+
 add_anykeep_test(xmpppayloadxml_test xmpppayloadxml_test.cpp ../plugins/xmpppubsub/xmpppayloadxml.cpp)
 target_include_directories(xmpppayloadxml_test PRIVATE ../plugins/xmpppubsub)
 target_link_libraries(xmpppayloadxml_test PRIVATE Qt6::Xml)
@@ -245,7 +249,7 @@ set_tests_properties(ptfstorage_test notesindex_test fileremotecachestore_test s
                      PROPERTIES LABELS storage)
 set_tests_properties(nextcloudcategory_test nextcloudworker_test nextcloudstorage_test PROPERTIES LABELS
                                                                                                   "nextcloud;storage")
-set_tests_properties(xmppnotecodec_test xmpppayloadxml_test PROPERTIES LABELS "storage;xmpp")
+set_tests_properties(xmppnotecodec_test xmppchunkedmediafeature_test xmpppayloadxml_test PROPERTIES LABELS "storage;xmpp")
 if(TARGET xmppstorage_test)
   set_tests_properties(xmppstorage_test PROPERTIES LABELS "storage;xmpp")
 endif()
