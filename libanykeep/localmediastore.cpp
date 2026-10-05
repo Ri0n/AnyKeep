@@ -111,11 +111,13 @@ namespace {
         QMimeDatabase database;
         const auto content = database.mimeTypeForFile(fileName, QMimeDatabase::MatchContent);
         const auto suffix  = database.mimeTypeForFile(fileName, QMimeDatabase::MatchExtension);
-        if (inlineMediaType(suffix.name())
-            && (content.name().isEmpty() || content.name() == QLatin1String("application/octet-stream")
-                || !inlineMediaType(content.name()))) {
+
+        // For user-selected inline media, an explicit media extension is the
+        // stable cross-platform hint. Content sniffers can disagree on short or
+        // partially downloaded media (for example an AVI being classified as
+        // TGA on Linux), which should not silently change the media block kind.
+        if (inlineMediaType(suffix.name()))
             return suffix.name();
-        }
         if (!content.name().isEmpty())
             return content.name();
         return suffix.name().isEmpty() ? QStringLiteral("application/octet-stream") : suffix.name();
