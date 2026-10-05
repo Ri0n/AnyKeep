@@ -1,6 +1,7 @@
 #ifndef ANYKEEP_IRISJINGLEPUBLICATIONPROVIDER_H
 #define ANYKEEP_IRISJINGLEPUBLICATIONPROVIDER_H
 
+#include "mediachunkwire.h"
 #include "mediareference.h"
 #include "xmppdto.h"
 
@@ -13,6 +14,11 @@ namespace AnyKeep {
 
 class IrisXmppBackend;
 
+enum class IrisJingleMediaRepresentation : quint8 {
+    LegacyXep0448 = 1,
+    ChunkedAnyKeep = 2,
+};
+
 /** Durable local capability required to reproduce one published ciphertext. */
 struct IrisJingleCapability {
     QString                            publicationId;
@@ -22,9 +28,17 @@ struct IrisJingleCapability {
     QString                            noteId;
     QString                            contentRevision;
     MediaReference                     reference;
+    IrisJingleMediaRepresentation      representation { IrisJingleMediaRepresentation::LegacyXep0448 };
+
+    // Legacy XEP-0448 whole-object representation.
     XMPP::StatelessFileSharing::Cipher cipher { XMPP::StatelessFileSharing::Cipher::Unknown };
     QByteArray                         key;
     QByteArray                         iv;
+
+    // AnyKeep independently authenticated chunk representation.
+    MediaChunkWireParameters           chunked;
+
+    /** SHA-256 of the wire object, or empty to advertise XEP-0300 hash-used. */
     QByteArray                         cipherHash;
     quint64                            wireSize { 0 };
 
