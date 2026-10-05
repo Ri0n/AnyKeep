@@ -32,6 +32,7 @@ public:
 
 private:
     bool    chooseFileImportMode(const QString &fileName, MediaFileImportMode *mode);
+    bool    referenceFileAsync(const QString &fileName, int row, bool attachment);
     QString materializeDragImage(const MediaReference &reference, const QByteArray &data);
 
     QPointer<QWidget>              dialogParent_;
