@@ -1,8 +1,11 @@
 #include "irischunkedmediasource.h"
 
+#include "secureenvelope.h"
+
 #include <iris/xmpp_hash.h>
 
 #include <QDomDocument>
+#include <QSet>
 
 #include <limits>
 
