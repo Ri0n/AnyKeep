@@ -2,7 +2,7 @@
 
 Status: implementation in progress on `ai/chunked-media-encryption`.
 
-Implementation checkpoint: managed imports now write the `AKMC v1` container, `MediaSource` performs authenticated range reads with a one-chunk plaintext cache, and legacy whole-envelope blobs remain readable. The first CI pass exercises this local-storage boundary before remote wire-format work starts.
+Implementation checkpoint: managed imports write the `AKMC v1` container, `MediaSource` performs authenticated range reads with a one-chunk plaintext cache, and legacy whole-envelope blobs remain readable. The portable remote wire codec, strict XEP-0447 chunked-source descriptor, durable Jingle capability v2, and seekable Jingle range-serving path are now implemented; publication and receive-side range hydration are the remaining XMPP integration steps.
 
 This document refines the chunked-media stage from `media-storage-architecture.md` and separates two concerns that must not be conflated:
 
@@ -157,7 +157,7 @@ The encrypted wire object does not need to be stored as a second full local file
 - plaintext SHA-256 and geometry;
 - chunk index.
 
-HTTP Upload consumes a sequential `QIODevice` that emits these records in order. The upload pass can compute the complete wire SHA-256 while it streams. Jingle publication later exposes the exact same logical object. On `deviceRequested(offset, size)`, the provider maps the requested wire bytes to the touched chunk records, reads only the necessary plaintext chunks, reproduces those records, and slices the requested wire byte range.
+HTTP Upload consumes a sequential `QIODevice` that emits these records in order. The upload pass can compute the complete wire SHA-256 while it streams. Jingle publication later exposes the exact same logical object. On `deviceRequested(offset, size)`, the provider seeks a new `MediaChunkWireStream` directly to the negotiated wire offset. Iris owns the requested range length through its file-transfer `bytesLeft` accounting, so no second range-limiting wrapper or ciphertext copy is required.
 
 This satisfies the original requirement that HTTP and Jingle serve literally identical bytes without requiring AnyKeep to persist a second concatenated ciphertext copy. Persisting encrypted records is only an optional cache.
 
