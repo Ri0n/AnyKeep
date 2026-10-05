@@ -98,7 +98,7 @@ QString IrisJingleCapability::invalidReason() const
         return QStringLiteral("media encryption key is not 32 bytes");
     if (iv.size() != 12)
         return QStringLiteral("media encryption IV is not 12 bytes");
-    if (cipherHash.size() != 32)
+    if (!cipherHash.isEmpty() && cipherHash.size() != 32)
         return QStringLiteral("ciphertext checksum is not SHA-256");
     const auto expectedSize = XMPP::StatelessFileSharing::encryptedSize(cipher, std::uint64_t(reference.size));
     if (!expectedSize)
@@ -130,6 +130,9 @@ XMPP::Jingle::JinglePub IrisJinglePublicationProvider::publication(const IrisJin
     file.setName(capability.reference.portableName + QStringLiteral(".encrypted"));
     file.setMediaType(QStringLiteral("application/octet-stream"));
     file.setSize(capability.wireSize);
+    // Empty data intentionally serializes as XEP-0300 <hash-used/>. Iris FT
+    // then hashes the actual transfer incrementally and reports <checksum/>
+    // after the payload instead of forcing a whole-file pre-pass.
     file.addHash(XMPP::Hash(XMPP::Hash::Sha256, capability.cipherHash));
 
     QDomDocument document;
@@ -258,7 +261,9 @@ QList<XMPP::Jingle::JinglePub> IrisJinglePublicationProvider::matchingPublicatio
                                                                                    quint64           wireSize) const
 {
     QList<XMPP::Jingle::JinglePub> result;
-    QSet<QString>                  seen;
+    if (cipherHash.size() != 32)
+        return result;
+    QSet<QString> seen;
     for (const auto &publication : observed_) {
         if (!publication.isValid() || !publication.from().compare(XMPP::Jid(config_.jid), false))
             continue;
