@@ -24,12 +24,13 @@
 namespace AnyKeep {
 namespace {
     // Consumer schema passed to SecureEnvelope::associatedData(); see AeadContext::schema.
-    constexpr quint32 AeadContextSchema    = 1;
-    constexpr quint32 ExternalSourceMagic  = 0x414b4553; // AKES
-    constexpr quint16 ExternalSourceFormat = 1;
-    constexpr quint32 ManagedChunkMagic    = 0x414b4d43; // AKMC
-    constexpr quint16 ManagedChunkFormat   = 1;
-    constexpr quint32 MaxEnvelopeOverhead  = 128 * 1024;
+    constexpr quint32 AeadContextSchema           = 1;
+    constexpr quint32 ExternalSourceMagic         = 0x414b4553; // AKES
+    constexpr quint16 LegacyExternalSourceFormat  = 1;
+    constexpr quint16 ExternalSourceFormat        = 2;
+    constexpr quint32 ManagedChunkMagic           = 0x414b4d43; // AKMC
+    constexpr quint16 ManagedChunkFormat          = 1;
+    constexpr quint32 MaxEnvelopeOverhead         = 128 * 1024;
 
     struct ManagedChunkHeader {
         quint32 chunkSize { 0 };
@@ -40,9 +41,10 @@ namespace {
     };
 
     struct Fingerprint {
-        QByteArray blobId;
-        QByteArray checksum;
-        qint64     size { 0 };
+        QByteArray           blobId;
+        QByteArray           checksum;
+        qint64               size { 0 };
+        QList<QByteArray>     chunkHashes;
     };
 
     AeadContext legacyManagedContext(const QByteArray &blobId)
@@ -86,10 +88,43 @@ namespace {
                      .arg(expected) };
     }
 
-    AeadContext externalSourceContext(const QByteArray &blobId)
+    AeadContext legacyExternalSourceContext(const QByteArray &blobId)
     {
         return { KeyDomain::LocalMedia, QStringLiteral("anykeep-local-media-source"),
                  QString::fromLatin1(blobId.toHex()), AeadContextSchema, QStringLiteral("external-file") };
+    }
+
+    AeadContext externalSourceContext(const QUuid &attachmentId)
+    {
+        return { KeyDomain::LocalMedia, QStringLiteral("anykeep-local-media-source"),
+                 attachmentId.toString(QUuid::WithoutBraces), ExternalSourceFormat, QStringLiteral("external-file") };
+    }
+
+    bool inlineMediaType(const QString &type)
+    {
+        return type.startsWith(QLatin1String("image/")) || type.startsWith(QLatin1String("audio/"))
+            || type.startsWith(QLatin1String("video/"));
+    }
+
+    QString mediaTypeForFile(const QString &fileName)
+    {
+        QMimeDatabase database;
+        const auto content = database.mimeTypeForFile(fileName, QMimeDatabase::MatchContent);
+        const auto suffix  = database.mimeTypeForFile(fileName, QMimeDatabase::MatchExtension);
+        if (inlineMediaType(suffix.name())
+            && (content.name().isEmpty() || content.name() == QLatin1String("application/octet-stream")
+                || !inlineMediaType(content.name()))) {
+            return suffix.name();
+        }
+        if (!content.name().isEmpty())
+            return content.name();
+        return suffix.name().isEmpty() ? QStringLiteral("application/octet-stream") : suffix.name();
+    }
+
+    bool sourceRevisionMatches(const LocalMediaExternalSource &source, const QFileInfo &file)
+    {
+        return file.isFile() && file.size() == source.size
+            && file.lastModified().toMSecsSinceEpoch() == source.modifiedMsecsSinceEpoch;
     }
 
     QByteArray serializeManagedHeaderDescriptor(const ManagedChunkHeader &header)
@@ -107,9 +142,29 @@ namespace {
         QByteArray bytes;
         QDataStream out(&bytes, QIODevice::WriteOnly);
         out.setVersion(QDataStream::Qt_5_10);
-        out << ExternalSourceMagic << ExternalSourceFormat << source.fileName << source.size << source.checksum
-            << source.modifiedMsecsSinceEpoch << source.chunkSize << source.chunkHashes;
+        out << ExternalSourceMagic << ExternalSourceFormat << source.fileName << source.size
+            << source.modifiedMsecsSinceEpoch << source.blobId << source.checksum << source.chunkSize
+            << source.chunkHashes;
         return bytes;
+    }
+
+    bool validateExternalFingerprint(const LocalMediaExternalSource &source)
+    {
+        if (source.blobId.isEmpty() && source.checksum.isEmpty() && source.chunkHashes.isEmpty())
+            return source.chunkSize == LocalMediaStore::ExternalChunkSize;
+        if (source.blobId.size() != 32 || source.checksum.size() != 32
+            || source.chunkSize != LocalMediaStore::ExternalChunkSize) {
+            return false;
+        }
+        const qint64 expectedChunks
+            = source.size == 0 ? 0 : (source.size + qint64(source.chunkSize) - 1) / qint64(source.chunkSize);
+        if (source.chunkHashes.size() != expectedChunks)
+            return false;
+        for (const auto &hash : source.chunkHashes) {
+            if (hash.size() != 32)
+                return false;
+        }
+        return true;
     }
 
     bool deserializeExternalSource(const QByteArray &bytes, LocalMediaExternalSource *source)
@@ -120,25 +175,27 @@ namespace {
         quint16 version = 0;
         QDataStream in(bytes);
         in.setVersion(QDataStream::Qt_5_10);
-        in >> magic >> version >> source->fileName >> source->size >> source->checksum
-            >> source->modifiedMsecsSinceEpoch >> source->chunkSize >> source->chunkHashes;
-        if (magic != ExternalSourceMagic || version != ExternalSourceFormat || in.status() != QDataStream::Ok
-            || !in.atEnd() || source->fileName.isEmpty() || source->size < 0 || source->checksum.size() != 32
-            || source->chunkSize == 0) {
+        in >> magic >> version;
+        if (magic != ExternalSourceMagic)
+            return false;
+        if (version == LegacyExternalSourceFormat) {
+            in >> source->fileName >> source->size >> source->checksum >> source->modifiedMsecsSinceEpoch
+                >> source->chunkSize >> source->chunkHashes;
+        } else if (version == ExternalSourceFormat) {
+            in >> source->fileName >> source->size >> source->modifiedMsecsSinceEpoch >> source->blobId
+                >> source->checksum >> source->chunkSize >> source->chunkHashes;
+        } else {
             return false;
         }
-        const qint64 expectedChunks
-            = source->size == 0 ? 0 : (source->size + qint64(source->chunkSize) - 1) / qint64(source->chunkSize);
-        if (source->chunkHashes.size() != expectedChunks)
+        if (in.status() != QDataStream::Ok || !in.atEnd() || source->fileName.isEmpty() || source->size < 0
+            || !validateExternalFingerprint(*source)) {
             return false;
-        for (const auto &hash : source->chunkHashes) {
-            if (hash.size() != 32)
-                return false;
         }
         return true;
     }
 
-    bool fingerprintDevice(QIODevice &device, const QByteArray &idKey, Fingerprint *fingerprint, QString *error)
+    bool fingerprintDevice(QIODevice &device, const QByteArray &idKey, Fingerprint *fingerprint, QString *error,
+                           bool keepChunkHashes = false)
     {
         if (!fingerprint || idKey.isEmpty()) {
             if (error)
@@ -166,6 +223,8 @@ namespace {
             total += chunk.size();
             blobHash.addData(chunk);
             checksumHash.addData(chunk);
+            if (keepChunkHashes)
+                fingerprint->chunkHashes.append(QCryptographicHash::hash(chunk, QCryptographicHash::Sha256));
         }
         fingerprint->blobId   = blobHash.result();
         fingerprint->checksum = checksumHash.result();
@@ -437,7 +496,15 @@ QString LocalMediaStore::blobPath(const QByteArray &blobId) const
         + QString::fromLatin1(hex.mid(2, 2)) + QLatin1Char('/') + QString::fromLatin1(hex) + QStringLiteral(".blob");
 }
 
-QString LocalMediaStore::externalSourcePath(const QByteArray &blobId) const
+QString LocalMediaStore::externalSourcePath(const QUuid &attachmentId) const
+{
+    const auto id   = attachmentId.toString(QUuid::WithoutBraces);
+    const auto root = rootPath_.isEmpty() ? Utils::anykeepDataDir() + QStringLiteral("/media") : rootPath_;
+    return root + QStringLiteral("/external/by-id/") + id.left(2) + QLatin1Char('/') + id.mid(2, 2) + QLatin1Char('/')
+        + id + QStringLiteral(".source");
+}
+
+QString LocalMediaStore::legacyExternalSourcePath(const QByteArray &blobId) const
 {
     const auto hex  = blobId.toHex();
     const auto root = rootPath_.isEmpty() ? Utils::anykeepDataDir() + QStringLiteral("/media") : rootPath_;
@@ -507,7 +574,7 @@ LocalMediaResult LocalMediaStore::importFile(const QString &fileName, const QUui
     const QFileInfo before(fileName);
     if (!before.isFile())
         return { {}, QStringLiteral("The selected media source is not a regular file") };
-    const QString mediaType = QMimeDatabase().mimeTypeForFile(before.absoluteFilePath(), QMimeDatabase::MatchContent).name();
+    const QString mediaType = mediaTypeForFile(before.absoluteFilePath());
 
     QFile file(before.absoluteFilePath());
     if (!file.open(QIODevice::ReadOnly))
@@ -561,11 +628,49 @@ LocalMediaResult LocalMediaStore::importFile(const QString &fileName, const QUui
 
 LocalMediaResult LocalMediaStore::referenceFile(const QString &fileName, const QUuid &attachmentId)
 {
-    const QFileInfo before(fileName);
-    if (!before.isFile())
+    const QFileInfo file(fileName);
+    if (!file.isFile())
         return { {}, QStringLiteral("The selected media source is not a regular file") };
 
-    const QString mediaType = QMimeDatabase().mimeTypeForFile(before.absoluteFilePath(), QMimeDatabase::MatchContent).name();
+    MediaReference reference;
+    reference.id           = attachmentId.isNull() ? QUuid::createUuid() : attachmentId;
+    reference.originalName = file.fileName();
+    reference.portableName = Utils::portableFileName(reference.originalName, QStringLiteral("attachment"));
+    reference.mediaType    = mediaTypeForFile(file.absoluteFilePath());
+    reference.size         = file.size();
+
+    LocalMediaExternalSource source;
+    source.fileName                = file.canonicalFilePath().isEmpty() ? file.absoluteFilePath() : file.canonicalFilePath();
+    source.size                    = file.size();
+    source.modifiedMsecsSinceEpoch = file.lastModified().toMSecsSinceEpoch();
+    source.chunkSize               = quint32(ExternalChunkSize);
+    if (const QString sourceError = writeExternalSource(reference.id, source); !sourceError.isEmpty())
+        return { {}, sourceError };
+    return { reference, {} };
+}
+
+LocalMediaResult LocalMediaStore::fingerprintExternalFile(const MediaReference &reference)
+{
+    if (!reference.isValid())
+        return { {}, QStringLiteral("Invalid media reference") };
+    auto loaded = loadExternalSource(reference);
+    if (!loaded)
+        return { {}, loaded.error };
+
+    auto source = loaded.value;
+    QFileInfo before(source.fileName);
+    if (!before.isFile())
+        return { {}, QStringLiteral("The external media source is no longer available") };
+
+    // A changed source revision invalidates cached hashes. Re-fingerprint the
+    // current file rather than trusting hashes computed for an older revision.
+    if (sourceRevisionMatches(source, before) && source.hasFingerprint()) {
+        auto enriched     = reference;
+        enriched.size     = source.size;
+        enriched.blobId   = source.blobId;
+        enriched.checksum = source.checksum;
+        return { enriched, {} };
+    }
 
     QFile file(before.absoluteFilePath());
     if (!file.open(QIODevice::ReadOnly))
@@ -577,49 +682,32 @@ LocalMediaResult LocalMediaStore::referenceFile(const QString &fileName, const Q
         return { {}, keyError };
     const auto idKey = SecureEnvelope::deriveKey(key, KeyDomain::LocalMedia);
 
-    QMessageAuthenticationCode blobHash(QCryptographicHash::Sha256, idKey);
-    QCryptographicHash checksumHash(QCryptographicHash::Sha256);
-    QList<QByteArray> chunkHashes;
-    qint64 total = 0;
-    while (!file.atEnd()) {
-        const QByteArray chunk = file.read(ExternalChunkSize);
-        if (chunk.isEmpty() && file.error() != QFileDevice::NoError)
-            return { {}, file.errorString() };
-        if (chunk.isEmpty())
-            break;
-        total += chunk.size();
-        blobHash.addData(chunk);
-        checksumHash.addData(chunk);
-        chunkHashes.append(QCryptographicHash::hash(chunk, QCryptographicHash::Sha256));
-    }
-
+    Fingerprint fingerprint;
+    QString fingerprintError;
+    if (!fingerprintDevice(file, idKey, &fingerprint, &fingerprintError, true))
+        return { {}, fingerprintError };
     const QFileInfo after(before.absoluteFilePath());
-    if (total != before.size() || after.size() != before.size()
+    if (fingerprint.size != before.size() || after.size() != before.size()
         || after.lastModified() != before.lastModified()) {
-        return { {}, QStringLiteral("The selected media source changed while it was being linked") };
+        return { {}, QStringLiteral("The external media source changed while it was being fingerprinted") };
     }
 
-    const QByteArray blobId = blobHash.result();
-    LocalMediaExternalSource source;
     source.fileName                = after.canonicalFilePath().isEmpty() ? after.absoluteFilePath()
-                                                                        : after.canonicalFilePath();
-    source.size                    = total;
-    source.checksum                = checksumHash.result();
+                                                                       : after.canonicalFilePath();
+    source.size                    = fingerprint.size;
     source.modifiedMsecsSinceEpoch = after.lastModified().toMSecsSinceEpoch();
+    source.blobId                  = fingerprint.blobId;
+    source.checksum                = fingerprint.checksum;
     source.chunkSize               = quint32(ExternalChunkSize);
-    source.chunkHashes             = std::move(chunkHashes);
-    if (const QString sourceError = writeExternalSource(blobId, source); !sourceError.isEmpty())
+    source.chunkHashes             = std::move(fingerprint.chunkHashes);
+    if (const QString sourceError = writeExternalSource(reference.id, source); !sourceError.isEmpty())
         return { {}, sourceError };
 
-    MediaReference reference;
-    reference.id           = attachmentId.isNull() ? QUuid::createUuid() : attachmentId;
-    reference.blobId       = blobId;
-    reference.originalName = after.fileName();
-    reference.portableName = Utils::portableFileName(reference.originalName, QStringLiteral("attachment"));
-    reference.mediaType    = mediaType;
-    reference.size         = source.size;
-    reference.checksum     = source.checksum;
-    return { reference, {} };
+    auto enriched     = reference;
+    enriched.size     = source.size;
+    enriched.blobId   = source.blobId;
+    enriched.checksum = source.checksum;
+    return { enriched, {} };
 }
 
 LocalMediaResult LocalMediaStore::importData(const QByteArray &plain, const QString &originalName,
@@ -663,17 +751,19 @@ LocalMediaResult LocalMediaStore::importData(const QByteArray &plain, const QStr
     return { reference, {} };
 }
 
-QString LocalMediaStore::writeExternalSource(const QByteArray &blobId, const LocalMediaExternalSource &source) const
+QString LocalMediaStore::writeExternalSource(const QUuid &attachmentId, const LocalMediaExternalSource &source) const
 {
+    if (attachmentId.isNull())
+        return QStringLiteral("Invalid external media attachment id");
     QString keyError;
     const auto key = masterKey(&keyError);
     if (key.isEmpty())
         return keyError;
-    const auto sealed = SecureEnvelope::seal(serializeExternalSource(source), key, externalSourceContext(blobId));
+    const auto sealed = SecureEnvelope::seal(serializeExternalSource(source), key, externalSourceContext(attachmentId));
     if (!sealed)
         return sealed.error.message;
 
-    const QString path = externalSourcePath(blobId);
+    const QString path = externalSourcePath(attachmentId);
     if (!QDir().mkpath(QFileInfo(path).absolutePath()))
         return QStringLiteral("Failed to create local media source directory");
     QSaveFile file(path);
@@ -686,41 +776,65 @@ QString LocalMediaStore::writeExternalSource(const QByteArray &blobId, const Loc
     return {};
 }
 
-LocalMediaExternalSourceResult LocalMediaStore::loadExternalSource(const QByteArray &blobId) const
+LocalMediaExternalSourceResult LocalMediaStore::loadExternalSource(const MediaReference &reference) const
 {
     QString keyError;
     const auto key = masterKey(&keyError);
     if (key.isEmpty())
         return { {}, keyError };
 
-    QFile file(externalSourcePath(blobId));
-    if (!file.open(QIODevice::ReadOnly))
-        return { {}, file.errorString() };
-    const auto opened = SecureEnvelope::open(file.readAll(), key, externalSourceContext(blobId));
+    if (!reference.id.isNull()) {
+        QFile file(externalSourcePath(reference.id));
+        if (file.open(QIODevice::ReadOnly)) {
+            const auto opened = SecureEnvelope::open(file.readAll(), key, externalSourceContext(reference.id));
+            if (!opened)
+                return { {}, opened.error.message };
+            LocalMediaExternalSource source;
+            if (!deserializeExternalSource(opened.value, &source))
+                return { {}, QStringLiteral("Invalid external media source metadata") };
+            return { source, {} };
+        }
+    }
+
+    // Compatibility with the pre-lazy external-source format, which keyed the
+    // encrypted locator by the already-computed content blob id.
+    if (reference.blobId.isEmpty())
+        return { {}, QStringLiteral("External media source metadata is unavailable") };
+    QFile legacy(legacyExternalSourcePath(reference.blobId));
+    if (!legacy.open(QIODevice::ReadOnly))
+        return { {}, legacy.errorString() };
+    const auto opened = SecureEnvelope::open(legacy.readAll(), key, legacyExternalSourceContext(reference.blobId));
     if (!opened)
         return { {}, opened.error.message };
-
     LocalMediaExternalSource source;
     if (!deserializeExternalSource(opened.value, &source))
         return { {}, QStringLiteral("Invalid external media source metadata") };
+    if (source.blobId.isEmpty())
+        source.blobId = reference.blobId;
     return { source, {} };
 }
 
 LocalMediaExternalSourceResult LocalMediaStore::externalSource(const MediaReference &reference) const
 {
-    if (!reference.isValid() || reference.size < 0 || reference.checksum.size() != 32)
+    if (!reference.isValid() || reference.size < 0)
         return { {}, QStringLiteral("Invalid media reference") };
-    auto source = loadExternalSource(reference.blobId);
+    auto source = loadExternalSource(reference);
     if (!source)
         return source;
-    if (source.value.size != reference.size || source.value.checksum != reference.checksum)
+    if (source.value.size != reference.size)
         return { {}, QStringLiteral("External media source does not match its reference") };
+    if (!reference.blobId.isEmpty() && !source.value.blobId.isEmpty() && source.value.blobId != reference.blobId)
+        return { {}, QStringLiteral("External media source identity does not match its reference") };
+    if (!reference.checksum.isEmpty() && !source.value.checksum.isEmpty()
+        && source.value.checksum != reference.checksum) {
+        return { {}, QStringLiteral("External media source checksum does not match its reference") };
+    }
 
     const QFileInfo file(source.value.fileName);
     if (!file.isFile())
         return { {}, QStringLiteral("The external media source is no longer available") };
-    if (file.size() != source.value.size)
-        return { {}, QStringLiteral("The external media source changed size") };
+    if (!sourceRevisionMatches(source.value, file))
+        return { {}, QStringLiteral("The external media source changed since it was linked") };
     return source;
 }
 
@@ -801,6 +915,48 @@ LocalMediaRangeResult LocalMediaStore::readManagedRange(const QByteArray &blobId
     return { result, totalSize, {} };
 }
 
+LocalMediaDataResult LocalMediaStore::data(const MediaReference &reference) const
+{
+    if (!reference.blobId.isEmpty() && containsManagedBlob(reference.blobId))
+        return data(reference.blobId);
+
+    const auto source = externalSource(reference);
+    if (!source)
+        return { {}, source.error };
+    if (source.value.size > qint64(std::numeric_limits<qsizetype>::max()))
+        return { {}, QStringLiteral("The external media source is too large to materialize in memory") };
+
+    QFile file(source.value.fileName);
+    if (!file.open(QIODevice::ReadOnly))
+        return { {}, file.errorString() };
+    QByteArray result;
+    result.reserve(qsizetype(source.value.size));
+    QCryptographicHash checksum(QCryptographicHash::Sha256);
+    qsizetype index = 0;
+    qint64 total = 0;
+    while (total < source.value.size) {
+        const qint64 expected = qMin<qint64>(ExternalChunkSize, source.value.size - total);
+        const QByteArray chunk = file.read(expected);
+        if (chunk.size() != expected)
+            return { {}, file.errorString().isEmpty() ? QStringLiteral("Could not read external media source")
+                                                      : file.errorString() };
+        if (source.value.hasFingerprint()
+            && QCryptographicHash::hash(chunk, QCryptographicHash::Sha256) != source.value.chunkHashes.at(index)) {
+            return { {}, QStringLiteral("The external media source changed since it was fingerprinted") };
+        }
+        checksum.addData(chunk);
+        result.append(chunk);
+        total += chunk.size();
+        ++index;
+    }
+    const QFileInfo after(source.value.fileName);
+    if (!sourceRevisionMatches(source.value, after))
+        return { {}, QStringLiteral("The external media source changed while it was being read") };
+    if (source.value.hasFingerprint() && checksum.result() != source.value.checksum)
+        return { {}, QStringLiteral("The external media source failed its integrity check") };
+    return { result, {} };
+}
+
 LocalMediaDataResult LocalMediaStore::data(const QByteArray &blobId) const
 {
     QFile managed(blobPath(blobId));
@@ -824,44 +980,44 @@ LocalMediaDataResult LocalMediaStore::data(const QByteArray &blobId) const
         return openLegacyManagedBlob(managed, key, blobId);
     }
 
-    const auto source = loadExternalSource(blobId);
+    // Legacy external sources were content-addressed. New lazy external sources
+    // require the MediaReference overload because their attachment id is the
+    // local locator key before a blob id exists.
+    MediaReference legacyReference;
+    legacyReference.id           = QUuid::createUuid();
+    legacyReference.blobId       = blobId;
+    legacyReference.portableName = QStringLiteral("legacy-external");
+    auto source = loadExternalSource(legacyReference);
     if (!source)
         return { {}, source.error };
-    QFile file(source.value.fileName);
-    if (!file.open(QIODevice::ReadOnly))
-        return { {}, file.errorString() };
-    if (file.size() != source.value.size)
-        return { {}, QStringLiteral("The external media source changed size") };
-    if (source.value.size > qint64(std::numeric_limits<qsizetype>::max()))
-        return { {}, QStringLiteral("The external media source is too large to materialize in memory") };
-
-    QByteArray result;
-    result.reserve(qsizetype(source.value.size));
-    QCryptographicHash checksum(QCryptographicHash::Sha256);
-    for (qsizetype index = 0; index < source.value.chunkHashes.size(); ++index) {
-        const qint64 remaining = source.value.size - qint64(index) * qint64(source.value.chunkSize);
-        const qint64 expected  = qMin<qint64>(source.value.chunkSize, remaining);
-        const QByteArray chunk = file.read(expected);
-        if (chunk.size() != expected)
-            return { {}, file.errorString().isEmpty() ? QStringLiteral("Could not read external media source")
-                                                      : file.errorString() };
-        if (QCryptographicHash::hash(chunk, QCryptographicHash::Sha256) != source.value.chunkHashes.at(index))
-            return { {}, QStringLiteral("The external media source changed since it was linked") };
-        checksum.addData(chunk);
-        result.append(chunk);
-    }
-    if (result.size() != source.value.size || checksum.result() != source.value.checksum)
-        return { {}, QStringLiteral("The external media source failed its integrity check") };
-    return { result, {} };
+    legacyReference.size     = source.value.size;
+    legacyReference.checksum = source.value.checksum;
+    return data(legacyReference);
 }
 
-bool LocalMediaStore::containsManagedBlob(const QByteArray &blobId) const { return QFileInfo::exists(blobPath(blobId)); }
+bool LocalMediaStore::containsManagedBlob(const QByteArray &blobId) const
+{
+    return !blobId.isEmpty() && QFileInfo::exists(blobPath(blobId));
+}
+
+bool LocalMediaStore::contains(const MediaReference &reference) const
+{
+    if (!reference.blobId.isEmpty() && containsManagedBlob(reference.blobId))
+        return true;
+    return bool(externalSource(reference));
+}
 
 bool LocalMediaStore::contains(const QByteArray &blobId) const
 {
     if (containsManagedBlob(blobId))
         return true;
-    const auto source = loadExternalSource(blobId);
+    if (blobId.isEmpty())
+        return false;
+    MediaReference legacyReference;
+    legacyReference.id           = QUuid::createUuid();
+    legacyReference.blobId       = blobId;
+    legacyReference.portableName = QStringLiteral("legacy-external");
+    const auto source = loadExternalSource(legacyReference);
     return source && QFileInfo(source.value.fileName).isFile()
         && QFileInfo(source.value.fileName).size() == source.value.size;
 }
