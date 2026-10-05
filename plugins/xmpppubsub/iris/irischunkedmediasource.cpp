@@ -16,9 +16,6 @@ const QString IrisChunkedMediaSource::ElementName = QStringLiteral("encrypted-ch
 
 namespace {
 
-const QString HashNamespace = QStringLiteral("urn:xmpp:hashes:2");
-const QString SfsNamespace  = QStringLiteral("urn:xmpp:sfs:0");
-
 QString localName(const QDomElement &element)
 {
     const auto local = element.localName();
@@ -182,8 +179,9 @@ IrisChunkedMediaSource::fromSource(const XMPP::StatelessFileSharing::Source &sou
 
     const auto keys          = directChildren(element, Namespace, QStringLiteral("key"));
     const auto noncePrefixes = directChildren(element, Namespace, QStringLiteral("nonce-prefix"));
-    const auto hashes        = directChildren(element, HashNamespace, QStringLiteral("hash"));
-    const auto sourceLists   = directChildren(element, SfsNamespace, QStringLiteral("sources"));
+    const auto hashes        = directChildren(element, XMPP::HASH_NS, QStringLiteral("hash"));
+    const auto sourceLists
+        = directChildren(element, XMPP::StatelessFileSharing::NS, QStringLiteral("sources"));
     if (keys.size() != 1 || noncePrefixes.size() != 1 || hashes.size() > 1 || sourceLists.size() != 1)
         return { {}, QStringLiteral("Chunked media source has invalid child cardinality") };
 
@@ -201,8 +199,9 @@ IrisChunkedMediaSource::fromSource(const XMPP::StatelessFileSharing::Source &sou
         const bool known = (child.namespaceURI() == Namespace
                             && (localName(child) == QStringLiteral("key")
                                 || localName(child) == QStringLiteral("nonce-prefix")))
-            || (child.namespaceURI() == HashNamespace && localName(child) == QStringLiteral("hash"))
-            || (child.namespaceURI() == SfsNamespace && localName(child) == QStringLiteral("sources"));
+            || (child.namespaceURI() == XMPP::HASH_NS && localName(child) == QStringLiteral("hash"))
+            || (child.namespaceURI() == XMPP::StatelessFileSharing::NS
+                && localName(child) == QStringLiteral("sources"));
         if (!known)
             return { {}, QStringLiteral("Chunked media source contains an unsupported child element") };
     }
