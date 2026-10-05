@@ -161,7 +161,7 @@ void DesktopEditorPlatformBackend::saveImageAs(const QString &url)
         emit operationFailed(tr("The image data is not available locally."));
         return;
     }
-    const auto loaded = LocalMediaStore::instance()->data(reference->blobId);
+    const auto loaded = LocalMediaStore::instance()->data(*reference);
     if (!loaded) {
         emit operationFailed(tr("Could not read the image: %1").arg(loaded.error));
         return;
@@ -202,7 +202,7 @@ bool DesktopEditorPlatformBackend::startImageDrag(int row)
     QByteArray            imageData;
     const MediaReference *reference = fragment.media.isEmpty() ? nullptr : &fragment.media.constFirst().reference;
     if (reference) {
-        const auto loaded = LocalMediaStore::instance()->data(reference->blobId);
+        const auto loaded = LocalMediaStore::instance()->data(*reference);
         if (loaded)
             imageData = loaded.value;
     }
@@ -237,7 +237,7 @@ bool DesktopEditorPlatformBackend::insertMedia(int row)
         return false;
     const QString fileName
         = QFileDialog::getOpenFileName(dialogParent_, tr("Insert media"), QString(),
-                                       tr("Media files (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg *.mp3 *.wav *.ogg *.flac *.m4a *.aac *.mp4 *.m4v *.webm *.mov *.mkv);;All files (*)"));
+                                       tr("Media files (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg *.mp3 *.wav *.ogg *.flac *.m4a *.aac *.mp4 *.m4v *.webm *.mov *.mkv *.avi);;All files (*)"));
     if (fileName.isEmpty())
         return false;
     MediaFileImportMode mode;
@@ -284,7 +284,7 @@ void DesktopEditorPlatformBackend::openAttachment(const QString &url)
         emit operationFailed(tr("The attached file is not available locally."));
         return;
     }
-    const auto loaded = LocalMediaStore::instance()->data(reference->blobId);
+    const auto loaded = LocalMediaStore::instance()->data(*reference);
     if (!loaded) {
         emit operationFailed(tr("Could not read the attached file: %1").arg(loaded.error));
         return;
@@ -329,7 +329,7 @@ void DesktopEditorPlatformBackend::saveAttachmentAs(const QString &url)
         emit operationFailed(tr("The attached file is not available locally."));
         return;
     }
-    const auto loaded = LocalMediaStore::instance()->data(reference->blobId);
+    const auto loaded = LocalMediaStore::instance()->data(*reference);
     if (!loaded) {
         emit operationFailed(tr("Could not read the attached file: %1").arg(loaded.error));
         return;
