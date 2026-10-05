@@ -5,6 +5,7 @@
 
 #include <QCryptographicHash>
 #include <QFile>
+#include <QFileInfo>
 
 #include <cstring>
 #include <utility>
@@ -21,7 +22,7 @@ public:
 
     bool open(QString *error) override
     {
-        if (!store_ || !reference_.isValid()) {
+        if (!store_ || !reference_.isValid() || reference_.blobId.isEmpty()) {
             if (error)
                 *error = QStringLiteral("Invalid local media source");
             return false;
@@ -244,9 +245,23 @@ private:
     {
         if (index == verifiedChunkIndex_)
             return true;
-        if (index < 0 || index >= source_.chunkHashes.size()) {
+        const qint64 chunkCount = source_.size == 0
+            ? 0
+            : (source_.size + qint64(source_.chunkSize) - 1) / qint64(source_.chunkSize);
+        if (index < 0 || index >= chunkCount) {
             if (error)
                 *error = QStringLiteral("External media source chunk is out of range");
+            return false;
+        }
+
+        // SourceRevision is the cheap guard for a cached fingerprint. It also
+        // protects lazy, not-yet-fingerprinted playback from silently switching
+        // to a different file while the stream is open.
+        const QFileInfo current(source_.fileName);
+        if (!current.isFile() || current.size() != source_.size
+            || current.lastModified().toMSecsSinceEpoch() != source_.modifiedMsecsSinceEpoch) {
+            if (error)
+                *error = QStringLiteral("The external media source changed since it was linked");
             return false;
         }
 
@@ -264,9 +279,10 @@ private:
                                                        : file_.errorString();
             return false;
         }
-        if (QCryptographicHash::hash(chunk, QCryptographicHash::Sha256) != source_.chunkHashes.at(index)) {
+        if (source_.hasFingerprint()
+            && QCryptographicHash::hash(chunk, QCryptographicHash::Sha256) != source_.chunkHashes.at(index)) {
             if (error)
-                *error = QStringLiteral("The external media source changed since it was linked");
+                *error = QStringLiteral("The external media source changed since it was fingerprinted");
             return false;
         }
         verifiedChunkIndex_ = index;
@@ -287,7 +303,7 @@ private:
 std::unique_ptr<MediaSource> createLocalMediaSource(const MediaReference &reference, LocalMediaStore *store)
 {
     auto *resolvedStore = store ? store : LocalMediaStore::instance();
-    if (resolvedStore && resolvedStore->containsManagedBlob(reference.blobId))
+    if (resolvedStore && !reference.blobId.isEmpty() && resolvedStore->containsManagedBlob(reference.blobId))
         return std::make_unique<LocalManagedMediaSource>(reference, resolvedStore);
     if (resolvedStore) {
         const auto external = resolvedStore->externalSource(reference);
