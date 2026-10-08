@@ -15,7 +15,6 @@
 #include <QTimer>
 #include <QtCrypto>
 #include <QtTest>
-#include <iris/jingle-ice.h>
 #include <iris/jingle-session.h>
 #include <iris/xmpp.h>
 #include <iris/xmpp_client.h>
@@ -88,7 +87,11 @@ private slots:
                         QVERIFY(content->transport());
                         const auto ns = content->transport()->pad()->ns();
                         if (transportProfile == QStringLiteral("ice"))
-                            QVERIFY(ns == XMPP::Jingle::ICE::NS || ns == XMPP::Jingle::ICE::NS_ICE_UDP);
+                            // Iris v1.1.2 exposes these public protocol constants in headers but does not export
+                            // the corresponding QString data symbols from the Windows DLL. Keep this live-test
+                            // assertion source-compatible with that release; Iris #113 exports the symbols.
+                            QVERIFY(ns == QStringLiteral("urn:xmpp:jingle:transports:ice:0")
+                                    || ns == QStringLiteral("urn:xmpp:jingle:transports:ice-udp:1"));
                         qCInfo(lcProgressiveLive) << "LIVE_RANGE_TRANSPORT" << ns;
                     }
                 });
