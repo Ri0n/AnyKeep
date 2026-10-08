@@ -48,34 +48,34 @@ runs:
       id: setup-ndk
       uses: nttld/setup-ndk@v1
       with:
-        ndk-version: \${{ inputs.ndk-version }}
+        ndk-version: ${{ inputs.ndk-version }}
 
     - name: Install Qt Android
       uses: jurplel/install-qt-action@v4
       with:
-        version: \${{ inputs.qt-version }}
+        version: ${{ inputs.qt-version }}
         host: all_os
         target: android
-        arch: \${{ inputs.qt-arch }}
+        arch: ${{ inputs.qt-arch }}
         modules: qtmultimedia qttasktree
-        aqtsource: \${{ inputs.aqt-source }}
+        aqtsource: ${{ inputs.aqt-source }}
         cache: true
 
     - name: Download QCA/Iris/QtKeychain SDKs
       shell: bash
       env:
-        GH_TOKEN: \${{ inputs.github-token }}
+        GH_TOKEN: ${{ inputs.github-token }}
       run: |
         set -euo pipefail
         mkdir -p qca-sdk iris-sdk qtkeychain-sdk
 
-        gh release download "\${{ inputs.qca-tag }}" --repo psi-im/qca \
-          -p "qca3-qt6-android-\${{ inputs.abi }}.zip" -O qca.zip
-        gh release download "\${{ inputs.iris-tag }}" --repo psi-im/iris \
-          -p "iris-qt6-android-\${{ inputs.abi }}.zip" -O iris.zip
+        gh release download "${{ inputs.qca-tag }}" --repo psi-im/qca \
+          -p "qca3-qt6-android-${{ inputs.abi }}.zip" -O qca.zip
+        gh release download "${{ inputs.iris-tag }}" --repo psi-im/iris \
+          -p "iris-qt6-android-${{ inputs.abi }}.zip" -O iris.zip
 
-        qtkeychain_asset="qtkeychain-\${{ inputs.qtkeychain-version }}-\${{ inputs.qtkeychain-revision }}-qt6.11-android-\${{ inputs.abi }}.tar.gz"
-        gh release download "\${{ inputs.qtkeychain-tag }}" --repo "$GITHUB_REPOSITORY" \
+        qtkeychain_asset="qtkeychain-${{ inputs.qtkeychain-version }}-${{ inputs.qtkeychain-revision }}-qt6.11-android-${{ inputs.abi }}.tar.gz"
+        gh release download "${{ inputs.qtkeychain-tag }}" --repo "$GITHUB_REPOSITORY" \
           -p "$qtkeychain_asset" -O qtkeychain.tar.gz
 
         (cd qca-sdk && cmake -E tar xvf ../qca.zip)
@@ -92,22 +92,22 @@ runs:
       run: |
         set -euo pipefail
         git clone --filter=blob:none --no-checkout https://github.com/KDAB/android_openssl.git android-openssl
-        git -C android-openssl checkout "\${{ inputs.android-openssl-revision }}"
-        test -f "android-openssl/ssl_3/\${{ inputs.abi }}/libcrypto.a"
-        test -f "android-openssl/ssl_3/\${{ inputs.abi }}/libssl.a"
+        git -C android-openssl checkout "${{ inputs.android-openssl-revision }}"
+        test -f "android-openssl/ssl_3/${{ inputs.abi }}/libcrypto.a"
+        test -f "android-openssl/ssl_3/${{ inputs.abi }}/libssl.a"
 
     - name: Configure and build APK
       shell: bash
       env:
-        ANDROID_NDK_ROOT: \${{ steps.setup-ndk.outputs.ndk-path }}
+        ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
       run: |
         set -euo pipefail
         qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
         test -x "$qt_cmake"
 
-        "$qt_cmake" -S . -B build/android-\${{ inputs.abi }} -G Ninja \
+        "$qt_cmake" -S . -B build/android-${{ inputs.abi }} -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \
-          -DANDROID_PLATFORM="android-\${{ inputs.android-api }}" \
+          -DANDROID_PLATFORM="android-${{ inputs.android-api }}" \
           -DANYKEEP_BUILD_MOBILE=ON \
           -DANYKEEP_XMPP_BACKEND=IRIS \
           -DANYKEEP_QCA_SDK_ROOT="$PWD/qca-sdk" \
@@ -122,9 +122,9 @@ runs:
           -DANYKEEP_ANDROID_OPENSSL_ROOT="$PWD/android-openssl/ssl_3" \
           -DBUILD_TESTING=OFF
 
-        cmake --build "build/android-\${{ inputs.abi }}" --target apk --parallel 4
+        cmake --build "build/android-${{ inputs.abi }}" --target apk --parallel 4
 
         mkdir -p packages
-        apk=$(find "build/android-\${{ inputs.abi }}" -type f -path '*/outputs/apk/*/*.apk' -print -quit)
+        apk=$(find "build/android-${{ inputs.abi }}" -type f -path '*/outputs/apk/*/*.apk' -print -quit)
         test -n "$apk"
-        cp "$apk" "packages/AnyKeep-\${{ inputs.abi }}.apk"
+        cp "$apk" "packages/AnyKeep-${{ inputs.abi }}.apk"
