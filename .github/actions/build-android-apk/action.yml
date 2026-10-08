@@ -1,0 +1,130 @@
+name: Build Android APK
+description: Set up the pinned Android toolchain and SDK dependencies, then build the AnyKeep APK
+inputs:
+  abi:
+    description: Android ABI used by dependency assets and the output APK name
+    required: true
+  qt-arch:
+    description: Qt Android architecture name used by aqtinstall
+    required: true
+  qt-version:
+    description: Qt version or series
+    required: true
+  ndk-version:
+    description: Android NDK version
+    required: true
+  android-api:
+    description: Android API level
+    required: true
+  android-openssl-revision:
+    description: android_openssl Git revision
+    required: true
+  qca-tag:
+    description: QCA release tag
+    required: true
+  iris-tag:
+    description: Iris release tag
+    required: true
+  qtkeychain-tag:
+    description: QtKeychain dependency release tag
+    required: true
+  qtkeychain-version:
+    description: QtKeychain upstream version
+    required: true
+  qtkeychain-revision:
+    description: QtKeychain package revision
+    required: true
+  aqt-source:
+    description: aqtinstall source used for Qt 6.11 Android repositories
+    required: true
+  github-token:
+    description: GitHub token used to download dependency release assets
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Android NDK
+      id: setup-ndk
+      uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: \${{ inputs.ndk-version }}
+
+    - name: Install Qt Android
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: \${{ inputs.qt-version }}
+        host: all_os
+        target: android
+        arch: \${{ inputs.qt-arch }}
+        modules: qtmultimedia qttasktree
+        aqtsource: \${{ inputs.aqt-source }}
+        cache: true
+
+    - name: Download QCA/Iris/QtKeychain SDKs
+      shell: bash
+      env:
+        GH_TOKEN: \${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        mkdir -p qca-sdk iris-sdk qtkeychain-sdk
+
+        gh release download "\${{ inputs.qca-tag }}" --repo psi-im/qca \
+          -p "qca3-qt6-android-\${{ inputs.abi }}.zip" -O qca.zip
+        gh release download "\${{ inputs.iris-tag }}" --repo psi-im/iris \
+          -p "iris-qt6-android-\${{ inputs.abi }}.zip" -O iris.zip
+
+        qtkeychain_asset="qtkeychain-\${{ inputs.qtkeychain-version }}-\${{ inputs.qtkeychain-revision }}-qt6.11-android-\${{ inputs.abi }}.tar.gz"
+        gh release download "\${{ inputs.qtkeychain-tag }}" --repo "$GITHUB_REPOSITORY" \
+          -p "$qtkeychain_asset" -O qtkeychain.tar.gz
+
+        (cd qca-sdk && cmake -E tar xvf ../qca.zip)
+        (cd iris-sdk && cmake -E tar xvf ../iris.zip)
+        tar -xzf qtkeychain.tar.gz -C qtkeychain-sdk
+
+        test -d qca-sdk/lib/cmake/Qca3-qt6
+        test -d iris-sdk/lib/cmake/Iris
+        test -f qtkeychain-sdk/lib/cmake/Qt6Keychain/Qt6KeychainConfig.cmake
+        test -f qtkeychain-sdk/lib/libqt6keychain.a
+
+    - name: Provision Android OpenSSL
+      shell: bash
+      run: |
+        set -euo pipefail
+        git clone --filter=blob:none --no-checkout https://github.com/KDAB/android_openssl.git android-openssl
+        git -C android-openssl checkout "\${{ inputs.android-openssl-revision }}"
+        test -f "android-openssl/ssl_3/\${{ inputs.abi }}/libcrypto.a"
+        test -f "android-openssl/ssl_3/\${{ inputs.abi }}/libssl.a"
+
+    - name: Configure and build APK
+      shell: bash
+      env:
+        ANDROID_NDK_ROOT: \${{ steps.setup-ndk.outputs.ndk-path }}
+      run: |
+        set -euo pipefail
+        qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
+        test -x "$qt_cmake"
+
+        "$qt_cmake" -S . -B build/android-\${{ inputs.abi }} -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DANDROID_PLATFORM="android-\${{ inputs.android-api }}" \
+          -DANYKEEP_BUILD_MOBILE=ON \
+          -DANYKEEP_XMPP_BACKEND=IRIS \
+          -DANYKEEP_QCA_SDK_ROOT="$PWD/qca-sdk" \
+          -DANYKEEP_IRIS_SDK_ROOT="$PWD/iris-sdk" \
+          -DANYKEEP_QTKEYCHAIN_SDK_ROOT="$PWD/qtkeychain-sdk" \
+          -DANYKEEP_BUILD_BUNDLED_QCA=OFF \
+          -DANYKEEP_BUILD_BUNDLED_IRIS=OFF \
+          -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
+          -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
+          -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF \
+          -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON \
+          -DANYKEEP_ANDROID_OPENSSL_ROOT="$PWD/android-openssl/ssl_3" \
+          -DBUILD_TESTING=OFF
+
+        cmake --build "build/android-\${{ inputs.abi }}" --target apk --parallel 4
+
+        mkdir -p packages
+        apk=$(find "build/android-\${{ inputs.abi }}" -type f -path '*/outputs/apk/*/*.apk' -print -quit)
+        test -n "$apk"
+        cp "$apk" "packages/AnyKeep-\${{ inputs.abi }}.apk"
