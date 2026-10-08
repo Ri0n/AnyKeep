@@ -127,7 +127,6 @@ jobs:
         with:
           ubuntu-version: ${{ matrix.ubuntu-version }}
           qca-tag: ${{ env.QCA_TAG }}
-          iris-tag: ${{ env.IRIS_TAG }}
           github-token: ${{ github.token }}
 
       - name: Install system dependencies
