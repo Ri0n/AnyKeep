@@ -472,9 +472,10 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
+
   android:
-    name: Android / ${{ matrix.abi }} APK
-    if: ${{ github.event_name != 'schedule' }}
+    name: Android / \${{ matrix.abi }} APK
+    if: \${{ github.event_name != 'schedule' }}
     strategy:
       fail-fast: false
       matrix:
@@ -493,87 +494,26 @@ jobs:
       - name: Load dependency versions
         uses: ./.github/actions/load-dependencies
 
-      - name: Set up Android NDK
-        id: setup-ndk
-        uses: nttld/setup-ndk@v1
+      - name: Build Android APK
+        uses: ./.github/actions/build-android-apk
         with:
-          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
-
-      - name: Install Qt Android
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_CURRENT_SERIES }}
-          host: all_os
-          target: android
-          arch: ${{ matrix.qt-arch }}
-          modules: qtmultimedia qttasktree
-          aqtsource: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
-          cache: true
-
-      - name: Download QCA/Iris/QtKeychain SDKs
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir qca-sdk iris-sdk qtkeychain-sdk
-          gh release download "$QCA_TAG" --repo psi-im/qca \
-            -p "qca3-qt6-android-${{ matrix.abi }}.zip" -O qca.zip
-          gh release download "$IRIS_TAG" --repo psi-im/iris \
-            -p "iris-qt6-android-${{ matrix.abi }}.zip" -O iris.zip
-          qtkeychain_asset="qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.11-android-${{ matrix.abi }}.tar.gz"
-          gh release download "$QTKEYCHAIN_TAG" --repo "$GITHUB_REPOSITORY" \
-            -p "$qtkeychain_asset" -O qtkeychain.tar.gz
-          (cd qca-sdk && cmake -E tar xvf ../qca.zip)
-          (cd iris-sdk && cmake -E tar xvf ../iris.zip)
-          tar -xzf qtkeychain.tar.gz -C qtkeychain-sdk
-          test -d qca-sdk/lib/cmake/Qca3-qt6
-          test -d iris-sdk/lib/cmake/Iris
-          test -f qtkeychain-sdk/lib/cmake/Qt6Keychain/Qt6KeychainConfig.cmake
-          test -f qtkeychain-sdk/lib/libqt6keychain.a
-
-      - name: Provision Android OpenSSL
-        shell: bash
-        run: |
-          set -euo pipefail
-          git clone --filter=blob:none --no-checkout https://github.com/KDAB/android_openssl.git android-openssl
-          git -C android-openssl checkout "$ANDROID_OPENSSL_REVISION"
-          test -f "android-openssl/ssl_3/${{ matrix.abi }}/libcrypto.a"
-          test -f "android-openssl/ssl_3/${{ matrix.abi }}/libssl.a"
-
-      - name: Configure and build APK
-        shell: bash
-        env:
-          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: |
-          set -euo pipefail
-          qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
-          test -x "$qt_cmake"
-          "$qt_cmake" -S . -B build/package -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DANDROID_PLATFORM="android-$ANDROID_API" \
-            -DANYKEEP_BUILD_MOBILE=ON \
-            -DANYKEEP_XMPP_BACKEND=IRIS \
-            -DANYKEEP_QCA_SDK_ROOT="$PWD/qca-sdk" \
-            -DANYKEEP_IRIS_SDK_ROOT="$PWD/iris-sdk" \
-            -DANYKEEP_QTKEYCHAIN_SDK_ROOT="$PWD/qtkeychain-sdk" \
-            -DANYKEEP_BUILD_BUNDLED_QCA=OFF \
-            -DANYKEEP_BUILD_BUNDLED_IRIS=OFF \
-            -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
-            -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
-            -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF \
-            -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON \
-            -DANYKEEP_ANDROID_OPENSSL_ROOT="$PWD/android-openssl/ssl_3" \
-            -DBUILD_TESTING=OFF
-          cmake --build build/package --target apk --parallel 4
-          mkdir packages
-          apk=$(find build/package -type f -path '*/outputs/apk/*/*.apk' -print -quit)
-          test -n "$apk"
-          cp "$apk" "packages/AnyKeep-${{ matrix.abi }}.apk"
+          abi: \${{ matrix.abi }}
+          qt-arch: \${{ matrix.qt-arch }}
+          qt-version: \${{ env.QT_CURRENT_SERIES }}
+          ndk-version: \${{ env.ANDROID_NDK_VERSION }}
+          android-api: \${{ env.ANDROID_API }}
+          android-openssl-revision: \${{ env.ANDROID_OPENSSL_REVISION }}
+          qca-tag: \${{ env.QCA_TAG }}
+          iris-tag: \${{ env.IRIS_TAG }}
+          qtkeychain-tag: \${{ env.QTKEYCHAIN_TAG }}
+          qtkeychain-version: \${{ env.QTKEYCHAIN_VERSION }}
+          qtkeychain-revision: \${{ env.QTKEYCHAIN_REVISION }}
+          aqt-source: \${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          github-token: \${{ github.token }}
 
       - uses: actions/upload-artifact@v7
         with:
-          name: anykeep-android-${{ matrix.abi }}
-          path: packages/*.apk
+          name: anykeep-android-\${{ matrix.abi }}
+          path: packages/AnyKeep-\${{ matrix.abi }}.apk
           if-no-files-found: error
           compression-level: 0
