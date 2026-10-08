@@ -43,7 +43,6 @@ jobs:
         with:
           qt-version: ${{ env.QT_CURRENT_SERIES }}
           qca-tag: ${{ env.QCA_TAG }}
-          iris-tag: ${{ env.IRIS_TAG }}
           qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
           qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
           qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
@@ -123,7 +122,7 @@ jobs:
       - name: Load dependency versions
         uses: ./.github/actions/load-dependencies
 
-      - name: Download and install QCA/Iris packages
+      - name: Download and install QCA packages
         uses: ./.github/actions/install-qca-iris-linux
         with:
           ubuntu-version: ${{ matrix.ubuntu-version }}
@@ -140,6 +139,8 @@ jobs:
             libgl1-mesa-dev \
             libhunspell-dev \
             libssl-dev \
+            libusrsctp-dev \
+            zlib1g-dev \
             libx11-dev \
             ninja-build \
             pkg-config \
@@ -177,6 +178,7 @@ jobs:
           cmake -S . -B "${{ matrix.build_dir }}" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DANYKEEP_BUILD_BUNDLED_QCA=OFF \
+            -DANYKEEP_BUILD_BUNDLED_IRIS=ON \
             -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF \
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
