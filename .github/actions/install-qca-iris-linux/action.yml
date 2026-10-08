@@ -1,12 +1,16 @@
-name: Install QCA Linux packages
-description: Download and install the prebuilt QCA Debian package set for an Ubuntu runner
+name: Install QCA/Iris Linux packages
+description: Download and install prebuilt QCA packages and, when requested, Iris packages for an Ubuntu runner
 inputs:
   ubuntu-version:
-    description: Ubuntu version used in the release artifact name
+    description: Ubuntu version used in the release artifact names
     required: true
   qca-tag:
     description: QCA release tag
     required: true
+  iris-tag:
+    description: Optional Iris release tag; when set, install the matching Iris Debian package set too
+    required: false
+    default: ""
   github-token:
     description: GitHub token used by gh release download
     required: true
@@ -19,9 +23,24 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         set -euo pipefail
+
         mkdir qca-release
         gh release download "${{ inputs.qca-tag }}" --repo psi-im/qca \
           -p "qca3-deb-ubuntu-${{ inputs.ubuntu-version }}.zip" -O qca.zip
         (cd qca-release && cmake -E tar xvf ../qca.zip)
+
+        iris_tag="${{ inputs.iris-tag }}"
+        if [[ -n "$iris_tag" ]]; then
+          mkdir iris-release
+          gh release download "$iris_tag" --repo psi-im/iris \
+            -p "iris-deb-ubuntu-${{ inputs.ubuntu-version }}.zip" -O iris.zip
+          (cd iris-release && cmake -E tar xvf ../iris.zip)
+        fi
+
         sudo apt-get update
         sudo apt-get install -y ./qca-release/*.deb
+
+        if [[ -n "$iris_tag" ]]; then
+          sudo apt-get install -y ./iris-release/*.deb
+          dpkg-query -W -f='${Status}\n' libiris-qt6-dev | grep -qx 'install ok installed'
+        fi
