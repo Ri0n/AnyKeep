@@ -1,11 +1,11 @@
 {
     "iris": {
-        "tag": "v1.1.1",
-        "commit": "fdabc02d8e4851ecb1e081b5e0689d57617f3958"
+        "tag": "v1.1.2",
+        "commit": "d0586833cefec3bbd704bcf2c2d19f341f249a1c"
     },
     "qca": {
-        "tag": "v3.0.7",
-        "commit": "8010b7104058c1264bad031c6cbd8845ced013d2"
+        "tag": "v3.0.10",
+        "commit": "a5121ec9fb9b4b933320341aa827c3671fe3fcaa"
     },
     "qtkeychain": {
         "tag": "deps-qtkeychain-0.14.3-r1-qt6.11",

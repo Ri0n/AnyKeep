@@ -1,8 +1,27 @@
 # Chunked media encryption
 
-Status: implementation in progress on `ai/chunked-media-encryption`.
+Status: progressive XMPP publication and playback implemented on `ai/chunked-media-encryption`; ICE/SCTP deployment also requires the QCA DTLS queue fix described below.
 
-Implementation checkpoint: managed imports write the `AKMC v1` container, `MediaSource` performs authenticated range reads with a one-chunk plaintext cache, and legacy whole-envelope blobs remain readable. The portable remote wire codec, strict XEP-0447 chunked-source descriptor, durable Jingle capability v2, and seekable Jingle range-serving path are now implemented; publication and receive-side range hydration are the remaining XMPP integration steps.
+Managed imports use the `AKMC v1` container; local and remote reads authenticate complete chunks before exposing plaintext. New XMPP attachments publish a durable Jingle capability and encrypted chunk descriptor without uploading the complete file. Receiving a note returns its body and attachment metadata immediately. Playback, image previews, open/save and seeks resolve missing ranges on demand through the existing Iris publication/file-transfer stack.
+
+## Implemented publication and playback path
+
+- Local import/fingerprinting runs outside the UI thread. A new external file still needs one bounded-memory plaintext identity pass; QCA SHA-256/HMAC acceleration avoids the slow software-only hashing path. Cached unchanged identities can be reused.
+- New chunked attachments use Jingle publication. HTTP Upload is not a prerequisite and its common 10–20 MiB limit does not restrict this path. Existing URL sources can still supply authenticated HTTP ranges.
+- Jingle uses the existing Iris transport selection, which prefers ICE/DTLS/SCTP when both peers support it and retains S5B/IBB as fallback candidates. Only one ranged transfer runs at a time per backend; read-ahead is bounded to four complete records (normally about 4 MiB).
+- The generic `MediaRangeService` supplies an opaque localhost URL to Qt consumers. This is an in-process decoder adapter, not an XMPP HTTP upload service. Reads execute on the backend owner's thread; responses return on the application thread, with bounded socket buffers and cancellation when the owner disappears.
+- Persistent range cache files contain encrypted records, authenticated again when read. One verified plaintext chunk is cached in memory. A cached range works offline; missing or corrupt ranges require an available source and fail without exposing unverified bytes.
+- Remote open/save streams plaintext to an atomic output file and checks total size and SHA-256 before committing. Editing note text preserves existing remote attachment descriptors without downloading the attachment.
+
+## Deployment and current limits
+
+The current Iris 1.1.2 release (commit `d0586833`) contains the accompanying own-resource capability, FT checksum/receipt lifetime, retained socket and ordered shutdown fixes. The AnyKeep Qt Creator build continues to use its configured system Iris.
+
+QCA 3.0.9 still needs a DTLS input-queue fix: when several datagrams arrive while a provider update or readiness action is pending, the connected TLS layer must continue processing the queued datagrams without requiring another network event. Otherwise packets remain inside QCA, SCTP retransmits and backs off, and larger ranges can time out. A local regression delivers 32 encrypted datagrams as one burst: unpatched QCA delivers only 2, the fix delivers all 32 in order. Live validation uses a separately built QCA via runtime library/plugin paths; the system installation is unchanged.
+
+There is no automatic complete background mirror yet. An uncached part requires the publishing device to remain online and reachable. Both S5B and ICE/SCTP have been validated locally with real progressive video playback and seek; this fixture does not cover real WAN/NAT traversal. Legacy XEP-0448 whole-object attachments still authenticate the whole object before exposing plaintext.
+
+Validation used two separate processes/accounts resources through local Prosody, a 2,343,036,928-byte AVI, real Qt/FFmpeg decoding, exact start/middle/end comparisons, and a seek to the movie's midpoint. The opt-in `irisprogressivemedialive_test` additionally checks disconnected cache reads and tamper rejection. Set `ANYKEEP_LIVE_TRANSPORT=ice` on both fixture processes to exclude S5B/IBB and assert ICE negotiation; leave it unset to exercise normal transport selection. Default CTest skips the external live fixture.
 
 This document refines the chunked-media stage from `media-storage-architecture.md` and separates two concerns that must not be conflated:
 
@@ -161,7 +180,7 @@ HTTP Upload consumes a sequential `QIODevice` that emits these records in order.
 
 This satisfies the original requirement that HTTP and Jingle serve literally identical bytes without requiring AnyKeep to persist a second concatenated ciphertext copy. Persisting encrypted records is only an optional cache.
 
-A Jingle-only publication may require one sequential local pass to compute the complete wire hash before publishing its catalog item. That is CPU/I/O work, not a whole-file memory allocation.
+The Jingle-only path does not precompute a complete ciphertext hash: the representation is virtual, and independently authenticated records bind the whole plaintext identity and geometry. Iris negotiates checksums for each transferred range. A full wire hash is supplied only when a complete representation has actually been produced.
 
 ### Receiving ranges
 

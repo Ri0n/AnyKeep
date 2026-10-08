@@ -1,9 +1,13 @@
 #include "desktopeditorplatformbackend.h"
 
 #include "localmediastore.h"
+#include "mediarangeservice.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
 #include "notetransfercontroller.h"
+#include <QCryptographicHash>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
 
 #include <QCursor>
 #include <QDesktopServices>
@@ -12,9 +16,9 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QImage>
+#include <QMessageBox>
 #include <QMetaObject>
 #include <QMimeData>
-#include <QMessageBox>
 #include <QPixmap>
 #include <QPushButton>
 #include <QRunnable>
@@ -76,11 +80,11 @@ bool DesktopEditorPlatformBackend::chooseFileImportMode(const QString &fileName,
         return false;
 
     QMessageBox dialog(QMessageBox::Question, tr("Store file"),
-                       tr("How should AnyKeep use %1?").arg(QFileInfo(fileName).fileName()),
-                       QMessageBox::NoButton, dialogParent_);
-    dialog.setInformativeText(
-        tr("Copying into encrypted storage makes the note independent of the original file. "
-           "Keeping the file in place avoids another full copy, but the note will depend on that file remaining available and unchanged."));
+                       tr("How should AnyKeep use %1?").arg(QFileInfo(fileName).fileName()), QMessageBox::NoButton,
+                       dialogParent_);
+    dialog.setInformativeText(tr("Copying into encrypted storage makes the note independent of the original file. "
+                                 "Keeping the file in place avoids another full copy, but the note will depend on that "
+                                 "file remaining available and unchanged."));
     auto *copyButton = dialog.addButton(tr("Copy into encrypted storage"), QMessageBox::AcceptRole);
     auto *keepButton = dialog.addButton(tr("Keep file in place"), QMessageBox::ActionRole);
     dialog.addButton(QMessageBox::Cancel);
@@ -97,13 +101,14 @@ bool DesktopEditorPlatformBackend::chooseFileImportMode(const QString &fileName,
     return false;
 }
 
-bool DesktopEditorPlatformBackend::referenceFileAsync(const QString &fileName, int row, bool attachment)
+bool DesktopEditorPlatformBackend::referenceFileAsync(const QString &fileName, int row, bool attachment,
+                                                      MediaFileImportMode mode)
 {
     auto *target = editor();
     if (!target || (attachment ? !target->canInsertAttachments() : !target->canInsertMedia()))
         return false;
 
-    auto *store = LocalMediaStore::instance();
+    auto   *store = LocalMediaStore::instance();
     QString initializeError;
     if (!store->initialize(&initializeError)) {
         emit operationFailed(initializeError);
@@ -112,36 +117,38 @@ bool DesktopEditorPlatformBackend::referenceFileAsync(const QString &fileName, i
 
     const QPointer<DesktopEditorPlatformBackend> backend(this);
     const QPointer<NoteEditor>                   targetEditor(target);
-    QThreadPool::globalInstance()->start(QRunnable::create([backend, targetEditor, store, fileName, row, attachment] {
-        const auto referenced = store->referenceFile(fileName);
-        if (!backend)
-            return;
-        QMetaObject::invokeMethod(
-            backend,
-            [backend, targetEditor, referenced, row, attachment]() {
-                if (!backend || !targetEditor)
-                    return;
-                if (!referenced) {
-                    emit backend->operationFailed(referenced.error);
-                    return;
-                }
+    QThreadPool::globalInstance()->start(
+        QRunnable::create([backend, targetEditor, store, fileName, row, attachment, mode] {
+            const auto referenced = mode == MediaFileImportMode::KeepInPlace ? store->referenceFile(fileName)
+                                                                             : store->importFile(fileName);
+            if (!backend)
+                return;
+            QMetaObject::invokeMethod(
+                backend,
+                [backend, targetEditor, referenced, row, attachment]() {
+                    if (!backend || !targetEditor)
+                        return;
+                    if (!referenced) {
+                        emit backend->operationFailed(referenced.error);
+                        return;
+                    }
 
-                if (attachment) {
-                    if (targetEditor->insertAttachment(referenced.value, row))
-                        emit backend->mediaInserted({ referenced.value });
-                    return;
-                }
+                    if (attachment) {
+                        if (targetEditor->insertAttachment(referenced.value, row))
+                            emit backend->mediaInserted({ referenced.value });
+                        return;
+                    }
 
-                if (!targetEditor->canInsertMedia())
-                    return;
-                targetEditor->beginHistoryTransaction(QStringLiteral("insert-media"));
-                const int insertionRow
-                    = row < 0 ? targetEditor->model()->rowCount() : qBound(0, row, targetEditor->model()->rowCount());
-                targetEditor->insertMedia(referenced.value, 0, 0, 0, insertionRow);
-                targetEditor->endHistoryTransaction();
-            },
-            Qt::QueuedConnection);
-    }));
+                    if (!targetEditor->canInsertMedia())
+                        return;
+                    targetEditor->beginHistoryTransaction(QStringLiteral("insert-media"));
+                    const int insertionRow = row < 0 ? targetEditor->model()->rowCount()
+                                                     : qBound(0, row, targetEditor->model()->rowCount());
+                    targetEditor->insertMedia(referenced.value, 0, 0, 0, insertionRow);
+                    targetEditor->endHistoryTransaction();
+                },
+                Qt::QueuedConnection);
+        }));
     return true;
 }
 
@@ -237,16 +244,14 @@ bool DesktopEditorPlatformBackend::insertMedia(int row)
         return false;
     const QString fileName
         = QFileDialog::getOpenFileName(dialogParent_, tr("Insert media"), QString(),
-                                       tr("Media files (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg *.mp3 *.wav *.ogg *.flac *.m4a *.aac *.mp4 *.m4v *.webm *.mov *.mkv *.avi);;All files (*)"));
+                                       tr("Media files (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg *.mp3 *.wav *.ogg "
+                                          "*.flac *.m4a *.aac *.mp4 *.m4v *.webm *.mov *.mkv *.avi);;All files (*)"));
     if (fileName.isEmpty())
         return false;
     MediaFileImportMode mode;
     if (!chooseFileImportMode(fileName, &mode))
         return false;
-    if (mode == MediaFileImportMode::KeepInPlace)
-        return referenceFileAsync(fileName, row, false);
-    QString error;
-    return insertMediaFiles({ fileName }, row, &error, mode);
+    return referenceFileAsync(fileName, row, false, mode);
 }
 
 bool DesktopEditorPlatformBackend::insertAttachment(int row)
@@ -259,17 +264,7 @@ bool DesktopEditorPlatformBackend::insertAttachment(int row)
     MediaFileImportMode mode;
     if (!chooseFileImportMode(fileName, &mode))
         return false;
-    if (mode == MediaFileImportMode::KeepInPlace)
-        return referenceFileAsync(fileName, row, true);
-    const auto imported = LocalMediaStore::instance()->importFile(fileName);
-    if (!imported) {
-        emit operationFailed(imported.error);
-        return false;
-    }
-    if (!editor()->insertAttachment(imported.value, row))
-        return false;
-    emit mediaInserted({ imported.value });
-    return true;
+    return referenceFileAsync(fileName, row, true, mode);
 }
 
 void DesktopEditorPlatformBackend::openAttachment(const QString &url)
@@ -282,11 +277,6 @@ void DesktopEditorPlatformBackend::openAttachment(const QString &url)
     });
     if (reference == media.cend()) {
         emit operationFailed(tr("The attached file is not available locally."));
-        return;
-    }
-    const auto loaded = LocalMediaStore::instance()->data(*reference);
-    if (!loaded) {
-        emit operationFailed(tr("Could not read the attached file: %1").arg(loaded.error));
         return;
     }
     if (!attachmentOpenDirectory_)
@@ -307,7 +297,16 @@ void DesktopEditorPlatformBackend::openAttachment(const QString &url)
         return;
     }
     const QString path = QDir(directory).filePath(name);
-    QSaveFile     file(path);
+    if (!LocalMediaStore::instance()->contains(*reference)) {
+        exportRemoteAttachment(*reference, path, true);
+        return;
+    }
+    const auto loaded = LocalMediaStore::instance()->data(*reference);
+    if (!loaded) {
+        emit operationFailed(loaded.error);
+        return;
+    }
+    QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly) || file.write(loaded.value) != loaded.value.size() || !file.commit()) {
         emit operationFailed(tr("Could not prepare the attached file: %1").arg(file.errorString()));
         return;
@@ -329,11 +328,6 @@ void DesktopEditorPlatformBackend::saveAttachmentAs(const QString &url)
         emit operationFailed(tr("The attached file is not available locally."));
         return;
     }
-    const auto loaded = LocalMediaStore::instance()->data(*reference);
-    if (!loaded) {
-        emit operationFailed(tr("Could not read the attached file: %1").arg(loaded.error));
-        return;
-    }
     QString name
         = QFileInfo(reference->originalName.isEmpty() ? reference->portableName : reference->originalName).fileName();
     if (name.isEmpty())
@@ -343,9 +337,70 @@ void DesktopEditorPlatformBackend::saveAttachmentAs(const QString &url)
     const QString fileName = QFileDialog::getSaveFileName(dialogParent_, tr("Save Attached File As"), initialPath);
     if (fileName.isEmpty())
         return;
+    if (!LocalMediaStore::instance()->contains(*reference)) {
+        exportRemoteAttachment(*reference, fileName, false);
+        return;
+    }
+    const auto loaded = LocalMediaStore::instance()->data(*reference);
+    if (!loaded) {
+        emit operationFailed(loaded.error);
+        return;
+    }
     QSaveFile file(fileName);
     if (!file.open(QIODevice::WriteOnly) || file.write(loaded.value) != loaded.value.size() || !file.commit())
         emit operationFailed(tr("Could not save the attached file: %1").arg(file.errorString()));
+}
+
+void DesktopEditorPlatformBackend::exportRemoteAttachment(const MediaReference &reference, const QString &path,
+                                                          bool openAfter)
+{
+    const auto url = MediaRangeService::urlFor(reference);
+    if (url.isEmpty()) {
+        emit operationFailed(tr("No device can supply the attached file."));
+        return;
+    }
+    auto file = std::make_shared<QSaveFile>(path);
+    file->setDirectWriteFallback(false);
+    if (!file->open(QIODevice::WriteOnly)) {
+        MediaRangeService::releaseUrl(url);
+        emit operationFailed(file->errorString());
+        return;
+    }
+    file->setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    auto *manager = new QNetworkAccessManager(this);
+    auto *reply   = manager->get(QNetworkRequest(url));
+    reply->setReadBufferSize(128 * 1024);
+    auto       hash  = std::make_shared<QCryptographicHash>(QCryptographicHash::Sha256);
+    auto       count = std::make_shared<qint64>(0);
+    const auto drain = [reply, file, hash, count, reference] {
+        while (reply->bytesAvailable() > 0) {
+            const auto bytes = reply->read(64 * 1024);
+            if (bytes.isEmpty())
+                break;
+            *count += bytes.size();
+            if (*count > reference.size || file->write(bytes) != bytes.size()) {
+                reply->abort();
+                return;
+            }
+            hash->addData(bytes);
+        }
+    };
+    connect(reply, &QNetworkReply::readyRead, reply, drain);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, manager, file, hash, count, reference, path, openAfter, url, drain] {
+                drain();
+                MediaRangeService::releaseUrl(url);
+                const bool verified = reply->error() == QNetworkReply::NoError && *count == reference.size
+                    && hash->result() == reference.checksum;
+                if (!verified || !file->commit()) {
+                    file->cancelWriting();
+                    emit operationFailed(tr("Could not verify or save the attached file."));
+                } else if (openAfter && !QDesktopServices::openUrl(QUrl::fromLocalFile(path))) {
+                    emit operationFailed(tr("No application could open the attached file."));
+                }
+                manager->deleteLater();
+            });
+    connect(manager, &QObject::destroyed, [url] { MediaRangeService::releaseUrl(url); });
 }
 
 QString DesktopEditorPlatformBackend::materializeDragImage(const MediaReference &reference, const QByteArray &data)

@@ -1,7 +1,9 @@
 #ifndef ANYKEEP_IRISXMPPBACKEND_H
 #define ANYKEEP_IRISXMPPBACKEND_H
 
+#include "mediarangeservice.h"
 #include "xmppbackend.h"
+#include <QQueue>
 
 #include <QHash>
 #include <QPointer>
@@ -71,25 +73,37 @@ public:
 
 private:
     friend class IrisJinglePublicationProvider;
+    friend class IrisProgressiveMediaLiveTest;
     struct ConnectionAttempt;
     struct ReadyAttempt;
 
-    void resetClient();
-    void destroyClientObjects();
-    void markDisconnected();
-    void createClient();
-    void connectToServerAsync(StatusCallback callback);
-    void ensureOmemoReadyAsync(StatusCallback callback);
-    void ensureReadyAsync(StatusCallback callback);
-    void verifyPrivateStorageSupportAsync(StatusCallback callback);
+    void readMediaRangeAsync(MediaReference reference, qint64 offset, qint64 length,
+                             MediaRangeService::Completion callback);
+    void fetchPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize, quint64 offset,
+                                  quint64 length, MediaRangeService::Completion callback);
+    QQueue<std::function<void()>> mediaRangeTransfers_;
+    bool                          mediaRangeTransferActive_ = false;
+    void                          startNextMediaRangeTransfer();
+    void startPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize, quint64 offset,
+                                  quint64 length, MediaRangeService::Completion callback);
+    QHash<QString, QList<MediaRangeService::Completion>> pendingMediaChunks_;
+    QHash<QString, MediaReference>                       cachedLegacyMedia_;
+    QString                                              cachedMediaChunk_;
+    QByteArray                                           cachedMediaPlain_;
+    void                                                 resetClient();
+    void                                                 destroyClientObjects();
+    void                                                 markDisconnected();
+    void                                                 createClient();
+    void                                                 connectToServerAsync(StatusCallback callback);
+    void                                                 ensureOmemoReadyAsync(StatusCallback callback);
+    void                                                 ensureReadyAsync(StatusCallback callback);
+    void                                                 verifyPrivateStorageSupportAsync(StatusCallback callback);
     void ensureNodeAsync(QString nodeName, StatusCallback callback, QString payloadType = {});
     void verifyNodeAsync(QString nodeName, StatusCallback callback);
 
     void                   requestIndexAsync(QString id, quint64 generation, NoteCallback callback);
     void                   requestNoteAsync(QString id, quint64 generation, NoteCallback callback, int attempt = 1);
     void                   prepareMediaAsync(XmppRemoteNote note, quint64 generation,
-                                             std::function<void(XmppRemoteNote, XmppStatusResult)> callback);
-    void                   hydrateMediaAsync(XmppRemoteNote note, quint64 generation,
                                              std::function<void(XmppRemoteNote, XmppStatusResult)> callback);
     void                   downloadMediaAsync(XmppRemoteMedia media, quint64 generation,
                                               std::function<void(XmppRemoteMedia, XmppStatusResult)> callback);

@@ -84,10 +84,11 @@ public:
     bool                           isChunkedManagedBlob(const QByteArray &blobId) const;
 
 private:
-    QByteArray masterKey(QString *error) const;
-    QString    blobPath(const QByteArray &blobId) const;
-    QString    externalSourcePath(const QUuid &attachmentId) const;
-    QString    legacyExternalSourcePath(const QByteArray &blobId) const;
+    friend class IrisProgressiveMediaLiveTest;
+    QByteArray                     masterKey(QString *error) const;
+    QString                        blobPath(const QByteArray &blobId) const;
+    QString                        externalSourcePath(const QUuid &attachmentId) const;
+    QString                        legacyExternalSourcePath(const QByteArray &blobId) const;
     LocalMediaExternalSourceResult loadExternalSource(const MediaReference &reference) const;
     QString writeExternalSource(const QUuid &attachmentId, const LocalMediaExternalSource &source) const;
 

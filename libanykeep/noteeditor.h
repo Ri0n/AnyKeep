@@ -5,6 +5,8 @@
 #include "draftstore.h"
 #include "note.h"
 #include "notefragment.h"
+#include <QHash>
+#include <QUrl>
 
 #include <QObject>
 #include <QPointer>
@@ -94,8 +96,8 @@ public:
     bool                  historyInTransaction() const;
 
     void             setMedia(const QList<MediaReference> &media);
-    bool             insertMedia(const MediaReference &reference, qint64 durationMs = 0, int width = 0,
-                                 int height = 0, int row = -1, const QString &title = {});
+    bool             insertMedia(const MediaReference &reference, qint64 durationMs = 0, int width = 0, int height = 0,
+                                 int row = -1, const QString &title = {});
     bool             insertAttachment(const MediaReference &reference, int row = -1);
     Q_INVOKABLE bool setMediaTranscript(int row, const QString &transcript);
     void             setFolderId(const QUuid &folderId);
@@ -198,49 +200,51 @@ signals:
 
 private:
     friend class DraftManager;
-    bool                          eventFilter(QObject *watched, QEvent *event) override;
-    void                          updateShortcutWindows();
-    void                          attachStorageContext(const Note &context);
-    void                          detachStorageContextForRecovery();
-    void                          loadFromNote();
-    void                          adoptEditingDraft(const DraftRecord &draft);
-    QObject                      *activeEditorView() const;
-    void                          emitDisposableIfUnused();
-    QVariantMap                   captureEditorViewState() const;
-    void                          prepareEditorViewForHistoryRestore();
-    void                          scheduleEditorViewRestore(const QVariantMap &viewState);
-    void                          restoreScalarField(int blockIndex, int role, int fieldIndex, const QString &value);
-    void                          updateMediaPreviewUrls();
-    NoteFragment                  documentFragment() const;
-    std::pair<QString, QString>   titleAndBody() const;
-    NoteFragment                  withMedia(NoteFragment fragment) const;
-    void                          setDirty(bool dirty);
-    void                          setMetadataDirty(bool dirty);
-    void                          updateMetadataDirty();
-    void                          updateDirty();
-    bool                          setError(const QString &error);
-    Note                          note_;
-    DraftManager                 *drafts_ { nullptr };
-    NoteBlockModel               *model_ { nullptr };
-    MediaPlaybackController      *mediaPlayback_ { nullptr };
-    QUuid                         draftId_;
-    QString                       text_;
-    QString                       baselineText_;
-    Note::Format                  format_ { Note::PlainText };
-    Note::Format                  baselineFormat_ { Note::PlainText };
-    QUuid                         baselineFolderId_;
-    bool                          baselineFavorite_ { false };
-    bool                          contentDirty_ { false };
-    bool                          metadataDirty_ { false };
-    bool                          dirty_ { false };
-    bool                          draftPersisted_ { false };
-    bool                          folderUserOverride_ { false };
-    int                           viewLeases_ { 1 };
-    int                           draftRevision_ { 0 };
-    QString                       errorString_;
-    QList<MediaReference>         media_;
-    QList<QPointer<QObject>>      editorViews_;
-    QList<QPointer<QQuickWindow>> shortcutWindows_;
+    bool                           eventFilter(QObject *watched, QEvent *event) override;
+    void                           updateShortcutWindows();
+    void                           attachStorageContext(const Note &context);
+    void                           detachStorageContextForRecovery();
+    void                           loadFromNote();
+    void                           adoptEditingDraft(const DraftRecord &draft);
+    QObject                       *activeEditorView() const;
+    void                           emitDisposableIfUnused();
+    QVariantMap                    captureEditorViewState() const;
+    void                           prepareEditorViewForHistoryRestore();
+    void                           scheduleEditorViewRestore(const QVariantMap &viewState);
+    void                           restoreScalarField(int blockIndex, int role, int fieldIndex, const QString &value);
+    void                           updateMediaPreviewUrls();
+    NoteFragment                   documentFragment() const;
+    std::pair<QString, QString>    titleAndBody() const;
+    NoteFragment                   withMedia(NoteFragment fragment) const;
+    void                           setDirty(bool dirty);
+    void                           setMetadataDirty(bool dirty);
+    void                           updateMetadataDirty();
+    void                           updateDirty();
+    bool                           setError(const QString &error);
+    Note                           note_;
+    DraftManager                  *drafts_ { nullptr };
+    NoteBlockModel                *model_ { nullptr };
+    MediaPlaybackController       *mediaPlayback_ { nullptr };
+    QUuid                          draftId_;
+    QString                        text_;
+    QString                        baselineText_;
+    Note::Format                   format_ { Note::PlainText };
+    Note::Format                   baselineFormat_ { Note::PlainText };
+    QUuid                          baselineFolderId_;
+    bool                           baselineFavorite_ { false };
+    bool                           contentDirty_ { false };
+    bool                           metadataDirty_ { false };
+    bool                           dirty_ { false };
+    bool                           draftPersisted_ { false };
+    bool                           folderUserOverride_ { false };
+    int                            viewLeases_ { 1 };
+    int                            draftRevision_ { 0 };
+    QString                        errorString_;
+    QList<MediaReference>          media_;
+    QHash<QString, QUrl>           remotePreviewUrls_;
+    QHash<QString, MediaReference> remotePreviewReferences_;
+    QList<QPointer<QObject>>       editorViews_;
+    QList<QPointer<QQuickWindow>>  shortcutWindows_;
     std::unique_ptr<NoteDocumentHistory> history_;
     bool                                 scalarHistoryChangePending_ { false };
 };

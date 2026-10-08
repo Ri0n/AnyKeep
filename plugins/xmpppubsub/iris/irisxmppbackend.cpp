@@ -1,15 +1,22 @@
 #include "irisxmppbackend.h"
 
+#include "irischunkedmediasource.h"
 #include "irisjinglepublicationprovider.h"
 #include "iriskeysynctask.h"
 #include "irisomemostorage.h"
 #include "iristruststorage.h"
 #include "localmediastore.h"
+#include "mediachunkwirestream.h"
+#include "mediasource.h"
 #include "mediastream.h"
 #include "secureenvelope.h"
+#include "utils.h"
 #include "xmppnotecodec.h"
 #include "xmpppayloadxml.h"
 #include "xmppxmllog.h"
+#include <QDir>
+#include <QFile>
+#include <QSaveFile>
 
 #include <iris/httpfileupload.h>
 #include <iris/jingle-ft.h>
@@ -59,6 +66,28 @@ Q_LOGGING_CATEGORY(lcIrisXmpp, "anykeep.xmpp.iris")
 
 namespace AnyKeep {
 namespace {
+
+    class BoundedRangeBuffer final : public QBuffer {
+    public:
+        BoundedRangeBuffer(std::shared_ptr<QByteArray> bytes, quint64 limit, QObject *parent) :
+            QBuffer(bytes.get(), parent), bytes_(std::move(bytes)), limit_(limit)
+        {
+        }
+
+    protected:
+        qint64 writeData(const char *data, qint64 size) override
+        {
+            if (size < 0 || quint64(pos()) > limit_ || quint64(size) > limit_ - quint64(pos())) {
+                setErrorString(QStringLiteral("Peer exceeded the requested media range"));
+                return -1;
+            }
+            return QBuffer::writeData(data, size);
+        }
+
+    private:
+        std::shared_ptr<QByteArray> bytes_;
+        quint64                     limit_;
+    };
 
     constexpr auto PublishOptionsFeature = "http://jabber.org/protocol/pubsub#publish-options";
     constexpr int  BatchSize             = 50;
@@ -329,6 +358,15 @@ void IrisXmppBackend::setConfig(const XmppConfig &config)
         return;
     config_ = config;
     resetClient();
+    MediaRangeService::registerResolver(
+        this,
+        [instanceId = config_.instanceId](const MediaReference &reference) {
+            return reference.remoteData.value(QStringLiteral("xmpp.instance")).toString() == instanceId
+                && !reference.remoteData.value(QStringLiteral("xmpp.sfs")).toByteArray().isEmpty();
+        },
+        [this](MediaReference reference, qint64 offset, qint64 length, MediaRangeService::Completion callback) {
+            readMediaRangeAsync(std::move(reference), offset, length, std::move(callback));
+        });
 }
 
 void IrisXmppBackend::shutdown()
@@ -347,6 +385,16 @@ XmppStatusResult IrisXmppBackend::cancelledResult() const
 void IrisXmppBackend::resetClient()
 {
     ++generation_;
+    mediaRangeTransfers_.clear();
+    mediaRangeTransferActive_ = false;
+    cachedLegacyMedia_.clear();
+    cachedMediaChunk_.clear();
+    cachedMediaPlain_.clear();
+    const auto pendingChunks = std::exchange(pendingMediaChunks_, {});
+    for (const auto &callbacks : pendingChunks) {
+        for (const auto &callback : callbacks)
+            callback({}, QStringLiteral("Media request cancelled"));
+    }
     connected_  = false;
     omemoReady_ = false;
     prepared_   = false;
@@ -440,9 +488,9 @@ void IrisXmppBackend::createClient()
     client_->setCaps(XMPP::CapsSpec(QStringLiteral("https://anykeep.net"), QCryptographicHash::Sha1));
     if (XmppXmlLog::isEnabled()) {
         connect(client_, &XMPP::Client::xmlIncoming, this,
-                [](const QString &xml) { qInfo().noquote() << "XMPP <<" << XmppXmlLog::sanitized(xml); });
+                [](const QString &xml) { qCInfo(lcIrisXmpp).noquote() << "XMPP <<" << XmppXmlLog::sanitized(xml); });
         connect(client_, &XMPP::Client::xmlOutgoing, this,
-                [](const QString &xml) { qInfo().noquote() << "XMPP >>" << XmppXmlLog::sanitized(xml); });
+                [](const QString &xml) { qCInfo(lcIrisXmpp).noquote() << "XMPP >>" << XmppXmlLog::sanitized(xml); });
     }
     pubSub_ = client_->pubSubManager();
 
@@ -645,7 +693,11 @@ void IrisXmppBackend::createClient()
 void IrisXmppBackend::connectToServerAsync(StatusCallback callback)
 {
     if (!acceptingWork_) {
-        callback({ false, false, false, QStringLiteral("The XMPP backend is shutting down"), {},
+        callback({ false,
+                   false,
+                   false,
+                   QStringLiteral("The XMPP backend is shutting down"),
+                   {},
                    XmppErrorKind::Configuration });
         return;
     }
@@ -754,7 +806,11 @@ void IrisXmppBackend::completeStatusForTask(XMPP::Task *task, StatusCallback cal
 void IrisXmppBackend::ensureOmemoReadyAsync(StatusCallback callback)
 {
     if (!acceptingWork_) {
-        callback({ false, false, false, QStringLiteral("The XMPP backend is shutting down"), {},
+        callback({ false,
+                   false,
+                   false,
+                   QStringLiteral("The XMPP backend is shutting down"),
+                   {},
                    XmppErrorKind::Configuration });
         return;
     }
@@ -793,15 +849,21 @@ void IrisXmppBackend::ensureOmemoReadyAsync(StatusCallback callback)
             return;
         }
         if (!omemoStorage_ || !omemoStorage_->isValid()) {
-            finish({ false, false, false,
+            finish({ false,
+                     false,
+                     false,
                      omemoStorage_ ? omemoStorage_->errorString() : QStringLiteral("Iris OMEMO storage is unavailable"),
-                     {}, XmppErrorKind::Security });
+                     {},
+                     XmppErrorKind::Security });
             return;
         }
         if (!trustStorage_ || !trustStorage_->isValid()) {
-            finish({ false, false, false,
+            finish({ false,
+                     false,
+                     false,
                      trustStorage_ ? trustStorage_->errorString() : QStringLiteral("Iris trust storage is unavailable"),
-                     {}, XmppErrorKind::Security });
+                     {},
+                     XmppErrorKind::Security });
             return;
         }
         if (omemo_->isReady()) {
@@ -823,8 +885,11 @@ void IrisXmppBackend::ensureOmemoReadyAsync(StatusCallback callback)
                 omemoReady_ = omemo_->isReady();
                 finish(omemoReady_
                            ? XmppStatusResult { true }
-                           : XmppStatusResult { false, false, false,
-                                                QStringLiteral("Iris OMEMO setup completed without a ready device"), {},
+                           : XmppStatusResult { false,
+                                                false,
+                                                false,
+                                                QStringLiteral("Iris OMEMO setup completed without a ready device"),
+                                                {},
                                                 XmppErrorKind::Security });
             });
     });
@@ -846,15 +911,21 @@ void IrisXmppBackend::verifyPrivateStorageSupportAsync(StatusCallback callback)
                               return id.category == QStringLiteral("pubsub") && id.type == QStringLiteral("pep");
                           });
                     if (!hasPepIdentity) {
-                        callback({ false, false, false,
-                                   QStringLiteral("The XMPP server does not advertise a pubsub/pep identity"), {},
+                        callback({ false,
+                                   false,
+                                   false,
+                                   QStringLiteral("The XMPP server does not advertise a pubsub/pep identity"),
+                                   {},
                                    XmppErrorKind::Configuration });
                         return;
                     }
                     if (!item.features().test(QLatin1String(PublishOptionsFeature))) {
-                        callback({ false, false, false,
+                        callback({ false,
+                                   false,
+                                   false,
                                    QStringLiteral("The server does not advertise PubSub publish-options; the client "
-                                                  "will not store private notes there"), {},
+                                                  "will not store private notes there"),
+                                   {},
                                    XmppErrorKind::Configuration });
                         return;
                     }
@@ -872,10 +943,13 @@ void IrisXmppBackend::verifyNodeAsync(QString nodeName, StatusCallback callback)
                         return;
                     }
                     if (!nodeConfigIsPrivate(task->options())) {
-                        callback({ false, false, false,
+                        callback({ false,
+                                   false,
+                                   false,
                                    QStringLiteral(
                                        "The private-note PEP node is not persistent and private after configuration"),
-                                   {}, XmppErrorKind::Configuration });
+                                   {},
+                                   XmppErrorKind::Configuration });
                         return;
                     }
                     callback({ true });
@@ -892,7 +966,11 @@ void IrisXmppBackend::ensureNodeAsync(QString nodeName, StatusCallback callback,
         [this, nodeName = std::move(nodeName), payloadType = std::move(payloadType),
          callback = std::move(callback)](XMPP::PubSubNodeConfigTask *task) mutable {
             if (!task) {
-                callback({ false, false, false, QStringLiteral("Could not inspect the private-note PEP node"), {},
+                callback({ false,
+                           false,
+                           false,
+                           QStringLiteral("Could not inspect the private-note PEP node"),
+                           {},
                            XmppErrorKind::Protocol });
                 return;
             }
@@ -1115,7 +1193,7 @@ void IrisXmppBackend::listNotesAsync(ListCallback callback)
 
         listNodeItemIdsAsync(
             config_.indexNodeName(),
-            [this, generation, decode, callback = std::move(callback)](QStringList ids,
+            [this, generation, decode, callback = std::move(callback)](QStringList      ids,
                                                                        XmppStatusResult idsStatus) mutable {
                 if (generation != generation_) {
                     XmppListResult result;
@@ -1238,25 +1316,24 @@ XMPP::Jingle::Session *IrisXmppBackend::createPublishedMediaSession(const IrisJi
     file.setSize(capability.wireSize);
     file.addHash(XMPP::Hash(XMPP::Hash::Sha256, capability.cipherHash));
     app->setFile(file);
-    QObject::connect(
-        app, &XMPP::Jingle::FileTransfer::Application::deviceRequested, app,
-        [app, capability](quint64 offset, std::optional<quint64> size) {
-            Q_UNUSED(size)
-            if (offset != 0)
-                return;
-            auto *plain = new MediaStream(capability.reference, app);
-            if (!plain->open(QIODevice::ReadOnly)) {
-                plain->deleteLater();
-                return;
-            }
-            auto *encrypted = new XMPP::StatelessFileSharing::EncryptingDevice(plain, capability.cipher, capability.key,
-                                                                               capability.iv, app);
-            if (!encrypted->open(QIODevice::ReadOnly)) {
-                encrypted->deleteLater();
-                return;
-            }
-            app->setDevice(encrypted);
-        });
+    QObject::connect(app, &XMPP::Jingle::FileTransfer::Application::deviceRequested, app,
+                     [app, capability](quint64 offset, std::optional<quint64> size) {
+                         Q_UNUSED(size)
+                         if (offset != 0)
+                             return;
+                         auto *plain = new MediaStream(capability.reference, app);
+                         if (!plain->open(QIODevice::ReadOnly)) {
+                             plain->deleteLater();
+                             return;
+                         }
+                         auto *encrypted = new XMPP::StatelessFileSharing::EncryptingDevice(
+                             plain, capability.cipher, capability.key, capability.iv, app);
+                         if (!encrypted->open(QIODevice::ReadOnly)) {
+                             encrypted->deleteLater();
+                             return;
+                         }
+                         app->setDevice(encrypted);
+                     });
     session->addContent(app);
     return session;
 }
@@ -1303,22 +1380,35 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
             return;
         }
 
-        auto *mediaStore = LocalMediaStore::instance();
-        const bool managed = reference.hasContentFingerprint() && mediaStore->containsManagedBlob(reference.blobId);
-        const auto external = managed ? LocalMediaExternalSourceResult {} : mediaStore->externalSource(reference);
+        auto      *mediaStore = LocalMediaStore::instance();
+        const bool managed    = reference.hasContentFingerprint() && mediaStore->containsManagedBlob(reference.blobId);
+        const auto external   = managed ? LocalMediaExternalSourceResult {} : mediaStore->externalSource(reference);
+        // Editing a received note must preserve a remote descriptor even when
+        // this device has not downloaded its payload. Text publication never
+        // requires hydrating unchanged attachments.
+        if (!managed && !external && reference.checksum.size() == 32) {
+            const auto existing = parseFileSharing(media.fileSharingXml);
+            if (existing && existing->id() == reference.id.toString(QUuid::WithoutBraces) && existing->file().size()
+                && *existing->file().size() == quint64(reference.size)
+                && sha256Hash(existing->file().computedHashes()).data() == reference.checksum) {
+                ++state->index;
+                (*next)();
+                return;
+            }
+        }
         if (!managed && (!reference.hasContentFingerprint() || !external)) {
             QString initializeError;
             if (!mediaStore->initialize(&initializeError)) {
-                state->callback(std::move(state->note),
-                                mediaFailure(QStringLiteral("Could not initialize local media storage: %1")
-                                                 .arg(initializeError),
-                                             XmppErrorKind::Security));
+                state->callback(
+                    std::move(state->note),
+                    mediaFailure(QStringLiteral("Could not initialize local media storage: %1").arg(initializeError),
+                                 XmppErrorKind::Security));
                 return;
             }
-            const qsizetype mediaIndex = state->index;
+            const qsizetype                 mediaIndex = state->index;
             const QPointer<IrisXmppBackend> guard(backend);
             QThreadPool::globalInstance()->start(QRunnable::create([state, next, guard, mediaStore, reference,
-                                                                     mediaIndex]() mutable {
+                                                                    mediaIndex]() mutable {
                 const auto fingerprinted = mediaStore->fingerprintExternalFile(reference);
                 if (!guard)
                     return;
@@ -1334,9 +1424,9 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                         if (!fingerprinted) {
                             state->callback(
                                 std::move(state->note),
-                                mediaFailure(QStringLiteral("Could not fingerprint local media: %1")
-                                                 .arg(fingerprinted.error),
-                                             XmppErrorKind::Security));
+                                mediaFailure(
+                                    QStringLiteral("Could not fingerprint local media: %1").arg(fingerprinted.error),
+                                    XmppErrorKind::Security));
                             return;
                         }
                         if (state->index != mediaIndex || mediaIndex >= state->note.media.size()) {
@@ -1354,232 +1444,474 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
         }
 
         if (!reference.hasContentFingerprint()) {
-            state->callback(std::move(state->note),
-                            mediaFailure(QStringLiteral("Local media content identity is unavailable"),
-                                         XmppErrorKind::Security));
-            return;
-        }
-
-        auto publishCapability = [backend, reference, noteId = state->note.id,
-                                  contentRevision = state->note.contentRevision, generation = state->generation](
-                                     XMPP::StatelessFileSharing::Cipher cipher, const QByteArray &key,
-                                     const QByteArray &iv, const XMPP::Hash &cipherHash,
-                                     std::function<void(XMPP::Jingle::JinglePub, XmppStatusResult)> done) {
-            const auto wireSize = XMPP::StatelessFileSharing::encryptedSize(cipher, std::uint64_t(reference.size));
-            if (!backend->client_ || !backend->jinglePublicationProvider_ || !wireSize
-                || !usableCipherHash(cipherHash)) {
-                done({}, mediaFailure(QStringLiteral("Could not prepare a durable Jingle media capability")));
-                return;
-            }
-            IrisJingleCapability capability;
-            capability.from            = XMPP::Jid(backend->config_.jid).withResource(backend->config_.resource).full();
-            capability.node            = backend->config_.jinglePubNodeName();
-            capability.noteId          = noteId;
-            capability.contentRevision = contentRevision;
-            capability.reference       = reference;
-            capability.cipher          = cipher;
-            capability.key             = key;
-            capability.iv              = iv;
-            capability.cipherHash      = cipherHash.data();
-            capability.wireSize        = *wireSize;
-            qCDebug(lcIrisXmpp).noquote() << "Preparing durable Jingle media capability:"
-                                          << "publisher=" << capability.from
-                                          << "note-id-present=" << !capability.noteId.isEmpty()
-                                          << "content-revision-present=" << !capability.contentRevision.isEmpty()
-                                          << "plain-size=" << capability.reference.size
-                                          << "wire-size=" << capability.wireSize
-                                          << "precomputed-cipher-hash=" << !capability.cipherHash.isEmpty();
-            const auto prepared = backend->jinglePublicationProvider_->prepare(std::move(capability));
-            if (!prepared.publication.isValid()) {
-                done({},
-                     mediaFailure(prepared.error.isEmpty() ? QStringLiteral("Could not persist the Jingle offer")
-                                                           : prepared.error,
-                                  XmppErrorKind::Security));
-                return;
-            }
-            auto *publicationManager = backend->client_->jingleManager()->publicationManager();
-            if (publicationManager->publishedSessionState(prepared.publication.id())
-                == XMPP::Jingle::PublicationManager::SessionState::Active) {
-                done(prepared.publication, XmppStatusResult { true });
-                return;
-            }
-            auto *task = publicationManager->publishSession(prepared.publication.id(), privatePublishOptions());
-            runIrisTask(
-                task, backend, backend->config_.timeoutMs,
-                [backend, generation, publication = prepared.publication,
-                 done = std::move(done)](XMPP::PubSubPublishTask *task) mutable {
-                    if (generation != backend->generation_) {
-                        done({}, backend->cancelledResult());
-                        return;
-                    }
-                    auto *manager
-                        = backend->client_ ? backend->client_->jingleManager()->publicationManager() : nullptr;
-                    if (!task || !task->success() || !manager
-                        || manager->publishedSessionState(publication.id())
-                            != XMPP::Jingle::PublicationManager::SessionState::Active) {
-                        done({},
-                             backend->taskFailure(task, QStringLiteral("Could not publish the Jingle media offer")));
-                        return;
-                    }
-                    done(publication, XmppStatusResult { true });
-                });
-        };
-
-        if (const auto existing = parseFileSharing(media.fileSharingXml);
-            existing && existing->id() == reference.id.toString(QUuid::WithoutBraces)) {
-            const auto encrypted  = encryptedSource(*existing);
-            const auto plainHash  = sha256Hash(existing->file().computedHashes());
-            const auto cipherHash = encrypted ? sha256Hash(encrypted->hashes()) : XMPP::Hash();
-            const auto transferHash = cipherHash.isValid() && cipherHash.data().size() == 32
-                ? cipherHash
-                : XMPP::Hash(XMPP::Hash::Sha256);
-            if (encrypted && existing->file().size() == std::uint64_t(reference.size) && plainHash.isValid()
-                && plainHash.data() == reference.checksum) {
-                publishCapability(encrypted->cipher(), encrypted->key(), encrypted->iv(), transferHash,
-                                  [state, next, encrypted = *encrypted, existing = *existing](
-                                      XMPP::Jingle::JinglePub publication, XmppStatusResult status) mutable {
-                                      if (!status.ok || !publication.isValid()) {
-                                          state->callback(std::move(state->note), std::move(status));
-                                          return;
-                                      }
-                                      auto                                      nested = encrypted.sources();
-                                      QList<XMPP::StatelessFileSharing::Source> sources;
-                                      for (const auto &source : nested.items()) {
-                                          if (source.type() != XMPP::StatelessFileSharing::Source::Type::JinglePub)
-                                              sources.append(source);
-                                      }
-                                      sources.append(XMPP::StatelessFileSharing::Source::fromJinglePub(publication));
-                                      nested.setItems(sources);
-                                      auto refreshedEncrypted = encrypted;
-                                      refreshedEncrypted.setSources(nested);
-                                      XMPP::StatelessFileSharing::Sources outer;
-                                      outer.add(XMPP::StatelessFileSharing::Source::fromEncrypted(refreshedEncrypted));
-                                      auto refreshed = existing;
-                                      refreshed.setSources(outer);
-                                      state->note.media[state->index].fileSharingXml = serializeFileSharing(refreshed);
-                                      ++state->index;
-                                      (*next)();
-                                  });
-                return;
-            }
-        }
-
-        constexpr auto cipher   = XMPP::StatelessFileSharing::Cipher::Aes256Gcm;
-        const auto     wireSize = XMPP::StatelessFileSharing::encryptedSize(cipher, std::uint64_t(reference.size));
-        if (!wireSize) {
-            state->callback(std::move(state->note), mediaFailure(QStringLiteral("Media file is too large")));
-            return;
-        }
-        auto *plain = new MediaStream(reference, backend);
-        if (!plain->open(QIODevice::ReadOnly)) {
-            const QString sourceError = plain->errorString();
-            plain->deleteLater();
-            state->callback(std::move(state->note),
-                            mediaFailure(QStringLiteral("Could not open local media stream: %1").arg(sourceError),
-                                         XmppErrorKind::Security));
-            return;
-        }
-        auto *encrypted = new XMPP::StatelessFileSharing::EncryptingDevice(plain, cipher, backend);
-        if (!encrypted->open(QIODevice::ReadOnly)) {
-            plain->deleteLater();
-            encrypted->deleteLater();
             state->callback(
                 std::move(state->note),
-                mediaFailure(QStringLiteral("Could not initialize media encryption"), XmppErrorKind::Security));
+                mediaFailure(QStringLiteral("Local media content identity is unavailable"), XmppErrorKind::Security));
             return;
         }
-        const auto encryptionCipher = encrypted->cipher();
-        const auto encryptionKey    = encrypted->key();
-        const auto encryptionIv     = encrypted->iv();
-        auto finishMedia = [state, next, reference, publishCapability](XMPP::StatelessFileSharing::Cipher cipher,
-                                                                       QByteArray key, QByteArray iv, XMPP::Hash hash,
-                                                                       QUrl httpUrl) mutable {
-            const auto descriptorKey = key;
-            const auto descriptorIv  = iv;
-            publishCapability(
-                cipher, key, iv, hash,
-                [state, next, reference, cipher, key = descriptorKey, iv = descriptorIv, hash,
-                 httpUrl = std::move(httpUrl)](XMPP::Jingle::JinglePub publication, XmppStatusResult status) mutable {
-                    if (!status.ok || !publication.isValid()) {
-                        state->callback(std::move(state->note), std::move(status));
-                        return;
-                    }
-                    XMPP::Jingle::FileTransfer::File file;
-                    file.setName(reference.originalName.isEmpty() ? reference.portableName : reference.originalName);
-                    file.setMediaType(reference.mediaType);
-                    file.setSize(std::uint64_t(reference.size));
-                    file.addHash(XMPP::Hash(XMPP::Hash::Sha256, reference.checksum));
 
-                    XMPP::StatelessFileSharing::Sources nested;
-                    if (httpUrl.isValid())
-                        nested.add(XMPP::StatelessFileSharing::Source::fromUrl(httpUrl));
-                    nested.add(XMPP::StatelessFileSharing::Source::fromJinglePub(publication));
-                    XMPP::StatelessFileSharing::EncryptedSource encryptedSource;
-                    encryptedSource.setCipher(cipher);
-                    encryptedSource.setKey(key);
-                    encryptedSource.setIv(iv);
-                    if (!hash.data().isEmpty())
-                        encryptedSource.addHash(hash);
-                    encryptedSource.setSources(nested);
-                    XMPP::StatelessFileSharing::Sources sources;
-                    sources.add(XMPP::StatelessFileSharing::Source::fromEncrypted(encryptedSource));
-                    XMPP::StatelessFileSharing::FileSharing sharing;
-                    sharing.setId(reference.id.toString(QUuid::WithoutBraces));
-                    sharing.setDisposition(reference.mediaType.startsWith(QStringLiteral("image/"))
-                                                   || reference.mediaType.startsWith(QStringLiteral("audio/"))
-                                                   || reference.mediaType.startsWith(QStringLiteral("video/"))
-                                               ? XMPP::StatelessFileSharing::Disposition::Inline
-                                               : XMPP::StatelessFileSharing::Disposition::Attachment);
-                    sharing.setFile(file);
-                    sharing.setSources(sources);
-                    const auto xml = serializeFileSharing(sharing);
-                    if (xml.isEmpty()) {
-                        state->callback(std::move(state->note),
-                                        mediaFailure(QStringLiteral("Could not serialize media descriptor")));
-                        return;
-                    }
-                    state->note.media[state->index].fileSharingXml = xml;
-                    ++state->index;
-                    (*next)();
-                });
-        };
-        auto *upload = backend->client_->httpFileUploadManager()->upload(
-            encrypted, *wireSize, reference.id.toString(QUuid::WithoutBraces) + QStringLiteral(".bin"),
-            QStringLiteral("application/octet-stream"));
-        if (!upload) {
-            plain->deleteLater();
-            encrypted->deleteLater();
-            qInfo() << "No HTTP Upload service is available; publishing a Jingle-only media offer without prehash";
-            finishMedia(encryptionCipher, encryptionKey, encryptionIv, XMPP::Hash(XMPP::Hash::Sha256), {});
+        // Reuse an immutable representation across retries. The wire hash is
+        // optional: Iris computes the transfer checksum while sending bytes.
+        IrisChunkedMediaSource descriptor;
+        if (const auto existing = parseFileSharing(media.fileSharingXml)) {
+            for (const auto &source : existing->sources().items()) {
+                if (source.type() != XMPP::StatelessFileSharing::Source::Type::Other)
+                    continue;
+                const auto parsed
+                    = IrisChunkedMediaSource::fromSource(source, quint64(reference.size), reference.checksum);
+                if (parsed)
+                    descriptor = parsed.value;
+            }
+        }
+        if (!descriptor.parameters.isValid()) {
+            const auto parameters = MediaChunkWire::generate(quint64(reference.size), reference.checksum);
+            if (!parameters) {
+                state->callback(std::move(state->note), mediaFailure(QStringLiteral("Invalid media geometry")));
+                return;
+            }
+            descriptor.parameters = *parameters;
+        }
+        const auto wireSize = MediaChunkWire::wireSize(descriptor.parameters);
+        if (!wireSize || !backend->jinglePublicationProvider_ || !backend->client_) {
+            state->callback(std::move(state->note), mediaFailure(QStringLiteral("Jingle publication is unavailable")));
             return;
         }
-        plain->setParent(upload);
-        encrypted->setParent(upload);
-        QObject::connect(
-            upload, &XMPP::HttpFileUpload::finished, backend,
-            [state, upload, encrypted, encryptionCipher, encryptionKey, encryptionIv, finishMedia]() mutable {
-                upload->deleteLater();
-                auto *backend = state->backend;
-                if (state->generation != backend->generation_) {
-                    state->callback(std::move(state->note), backend->cancelledResult());
-                    return;
-                }
-                const auto jingleOnly = !upload->success();
-                if (jingleOnly)
-                    qWarning() << "HTTP media upload failed; falling back to Jingle publication:"
-                               << upload->statusString();
-                XMPP::Hash hash = jingleOnly ? XMPP::Hash(XMPP::Hash::Sha256) : encrypted->encryptedHash();
-                if (!jingleOnly && (!encrypted->finished() || !hash.isValid() || hash.data().size() != 32)) {
-                    state->callback(std::move(state->note),
-                                    mediaFailure(QStringLiteral("Encrypted media stream did not finish cleanly"),
-                                                 XmppErrorKind::Security));
-                    return;
-                }
-                const auto url = jingleOnly ? QUrl() : QUrl(upload->getHttpSlot().get.url);
-                finishMedia(encryptionCipher, encryptionKey, encryptionIv, hash, url);
-            });
+        IrisJingleCapability capability;
+        capability.from            = XMPP::Jid(backend->config_.jid).withResource(backend->config_.resource).full();
+        capability.node            = backend->config_.jinglePubNodeName();
+        capability.noteId          = state->note.id;
+        capability.contentRevision = state->note.contentRevision;
+        capability.reference       = reference;
+        capability.representation  = IrisJingleMediaRepresentation::ChunkedAnyKeep;
+        capability.chunked         = descriptor.parameters;
+        capability.cipherHash      = descriptor.wireHash;
+        capability.wireSize        = *wireSize;
+        const auto prepared        = backend->jinglePublicationProvider_->prepare(std::move(capability));
+        if (!prepared.publication.isValid()) {
+            state->callback(std::move(state->note), mediaFailure(prepared.error, XmppErrorKind::Security));
+            return;
+        }
+        auto finish = [state, next, reference, descriptor, publication = prepared.publication]() mutable {
+            auto                                      nested = descriptor.sources;
+            QList<XMPP::StatelessFileSharing::Source> sources;
+            for (const auto &source : nested.items()) {
+                if (source.type() != XMPP::StatelessFileSharing::Source::Type::JinglePub)
+                    sources.append(source);
+            }
+            sources.append(XMPP::StatelessFileSharing::Source::fromJinglePub(publication));
+            nested.setItems(sources);
+            descriptor.sources = nested;
+            XMPP::Jingle::FileTransfer::File file;
+            file.setName(reference.originalName.isEmpty() ? reference.portableName : reference.originalName);
+            file.setMediaType(reference.mediaType);
+            file.setSize(quint64(reference.size));
+            file.addHash(XMPP::Hash(XMPP::Hash::Sha256, reference.checksum));
+            XMPP::StatelessFileSharing::Sources outer;
+            outer.add(descriptor.toSource());
+            XMPP::StatelessFileSharing::FileSharing sharing;
+            sharing.setId(reference.id.toString(QUuid::WithoutBraces));
+            sharing.setFile(file);
+            sharing.setSources(outer);
+            state->note.media[state->index].fileSharingXml = serializeFileSharing(sharing);
+            ++state->index;
+            (*next)();
+        };
+        auto *manager = backend->client_->jingleManager()->publicationManager();
+        if (manager->publishedSessionState(prepared.publication.id())
+            == XMPP::Jingle::PublicationManager::SessionState::Active) {
+            finish();
+            return;
+        }
+        auto *task = manager->publishSession(prepared.publication.id(), privatePublishOptions());
+        runIrisTask(task, backend, backend->config_.timeoutMs, [state, finish](XMPP::PubSubPublishTask *task) mutable {
+            if (state->generation != state->backend->generation_) {
+                state->callback(std::move(state->note), state->backend->cancelledResult());
+            } else if (!task || !task->success()) {
+                state->callback(std::move(state->note),
+                                state->backend->taskFailure(task, QStringLiteral("Could not publish media offer")));
+            } else {
+                finish();
+            }
+        });
     };
     (*next)();
+}
+
+void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offset, qint64 length,
+                                          MediaRangeService::Completion callback)
+{
+    const auto sharing = parseFileSharing(reference.remoteData.value(QStringLiteral("xmpp.sfs")).toByteArray());
+    if (!sharing || offset < 0 || length <= 0 || offset >= reference.size) {
+        callback({}, QStringLiteral("Invalid remote media range"));
+        return;
+    }
+    IrisChunkedMediaSource descriptor;
+    for (const auto &source : sharing->sources().items()) {
+        if (source.type() == XMPP::StatelessFileSharing::Source::Type::Other) {
+            const auto parsed = IrisChunkedMediaSource::fromSource(source, quint64(reference.size), reference.checksum);
+            if (parsed)
+                descriptor = parsed.value;
+        }
+    }
+    if (!descriptor.isValid()) {
+        // Legacy XEP-0448 cannot expose unauthenticated prefixes. Keep the
+        // compatibility path separate: download/verify once, then read locally.
+        const auto legacyKey = QString::fromLatin1(reference.checksum.toHex());
+        auto       readLocal = [offset, length, callback](const MediaReference &local) {
+            auto    source = createLocalMediaSource(local);
+            QString error;
+            if (!source->open(&error)) {
+                callback({}, error);
+                return;
+            }
+            QByteArray bytes(qsizetype(qMin<qint64>(length, local.size - offset)), Qt::Uninitialized);
+            const auto count = source->read(offset, bytes.data(), bytes.size(), &error);
+            if (count < 0)
+                callback({}, error);
+            else {
+                bytes.resize(qsizetype(count));
+                callback(std::move(bytes), {});
+            }
+        };
+        if (cachedLegacyMedia_.contains(legacyKey)) {
+            readLocal(cachedLegacyMedia_.value(legacyKey));
+            return;
+        }
+        if (!encryptedSource(*sharing)) {
+            callback({}, QStringLiteral("Unsupported media descriptor"));
+            return;
+        }
+        const auto generation = generation_;
+        ensureReadyAsync(
+            [this, generation, reference, sharing = *sharing, legacyKey, readLocal, callback](XmppStatusResult ready) {
+                if (generation != generation_) {
+                    callback({}, QStringLiteral("Media request cancelled"));
+                    return;
+                }
+                if (!ready.ok) {
+                    callback({}, ready.error);
+                    return;
+                }
+                XmppRemoteMedia media { reference, serializeFileSharing(sharing) };
+                downloadMediaAsync(
+                    std::move(media), generation,
+                    [this, generation, legacyKey, readLocal, callback](XmppRemoteMedia media, XmppStatusResult status) {
+                        if (generation != generation_) {
+                            callback({}, QStringLiteral("Media request cancelled"));
+                            return;
+                        }
+                        if (!status.ok)
+                            callback({}, status.error);
+                        else {
+                            cachedLegacyMedia_.insert(legacyKey, media.reference);
+                            readLocal(media.reference);
+                        }
+                    });
+            });
+        return;
+    }
+    const auto    parameters      = descriptor.parameters;
+    const quint64 index           = quint64(offset) / parameters.chunkSize;
+    const auto    wireOffset      = MediaChunkWire::wireChunkOffset(parameters, index);
+    const auto    firstWireLength = MediaChunkWire::wireChunkSize(parameters, index);
+    const auto    wireSize        = MediaChunkWire::wireSize(parameters);
+    if (!wireOffset || !firstWireLength || !wireSize) {
+        callback({}, QStringLiteral("Invalid chunk geometry"));
+        return;
+    }
+    // Amortize Jingle session setup for sequential readers while bounding read-ahead
+    // to four records (normally 4 MiB), including random seeks near EOF.
+    quint64 windowCount  = 1;
+    quint64 windowLength = *firstWireLength;
+    while (windowCount < 4) {
+        const auto nextLength = MediaChunkWire::wireChunkSize(parameters, index + windowCount);
+        if (!nextLength || windowLength + *nextLength > 4 * (1048576 + 80))
+            break;
+        windowLength += *nextLength;
+        ++windowCount;
+    }
+    const auto       wireLength = std::optional<quint64>(windowLength);
+    const QByteArray identity   = parameters.rootKey + parameters.noncePrefix + parameters.plainChecksum
+        + QByteArray::number(parameters.plainSize) + ':' + QByteArray::number(parameters.chunkSize);
+    const QString directory = Utils::anykeepDataDir() + QStringLiteral("/media-ranges/")
+        + QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
+    const QString path = directory + '/' + QString::number(index);
+    auto          deliver
+        = [parameters, index, offset, length, callback = std::move(callback)](QByteArray plain, QString error) {
+              if (!error.isEmpty()) {
+                  callback({}, std::move(error));
+                  return;
+              }
+              const qint64 within = offset - qint64(index * parameters.chunkSize);
+              if (within < 0 || within >= plain.size()) {
+                  callback({}, QStringLiteral("Invalid plaintext range"));
+                  return;
+              }
+              callback(plain.mid(qsizetype(within), qsizetype(qMin<qint64>(length, plain.size() - within))), {});
+          };
+    if (cachedMediaChunk_ == path) {
+        deliver(cachedMediaPlain_, {});
+        return;
+    }
+    QFile cached(path);
+    if (cached.open(QIODevice::ReadOnly)) {
+        if (quint64(cached.size()) == *firstWireLength) {
+            const auto opened = MediaChunkWire::decryptChunk(parameters, index, cached.readAll());
+            if (opened) {
+                cachedMediaChunk_ = path;
+                cachedMediaPlain_ = opened.value;
+                deliver(opened.value, {});
+                return;
+            }
+        }
+        cached.close();
+        cached.remove();
+    }
+    const bool pending = pendingMediaChunks_.contains(path);
+    if (!pending && pendingMediaChunks_.size() >= 8) {
+        deliver({}, QStringLiteral("Too many pending media ranges"));
+        return;
+    }
+    pendingMediaChunks_[path].append(std::move(deliver));
+    if (pending)
+        return;
+    const auto generation = generation_;
+    auto finish = [this, generation, path, directory, parameters, index, windowCount](QByteArray wire, QString error) {
+        if (generation != generation_)
+            return;
+        QByteArray plain;
+        if (error.isEmpty()) {
+            qint64 cursor = 0;
+            for (quint64 record = 0; record < windowCount; ++record) {
+                const auto chunkLength = MediaChunkWire::wireChunkSize(parameters, index + record);
+                if (!chunkLength || *chunkLength > quint64(wire.size() - cursor)) {
+                    error = QStringLiteral("Truncated encrypted media window");
+                    break;
+                }
+                const auto bytes = wire.mid(cursor, qint64(*chunkLength));
+                cursor += qint64(*chunkLength);
+                const auto opened = MediaChunkWire::decryptChunk(parameters, index + record, bytes);
+                if (!opened) {
+                    error = opened.error;
+                    break;
+                }
+                if (record == 0)
+                    plain = opened.value;
+                if (QDir().mkpath(directory)) {
+                    QSaveFile file(directory + '/' + QString::number(index + record));
+                    file.setDirectWriteFallback(false);
+                    if (file.open(QIODevice::WriteOnly)) {
+                        file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+                        if (file.write(bytes) == bytes.size())
+                            file.commit();
+                    }
+                }
+            }
+            if (error.isEmpty() && cursor != wire.size())
+                error = QStringLiteral("Oversized encrypted media window");
+            if (error.isEmpty()) {
+                cachedMediaChunk_ = path;
+                cachedMediaPlain_ = plain;
+            }
+        }
+        const auto callbacks = pendingMediaChunks_.take(path);
+        for (const auto &callback : callbacks)
+            callback(plain, error);
+    };
+    ensureReadyAsync([this, generation, descriptor, wireOffset, wireLength, wireSize, finish](XmppStatusResult ready) {
+        if (generation != generation_)
+            return;
+        if (!ready.ok) {
+            finish({}, ready.error);
+            return;
+        }
+        auto startHttp = [this, generation, descriptor, wireOffset, wireLength, wireSize, finish] {
+            if (generation != generation_ || !client_)
+                return;
+            QUrl url;
+            for (const auto &source : descriptor.sources.items()) {
+                if (source.type() == XMPP::StatelessFileSharing::Source::Type::UrlData) {
+                    url = source.url();
+                    break;
+                }
+            }
+            if (url.isEmpty()) {
+                finish({}, QStringLiteral("No media source is reachable"));
+                return;
+            }
+            QNetworkRequest request(url);
+            request.setRawHeader("Range",
+                                 "bytes=" + QByteArray::number(*wireOffset) + '-'
+                                     + QByteArray::number(*wireOffset + *wireLength - 1));
+            request.setRawHeader("Accept-Encoding", "identity");
+            request.setTransferTimeout(config_.timeoutMs);
+            auto *reply = client_->networkAccessManager()->get(request);
+            reply->setReadBufferSize(qint64(*wireLength) + 1);
+            auto bytes = std::make_shared<QByteArray>();
+            connect(reply, &QNetworkReply::readyRead, reply, [reply, bytes, wireLength] {
+                *bytes += reply->readAll();
+                if (quint64(bytes->size()) > *wireLength)
+                    reply->abort();
+            });
+            connect(reply, &QNetworkReply::finished, this, [reply, bytes, wireOffset, wireLength, wireSize, finish] {
+                reply->deleteLater();
+                *bytes += reply->readAll();
+                const QByteArray expected = "bytes " + QByteArray::number(*wireOffset) + '-'
+                    + QByteArray::number(*wireOffset + *wireLength - 1) + '/' + QByteArray::number(*wireSize);
+                if (reply->error() != QNetworkReply::NoError
+                    || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 206
+                    || reply->rawHeader("Content-Range") != expected || quint64(bytes->size()) != *wireLength) {
+                    finish({}, QStringLiteral("HTTP source did not return the requested encrypted range"));
+                } else
+                    finish(*bytes, {});
+            });
+        };
+        XMPP::Jingle::JinglePub publication;
+        for (const auto &source : descriptor.sources.items()) {
+            if (source.type() == XMPP::StatelessFileSharing::Source::Type::JinglePub) {
+                publication = source.jinglePub();
+                break;
+            }
+        }
+        if (!publication.isValid() || !publication.from().compare(bareJid(config_), false)) {
+            startHttp();
+            return;
+        }
+        fetchPublishedRangeAsync(publication.from(), publication.id(), *wireSize, *wireOffset, *wireLength,
+                                 [finish, startHttp](QByteArray bytes, QString error) {
+                                     if (error.isEmpty())
+                                         finish(std::move(bytes), {});
+                                     else {
+                                         qCWarning(lcIrisXmpp) << "Jingle media range failed:" << error;
+                                         startHttp();
+                                     }
+                                 });
+    });
+}
+
+void IrisXmppBackend::fetchPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize,
+                                               quint64 offset, quint64 length, MediaRangeService::Completion callback)
+{
+    const auto generation = generation_;
+    mediaRangeTransfers_.enqueue([this, generation, publisher, publicationId, wireSize, offset, length,
+                                  callback = std::move(callback)]() mutable {
+        startPublishedRangeAsync(publisher, publicationId, wireSize, offset, length,
+                                 [this, guard = QPointer<IrisXmppBackend>(this), generation,
+                                  callback = std::move(callback)](QByteArray bytes, QString error) mutable {
+                                     if (!guard)
+                                         return;
+                                     if (generation == generation_)
+                                         mediaRangeTransferActive_ = false;
+                                     callback(std::move(bytes), std::move(error));
+                                     if (guard && generation == generation_)
+                                         QTimer::singleShot(0, this, &IrisXmppBackend::startNextMediaRangeTransfer);
+                                 });
+    });
+    startNextMediaRangeTransfer();
+}
+
+void IrisXmppBackend::startNextMediaRangeTransfer()
+{
+    if (mediaRangeTransferActive_ || mediaRangeTransfers_.isEmpty() || !client_)
+        return;
+    mediaRangeTransferActive_ = true;
+    auto next                 = mediaRangeTransfers_.dequeue();
+    next();
+}
+
+void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize,
+                                               quint64 offset, quint64 length, MediaRangeService::Completion callback)
+{
+    struct State {
+        bool                                            finished = false;
+        QPointer<XMPP::Jingle::Session>                 session;
+        QPointer<XMPP::Jingle::PublishedSessionRequest> request;
+        QPointer<QTimer>                                timer;
+        QMetaObject::Connection                         incoming;
+        std::shared_ptr<QByteArray>                     bytes = std::make_shared<QByteArray>();
+    };
+    auto       state      = std::make_shared<State>();
+    const auto generation = generation_;
+    auto       complete   = [state, callback = std::move(callback)](QString error) {
+        if (state->finished)
+            return;
+        state->finished = true;
+        QObject::disconnect(state->incoming);
+        if (state->timer)
+            state->timer->deleteLater();
+        if (state->request)
+            state->request->deleteLater();
+        if (state->session && state->session->state() < XMPP::Jingle::State::Finishing)
+            state->session->terminate(error.isEmpty() ? XMPP::Jingle::Reason::Success
+                                                      : XMPP::Jingle::Reason::FailedApplication);
+        auto bytes = error.isEmpty() ? *state->bytes : QByteArray();
+        callback(std::move(bytes), std::move(error));
+    };
+    auto *manager = client_->jingleManager();
+    state->timer  = new QTimer(this);
+    state->timer->setSingleShot(true);
+    connect(state->timer, &QTimer::timeout, this, [complete, state, length] {
+        complete(QStringLiteral("Media range transfer timed out (%1/%2 bytes)").arg(state->bytes->size()).arg(length));
+    });
+    state->timer->start(config_.timeoutMs);
+    state->incoming = connect(
+        manager, &XMPP::Jingle::Manager::incomingSession, this,
+        [this, generation, state, complete, publisher, wireSize, offset, length](XMPP::Jingle::Session *session) {
+            if (state->finished || generation != generation_ || !state->request
+                || session->sid() != state->request->sid() || !session->peer().compare(publisher))
+                return;
+            QList<XMPP::Jingle::FileTransfer::Application *> apps;
+            for (auto *content : session->contentList()) {
+                if (content && content->pad() && content->pad()->ns() == XMPP::Jingle::FileTransfer::NS)
+                    apps.append(static_cast<XMPP::Jingle::FileTransfer::Application *>(content));
+            }
+            if (apps.size() != 1 || !apps[0]->file().size() || *apps[0]->file().size() != wireSize) {
+                session->terminate(XMPP::Jingle::Reason::SecurityError);
+                complete(QStringLiteral("Offered media range does not match its descriptor"));
+                return;
+            }
+            state->session = session;
+            auto *app      = apps[0];
+            auto  accepted = app->file();
+            accepted.setHashes({ XMPP::Hash(XMPP::Hash::Sha256) });
+            accepted.setRange(XMPP::Jingle::FileTransfer::Range(offset, length));
+            app->setAcceptFile(accepted);
+            auto *buffer = new BoundedRangeBuffer(state->bytes, length, session);
+            buffer->open(QIODevice::WriteOnly);
+            connect(app, &XMPP::Jingle::FileTransfer::Application::deviceRequested, session,
+                    [app, buffer, offset, length, complete](quint64                requestedOffset,
+                                                            std::optional<quint64> requestedLength) {
+                        if (requestedOffset != offset || !requestedLength || *requestedLength != length) {
+                            complete(QStringLiteral("Peer changed the requested range"));
+                            return;
+                        }
+                        app->setDevice(buffer, false);
+                    });
+            connect(app, &XMPP::Jingle::FileTransfer::Application::stateChanged, session,
+                    [state, complete, length, app](XMPP::Jingle::State status) {
+                        if (status == XMPP::Jingle::State::Finished) {
+                            if (app->lastReason().condition() != XMPP::Jingle::Reason::Success) {
+                                complete(
+                                    QStringLiteral("Media range transfer failed: %1").arg(app->lastReason().text()));
+                            } else {
+                                complete(quint64(state->bytes->size()) == length
+                                             ? QString()
+                                             : QStringLiteral("Media range has an unexpected size (%1/%2)")
+                                                   .arg(state->bytes->size())
+                                                   .arg(length));
+                            }
+                        }
+                    });
+            connect(session, &XMPP::Jingle::Session::terminated, this,
+                    [complete] { complete(QStringLiteral("Media range session terminated")); });
+            session->accept();
+        });
+    state->request = manager->publicationManager()->requestPublishedSession(publisher, publicationId, this);
+    connect(state->request, &XMPP::Jingle::PublishedSessionRequest::finished, this, [state, complete] {
+        if (state->request && state->request->state() != XMPP::Jingle::PublishedSessionRequest::State::Succeeded)
+            complete(QStringLiteral("Media publisher is unavailable"));
+    });
+    state->request->start();
 }
 
 void IrisXmppBackend::downloadMediaAsync(XmppRemoteMedia media, quint64 generation,
@@ -1610,10 +1942,10 @@ void IrisXmppBackend::downloadMediaAsync(XmppRemoteMedia media, quint64 generati
 
     const auto originalName = file.name().isEmpty() ? QStringLiteral("attachment") : file.name();
     const auto mediaType = file.mediaType().isEmpty() ? QStringLiteral("application/octet-stream") : file.mediaType();
-    const auto attachmentId = media.reference.id;
-    auto finishCiphertext = [this, media, generation, encrypted = *encrypted, plainHash, plainSize, originalName,
-                             mediaType, attachmentId, cipherHash, hasCipherHash](QIODevice *ciphertext,
-                                                                                auto &&done) mutable {
+    const auto attachmentId     = media.reference.id;
+    auto       finishCiphertext = [this, media, generation, encrypted = *encrypted, plainHash, plainSize, originalName,
+                                   mediaType, attachmentId, cipherHash,
+                                   hasCipherHash](QIODevice *ciphertext, auto &&done) mutable {
         if (generation != generation_) {
             done(std::move(media), cancelledResult());
             return;
@@ -1977,90 +2309,6 @@ void IrisXmppBackend::downloadMediaAsync(XmppRemoteMedia media, quint64 generati
     (*tryNext)();
 }
 
-void IrisXmppBackend::hydrateMediaAsync(XmppRemoteNote note, quint64 generation,
-                                        std::function<void(XmppRemoteNote, XmppStatusResult)> callback)
-{
-    struct State {
-        IrisXmppBackend                                      *backend = nullptr;
-        XmppRemoteNote                                        note;
-        quint64                                               generation = 0;
-        qsizetype                                             index      = 0;
-        std::function<void(XmppRemoteNote, XmppStatusResult)> callback;
-    };
-    auto state        = std::make_shared<State>();
-    state->backend    = this;
-    state->note       = std::move(note);
-    state->generation = generation;
-    state->callback   = std::move(callback);
-
-    auto                                       next     = std::make_shared<std::function<void()>>();
-    const std::weak_ptr<std::function<void()>> weakNext = next;
-    *next                                               = [state, weakNext]() mutable {
-        const auto next = weakNext.lock();
-        if (!next)
-            return;
-        auto *backend = state->backend;
-        if (state->generation != backend->generation_ || !backend->client_) {
-            state->callback(std::move(state->note), backend->cancelledResult());
-            return;
-        }
-        if (state->index >= state->note.media.size()) {
-            state->callback(std::move(state->note), XmppStatusResult { true });
-            return;
-        }
-
-        auto       media   = state->note.media[state->index];
-        const auto sharing = parseFileSharing(media.fileSharingXml);
-        if (!sharing || sharing->id() != media.reference.id.toString(QUuid::WithoutBraces)) {
-            state->callback(std::move(state->note), mediaFailure(QStringLiteral("Invalid media descriptor in note")));
-            return;
-        }
-        const auto file      = sharing->file();
-        const auto plainHash = sha256Hash(file.computedHashes());
-        if (!file.size() || *file.size() > std::uint64_t(std::numeric_limits<qint64>::max()) || !plainHash.isValid()
-            || plainHash.data().size() != 32) {
-            state->callback(std::move(state->note), mediaFailure(QStringLiteral("Incomplete media metadata in note")));
-            return;
-        }
-
-        if (media.reference.isValid() && media.reference.size == qint64(*file.size())
-            && media.reference.checksum == plainHash.data() && LocalMediaStore::instance()->contains(media.reference)) {
-            ++state->index;
-            (*next)();
-            return;
-        }
-
-        backend->downloadMediaAsync(
-            std::move(media), state->generation,
-            [state, next](XmppRemoteMedia downloaded, XmppStatusResult status) mutable {
-                if (!status.ok) {
-                    state->callback(std::move(state->note), std::move(status));
-                    return;
-                }
-                XmppRemoteNote publicationNote;
-                publicationNote.id       = state->note.id;
-                publicationNote.revision = state->note.revision;
-                publicationNote.contentRevision
-                    = state->note.contentRevision.isEmpty() ? state->note.revision : state->note.contentRevision;
-                publicationNote.media.append(std::move(downloaded));
-                state->backend->prepareMediaAsync(
-                    std::move(publicationNote), state->generation,
-                    [state, next](XmppRemoteNote prepared, XmppStatusResult publishStatus) mutable {
-                        if (!publishStatus.ok || prepared.media.size() != 1) {
-                            if (publishStatus.ok)
-                                publishStatus = mediaFailure(QStringLiteral("Could not retain the downloaded media offer"));
-                            state->callback(std::move(state->note), std::move(publishStatus));
-                            return;
-                        }
-                        state->note.media[state->index] = std::move(prepared.media.first());
-                        ++state->index;
-                        (*next)();
-                    });
-            });
-    };
-    (*next)();
-}
-
 void IrisXmppBackend::requestNoteAsync(QString id, quint64 generation, NoteCallback callback, int attempt)
 {
     const auto indexId = id;
@@ -2100,19 +2348,25 @@ void IrisXmppBackend::requestNoteAsync(QString id, quint64 generation, NoteCallb
                                       callback(std::move(output));
                                       return;
                                   }
-                                  hydrateMediaAsync(std::move(content.value), generation,
-                                                    [callback = std::move(callback)](XmppRemoteNote note,
-                                                                                     XmppStatusResult status) mutable {
-                                                        XmppNoteResult output;
-                                                        if (!status.ok) {
-                                                            static_cast<XmppStatusResult &>(output) = std::move(status);
-                                                            callback(std::move(output));
-                                                            return;
-                                                        }
-                                                        output.note = std::move(note);
-                                                        output.ok   = true;
-                                                        callback(std::move(output));
-                                                    });
+                                  output.note = std::move(content.value);
+                                  for (auto &media : output.note.media) {
+                                      const auto sharing = parseFileSharing(media.fileSharingXml);
+                                      if (!sharing || !sharing->file().size()
+                                          || *sharing->file().size() > quint64(std::numeric_limits<qint64>::max())) {
+                                          output.error = QStringLiteral("Invalid media metadata");
+                                          callback(std::move(output));
+                                          return;
+                                      }
+                                      const auto file              = sharing->file();
+                                      media.reference.size         = qint64(*file.size());
+                                      media.reference.originalName = file.name();
+                                      media.reference.portableName
+                                          = Utils::portableFileName(file.name(), QStringLiteral("attachment"));
+                                      media.reference.mediaType = file.mediaType();
+                                      media.reference.checksum  = sha256Hash(file.computedHashes()).data();
+                                  }
+                                  output.ok = true;
+                                  callback(std::move(output));
                               });
         });
 }
@@ -2217,45 +2471,44 @@ void IrisXmppBackend::saveNoteAsync(XmppRemoteNote note, NoteCallback callback)
         }
 
         const auto noteId = note.id;
-        requestIndexAsync(
-            noteId, generation,
-            [this, generation, note = std::move(note), callback = std::move(callback)](
-                XmppNoteResult serverIndex) mutable {
-                if (!serverIndex.ok) {
-                    callback(std::move(serverIndex));
-                    return;
-                }
-                if (serverIndex.note.revision != note.revision) {
-                    const auto localContentRevision
-                        = note.contentRevision.isEmpty() ? note.revision : note.contentRevision;
-                    const auto serverContentRevision = serverIndex.note.contentRevision.isEmpty()
-                        ? serverIndex.note.revision
-                        : serverIndex.note.contentRevision;
-                    const bool ownIndexOnlyUpdate = serverIndex.note.originId == config_.originId
-                        && serverIndex.note.parentRevision == note.revision
-                        && serverContentRevision == localContentRevision;
-                    if (!ownIndexOnlyUpdate) {
-                        requestNoteAsync(
-                            note.id, generation,
-                            [callback = std::move(callback)](XmppNoteResult server) mutable {
-                                if (!server.ok) {
-                                    callback(std::move(server));
-                                    return;
-                                }
-                                XmppNoteResult conflict;
-                                conflict.conflict         = true;
-                                conflict.remoteOnConflict = std::move(server.note);
-                                conflict.error            = QStringLiteral(
-                                    "The note was modified on another XMPP resource; the local version was not published");
-                                callback(std::move(conflict));
-                            });
-                        return;
-                    }
-                    note.revision        = serverIndex.note.revision;
-                    note.contentRevision = serverContentRevision;
-                }
-                publishNoteAsync(std::move(note), generation, std::move(callback));
-            });
+        requestIndexAsync(noteId, generation,
+                          [this, generation, note = std::move(note),
+                           callback = std::move(callback)](XmppNoteResult serverIndex) mutable {
+                              if (!serverIndex.ok) {
+                                  callback(std::move(serverIndex));
+                                  return;
+                              }
+                              if (serverIndex.note.revision != note.revision) {
+                                  const auto localContentRevision
+                                      = note.contentRevision.isEmpty() ? note.revision : note.contentRevision;
+                                  const auto serverContentRevision = serverIndex.note.contentRevision.isEmpty()
+                                      ? serverIndex.note.revision
+                                      : serverIndex.note.contentRevision;
+                                  const bool ownIndexOnlyUpdate    = serverIndex.note.originId == config_.originId
+                                      && serverIndex.note.parentRevision == note.revision
+                                      && serverContentRevision == localContentRevision;
+                                  if (!ownIndexOnlyUpdate) {
+                                      requestNoteAsync(note.id, generation,
+                                                       [callback = std::move(callback)](XmppNoteResult server) mutable {
+                                                           if (!server.ok) {
+                                                               callback(std::move(server));
+                                                               return;
+                                                           }
+                                                           XmppNoteResult conflict;
+                                                           conflict.conflict         = true;
+                                                           conflict.remoteOnConflict = std::move(server.note);
+                                                           conflict.error            = QStringLiteral(
+                                                               "The note was modified on another XMPP resource; the "
+                                                               "local version was not published");
+                                                           callback(std::move(conflict));
+                                                       });
+                                      return;
+                                  }
+                                  note.revision        = serverIndex.note.revision;
+                                  note.contentRevision = serverContentRevision;
+                              }
+                              publishNoteAsync(std::move(note), generation, std::move(callback));
+                          });
     });
 }
 
@@ -2470,7 +2723,7 @@ void IrisXmppBackend::ownOmemoDevicesAsync(DevicesCallback callback)
             callback({}, ready.error);
             return;
         }
-        refreshOwnOmemoFingerprintsAsync([this, callback = std::move(callback)](QSet<quint32> failedBundles,
+        refreshOwnOmemoFingerprintsAsync([this, callback = std::move(callback)](QSet<quint32>    failedBundles,
                                                                                 XmppStatusResult status) mutable {
             if (!status.ok) {
                 callback({}, status.error);
@@ -2506,7 +2759,11 @@ void IrisXmppBackend::ownOmemoBundleValidAsync(StatusCallback callback)
         }
         const auto ownId = omemo_->ownDeviceId();
         if (!ownId || omemo_->ownIdentityKey().isEmpty()) {
-            callback({ false, false, false, QStringLiteral("The local OMEMO device is not initialized"), {},
+            callback({ false,
+                       false,
+                       false,
+                       QStringLiteral("The local OMEMO device is not initialized"),
+                       {},
                        XmppErrorKind::Security });
             return;
         }
@@ -2523,8 +2780,11 @@ void IrisXmppBackend::ownOmemoBundleValidAsync(StatusCallback callback)
                     return device.id == ownId && device.protocol == XMPP::OmemoProtocol::Omemo2 && device.active;
                 });
                 if (!announced) {
-                    callback({ false, false, false,
-                               QStringLiteral("The local OMEMO device is missing from the published device list"), {},
+                    callback({ false,
+                               false,
+                               false,
+                               QStringLiteral("The local OMEMO device is missing from the published device list"),
+                               {},
                                XmppErrorKind::Security });
                     return;
                 }
@@ -2543,10 +2803,13 @@ void IrisXmppBackend::ownOmemoBundleValidAsync(StatusCallback callback)
                                       && device.active && device.identityKey == omemo_->ownIdentityKey();
                               });
                         callback(it == devices.cend()
-                                     ? XmppStatusResult { false, false, false,
+                                     ? XmppStatusResult { false,
+                                                          false,
+                                                          false,
                                                           QStringLiteral(
                                                               "The published OMEMO bundle does not match this device"),
-                                                          {}, XmppErrorKind::Security }
+                                                          {},
+                                                          XmppErrorKind::Security }
                                      : XmppStatusResult { true });
                     });
             });
@@ -2577,15 +2840,20 @@ void IrisXmppBackend::removeOwnOmemoDeviceAsync(quint32 deviceId, StatusCallback
             return;
         }
         if (deviceId == omemo_->ownDeviceId()) {
-            callback({ false, false, false, QStringLiteral("The active OMEMO device cannot retire itself"), {},
+            callback({ false,
+                       false,
+                       false,
+                       QStringLiteral("The active OMEMO device cannot retire itself"),
+                       {},
                        XmppErrorKind::Configuration });
             return;
         }
         runEncryptionJob(omemo_->retireOwnDevice(deviceId, XMPP::OmemoProtocol::Omemo2), this,
                          [callback = std::move(callback)](XMPP::EncryptionJob *job) mutable {
-                             callback(job && job->success()
-                                          ? XmppStatusResult { true }
-                                          : encryptionFailure(job, QStringLiteral("Could not remove the OMEMO device")));
+                             callback(
+                                 job && job->success()
+                                     ? XmppStatusResult { true }
+                                     : encryptionFailure(job, QStringLiteral("Could not remove the OMEMO device")));
                          });
     });
 }
@@ -2601,7 +2869,8 @@ void IrisXmppBackend::trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback 
 
 void IrisXmppBackend::trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback)
 {
-    ensureOmemoReadyAsync([this, keyIds = std::move(keyIds), callback = std::move(callback)](XmppStatusResult ready) mutable {
+    ensureOmemoReadyAsync([this, keyIds = std::move(keyIds),
+                           callback = std::move(callback)](XmppStatusResult ready) mutable {
         if (!ready.ok) {
             callback(std::move(ready));
             return;
@@ -2634,7 +2903,11 @@ void IrisXmppBackend::trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, Status
             }
             for (const auto &keyId : keyIds) {
                 if (!omemo_->setTrustLevel(bareJid(config_), keyId, XMPP::EncryptionTrustLevel::ManuallyTrusted)) {
-                    callback({ false, false, false, QStringLiteral("Could not persist OMEMO trust"), {},
+                    callback({ false,
+                               false,
+                               false,
+                               QStringLiteral("Could not persist OMEMO trust"),
+                               {},
                                XmppErrorKind::Security });
                     return;
                 }
@@ -2717,8 +2990,8 @@ void IrisXmppBackend::requestStorageKeyFromResourceAsync(QString fullJid, AuditC
                 [this, target, callback = std::move(callback)](IrisKeySyncRequestTask *trustTask) mutable {
                     if (!trustTask || !trustTask->success() || !trustTask->trustApproved()) {
                         XmppKeyAuditResult output;
-                        output.error = QStringLiteral("%1: OMEMO trust bootstrap failed: %2")
-                                           .arg(target.full(), firstTaskError(trustTask));
+                        output.error     = QStringLiteral("%1: OMEMO trust bootstrap failed: %2")
+                                               .arg(target.full(), firstTaskError(trustTask));
                         output.errorKind = XmppErrorKind::Security;
                         callback(std::move(output));
                         return;
@@ -2786,7 +3059,7 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback)
                 if (*index >= resources.size()) {
                     listNodeItemIdsAsync(
                         config_.indexNodeName(),
-                        [this, output, errors, callback = std::move(callback)](QStringList ids,
+                        [this, output, errors, callback = std::move(callback)](QStringList      ids,
                                                                                XmppStatusResult status) mutable {
                             if (!status.ok) {
                                 static_cast<XmppStatusResult &>(*output) = std::move(status);
@@ -2885,7 +3158,7 @@ void IrisXmppBackend::scanNodeForObsoleteItemsAsync(QString nodeName, XmppEncryp
     const auto queriedNode = nodeName;
     listNodeItemIdsAsync(
         queriedNode,
-        [this, nodeName = std::move(nodeName), kind, callback = std::move(callback)](QStringList ids,
+        [this, nodeName = std::move(nodeName), kind, callback = std::move(callback)](QStringList      ids,
                                                                                      XmppStatusResult status) mutable {
             auto output = std::make_shared<XmppCleanupResult>();
             if (!status.ok) {
@@ -3145,9 +3418,9 @@ void IrisXmppBackend::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canon
                             fetchPayloadAsync(
                                 config_.contentNodeName(), id,
                                 [this, id, canonicalKey, keyring, output, next, callback,
-                                 indexPayload = std::move(indexPayload)](
-                                    std::optional<XmppEncryptedPayload> contentPayload,
-                                    XmppStatusResult                    contentStatus) mutable {
+                                 indexPayload
+                                 = std::move(indexPayload)](std::optional<XmppEncryptedPayload> contentPayload,
+                                                            XmppStatusResult                    contentStatus) mutable {
                                     if (!contentStatus.ok || !contentPayload) {
                                         if (contentStatus.notFound) {
                                             output->inaccessibleNoteIds.append(id);
@@ -3226,7 +3499,7 @@ void IrisXmppBackend::handleKeySyncTrustRequest(const QString &requestId, const 
         return;
     }
 
-    refreshOwnOmemoFingerprintsAsync([this, requestId, senderKey](QSet<quint32> failedBundles,
+    refreshOwnOmemoFingerprintsAsync([this, requestId, senderKey](QSet<quint32>    failedBundles,
                                                                   XmppStatusResult status) {
         if (!status.ok) {
             keySyncTask_->reject(requestId);
