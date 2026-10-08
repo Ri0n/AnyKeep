@@ -474,8 +474,8 @@ jobs:
 
 
   android:
-    name: Android / \${{ matrix.abi }} APK
-    if: \${{ github.event_name != 'schedule' }}
+    name: Android / ${{ matrix.abi }} APK
+    if: ${{ github.event_name != 'schedule' }}
     strategy:
       fail-fast: false
       matrix:
@@ -497,23 +497,23 @@ jobs:
       - name: Build Android APK
         uses: ./.github/actions/build-android-apk
         with:
-          abi: \${{ matrix.abi }}
-          qt-arch: \${{ matrix.qt-arch }}
-          qt-version: \${{ env.QT_CURRENT_SERIES }}
-          ndk-version: \${{ env.ANDROID_NDK_VERSION }}
-          android-api: \${{ env.ANDROID_API }}
-          android-openssl-revision: \${{ env.ANDROID_OPENSSL_REVISION }}
-          qca-tag: \${{ env.QCA_TAG }}
-          iris-tag: \${{ env.IRIS_TAG }}
-          qtkeychain-tag: \${{ env.QTKEYCHAIN_TAG }}
-          qtkeychain-version: \${{ env.QTKEYCHAIN_VERSION }}
-          qtkeychain-revision: \${{ env.QTKEYCHAIN_REVISION }}
-          aqt-source: \${{ env.AQT_WINDOWS_QT611_SOURCE }}
-          github-token: \${{ github.token }}
+          abi: ${{ matrix.abi }}
+          qt-arch: ${{ matrix.qt-arch }}
+          qt-version: ${{ env.QT_CURRENT_SERIES }}
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+          android-api: ${{ env.ANDROID_API }}
+          android-openssl-revision: ${{ env.ANDROID_OPENSSL_REVISION }}
+          qca-tag: ${{ env.QCA_TAG }}
+          iris-tag: ${{ env.IRIS_TAG }}
+          qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
+          qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
+          qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
+          aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          github-token: ${{ github.token }}
 
       - uses: actions/upload-artifact@v7
         with:
-          name: anykeep-android-\${{ matrix.abi }}
-          path: packages/AnyKeep-\${{ matrix.abi }}.apk
+          name: anykeep-android-${{ matrix.abi }}
+          path: packages/AnyKeep-${{ matrix.abi }}.apk
           if-no-files-found: error
           compression-level: 0
