@@ -19,6 +19,7 @@
 #include <QThread>
 #include <QtCrypto>
 
+#include <algorithm>
 #include <limits>
 #include <utility>
 
