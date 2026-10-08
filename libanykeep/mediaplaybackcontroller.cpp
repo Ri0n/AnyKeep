@@ -1,5 +1,7 @@
 #include "mediaplaybackcontroller.h"
 
+#include "localmediastore.h"
+#include "mediarangeservice.h"
 #include "mediastream.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
@@ -70,6 +72,16 @@ public:
     }
 #endif
 
+    ~Impl()
+    {
+#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+        if (player)
+            player->setSource(QUrl());
+#endif
+        if (!remoteUrl.isEmpty())
+            MediaRangeService::releaseUrl(remoteUrl);
+    }
+
     bool sourceStillReferenced() const
     {
         if (!editor || sourceUri.isEmpty() || !editor->model())
@@ -92,8 +104,9 @@ public:
             return false;
         const auto media = editor->media();
         const auto it    = std::find_if(media.cbegin(), media.cend(), [&uri](const MediaReference &item) {
-            return item.uri() == uri && (item.mediaType.startsWith(QLatin1String("audio/"))
-                                         || item.mediaType.startsWith(QLatin1String("video/")));
+            return item.uri() == uri
+                && (item.mediaType.startsWith(QLatin1String("audio/"))
+                    || item.mediaType.startsWith(QLatin1String("video/")));
         });
         if (it == media.cend()) {
             error = MediaPlaybackController::tr("The timed media is not present in this note.");
@@ -103,6 +116,21 @@ public:
         player->stop();
         player->setSource(QUrl());
         stream.reset();
+        if (!remoteUrl.isEmpty())
+            MediaRangeService::releaseUrl(remoteUrl);
+        remoteUrl = QUrl();
+        if (!LocalMediaStore::instance()->contains(*it)) {
+            const auto url = MediaRangeService::urlFor(*it);
+            if (!url.isEmpty()) {
+                sourceUri = uri;
+                error.clear();
+                positionMs = durationMs = 0;
+                remoteUrl               = url;
+                player->setSource(url);
+                emit owner->stateChanged();
+                return true;
+            }
+        }
         stream = std::make_unique<MediaStream>(*it);
         if (!stream->open(QIODevice::ReadOnly)) {
             error = stream->errorString();
@@ -162,6 +190,9 @@ public:
         }
 #endif
         stream.reset();
+        if (!remoteUrl.isEmpty())
+            MediaRangeService::releaseUrl(remoteUrl);
+        remoteUrl = QUrl();
         sourceUri.clear();
         positionMs = 0;
         durationMs = 0;
@@ -169,13 +200,14 @@ public:
         emit owner->stateChanged();
     }
 
-    MediaPlaybackController *owner;
-    NoteEditor              *editor;
-    QString                  sourceUri;
-    QString                  error;
+    MediaPlaybackController     *owner;
+    NoteEditor                  *editor;
+    QString                      sourceUri;
+    QUrl                         remoteUrl;
+    QString                      error;
     std::unique_ptr<MediaStream> stream;
-    qint64                   positionMs { 0 };
-    qint64                   durationMs { 0 };
+    qint64                       positionMs { 0 };
+    qint64                       durationMs { 0 };
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     std::unique_ptr<QAudioOutput> audioOutput;
     std::unique_ptr<QMediaPlayer> player;

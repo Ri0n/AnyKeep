@@ -1,8 +1,10 @@
 #include "noteeditor.h"
+#include "localmediastore.h"
+#include "mediarangeservice.h"
 #include "notetitleresolver.h"
 
-#include "mediaplaybackcontroller.h"
 #include "draftmanager.h"
+#include "mediaplaybackcontroller.h"
 #include "noteblockmodel.h"
 #include "notedata.h"
 #include "notedocumenthistory.h"
@@ -166,6 +168,8 @@ NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draf
 
 NoteEditor::~NoteEditor()
 {
+    for (const auto &url : remotePreviewUrls_)
+        MediaRangeService::releaseUrl(url);
     qCInfo(logEditorPersistence) << "Shared editor destroyed: draft=" << draftId_.toString(QUuid::WithoutBraces)
                                  << "storage=" << note_.storageId() << "noteIdPresent=" << !note_.id().isEmpty()
                                  << "dirty=" << dirty_ << "viewLeases=" << viewLeases_;
@@ -944,9 +948,36 @@ void NoteEditor::updateMediaPreviewUrls()
     QHash<QString, QString> urls;
     for (const auto &reference : media_) {
         if (reference.isValid() && reference.mediaType.startsWith(QLatin1String("image/"))) {
-            urls.insert(reference.uri(),
-                        QStringLiteral("image://anykeep-media/%1").arg(QString::fromLatin1(reference.blobId.toHex())));
+            if (LocalMediaStore::instance()->contains(reference)) {
+                urls.insert(
+                    reference.uri(),
+                    QStringLiteral("image://anykeep-media/%1").arg(QString::fromLatin1(reference.blobId.toHex())));
+            } else {
+                auto url = remotePreviewUrls_.value(reference.uri());
+                if (!url.isEmpty() && remotePreviewReferences_.value(reference.uri()) != reference) {
+                    MediaRangeService::releaseUrl(url);
+                    url = QUrl();
+                    remotePreviewUrls_.remove(reference.uri());
+                }
+                if (url.isEmpty()) {
+                    url = MediaRangeService::urlFor(reference);
+                    if (!url.isEmpty()) {
+                        remotePreviewUrls_.insert(reference.uri(), url);
+                        remotePreviewReferences_.insert(reference.uri(), reference);
+                    }
+                }
+                if (!url.isEmpty())
+                    urls.insert(reference.uri(), url.toString());
+            }
         }
+    }
+    for (auto it = remotePreviewUrls_.begin(); it != remotePreviewUrls_.end();) {
+        if (!urls.contains(it.key()) || urls.value(it.key()) != it.value().toString()) {
+            MediaRangeService::releaseUrl(it.value());
+            remotePreviewReferences_.remove(it.key());
+            it = remotePreviewUrls_.erase(it);
+        } else
+            ++it;
     }
     model_->setPreviewUrls(urls);
 }

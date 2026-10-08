@@ -56,6 +56,7 @@ void XmppStorage::applyRemote(Note &note, const XmppRemoteNote &remote)
     media.reserve(remote.media.size());
     for (const auto &remoteMedia : remote.media) {
         auto reference = remoteMedia.reference;
+        reference.remoteData.insert(QStringLiteral("xmpp.instance"), config_.instanceId);
         if (!remoteMedia.fileSharingXml.isEmpty())
             reference.remoteData.insert(QStringLiteral("xmpp.sfs"), remoteMedia.fileSharingXml);
         media.append(std::move(reference));

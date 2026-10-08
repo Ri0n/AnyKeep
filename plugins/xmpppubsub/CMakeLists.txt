@@ -25,7 +25,9 @@ if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
          iris/iriskeysynctask.cpp
          iris/iriskeysynctask.h
          iris/irisjinglepublicationprovider.cpp
-         iris/irisjinglepublicationprovider.h)
+         iris/irisjinglepublicationprovider.h
+         iris/irischunkedmediasource.cpp
+         iris/irischunkedmediasource.h)
   endif()
 else()
   if(NOT TARGET QCoro::Core)
@@ -113,6 +115,9 @@ function(_anykeep_configure_xmpppubsub_target target)
            Qt6::Xml
            ${_xmpppubsub_backend_libraries})
   target_compile_definitions(${target} PRIVATE ${_xmpppubsub_backend_definitions})
+  if(WIN32)
+    target_compile_definitions(${target} PRIVATE NOMINMAX)
+  endif()
   target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
     anykeep_configure_iris_target(${target})

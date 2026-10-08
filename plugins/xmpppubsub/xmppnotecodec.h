@@ -27,6 +27,8 @@ public:
     static const QString contentRevisionNamespace;
     /** Required feature declaring XEP-0447 media descriptors in the content record. */
     static const QString mediaFeature;
+    /** Required feature declaring AnyKeep chunk-authenticated XEP-0447 sources. */
+    static const QString chunkedMediaFeature;
 
     static CryptoResult<XmppEncryptedPayload> encodeIndex(const XmppRemoteNote &note, const QByteArray &masterKey,
                                                           const QString &nodeName);

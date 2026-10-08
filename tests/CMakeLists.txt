@@ -149,10 +149,16 @@ target_link_libraries(nextcloudstorage_test PRIVATE Qt6::Network)
 add_anykeep_test(secureenvelope_test secureenvelope_test.cpp)
 
 add_anykeep_test(localmediastore_test localmediastore_test.cpp)
+add_anykeep_test(mediarangeservice_test mediarangeservice_test.cpp)
+target_link_libraries(mediarangeservice_test PRIVATE Qt6::Network)
 
 add_anykeep_test(xmppnotecodec_test xmppnotecodec_test.cpp ../plugins/xmpppubsub/xmppnotecodec.cpp)
 target_include_directories(xmppnotecodec_test PRIVATE ../plugins/xmpppubsub)
 target_link_libraries(xmppnotecodec_test PRIVATE Qt6::Xml)
+
+add_anykeep_test(xmppchunkedmediafeature_test xmppchunkedmediafeature_test.cpp ../plugins/xmpppubsub/xmppnotecodec.cpp)
+target_include_directories(xmppchunkedmediafeature_test PRIVATE ../plugins/xmpppubsub)
+target_link_libraries(xmppchunkedmediafeature_test PRIVATE Qt6::Xml)
 
 add_anykeep_test(xmpppayloadxml_test xmpppayloadxml_test.cpp ../plugins/xmpppubsub/xmpppayloadxml.cpp)
 target_include_directories(xmpppayloadxml_test PRIVATE ../plugins/xmpppubsub)
@@ -162,6 +168,19 @@ if(TARGET xmpppubsub_test_support)
   add_anykeep_test(xmppstorage_test xmppstorage_test.cpp)
   target_include_directories(xmppstorage_test PRIVATE ../plugins/xmpppubsub)
   target_link_libraries(xmppstorage_test PRIVATE xmpppubsub_test_support)
+
+  if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
+    add_anykeep_test(irisprogressivemedialive_test irisprogressivemedialive_test.cpp)
+    target_include_directories(irisprogressivemedialive_test PRIVATE ../plugins/xmpppubsub)
+    target_link_libraries(irisprogressivemedialive_test PRIVATE xmpppubsub_test_support Qt6::Network Qt6::Xml)
+    if(TARGET Qt6::Multimedia)
+      target_link_libraries(irisprogressivemedialive_test PRIVATE Qt6::Multimedia)
+      target_compile_definitions(irisprogressivemedialive_test PRIVATE ANYKEEP_MULTIMEDIA_AVAILABLE)
+    endif()
+  endif()
+  add_anykeep_test(irischunkedmediasource_test irischunkedmediasource_test.cpp)
+  target_include_directories(irischunkedmediasource_test PRIVATE ../plugins/xmpppubsub)
+  target_link_libraries(irischunkedmediasource_test PRIVATE xmpppubsub_test_support Qt6::Xml)
 endif()
 
 add_executable(xmppkeyresolutioncontroller_test xmppkeyresolutioncontroller_test.cpp
@@ -245,9 +264,12 @@ set_tests_properties(ptfstorage_test notesindex_test fileremotecachestore_test s
                      PROPERTIES LABELS storage)
 set_tests_properties(nextcloudcategory_test nextcloudworker_test nextcloudstorage_test PROPERTIES LABELS
                                                                                                   "nextcloud;storage")
-set_tests_properties(xmppnotecodec_test xmpppayloadxml_test PROPERTIES LABELS "storage;xmpp")
+set_tests_properties(xmppnotecodec_test xmppchunkedmediafeature_test xmpppayloadxml_test PROPERTIES LABELS "storage;xmpp")
 if(TARGET xmppstorage_test)
   set_tests_properties(xmppstorage_test PROPERTIES LABELS "storage;xmpp")
+endif()
+if(TARGET irischunkedmediasource_test)
+  set_tests_properties(irischunkedmediasource_test PROPERTIES LABELS "storage;xmpp")
 endif()
 foreach(
   xmpp_test_target

@@ -84,6 +84,8 @@ set(anykeep_CORE_SRCS
     mediaplaybackcontroller.cpp
     mediasource.cpp
     mediastream.cpp
+    mediachunkwire.cpp
+    mediachunkwirestream.cpp
     bundledpluginregistry.cpp
     conflictresolver.cpp
     corestorageregistry.cpp
@@ -169,6 +171,8 @@ set(anykeep_CORE_HDRS
     mediaplaybackcontroller.h
     mediasource.h
     mediastream.h
+    mediachunkwire.h
+    mediachunkwirestream.h
     bundledplugininterface.h
     bundledpluginregistry.h
     conflictresolver.h
@@ -264,6 +268,9 @@ set_target_properties(anykeep_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(anykeep_core PUBLIC Qt6::Core Qt6::Gui Qt6::Quick Qt6::Qml Qt6::Svg)
 target_link_libraries(anykeep_core PRIVATE ${ANYKEEP_QCA_TARGET} QSourceHighlite::QSourceHighlite)
 target_link_libraries(anykeep_core PRIVATE Qt6Keychain::Qt6Keychain)
+if(WIN32)
+  target_compile_definitions(anykeep_core PRIVATE NOMINMAX)
+endif()
 if(TARGET Qt6::Multimedia)
   target_link_libraries(anykeep_core PUBLIC Qt6::Multimedia)
   target_compile_definitions(anykeep_core PUBLIC ANYKEEP_MULTIMEDIA_AVAILABLE)
@@ -340,6 +347,8 @@ if(APPLE)
 endif()
 
 if(WIN32)
+  target_compile_definitions(anykeep PRIVATE NOMINMAX)
+
   # Windows.Services.Store is projected through C++/WinRT and implemented by the Windows Runtime umbrella import
   # library.
   target_link_libraries(anykeep PRIVATE windowsapp)

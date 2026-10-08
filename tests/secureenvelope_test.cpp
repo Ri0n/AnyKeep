@@ -1,10 +1,53 @@
+#include "mediachunkwire.h"
+#include "mediachunkwirestream.h"
+#include "mediasource.h"
 #include "secureenvelope.h"
 
+#include <QCryptographicHash>
 #include <QtTest>
+
+#include <cstring>
 
 using namespace AnyKeep;
 
 Q_DECLARE_METATYPE(AnyKeep::AeadContext)
+
+namespace {
+class MemoryMediaSource final : public MediaSource {
+public:
+    explicit MemoryMediaSource(QByteArray bytes) : bytes_(std::move(bytes)) {}
+
+    bool open(QString *error) override
+    {
+        opened_ = true;
+        if (error)
+            error->clear();
+        return true;
+    }
+
+    void close() override { opened_ = false; }
+    qint64 size() const override { return bytes_.size(); }
+
+    qint64 read(qint64 offset, char *data, qint64 maxSize, QString *error) override
+    {
+        if (!opened_ || offset < 0 || maxSize < 0 || offset > bytes_.size() || (!data && maxSize > 0)) {
+            if (error)
+                *error = QStringLiteral("Invalid memory media read");
+            return -1;
+        }
+        const qint64 count = qMin(maxSize, qint64(bytes_.size()) - offset);
+        if (count > 0)
+            std::memcpy(data, bytes_.constData() + offset, size_t(count));
+        if (error)
+            error->clear();
+        return count;
+    }
+
+private:
+    QByteArray bytes_;
+    bool       opened_ { false };
+};
+} // namespace
 
 class SecureEnvelopeTest : public QObject {
     Q_OBJECT
@@ -14,7 +57,12 @@ private slots:
     void contextIsAuthenticated_data();
     void contextIsAuthenticated();
     void rawAeadRoundTrip();
+    void explicitNonceIsDeterministic();
     void privateNotesProfileRoundTrip();
+    void mediaChunkWireRoundTripAndMapping();
+    void mediaChunkWireStreamIsSeekableAndStable();
+    void mediaChunkWireRejectsTamperingAndWrongIndex();
+    void mediaChunkWireRepresentsEmptyFile();
     void recoveryKeyRoundTrip();
     void rejectsRecoveryKeyTypo();
     void opensLargeEnvelope();
@@ -27,10 +75,15 @@ void SecureEnvelopeTest::domainsProduceDifferentKeys()
     const auto draft   = SecureEnvelope::deriveKey(master, KeyDomain::LocalDraft);
     const auto index   = SecureEnvelope::deriveKey(master, KeyDomain::StorageIndex);
     const auto content = SecureEnvelope::deriveKey(master, KeyDomain::StorageContent);
+    const auto media   = SecureEnvelope::deriveKey(master, KeyDomain::RemoteMediaChunk,
+                                                   KeyDerivationProfile::PrivateNotes);
     QCOMPARE(draft.size(), SecureEnvelope::MasterKeySize);
+    QCOMPARE(media.size(), SecureEnvelope::MasterKeySize);
     QVERIFY(draft != index);
     QVERIFY(index != content);
     QVERIFY(draft != content);
+    QVERIFY(media != SecureEnvelope::deriveKey(master, KeyDomain::StorageContent,
+                                               KeyDerivationProfile::PrivateNotes));
 }
 
 void SecureEnvelopeTest::contextIsAuthenticated_data()
@@ -74,14 +127,42 @@ void SecureEnvelopeTest::rawAeadRoundTrip()
     const auto encrypted
         = SecureEnvelope::encryptAead(QByteArrayLiteral("portable plaintext"), key, KeyDomain::StorageIndex);
     QVERIFY2(encrypted, qPrintable(encrypted.error.message));
-    QCOMPARE(encrypted.value.nonce.size(), 12);
-    QCOMPARE(encrypted.value.tag.size(), 16);
+    QCOMPARE(encrypted.value.nonce.size(), SecureEnvelope::AeadNonceSize);
+    QCOMPARE(encrypted.value.tag.size(), SecureEnvelope::AeadTagSize);
     const auto opened = SecureEnvelope::decryptAead(encrypted.value, key, KeyDomain::StorageIndex);
     QVERIFY2(opened, qPrintable(opened.error.message));
     QCOMPARE(opened.value, QByteArrayLiteral("portable plaintext"));
     const auto wrongDomain = SecureEnvelope::decryptAead(encrypted.value, key, KeyDomain::StorageContent);
     QVERIFY(!wrongDomain);
     QCOMPARE(wrongDomain.error.code, CryptoError::AuthenticationFailed);
+}
+
+void SecureEnvelopeTest::explicitNonceIsDeterministic()
+{
+    const auto key = SecureEnvelope::generateMasterKey();
+    const QByteArray nonce = QByteArray::fromHex("0102030405060708090a0b0c");
+    const QByteArray plain("same immutable representation");
+    const auto first = SecureEnvelope::encryptAeadWithNonce(plain, key, KeyDomain::RemoteMediaChunk,
+                                                            KeyDerivationProfile::PrivateNotes, nonce);
+    const auto second = SecureEnvelope::encryptAeadWithNonce(plain, key, KeyDomain::RemoteMediaChunk,
+                                                             KeyDerivationProfile::PrivateNotes, nonce);
+    QVERIFY2(first, qPrintable(first.error.message));
+    QVERIFY2(second, qPrintable(second.error.message));
+    QCOMPARE(first.value.nonce, nonce);
+    QCOMPARE(first.value.cipherText, second.value.cipherText);
+    QCOMPARE(first.value.tag, second.value.tag);
+
+    auto changedNonce = nonce;
+    changedNonce[changedNonce.size() - 1] ^= char(1);
+    const auto changed = SecureEnvelope::encryptAeadWithNonce(plain, key, KeyDomain::RemoteMediaChunk,
+                                                              KeyDerivationProfile::PrivateNotes, changedNonce);
+    QVERIFY2(changed, qPrintable(changed.error.message));
+    QVERIFY(first.value.cipherText != changed.value.cipherText || first.value.tag != changed.value.tag);
+
+    const auto opened = SecureEnvelope::decryptAead(first.value, key, KeyDomain::RemoteMediaChunk,
+                                                    KeyDerivationProfile::PrivateNotes);
+    QVERIFY2(opened, qPrintable(opened.error.message));
+    QCOMPARE(opened.value, plain);
 }
 
 void SecureEnvelopeTest::privateNotesProfileRoundTrip()
@@ -100,6 +181,137 @@ void SecureEnvelopeTest::privateNotesProfileRoundTrip()
     QVERIFY(recovery.startsWith(QStringLiteral("private-notes-key-v1:")));
     QVERIFY(SecureEnvelope::decodeRecoveryKey(recovery, KeyDerivationProfile::PrivateNotes));
     QVERIFY(!SecureEnvelope::decodeRecoveryKey(recovery));
+}
+
+void SecureEnvelopeTest::mediaChunkWireRoundTripAndMapping()
+{
+    QByteArray plain(2500, Qt::Uninitialized);
+    for (int i = 0; i < plain.size(); ++i)
+        plain[i] = char(i % 251);
+    const auto checksum  = QCryptographicHash::hash(plain, QCryptographicHash::Sha256);
+    const auto generated = MediaChunkWire::generate(plain.size(), checksum, 1024);
+    QVERIFY(generated);
+    const auto parameters = *generated;
+    QCOMPARE(parameters.chunkCount(), quint64(3));
+
+    const auto totalWireSize = MediaChunkWire::wireSize(parameters);
+    QVERIFY(totalWireSize);
+    QCOMPARE(*totalWireSize, quint64(2740));
+    const auto offset0 = MediaChunkWire::wireChunkOffset(parameters, 0);
+    const auto offset1 = MediaChunkWire::wireChunkOffset(parameters, 1);
+    const auto offset2 = MediaChunkWire::wireChunkOffset(parameters, 2);
+    QVERIFY(offset0);
+    QVERIFY(offset1);
+    QVERIFY(offset2);
+    QCOMPARE(*offset0, quint64(0));
+    QCOMPARE(*offset1, quint64(1104));
+    QCOMPARE(*offset2, quint64(2208));
+    const auto firstWireChunkSize = MediaChunkWire::wireChunkSize(parameters, 0);
+    const auto lastWireChunkSize  = MediaChunkWire::wireChunkSize(parameters, 2);
+    QVERIFY(firstWireChunkSize);
+    QVERIFY(lastWireChunkSize);
+    QCOMPARE(*firstWireChunkSize, quint64(1104));
+    QCOMPARE(*lastWireChunkSize, quint64(532));
+
+    QByteArray wire;
+    QByteArray restored;
+    for (quint64 index = 0; index < parameters.chunkCount(); ++index) {
+        const auto actual = MediaChunkWire::plainChunkSize(parameters, index);
+        QVERIFY(actual);
+        const QByteArray plainChunk = plain.mid(qsizetype(index * parameters.chunkSize), *actual);
+        const auto encrypted = MediaChunkWire::encryptChunk(parameters, index, plainChunk);
+        QVERIFY2(encrypted, qPrintable(encrypted.error));
+        const auto repeated = MediaChunkWire::encryptChunk(parameters, index, plainChunk);
+        QVERIFY2(repeated, qPrintable(repeated.error));
+        QCOMPARE(repeated.value, encrypted.value);
+        wire.append(encrypted.value);
+        const auto decrypted = MediaChunkWire::decryptChunk(parameters, index, encrypted.value);
+        QVERIFY2(decrypted, qPrintable(decrypted.error));
+        restored.append(decrypted.value);
+    }
+    QCOMPARE(restored, plain);
+    QCOMPARE(quint64(wire.size()), *totalWireSize);
+
+    const auto index0End = MediaChunkWire::chunkIndexForWireOffset(parameters, 1103);
+    const auto index1    = MediaChunkWire::chunkIndexForWireOffset(parameters, 1104);
+    const auto indexLast = MediaChunkWire::chunkIndexForWireOffset(parameters, quint64(wire.size() - 1));
+    QVERIFY(index0End);
+    QVERIFY(index1);
+    QVERIFY(indexLast);
+    QCOMPARE(*index0End, quint64(0));
+    QCOMPARE(*index1, quint64(1));
+    QCOMPARE(*indexLast, quint64(2));
+    QVERIFY(!MediaChunkWire::chunkIndexForWireOffset(parameters, quint64(wire.size())));
+}
+
+void SecureEnvelopeTest::mediaChunkWireStreamIsSeekableAndStable()
+{
+    QByteArray plain(2500, Qt::Uninitialized);
+    for (int i = 0; i < plain.size(); ++i)
+        plain[i] = char(17 + (i % 101));
+    const auto generated
+        = MediaChunkWire::generate(plain.size(), QCryptographicHash::hash(plain, QCryptographicHash::Sha256), 1024);
+    QVERIFY(generated);
+    const auto parameters = *generated;
+
+    MediaChunkWireStream sequential(std::make_unique<MemoryMediaSource>(plain), parameters);
+    QVERIFY2(sequential.open(QIODevice::ReadOnly), qPrintable(sequential.errorString()));
+    const QByteArray wire = sequential.readAll();
+    QCOMPARE(wire.size(), sequential.size());
+    QCOMPARE(sequential.completedWireSha256(), QCryptographicHash::hash(wire, QCryptographicHash::Sha256));
+
+    MediaChunkWireStream ranged(std::make_unique<MemoryMediaSource>(plain), parameters);
+    QVERIFY2(ranged.open(QIODevice::ReadOnly), qPrintable(ranged.errorString()));
+    const qint64 firstSpan = qint64(parameters.chunkSize + MediaChunkWire::Overhead);
+    QVERIFY(ranged.seek(firstSpan - 19));
+    const QByteArray slice = ranged.read(73);
+    QCOMPARE(slice, wire.mid(qsizetype(firstSpan - 19), 73));
+    QVERIFY(ranged.completedWireSha256().isEmpty());
+
+    QVERIFY(ranged.seek(0));
+    QCOMPARE(ranged.read(97), wire.left(97));
+    QVERIFY(ranged.completedWireSha256().isEmpty());
+}
+
+void SecureEnvelopeTest::mediaChunkWireRejectsTamperingAndWrongIndex()
+{
+    const QByteArray plain(2048, 'm');
+    const auto generated
+        = MediaChunkWire::generate(plain.size(), QCryptographicHash::hash(plain, QCryptographicHash::Sha256), 1024);
+    QVERIFY(generated);
+    const auto parameters = *generated;
+    const auto first      = MediaChunkWire::encryptChunk(parameters, 0, plain.left(1024));
+    QVERIFY2(first, qPrintable(first.error));
+
+    auto tampered = first.value;
+    tampered[tampered.size() / 2] ^= char(1);
+    QVERIFY(!MediaChunkWire::decryptChunk(parameters, 0, tampered));
+
+    // Full records have the same byte length, but a record is bound to its
+    // chunk index through both nonce selection and the encrypted context.
+    QVERIFY(!MediaChunkWire::decryptChunk(parameters, 1, first.value));
+
+    auto wrongIdentity = parameters;
+    wrongIdentity.plainChecksum[0] ^= char(1);
+    QVERIFY(!MediaChunkWire::decryptChunk(wrongIdentity, 0, first.value));
+}
+
+void SecureEnvelopeTest::mediaChunkWireRepresentsEmptyFile()
+{
+    const QByteArray checksum  = QCryptographicHash::hash(QByteArray(), QCryptographicHash::Sha256);
+    const auto       generated = MediaChunkWire::generate(0, checksum, 1024);
+    QVERIFY(generated);
+    const auto parameters = *generated;
+    QCOMPARE(parameters.chunkCount(), quint64(1));
+    const auto totalWireSize = MediaChunkWire::wireSize(parameters);
+    QVERIFY(totalWireSize);
+    QCOMPARE(*totalWireSize, quint64(MediaChunkWire::Overhead));
+    const auto encrypted = MediaChunkWire::encryptChunk(parameters, 0, {});
+    QVERIFY2(encrypted, qPrintable(encrypted.error));
+    QCOMPARE(encrypted.value.size(), qsizetype(MediaChunkWire::Overhead));
+    const auto decrypted = MediaChunkWire::decryptChunk(parameters, 0, encrypted.value);
+    QVERIFY2(decrypted, qPrintable(decrypted.error));
+    QVERIFY(decrypted.value.isEmpty());
 }
 
 void SecureEnvelopeTest::recoveryKeyRoundTrip()
