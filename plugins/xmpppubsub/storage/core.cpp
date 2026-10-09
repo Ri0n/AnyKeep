@@ -32,6 +32,15 @@
 namespace AnyKeep {
 
 namespace {
+    QString freshStorageKeySetting(const QString &jid)
+    {
+        // Persist the explicitly selected fresh-key policy per account,
+        // bound to its actual installed key. Importing another key does not
+        // inherit the permission to ignore foreign-key index records.
+        const auto digest = QCryptographicHash::hash(jid.toUtf8(), QCryptographicHash::Sha256).toHex();
+        return QStringLiteral("storage.xmpppubsub.freshKeyId.") + QString::fromLatin1(digest);
+    }
+
     QIcon xmppStorageIcon()
     {
         // Storage identity must not depend on the host icon theme: several
@@ -113,21 +122,27 @@ XmppStorage::XmppStorage(QObject *parent, XmppBackend *backend, FolderCatalogMan
     openPersistentCache(config_);
 }
 
-void XmppStorage::installReceivedStorageKey(const QString &jid, const QByteArray &key)
+void XmppStorage::installReceivedStorageKey(const QString &jid, const QByteArray &key, bool freshStart)
 {
     if (auto error = SecureKeyStore::write(storageKeyName(jid), key)) {
         emit encryptionKeyChanged({}, error.message);
         reportError(error.message);
         return;
     }
+    const auto keyId = SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes);
+    QSettings  settings;
+    if (freshStart)
+        settings.setValue(freshStorageKeySetting(jid), QString::fromLatin1(keyId.toHex()));
+    else
+        settings.remove(freshStorageKeySetting(jid));
+
     // The storage key is part of the backend configuration. Invalidate every
     // operation started with the previous (keyless) snapshot before reconnecting.
     cancelRefreshAttempt();
     ++configEpoch_;
     config_ = readConfig();
     clearErrorState();
-    const auto keyId = SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes);
-    qInfo().noquote() << "XMPP storage key installed from a trusted device: key="
+    qInfo().noquote() << (freshStart ? "XMPP fresh storage key installed: key=" : "XMPP recovered storage key installed: key=")
                       << QString::fromLatin1(keyId.left(8).toHex());
     emit encryptionKeyChanged(keyId, tr("Storage key received from a trusted device"));
 
@@ -298,7 +313,7 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController 
                                             rekeyed.error);
                                     return;
                                 }
-                                installReceivedStorageKey(jid, canonical);
+                                installReceivedStorageKey(jid, canonical, freshStart);
                                 if (settingsGuard) {
                                     settingsGuard->setKeyState(
                                         SecureEnvelope::keyId(canonical, KeyDerivationProfile::PrivateNotes),
@@ -402,6 +417,12 @@ XmppConfig XmppStorage::readConfig() const
         const auto key = SecureKeyStore::read(storageKeyName(config.jid));
         if (key)
             config.masterKey = key.value;
+        if (config.masterKey.size() == SecureEnvelope::MasterKeySize) {
+            const auto currentKeyId = SecureEnvelope::keyId(config.masterKey, KeyDerivationProfile::PrivateNotes);
+            config.allowForeignKeyIndices
+                = settings.value(freshStorageKeySetting(config.jid)).toString()
+                == QString::fromLatin1(currentKeyId.toHex());
+        }
         const auto omemoKey
             = SecureKeyStore::loadOrCreate(QStringLiteral("xmpp-omemo-state-key-v1:%1").arg(config.jid));
         if (omemoKey)
