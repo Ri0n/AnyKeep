@@ -3,14 +3,14 @@ name: AnyKeep packages
 on:
   workflow_dispatch:
     inputs:
-      windows_update_channel:
-        description: Windows self-update channel
+      update_channel:
+        description: Package/update channel for an explicit manual build
         required: true
-        default: stable
+        default: nightly
         type: choice
         options:
-          - stable
           - nightly
+          - stable
   schedule:
     - cron: "0 3 * * *"
   push:
@@ -29,25 +29,73 @@ env:
   AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
 
 jobs:
-  nightly_gate:
-    name: Check rolling nightly release
+  plan:
+    name: Plan package build
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
+      should_build: ${{ steps.gate.outputs.should_build }}
+      update_channel: ${{ steps.channel.outputs.update_channel }}
+      iris_tag: ${{ steps.dependencies.outputs.iris_tag }}
+      qca_tag: ${{ steps.dependencies.outputs.qca_tag }}
+      qtkeychain_tag: ${{ steps.dependencies.outputs.qtkeychain_tag }}
+      qtkeychain_version: ${{ steps.dependencies.outputs.qtkeychain_version }}
+      qtkeychain_revision: ${{ steps.dependencies.outputs.qtkeychain_revision }}
+      dependency_summary: ${{ steps.dependencies.outputs.dependency_summary }}
+      dependency_fingerprint: ${{ steps.dependencies.outputs.dependency_fingerprint }}
     steps:
-      - name: Compare nightly release commit
-        id: check
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Select package channel
+        id: channel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tagged_release="$(git tag --points-at HEAD --list 'v*' | head -n 1)"
+          if [[ -n "$tagged_release" ]]; then
+            channel=stable
+            echo "HEAD is tagged as $tagged_release; selecting stable."
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            channel="${{ inputs.update_channel }}"
+            echo "Manual build selected channel: $channel"
+          else
+            channel=nightly
+            echo "Automatic untagged build; selecting nightly."
+          fi
+
+          printf 'update_channel=%s\n' "$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve package dependencies
+        id: dependencies
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          python .github/scripts/resolve-package-dependencies.py \
+            --mode "${{ steps.channel.outputs.update_channel }}"
 
-          # Manual runs are an explicit request to rebuild. The gate only skips
-          # unchanged scheduled nightlies.
+      - name: Check whether a scheduled nightly is needed
+        id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_CHANNEL: ${{ steps.channel.outputs.update_channel }}
+          DEPENDENCY_FINGERPRINT: ${{ steps.dependencies.outputs.dependency_fingerprint }}
+        run: |
+          set -euo pipefail
+
           if [[ "${{ github.event_name }}" != "schedule" ]]; then
             echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$UPDATE_CHANNEL" != "nightly" ]]; then
+            echo "Scheduled HEAD is a stable/tagged commit; skipping."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -59,21 +107,31 @@ jobs:
               | sed -nE 's/.*<!-- anykeep-nightly-sha:([0-9a-f]{40}) -->.*/\1/p' \
               | tail -n 1
           )"
+          nightly_deps="$(
+            printf '%s\n' "$release_body" \
+              | sed -nE 's/.*<!-- anykeep-nightly-deps:([0-9a-f]{64}) -->.*/\1/p' \
+              | tail -n 1
+          )"
 
-          if [[ -z "$nightly_sha" ]]; then
-            echo "No successful rolling nightly marker found; building."
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$nightly_sha" == "$GITHUB_SHA" ]]; then
-            echo "Rolling nightly already contains $GITHUB_SHA; skipping scheduled build."
+          if [[ "$nightly_sha" == "$GITHUB_SHA" && "$nightly_deps" == "$DEPENDENCY_FINGERPRINT" ]]; then
+            echo "Nightly already contains commit $GITHUB_SHA with the same compatible dependency set."
             echo "should_build=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Rolling nightly is $nightly_sha, current master is $GITHUB_SHA; building."
+            echo "Nightly inputs changed:"
+            echo "  previous commit:       ${nightly_sha:-<none>}"
+            echo "  current commit:        $GITHUB_SHA"
+            echo "  previous dependencies: ${nightly_deps:-<none>}"
+            echo "  current dependencies:  $DEPENDENCY_FINGERPRINT"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           fi
 
   debian:
     name: Debian package / Ubuntu ${{ matrix.ubuntu-version }}
-    if: ${{ github.event_name != 'schedule' }}
+    needs: plan
+    if: ${{ needs.plan.outputs.should_build == 'true' }}
+    env:
+      IRIS_TAG: ${{ needs.plan.outputs.iris_tag }}
+      QCA_TAG: ${{ needs.plan.outputs.qca_tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -84,9 +142,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - name: Load dependency versions
-        uses: ./.github/actions/load-dependencies
 
       - name: Download and install QCA/Iris packages
         uses: ./.github/actions/install-qca-iris-linux
@@ -125,11 +180,16 @@ jobs:
 
   windows:
     name: Windows x64 package
-    needs: nightly_gate
-    if: ${{ needs.nightly_gate.outputs.should_build == 'true' }}
-    permissions:
-      contents: write
+    needs: plan
+    if: ${{ needs.plan.outputs.should_build == 'true' }}
     runs-on: windows-2022
+    env:
+      ANYKEEP_WINDOWS_UPDATE_CHANNEL: ${{ needs.plan.outputs.update_channel }}
+      IRIS_TAG: ${{ needs.plan.outputs.iris_tag }}
+      QCA_TAG: ${{ needs.plan.outputs.qca_tag }}
+      QTKEYCHAIN_TAG: ${{ needs.plan.outputs.qtkeychain_tag }}
+      QTKEYCHAIN_VERSION: ${{ needs.plan.outputs.qtkeychain_version }}
+      QTKEYCHAIN_REVISION: ${{ needs.plan.outputs.qtkeychain_revision }}
     timeout-minutes: 150
     defaults:
       run:
@@ -138,23 +198,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - name: Load dependency versions
-        uses: ./.github/actions/load-dependencies
-
-      - name: Select Windows update channel
-        run: |
-          $channel = "stable"
-          if ("${{ github.event_name }}" -eq "schedule") {
-            $channel = "nightly"
-          } elseif ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $requested = "${{ inputs.windows_update_channel }}"
-            if ($requested) {
-              $channel = $requested
-            }
-          }
-          "ANYKEEP_WINDOWS_UPDATE_CHANNEL=$channel" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Windows update channel: $channel"
 
       - name: Set up Windows desktop build
         uses: ./.github/actions/setup-windows-desktop
@@ -203,7 +246,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build and test nightly tree
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.windows_update_channel == 'nightly') }}
+        if: ${{ needs.plan.outputs.update_channel == 'nightly' }}
         run: |
           cmake --build build/package --parallel 4
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -238,83 +281,16 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-      - name: Publish rolling nightly release
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.windows_update_channel == 'nightly') }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = "Stop"
-          $releaseTag = "nightly"
-          $releaseTitle = "AnyKeep Nightly"
-          $repo = $env:GITHUB_REPOSITORY
-
-          gh release view $releaseTag --repo $repo *> $null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $releaseTag --repo $repo `
-              --target $env:GITHUB_SHA `
-              --title $releaseTitle `
-              --prerelease `
-              --notes "Nightly artifacts are being published. No successful build marker has been recorded yet."
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-
-          $assets = [System.Collections.Generic.List[string]]::new()
-          $assets.Add((Resolve-Path "build/package/AnyKeep.msi").Path)
-          Get-ChildItem "build/package" -File -Filter "AnyKeep.Installer-*.exe" |
-            ForEach-Object { $assets.Add($_.FullName) }
-          Get-ChildItem "build/package" -File -Filter "AnyKeep-*-windows-x86_64.msix" |
-            ForEach-Object { $assets.Add($_.FullName) }
-
-          $updateDir = "build/package/updates/$env:ANYKEEP_WINDOWS_UPDATE_CHANNEL"
-          if (-not (Test-Path -LiteralPath $updateDir)) {
-            throw "Nightly update directory is missing: $updateDir"
-          }
-          Get-ChildItem $updateDir -File | ForEach-Object { $assets.Add($_.FullName) }
-
-          if ($assets.Count -eq 0) {
-            throw "No nightly release assets were found"
-          }
-
-          $newAssetNames = @{}
-          foreach ($asset in $assets) {
-            $name = [System.IO.Path]::GetFileName($asset)
-            $newAssetNames[$name] = $true
-            gh release upload $releaseTag $asset --repo $repo --clobber
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-
-          # Keep the old release complete until every new asset has uploaded.
-          # Only then remove obsolete versioned files left by the previous nightly.
-          $oldAssetNames = @(gh release view $releaseTag --repo $repo --json assets --jq '.assets[].name')
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($name in $oldAssetNames) {
-            if (-not $newAssetNames.ContainsKey($name)) {
-              gh release delete-asset $releaseTag $name --repo $repo --yes
-              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            }
-          }
-
-          $builtAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'")
-          $notes = @"
-          Rolling AnyKeep nightly build.
-
-          Commit: $env:GITHUB_SHA
-          Built: $builtAt
-
-          <!-- anykeep-nightly-sha:$env:GITHUB_SHA -->
-          "@
-          $notesFile = Join-Path $env:RUNNER_TEMP "anykeep-nightly-notes.md"
-          Set-Content -LiteralPath $notesFile -Value $notes -Encoding utf8
-
-          gh release edit $releaseTag --repo $repo `
-            --title $releaseTitle `
-            --prerelease `
-            --notes-file $notesFile
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
   macos:
     name: macOS / ${{ matrix.arch }} package
-    if: ${{ github.event_name != 'schedule' }}
+    needs: plan
+    if: ${{ needs.plan.outputs.should_build == 'true' }}
+    env:
+      IRIS_TAG: ${{ needs.plan.outputs.iris_tag }}
+      QCA_TAG: ${{ needs.plan.outputs.qca_tag }}
+      QTKEYCHAIN_TAG: ${{ needs.plan.outputs.qtkeychain_tag }}
+      QTKEYCHAIN_VERSION: ${{ needs.plan.outputs.qtkeychain_version }}
+      QTKEYCHAIN_REVISION: ${{ needs.plan.outputs.qtkeychain_revision }}
     strategy:
       fail-fast: false
       matrix:
@@ -329,9 +305,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - name: Load dependency versions
-        uses: ./.github/actions/load-dependencies
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -475,7 +448,14 @@ jobs:
 
   android:
     name: Android / ${{ matrix.abi }} APK
-    if: ${{ github.event_name != 'schedule' }}
+    needs: plan
+    if: ${{ needs.plan.outputs.should_build == 'true' }}
+    env:
+      IRIS_TAG: ${{ needs.plan.outputs.iris_tag }}
+      QCA_TAG: ${{ needs.plan.outputs.qca_tag }}
+      QTKEYCHAIN_TAG: ${{ needs.plan.outputs.qtkeychain_tag }}
+      QTKEYCHAIN_VERSION: ${{ needs.plan.outputs.qtkeychain_version }}
+      QTKEYCHAIN_REVISION: ${{ needs.plan.outputs.qtkeychain_revision }}
     strategy:
       fail-fast: false
       matrix:
@@ -490,9 +470,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - name: Load dependency versions
-        uses: ./.github/actions/load-dependencies
 
       - name: Build Android APK
         uses: ./.github/actions/build-android-apk
@@ -517,3 +494,129 @@ jobs:
           path: packages/AnyKeep-${{ matrix.abi }}.apk
           if-no-files-found: error
           compression-level: 0
+
+
+  publish-nightly-release:
+    name: Publish complete nightly release
+    needs: [plan, debian, windows, macos, android]
+    if: >-
+      ${{ always()
+          && needs.plan.outputs.should_build == 'true'
+          && needs.plan.outputs.update_channel == 'nightly'
+          && needs.debian.result == 'success'
+          && needs.windows.result == 'success'
+          && needs.macos.result == 'success'
+          && needs.android.result == 'success' }}
+    permissions:
+      actions: read
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      IRIS_TAG: ${{ needs.plan.outputs.iris_tag }}
+      QCA_TAG: ${{ needs.plan.outputs.qca_tag }}
+      QTKEYCHAIN_TAG: ${{ needs.plan.outputs.qtkeychain_tag }}
+      DEPENDENCY_SUMMARY: ${{ needs.plan.outputs.dependency_summary }}
+      DEPENDENCY_FINGERPRINT: ${{ needs.plan.outputs.dependency_fingerprint }}
+
+    steps:
+      - name: Download all package artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: anykeep-*
+          path: downloaded
+
+      - name: Assemble nightly release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf release-assets
+          mkdir release-assets
+
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+
+          downloaded = Path("downloaded")
+          output = Path("release-assets")
+          for artifact in ("anykeep-deb-ubuntu-24.04", "anykeep-deb-ubuntu-26.04"):
+              source = downloaded / artifact
+              files = sorted(path for path in source.rglob("*.deb") if path.is_file())
+              if not files:
+                  raise SystemExit(f"No Debian packages found in {source}")
+              target = output / f"{artifact}.zip"
+              with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                  for path in files:
+                      archive.write(path, path.name)
+          PY
+
+          find downloaded -type f -path '*/anykeep-macos-*/*.zip' -exec cp -v {} release-assets/ \;
+          find downloaded -type f -path '*/anykeep-android-*/*.apk' -exec cp -v {} release-assets/ \;
+
+          windows=downloaded/anykeep-windows-x64
+          test -d "$windows"
+          find "$windows" -maxdepth 1 -type f -exec cp -v {} release-assets/ \;
+          nightly_updates="$windows/updates/nightly"
+          test -d "$nightly_updates"
+          find "$nightly_updates" -maxdepth 1 -type f -exec cp -v {} release-assets/ \;
+
+          echo "Nightly release assets:"
+          find release-assets -maxdepth 1 -type f -printf '  %f\n' | sort
+          test -n "$(find release-assets -maxdepth 1 -type f -print -quit)"
+
+      - name: Publish rolling nightly release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          release_tag=nightly
+          release_title="AnyKeep Nightly"
+
+          if ! gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$release_tag" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$release_title" \
+              --prerelease \
+              --notes "Nightly artifacts are being published. No successful build marker has been recorded yet."
+          fi
+
+          declare -A new_assets=()
+          for asset in release-assets/*; do
+            name="$(basename "$asset")"
+            new_assets["$name"]=1
+            gh release upload "$release_tag" "$asset" --repo "$GITHUB_REPOSITORY" --clobber
+          done
+
+          mapfile -t old_assets < <(
+            gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name'
+          )
+          for name in "${old_assets[@]}"; do
+            if [[ -z "${new_assets[$name]+x}" ]]; then
+              gh release delete-asset "$release_tag" "$name" --repo "$GITHUB_REPOSITORY" --yes
+            fi
+          done
+
+          built_at="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          notes_file="$RUNNER_TEMP/anykeep-nightly-notes.md"
+          cat >"$notes_file" <<EOF
+          Rolling AnyKeep nightly build.
+
+          Commit: $GITHUB_SHA
+          Built: $built_at
+
+          Dependencies:
+          - Iris: $IRIS_TAG
+          - QCA: $QCA_TAG
+          - QtKeychain bundle: $QTKEYCHAIN_TAG
+
+          <!-- anykeep-nightly-sha:$GITHUB_SHA -->
+          <!-- anykeep-nightly-deps:$DEPENDENCY_FINGERPRINT -->
+          EOF
+
+          gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" \
+            --title "$release_title" \
+            --prerelease \
+            --notes-file "$notes_file"
