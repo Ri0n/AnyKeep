@@ -36,6 +36,27 @@ not affect the application ELF because lld has already removed its debug
 sections. Most Qt, Iris, QCA and FFmpeg libraries shipped by upstream/prebuilt
 packages are already stripped.
 
+## APK signing in CI
+
+The shared Android build action selects exactly one Release APK, aligns it with
+`zipalign -P 16`, then signs it with `apksigner`. Signature and alignment checks
+and the native payload audit run against the final APK in `packages/` before
+artifact upload. An unsigned Gradle Release output is never published directly.
+
+The packaging workflow accepts these GitHub repository secrets:
+
+- `ANDROID_SIGNING_KEYSTORE_BASE64`: base64-encoded persistent keystore;
+- `ANDROID_SIGNING_KEY_ALIAS`: signing key alias;
+- `ANDROID_SIGNING_STORE_PASSWORD`: keystore password;
+- `ANDROID_SIGNING_KEY_PASSWORD`: key password.
+
+The packaging workflow requires all four secrets and fails if any is missing;
+published APKs always use the persistent key. PR CI explicitly enables
+`allow-debug-signing` and uses temporary keys without access to release signing
+secrets. These test APKs have a different certificate between builds and cannot
+update installations signed with the persistent key. Keystore files are removed
+after signing and passwords are passed through environment variables.
+
 ## Production Qt plugin pruning
 
 Android Release targets use `qt_import_plugins(anykeep_mobile EXCLUDE_BY_TYPE qmltooling)`

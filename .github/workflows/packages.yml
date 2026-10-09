@@ -543,6 +543,10 @@ jobs:
           qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
           aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
           github-token: ${{ github.token }}
+          signing-keystore-base64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          signing-key-alias: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          signing-store-password: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          signing-key-password: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
 
       - uses: actions/upload-artifact@v7
         with:

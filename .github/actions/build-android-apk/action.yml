@@ -40,6 +40,22 @@ inputs:
   github-token:
     description: GitHub token used to download dependency release assets
     required: true
+  signing-keystore-base64:
+    description: Base64 persistent signing keystore
+    required: false
+  allow-debug-signing:
+    description: Allow a temporary debug signing key for CI validation only
+    required: false
+    default: 'false'
+  signing-key-alias:
+    description: Alias in the signing keystore
+    required: false
+  signing-store-password:
+    description: Signing keystore password
+    required: false
+  signing-key-password:
+    description: Signing key password
+    required: false
 
 runs:
   using: composite
@@ -101,8 +117,19 @@ runs:
       env:
         ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        ANYKEEP_SIGNING_KEYSTORE_BASE64: ${{ inputs.signing-keystore-base64 }}
+        ANYKEEP_SIGNING_KEY_ALIAS: ${{ inputs.signing-key-alias }}
+        ANYKEEP_SIGNING_STORE_PASSWORD: ${{ inputs.signing-store-password }}
+        ANYKEEP_SIGNING_KEY_PASSWORD: ${{ inputs.signing-key-password }}
+        ANYKEEP_ALLOW_DEBUG_SIGNING: ${{ inputs.allow-debug-signing }}
       run: |
         set -euo pipefail
+        if [[ "$ANYKEEP_ALLOW_DEBUG_SIGNING" != true ]]; then
+          : "${ANYKEEP_SIGNING_KEYSTORE_BASE64:?ANDROID_SIGNING_KEYSTORE_BASE64 secret is required}"
+          : "${ANYKEEP_SIGNING_KEY_ALIAS:?ANDROID_SIGNING_KEY_ALIAS secret is required}"
+          : "${ANYKEEP_SIGNING_STORE_PASSWORD:?ANDROID_SIGNING_STORE_PASSWORD secret is required}"
+          : "${ANYKEEP_SIGNING_KEY_PASSWORD:?ANDROID_SIGNING_KEY_PASSWORD secret is required}"
+        fi
         python3 -m unittest discover -s .github/scripts -p 'test_inspect_android_apk.py'
         qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
         test -x "$qt_cmake"
@@ -170,9 +197,14 @@ runs:
         fi
 
         mkdir -p packages
-        apk=$(find "build/android-${{ inputs.abi }}" -type f -path '*/outputs/apk/*/*.apk' -print -quit)
-        test -n "$apk"
+        mapfile -t apks < <(
+          find "build/android-${{ inputs.abi }}" -type f -path '*/outputs/apk/release/*.apk' -print
+        )
+        if [[ ${#apks[@]} -ne 1 ]]; then
+          echo "Expected exactly one Release APK, found ${#apks[@]}" >&2
+          exit 1
+        fi
+        apk="${apks[0]}"
 
-        python3 .github/scripts/inspect-android-apk.py "$apk" "${{ inputs.abi }}" "$app_size"
-
-        cp "$apk" "packages/AnyKeep-${{ inputs.abi }}.apk"
+        bash .github/scripts/sign-android-apk.sh "$apk" "packages/AnyKeep-${{ inputs.abi }}.apk"
+        python3 .github/scripts/inspect-android-apk.py "packages/AnyKeep-${{ inputs.abi }}.apk" "${{ inputs.abi }}" "$app_size"
