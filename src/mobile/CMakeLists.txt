@@ -249,7 +249,9 @@ if(ANDROID)
   # Keep runtime platform, TLS, image, SVG and multimedia plugins untouched.
   # Unlike QT_ANDROID_DEPLOYMENT_DEPENDENCIES, this leaves Qt's automatic
   # transitive dependency resolution in place.
-  qt_import_plugins(anykeep_mobile EXCLUDE_BY_TYPE qmltooling)
+  if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    qt_import_plugins(anykeep_mobile EXCLUDE_BY_TYPE qmltooling)
+  endif()
 
   # Strip DWARF during the Release link itself. Running llvm-strip on an existing
   # Ninja output makes the linker run again when Qt's APK target is built.
