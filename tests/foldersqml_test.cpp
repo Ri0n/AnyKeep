@@ -726,8 +726,15 @@ void NotesManagerQmlTest::mobileFolderCreationDialogCollectsFlagsBeforeCommit()
     QCOMPARE(page->property("editingFolderId").toString(), QString());
     QCOMPARE(workspace->property("inlineCreateCount").toInt(), 0);
 
-    // A new invocation is empty and unflagged. Cancelling creates nothing.
-    QVERIFY(QMetaObject::invokeMethod(page, "createFolder", Q_ARG(QVariant, QStringLiteral(""))));
+    // The toolbar's folder-plus icon invokes the same dialog at root.
+    auto *newFolderButton = quickItemByName(rootItem, QStringLiteral("newFolderButton"));
+    auto *plusBadge = page->findChild<QObject *>(QStringLiteral("newFolderPlusBadge"));
+    QVERIFY(newFolderButton);
+    QVERIFY(plusBadge);
+    QCOMPARE(plusBadge->property("visible").toBool(), true);
+    const QPointF buttonPoint = newFolderButton->mapToItem(
+        rootItem, QPointF(newFolderButton->width() / 2, newFolderButton->height() / 2));
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, buttonPoint.toPoint());
     QTRY_VERIFY(dialog->property("visible").toBool());
     QCOMPARE(name->property("text").toString(), QString());
     QVERIFY(!favorite->property("checked").toBool());
