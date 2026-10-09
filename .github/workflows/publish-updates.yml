@@ -95,7 +95,7 @@ jobs:
 
           file_count="$(find "$UPDATE_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')"
           [[ "$file_count" == "4" ]] || {
-            echo "Expected exactly four nightly update files, found $file_count" >&2
+            echo "Expected exactly four update files, found $file_count" >&2
             find "$UPDATE_DIR" -maxdepth 1 -type f -printf '%f\n' | sort >&2
             exit 1
           }
