@@ -124,7 +124,7 @@ private:
     void       retryInitialization();
     void       resetRetryBackoff();
     void       applyConfig(const XmppConfig &config);
-    void       installReceivedStorageKey(const QString &jid, const QByteArray &key);
+    void       installReceivedStorageKey(const QString &jid, const QByteArray &key, bool freshStart = false);
     void       resolveStorageKeys(const QString &jid, XmppSettingsController *settings = nullptr);
     void       abortKeyResolution();
     bool       openPersistentCache(const XmppConfig &config);
