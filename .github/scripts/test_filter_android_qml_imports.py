@@ -79,7 +79,7 @@ class AndroidQmlFilterTests(unittest.TestCase):
             host = root / "gcc_64/libexec"
             host.mkdir(parents=True)
             scanner = host / "qmlimportscanner"
-            scanner.write_text("#!/bin/sh\\nexit 0\\n", encoding="utf-8")
+            scanner.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             scanner.chmod(0o755)
             settings = android / "deployment.json"
             settings.write_text(json.dumps({"qt": str(android), "qtLibExecsDirectory": {"arm64-v8a": str(android / "libexec")}}), encoding="utf-8")
