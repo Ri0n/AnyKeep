@@ -196,14 +196,23 @@ private slots:
             QTRY_VERIFY(first);
             QTRY_VERIFY(second);
             QTRY_VERIFY(last);
-            auto *onlineBadge = quickItemByName(root, QStringLiteral("settingsConnectivityBadge-a"));
-            auto *localBadge  = quickItemByName(root, QStringLiteral("settingsConnectivityBadge-c"));
+            auto *onlineBadge  = quickItemByName(root, QStringLiteral("settingsConnectivityBadge-a"));
+            auto *offlineBadge = quickItemByName(root, QStringLiteral("settingsConnectivityBadge-b"));
+            auto *localBadge   = quickItemByName(root, QStringLiteral("settingsConnectivityBadge-c"));
             QTRY_VERIFY(onlineBadge);
+            QTRY_VERIFY(offlineBadge);
             QTRY_VERIFY(localBadge);
             QCOMPARE(onlineBadge->property("visible").toBool(), !pluginMode);
+            QCOMPARE(offlineBadge->property("visible").toBool(), !pluginMode);
             QCOMPARE(localBadge->property("visible").toBool(), false);
-            if (!pluginMode)
+            if (!pluginMode) {
                 QCOMPARE(first->property("subtitle").toString(), QStringLiteral("Online"));
+                QCOMPARE(second->property("subtitle").toString(), QStringLiteral("Offline"));
+                // A live disconnect must update the badge label through
+                // QAbstractItemModel::dataChanged, not a restarted page.
+                model.setConnectivityA(1);
+                QTRY_COMPARE(first->property("subtitle").toString(), QStringLiteral("Offline"));
+            }
             if (pluginMode) {
                 auto *firstCheck  = quickItemByName(root, QStringLiteral("settingsPolicyCheck-a"));
                 auto *secondCheck = quickItemByName(root, QStringLiteral("settingsPolicyCheck-b"));
