@@ -33,9 +33,9 @@ REPOSITORIES = {
     "qca": "psi-im/qca",
 }
 
-SEMVER_RE = re.compile(r"^v?(\\d+)\\.(\\d+)\\.(\\d+)$")
+SEMVER_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 QTKEYCHAIN_TAG_RE = re.compile(
-    r"^deps-qtkeychain-(\\d+)\\.(\\d+)\\.(\\d+)-r(\\d+)-qt6\\.11$"
+    r"^deps-qtkeychain-(\d+)\.(\d+)\.(\d+)-r(\d+)-qt6\.11$"
 )
 
 
@@ -94,7 +94,7 @@ def latest_compatible_release(name: str, locked: dict) -> str:
 
 def latest_compatible_qtkeychain(locked: dict) -> tuple[str, str, str]:
     locked_version = parse_version(locked["version"])
-    locked_revision_match = re.fullmatch(r"r(\\d+)", locked["revision"])
+    locked_revision_match = re.fullmatch(r"r(\d+)", locked["revision"])
     if not locked_revision_match:
         raise ValueError(f"Unsupported QtKeychain revision: {locked['revision']}")
     locked_revision = int(locked_revision_match.group(1))
