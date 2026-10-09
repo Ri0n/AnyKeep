@@ -63,8 +63,10 @@ class XmppThemeContrastTests(unittest.TestCase):
         for filename in QML_FILES:
             with self.subTest(filename=filename):
                 qml = (PLUGIN / filename).read_text(encoding="utf-8")
-                self.assertNotRegex(qml, r"color:\s*palette.mid\b")
+                # The recovery host intentionally uses Mid for its one
+                # horizontal divider (checked above), never for labels.
                 if filename != "XmppKeyResolutionHost.qml":
+                    self.assertNotRegex(qml, r"color:\s*palette.mid\b")
                     self.assertIn("color: palette.placeholderText", qml)
 
     def test_unavailable_key_explanation_not_dimmed_as_a_whole(self):
