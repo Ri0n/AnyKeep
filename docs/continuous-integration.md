@@ -30,18 +30,37 @@ application version from Git tags and the distance from the last tag.
 
 `.github/workflows/packages.yml` is the canonical package workflow.
 
-- a version tag builds Debian, Windows, macOS, and Android packages;
-- a manual run defaults to the stable Windows update channel and builds all
-  package platforms;
-- a manual run with `windows_update_channel=nightly` builds only Windows and
-  runs the Windows tests first;
-- the 03:00 UTC schedule is the former Windows nightly job: it builds only
-  Windows with the nightly update channel and runs CTest before packaging.
+The package channel is selected once by the planning job and reused by every
+platform:
+
+- a commit carrying a `v*` tag is always a `stable` build;
+- a manual run may explicitly select `stable` or `nightly` and defaults to
+  `nightly`;
+- every other automatic package build uses the `nightly` channel.
+
+Both stable and nightly builds use the same package matrix: Ubuntu 24.04 and
+26.04 Debian packages, Windows x64, macOS arm64/x86_64, and Android
+arm64-v8a/x86_64. A nightly GitHub release is updated only after every matrix
+job succeeds. The rolling release therefore never contains a new Windows build
+paired with stale or failed packages from another platform.
+
+Stable builds use the exact dependency versions in `dependencies.lock.json`.
+Nightly builds may advance Iris and QCA automatically within the
+source-controlled `nightly_compatibility` line. The current policy is
+`same-minor`: for example, an Iris 1.1.x pin may advance to a newer complete
+1.1.x release, but not to 1.2.x. A dependency release is eligible only after it
+publishes the full asset set required by the AnyKeep package matrix.
+QtKeychain remains on the explicitly packaged AnyKeep dependency bundle.
+
+The 03:00 UTC scheduled run is skipped when both the AnyKeep commit and the
+resolved compatible dependency set are identical to the markers recorded by
+the last successful `nightly` release. Manual runs and version-tag builds are
+never suppressed by this gate.
 
 The separate `windows-nightly.yml` workflow is intentionally no longer needed.
-Keeping nightly and release Windows package assembly in one workflow prevents
-the CMake flags, Store identity handling, dependency setup, and package targets
-from drifting apart.
+Keeping nightly and stable assembly in one workflow prevents CMake flags,
+dependency setup, update-channel selection, and package targets from drifting
+apart.
 
 ## Windows distribution artifacts
 
