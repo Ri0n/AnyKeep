@@ -561,8 +561,18 @@ QString XmppStorage::tooltip()
     if (config_.jid.isEmpty()) {
         return tr("XMPP private notes is not configured.");
     }
-    return tr("Account: %1\nPEP nodes: %2\nEncryption: end-to-end, key %3")
-        .arg(config_.jid, config_.nodeName,
+    const QString status = [this]() {
+        switch (connectivityState()) {
+        case ConnectivityState::Online: return tr("Online");
+        case ConnectivityState::Connecting: return tr("Reconnecting");
+        case ConnectivityState::Error: return tr("Needs attention");
+        case ConnectivityState::Offline: return tr("Offline");
+        case ConnectivityState::NotApplicable: return tr("Not applicable");
+        }
+        return tr("Unknown");
+    }();
+    return tr("Status: %1\nAccount: %2\nPEP nodes: %3\nEncryption: end-to-end, key %4")
+        .arg(status, config_.jid, config_.nodeName,
              QString::fromLatin1(
                  SecureEnvelope::keyId(config_.masterKey, KeyDerivationProfile::PrivateNotes).left(8).toHex()));
 }
