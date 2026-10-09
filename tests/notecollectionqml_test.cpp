@@ -82,6 +82,15 @@ void NotesManagerQmlTest::recentNoteSwipeClosesEveryDeleteAction()
     QQuickItem *action   = nullptr;
     QTRY_VERIFY((second = quickItemByName(rootItem, QStringLiteral("swipeRow-second"))));
 
+    // An Android-style touch delegate must render its model's title.  A
+    // missing Label or role binding used to look like a blank note in Recent.
+    QQuickItem *titleLabel = nullptr;
+    QTRY_VERIFY((titleLabel = quickItemByName(rootItem, QStringLiteral("noteTitle-storage-second"))));
+    QTRY_COMPARE(titleLabel->property("text").toString(), QStringLiteral("second"));
+    const QModelIndex secondIndex = notesModel.index(1, 0);
+    QVERIFY(notesModel.setData(secondIndex, QStringLiteral("Updated title"), Qt::UserRole + 4));
+    QTRY_COMPARE(titleLabel->property("text").toString(), QStringLiteral("Updated title"));
+
     QVERIFY(QMetaObject::invokeMethod(second, "openDeleteSwipe"));
     QTRY_VERIFY((action = quickItemByName(rootItem, QStringLiteral("noteSwipeDelete-storage-second"))));
     QTRY_VERIFY(action->opacity() > 0.99);
