@@ -41,5 +41,5 @@ optionally calls `hostItem.window.showNotesAfterXmppKeyResolution()` when
 provided by the mobile `ApplicationWindow`. `Main.qml` owns the
 `StackView` and pops settings pages to the root `Notes` page; if the
 wizard opened automatically while already at root, nothing is popped.
-Cancelled or unsuccessful flows must not navigate. Desktop/standalone hosts
+Cancelled or unsuccessful flows must not navigate. Only Settings pages opt in, so a dialog triggered while editing a note will not close that editor. Desktop/standalone hosts
 do not expose this method and continue their existing behavior.
