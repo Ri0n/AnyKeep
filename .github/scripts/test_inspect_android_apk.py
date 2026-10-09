@@ -64,6 +64,13 @@ class ApkInventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Essential Qt plugins missing"):
             self.verify()
 
+    def test_unused_controls_style_rejected(self):
+        self.make_apk(included=[
+            f"lib/{self.ABI}/libqml_QtQuick_Controls_Fusion_qtquickcontrols2fusionstyleplugin_{self.ABI}.so"
+        ])
+        with self.assertRaisesRegex(ValueError, "Unused Qt Quick Controls"):
+            self.verify()
+
     def test_packaged_elf_mismatch_rejected(self):
         self.make_apk()
         with self.assertRaisesRegex(ValueError, "differs from the verified linked ELF"):
