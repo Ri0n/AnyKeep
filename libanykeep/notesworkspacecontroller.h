@@ -123,6 +123,8 @@ public:
     Q_INVOKABLE bool    openStandalone(const QString &storageId, const QString &noteId);
     Q_INVOKABLE bool    openCurrentStandalone();
     Q_INVOKABLE QString createFolder(const QString &name, const QString &parentFolderId = {});
+    Q_INVOKABLE QString createFolderWithFlags(const QString &name, const QString &parentFolderId,
+                                              bool favorite, bool archived);
     Q_INVOKABLE bool    renameFolder(const QString &folderId, const QString &name);
     Q_INVOKABLE bool    moveFolder(const QString &folderId, const QString &parentFolderId, qint64 sortOrder);
     Q_INVOKABLE bool    moveFolderBefore(const QString &folderId, const QString &parentFolderId,
