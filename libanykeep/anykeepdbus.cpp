@@ -21,6 +21,7 @@
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
 #include "notemanager.h"
+#include "trayiconutils.h"
 #include "notepresentationorder.h"
 #include "notetitleresolver.h"
 #include "shortcutsmanager.h"
@@ -106,6 +107,12 @@ AnyKeepDBus::AnyKeepDBus(Main *anykeep, QObject *parent) : QObject(parent), m_an
     connect(manager, &NoteManager::storageAdded, this, &AnyKeepDBus::notesChanged);
     connect(manager, &NoteManager::storageRemoved, this, &AnyKeepDBus::notesChanged);
     connect(manager, &NoteManager::storageChanged, this, &AnyKeepDBus::notesChanged);
+    // Plasma runs in its own process. Publish storage transport changes
+    // independently of cached note-list changes, without polling.
+    connect(manager, &NoteManager::storageAdded, this, &AnyKeepDBus::storageConnectivityChanged);
+    connect(manager, &NoteManager::storageRemoved, this, &AnyKeepDBus::storageConnectivityChanged);
+    connect(manager, &NoteManager::storageChanged, this, &AnyKeepDBus::storageConnectivityChanged);
+    connect(manager, &NoteManager::storageReady, this, &AnyKeepDBus::storageConnectivityChanged);
     // A publication is the point at which a checkpointed edit becomes visible
     // to storage-backed consumers. Refresh the tray/plasmoid after the storage
     // cache has accepted the returned note, even if a plugin omits or delays its
@@ -142,6 +149,36 @@ AnyKeepDBus::~AnyKeepDBus()
     auto bus = QDBusConnection::sessionBus();
     bus.unregisterObject(QLatin1String(ObjectPath));
     bus.unregisterService(QLatin1String(ServiceName));
+}
+
+QString AnyKeepDBus::storageConnectivityJson() const
+{
+    int severity = 0;
+    int state    = int(NoteStorage::ConnectivityState::NotApplicable);
+    const auto priority = [](NoteStorage::ConnectivityState status) {
+        switch (status) {
+        case NoteStorage::ConnectivityState::Error: return 4;
+        case NoteStorage::ConnectivityState::Connecting: return 3;
+        case NoteStorage::ConnectivityState::Offline: return 2;
+        case NoteStorage::ConnectivityState::Online: return 1;
+        case NoteStorage::ConnectivityState::NotApplicable: return 0;
+        }
+        return 0;
+    };
+    for (const auto &storage : NoteManager::instance()->prioritizedStorages(true)) {
+        if (!storage)
+            continue;
+        const auto current = storage->connectivityState();
+        if (priority(current) > severity) {
+            severity = priority(current);
+            state = int(current);
+        }
+    }
+    const QJsonObject response {
+        { QStringLiteral("state"), state },
+        { QStringLiteral("summary"), TrayIconUtils::connectionSummary() },
+    };
+    return QString::fromUtf8(QJsonDocument(response).toJson(QJsonDocument::Compact));
 }
 
 QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) const
