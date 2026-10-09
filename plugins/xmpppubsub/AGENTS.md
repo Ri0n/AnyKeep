@@ -59,6 +59,25 @@ disabled radio button already indicates that the key cannot be selected,
 while its fingerprint, device status, and explanation must remain readable.
 Palette roles respond to theme changes without hardcoded light/dark values.
 
+## First-install XMPP onboarding
+
+When no local XMPP key exists, the recovery wizard starts with a choice:
+**Use existing notes** (the standard OMEMO device/key recovery path) or
+**Start with a new key**. The latter requires explicit confirmation explaining
+that notes already stored in XMPP cannot be decrypted with the new key.
+This path generates a local key without asking other devices for keys and
+does **not** invoke the remote rekey/publish operation. The key is installed
+only after the user accepts the review and finishes the wizard.
+
+Remote index auditing is deliberately skipped for first-time setup. An
+unknown count of old encrypted notes must never be displayed as zero. The
+review/result screens explain that existing notes, if any, remain untouched;
+users should export/save the new recovery key after setup. Back from review
+abandons the uninstalled key and returns to the welcome choice. Users with
+an existing local key still use the original recovery/repair flow.
+This avoids bypassing key recovery silently, while permitting a new user
+to initialize XMPP notes without owning another AnyKeep device.
+
 ## Verification
 
 ```sh
