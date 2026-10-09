@@ -58,18 +58,12 @@ def configure(settings_path: Path) -> int:
     if real_scanner is None:
         raise ValueError(f"Cannot find the Qt host qmlimportscanner; candidates: {candidates}")
 
-    # CI action exports this variable for the subsequent Ninja/Qt deployment.
-    with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-        env.write(f"ANYKEEP_QMLIMPORTSCANNER_REAL={real_scanner.resolve()}\n")
-
-    # The new process will not inherit GITHUB_ENV changes immediately: the
-    # caller must also export ANYKEEP_QMLIMPORTSCANNER_REAL for this shell.
     wrapper = Path(__file__).resolve()
     settings["qml-importscanner-binary"] = str(wrapper)
     with settings_path.open("w", encoding="utf-8") as file:
         json.dump(settings, file, indent=2)
         file.write("\n")
-    print(f"Android QML style filter: {real_scanner} -> {wrapper}")
+    # Printed path is captured and exported by the current CI shell.\n    print(real_scanner.resolve())
     return 0
 
 
