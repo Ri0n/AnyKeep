@@ -32,3 +32,14 @@ For shared editor/manager QML, run the corresponding desktop headless tests
 first (`editor` label or `notesmanagerqml_test`). For shell/C++ changes, build
 the configured `anykeep_mobile` target; Android packaging/device checks remain
 separate from the desktop CTest suite.
+
+## XMPP setup completion
+
+The shared `XmppKeyResolutionHost.qml` runs in desktop and Android windows.
+After successful user-confirmed completion it closes its own dialog and
+optionally calls `hostItem.window.showNotesAfterXmppKeyResolution()` when
+provided by the mobile `ApplicationWindow`. `Main.qml` owns the
+`StackView` and pops settings pages to the root `Notes` page; if the
+wizard opened automatically while already at root, nothing is popped.
+Cancelled or unsuccessful flows must not navigate. Desktop/standalone hosts
+do not expose this method and continue their existing behavior.
