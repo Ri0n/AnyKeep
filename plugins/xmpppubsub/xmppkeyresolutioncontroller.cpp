@@ -257,7 +257,7 @@ bool XmppKeyResolutionController::canStartFresh() const
 QString XmppKeyResolutionController::nextText() const
 {
     if (currentPage_ == ReviewPage)
-        return tr("Repair");
+        return freshStart_ ? tr("Continue") : tr("Repair");
     if (currentPage_ == ResultPage)
         return tr("Finish");
     return tr("Next");
@@ -667,7 +667,7 @@ void XmppKeyResolutionController::updateSummary()
     } else if (freshStartFromWelcome_) {
         nextSummary = tr("New local key: %1\n\n"
                          "AnyKeep will start with a new empty storage without searching other devices. "
-                         "Any existing XMPP notes remain encrypted with their original key and will NOT be "
+                         "Existing XMPP notes, if any, remain encrypted with their original key and will NOT be "
                          "deleted or overwritten. The new key cannot read them.\n\n"
                          "After finishing, save your new recovery key in XMPP settings.")
                           .arg(QString::fromLatin1(canonical->keyId.left(8).toHex()));
