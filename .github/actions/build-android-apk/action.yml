@@ -124,6 +124,21 @@ runs:
           -DANYKEEP_ANDROID_OPENSSL_ROOT="$PWD/android-openssl/ssl_3" \
           -DBUILD_TESTING=OFF
 
+        # Qt 6.11's default QML import scan pulls in every runtime-selectable
+        # Quick Controls style. Preserve Qt's dependency resolution but filter
+        # only the styles not used on Android, before androiddeployqt copies
+        # native libraries and generates its startup metadata. Do not remove
+        # individual .so files after packaging.
+        settings_file=$(find "build/android-${{ inputs.abi }}" -type f \\
+          -name 'android-anykeep_mobile-deployment-settings.json' -print -quit)
+        test -n "$settings_file"
+        chmod +x .github/scripts/filter-android-qml-imports.py
+        export ANYKEEP_QMLIMPORTSCANNER_REAL="$(
+          python3 .github/scripts/filter-android-qml-imports.py --configure "$settings_file"
+        )"
+        test -x "$ANYKEEP_QMLIMPORTSCANNER_REAL"
+        python3 -m unittest discover -s .github/scripts -p 'test_filter_android_qml_imports.py'
+
         # Android Release uses lld --strip-debug at link time, rather than
         # changing Ninja's built output after linking (which triggers a relink).
         # Gradle may not find the externally installed NDK to strip JNI libs.
