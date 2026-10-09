@@ -51,6 +51,21 @@ def inspect_apk(apk_path: Path, abi: str, linked_size: int) -> str:
         if tooling:
             raise ValueError(f"QML debug/profiling plugins still packaged: {tooling}")
 
+        # The APK must retain Material/Basic, but never ship alternative
+        # desktop/Windows styles. These are filtered from the deployment-time
+        # Qt qmlimportscanner output before androiddeployqt resolves them.
+        unused_styles = ("Fusion", "Imagine", "Universal", "FluentWinUI3")
+        unexpected = [
+            name for name in lib_map
+            if any(
+                f"QtQuick_Controls_{style}_" in name
+                or f"Qt6QuickControls2{style}" in name
+                for style in unused_styles
+            )
+        ]
+        if unexpected:
+            raise ValueError(f"Unused Qt Quick Controls style libraries still packaged: {unexpected}")
+
         # These are runtime dependencies; stripping tooling must not eliminate
         # the Android platform, TLS, Material style, or multimedia support.
         required = (
@@ -85,6 +100,7 @@ def inspect_apk(apk_path: Path, abi: str, linked_size: int) -> str:
             f"- Application ELF: **{linked_size / mib:.2f} MiB**",
             f"- Native shared objects: **{len(libraries)}**",
             f"- Qt runtime plugins: **{len(native_plugins)}**; QML tooling: **0**",
+            "- Qt Quick Controls alternatives: **0** (Fusion, Imagine, Universal, FluentWinUI3)",
             f"- QML plugins: **{len(qml_plugins)}**",
             f"- Quick Controls and styles (uncompressed): **{sum(item.file_size for item in styles) / mib:.2f} MiB**",
             "",
