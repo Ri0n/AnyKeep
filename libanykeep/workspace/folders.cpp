@@ -29,6 +29,12 @@ Q_LOGGING_CATEGORY(logWorkspaceFolders, "anykeep.workspace.folders")
 
 QString NotesWorkspaceController::createFolder(const QString &name, const QString &parentFolderIdText)
 {
+    return createFolderWithFlags(name, parentFolderIdText, false, false);
+}
+
+QString NotesWorkspaceController::createFolderWithFlags(const QString &name, const QString &parentFolderIdText,
+                                                        bool favorite, bool archived)
+{
     if (!ensureFolderCatalogAvailable())
         return {};
 
@@ -46,6 +52,10 @@ QString NotesWorkspaceController::createFolder(const QString &name, const QStrin
         folder.name = defaultFolderName(parentFolderId);
     folder.parentId   = parentFolderId;
     folder.sortOrder  = nextFolderSortOrder(parentFolderId);
+    // Persist initial flags in the same catalog transaction as creation, so
+    // native folder sync never observes an intermediate unflagged folder.
+    folder.favorite   = favorite;
+    folder.archived   = archived;
     const auto result = folderCatalogManager_->addFolder(std::move(folder));
     if (!result) {
         setError(result.error.message);
