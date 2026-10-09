@@ -8,7 +8,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        python - <<'PY'
+        python3 - <<'PY'
         import json
         import os
         from pathlib import Path
