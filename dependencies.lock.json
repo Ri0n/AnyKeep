@@ -1,15 +1,18 @@
 {
     "iris": {
         "tag": "v1.1.2",
-        "commit": "6a54503de071c08781ae48b92a0b47c6f6a51c54"
+        "commit": "6a54503de071c08781ae48b92a0b47c6f6a51c54",
+        "nightly_compatibility": "same-minor"
     },
     "qca": {
         "tag": "v3.0.10",
-        "commit": "a5121ec9fb9b4b933320341aa827c3671fe3fcaa"
+        "commit": "a5121ec9fb9b4b933320341aa827c3671fe3fcaa",
+        "nightly_compatibility": "same-minor"
     },
     "qtkeychain": {
         "tag": "deps-qtkeychain-0.14.3-r1-qt6.11",
         "version": "0.14.3",
-        "revision": "r1"
+        "revision": "r1",
+        "nightly_compatibility": "same-minor"
     }
 }

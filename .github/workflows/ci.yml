@@ -24,6 +24,26 @@ env:
   AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
 
 jobs:
+  package-plan-check:
+    name: Package planner / dependency resolution
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate stable dependency lock
+        run: python .github/scripts/resolve-package-dependencies.py --mode stable
+
+      - name: Resolve compatible nightly dependencies
+        id: nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/scripts/resolve-package-dependencies.py --mode nightly
+
+      - name: Report nightly dependency set
+        run: echo "${{ steps.nightly.outputs.dependency_summary }}"
+
   windows:
     name: Windows / MSVC + Ninja / current Qt
     runs-on: windows-2022

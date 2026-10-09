@@ -30,18 +30,48 @@ application version from Git tags and the distance from the last tag.
 
 `.github/workflows/packages.yml` is the canonical package workflow.
 
-- a version tag builds Debian, Windows, macOS, and Android packages;
-- a manual run defaults to the stable Windows update channel and builds all
-  package platforms;
-- a manual run with `windows_update_channel=nightly` builds only Windows and
-  runs the Windows tests first;
-- the 03:00 UTC schedule is the former Windows nightly job: it builds only
-  Windows with the nightly update channel and runs CTest before packaging.
+The package channel is selected once by the planning job and reused by every
+platform:
+
+- a commit carrying a semantic version tag (`vX.Y.Z` or `X.Y.Z`) is always a `stable` build;
+- a manual run may explicitly select `stable` or `nightly` and defaults to
+  `nightly`;
+- every other automatic package build uses the `nightly` channel.
+
+Both stable and nightly builds use the same package matrix: Ubuntu 24.04 and
+26.04 Debian packages, Windows x64, macOS arm64/x86_64, and Android
+arm64-v8a/x86_64. A nightly GitHub release is updated only after every matrix
+job succeeds. The rolling release therefore never contains a new Windows build
+paired with stale or failed packages from another platform.
+
+Stable builds use the exact dependency versions in `dependencies.lock.json`.
+Nightly builds may advance Iris and QCA automatically within the
+source-controlled `nightly_compatibility` line. The current policy is
+`same-minor`: for example, an Iris 1.1.x pin may advance to a newer complete
+1.1.x release, but not to 1.2.x. A dependency release is eligible only after it
+publishes the full asset set required by the AnyKeep package matrix.
+QtKeychain is resolved from AnyKeep's own packaged dependency releases using
+the same conservative same-minor rule; a newer bundle is eligible only when
+the complete Windows/macOS/Android asset set exists.
+
+The 03:00 UTC scheduled run is skipped when no build-relevant repository files
+have changed since the last successful `nightly` release and the resolved
+compatible dependency set is unchanged. Documentation-only changes under
+`docs/`, README/AGENTS files, and license text do not wake the nightly build;
+source, CMake, packaging, workflow/action, and other build inputs do. Manual
+runs and semantic-version-tag builds are never suppressed by this gate.
 
 The separate `windows-nightly.yml` workflow is intentionally no longer needed.
-Keeping nightly and release Windows package assembly in one workflow prevents
-the CMake flags, Store identity handling, dependency setup, and package targets
-from drifting apart.
+Keeping nightly and stable assembly in one workflow prevents CMake flags,
+dependency setup, update-channel selection, and package targets from drifting
+apart.
+
+
+The post-package `Publish AnyKeep updates` workflow derives the updater channel
+from the Windows artifact itself. A tagged or explicitly selected stable build
+publishes to `updates/stable`; a nightly build publishes to `updates/nightly`.
+The four-file updater payload is validated before the mutable channel manifest
+is atomically made visible.
 
 ## Windows distribution artifacts
 
