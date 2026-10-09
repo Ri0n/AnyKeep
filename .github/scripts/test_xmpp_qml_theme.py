@@ -69,6 +69,23 @@ class XmppThemeContrastTests(unittest.TestCase):
                     self.assertNotRegex(qml, r"color:\s*palette.mid\b")
                     self.assertIn("color: palette.placeholderText", qml)
 
+    def test_successful_xmpp_setup_returns_to_notes_on_mobile_only(self):
+        qml = (PLUGIN / "XmppKeyResolutionHost.qml").read_text(encoding="utf-8")
+        shell = (ROOT / "src/mobile/Main.qml").read_text(encoding="utf-8")
+
+        # The shared XMPP dialog never reaches into StackView directly; it
+        # offers an optional callback to its mobile window.
+        self.assertIn('if (accepted && !root.standalone && root.hostItem && root.hostItem.window)', qml)
+        self.assertIn('typeof window.showNotesAfterXmppKeyResolution === "function"', qml)
+        self.assertIn('window.showNotesAfterXmppKeyResolution()', qml)
+        self.assertIn('function showNotesAfterXmppKeyResolution()', shell)
+        self.assertIn('navigation.pop(null, StackView.Immediate)', shell)
+
+        # The user-facing action is synchronization, not device repair.
+        controller = (PLUGIN / "xmppkeyresolutioncontroller.cpp").read_text(encoding="utf-8")
+        self.assertIn('tr("Sync notes")', controller)
+        self.assertNotIn('return tr("Repair")', controller)
+
     def test_unavailable_key_explanation_not_dimmed_as_a_whole(self):
         qml = (PLUGIN / "XmppKeyResolutionHost.qml").read_text(encoding="utf-8")
         self.assertNotIn("opacity: keyDelegate.available", qml)
