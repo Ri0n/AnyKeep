@@ -18,31 +18,30 @@ APK/AAB. `QT_ANDROID_MIN_SDK_VERSION` is set to 28 on `anykeep_mobile`.
 
 ## Release APK size
 
-Release CI/package builds strip the AnyKeep application ELF explicitly with the
-`llvm-strip` from the pinned Android NDK before Qt's Android deployment step.
+Android Release links `anykeep_mobile` with lld's `--strip-debug` option,
+removing DWARF sections as part of linking rather than modifying the generated
+`.so` afterward. A post-link `llvm-strip` command executed by CI was
+insufficient: after stripping the 107 MB ELF down to about 8 MB, Ninja relinked
+it when building Qt's `apk` target, and Qt deployed the unstripped binary.
 
-This is intentional. The Gradle `stripReleaseDebugSymbols` task can fail to
-locate an NDK that was provisioned outside the Android SDK's side-by-side
-`ndk/` directory. When that happens Gradle logs `Unable to strip ...` and
-packages the application library unchanged. In October 2026 this made
-`libanykeep_arm64-v8a.so` about 107 MB, with roughly 100 MB of DWARF/debug
-sections, and produced a ~203 MB single-ABI APK.
+The shared Android build action builds the `apk` target directly, then checks
+that the linked application ELF has no DWARF sections and is at most 32 MiB.
+It also checks that the packaged library's size matches that linked ELF, and
+rejects an APK larger than 140 MiB. The release-only linker option does not
+remove debug sections from Debug or RelWithDebInfo builds.
 
-The shared Android build action now:
+Gradle's `stripReleaseDebugSymbols` may still warn that it cannot locate the
+NDK provisioned outside the SDK's side-by-side `ndk/` directory. This does
+not affect the application ELF because lld has already removed its debug
+sections. Most Qt, Iris, QCA and FFmpeg libraries shipped by upstream/prebuilt
+packages are already stripped.
 
-1. builds `anykeep_mobile` first;
-2. strips its application `.so` with the exact configured NDK;
-3. rejects remaining DWARF sections;
-4. builds the APK;
-5. rejects an application library above 32 MiB or an APK above 140 MiB.
-
-Most Qt, Iris, QCA and FFmpeg libraries shipped by their upstream/prebuilt
-packages are already stripped. After the application ELF regression is fixed,
-the next size-reduction layer is dependency pruning: Qt Android's automatic
-deployment currently includes several Quick Controls styles and QML tooling
-plugins that a production AnyKeep APK may not need. Those should only be
-removed with explicit runtime coverage because `QT_ANDROID_DEPLOYMENT_DEPENDENCIES`
-overrides Qt's automatic dependency detection completely.
+After the application ELF regression is fixed, the next size-reduction layer
+is dependency pruning: Qt Android's automatic deployment currently includes
+several Quick Controls styles and QML tooling plugins that production AnyKeep
+may not need. Those should only be removed with explicit runtime coverage
+because `QT_ANDROID_DEPLOYMENT_DEPENDENCIES` completely overrides automatic
+dependency detection.
 
 ## Qt Creator setup
 
