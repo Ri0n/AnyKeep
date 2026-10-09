@@ -103,6 +103,7 @@ runs:
         ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
       run: |
         set -euo pipefail
+        python3 -m unittest discover -s .github/scripts -p 'test_inspect_android_apk.py'
         qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
         test -x "$qt_cmake"
 
