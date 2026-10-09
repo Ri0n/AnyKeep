@@ -35,3 +35,23 @@ builds selected plugins as bundled static libraries.
 
 Read the plugin's scoped map before touching Nextcloud or XMPP. Test target
 availability follows optional Qt/provider dependencies in CMake.
+
+## XMPP connection indicators across tray implementations
+
+The default and macOS system-tray implementations call
+`TrayIconUtils::setupSystemTrayIcon`, which subscribes to
+`NoteManager::storageChanged` and projects the storage's transport
+connectivity into the tray icon badge, tooltip and read-only menu action.
+A local cache that remains accessible offline must never produce a green
+online indicator.
+
+KDE's Plasma applet is a **separate process**, not a `QSystemTrayIcon`.
+`AnyKeepDBus::storageConnectivityJson` returns the same provider-neutral
+state with a user-readable summary; `storageConnectivityChanged` prompts
+the applet to refresh without polling. The Plasmoid model clears status on
+service exit and ignores stale asynchronous replies. The compact applet
+overlays the matching badge and includes the status in the tooltip.
+
+Do not import the XMPP plugin types into the tray/plasmoid. Treat
+`NoteStorage::ConnectivityState::NotApplicable` as "no indicator" for
+local storages, not as a disconnected remote account.
