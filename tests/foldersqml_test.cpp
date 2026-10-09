@@ -597,3 +597,150 @@ void NotesManagerQmlTest::editorToolbarFolderPickerAssignsTheActiveNote()
     QTRY_COMPARE(workspace->property("assignedFolderId").toString(), QStringLiteral("archive"));
     QCOMPARE(workspace->property("currentFolderId").toString(), QStringLiteral("archive"));
 }
+
+
+void NotesManagerQmlTest::mobileFolderCreationDialogCollectsFlagsBeforeCommit()
+{
+    FolderPageTestModel foldersModel;
+    QQuickView quick;
+    quick.setResizeMode(QQuickView::SizeRootObjectToView);
+    quick.resize(400, 680);
+    installThemedIconImageProvider(quick.engine());
+    quick.rootContext()->setContextProperty(QStringLiteral("testFoldersModel"), &foldersModel);
+
+    QQmlComponent component(quick.engine());
+    component.setData(R"QML(
+        import QtQuick
+        import QtQuick.Controls
+
+        Item {
+            id: harness
+
+            QtObject {
+                id: workspace
+                objectName: "mobileFoldersWorkspace"
+                property var folderNotesModel: testFoldersModel
+                property bool folderCatalogAvailable: true
+                property var currentEditor: null
+                property string errorString: ""
+                property int createCount: 0
+                property int inlineCreateCount: 0
+                property string createdName: ""
+                property string createdParent: ""
+                property bool createdFavorite: false
+                property bool createdArchived: false
+                property string expandedParent: ""
+                property bool failCreation: false
+
+                function createFolder(name, parentId) {
+                    ++inlineCreateCount
+                    return "desktop-only"
+                }
+                function createFolderWithFlags(name, parentId, favorite, archived) {
+                    ++createCount
+                    createdName = name
+                    createdParent = parentId
+                    createdFavorite = favorite
+                    createdArchived = archived
+                    if (failCreation) {
+                        errorString = "Cannot save folder"
+                        return ""
+                    }
+                    return "created-folder"
+                }
+                function setFolderCollapsed(parentId, collapsed) {
+                    expandedParent = collapsed ? "" : parentId
+                    return true
+                }
+                function collapseAllFolders() { return true }
+                function isRecycledNote(storageId, noteId) { return false }
+                function assignNoteFolder(storageId, noteId, folderId) { return true }
+            }
+
+            FoldersPage {
+                objectName: "mobileFoldersPage"
+                anchors.fill: parent
+                workspace: workspace
+                touchActions: true
+            }
+        }
+    )QML", QUrl(QStringLiteral("qrc:/qml/MobileFolderCreationHarness.qml")));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QObject *root = component.create();
+    QVERIFY2(root, qPrintable(component.errorString()));
+    quick.setContent(QUrl(QStringLiteral("qrc:/qml/MobileFolderCreationHarness.qml")), &component, root);
+    quick.show();
+
+    auto *rootItem = qobject_cast<QQuickItem *>(root);
+    QVERIFY(rootItem);
+    auto *page = quickItemByName(rootItem, QStringLiteral("mobileFoldersPage"));
+    auto *workspace = root->findChild<QObject *>(QStringLiteral("mobileFoldersWorkspace"));
+    QVERIFY(page);
+    QVERIFY(workspace);
+
+    // Selecting "New subfolder" must open a dialog without inserting a
+    // temporary row or starting inline rename.
+    QVERIFY(QMetaObject::invokeMethod(page, "createFolder", Q_ARG(QVariant, QStringLiteral("inbox"))));
+    auto *dialog = page->findChild<QObject *>(QStringLiteral("createFolderDialog"));
+    auto *name = page->findChild<QObject *>(QStringLiteral("createFolderName"));
+    auto *favorite = page->findChild<QObject *>(QStringLiteral("createFolderFavorite"));
+    auto *archived = page->findChild<QObject *>(QStringLiteral("createFolderArchived"));
+    auto *confirm = page->findChild<QObject *>(QStringLiteral("createFolderConfirm"));
+    QVERIFY(dialog);
+    QVERIFY(name);
+    QVERIFY(favorite);
+    QVERIFY(archived);
+    QVERIFY(confirm);
+    QTRY_VERIFY(dialog->property("visible").toBool());
+    QCOMPARE(workspace->property("createCount").toInt(), 0);
+    QCOMPARE(workspace->property("inlineCreateCount").toInt(), 0);
+    QVERIFY(!confirm->property("enabled").toBool());
+
+    QVERIFY(QMetaObject::invokeMethod(page, "submitFolderCreation"));
+    QCOMPARE(workspace->property("createCount").toInt(), 0);
+    QVERIFY(dialog->property("visible").toBool());
+
+    name->setProperty("text", QStringLiteral("  Travel  "));
+    favorite->setProperty("checked", true);
+    archived->setProperty("checked", true);
+    QTRY_VERIFY(confirm->property("enabled").toBool());
+
+    workspace->setProperty("failCreation", true);
+    QVERIFY(QMetaObject::invokeMethod(page, "submitFolderCreation"));
+    QCOMPARE(workspace->property("createCount").toInt(), 1);
+    QVERIFY(dialog->property("visible").toBool());
+    auto *error = page->findChild<QObject *>(QStringLiteral("createFolderError"));
+    QVERIFY(error);
+    QCOMPARE(error->property("text").toString(), QStringLiteral("Cannot save folder"));
+
+    workspace->setProperty("failCreation", false);
+    QVERIFY(QMetaObject::invokeMethod(page, "submitFolderCreation"));
+    QTRY_VERIFY(!dialog->property("visible").toBool());
+    QCOMPARE(workspace->property("createCount").toInt(), 2);
+    QCOMPARE(workspace->property("createdName").toString(), QStringLiteral("Travel"));
+    QCOMPARE(workspace->property("createdParent").toString(), QStringLiteral("inbox"));
+    QVERIFY(workspace->property("createdFavorite").toBool());
+    QVERIFY(workspace->property("createdArchived").toBool());
+    QCOMPARE(workspace->property("expandedParent").toString(), QStringLiteral("inbox"));
+    QCOMPARE(page->property("selectedFolderId").toString(), QStringLiteral("created-folder"));
+    QCOMPARE(page->property("editingFolderId").toString(), QString());
+    QCOMPARE(workspace->property("inlineCreateCount").toInt(), 0);
+
+    // The toolbar's folder-plus icon invokes the same dialog at root.
+    auto *newFolderButton = quickItemByName(rootItem, QStringLiteral("newFolderButton"));
+    auto *plusBadge = page->findChild<QObject *>(QStringLiteral("newFolderPlusBadge"));
+    QVERIFY(newFolderButton);
+    QVERIFY(plusBadge);
+    QCOMPARE(plusBadge->property("visible").toBool(), true);
+    const QPointF buttonPoint = newFolderButton->mapToItem(
+        rootItem, QPointF(newFolderButton->width() / 2, newFolderButton->height() / 2));
+    QTest::mouseClick(&quick, Qt::LeftButton, Qt::NoModifier, buttonPoint.toPoint());
+    QTRY_VERIFY(dialog->property("visible").toBool());
+    QCOMPARE(name->property("text").toString(), QString());
+    QVERIFY(!favorite->property("checked").toBool());
+    QVERIFY(!archived->property("checked").toBool());
+    QCOMPARE(workspace->property("createCount").toInt(), 2);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
+    QTRY_VERIFY(!dialog->property("visible").toBool());
+    QCOMPARE(workspace->property("createCount").toInt(), 2);
+}
