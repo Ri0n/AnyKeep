@@ -30,13 +30,17 @@ PlasmoidItem {
     }
 
     toolTipMainText: qsTr("Notes")
-    toolTipSubText: notesModel.available
-        ? notesModel.count === 1
+    toolTipSubText: {
+        if (!notesModel.available)
+            return qsTr("AnyKeep is not running")
+        const recent = notesModel.count === 1
             ? qsTr("1 recent note")
             : notesModel.hasMore
-                ? qsTr("%1+ recent notes").arg(notesModel.count)
-                : qsTr("%1 recent notes").arg(notesModel.count)
-        : qsTr("AnyKeep is not running")
+              ? qsTr("%1+ recent notes").arg(notesModel.count)
+              : qsTr("%1 recent notes").arg(notesModel.count)
+        return notesModel.connectivityText.length > 0
+            ? recent + "\n" + notesModel.connectivityText : recent
+    }
 
     onExpandedChanged: {
         if (root.expanded) {
