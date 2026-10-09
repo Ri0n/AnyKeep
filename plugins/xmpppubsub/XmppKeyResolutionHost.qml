@@ -27,9 +27,9 @@ Item {
         case 2:
             return qsTr("Choose the key to keep");
         case 3:
-            return root.controller.freshStart ? qsTr("Review new storage") : qsTr("Review and repair");
+            return root.controller.freshStart ? qsTr("Review new storage") : qsTr("Review synchronization");
         case 4:
-            return qsTr("Recovery result");
+            return qsTr("Synchronization result");
         default:
             return "";
         }
@@ -63,7 +63,7 @@ Item {
         height: Math.max(300, Math.min(720, root.height - 16))
         modal: true
         closePolicy: Popup.NoAutoClose
-        title: root.controller.localKeyMissing ? qsTr("Set up XMPP notes") : qsTr("Repair XMPP note synchronization")
+        title: root.controller.localKeyMissing ? qsTr("Set up XMPP notes") : qsTr("Sync XMPP notes")
 
         contentItem: Item {
             id: dialogContentHost
@@ -555,6 +555,16 @@ Item {
         function onFinished(accepted) {
             if (!root.standalone)
                 dialog.close();
+
+            // The mobile shell owns its navigation stack. After successful
+            // XMPP setup, leave Settings and display the notes. Desktop and
+            // standalone hosts have no such action and are left unchanged.
+            // Cancelled/incomplete recovery must preserve the current page.
+            if (accepted && !root.standalone && root.hostItem && root.hostItem.window) {
+                const window = root.hostItem.window
+                if (typeof window.showNotesAfterXmppKeyResolution === "function")
+                    window.showNotesAfterXmppKeyResolution()
+            }
         }
     }
 
