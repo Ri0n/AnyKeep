@@ -46,9 +46,10 @@ platform:
 
 Both stable and nightly builds use the same package matrix: Ubuntu 24.04 and
 26.04 Debian packages, a native Debian 13 package build, Windows x64, macOS
-arm64/x86_64, and Android arm64-v8a/x86_64. A nightly GitHub release is updated only after every matrix
-job succeeds. The rolling release therefore never contains a new Windows build
-paired with stale or failed packages from another platform.
+arm64/x86_64, and Android arm64-v8a/x86_64. The selected GitHub Release is
+updated only after every matrix job succeeds. Nightly uses the rolling
+`nightly` release; a semantic-version-tag build publishes to that version tag;
+an explicit untagged stable build uses the rolling `stable` release.
 
 Stable builds use the exact dependency versions in `dependencies.lock.json`.
 Nightly builds may advance Iris and QCA automatically within the
@@ -74,17 +75,18 @@ apart.
 
 
 The post-package `Publish AnyKeep updates` workflow derives the updater channel
-from the Windows artifact itself. A tagged or explicitly selected stable build
-publishes to `updates/stable`; a nightly build publishes to `updates/nightly`.
-The four-file updater payload is validated before the mutable channel manifest
-is atomically made visible.
+from the Windows artifact itself. The package workflow first uploads all binary
+artifacts to GitHub Releases. The follow-up workflow validates the versioned MSI
+against its manifest and then publishes only `windows-x86_64.json` to
+`anykeep.net/updates/<channel>/`. Stable and nightly therefore share the same
+control-plane manifest service without duplicating binary storage or bandwidth.
 
 ## Windows distribution artifacts
 
 The Windows package job keeps three distribution paths separate while deriving
 them from one Release build tree:
 
-- `AnyKeep.msi` is the canonical Windows Installer package;
+- `AnyKeep.msi` is the canonical build-tree Windows Installer output; the GitHub Release publishes the identical bytes under the versioned updater filename instead of duplicating both names;
 - `AnyKeep.Installer-<version>.exe` is the interactive Burn bootstrapper and
   bootstraps the required Visual C++ Redistributable;
 - `AnyKeep-<version>-windows-x86_64.msix` is the Microsoft Store package.
