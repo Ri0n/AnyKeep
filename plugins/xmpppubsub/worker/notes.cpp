@@ -311,7 +311,7 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
             }
             decodeItems(std::get<QXmppPubSubManager::Items<PrivateNotesPubSubItem>>(result).items, output);
         }
-        if (!config_.allowForeignKeyIndices && output.notes.isEmpty() && decodeSummary.keyMismatchItems > 0) {
+        if (config_.foreignKeyOnlyIsError(output.notes.size(), decodeSummary.keyMismatchItems)) {
             output.error     = decodeSummary.firstKeyMismatch;
             output.errorKind = XmppErrorKind::Security;
             co_return output;
@@ -343,7 +343,7 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
     const auto &items = std::get<QXmppPubSubManager::Items<PrivateNotesPubSubItem>>(result);
     output.partial    = items.continuation.has_value();
     decodeItems(items.items, output);
-    if (!config_.allowForeignKeyIndices && output.notes.isEmpty() && decodeSummary.keyMismatchItems > 0) {
+    if (config_.foreignKeyOnlyIsError(output.notes.size(), decodeSummary.keyMismatchItems)) {
         output.error     = decodeSummary.firstKeyMismatch;
         output.errorKind = XmppErrorKind::Security;
         co_return output;
