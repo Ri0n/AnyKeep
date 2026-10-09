@@ -45,6 +45,7 @@ struct XmppConfig {
     QString    originId;            ///< Stable installation ID used in note revision metadata.
     int        timeoutMs { 15000 }; ///< Upper bound for an individual protocol operation.
     QByteArray masterKey;           ///< Content-encryption key for notes (not an OMEMO key).
+    bool       allowForeignKeyIndices { false }; ///< Opt-in fresh-storage mode: preserve old-key XMPP items.
     QByteArray omemoStateKey;       ///< Key encrypting local OMEMO/trust state at rest.
     QString    omemoStatePath;      ///< Directory containing encrypted OMEMO state files.
 
