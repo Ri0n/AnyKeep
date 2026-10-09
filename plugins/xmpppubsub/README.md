@@ -132,6 +132,41 @@ All three nodes must be persistent, payload-delivering, and allowlist-only. The
 plugin refuses to use a server that does not advertise a PEP identity and
 PubSub `publish-options`.
 
+## Jingle media range diagnostics
+
+Enable the dedicated Qt logging category on both the publisher and receiver:
+
+```sh
+QT_LOGGING_RULES='anykeep.xmpp.iris.media.debug=true' anykeep
+```
+
+This traces publication/provider state transitions, incoming XEP-0358 `start`
+requests, durable-capability presence and Iris registry state, session IDs,
+requested byte offsets/lengths, transfer states and received byte counts.
+The receiver also logs the XMPP error code, type and condition when `start`
+fails. Diagnostics work independently of XML stanza logging and do not dump
+media payloads, filenames or encryption keys.
+
+Correlate both logs by `publication` and then `sid`. A rejected `start` occurs
+before file-transfer range negotiation: check the publisher's
+`durable-capability`, `provider-state` and `registry-state` and preceding
+retraction/invalidation events. A successful start followed by an open/seek or
+range failure points to the subsequent stream/transfer stage instead.
+
+Iris confirms publication authority by comparing serialized XML. Its stream
+parser retains indentation, so a server item can have different bytes while
+describing the same publication. The provider normalizes generated namespaces
+and compares expanded element/attribute names and content values before caching
+an equivalent authoritative server descriptor. Leaf text, unknown extensions,
+publisher, URI, size and hash changes remain significant. Iris still controls
+resource binding and publication activation. This also applies to restored
+durable capabilities; existing server items do not need to be republished.
+
+The `content comparison` log carries `comparison-version=2`. `descriptor-matches`
+compares the actual Iris cache against the server item, while
+`generated-descriptor-matches` compares newly generated XML. Formatting can make
+the latter false with `content-matches=true` and an active publication.
+
 ## Architecture
 
 The storage-facing code does not depend directly on QXmpp or Iris. `XmppBackend`

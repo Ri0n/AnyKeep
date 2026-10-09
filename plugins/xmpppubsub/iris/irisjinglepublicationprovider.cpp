@@ -13,6 +13,7 @@
 #include <QDomDocument>
 #include <QFile>
 #include <QFileInfo>
+#include <QMap>
 #include <QPointer>
 #include <QSaveFile>
 #include <QSet>
@@ -21,6 +22,8 @@
 #include <algorithm>
 #include <limits>
 #include <utility>
+
+Q_LOGGING_CATEGORY(lcIrisJingleMedia, "anykeep.xmpp.iris.media", QtInfoMsg)
 
 namespace AnyKeep {
 namespace {
@@ -87,6 +90,78 @@ namespace {
                 return hash;
         }
         return {};
+    }
+
+    QByteArray publicationFingerprint(const XMPP::Jingle::JinglePub &publication)
+    {
+        QDomDocument document;
+        const auto   element = publication.toXml(&document);
+        if (element.isNull())
+            return {};
+        document.appendChild(element);
+        return document.toByteArray(-1);
+    }
+
+    void writeXmlIdentity(QDataStream &stream, const QDomElement &element)
+    {
+        const auto localName = element.localName().isEmpty() ? element.tagName() : element.localName();
+        stream << quint8(1) << element.namespaceURI() << localName;
+        QMap<QPair<QString, QString>, QString> attributes;
+        const auto                             nodes = element.attributes();
+        for (int i = 0; i < nodes.count(); ++i) {
+            const auto attribute = nodes.item(i).toAttr();
+            if (attribute.namespaceURI() == QLatin1String("http://www.w3.org/2000/xmlns/")
+                || attribute.name() == QLatin1String("xmlns") || attribute.name().startsWith(QLatin1String("xmlns:")))
+                continue;
+            const auto name = attribute.localName().isEmpty() ? attribute.name() : attribute.localName();
+            attributes.insert({ attribute.namespaceURI(), name }, attribute.value());
+        }
+        stream << attributes;
+
+        // File-transfer containers have element-only content. Preserve leaf
+        // text verbatim (including spaces in names) and all mixed content.
+        bool mixedContent = false;
+        for (auto child = element.firstChild(); !child.isNull(); child = child.nextSibling()) {
+            if ((child.isText() || child.isCDATASection()) && !child.nodeValue().trimmed().isEmpty())
+                mixedContent = true;
+        }
+        const bool ignoreIndentation = !element.firstChildElement().isNull() && !mixedContent;
+        QString    text;
+        auto       flushText = [&] {
+            if (!text.isEmpty() && !(ignoreIndentation && text.trimmed().isEmpty()))
+                stream << quint8(2) << text;
+            text.clear();
+        };
+        for (auto child = element.firstChild(); !child.isNull(); child = child.nextSibling()) {
+            if (child.isText() || child.isCDATASection()) {
+                text += child.nodeValue();
+            } else if (child.isElement()) {
+                flushText();
+                writeXmlIdentity(stream, child.toElement());
+            } else if (!child.isComment() && !child.isProcessingInstruction()) {
+                flushText();
+                stream << quint8(3) << int(child.nodeType()) << child.nodeValue();
+            }
+        }
+        flushText();
+        stream << quint8(0);
+    }
+
+    QByteArray publicationIdentity(const XMPP::Jingle::JinglePub &publication)
+    {
+        QDomDocument document;
+        const auto   element = publication.toXml(&document);
+        if (element.isNull())
+            return {};
+        QByteArray  bytes;
+        QDataStream stream(&bytes, QIODevice::WriteOnly);
+        writeXmlIdentity(stream, element);
+        return bytes;
+    }
+
+    bool samePublicationContent(const XMPP::Jingle::JinglePub &local, const XMPP::Jingle::JinglePub &observed)
+    {
+        return local.isValid() && observed.isValid() && publicationIdentity(local) == publicationIdentity(observed);
     }
 
 } // namespace
@@ -156,6 +231,77 @@ IrisJinglePublicationProvider::IrisJinglePublicationProvider(IrisXmppBackend *ba
     encryptionKey_(std::move(encryptionKey))
 {
     load();
+    connect(this, &XMPP::Jingle::PublishedSessionProvider::stateChanged, this,
+            [](XMPP::Jingle::PublishedSessionProvider::State state) {
+                qCDebug(lcIrisJingleMedia) << "Jingle publication provider state:" << state;
+            });
+}
+
+void IrisJinglePublicationProvider::traceIncomingStart(const QString &xml) const
+{
+    if (!lcIrisJingleMedia().isDebugEnabled() || !xml.contains(QLatin1String("urn:xmpp:jinglepub:1")))
+        return;
+    QDomDocument document;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    if (!document.setContent(xml, QDomDocument::ParseOption::UseNamespaceProcessing))
+#else
+    if (!document.setContent(xml, true))
+#endif
+        return;
+    const auto iq = document.documentElement();
+    if (iq.tagName() != QLatin1String("iq") || iq.attribute(QStringLiteral("type")) != QLatin1String("get"))
+        return;
+    for (auto child = iq.firstChildElement(); !child.isNull(); child = child.nextSiblingElement()) {
+        if (child.localName() != QLatin1String("start")
+            || child.namespaceURI() != QLatin1String("urn:xmpp:jinglepub:1"))
+            continue;
+        const auto id = child.attribute(QStringLiteral("id"));
+        qCDebug(lcIrisJingleMedia).noquote()
+            << "Jingle publication start received: iq=" << iq.attribute(QStringLiteral("id")) << "publication=" << id
+            << "requester=" << iq.attribute(QStringLiteral("from"))
+            << "durable-capability=" << capabilities_.contains(id) << "provider-state=" << state() << "registry-state="
+            << (manager() ? manager()->publishedSessionState(id)
+                          : XMPP::Jingle::PublicationManager::SessionState::Missing);
+        const auto capability = capabilities_.constFind(id);
+        if (capability == capabilities_.cend())
+            continue;
+        const auto serverItem = observed_.constFind(
+            observedKey({ XMPP::Jid(config_.jid).withResource({}), capability->node, true }, capability->itemId));
+        qCDebug(lcIrisJingleMedia) << "Jingle publication authority check: publication=" << id
+                                   << "server-item-observed=" << (serverItem != observed_.cend());
+        if (serverItem == observed_.cend() || !manager() || !manager()->client())
+            continue;
+        const auto local     = publication(*capability);
+        const auto clientJid = manager()->client()->jid();
+        const auto cached    = manager()->publishedSession(id);
+        qCDebug(lcIrisJingleMedia) << "Jingle publication authority comparison: publication=" << id
+                                   << "local-publisher=" << local.from().full()
+                                   << "server-publisher=" << serverItem->from().full()
+                                   << "bound-jid=" << clientJid.full()
+                                   << "local-resource-matches=" << local.from().compare(clientJid)
+                                   << "server-resource-matches=" << serverItem->from().compare(clientJid)
+                                   << "server-publication-id=" << serverItem->id() << "descriptor-matches="
+                                   << (cached.isValid() && serverItem->isValid()
+                                       && publicationFingerprint(cached) == publicationFingerprint(*serverItem));
+        XMPP::Jingle::FileTransfer::File localFile, serverFile;
+        const bool                       localFileValid  = publicationFile(local, &localFile);
+        const bool                       serverFileValid = publicationFile(*serverItem, &serverFile);
+        qCDebug(lcIrisJingleMedia)
+            << "Jingle publication content comparison: publication=" << id << "comparison-version=" << 2
+            << "content-matches=" << samePublicationContent(local, *serverItem) << "generated-descriptor-matches="
+            << (local.isValid() && publicationFingerprint(local) == publicationFingerprint(*serverItem))
+            << "uri-matches=" << (local.uri() == serverItem->uri())
+            << "local-description-count=" << local.descriptions().size()
+            << "server-description-count=" << serverItem->descriptions().size() << "local-file-valid=" << localFileValid
+            << "server-file-valid=" << serverFileValid
+            << "file-name-matches=" << (localFileValid && serverFileValid && localFile.name() == serverFile.name())
+            << "media-type-matches=" << (localFile.mediaType() == serverFile.mediaType())
+            << "local-wire-size=" << (localFile.size() ? QString::number(*localFile.size()) : QStringLiteral("unknown"))
+            << "server-wire-size="
+            << (serverFile.size() ? QString::number(*serverFile.size()) : QStringLiteral("unknown"))
+            << "local-hash-count=" << localFile.hashes().size() << "server-hash-count=" << serverFile.hashes().size()
+            << "sha256-matches=" << (sha256Hash(localFile.hashes()).data() == sha256Hash(serverFile.hashes()).data());
+    }
 }
 
 QList<XMPP::Jingle::PublishedSessionEndpoint> IrisJinglePublicationProvider::publishedSessionEndpoints() const
@@ -185,11 +331,24 @@ XMPP::Jingle::JinglePub IrisJinglePublicationProvider::publication(const IrisJin
     description.appendChild(fileElement);
     document.appendChild(description);
 
+    // Iris File::toXml leaves some children without a DOM namespace even
+    // though they inherit the file-transfer namespace on the wire. PubSub
+    // parses them with that namespace and Qt then emits additional xmlns
+    // declarations. Iris compares serialized publication bytes for authority,
+    // so cache the same namespace-aware DOM that a server round trip produces.
+    QDomDocument normalized;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    if (!normalized.setContent(document.toByteArray(-1), QDomDocument::ParseOption::UseNamespaceProcessing))
+#else
+    if (!normalized.setContent(document.toByteArray(-1), true))
+#endif
+        return {};
+
     XMPP::Jingle::JinglePub result;
     result.setFrom(XMPP::Jid(capability.from));
     result.setId(capability.publicationId);
     result.setUri(QUrl(QStringLiteral("urn:uuid:%1").arg(capability.reference.id.toString(QUuid::WithoutBraces))));
-    result.addDescription(description);
+    result.addDescription(normalized.documentElement());
     return result.isValid() ? result : XMPP::Jingle::JinglePub();
 }
 
@@ -197,29 +356,53 @@ bool IrisJinglePublicationProvider::cacheCapability(const IrisJingleCapability &
 {
     if (!manager())
         return false;
+    const XMPP::Jingle::PublishedSessionEndpoint endpoint { XMPP::Jid(config_.jid).withResource({}), capability.node,
+                                                            true };
+    auto                                         descriptor = publication(capability);
+    const auto observed = observed_.constFind(observedKey(endpoint, capability.itemId));
+    if (observed != observed_.cend() && samePublicationContent(descriptor, *observed)) {
+        // Retain the authoritative DOM's formatting so Iris's byte comparison
+        // succeeds. Every namespace, attribute and content value was checked;
+        // Iris still controls resource binding and the Active transition.
+        descriptor = *observed;
+        qCDebug(lcIrisJingleMedia) << "Using equivalent server Jingle descriptor: publication="
+                                   << capability.publicationId;
+    }
+    qCDebug(lcIrisJingleMedia) << "Caching Jingle publication:" << capability.publicationId
+                               << "representation=" << int(capability.representation)
+                               << "wire-size=" << capability.wireSize;
     const QPointer<IrisJinglePublicationProvider> guard(this);
-    const auto cached = cachePublishedSession(
-        { XMPP::Jid(config_.jid).withResource({}), capability.node, true }, capability.itemId, publication(capability),
-        [guard, id = capability.publicationId](const XMPP::Jid &requester) {
+    const auto                                    cached = cachePublishedSession(
+        endpoint, capability.itemId, descriptor, [guard, id = capability.publicationId](const XMPP::Jid &requester) {
             if (!guard || !guard->backend_)
                 return static_cast<XMPP::Jingle::Session *>(nullptr);
             const auto it = guard->capabilities_.constFind(id);
             if (it == guard->capabilities_.cend())
                 return static_cast<XMPP::Jingle::Session *>(nullptr);
             const auto capability = *it;
+            qCDebug(lcIrisJingleMedia) << "Creating published media session: publication=" << id
+                                       << "requester=" << requester.full()
+                                       << "representation=" << int(capability.representation);
             if (capability.representation != IrisJingleMediaRepresentation::ChunkedAnyKeep)
                 return guard->backend_->createPublishedMediaSession(capability, requester);
 
-            if (!requester.compare(XMPP::Jid(guard->config_.jid).withResource({}), false))
+            if (!requester.compare(XMPP::Jid(guard->config_.jid).withResource({}), false)) {
+                qCWarning(lcIrisJingleMedia)
+                    << "Published media requester is not the owning account: publication=" << id;
                 return static_cast<XMPP::Jingle::Session *>(nullptr);
+            }
             auto *publicationManager = guard->manager();
-            auto *jingleManager     = publicationManager ? publicationManager->jingleManager() : nullptr;
-            auto *session           = jingleManager ? jingleManager->newSession(requester) : nullptr;
-            if (!session)
+            auto *jingleManager      = publicationManager ? publicationManager->jingleManager() : nullptr;
+            auto *session            = jingleManager ? jingleManager->newSession(requester) : nullptr;
+            if (!session) {
+                qCWarning(lcIrisJingleMedia) << "Could not create published media session: publication=" << id
+                                             << "jingle-manager=" << bool(jingleManager);
                 return static_cast<XMPP::Jingle::Session *>(nullptr);
+            }
             auto *app = static_cast<XMPP::Jingle::FileTransfer::Application *>(
                 session->newContent(XMPP::Jingle::FileTransfer::NS, session->role()));
             if (!app) {
+                qCWarning(lcIrisJingleMedia) << "Could not create file-transfer content: publication=" << id;
                 session->deleteLater();
                 return static_cast<XMPP::Jingle::Session *>(nullptr);
             }
@@ -230,27 +413,46 @@ bool IrisJinglePublicationProvider::cacheCapability(const IrisJingleCapability &
             file.setSize(capability.wireSize);
             file.addHash(XMPP::Hash(XMPP::Hash::Sha256, capability.cipherHash));
             app->setFile(file);
-            QObject::connect(
-                app, &XMPP::Jingle::FileTransfer::Application::deviceRequested, app,
-                [app, capability](quint64 offset, std::optional<quint64> size) {
-                    const bool invalidRange
-                        = offset > capability.wireSize || (size && *size > capability.wireSize - offset);
-                    if (invalidRange) {
-                        app->setDevice(nullptr);
-                        return;
-                    }
-                    auto *wire = new MediaChunkWireStream(capability.reference, capability.chunked, app);
-                    if (!wire->open(QIODevice::ReadOnly) || !wire->seek(qint64(offset))) {
-                        wire->deleteLater();
-                        app->setDevice(nullptr);
-                        return;
-                    }
-                    // Iris owns the requested range length through its internal
-                    // bytesLeft counter, so the same seekable deterministic wire
-                    // object can serve both complete and resumed transfers.
-                    app->setDevice(wire);
-                });
+            QObject::connect(app, &XMPP::Jingle::FileTransfer::Application::deviceRequested, app,
+                             [app, capability, sid = session->sid()](quint64 offset, std::optional<quint64> size) {
+                                 qCDebug(lcIrisJingleMedia)
+                                     << "Published media device requested: publication=" << capability.publicationId
+                                     << "sid=" << sid << "offset=" << offset
+                                     << "length=" << (size ? QString::number(*size) : QStringLiteral("to-end"))
+                                     << "wire-size=" << capability.wireSize;
+                                 const bool invalidRange
+                                     = offset > capability.wireSize || (size && *size > capability.wireSize - offset);
+                                 if (invalidRange) {
+                                     qCWarning(lcIrisJingleMedia)
+                                         << "Published media range is out of bounds: publication="
+                                         << capability.publicationId;
+                                     app->setDevice(nullptr);
+                                     return;
+                                 }
+                                 auto *wire = new MediaChunkWireStream(capability.reference, capability.chunked, app);
+                                 if (!wire->open(QIODevice::ReadOnly) || !wire->seek(qint64(offset))) {
+                                     qCWarning(lcIrisJingleMedia)
+                                         << "Could not open/seek published media stream: publication="
+                                         << capability.publicationId << "offset=" << offset
+                                         << "stream-error=" << wire->errorString();
+                                     wire->deleteLater();
+                                     app->setDevice(nullptr);
+                                     return;
+                                 }
+                                 // Iris owns the requested range length through its internal
+                                 // bytesLeft counter, so the same seekable deterministic wire
+                                 // object can serve both complete and resumed transfers.
+                                 app->setDevice(wire);
+                             });
             session->addContent(app);
+            QObject::connect(app, &XMPP::Jingle::FileTransfer::Application::stateChanged, app,
+                             [id, sid = session->sid(), app](XMPP::Jingle::State status) {
+                                 qCDebug(lcIrisJingleMedia)
+                                     << "Published media transfer state: publication=" << id << "sid=" << sid
+                                     << "state=" << int(status) << "reason=" << int(app->lastReason().condition());
+                             });
+            qCDebug(lcIrisJingleMedia) << "Published media session created: publication=" << id
+                                       << "sid=" << session->sid();
             return session;
         });
     return cached.isValid();
@@ -309,16 +511,14 @@ IrisJinglePublicationProvider::PrepareResult IrisJinglePublicationProvider::prep
         capability.itemId        = capability.publicationId;
     }
     if (const auto reason = capability.invalidReason(); !reason.isEmpty()) {
-        qWarning().noquote() << "Invalid durable Jingle media capability:" << reason
-                             << "publisher=" << capability.from
+        qWarning().noquote() << "Invalid durable Jingle media capability:" << reason << "publisher=" << capability.from
                              << "note-id-present=" << !capability.noteId.isEmpty()
                              << "content-revision-present=" << !capability.contentRevision.isEmpty()
                              << "media-id=" << capability.reference.id.toString(QUuid::WithoutBraces)
                              << "representation=" << int(capability.representation)
                              << "plain-size=" << capability.reference.size
                              << "checksum-size=" << capability.reference.checksum.size()
-                             << "key-size=" << capability.key.size()
-                             << "iv-size=" << capability.iv.size()
+                             << "key-size=" << capability.key.size() << "iv-size=" << capability.iv.size()
                              << "chunk-key-size=" << capability.chunked.rootKey.size()
                              << "nonce-prefix-size=" << capability.chunked.noncePrefix.size()
                              << "cipher-hash-size=" << capability.cipherHash.size()
@@ -382,6 +582,8 @@ QStringList IrisJinglePublicationProvider::publicationIdsForNote(const QString &
 
 bool IrisJinglePublicationProvider::removePublication(const QString &publicationId)
 {
+    qCDebug(lcIrisJingleMedia) << "Removing durable Jingle publication:" << publicationId
+                               << "present=" << capabilities_.contains(publicationId);
     const auto it = capabilities_.find(publicationId);
     if (it == capabilities_.end())
         return true;
@@ -406,7 +608,19 @@ void IrisJinglePublicationProvider::publishedSessionObserved(const XMPP::Jingle:
                                                              const XMPP::Jingle::JinglePub                &publication)
 {
     observed_.insert(observedKey(endpoint, itemId), publication);
+    qCDebug(lcIrisJingleMedia) << "Jingle publication item observed: item=" << itemId
+                               << "publication=" << publication.id() << "publisher=" << publication.from().full()
+                               << "durable-capability=" << capabilities_.contains(publication.id());
     if (capabilities_.contains(publication.id()) && manager()) {
+        const auto                                   capability = capabilities_.value(publication.id());
+        const XMPP::Jingle::PublishedSessionEndpoint expected { XMPP::Jid(config_.jid).withResource({}),
+                                                                capability.node, true };
+        const auto                                   cached = manager()->publishedSession(publication.id());
+        if (observedKey(expected, capability.itemId) == observedKey(endpoint, itemId)
+            && samePublicationContent(this->publication(capability), publication)
+            && publicationFingerprint(cached) != publicationFingerprint(publication)) {
+            cacheCapability(capability);
+        }
         qInfo().noquote() << "Observed own durable Jingle media authority:"
                           << "publication=" << publication.id() << "item=" << itemId
                           << "publisher=" << publication.from().full()
@@ -417,6 +631,7 @@ void IrisJinglePublicationProvider::publishedSessionObserved(const XMPP::Jingle:
 void IrisJinglePublicationProvider::publishedSessionRetracted(const XMPP::Jingle::PublishedSessionEndpoint &endpoint,
                                                               const QString                                &itemId)
 {
+    qCDebug(lcIrisJingleMedia) << "Jingle publication retracted: item=" << itemId;
     observed_.remove(observedKey(endpoint, itemId));
 }
 
@@ -424,7 +639,7 @@ void IrisJinglePublicationProvider::publishedSessionNodeInvalidated(
     const XMPP::Jingle::PublishedSessionEndpoint &endpoint, bool deleted)
 {
     Q_UNUSED(endpoint)
-    Q_UNUSED(deleted)
+    qCDebug(lcIrisJingleMedia) << "Jingle publication node invalidated: deleted=" << deleted;
     observed_.clear();
 }
 

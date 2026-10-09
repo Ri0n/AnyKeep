@@ -9,26 +9,29 @@
 #include <iris/xmpp_file-sharing.h>
 
 #include <QHash>
+#include <QLoggingCategory>
+
+Q_DECLARE_LOGGING_CATEGORY(lcIrisJingleMedia)
 
 namespace AnyKeep {
 
 class IrisXmppBackend;
 
 enum class IrisJingleMediaRepresentation : quint8 {
-    LegacyXep0448 = 1,
+    LegacyXep0448  = 1,
     ChunkedAnyKeep = 2,
 };
 
 /** Durable local capability required to reproduce one published ciphertext. */
 struct IrisJingleCapability {
-    QString                            publicationId;
-    QString                            itemId;
-    QString                            from;
-    QString                            node;
-    QString                            noteId;
-    QString                            contentRevision;
-    MediaReference                     reference;
-    IrisJingleMediaRepresentation      representation { IrisJingleMediaRepresentation::LegacyXep0448 };
+    QString                       publicationId;
+    QString                       itemId;
+    QString                       from;
+    QString                       node;
+    QString                       noteId;
+    QString                       contentRevision;
+    MediaReference                reference;
+    IrisJingleMediaRepresentation representation { IrisJingleMediaRepresentation::LegacyXep0448 };
 
     // Legacy XEP-0448 whole-object representation.
     XMPP::StatelessFileSharing::Cipher cipher { XMPP::StatelessFileSharing::Cipher::Unknown };
@@ -36,11 +39,11 @@ struct IrisJingleCapability {
     QByteArray                         iv;
 
     // AnyKeep independently authenticated chunk representation.
-    MediaChunkWireParameters           chunked;
+    MediaChunkWireParameters chunked;
 
     /** SHA-256 of the wire object, or empty to advertise XEP-0300 hash-used. */
-    QByteArray                         cipherHash;
-    quint64                            wireSize { 0 };
+    QByteArray cipherHash;
+    quint64    wireSize { 0 };
 
     QString invalidReason() const;
     bool    isValid() const { return invalidReason().isEmpty(); }
@@ -61,6 +64,7 @@ public:
     QList<XMPP::Jingle::JinglePub> matchingPublications(const QByteArray &cipherHash, quint64 wireSize) const;
     QStringList                    publicationIdsForNote(const QString &noteId) const;
     bool                           removePublication(const QString &publicationId);
+    void                           traceIncomingStart(const QString &xml) const;
 
 protected:
     QList<XMPP::Jingle::PublishedSessionEndpoint> publishedSessionEndpoints() const override;
@@ -73,6 +77,8 @@ protected:
     void publishedSessionNodeInvalidated(const XMPP::Jingle::PublishedSessionEndpoint &endpoint, bool deleted) override;
 
 private:
+    friend class IrisJinglePublicationProviderTest;
+
     XMPP::Jingle::JinglePub publication(const IrisJingleCapability &capability) const;
     bool                    cacheCapability(const IrisJingleCapability &capability);
     bool                    load();

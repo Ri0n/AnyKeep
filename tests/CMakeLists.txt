@@ -170,6 +170,10 @@ if(TARGET xmpppubsub_test_support)
   target_link_libraries(xmppstorage_test PRIVATE xmpppubsub_test_support)
 
   if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
+    add_anykeep_test(irisjinglepublicationprovider_test irisjinglepublicationprovider_test.cpp)
+    target_include_directories(irisjinglepublicationprovider_test PRIVATE ../plugins/xmpppubsub)
+    target_link_libraries(irisjinglepublicationprovider_test PRIVATE xmpppubsub_test_support Qt6::Xml)
+
     add_anykeep_test(irisprogressivemedialive_test irisprogressivemedialive_test.cpp)
     target_include_directories(irisprogressivemedialive_test PRIVATE ../plugins/xmpppubsub)
     target_link_libraries(irisprogressivemedialive_test PRIVATE xmpppubsub_test_support Qt6::Network Qt6::Xml)
@@ -270,6 +274,9 @@ if(TARGET xmppstorage_test)
 endif()
 if(TARGET irischunkedmediasource_test)
   set_tests_properties(irischunkedmediasource_test PROPERTIES LABELS "storage;xmpp")
+endif()
+if(TARGET irisjinglepublicationprovider_test)
+  set_tests_properties(irisjinglepublicationprovider_test PROPERTIES LABELS "storage;xmpp")
 endif()
 foreach(
   xmpp_test_target

@@ -506,6 +506,13 @@ void IrisXmppBackend::createClient()
 
     jinglePublicationProvider_ = new IrisJinglePublicationProvider(
         this, config_, irisStatePath + QStringLiteral(".jinglepub"), config_.omemoStateKey, client_);
+    connect(client_, &XMPP::Client::xmlIncoming, jinglePublicationProvider_,
+            &IrisJinglePublicationProvider::traceIncomingStart);
+    connect(
+        client_->jingleManager()->publicationManager(), &XMPP::Jingle::PublicationManager::publishedSessionStateChanged,
+        jinglePublicationProvider_, [](const QString &id, XMPP::Jingle::PublicationManager::SessionState state) {
+            qCDebug(lcIrisJingleMedia) << "Jingle publication registry state: publication=" << id << "state=" << state;
+        });
     client_->jingleManager()->publicationManager()->registerProvider(jinglePublicationProvider_);
     if (!jinglePublicationProvider_->errorString().isEmpty())
         qCWarning(lcIrisXmpp).noquote() << "Could not load the Jingle capability store:"
@@ -1793,6 +1800,10 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
 void IrisXmppBackend::fetchPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize,
                                                quint64 offset, quint64 length, MediaRangeService::Completion callback)
 {
+    qCDebug(lcIrisJingleMedia) << "Queueing Jingle media range: publication=" << publicationId
+                               << "publisher=" << publisher.full() << "offset=" << offset << "length=" << length
+                               << "wire-size=" << wireSize << "queued=" << mediaRangeTransfers_.size()
+                               << "active=" << mediaRangeTransferActive_ << "generation=" << generation_;
     const auto generation = generation_;
     mediaRangeTransfers_.enqueue([this, generation, publisher, publicationId, wireSize, offset, length,
                                   callback = std::move(callback)]() mutable {
@@ -1823,6 +1834,8 @@ void IrisXmppBackend::startNextMediaRangeTransfer()
 void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize,
                                                quint64 offset, quint64 length, MediaRangeService::Completion callback)
 {
+    qCDebug(lcIrisJingleMedia) << "Starting Jingle media range: publication=" << publicationId
+                               << "publisher=" << publisher.full() << "offset=" << offset << "length=" << length;
     struct State {
         bool                                            finished = false;
         QPointer<XMPP::Jingle::Session>                 session;
@@ -1833,10 +1846,14 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
     };
     auto       state      = std::make_shared<State>();
     const auto generation = generation_;
-    auto       complete   = [state, callback = std::move(callback)](QString error) {
+    auto       complete   = [state, publicationId, offset, length, callback = std::move(callback)](QString error) {
         if (state->finished)
             return;
         state->finished = true;
+        qCDebug(lcIrisJingleMedia) << "Jingle media range completed: publication=" << publicationId
+                                   << "sid=" << (state->session ? state->session->sid() : QString())
+                                   << "offset=" << offset << "length=" << length << "received=" << state->bytes->size()
+                                   << "error=" << error;
         QObject::disconnect(state->incoming);
         if (state->timer)
             state->timer->deleteLater();
@@ -1857,10 +1874,13 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
     state->timer->start(config_.timeoutMs);
     state->incoming = connect(
         manager, &XMPP::Jingle::Manager::incomingSession, this,
-        [this, generation, state, complete, publisher, wireSize, offset, length](XMPP::Jingle::Session *session) {
+        [this, generation, state, complete, publisher, publicationId, wireSize, offset,
+         length](XMPP::Jingle::Session *session) {
             if (state->finished || generation != generation_ || !state->request
                 || session->sid() != state->request->sid() || !session->peer().compare(publisher))
                 return;
+            qCDebug(lcIrisJingleMedia) << "Incoming Jingle media range session: publication=" << publicationId
+                                       << "sid=" << session->sid() << "offset=" << offset << "length=" << length;
             QList<XMPP::Jingle::FileTransfer::Application *> apps;
             for (auto *content : session->contentList()) {
                 if (content && content->pad() && content->pad()->ns() == XMPP::Jingle::FileTransfer::NS)
@@ -1880,8 +1900,12 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
             auto *buffer = new BoundedRangeBuffer(state->bytes, length, session);
             buffer->open(QIODevice::WriteOnly);
             connect(app, &XMPP::Jingle::FileTransfer::Application::deviceRequested, session,
-                    [app, buffer, offset, length, complete](quint64                requestedOffset,
-                                                            std::optional<quint64> requestedLength) {
+                    [app, buffer, publicationId, offset, length, complete](quint64                requestedOffset,
+                                                                           std::optional<quint64> requestedLength) {
+                        qCDebug(lcIrisJingleMedia)
+                            << "Incoming media device requested: publication=" << publicationId
+                            << "offset=" << requestedOffset << "length="
+                            << (requestedLength ? QString::number(*requestedLength) : QStringLiteral("to-end"));
                         if (requestedOffset != offset || !requestedLength || *requestedLength != length) {
                             complete(QStringLiteral("Peer changed the requested range"));
                             return;
@@ -1889,7 +1913,10 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
                         app->setDevice(buffer, false);
                     });
             connect(app, &XMPP::Jingle::FileTransfer::Application::stateChanged, session,
-                    [state, complete, length, app](XMPP::Jingle::State status) {
+                    [state, complete, publicationId, length, app](XMPP::Jingle::State status) {
+                        qCDebug(lcIrisJingleMedia)
+                            << "Incoming media transfer state: publication=" << publicationId << "state=" << int(status)
+                            << "received=" << state->bytes->size() << "reason=" << int(app->lastReason().condition());
                         if (status == XMPP::Jingle::State::Finished) {
                             if (app->lastReason().condition() != XMPP::Jingle::Reason::Success) {
                                 complete(
@@ -1908,10 +1935,25 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
             session->accept();
         });
     state->request = manager->publicationManager()->requestPublishedSession(publisher, publicationId, this);
-    connect(state->request, &XMPP::Jingle::PublishedSessionRequest::finished, this, [state, complete] {
-        if (state->request && state->request->state() != XMPP::Jingle::PublishedSessionRequest::State::Succeeded)
-            complete(QStringLiteral("Media publisher is unavailable"));
-    });
+    connect(state->request, &XMPP::Jingle::PublishedSessionRequest::finished, this,
+            [state, complete, publisher, publicationId, offset, length] {
+                if (!state->request)
+                    return;
+                if (state->request->state() != XMPP::Jingle::PublishedSessionRequest::State::Succeeded) {
+                    const auto error = state->request->error();
+                    qCWarning(lcIrisJingleMedia)
+                        << "Jingle publication start rejected: publication=" << publicationId
+                        << "publisher=" << publisher.full() << "offset=" << offset << "length=" << length
+                        << "xmpp-code=" << error.code() << "xmpp-type=" << int(error.type)
+                        << "xmpp-condition=" << int(error.condition) << "description=" << error.description().second;
+                    complete(QStringLiteral("Media publisher rejected start (XMPP %1: %2)")
+                                 .arg(error.code())
+                                 .arg(error.description().first));
+                } else {
+                    qCDebug(lcIrisJingleMedia) << "Jingle publication start accepted: publication=" << publicationId
+                                               << "sid=" << state->request->sid();
+                }
+            });
     state->request->start();
 }
 
