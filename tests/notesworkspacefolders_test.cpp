@@ -72,6 +72,7 @@ class NotesWorkspaceFoldersTest : public QObject {
 private slots:
     void initTestCase();
     void createsUnnamedFoldersForInlineRename();
+    void createsFoldersWithInitialFlagsAtomically();
     void exposesFoldersAndMovesCleanEditorMetadata();
     void recycleBinHidesNotesUntilRestored();
     void deletesFolderBranchesWithSessionUndo();
@@ -113,6 +114,48 @@ void NotesWorkspaceFoldersTest::createsUnnamedFoldersForInlineRename()
     QVERIFY(!second.isEmpty());
     QCOMPARE(catalog.catalog().folder(QUuid(first))->name, QStringLiteral("New folder"));
     QCOMPARE(catalog.catalog().folder(QUuid(second))->name, QStringLiteral("New folder 2"));
+}
+
+void NotesWorkspaceFoldersTest::createsFoldersWithInitialFlagsAtomically()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager drafts(makeDraftStore(directory));
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
+    QVERIFY(catalog.initialize());
+
+    QSignalSpy changed(&catalog, &FolderCatalogManager::catalogChanged);
+    const auto rootId = workspace.createFolderWithFlags(QStringLiteral("Important"),
+                                                         {}, true, false);
+    QVERIFY(!rootId.isEmpty());
+    const auto *root = catalog.catalog().folder(QUuid(rootId));
+    QVERIFY(root);
+    QCOMPARE(root->name, QStringLiteral("Important"));
+    QVERIFY(root->favorite);
+    QVERIFY(!root->archived);
+    QCOMPARE(changed.count(), 1);
+
+    const auto archivedId = workspace.createFolderWithFlags(QStringLiteral("Old notes"),
+                                                             rootId, false, true);
+    QVERIFY(!archivedId.isEmpty());
+    const auto *child = catalog.catalog().folder(QUuid(archivedId));
+    QVERIFY(child);
+    QCOMPARE(child->parentId, QUuid(rootId));
+    QCOMPARE(child->name, QStringLiteral("Old notes"));
+    QVERIFY(!child->favorite);
+    QVERIFY(child->archived);
+    QCOMPARE(changed.count(), 2);
+
+    // Existing desktop clients still get an unnamed, unflagged folder for
+    // their inline-rename flow.
+    const auto desktopId = workspace.createFolder({});
+    QVERIFY(!desktopId.isEmpty());
+    const auto *desktop = catalog.catalog().folder(QUuid(desktopId));
+    QVERIFY(desktop);
+    QVERIFY(!desktop->favorite);
+    QVERIFY(!desktop->archived);
+    QCOMPARE(changed.count(), 3);
 }
 
 void NotesWorkspaceFoldersTest::exposesFoldersAndMovesCleanEditorMetadata()
