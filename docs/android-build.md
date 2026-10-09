@@ -38,9 +38,9 @@ packages are already stripped.
 
 ## Production Qt plugin pruning
 
-Android targets use `qt_import_plugins(anykeep_mobile EXCLUDE_BY_TYPE qmltooling)`
+Android Release targets use `qt_import_plugins(anykeep_mobile EXCLUDE_BY_TYPE qmltooling)`
 to prevent the Qt QML debugger, inspector and profiler plugins from entering
-Release APKs. Qt's platform, network/TLS, SVG/image formats, and multimedia
+Release APKs. Debug configurations continue to allow QML debugging. Qt's platform, network/TLS, SVG/image formats, and multimedia
 plugins remain under the standard deployment mechanism. This is preferable to
 setting `QT_ANDROID_DEPLOYMENT_DEPENDENCIES`, which **replaces** all automatic
 Qt dependency discovery and could easily omit runtime dependencies.
