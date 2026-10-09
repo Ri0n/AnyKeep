@@ -16,6 +16,8 @@ class NotesModel : public QAbstractListModel {
     QML_ELEMENT
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
+    Q_PROPERTY(int connectivityState READ connectivityState NOTIFY connectivityChanged)
+    Q_PROPERTY(QString connectivityText READ connectivityText NOTIFY connectivityChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool loadingMore READ loadingMore NOTIFY loadingMoreChanged)
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY hasMoreChanged)
@@ -39,6 +41,8 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     bool    available() const;
+    int     connectivityState() const { return m_connectivityState; }
+    QString connectivityText() const { return m_connectivityText; }
     bool    loading() const;
     bool    loadingMore() const;
     bool    hasMore() const;
@@ -58,6 +62,8 @@ public:
     }
 
     Q_INVOKABLE void refresh();
+    // Invoked by the application's D-Bus storageConnectivityChanged signal.
+    Q_SLOT void refreshConnectivity();
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void activate();
     Q_INVOKABLE void openNote(int row, QWindow *activationWindow = nullptr);
@@ -70,6 +76,7 @@ public:
 signals:
     void countChanged();
     void availableChanged();
+    void connectivityChanged();
     void loadingChanged();
     void loadingMoreChanged();
     void hasMoreChanged();
@@ -90,6 +97,7 @@ private:
     };
 
     void setAvailable(bool available);
+    void setConnectivity(int state, const QString &text);
     void setLoading(bool loading);
     void setLoadingMore(bool loadingMore);
     void setHasMore(bool hasMore);
@@ -114,6 +122,9 @@ private:
     bool                 m_hasMore       = false;
     bool                 m_starting      = false;
     quint64              m_requestSerial = 0;
+    quint64              m_connectivitySerial = 0;
+    int                  m_connectivityState = 0;
+    QString              m_connectivityText;
     int                  m_pageSize      = 50;
 
     bool m_inSystemTray = false;
