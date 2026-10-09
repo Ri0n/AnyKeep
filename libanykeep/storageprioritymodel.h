@@ -19,6 +19,8 @@ public:
         TooltipRole,
         IconRole,
         IconSourceRole,
+        ConnectivityRole,
+        ConnectivityTextRole,
     };
     Q_ENUM(Role)
 
