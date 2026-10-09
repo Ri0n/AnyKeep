@@ -237,7 +237,10 @@ bool XmppKeyResolutionController::canGoNext() const
     return true;
 }
 
-bool XmppKeyResolutionController::canCreateNewKey() const { return canStartFresh() && audit_.totalIndexItems == 0; }
+bool XmppKeyResolutionController::canCreateNewKey() const
+{
+    return currentPage_ == KeysPage && canStartFresh() && audit_.totalIndexItems == 0;
+}
 
 bool XmppKeyResolutionController::canStartFresh() const
 {
