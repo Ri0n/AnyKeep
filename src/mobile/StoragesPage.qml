@@ -38,6 +38,8 @@ Page {
             required property string storageId
             required property string name
             required property bool accessible
+            required property int connectivityState
+            required property string connectivityText
             required property bool configurable
             required property string tooltip
             required property string iconSource
@@ -77,6 +79,21 @@ Page {
                         text: "▣"
                         font.pixelSize: 20
                     }
+
+                    Rectangle {
+                        objectName: "storageConnectivityBadge-" + storageDelegate.storageId
+                        visible: storageDelegate.connectivityState !== 0
+                        width: 12
+                        height: 12
+                        radius: width / 2
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        border.width: 1
+                        border.color: storageDelegate.palette.window
+                        color: storageDelegate.connectivityState === 3 ? "#2c995a"
+                             : storageDelegate.connectivityState === 2 ? "#b98a32"
+                             : storageDelegate.connectivityState === 4 ? "#c44a4a" : "#858b95"
+                    }
                 }
 
                 ColumnLayout {
@@ -91,13 +108,22 @@ Page {
                     }
 
                     Label {
+                        objectName: "storageConnectivityText-" + storageDelegate.storageId
+                        Layout.fillWidth: true
+                        text: storageDelegate.connectivityText
+                        visible: text.length > 0
+                        color: storageDelegate.palette.placeholderText
+                        font.pixelSize: 13
+                    }
+
+                    Label {
                         Layout.fillWidth: true
                         text: storageDelegate.tooltip.length > 0
                               ? storageDelegate.tooltip
                               : (storageDelegate.accessible ? "" : qsTr("Not accessible"))
                         visible: text.length > 0
                         elide: Text.ElideRight
-                        color: palette.mid
+                        color: storageDelegate.palette.placeholderText
                         font.pixelSize: 13
                     }
                 }
