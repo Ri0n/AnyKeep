@@ -96,7 +96,7 @@ Flickable {
                     visible: text.length > 0
                     text: root.controller.omemoStatus
                     wrapMode: Text.WordWrap
-                    color: palette.mid
+                    color: palette.placeholderText
                 }
 
                 ComboBox {
@@ -109,7 +109,7 @@ Flickable {
                     Layout.fillWidth: true
                     text: qsTr("The client label is published by the OMEMO client; AnyKeep normally uses its XMPP resource. OMEMO does not publish a reliable last-used time or guarantee that the label equals the resource.")
                     wrapMode: Text.WordWrap
-                    color: palette.mid
+                    color: palette.placeholderText
                     font.pixelSize: 12
                 }
 
@@ -176,7 +176,7 @@ Flickable {
                     visible: text.length > 0
                     text: root.controller.cleanupStatus
                     wrapMode: Text.WordWrap
-                    color: palette.mid
+                    color: palette.placeholderText
                 }
             }
         }
@@ -185,14 +185,14 @@ Flickable {
             Layout.fillWidth: true
             text: qsTr("Index metadata and note contents are end-to-end encrypted with independent derived keys. The recovery key grants access to the complete XMPP storage.")
             wrapMode: Text.WordWrap
-            color: palette.mid
+            color: palette.placeholderText
         }
 
         Label {
             Layout.fillWidth: true
             text: qsTr("TLS is mandatory. Host and port should normally remain automatic.")
             wrapMode: Text.WordWrap
-            color: palette.mid
+            color: palette.placeholderText
         }
     }
 

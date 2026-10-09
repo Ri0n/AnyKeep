@@ -47,6 +47,53 @@ behavior or reference vectors.
 shared backend keys, retry bounds, keychain names and status conversion. Do not
 move mutable worker/storage state into these headers.
 
+## XMPP QML theme semantics
+
+The Android application supports system/light/dark modes through its
+`mobile.color-scheme` preference, `Material.theme`, and the application
+`QPalette`. For XMPP settings, recovery, and trust QML, use
+`palette.text` for primary information and `palette.placeholderText` for
+secondary labels and explanatory copy; `palette.mid` is a **border color**
+and must not be used for text. Do not dim entire unavailable-key cards: the
+disabled radio button already indicates that the key cannot be selected,
+while its fingerprint, device status, and explanation must remain readable.
+Palette roles respond to theme changes without hardcoded light/dark values.
+
+## First-install XMPP onboarding
+
+When no local XMPP key exists, the recovery wizard starts with a choice:
+**Use existing notes** (the standard OMEMO device/key recovery path) or
+**Start with a new key**. The latter requires explicit confirmation explaining
+that notes already stored in XMPP cannot be decrypted with the new key.
+This path generates a local key without asking other devices for keys and
+does **not** invoke the remote rekey/publish operation. The key is installed
+only after the user accepts the review and finishes the wizard.
+
+Remote index auditing is deliberately skipped for first-time setup. An
+unknown count of old encrypted notes must never be displayed as zero. The
+review/result screens explain that existing notes, if any, remain untouched;
+users should export/save the new recovery key after setup. Back from review
+abandons the uninstalled key and returns to the welcome choice. Users with
+an existing local key still use the original recovery/repair flow.
+The storage layer records this opt-in per account **and** per installed
+key fingerprint. Only a matching key sets
+`XmppConfig::allowForeignKeyIndices`; importing a different key does not
+inherit that policy. Qt/QXmpp index loading then skips old-key records
+without reporting a fatal all-foreign-key mismatch, including after an
+app restart. In ordinary recovery configurations, an index consisting
+solely of foreign-key records remains a security error that triggers
+key recovery. The remote encrypted items are never deleted.
+
+This avoids bypassing key recovery silently, while permitting a new user
+to initialize XMPP notes without owning another AnyKeep device.
+
+On the final review screen, existing-key synchronization uses **Sync notes**
+rather than **Repair**. The shared QML host can ask the Android shell to
+return to the notes list once `finished(true)` is emitted; this is a
+presentation-only optional window method and must never fire on cancel
+or incomplete recovery. The Android `StackView` belongs to the mobile
+shell, not the XMPP plugin.
+
 ## Verification
 
 ```sh

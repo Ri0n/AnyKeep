@@ -349,7 +349,8 @@ bool IrisXmppBackend::sameConfig(const XmppConfig &left, const XmppConfig &right
     return left.jid == right.jid && left.password == right.password && left.host == right.host
         && left.port == right.port && left.resource == right.resource && left.nodeName == right.nodeName
         && left.originId == right.originId && left.timeoutMs == right.timeoutMs && left.masterKey == right.masterKey
-        && left.omemoStateKey == right.omemoStateKey && left.omemoStatePath == right.omemoStatePath;
+        && left.omemoStateKey == right.omemoStateKey && left.omemoStatePath == right.omemoStatePath
+        && left.allowForeignKeyIndices == right.allowForeignKeyIndices;
 }
 
 void IrisXmppBackend::setConfig(const XmppConfig &config)

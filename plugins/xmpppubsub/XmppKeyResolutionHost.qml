@@ -21,15 +21,15 @@ Item {
     function pageTitle() {
         switch (controller.currentPage) {
         case 0:
-            return controller.localKeyMissing ? qsTr("The local XMPP storage key is missing") : qsTr("AnyKeep found incompatible storage keys");
+            return controller.localKeyMissing ? qsTr("Set up encrypted XMPP notes") : qsTr("AnyKeep found incompatible storage keys");
         case 1:
             return qsTr("Verify your AnyKeep devices");
         case 2:
             return qsTr("Choose the key to keep");
         case 3:
-            return qsTr("Review and repair");
+            return root.controller.freshStart ? qsTr("Review new storage") : qsTr("Review synchronization");
         case 4:
-            return qsTr("Recovery result");
+            return qsTr("Synchronization result");
         default:
             return "";
         }
@@ -38,7 +38,7 @@ Item {
     function pageSubtitle() {
         switch (controller.currentPage) {
         case 0:
-            return controller.localKeyMissing ? qsTr("AnyKeep can securely obtain the key from another online device on this account.") : qsTr("Notes or another AnyKeep device use a different encryption key.");
+            return controller.localKeyMissing ? qsTr("Choose whether to use existing encrypted notes or start with a new key.") : qsTr("Notes or another AnyKeep device use a different encryption key.");
         case 1:
             return qsTr("Select devices you recognize. Their fingerprints are used only to establish encrypted OMEMO sessions.");
         case 2:
@@ -63,7 +63,7 @@ Item {
         height: Math.max(300, Math.min(720, root.height - 16))
         modal: true
         closePolicy: Popup.NoAutoClose
-        title: qsTr("Repair XMPP note synchronization")
+        title: root.controller.localKeyMissing ? qsTr("Set up XMPP notes") : qsTr("Sync XMPP notes")
 
         contentItem: Item {
             id: dialogContentHost
@@ -107,7 +107,7 @@ Item {
 
             Label {
                 text: qsTr("%1 / %2").arg(root.controller.currentPage + 1).arg(root.controller.pageCount)
-                color: palette.mid
+                color: palette.placeholderText
             }
         }
 
@@ -116,7 +116,7 @@ Item {
             visible: text.length > 0
             text: root.pageSubtitle()
             wrapMode: Text.WordWrap
-            color: palette.mid
+            color: palette.placeholderText
         }
 
         Rectangle {
@@ -148,14 +148,61 @@ Item {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("This recovery flow locates your other online AnyKeep devices, establishes trusted OMEMO sessions, collects the storage keys they hold, and safely moves every accessible note to one key you choose.")
+                        text: root.controller.localKeyMissing
+                            ? qsTr("Is this your first AnyKeep device? Start with a new key. If you already used AnyKeep with this XMPP account, you can recover your existing notes instead.")
+                            : qsTr("This recovery flow locates other AnyKeep devices, collects their keys, and safely moves accessible notes to one key you choose.")
                         wrapMode: Text.WordWrap
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        visible: root.controller.localKeyMissing
+
+                        Button {
+                            objectName: "xmppRecoverExistingNotesButton"
+                            Layout.fillWidth: true
+                            text: qsTr("Use existing notes")
+                            highlighted: true
+                            enabled: root.controller.canGoNext
+                            onClicked: root.controller.next()
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Find a key from another device where AnyKeep is already set up.")
+                            wrapMode: Text.WordWrap
+                            color: palette.placeholderText
+                        }
+
+                        Button {
+                            objectName: "xmppStartNewStorageButton"
+                            Layout.fillWidth: true
+                            text: qsTr("Start with a new key")
+                            enabled: root.controller.canStartFresh
+                            onClicked: startFreshDialog.open()
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Use a new empty storage on this device. Existing encrypted notes, if any, cannot be read without their original key.")
+                            wrapMode: Text.WordWrap
+                            color: palette.placeholderText
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: text.length > 0
+                            text: root.controller.keyStatus
+                            wrapMode: Text.WordWrap
+                        }
                     }
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("No note or local key is changed until the final recovery step completes. You can cancel now and run the recovery again later.")
+                        text: qsTr("No existing notes are deleted or overwritten while you choose. You can cancel and return to setup later.")
                         wrapMode: Text.WordWrap
+                        color: palette.placeholderText
                     }
                 }
             }
@@ -222,7 +269,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: deviceDelegate.fingerprint
                                     wrapMode: Text.WordWrap
-                                    color: palette.mid
+                                    color: palette.placeholderText
                                     font.family: "monospace"
                                     font.pixelSize: 11
                                 }
@@ -230,7 +277,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     text: deviceDelegate.trustText
-                                    color: deviceDelegate.trusted ? palette.highlight : palette.mid
+                                    color: deviceDelegate.trusted ? palette.text : palette.placeholderText
                                     font.pixelSize: 12
                                     elide: Text.ElideRight
                                     maximumLineCount: 1
@@ -258,7 +305,7 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                         text: qsTr("No OMEMO devices are currently available. Start AnyKeep on another device and retry.")
                         wrapMode: Text.WordWrap
-                        color: palette.mid
+                        color: palette.placeholderText
                     }
                 }
 
@@ -272,7 +319,7 @@ Item {
                     Layout.fillWidth: true
                     text: qsTr("Compare fingerprints on the other device. The client label is shown separately from the OMEMO ID; AnyKeep normally publishes its XMPP resource as that label, but XMPP does not guarantee this mapping or provide a last-used time.")
                     wrapMode: Text.WordWrap
-                    color: palette.mid
+                    color: palette.placeholderText
                     font.pixelSize: 12
                 }
             }
@@ -309,7 +356,10 @@ Item {
                         required property bool available
 
                         width: Math.max(0, ListView.view.width - keysScrollBar.width - 6)
-                        opacity: keyDelegate.available ? 1.0 : 0.55
+                        // Keep descriptions legible for unavailable keys. The
+                        // disabled radio control already conveys that a key
+                        // cannot be selected; dimming the whole Frame also
+                        // fades its explanatory text below readable contrast.
                         padding: 6
 
                         contentItem: RowLayout {
@@ -328,6 +378,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     text: keyDelegate.fingerprint
+                                    color: keyDelegate.available ? palette.text : palette.placeholderText
                                     font.bold: true
                                     font.family: "monospace"
                                     font.pixelSize: 12
@@ -338,13 +389,14 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     text: qsTr("Available from: %1").arg(keyDelegate.source)
+                                    color: keyDelegate.available ? palette.text : palette.placeholderText
                                     wrapMode: Text.WordWrap
                                 }
 
                                 Label {
                                     Layout.fillWidth: true
                                     text: qsTr("Notes: %1 — %2").arg(keyDelegate.noteCount).arg(keyDelegate.status)
-                                    color: palette.mid
+                                    color: palette.placeholderText
                                     wrapMode: Text.WordWrap
                                 }
                             }
@@ -376,7 +428,7 @@ Item {
                             : qsTr("Start AnyKeep on a device that still has access to your notes, then try again. If you saved a recovery key, return to XMPP settings and import it on this device. If the old key is permanently lost, you can start with an empty storage instead.")
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
-                        color: palette.mid
+                        color: palette.placeholderText
                     }
 
                     RowLayout {
@@ -420,7 +472,7 @@ Item {
                     visible: keysView.count > 0
                     text: qsTr("Usually you should keep the key that owns the most notes. A key marked unavailable cannot be selected; bring one of its devices online or import its recovery key first.")
                     wrapMode: Text.WordWrap
-                    color: palette.mid
+                    color: palette.placeholderText
                 }
             }
 
@@ -490,6 +542,7 @@ Item {
                 Layout.columnSpan: body.width < 420 ? 2 : 1
                 text: root.controller.nextText
                 highlighted: true
+                visible: !root.controller.localKeyMissing || root.controller.currentPage !== 0
                 enabled: root.controller.canGoNext
                 onClicked: root.controller.next()
             }
@@ -502,6 +555,16 @@ Item {
         function onFinished(accepted) {
             if (!root.standalone)
                 dialog.close();
+
+            // The mobile shell owns its navigation stack. After successful
+            // XMPP setup, leave Settings and display the notes. Desktop and
+            // standalone hosts have no such action and are left unchanged.
+            // Cancelled/incomplete recovery must preserve the current page.
+            if (accepted && !root.standalone && root.hostItem && root.hostItem.window) {
+                const window = root.hostItem.window
+                if (typeof window.showNotesAfterXmppKeyResolution === "function")
+                    window.showNotesAfterXmppKeyResolution()
+            }
         }
     }
 
@@ -533,12 +596,12 @@ Item {
         parent: Overlay.overlay
         anchors.centerIn: parent
         modal: true
-        title: qsTr("Start with an empty storage?")
+        title: qsTr("Create a new XMPP storage key?")
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         contentItem: Label {
             width: Math.min(460, root.width - 40)
-            text: qsTr("The old storage key cannot be recovered. Creating a new key lets you create new notes, but the existing encrypted notes in XMPP will remain unreadable and will not be deleted or changed. Continue only if no device or recovery-key copy remains.")
+            text: qsTr("A new key will be created for this device. Any existing encrypted XMPP notes will remain untouched but cannot be read with the new key. If you already have AnyKeep notes on another device, choose 'Use existing notes' instead. You can recover the old notes later if you still have their original key. Save your new recovery key after setup. Continue?")
             wrapMode: Text.WordWrap
         }
 

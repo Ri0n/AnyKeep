@@ -13,6 +13,17 @@ ApplicationWindow {
     title: qsTr("AnyKeep")
     Material.theme: mobileApp.darkColorScheme ? Material.Dark : Material.Light
 
+    // Called by the shared XMPP setup host only after the user finishes a
+    // successful key synchronization. Pop all settings pages back to Notes.
+    // The root notes view is already visible if the wizard opened on startup.
+    function showNotesAfterXmppKeyResolution() {
+        // A recovery dialog can also appear while a note is being edited.
+        // Only leave Settings; never silently discard an editor or its state.
+        const page = navigation.currentItem
+        if (navigation.depth > 1 && page && page.returnToNotesAfterXmppKeyResolution === true)
+            navigation.pop(null, StackView.Immediate)
+    }
+
     StackView {
         id: navigation
         anchors.fill: parent
@@ -83,6 +94,7 @@ ApplicationWindow {
     Component {
         id: settingsHub
         SettingsHubPage {
+            property bool returnToNotesAfterXmppKeyResolution: true
             onBackRequested: navigation.pop()
             onOpenGeneral: navigation.push(appSettings)
             onOpenDrafts: navigation.push(draftsPage)
@@ -104,12 +116,13 @@ ApplicationWindow {
 
     Component {
         id: appSettings
-        AppSettingsPage { onBackRequested: navigation.pop() }
+        AppSettingsPage { property bool returnToNotesAfterXmppKeyResolution: true; onBackRequested: navigation.pop() }
     }
 
     Component {
         id: storagesSettings
         StoragesPage {
+            property bool returnToNotesAfterXmppKeyResolution: true
             onBackRequested: navigation.pop()
             onOpenSettings: (storageId, storageName) => navigation.push(storageSettings, {
                 "storageId": storageId,
@@ -121,6 +134,7 @@ ApplicationWindow {
     Component {
         id: pluginsSettings
         PluginsPage {
+            property bool returnToNotesAfterXmppKeyResolution: true
             onBackRequested: navigation.pop()
             onOpenSettings: (pluginId, pluginName) => navigation.push(pluginSettings, {
                 "pluginId": pluginId,
@@ -132,6 +146,7 @@ ApplicationWindow {
     Component {
         id: pluginSettings
         PluginSettingsPage {
+            property bool returnToNotesAfterXmppKeyResolution: true
             onBackRequested: navigation.pop()
         }
     }
@@ -139,6 +154,7 @@ ApplicationWindow {
     Component {
         id: storageSettings
         StorageSettingsPage {
+            property bool returnToNotesAfterXmppKeyResolution: true
             onBackRequested: navigation.pop()
         }
     }

@@ -237,18 +237,27 @@ bool XmppKeyResolutionController::canGoNext() const
     return true;
 }
 
-bool XmppKeyResolutionController::canCreateNewKey() const { return canStartFresh() && audit_.totalIndexItems == 0; }
+bool XmppKeyResolutionController::canCreateNewKey() const
+{
+    return currentPage_ == KeysPage && canStartFresh() && audit_.totalIndexItems == 0;
+}
 
 bool XmppKeyResolutionController::canStartFresh() const
 {
-    return !busy_ && !completed_ && currentPage_ == KeysPage && localKeyMissing_ && audit_.ok
-        && keysModel_->rowCount() == 0 && bool(createStorageKey_);
+    if (busy_ || completed_ || !localKeyMissing_ || !createStorageKey_)
+        return false;
+    // First-install onboarding is explicitly user initiated and can create
+    // a local key without OMEMO trust/key-sync. Existing remote notes are
+    // never rewritten by this route, and their count remains unknown.
+    if (currentPage_ == ProblemPage)
+        return true;
+    return currentPage_ == KeysPage && audit_.ok && keysModel_->rowCount() == 0;
 }
 
 QString XmppKeyResolutionController::nextText() const
 {
     if (currentPage_ == ReviewPage)
-        return tr("Repair");
+        return freshStart_ ? tr("Continue") : tr("Sync notes");
     if (currentPage_ == ResultPage)
         return tr("Finish");
     return tr("Next");
@@ -348,7 +357,9 @@ void XmppKeyResolutionController::startFresh()
 {
     if (!canStartFresh())
         return;
-    freshStart_ = true;
+    const bool fromWelcome = currentPage_ == ProblemPage;
+    freshStartFromWelcome_ = fromWelcome;
+    freshStart_            = true;
 
     setKeyStatus(tr("Creating a new storage key…"));
     setBusy(true);
@@ -368,6 +379,8 @@ void XmppKeyResolutionController::startFresh()
         emit guard->selectedKeyIndexChanged();
         guard->setKeyStatus(guard->tr("A new storage key is ready. Existing encrypted notes will be left unchanged."));
         guard->updateSummary();
+        if (guard->freshStartFromWelcome_)
+            guard->setCurrentPage(ReviewPage);
         emit guard->navigationChanged();
     });
 }
@@ -395,6 +408,17 @@ void XmppKeyResolutionController::next()
 
     switch (currentPage_) {
     case ProblemPage:
+        // Abandon any locally generated onboarding key when the user chooses
+        // to recover existing notes instead. It has not been installed yet.
+        if (freshStartFromWelcome_) {
+            freshStartFromWelcome_ = false;
+            freshStart_            = false;
+            keysModel_->setCandidates({});
+            audit_            = {};
+            selectedKeyIndex_ = -1;
+            emit selectedKeyIndexChanged();
+            setKeyStatus({});
+        }
         setCurrentPage(DevicesPage);
         return;
     case DevicesPage: {
@@ -461,9 +485,13 @@ void XmppKeyResolutionController::next()
             rekeyResult_.ok       = true;
             rekeyResult_.total    = audit_.totalIndexItems;
             rekeyResult_.migrated = 0;
-            resultText_ = tr("A new empty storage was created. %1 existing encrypted note(s) were left unchanged "
-                             "in XMPP because their old key is unavailable.")
-                              .arg(audit_.totalIndexItems);
+            resultText_
+                = freshStartFromWelcome_
+                ? tr("A new local storage key is ready. Existing XMPP notes, if any, remain encrypted with "
+                     "their original key and have not been changed. Save your new recovery key from settings.")
+                : tr("A new empty storage was created. %1 existing encrypted note(s) were left unchanged "
+                     "in XMPP because their old key is unavailable.")
+                      .arg(audit_.totalIndexItems);
             emit resultTextChanged();
             rekeyComplete_ = true;
             setCurrentPage(ResultPage);
@@ -490,7 +518,7 @@ void XmppKeyResolutionController::next()
                 return;
             guard->rekeyResult_ = std::move(result);
             if (guard->rekeyResult_.ok) {
-                guard->resultText_ = tr("Recovery completed successfully. %1 of %2 note(s) now use the canonical "
+                guard->resultText_ = tr("Synchronization completed. %1 of %2 note(s) now use the selected "
                                         "key.\n\nThe local storage key will be updated when you finish this flow.")
                                          .arg(guard->rekeyResult_.migrated)
                                          .arg(guard->rekeyResult_.total);
@@ -518,6 +546,19 @@ void XmppKeyResolutionController::back()
 {
     if (!canGoBack())
         return;
+    if (currentPage_ == ReviewPage && freshStartFromWelcome_) {
+        // The key is not installed until Finish, so returning to the welcome
+        // screen is safe. Never reuse this transient new key for recovery.
+        freshStartFromWelcome_ = false;
+        freshStart_            = false;
+        keysModel_->setCandidates({});
+        audit_            = {};
+        selectedKeyIndex_ = -1;
+        emit selectedKeyIndexChanged();
+        setKeyStatus({});
+        setCurrentPage(ProblemPage);
+        return;
+    }
     setCurrentPage(static_cast<Page>(int(currentPage_) - 1));
 }
 
@@ -623,6 +664,13 @@ void XmppKeyResolutionController::updateSummary()
     QString     nextSummary;
     if (!canonical || canonical->key.isEmpty()) {
         nextSummary = tr("No available canonical key is selected.");
+    } else if (freshStartFromWelcome_) {
+        nextSummary = tr("New local key: %1\n\n"
+                         "AnyKeep will start with a new empty storage without searching other devices. "
+                         "Existing XMPP notes, if any, remain encrypted with their original key and will NOT be "
+                         "deleted or overwritten. The new key cannot read them.\n\n"
+                         "After finishing, save your new recovery key in XMPP settings.")
+                          .arg(QString::fromLatin1(canonical->keyId.left(8).toHex()));
     } else if (freshStart_) {
         nextSummary = tr("New key: %1\nEncrypted notes left unchanged: %2\n\n"
                          "The old key is unavailable. AnyKeep will start with an empty storage and will not "
