@@ -701,8 +701,6 @@ jobs:
           edit_kind=()
           if [[ "$UPDATE_CHANNEL" == "nightly" ]]; then
             edit_kind=(--prerelease)
-          else
-            edit_kind=(--prerelease=false)
           fi
 
           gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" \
