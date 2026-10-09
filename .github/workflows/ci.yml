@@ -33,13 +33,13 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Validate stable dependency lock
-        run: python .github/scripts/resolve-package-dependencies.py --mode stable
+        run: python3 .github/scripts/resolve-package-dependencies.py --mode stable
 
       - name: Resolve compatible nightly dependencies
         id: nightly
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python .github/scripts/resolve-package-dependencies.py --mode nightly
+        run: python3 .github/scripts/resolve-package-dependencies.py --mode nightly
 
       - name: Report nightly dependency set
         run: echo "${{ steps.nightly.outputs.dependency_summary }}"
