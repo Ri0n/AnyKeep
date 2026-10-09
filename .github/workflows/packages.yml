@@ -80,7 +80,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python .github/scripts/resolve-package-dependencies.py \
+          python3 .github/scripts/resolve-package-dependencies.py \
             --mode "${{ steps.channel.outputs.update_channel }}"
 
       - name: Check whether a scheduled nightly is needed
