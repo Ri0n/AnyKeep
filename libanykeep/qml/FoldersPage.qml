@@ -605,6 +605,11 @@ Item {
                  - (Qt.inputMethod.visible ? Qt.inputMethod.keyboardRectangle.height : 0)) / 2) : 0
 
         onOpened: Qt.callLater(function() { createFolderName.forceActiveFocus() })
+        onClosed: {
+            createFolderName.focus = false
+            if (root.touchActions)
+                Qt.inputMethod.hide()
+        }
 
         contentItem: ColumnLayout {
             spacing: 10
