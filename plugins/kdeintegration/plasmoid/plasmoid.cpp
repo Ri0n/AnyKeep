@@ -110,12 +110,15 @@ NotesModel::NotesModel(QObject *parent) : QAbstractListModel(parent)
     connect(m_serviceWatcher, &QDBusServiceWatcher::serviceUnregistered, this, &NotesModel::serviceUnregistered);
     bus.connect(QLatin1String(ServiceName), QLatin1String(ObjectPath), QLatin1String(InterfaceName),
                 QStringLiteral("notesChanged"), this, SLOT(refresh()));
+    bus.connect(QLatin1String(ServiceName), QLatin1String(ObjectPath), QLatin1String(InterfaceName),
+                QStringLiteral("storageConnectivityChanged"), this, SLOT(refreshConnectivity()));
 
     const auto reply = bus.interface()->isServiceRegistered(QLatin1String(ServiceName));
     setAvailable(reply.isValid() && reply.value());
     if (m_available) {
         createInterface();
         refresh();
+        refreshConnectivity();
     }
 }
 
@@ -313,18 +316,54 @@ void NotesModel::quit()
     call(QStringLiteral("quit"));
 }
 
+void NotesModel::setConnectivity(int state, const QString &text)
+{
+    if (m_connectivityState == state && m_connectivityText == text)
+        return;
+    m_connectivityState = state;
+    m_connectivityText  = text;
+    emit connectivityChanged();
+}
+
+void NotesModel::refreshConnectivity()
+{
+    if (!m_available)
+        return;
+
+    const quint64 serial = ++m_connectivitySerial;
+    auto *watcher = new QDBusPendingCallWatcher(
+        callBackendWithoutActivation(QStringLiteral("storageConnectivityJson")), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher, serial] {
+        const QDBusPendingReply<QString> reply = *watcher;
+        watcher->deleteLater();
+        if (serial != m_connectivitySerial || !m_available)
+            return;
+        if (reply.isError())
+            return;
+        const auto result = QJsonDocument::fromJson(reply.value().toUtf8());
+        if (!result.isObject())
+            return;
+        const auto data = result.object();
+        setConnectivity(data.value(QStringLiteral("state")).toInt(),
+                        data.value(QStringLiteral("summary")).toString());
+    });
+}
+
 void NotesModel::serviceRegistered()
 {
     createInterface();
     m_starting = false;
     setAvailable(true);
     refresh();
+    refreshConnectivity();
     runPendingCall();
 }
 
 void NotesModel::serviceUnregistered()
 {
     ++m_requestSerial;
+    ++m_connectivitySerial;
+    setConnectivity(0, {});
     m_starting = false;
     m_pendingCall.clear();
     m_queryRefreshTimer->stop();
