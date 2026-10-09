@@ -47,6 +47,18 @@ behavior or reference vectors.
 shared backend keys, retry bounds, keychain names and status conversion. Do not
 move mutable worker/storage state into these headers.
 
+## XMPP QML theme semantics
+
+The Android application supports system/light/dark modes through its
+`mobile.color-scheme` preference, `Material.theme`, and the application
+`QPalette`. For XMPP settings, recovery, and trust QML, use
+`palette.text` for primary information and `palette.placeholderText` for
+secondary labels and explanatory copy; `palette.mid` is a **border color**
+and must not be used for text. Do not dim entire unavailable-key cards: the
+disabled radio button already indicates that the key cannot be selected,
+while its fingerprint, device status, and explanation must remain readable.
+Palette roles respond to theme changes without hardcoded light/dark values.
+
 ## Verification
 
 ```sh
