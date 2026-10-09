@@ -81,7 +81,8 @@ def configure(settings_path: Path) -> int:
     with settings_path.open("w", encoding="utf-8") as file:
         json.dump(settings, file, indent=2)
         file.write("\n")
-    # Printed path is captured and exported by the current CI shell.\n    print(real_scanner.resolve())
+    # Printed path is captured and exported by the current CI shell.
+    print(real_scanner.resolve())
     return 0
 
 
