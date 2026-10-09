@@ -5,17 +5,23 @@ The ordinary CI workflow does not publish releases or sign artifacts.
 
 ## Pull requests and pushes
 
-`.github/workflows/ci.yml` builds the desktop application on three platforms:
+`.github/workflows/ci.yml` validates the desktop application and the Android package path:
 
 - Windows Server 2022 with MSVC, Ninja, and the complete CTest suite;
 - Ubuntu 24.04 and 26.04 with GCC/Ninja and CTest;
-- Intel macOS 15 as a compile check.
+- Intel macOS 15 as a compile check;
+- Android arm64-v8a and x86_64 as real APK builds using the same setup as packaging.
 
 Qt is installed from the current 6.11 series. Windows CI and Windows packaging
 share `.github/actions/setup-windows-desktop`, which installs Qt, prepares the
 MSVC environment, installs Conan, downloads the prebuilt QCA/Iris SDKs, and
 sets the QCA runtime/plugin paths. Windows builds use Ninja with
 `--parallel 4`.
+
+Android CI and Android packaging share `.github/actions/build-android-apk`.
+The action owns NDK/Qt setup, release SDK downloads, Android OpenSSL provisioning,
+CMake configuration, and APK assembly. Package jobs only add artifact upload on
+top, so CI exercises the same final-link path used for releases.
 
 The checkout fetches full Git history because `AnyKeepMacro.cmake` derives the
 application version from Git tags and the distance from the last tag.

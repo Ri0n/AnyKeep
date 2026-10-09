@@ -16,6 +16,9 @@ concurrency:
 
 env:
   QT_CURRENT_SERIES: "6.11.*"
+  ANDROID_NDK_VERSION: r27c
+  ANDROID_API: 28
+  ANDROID_OPENSSL_REVISION: b71f1470962019bd89534a2919f5925f93bc5779
   # aqtinstall 3.3.0 cannot read the new Windows Qt 6.11 repository layout.
   # PR #1000 contains the upstream fix; remove this override after aqt releases it.
   AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
@@ -188,6 +191,45 @@ jobs:
 
       - name: Test
         run: ctest --test-dir "${{ matrix.build_dir }}" --output-on-failure --timeout 180
+
+  android:
+    name: Android / ${{ matrix.abi }} APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+            qt-arch: android_arm64_v8a
+          - abi: x86_64
+            qt-arch: android_x86_64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Load dependency versions
+        uses: ./.github/actions/load-dependencies
+
+      - name: Build Android APK
+        uses: ./.github/actions/build-android-apk
+        with:
+          abi: ${{ matrix.abi }}
+          qt-arch: ${{ matrix.qt-arch }}
+          qt-version: ${{ env.QT_CURRENT_SERIES }}
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+          android-api: ${{ env.ANDROID_API }}
+          android-openssl-revision: ${{ env.ANDROID_OPENSSL_REVISION }}
+          qca-tag: ${{ env.QCA_TAG }}
+          iris-tag: ${{ env.IRIS_TAG }}
+          qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
+          qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
+          qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
+          aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          github-token: ${{ github.token }}
 
   macos:
     name: macOS / Intel / current Qt compile check
