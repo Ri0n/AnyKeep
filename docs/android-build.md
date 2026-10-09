@@ -36,12 +36,26 @@ not affect the application ELF because lld has already removed its debug
 sections. Most Qt, Iris, QCA and FFmpeg libraries shipped by upstream/prebuilt
 packages are already stripped.
 
-After the application ELF regression is fixed, the next size-reduction layer
-is dependency pruning: Qt Android's automatic deployment currently includes
-several Quick Controls styles and QML tooling plugins that production AnyKeep
-may not need. Those should only be removed with explicit runtime coverage
-because `QT_ANDROID_DEPLOYMENT_DEPENDENCIES` completely overrides automatic
-dependency detection.
+## Production Qt plugin pruning
+
+Android Release targets use `qt_import_plugins(anykeep_mobile EXCLUDE_BY_TYPE qmltooling)`
+to prevent the Qt QML debugger, inspector and profiler plugins from entering
+Release APKs. Debug configurations continue to allow QML debugging. Qt's platform, network/TLS, SVG/image formats, and multimedia
+plugins remain under the standard deployment mechanism. This is preferable to
+setting `QT_ANDROID_DEPLOYMENT_DEPENDENCIES`, which **replaces** all automatic
+Qt dependency discovery and could easily omit runtime dependencies.
+
+The CI script `.github/scripts/inspect-android-apk.py` audits each APK:
+it requires no QML tooling plugins, checks the critical platform/TLS/media
+and Material+Basic style plugins, compares the packaged AnyKeep ELF to the
+linked ELF, and logs a native library inventory with the size baseline from
+PR #142. The compiled material QML code still needs its Basic fallback.
+
+The remaining style bundles (Fusion, Imagine, Universal and FluentWinUI3)
+may be candidates for a separate Android-only selection, but are intentionally
+kept until runtime tests can establish that removal does not break QML
+instantiation. Changing to an explicitly curated deployment list without
+tests risks broken installations and is not part of this pass.
 
 ## Qt Creator setup
 
