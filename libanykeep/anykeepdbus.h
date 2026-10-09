@@ -24,6 +24,7 @@ public:
 
 signals:
     Q_SCRIPTABLE void notesChanged();
+    Q_SCRIPTABLE void storageConnectivityChanged();
     Q_SCRIPTABLE void stickyNotesChanged();
     Q_SCRIPTABLE void globalShortcutsChanged();
 
@@ -37,6 +38,7 @@ signals:
 
 public slots:
     Q_SCRIPTABLE QString notesJson(int offset, int limit, const QString &query) const;
+    Q_SCRIPTABLE QString storageConnectivityJson() const;
     Q_SCRIPTABLE QString globalShortcutsJson() const;
     Q_SCRIPTABLE QString stickyNotesJson() const;
     Q_SCRIPTABLE QString stickyNoteJson(const QString &stickyId) const;
