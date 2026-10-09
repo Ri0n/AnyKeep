@@ -75,6 +75,15 @@ review/result screens explain that existing notes, if any, remain untouched;
 users should export/save the new recovery key after setup. Back from review
 abandons the uninstalled key and returns to the welcome choice. Users with
 an existing local key still use the original recovery/repair flow.
+The storage layer records this opt-in per account **and** per installed
+key fingerprint. Only a matching key sets
+`XmppConfig::allowForeignKeyIndices`; importing a different key does not
+inherit that policy. Qt/QXmpp index loading then skips old-key records
+without reporting a fatal all-foreign-key mismatch, including after an
+app restart. In ordinary recovery configurations, an index consisting
+solely of foreign-key records remains a security error that triggers
+key recovery. The remote encrypted items are never deleted.
+
 This avoids bypassing key recovery silently, while permitting a new user
 to initialize XMPP notes without owning another AnyKeep device.
 
