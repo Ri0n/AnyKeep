@@ -581,6 +581,19 @@ QIcon XmppStorage::noteIcon() const { return icon_; }
 
 bool XmppStorage::isAccessible() const { return accessible_ || cacheAvailable_; }
 
+NoteStorage::ConnectivityState XmppStorage::connectivityState() const
+{
+    if (shuttingDown_ || errorState_)
+        return ConnectivityState::Error;
+    if (!configIsValid(config_, nullptr))
+        return ConnectivityState::Error;
+    if (accessible_)
+        return ConnectivityState::Online;
+    if (retryInProgress_ || (retryTimer_ && retryTimer_->isActive()))
+        return ConnectivityState::Connecting;
+    return ConnectivityState::Offline;
+}
+
 bool XmppStorage::supportsMedia() const { return backend_ && backend_->supportsMedia(); }
 
 bool XmppStorage::canAcceptWrites() const
