@@ -11,6 +11,7 @@
 #include <QGuiApplication>
 #include <QIcon>
 #include <QSystemTrayIcon>
+#include <QStringList>
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
 #include <QStyleHints>
