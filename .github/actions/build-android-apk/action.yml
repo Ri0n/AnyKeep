@@ -157,23 +157,6 @@ runs:
         apk=$(find "build/android-${{ inputs.abi }}" -type f -path '*/outputs/apk/*/*.apk' -print -quit)
         test -n "$apk"
 
-        python3 - "$apk" "${{ inputs.abi }}" "$app_size" <<'PY'
-        import sys
-        import zipfile
-
-        apk, abi, source_size = sys.argv[1:]
-        main_name = f"lib/{abi}/libanykeep_{abi}.so"
-        with zipfile.ZipFile(apk) as archive:
-            info = archive.getinfo(main_name)
-            apk_size = __import__("os").path.getsize(apk)
-            print(f"Packaged {main_name}: {info.file_size} bytes")
-            if info.file_size != int(source_size):
-                raise SystemExit("Packaged AnyKeep library differs in size from the verified linked ELF")
-            print(f"APK size: {apk_size} bytes")
-            if info.file_size > 32 * 1024 * 1024:
-                raise SystemExit("Stripped AnyKeep application library is unexpectedly large")
-            if apk_size > 140 * 1024 * 1024:
-                raise SystemExit("Release APK is unexpectedly large after stripping")
-        PY
+        python3 .github/scripts/inspect-android-apk.py "$apk" "${{ inputs.abi }}" "$app_size"
 
         cp "$apk" "packages/AnyKeep-${{ inputs.abi }}.apk"
