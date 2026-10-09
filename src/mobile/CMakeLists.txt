@@ -244,6 +244,11 @@ if(anykeep_mobile_xmpp_available)
 endif()
 
 if(ANDROID)
+  # Strip DWARF during the Release link itself. Running llvm-strip on an existing
+  # Ninja output makes the linker run again when Qt's APK target is built.
+  # Linker-side stripping keeps the dependency graph and APK input consistent.
+  target_link_options(anykeep_mobile PRIVATE "$<$<CONFIG:Release>:LINKER:--strip-debug>")
+
   if(ANYKEEP_ANDROID_FORCE_XMPP_XML_LOG)
     target_compile_definitions(anykeep_mobile PRIVATE ANYKEEP_ANDROID_FORCE_XMPP_XML_LOG)
   endif()
