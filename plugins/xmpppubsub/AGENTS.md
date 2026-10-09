@@ -106,3 +106,17 @@ backend-neutral storage adapter with a fake backend, but there is still no
 direct `XmppWorker` integration harness. Worker/backend changes therefore
 require the full suite plus explicit review of offline cache, retry, generation,
 partial publication, and shutdown paths.
+
+## Network connectivity vs offline cache
+
+`NoteStorage::connectivityState()` is a provider-neutral status. The XMPP
+storage overrides it to expose Online, Offline, Reconnecting, or Needs
+attention. Do not use `isAccessible()` for network status: it intentionally
+remains true while the encrypted local cache is readable offline. Emit
+`invalidated()` on XMPP transport transitions so the existing
+`NoteManager::storageChanged` fan-out updates `StoragePriorityModel` and
+the tray without polling. The tooltip includes the same live status.
+
+The default `NotApplicable` state is used by PTF and providers that do not
+track a live network session. Tray badges and status actions appear only
+when at least one provider reports a real connectivity state.
