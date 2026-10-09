@@ -196,6 +196,14 @@ private slots:
             QTRY_VERIFY(first);
             QTRY_VERIFY(second);
             QTRY_VERIFY(last);
+            auto *onlineBadge = quickItemByName(root, QStringLiteral("settingsConnectivityBadge-a"));
+            auto *localBadge  = quickItemByName(root, QStringLiteral("settingsConnectivityBadge-c"));
+            QTRY_VERIFY(onlineBadge);
+            QTRY_VERIFY(localBadge);
+            QCOMPARE(onlineBadge->property("visible").toBool(), !pluginMode);
+            QCOMPARE(localBadge->property("visible").toBool(), false);
+            if (!pluginMode)
+                QCOMPARE(first->property("subtitle").toString(), QStringLiteral("Online"));
             if (pluginMode) {
                 auto *firstCheck  = quickItemByName(root, QStringLiteral("settingsPolicyCheck-a"));
                 auto *secondCheck = quickItemByName(root, QStringLiteral("settingsPolicyCheck-b"));
