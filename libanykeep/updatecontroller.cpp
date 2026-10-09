@@ -92,7 +92,7 @@ namespace {
         return result == ERROR_INSUFFICIENT_BUFFER;
     }
 
-    bool isAllowedUpdateUrl(const QUrl &url)
+    bool isAllowedManifestUrl(const QUrl &url)
     {
         if (!url.isValid())
             return false;
@@ -103,6 +103,30 @@ namespace {
         return url.scheme().compare(QLatin1String("http"), Qt::CaseInsensitive) == 0;
 #else
         return false;
+#endif
+    }
+
+    bool isAllowedPackageUrl(const QUrl &url)
+    {
+        if (!url.isValid())
+            return false;
+
+#ifdef ANYKEEP_DEVEL
+        const auto scheme = url.scheme();
+        return scheme.compare(QLatin1String("https"), Qt::CaseInsensitive) == 0
+            || scheme.compare(QLatin1String("http"), Qt::CaseInsensitive) == 0;
+#else
+        if (url.scheme().compare(QLatin1String("https"), Qt::CaseInsensitive) != 0)
+            return false;
+        if (url.host().compare(QLatin1String("github.com"), Qt::CaseInsensitive) != 0)
+            return false;
+
+        // Release builds accept update binaries only from this repository's
+        // immutable GitHub Release namespace. The mutable channel manifest may
+        // still live on anykeep.net, but compromising it cannot redirect the
+        // updater to an arbitrary package host.
+        return url.path().startsWith(QLatin1String("/Ri0n/AnyKeep/releases/download/"))
+            && url.path().endsWith(QLatin1String("-windows-x86_64.msi"));
 #endif
     }
 #endif
@@ -400,7 +424,7 @@ void UpdateController::checkForUpdate(bool automatic)
     }
 
     QUrl manifestUrl(manifestUrlString());
-    if (!isAllowedUpdateUrl(manifestUrl)) {
+    if (!isAllowedManifestUrl(manifestUrl)) {
         setState(Failed, tr("The update manifest URL is invalid"));
         return;
     }
@@ -669,7 +693,7 @@ bool UpdateController::parseManifest(const QByteArray &data, QString *error)
 
     const QUrl baseUrl(manifestUrlString());
     const QUrl packageUrl = baseUrl.resolved(QUrl(urlText));
-    if (!isAllowedUpdateUrl(packageUrl)) {
+    if (!isAllowedPackageUrl(packageUrl)) {
         if (error)
             *error = tr("The update package URL is invalid");
         return false;

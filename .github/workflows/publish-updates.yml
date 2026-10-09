@@ -69,7 +69,7 @@ jobs:
           echo "Publishing update channel: $update_channel"
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
-      - name: Validate updater payload
+      - name: Validate GitHub-hosted updater manifest
         id: validate
         if: ${{ steps.payload.outputs.publish == 'true' }}
         shell: bash
@@ -77,36 +77,56 @@ jobs:
           UPDATE_DIR: ${{ steps.payload.outputs.update_dir }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
 
-          msi=("$UPDATE_DIR"/AnyKeep-*-windows-x86_64.msi)
-          version_manifest=("$UPDATE_DIR"/AnyKeep-*-windows-x86_64.json)
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from urllib.parse import urlparse
 
-          [[ ${#msi[@]} -eq 1 ]] || {
-            echo "Expected exactly one versioned MSI, found ${#msi[@]}" >&2
-            exit 1
-          }
-          [[ ${#version_manifest[@]} -eq 1 ]] || {
-            echo "Expected exactly one versioned manifest, found ${#version_manifest[@]}" >&2
-            exit 1
-          }
-          [[ -f "$UPDATE_DIR/windows-x86_64.json" ]]
-          [[ -f "$UPDATE_DIR/SHA256SUMS.txt" ]]
+          update_dir = Path(os.environ["UPDATE_DIR"])
+          manifest_path = update_dir / "windows-x86_64.json"
+          if not manifest_path.is_file():
+              raise SystemExit(f"Missing updater manifest: {manifest_path}")
 
-          file_count="$(find "$UPDATE_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')"
-          [[ "$file_count" == "4" ]] || {
-            echo "Expected exactly four update files, found $file_count" >&2
-            find "$UPDATE_DIR" -maxdepth 1 -type f -printf '%f\n' | sort >&2
-            exit 1
-          }
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          package = manifest.get("package", {})
+          version = manifest.get("version", "")
+          package_url = package.get("url", "")
+          expected_name = f"AnyKeep-{version}-windows-x86_64.msi"
+          package_path = update_dir / expected_name
 
-          (
-            cd "$UPDATE_DIR"
-            sha256sum -c SHA256SUMS.txt
-          )
+          if manifest.get("schema") != 2 or package.get("format") != "msi":
+              raise SystemExit("Unexpected updater manifest schema or package format")
+          if not package_path.is_file():
+              raise SystemExit(f"Missing versioned MSI used to validate the manifest: {package_path}")
 
-          printf 'msi_name=%s\n' "$(basename "${msi[0]}")" >> "$GITHUB_OUTPUT"
-          printf 'manifest_name=%s\n' "$(basename "${version_manifest[0]}")" >> "$GITHUB_OUTPUT"
+          parsed = urlparse(package_url)
+          expected_prefix = f"/{os.environ['GITHUB_REPOSITORY']}/releases/download/"
+          if parsed.scheme != "https" or parsed.netloc.lower() != "github.com":
+              raise SystemExit(f"Updater package is not hosted on GitHub: {package_url}")
+          if not parsed.path.startswith(expected_prefix) or not parsed.path.endswith("/" + expected_name):
+              raise SystemExit(f"Updater package URL is outside the AnyKeep release namespace: {package_url}")
+
+          data = package_path.read_bytes()
+          actual_hash = hashlib.sha256(data).hexdigest()
+          if package.get("sha256", "").lower() != actual_hash:
+              raise SystemExit("Updater manifest SHA-256 does not match the versioned MSI")
+          if int(package.get("size", -1)) != len(data):
+              raise SystemExit("Updater manifest size does not match the versioned MSI")
+
+          immutable = update_dir / f"AnyKeep-{version}-windows-x86_64.json"
+          if not immutable.is_file():
+              raise SystemExit(f"Missing immutable version manifest: {immutable}")
+          if json.loads(immutable.read_text(encoding="utf-8")) != manifest:
+              raise SystemExit("Mutable and immutable updater manifests differ")
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"manifest_name={manifest_path.name}\n")
+              handle.write(f"package_url={package_url}\n")
+          PY
 
       - name: Configure SSH
         if: ${{ steps.payload.outputs.publish == 'true' }}
@@ -129,13 +149,12 @@ jobs:
             > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Publish four update files
+      - name: Publish channel manifest only
         if: ${{ steps.payload.outputs.publish == 'true' }}
         shell: bash
         env:
           UPDATE_DIR: ${{ steps.payload.outputs.update_dir }}
-          MSI_NAME: ${{ steps.validate.outputs.msi_name }}
-          VERSION_MANIFEST_NAME: ${{ steps.validate.outputs.manifest_name }}
+          MANIFEST_NAME: ${{ steps.validate.outputs.manifest_name }}
           UPDATE_CHANNEL: ${{ steps.payload.outputs.update_channel }}
         run: |
           set -euo pipefail
@@ -170,27 +189,23 @@ jobs:
           trap cleanup EXIT
 
           "${scp_cmd[@]}" \
-            "$UPDATE_DIR/$MSI_NAME" \
-            "$UPDATE_DIR/$VERSION_MANIFEST_NAME" \
-            "$UPDATE_DIR/SHA256SUMS.txt" \
-            "$UPDATE_DIR/windows-x86_64.json" \
+            "$UPDATE_DIR/$MANIFEST_NAME" \
             "$remote:$staging/"
 
-          # Validate uploaded bytes on the server before making any new manifest
-          # visible. All renames happen under the nginx-backed updates tree.
-          "${ssh_cmd[@]}" "$remote" \
-            "set -eu; cd '$staging'; sha256sum -c SHA256SUMS.txt"
-
-          # Versioned payload first. The mutable channel pointer is deliberately
-          # moved last, so clients never observe a manifest for a missing MSI.
+          # GitHub Releases owns the immutable MSI bytes. anykeep.net only
+          # publishes the mutable channel pointer, atomically replacing it
+          # after the complete package workflow and GitHub release upload have
+          # succeeded.
           "${ssh_cmd[@]}" "$remote" "set -eu; \
-            mv -f '$staging/$MSI_NAME' '$destination/$MSI_NAME'; \
-            mv -f '$staging/$VERSION_MANIFEST_NAME' '$destination/$VERSION_MANIFEST_NAME'; \
-            mv -f '$staging/SHA256SUMS.txt' '$destination/SHA256SUMS.txt'; \
-            mv -f '$staging/windows-x86_64.json' '$destination/windows-x86_64.json'; \
-            rmdir '$staging'"
+            mv -f '$staging/$MANIFEST_NAME' '$destination/windows-x86_64.json'; \
+            rmdir '$staging'; \
+            find '$destination' -maxdepth 1 -type f \( \
+              -name 'AnyKeep-*-windows-x86_64.msi' -o \
+              -name 'AnyKeep-*-windows-x86_64.json' -o \
+              -name 'SHA256SUMS.txt' \
+            \) -delete"
 
           trap - EXIT
 
           "${ssh_cmd[@]}" "$remote" \
-            "set -eu; ls -lh '$destination/$MSI_NAME' '$destination/$VERSION_MANIFEST_NAME' '$destination/SHA256SUMS.txt' '$destination/windows-x86_64.json'"
+            "set -eu; ls -lh '$destination/windows-x86_64.json'"
