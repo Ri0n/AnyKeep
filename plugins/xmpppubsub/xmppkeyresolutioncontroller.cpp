@@ -257,7 +257,7 @@ bool XmppKeyResolutionController::canStartFresh() const
 QString XmppKeyResolutionController::nextText() const
 {
     if (currentPage_ == ReviewPage)
-        return freshStart_ ? tr("Continue") : tr("Repair");
+        return freshStart_ ? tr("Continue") : tr("Sync notes");
     if (currentPage_ == ResultPage)
         return tr("Finish");
     return tr("Next");
@@ -518,7 +518,7 @@ void XmppKeyResolutionController::next()
                 return;
             guard->rekeyResult_ = std::move(result);
             if (guard->rekeyResult_.ok) {
-                guard->resultText_ = tr("Recovery completed successfully. %1 of %2 note(s) now use the canonical "
+                guard->resultText_ = tr("Synchronization completed. %1 of %2 note(s) now use the selected "
                                         "key.\n\nThe local storage key will be updated when you finish this flow.")
                                          .arg(guard->rekeyResult_.migrated)
                                          .arg(guard->rekeyResult_.total);
