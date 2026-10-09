@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 import QtQuick.Layouts
 import ".." as App
 import "../reorder" as Reorder
@@ -368,13 +369,24 @@ SwipeDelegate {
         }
 
         Label {
+            // Stable identity lets the QML regression test inspect the
+            // *rendered* row, not just the C++ title role.
+            objectName: row.noteRow
+                        ? "noteTitle-" + row.storageId + "-" + row.noteId
+                        : "groupTitle-" + row.groupId
             Layout.fillWidth: true
             visible: !row.editing
             text: row.displayTitle
             font.bold: row.groupRow
+            // Android uses Material foreground colors, which follow
+            // Material.theme (including dark/light switches).  A generic
+            // SwipeDelegate.palette.text can have the wrong contrast against
+            // Material's page/background surface.
             color: row.highlighted
                    ? row.palette.highlightedText
-                   : (row.archived ? row.palette.placeholderText : row.palette.text)
+                   : (row.archived ? row.palette.placeholderText
+                      : (row.collection.touchActions ? row.Material.foreground
+                                                     : row.palette.text))
             opacity: row.pendingDraft ? 0.72 : 1.0
             elide: Text.ElideRight
             verticalAlignment: Text.AlignVCenter
