@@ -129,7 +129,7 @@ runs:
         # only the styles not used on Android, before androiddeployqt copies
         # native libraries and generates its startup metadata. Do not remove
         # individual .so files after packaging.
-        settings_file=$(find "build/android-${{ inputs.abi }}" -type f \\
+        settings_file=$(find "build/android-${{ inputs.abi }}" -type f \
           -name 'android-anykeep_mobile-deployment-settings.json' -print -quit)
         test -n "$settings_file"
         chmod +x .github/scripts/filter-android-qml-imports.py
