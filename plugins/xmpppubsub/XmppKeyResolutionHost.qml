@@ -21,7 +21,7 @@ Item {
     function pageTitle() {
         switch (controller.currentPage) {
         case 0:
-            return controller.localKeyMissing ? qsTr("The local XMPP storage key is missing") : qsTr("AnyKeep found incompatible storage keys");
+            return controller.localKeyMissing ? qsTr("Set up encrypted XMPP notes") : qsTr("AnyKeep found incompatible storage keys");
         case 1:
             return qsTr("Verify your AnyKeep devices");
         case 2:
@@ -38,7 +38,7 @@ Item {
     function pageSubtitle() {
         switch (controller.currentPage) {
         case 0:
-            return controller.localKeyMissing ? qsTr("AnyKeep can securely obtain the key from another online device on this account.") : qsTr("Notes or another AnyKeep device use a different encryption key.");
+            return controller.localKeyMissing ? qsTr("Choose whether to use existing encrypted notes or start with a new key.") : qsTr("Notes or another AnyKeep device use a different encryption key.");
         case 1:
             return qsTr("Select devices you recognize. Their fingerprints are used only to establish encrypted OMEMO sessions.");
         case 2:
@@ -63,7 +63,7 @@ Item {
         height: Math.max(300, Math.min(720, root.height - 16))
         modal: true
         closePolicy: Popup.NoAutoClose
-        title: qsTr("Repair XMPP note synchronization")
+        title: root.controller.localKeyMissing ? qsTr("Set up XMPP notes") : qsTr("Repair XMPP note synchronization")
 
         contentItem: Item {
             id: dialogContentHost
@@ -148,14 +148,61 @@ Item {
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("This recovery flow locates your other online AnyKeep devices, establishes trusted OMEMO sessions, collects the storage keys they hold, and safely moves every accessible note to one key you choose.")
+                        text: root.controller.localKeyMissing
+                            ? qsTr("Is this your first AnyKeep device? Start with a new key. If you already used AnyKeep with this XMPP account, you can recover your existing notes instead.")
+                            : qsTr("This recovery flow locates other AnyKeep devices, collects their keys, and safely moves accessible notes to one key you choose.")
                         wrapMode: Text.WordWrap
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        visible: root.controller.localKeyMissing
+
+                        Button {
+                            objectName: "xmppRecoverExistingNotesButton"
+                            Layout.fillWidth: true
+                            text: qsTr("Use existing notes")
+                            highlighted: true
+                            enabled: root.controller.canGoNext
+                            onClicked: root.controller.next()
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Find a key from another device where AnyKeep is already set up.")
+                            wrapMode: Text.WordWrap
+                            color: palette.placeholderText
+                        }
+
+                        Button {
+                            objectName: "xmppStartNewStorageButton"
+                            Layout.fillWidth: true
+                            text: qsTr("Start with a new key")
+                            enabled: root.controller.canStartFresh
+                            onClicked: startFreshDialog.open()
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Use a new empty storage on this device. Existing encrypted notes, if any, cannot be read without their original key.")
+                            wrapMode: Text.WordWrap
+                            color: palette.placeholderText
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: text.length > 0
+                            text: root.controller.keyStatus
+                            wrapMode: Text.WordWrap
+                        }
                     }
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("No note or local key is changed until the final recovery step completes. You can cancel now and run the recovery again later.")
+                        text: qsTr("No existing notes are deleted or overwritten while you choose. You can cancel and return to setup later.")
                         wrapMode: Text.WordWrap
+                        color: palette.placeholderText
                     }
                 }
             }
@@ -495,6 +542,7 @@ Item {
                 Layout.columnSpan: body.width < 420 ? 2 : 1
                 text: root.controller.nextText
                 highlighted: true
+                visible: !root.controller.localKeyMissing || root.controller.currentPage !== 0
                 enabled: root.controller.canGoNext
                 onClicked: root.controller.next()
             }
@@ -538,12 +586,12 @@ Item {
         parent: Overlay.overlay
         anchors.centerIn: parent
         modal: true
-        title: qsTr("Start with an empty storage?")
+        title: qsTr("Create a new XMPP storage key?")
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         contentItem: Label {
             width: Math.min(460, root.width - 40)
-            text: qsTr("The old storage key cannot be recovered. Creating a new key lets you create new notes, but the existing encrypted notes in XMPP will remain unreadable and will not be deleted or changed. Continue only if no device or recovery-key copy remains.")
+            text: qsTr("A new key will be created for this device. Any existing encrypted XMPP notes will remain untouched but cannot be read with the new key. If you already have AnyKeep notes on another device, choose 'Use existing notes' instead. You can recover the old notes later if you still have their original key. Save your new recovery key after setup. Continue?")
             wrapMode: Text.WordWrap
         }
 
