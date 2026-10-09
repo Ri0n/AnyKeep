@@ -51,11 +51,27 @@ and Material+Basic style plugins, compares the packaged AnyKeep ELF to the
 linked ELF, and logs a native library inventory with the size baseline from
 PR #142. The compiled material QML code still needs its Basic fallback.
 
-The remaining style bundles (Fusion, Imagine, Universal and FluentWinUI3)
-may be candidates for a separate Android-only selection, but are intentionally
-kept until runtime tests can establish that removal does not break QML
-instantiation. Changing to an explicitly curated deployment list without
-tests risks broken installations and is not part of this pass.
+## Material-only Android Release packaging
+
+The Android Release CI package runs Qt's normal `qmlimportscanner` through
+`.github/scripts/filter-android-qml-imports.py`. This strips **only** QML import
+records belonging to the unused `QtQuick.Controls.Fusion`,
+`QtQuick.Controls.Imagine`, `QtQuick.Controls.Universal` and
+`QtQuick.Controls.FluentWinUI3` modules (and their `.impl` modules).
+The scanner still visits the original QML source, and `androiddeployqt`
+performs its ordinary native dependency resolution. Unlike manually deleting
+libraries from an APK or overriding `QT_ANDROID_DEPLOYMENT_DEPENDENCIES`,
+the deployment process retains control over the native startup library list.
+
+Material is Android's default and is also imported by `src/mobile/Main.qml`.
+Basic remains required as its Qt fallback; platform, SSL/TLS, SVG/image,
+multimedia and third-party libraries are unaffected. The APK inventory
+fails if any excluded style's native libraries are still included.
+
+This filter is currently attached to the CI Release packaging action, not Qt
+Creator Debug builds. The Android launch smoke test is still a necessary
+follow-up before treating the trimmed APK as generally deployable; presence
+checks alone cannot prove every dynamically loaded QML component works.
 
 ## Qt Creator setup
 
