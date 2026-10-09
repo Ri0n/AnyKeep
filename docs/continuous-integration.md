@@ -33,7 +33,7 @@ application version from Git tags and the distance from the last tag.
 The package channel is selected once by the planning job and reused by every
 platform:
 
-- a commit carrying a `v*` tag is always a `stable` build;
+- a commit carrying a semantic version tag (`vX.Y.Z` or `X.Y.Z`) is always a `stable` build;
 - a manual run may explicitly select `stable` or `nightly` and defaults to
   `nightly`;
 - every other automatic package build uses the `nightly` channel.
@@ -50,7 +50,9 @@ source-controlled `nightly_compatibility` line. The current policy is
 `same-minor`: for example, an Iris 1.1.x pin may advance to a newer complete
 1.1.x release, but not to 1.2.x. A dependency release is eligible only after it
 publishes the full asset set required by the AnyKeep package matrix.
-QtKeychain remains on the explicitly packaged AnyKeep dependency bundle.
+QtKeychain is resolved from AnyKeep's own packaged dependency releases using
+the same conservative same-minor rule; a newer bundle is eligible only when
+the complete Windows/macOS/Android asset set exists.
 
 The 03:00 UTC scheduled run is skipped when both the AnyKeep commit and the
 resolved compatible dependency set are identical to the markers recorded by
