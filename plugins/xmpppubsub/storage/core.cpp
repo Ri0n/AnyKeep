@@ -144,7 +144,8 @@ void XmppStorage::installReceivedStorageKey(const QString &jid, const QByteArray
     clearErrorState();
     qInfo().noquote() << (freshStart ? "XMPP fresh storage key installed: key=" : "XMPP recovered storage key installed: key=")
                       << QString::fromLatin1(keyId.left(8).toHex());
-    emit encryptionKeyChanged(keyId, tr("Storage key received from a trusted device"));
+    emit encryptionKeyChanged(keyId, freshStart ? tr("New XMPP storage key created on this device")
+                                                : tr("Storage key received from a trusted device"));
 
     backend_->start();
 
