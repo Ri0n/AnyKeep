@@ -50,9 +50,9 @@ def configure(settings_path: Path) -> int:
     candidates = []
     if settings.get("qml-importscanner-binary"):
         candidates.append(Path(settings["qml-importscanner-binary"]))
-    if settings.get("qtLibExecsDirectory"):
+    if isinstance(settings.get("qtLibExecsDirectory"), str):
         candidates.append(Path(settings["qtLibExecsDirectory"]) / "qmlimportscanner")
-    if host_directory:
+    if isinstance(host_directory, str) and host_directory:
         host_dir = Path(host_directory)
         candidates.extend(
             [host_dir / "libexec/qmlimportscanner", host_dir / "bin/qmlimportscanner"]
