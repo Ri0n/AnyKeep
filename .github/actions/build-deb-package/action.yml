@@ -1,0 +1,60 @@
+name: Build Debian package set
+description: Install released QCA/Iris packages and build an AnyKeep Debian package profile
+inputs:
+  profile:
+    description: packaging/build-deb profile name
+    required: true
+  distribution:
+    description: Release asset distribution name
+    required: true
+  distribution-version:
+    description: Release asset distribution version
+    required: true
+  qca-tag:
+    description: QCA release tag
+    required: true
+  iris-tag:
+    description: Iris release tag
+    required: true
+  github-token:
+    description: GitHub token used to download dependency release assets
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install QCA/Iris packages
+      uses: ./.github/actions/install-qca-iris-linux
+      with:
+        distribution: ${{ inputs.distribution }}
+        distribution-version: ${{ inputs.distribution-version }}
+        qca-tag: ${{ inputs.qca-tag }}
+        iris-tag: ${{ inputs.iris-tag }}
+        github-token: ${{ inputs.github-token }}
+
+    - name: Install build dependencies from Debian profile
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        run_apt() {
+          if [[ "$(id -u)" == "0" ]]; then
+            apt-get "$@"
+          else
+            sudo apt-get "$@"
+          fi
+        }
+
+        run_apt install -y --no-install-recommends build-essential dpkg-dev fakeroot
+        ./packaging/build-deb "${{ inputs.profile }}" -- \
+          bash -c 'if [[ "$(id -u)" == "0" ]]; then exec apt-get build-dep -y --no-install-recommends ./; else exec sudo apt-get build-dep -y --no-install-recommends ./; fi'
+
+    - name: Build Debian packages
+      shell: bash
+      run: |
+        set -euo pipefail
+        ./packaging/build-deb "${{ inputs.profile }}" -b -uc -us
+        rm -rf packages
+        mkdir packages
+        find .. -maxdepth 1 -type f -name '*.deb' -exec cp -v {} packages/ \;
+        test -n "$(find packages -type f -name '*.deb' -print -quit)"
