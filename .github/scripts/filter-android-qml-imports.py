@@ -43,20 +43,38 @@ def filter_imports(imports):
 def configure(settings_path: Path) -> int:
     with settings_path.open(encoding="utf-8") as file:
         settings = json.load(file)
-    host_dir = Path(settings["qtHostDir"])
-    candidates = [
-        Path(settings.get("qml-importscanner-binary") or ""),
-        Path(settings.get("qtLibExecsDirectory") or "") / "qmlimportscanner",
-        host_dir / "libexec/qmlimportscanner",
-        host_dir / "bin/qmlimportscanner",
-    ]
+    # Qt 6.11 deployment settings do not necessarily provide qtHostDir.
+    # The aqtinstall action installs Android and host Qt kits as siblings.
+    qt_root = Path(os.environ.get("QT_ROOT_DIR", "/not/a/qt/dir"))
+    host_directory = settings.get("qtHostDir")
+    candidates = []
+    if settings.get("qml-importscanner-binary"):
+        candidates.append(Path(settings["qml-importscanner-binary"]))
+    if settings.get("qtLibExecsDirectory"):
+        candidates.append(Path(settings["qtLibExecsDirectory"]) / "qmlimportscanner")
+    if host_directory:
+        host_dir = Path(host_directory)
+        candidates.extend(
+            [host_dir / "libexec/qmlimportscanner", host_dir / "bin/qmlimportscanner"]
+        )
+    for sibling in ("gcc_64", "clang_64", "linux_gcc_64"):
+        candidates.extend([
+            qt_root.parent / sibling / "libexec/qmlimportscanner",
+            qt_root.parent / sibling / "bin/qmlimportscanner",
+        ])
+    # Additional host kit names are allowed without depending on Qt's internal
+    # JSON schema or selecting a target-architecture executable by mistake.
+    candidates.extend(qt_root.parent.glob("*/libexec/qmlimportscanner"))
     real_scanner = next(
         (p for p in candidates if p.is_file() and os.access(p, os.X_OK)
          and p.resolve() != Path(__file__).resolve()),
         None,
     )
     if real_scanner is None:
-        raise ValueError(f"Cannot find the Qt host qmlimportscanner; candidates: {candidates}")
+        raise ValueError(
+            "Cannot find the Qt host qmlimportscanner; "
+            f"deployment JSON keys: {sorted(settings)}, candidates: {candidates}"
+        )
 
     wrapper = Path(__file__).resolve()
     settings["qml-importscanner-binary"] = str(wrapper)
@@ -89,7 +107,7 @@ def main():
         if len(sys.argv) == 3 and sys.argv[1] == "--configure":
             return configure(Path(sys.argv[2]))
         return scan(sys.argv[1:])
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
         print(f"Android QML import filter failed: {error}", file=sys.stderr)
         return 1
 
