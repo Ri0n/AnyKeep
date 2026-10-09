@@ -49,6 +49,14 @@ struct XmppConfig {
     QByteArray omemoStateKey;       ///< Key encrypting local OMEMO/trust state at rest.
     QString    omemoStatePath;      ///< Directory containing encrypted OMEMO state files.
 
+    // A fresh storage is an explicit user choice. Its old-key notes are
+    // protected but invisible, so a foreign-key-only index is expected.
+    // Outside this mode it is a security mismatch requiring key recovery.
+    bool foreignKeyOnlyIsError(int readableNotes, int foreignKeyNotes) const
+    {
+        return !allowForeignKeyIndices && readableNotes == 0 && foreignKeyNotes > 0;
+    }
+
     QString indexNodeName() const { return nodeName + QStringLiteral(":index"); }
     QString contentNodeName() const { return nodeName + QStringLiteral(":content"); }
     QString jinglePubNodeName() const { return nodeName + QStringLiteral(":jinglepub"); }
