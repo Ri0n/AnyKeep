@@ -9,6 +9,7 @@ The ordinary CI workflow does not publish releases or sign artifacts.
 
 - Windows Server 2022 with MSVC, Ninja, and the complete CTest suite;
 - Ubuntu 24.04 and 26.04 with GCC/Ninja and CTest;
+- Debian 13 as a real containerized `.deb` package build using the release packaging path;
 - Intel macOS 15 as a compile check;
 - Android arm64-v8a and x86_64 as real APK builds using the same setup as packaging.
 
@@ -17,6 +18,11 @@ share `.github/actions/setup-windows-desktop`, which installs Qt, prepares the
 MSVC environment, installs Conan, downloads the prebuilt QCA/Iris SDKs, and
 sets the QCA runtime/plugin paths. Windows builds use Ninja with
 `--parallel 4`.
+
+Ubuntu and Debian package jobs share `.github/actions/build-deb-package`,
+which in turn uses the same distribution-aware QCA/Iris Debian-package installer.
+The Debian 13 job runs inside `debian:13`, so it validates the actual Trixie
+package dependency set rather than approximating Debian on an Ubuntu runner.
 
 Android CI and Android packaging share `.github/actions/build-android-apk`.
 The action owns NDK/Qt setup, release SDK downloads, Android OpenSSL provisioning,
@@ -39,8 +45,8 @@ platform:
 - every other automatic package build uses the `nightly` channel.
 
 Both stable and nightly builds use the same package matrix: Ubuntu 24.04 and
-26.04 Debian packages, Windows x64, macOS arm64/x86_64, and Android
-arm64-v8a/x86_64. A nightly GitHub release is updated only after every matrix
+26.04 Debian packages, a native Debian 13 package build, Windows x64, macOS
+arm64/x86_64, and Android arm64-v8a/x86_64. A nightly GitHub release is updated only after every matrix
 job succeeds. The rolling release therefore never contains a new Windows build
 paired with stale or failed packages from another platform.
 
