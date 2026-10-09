@@ -94,6 +94,12 @@ public:
         summary      = note;
         id           = note.id();
         title        = note.displayTitle();
+        // Loaded notes and PTF summaries are not always able to synthesize a
+        // display title (for example, a note starting with a non-text block).
+        // Present the same fallback as an unpublished draft instead of
+        // rendering a visually empty list row.
+        if (title.isEmpty())
+            title = QObject::tr("Untitled note");
         tags         = note.tags();
         lastChange   = note.lastChangeUTC();
         preview      = notePreview(note);

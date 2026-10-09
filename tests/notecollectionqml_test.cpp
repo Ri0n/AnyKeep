@@ -53,9 +53,11 @@ void NotesManagerQmlTest::recentNoteSwipeClosesEveryDeleteAction()
     component.setData(R"QML(
         import QtQuick
         import QtQuick.Controls
+        import QtQuick.Controls.Material
         import "notelist" as NoteList
 
         Item {
+            readonly property color expectedTouchTitleColor: Material.foreground
             NoteList.NoteCollectionView {
                 anchors.fill: parent
                 model: swipeNotesModel
@@ -81,6 +83,17 @@ void NotesManagerQmlTest::recentNoteSwipeClosesEveryDeleteAction()
     QQuickItem *second   = nullptr;
     QQuickItem *action   = nullptr;
     QTRY_VERIFY((second = quickItemByName(rootItem, QStringLiteral("swipeRow-second"))));
+
+    // An Android-style touch delegate must render its model's title.  A
+    // missing Label or role binding used to look like a blank note in Recent.
+    QQuickItem *titleLabel = nullptr;
+    QTRY_VERIFY((titleLabel = quickItemByName(rootItem, QStringLiteral("noteTitle-storage-second"))));
+    QTRY_COMPARE(titleLabel->property("text").toString(), QStringLiteral("second"));
+    QCOMPARE(titleLabel->property("color").value<QColor>(),
+             rootItem->property("expectedTouchTitleColor").value<QColor>());
+    const QModelIndex secondIndex = notesModel.index(1, 0);
+    QVERIFY(notesModel.setData(secondIndex, QStringLiteral("Updated title"), Qt::UserRole + 4));
+    QTRY_COMPARE(titleLabel->property("text").toString(), QStringLiteral("Updated title"));
 
     QVERIFY(QMetaObject::invokeMethod(second, "openDeleteSwipe"));
     QTRY_VERIFY((action = quickItemByName(rootItem, QStringLiteral("noteSwipeDelete-storage-second"))));

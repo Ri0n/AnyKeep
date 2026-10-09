@@ -161,6 +161,22 @@ an installed application or print service, is reached through the system Share
 flow. There is also no manual Save action: editing checkpoints are automatic;
 Share and Export are explicit external-output operations.
 
+## Android list title visibility
+
+The shared `NoteListRow` displays the `title` role from
+`RecentNotesModel`. On Android touch layouts, its title label takes the
+foreground from the **Material theme**, which is configured by the
+`ApplicationWindow` in `src/mobile/Main.qml`. Desktop delegates continue
+to use the generic Qt palette. An empty published title uses the same
+`Untitled note` presentation fallback as a pending draft; this is a UI
+fallback and does not change the stored note body/title or PTF file.
+
+The touch list's QML regression test checks that the visible label displays
+the model title and tracks a subsequent title role update. PTF storage
+round-trip tests separately cover extraction of an explicit first-line title.
+Device verification should include both light and dark theme and a newly
+created PTF note.
+
 ## Remaining hardening
 
 - physical-device IME, predictive-input and speech-service tests;
