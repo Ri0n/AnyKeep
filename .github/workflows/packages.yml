@@ -55,7 +55,12 @@ jobs:
           set -euo pipefail
 
           tagged_release="$(
-            git tag --points-at HEAD               | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+
+            git tag --points-at HEAD \
+              | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
+              | head -n 1 \
+              || true
+          )"
+          if [[ -n "$tagged_release" ]]; then
             channel=stable
             echo "HEAD is tagged as $tagged_release; selecting stable."
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -167,37 +172,57 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download and install QCA/Iris packages
-        uses: ./.github/actions/install-qca-iris-linux
+      - name: Build Ubuntu Debian packages
+        uses: ./.github/actions/build-deb-package
         with:
-          ubuntu-version: ${{ matrix.ubuntu-version }}
+          profile: sdk-ubuntu-${{ matrix.ubuntu-version }}
+          distribution: ubuntu
+          distribution-version: ${{ matrix.ubuntu-version }}
           qca-tag: ${{ env.QCA_TAG }}
           iris-tag: ${{ env.IRIS_TAG }}
           github-token: ${{ github.token }}
 
-      - name: Install build dependencies from Debian profile
-        shell: bash
-        run: |
-          set -euo pipefail
-          # build-essential is an implicit Debian build dependency and therefore
-          # does not belong in Build-Depends. Everything project-specific comes
-          # from the exact control profile used by dpkg-buildpackage below.
-          sudo apt-get install -y --no-install-recommends build-essential dpkg-dev fakeroot
-          ./packaging/build-deb "sdk-ubuntu-${{ matrix.ubuntu-version }}" -- \
-            sudo apt-get build-dep -y --no-install-recommends ./
-
-      - name: Build Debian packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./packaging/build-deb "sdk-ubuntu-${{ matrix.ubuntu-version }}" -b -uc -us
-          mkdir packages
-          find .. -maxdepth 1 -type f -name '*.deb' -exec cp -v {} packages/ \;
-          test -n "$(find packages -type f -name '*.deb' -print -quit)"
-
       - uses: actions/upload-artifact@v7
         with:
           name: anykeep-deb-ubuntu-${{ matrix.ubuntu-version }}
+          path: packages/*.deb
+          if-no-files-found: error
+          compression-level: 0
+
+  debian13:
+    name: Debian package / Debian 13
+    needs: plan
+    if: ${{ needs.plan.outputs.should_build == 'true' }}
+    runs-on: ubuntu-latest
+    container: debian:13
+    timeout-minutes: 120
+    env:
+      IRIS_TAG: ${{ needs.plan.outputs.iris_tag }}
+      QCA_TAG: ${{ needs.plan.outputs.qca_tag }}
+    steps:
+      - name: Bootstrap Debian container
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates cmake gh git python3
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Build Debian 13 packages
+        uses: ./.github/actions/build-deb-package
+        with:
+          profile: sdk-debian-13
+          distribution: debian
+          distribution-version: "13"
+          qca-tag: ${{ env.QCA_TAG }}
+          iris-tag: ${{ env.IRIS_TAG }}
+          github-token: ${{ github.token }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: anykeep-deb-debian-13
           path: packages/*.deb
           if-no-files-found: error
           compression-level: 0
@@ -522,12 +547,13 @@ jobs:
 
   publish-nightly-release:
     name: Publish complete nightly release
-    needs: [plan, debian, windows, macos, android]
+    needs: [plan, debian, debian13, windows, macos, android]
     if: >-
       ${{ always()
           && needs.plan.outputs.should_build == 'true'
           && needs.plan.outputs.update_channel == 'nightly'
           && needs.debian.result == 'success'
+          && needs.debian13.result == 'success'
           && needs.windows.result == 'success'
           && needs.macos.result == 'success'
           && needs.android.result == 'success' }}
@@ -563,7 +589,11 @@ jobs:
 
           downloaded = Path("downloaded")
           output = Path("release-assets")
-          for artifact in ("anykeep-deb-ubuntu-24.04", "anykeep-deb-ubuntu-26.04"):
+          for artifact in (
+              "anykeep-deb-ubuntu-24.04",
+              "anykeep-deb-ubuntu-26.04",
+              "anykeep-deb-debian-13",
+          ):
               source = downloaded / artifact
               files = sorted(path for path in source.rglob("*.deb") if path.is_file())
               if not files:
