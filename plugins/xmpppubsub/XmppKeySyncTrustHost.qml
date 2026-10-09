@@ -50,7 +50,7 @@ Item {
                 Layout.fillWidth: true
                 text: qsTr("Only approve this request if you recognize the device or can compare this fingerprint on both devices.")
                 wrapMode: Text.WordWrap
-                color: palette.mid
+                color: palette.placeholderText
             }
 
             GridLayout {
