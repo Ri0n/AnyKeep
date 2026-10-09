@@ -196,7 +196,11 @@ BaseIntegrationTray::BaseIntegrationTray(Main *anykeep, PluginHostInterface *hos
     actOptions = new QAction(QIcon(":/icons/options"), tr("&Options"), this);
     actManager = new QAction(QIcon(":/icons/manager"), tr("&Note Manager"), this);
 
+    actNetworkStatus = new QAction(this);
+    actNetworkStatus->setEnabled(false);
     contextMenu = new QMenu;
+    contextMenu->addAction(actNetworkStatus);
+    contextMenu->addSeparator();
     contextMenu->addAction(actNew);
     contextMenu->addSeparator();
     contextMenu->addAction(actManager);
@@ -206,7 +210,7 @@ BaseIntegrationTray::BaseIntegrationTray(Main *anykeep, PluginHostInterface *hos
     contextMenu->addAction(actQuit);
 
     tray = new QSystemTrayIcon(this);
-    TrayIconUtils::setupSystemTrayIcon(tray);
+    TrayIconUtils::setupSystemTrayIcon(tray, actNetworkStatus);
     tray->show();
     tray->setContextMenu(contextMenu);
 
