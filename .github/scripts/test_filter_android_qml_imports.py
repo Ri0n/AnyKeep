@@ -82,7 +82,7 @@ class AndroidQmlFilterTests(unittest.TestCase):
             scanner.write_text("#!/bin/sh\\nexit 0\\n", encoding="utf-8")
             scanner.chmod(0o755)
             settings = android / "deployment.json"
-            settings.write_text(json.dumps({"qt": str(android)}), encoding="utf-8")
+            settings.write_text(json.dumps({"qt": str(android), "qtLibExecsDirectory": {"arm64-v8a": str(android / "libexec")}}), encoding="utf-8")
             with mock.patch.dict(os.environ, {"QT_ROOT_DIR": str(android)}):
                 with contextlib.redirect_stdout(io.StringIO()) as output:
                     result = filter_module.configure(settings)
