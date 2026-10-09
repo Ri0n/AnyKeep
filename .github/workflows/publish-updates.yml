@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  publish-nightly:
-    name: Publish nightly updater payload
+  publish-updates:
+    name: Publish updater payload
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -48,17 +48,28 @@ jobs:
           gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name anykeep-windows-x64 --dir downloaded
 
-          update_dir="$(find downloaded -type d -path '*/updates/nightly' -print -quit)"
-          if [[ -z "$update_dir" ]]; then
-            echo "Artifact contains no updates/nightly directory; nothing to publish."
+          mapfile -t update_dirs < <(
+            find downloaded -type d \( -path '*/updates/nightly' -o -path '*/updates/stable' \) -print
+          )
+          if [[ ${#update_dirs[@]} -eq 0 ]]; then
+            echo "Artifact contains no updates/nightly or updates/stable directory; nothing to publish."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if [[ ${#update_dirs[@]} -ne 1 ]]; then
+            echo "Expected exactly one update channel directory, found ${#update_dirs[@]}:" >&2
+            printf '  %s\n' "${update_dirs[@]}" >&2
+            exit 1
+          fi
 
+          update_dir="${update_dirs[0]}"
+          update_channel="$(basename "$update_dir")"
           printf 'update_dir=%s\n' "$update_dir" >> "$GITHUB_OUTPUT"
+          printf 'update_channel=%s\n' "$update_channel" >> "$GITHUB_OUTPUT"
+          echo "Publishing update channel: $update_channel"
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
-      - name: Validate nightly payload
+      - name: Validate updater payload
         id: validate
         if: ${{ steps.payload.outputs.publish == 'true' }}
         shell: bash
@@ -118,13 +129,14 @@ jobs:
             > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Publish four nightly update files
+      - name: Publish four update files
         if: ${{ steps.payload.outputs.publish == 'true' }}
         shell: bash
         env:
           UPDATE_DIR: ${{ steps.payload.outputs.update_dir }}
           MSI_NAME: ${{ steps.validate.outputs.msi_name }}
           VERSION_MANIFEST_NAME: ${{ steps.validate.outputs.manifest_name }}
+          UPDATE_CHANNEL: ${{ steps.payload.outputs.update_channel }}
         run: |
           set -euo pipefail
 
@@ -146,8 +158,8 @@ jobs:
           )
 
           remote="$ANYKEEP_NET_USER@$ANYKEEP_NET_HOST"
-          staging="updates/.incoming-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          destination="updates/nightly"
+          staging="updates/.incoming-${UPDATE_CHANNEL}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          destination="updates/$UPDATE_CHANNEL"
 
           "${ssh_cmd[@]}" "$remote" \
             "set -eu; rm -rf '$staging'; mkdir -p '$staging' '$destination'"
