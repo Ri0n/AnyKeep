@@ -63,7 +63,9 @@ Owned by `AnyKeep::Main` and exposed to the notes-manager QML window. It keeps o
 - for package-identity / Microsoft Store builds, bypasses all MSI staging and uses `Windows.Services.Store.StoreContext` to discover, download, and install Store package updates;
 - exposes the same green update banner for both backends.
 
-The default manifest is derived from `ANYKEEP_UPDATE_SERVER_ROOT` and `ANYKEEP_UPDATE_CHANNEL` (stable by default); `ANYKEEP_UPDATE_MANIFEST_URL` is an explicit configure-time override. In an `ANYKEEP_DEVEL` build, the updater is disabled unless the `ANYKEEP_UPDATE_ROOT` environment variable contains a test installation root. The development launcher honours the same variable, so it may be started from Qt Creator while exercising that test root. Development builds may also override the manifest at runtime with the `ANYKEEP_UPDATE_MANIFEST_URL` environment variable; it accepts HTTPS and, for local-network test servers, HTTP. Release builds ignore runtime environment overrides, accept HTTPS only, and derive the installation root from the versioned launcher layout.
+The default manifest is derived from `ANYKEEP_UPDATE_SERVER_ROOT` and `ANYKEEP_UPDATE_CHANNEL` (stable by default); `ANYKEEP_UPDATE_MANIFEST_URL` is an explicit configure-time override. In an `ANYKEEP_DEVEL` build, the updater is disabled unless the `ANYKEEP_UPDATE_ROOT` environment variable contains a test installation root. The development launcher honours the same variable, so it may be started from Qt Creator while exercising that test root. Development builds may also override the manifest at runtime with the `ANYKEEP_UPDATE_MANIFEST_URL` environment variable; it accepts HTTPS and, for local-network test servers, HTTP. Release builds ignore runtime environment overrides, accept HTTPS manifests, and derive the installation root from the versioned launcher layout.
+
+Published release manifests point at the versioned MSI in the matching GitHub Release. Release builds accept package URLs only under `https://github.com/Ri0n/AnyKeep/releases/download/`; the mutable channel pointer remains on `anykeep.net`, while GitHub owns the immutable binary bytes.
 
 ### `AnyKeepUpdater.exe`
 
@@ -118,7 +120,7 @@ The slow work is finished before the banner appears. The button path only checkp
   "minimumLauncherProtocol": 1,
   "package": {
     "format": "msi",
-    "url": "AnyKeep-4.0.1-windows-x86_64.msi",
+    "url": "https://github.com/Ri0n/AnyKeep/releases/download/v4.0.1/AnyKeep-4.0.1-windows-x86_64.msi",
     "size": 12345678,
     "sha256": "..."
   }
@@ -159,7 +161,7 @@ cmake --build build-nightly --config Release --target windows_update_package
 
 That build checks `https://anykeep.net/updates/nightly/windows-x86_64.json` and writes artifacts under `build-nightly/updates/nightly`. `ANYKEEP_UPDATE_SERVER_ROOT` changes the common server root. `ANYKEEP_UPDATE_MANIFEST_URL` may override the compiled manifest URL explicitly.
 
-Package URLs in generated manifests are relative by default, so the whole channel directory can be served locally or uploaded unchanged. `ANYKEEP_UPDATE_BASE_URL` remains available if manifests and packages later need different hosts.
+Local builds still use relative package URLs by default. CI sets `ANYKEEP_UPDATE_BASE_URL` to the selected GitHub Release namespace, so published manifests use an absolute GitHub URL while `anykeep.net` serves only the mutable `windows-x86_64.json` channel pointer.
 
 `ANYKEEP_UPDATE_OUTPUT_DIR` can redirect artifacts to a caller-selected directory:
 
@@ -172,7 +174,7 @@ cmake --build build --config Release --target windows_update_package
 
 For signed direct-download releases, sign the MSI first and then rerun `wix/make-update-package.cmake.in` against those final bytes. The script deliberately hashes and publishes the supplied MSI bytes, so the manifest never describes a pre-signing artifact.
 
-Publishing order still matters: upload the versioned MSI and immutable version manifest first, then replace `windows-x86_64.json` last. The latest manifest is the only mutable channel pointer.
+Publishing order still matters: upload the versioned MSI and immutable release metadata to GitHub first, then replace `windows-x86_64.json` on `anykeep.net` last. The website never stores the MSI; the latest manifest is the only mutable channel pointer.
 
 ## Initial installation and uninstall
 
