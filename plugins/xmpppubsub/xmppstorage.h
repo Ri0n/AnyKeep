@@ -50,6 +50,7 @@ public:
     QIcon           storageIcon() const override;
     QIcon           noteIcon() const override;
     bool            isAccessible() const override;
+    ConnectivityState connectivityState() const override;
     bool            canAcceptWrites() const override;
     bool            supportsDraftSnapshotSave() const override { return true; }
     bool            supportsMedia() const override;
