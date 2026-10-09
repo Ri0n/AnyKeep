@@ -113,15 +113,39 @@ jobs:
               | tail -n 1
           )"
 
-          if [[ "$nightly_sha" == "$GITHUB_SHA" && "$nightly_deps" == "$DEPENDENCY_FINGERPRINT" ]]; then
-            echo "Nightly already contains commit $GITHUB_SHA with the same compatible dependency set."
+          source_changed=true
+          if [[ -n "$nightly_sha" ]] && git cat-file -e "$nightly_sha^{commit}" 2>/dev/null; then
+            source_changed=false
+            mapfile -t changed_files < <(git diff --name-only "$nightly_sha" HEAD)
+            for path in "${changed_files[@]}"; do
+              case "$path" in
+                docs/*|README|README.*|AGENTS.md|*/AGENTS.md|LICENSE|LICENSE.*)
+                  ;;
+                *)
+                  source_changed=true
+                  echo "Build-relevant change: $path"
+                  break
+                  ;;
+              esac
+            done
+          fi
+
+          dependencies_changed=true
+          if [[ -n "$nightly_deps" && "$nightly_deps" == "$DEPENDENCY_FINGERPRINT" ]]; then
+            dependencies_changed=false
+          fi
+
+          if [[ "$source_changed" == false && "$dependencies_changed" == false ]]; then
+            echo "No build-relevant AnyKeep changes and no compatible dependency updates; skipping nightly."
             echo "should_build=false" >> "$GITHUB_OUTPUT"
           else
             echo "Nightly inputs changed:"
             echo "  previous commit:       ${nightly_sha:-<none>}"
             echo "  current commit:        $GITHUB_SHA"
+            echo "  source changed:        $source_changed"
             echo "  previous dependencies: ${nightly_deps:-<none>}"
             echo "  current dependencies:  $DEPENDENCY_FINGERPRINT"
+            echo "  dependencies changed:  $dependencies_changed"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           fi
 
