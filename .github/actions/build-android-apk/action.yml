@@ -123,14 +123,14 @@ runs:
           -DANYKEEP_ANDROID_OPENSSL_ROOT="$PWD/android-openssl/ssl_3" \
           -DBUILD_TESTING=OFF
 
-        # Qt/Gradle's stripReleaseDebugSymbols currently cannot locate the
-        # externally provisioned NDK on GitHub runners. Build the application
-        # library first and strip our own ELF explicitly with the exact NDK
-        # toolchain before androiddeployqt copies it into the APK.
-        cmake --build "build/android-${{ inputs.abi }}" --target anykeep_mobile --parallel 4
+        # Android Release uses lld --strip-debug at link time, rather than
+        # changing Ninja's built output after linking (which triggers a relink).
+        # Gradle may not find the externally installed NDK to strip JNI libs.
+        cmake --build "build/android-${{ inputs.abi }}" --target apk --parallel 4
 
         mapfile -t app_libraries < <(
-          find "build/android-${{ inputs.abi }}" -type f             -name 'libanykeep_*.so'             ! -path '*/android-build/*'             -print
+          find "build/android-${{ inputs.abi }}" -type f -name 'libanykeep_*.so' \
+            ! -path '*/android-build/*' -print
         )
         if [[ ${#app_libraries[@]} -ne 1 ]]; then
           echo "Expected exactly one AnyKeep Android application library, found ${#app_libraries[@]}:" >&2
@@ -139,41 +139,36 @@ runs:
         fi
 
         app_library="${app_libraries[0]}"
-        strip_tool="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
         readelf_tool="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
-        test -x "$strip_tool"
         test -x "$readelf_tool"
 
-        before_size=$(stat -c '%s' "$app_library")
-        "$strip_tool" --strip-unneeded "$app_library"
-        after_size=$(stat -c '%s' "$app_library")
-        echo "AnyKeep Android ELF: $before_size -> $after_size bytes after strip"
-
-        if "$readelf_tool" -S "$app_library" | grep -qE '\.debug_(info|line|loc|ranges|str)'; then
-          echo "Release application library still contains DWARF debug sections after strip" >&2
+        app_size=$(stat -c '%s' "$app_library")
+        echo "AnyKeep Android Release ELF: $app_library ($app_size bytes)"
+        if "$readelf_tool" -S "$app_library" | grep -E '\.debug_(info|line|loc|ranges|str)'; then
+          echo "Release application library still contains DWARF debug sections" >&2
           exit 1
         fi
-        if (( after_size >= before_size )); then
-          echo "Release application library was not reduced by stripping" >&2
+        if (( app_size > 32 * 1024 * 1024 )); then
+          echo "Release application library is unexpectedly large" >&2
           exit 1
         fi
-
-        cmake --build "build/android-${{ inputs.abi }}" --target apk --parallel 4
 
         mkdir -p packages
         apk=$(find "build/android-${{ inputs.abi }}" -type f -path '*/outputs/apk/*/*.apk' -print -quit)
         test -n "$apk"
 
-        python3 - "$apk" "${{ inputs.abi }}" <<'PY'
+        python3 - "$apk" "${{ inputs.abi }}" "$app_size" <<'PY'
         import sys
         import zipfile
 
-        apk, abi = sys.argv[1:]
+        apk, abi, source_size = sys.argv[1:]
         main_name = f"lib/{abi}/libanykeep_{abi}.so"
         with zipfile.ZipFile(apk) as archive:
             info = archive.getinfo(main_name)
             apk_size = __import__("os").path.getsize(apk)
             print(f"Packaged {main_name}: {info.file_size} bytes")
+            if info.file_size != int(source_size):
+                raise SystemExit("Packaged AnyKeep library differs in size from the verified linked ELF")
             print(f"APK size: {apk_size} bytes")
             if info.file_size > 32 * 1024 * 1024:
                 raise SystemExit("Stripped AnyKeep application library is unexpectedly large")
