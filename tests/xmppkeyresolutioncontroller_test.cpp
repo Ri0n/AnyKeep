@@ -16,6 +16,11 @@ private slots:
     void removesPublishedDevice();
     void createsNewKeyOnlyWhenNoNotesExist();
     void startsFreshWithoutChangingUnreadableNotes();
+    void firstInstallCanCreateKeyWithoutOmemoDiscovery();
+    void firstInstallBackDiscardsGeneratedKey();
+    void firstInstallKeyGenerationFailureCanRetry();
+    void firstInstallCancelledDoesNotInstallKey();
+    void existingLocalKeyCannotStartFresh();
 };
 
 void XmppKeyResolutionControllerTest::completesRecovery()
@@ -239,6 +244,130 @@ void XmppKeyResolutionControllerTest::startsFreshWithoutChangingUnreadableNotes(
     QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ResultPage));
     QVERIFY(controller.rekeyResult().ok);
     QVERIFY(!rekeyCalled);
+}
+
+void XmppKeyResolutionControllerTest::firstInstallCanCreateKeyWithoutOmemoDiscovery()
+{
+    const QByteArray newKey(32, 'n');
+    int auditCalls = 0;
+    int trustCalls = 0;
+    int rekeyCalls = 0;
+    int generateCalls = 0;
+    XmppKeyResolutionController controller(
+        true, {}, {},
+        [&trustCalls](const QList<QByteArray> &, auto) { ++trustCalls; },
+        {},
+        [&auditCalls](auto) { ++auditCalls; },
+        [&rekeyCalls](const QList<QByteArray> &, const QByteArray &, auto) { ++rekeyCalls; },
+        1000,
+        [&generateCalls, newKey](auto completion) {
+            ++generateCalls;
+            XmppStatusResult status;
+            status.ok = true;
+            completion(status, newKey, QByteArray("fresh-onboarding"));
+        });
+
+    QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ProblemPage));
+    QVERIFY(controller.canStartFresh());
+    QVERIFY(!controller.canCreateNewKey());
+    controller.startFresh();
+    QCOMPARE(generateCalls, 1);
+    QCOMPARE(auditCalls, 0);
+    QCOMPARE(trustCalls, 0);
+    QVERIFY(controller.freshStart());
+    QCOMPARE(controller.canonicalKey(), newKey);
+    QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ReviewPage));
+    QVERIFY(controller.summary().contains(QStringLiteral("if any")));
+    QVERIFY(!controller.summary().contains(QStringLiteral("unchanged: 0")));
+
+    controller.next();
+    QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ResultPage));
+    QVERIFY(controller.rekeyResult().ok);
+    QCOMPARE(rekeyCalls, 0);
+    QVERIFY(controller.resultText().contains(QStringLiteral("if any")));
+    QSignalSpy finished(&controller, &XmppKeyResolutionController::finished);
+    controller.next();
+    QCOMPARE(finished.size(), 1);
+    QVERIFY(finished.first().first().toBool());
+}
+
+void XmppKeyResolutionControllerTest::firstInstallBackDiscardsGeneratedKey()
+{
+    int generated = 0;
+    XmppKeyResolutionController controller(
+        true, {}, {}, {}, {}, {}, {}, 1000,
+        [&generated](auto completion) {
+            ++generated;
+            XmppStatusResult status;
+            status.ok = true;
+            completion(status, QByteArray(32, 'x'), QByteArray("generated-id"));
+        });
+    controller.startFresh();
+    QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ReviewPage));
+    QVERIFY(!controller.canonicalKey().isEmpty());
+
+    controller.back();
+    QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ProblemPage));
+    QVERIFY(controller.canonicalKey().isEmpty());
+    QVERIFY(!controller.freshStart());
+    controller.next();
+    QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::DevicesPage));
+    QVERIFY(controller.canonicalKey().isEmpty());
+    QCOMPARE(generated, 1);
+}
+
+void XmppKeyResolutionControllerTest::firstInstallKeyGenerationFailureCanRetry()
+{
+    int attempts = 0;
+    XmppKeyResolutionController controller(
+        true, {}, {}, {}, {}, {}, {}, 1000,
+        [&attempts](auto completion) {
+            ++attempts;
+            XmppStatusResult status;
+            status.ok = attempts > 1;
+            status.error = status.ok ? QString() : QStringLiteral("Key generator unavailable");
+            completion(status, status.ok ? QByteArray(32, 'k') : QByteArray(),
+                       status.ok ? QByteArray("recovered-generator") : QByteArray());
+        });
+    controller.startFresh();
+    QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ProblemPage));
+    QVERIFY(controller.keyStatus().contains(QStringLiteral("Key generator unavailable")));
+    QVERIFY(controller.canStartFresh());
+    controller.startFresh();
+    QCOMPARE(attempts, 2);
+    QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ReviewPage));
+}
+
+void XmppKeyResolutionControllerTest::firstInstallCancelledDoesNotInstallKey()
+{
+    int generateCalls = 0;
+    XmppKeyResolutionController controller(
+        true, {}, {}, {}, {}, {}, {}, 1000,
+        [&generateCalls](auto completion) {
+            ++generateCalls;
+            XmppStatusResult status;
+            status.ok = true;
+            completion(status, QByteArray(32, 'k'), QByteArray("new-key"));
+        });
+    QSignalSpy finished(&controller, &XmppKeyResolutionController::finished);
+    controller.startFresh();
+    controller.cancel();
+    QCOMPARE(generateCalls, 1);
+    QCOMPARE(finished.size(), 1);
+    QVERIFY(!finished.first().first().toBool());
+    QVERIFY(!controller.rekeyResult().ok);
+}
+
+void XmppKeyResolutionControllerTest::existingLocalKeyCannotStartFresh()
+{
+    int generated = 0;
+    XmppKeyResolutionController controller(
+        false, {}, {}, {}, {}, {}, {}, 1000,
+        [&generated](auto completion) { ++generated; });
+    QVERIFY(!controller.canStartFresh());
+    controller.startFresh();
+    QCOMPARE(generated, 0);
+    QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ProblemPage));
 }
 
 QTEST_GUILESS_MAIN(XmppKeyResolutionControllerTest)
