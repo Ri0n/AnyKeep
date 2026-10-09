@@ -87,7 +87,10 @@ Item {
                                                      ? String(model.pluginId || "")
                                                      : String(model.storageId || "")
             readonly property string subtitle: root.pluginMode
-                                               ? String(model.versionText || "") : ""
+                                               ? String(model.versionText || "")
+                                               : String(model.connectivityText || "")
+            readonly property int connectivityState: root.pluginMode
+                                                      ? 0 : Number(model.connectivityState || 0)
             readonly property string resolvedIconSource: {
                 const source = String(model.iconSource || "")
                 if (source.length > 0)
@@ -202,6 +205,21 @@ Item {
                         visible: rowIcon.status !== Image.Ready
                         text: root.pluginMode ? "◆" : "▣"
                         color: rowDelegate.palette.text
+                    }
+
+                    Rectangle {
+                        objectName: "settingsConnectivityBadge-" + rowDelegate.itemId
+                        visible: rowDelegate.connectivityState !== 0
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        width: 10
+                        height: 10
+                        radius: width / 2
+                        border.width: 1
+                        border.color: rowDelegate.palette.base
+                        color: rowDelegate.connectivityState === 3 ? "#2c995a"
+                             : rowDelegate.connectivityState === 2 ? "#b98a32"
+                             : rowDelegate.connectivityState === 4 ? "#c44a4a" : "#858b95"
                     }
                 }
 

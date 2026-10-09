@@ -32,7 +32,7 @@ private:
     Main                *anykeep;
     PluginHostInterface *host;
     QSystemTrayIcon     *sti;
-    QAction             *actQuit, *actNew, *actAbout, *actOptions, *actManager;
+    QAction             *actQuit, *actNew, *actAbout, *actOptions, *actManager, *actNetworkStatus;
     QTimer              *menuUpdateTimer;
     QMenu               *contextMenu;
     QMenu               *advancedMenu;

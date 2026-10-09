@@ -22,6 +22,8 @@ public:
         TooltipRole,
         IconSourceRole,
         LoadPolicyRole,
+        ConnectivityRole,
+        ConnectivityTextRole,
     };
 
     explicit SettingsReorderTestModel(QObject *parent = nullptr) : QAbstractListModel(parent)
@@ -48,6 +50,11 @@ public:
             return 2;
         case AccessibleRole:
             return true;
+        case ConnectivityRole:
+            return id == QStringLiteral("a") ? connectivityA_ : id == QStringLiteral("b") ? 1 : 0;
+        case ConnectivityTextRole:
+            return id == QStringLiteral("a") ? (connectivityA_ == 3 ? QStringLiteral("Online") : QStringLiteral("Offline"))
+                 : id == QStringLiteral("b") ? QStringLiteral("Offline") : QString();
         case ConfigurableRole:
             return id != QStringLiteral("b");
         case TooltipRole:
@@ -66,7 +73,8 @@ public:
             { StorageIdRole, "storageId" },       { PluginIdRole, "pluginId" },     { NameRole, "name" },
             { VersionTextRole, "versionText" },   { LoadStatusRole, "loadStatus" }, { AccessibleRole, "accessible" },
             { ConfigurableRole, "configurable" }, { TooltipRole, "tooltip" },       { IconSourceRole, "iconSource" },
-            { LoadPolicyRole, "loadPolicy" },
+            { LoadPolicyRole, "loadPolicy" }, { ConnectivityRole, "connectivityState" },
+            { ConnectivityTextRole, "connectivityText" },
         };
     }
 
@@ -74,6 +82,14 @@ public:
     {
         ++storageMoves;
         return moveTo(sourceRow, destinationRow);
+    }
+
+    void setConnectivityA(int state)
+    {
+        connectivityA_ = state;
+        const int row = ids_.indexOf(QStringLiteral("a"));
+        if (row >= 0)
+            emit dataChanged(index(row), index(row), { ConnectivityRole, ConnectivityTextRole });
     }
 
     Q_INVOKABLE bool movePlugin(int sourceRow, int destinationRow)
@@ -104,6 +120,7 @@ private:
     }
 
     QStringList ids_;
+    int         connectivityA_ { 3 };
 };
 
 class FolderPageTestModel final : public QAbstractListModel {

@@ -31,6 +31,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "anykeep.h"
 #include "macosxtray.h"
 #include "notemanager.h"
+#include "trayiconutils.h"
 #include "pluginhostinterface.h"
 #include "utils.h"
 
@@ -54,6 +55,9 @@ MacOSXTray::MacOSXTray(Main *anykeep, PluginHostInterface *host, QObject *parent
     actAbout   = new QAction(QIcon(":/icons/trayicon"), tr("&About"), this);
     actOptions = new QAction(QIcon(":/icons/options"), tr("&Options"), this);
     actManager = new QAction(QIcon(":/icons/manager"), tr("&Note Manager"), this);
+    actNetworkStatus = new QAction(this);
+    actNetworkStatus->setEnabled(false);
+    TrayIconUtils::setupSystemTrayIcon(sti, actNetworkStatus);
 
     connect(actQuit, SIGNAL(triggered()), SIGNAL(exitTriggered()));
     connect(actNew, SIGNAL(triggered()), SIGNAL(newNoteTriggered()));
@@ -62,6 +66,8 @@ MacOSXTray::MacOSXTray(Main *anykeep, PluginHostInterface *host, QObject *parent
     connect(actAbout, SIGNAL(triggered()), SIGNAL(aboutTriggered()));
 
     advancedMenu = new QMenu;
+    advancedMenu->addAction(actNetworkStatus);
+    advancedMenu->addSeparator();
     advancedMenu->addAction(actOptions);
     advancedMenu->addAction(actManager);
     advancedMenu->addAction(actAbout);

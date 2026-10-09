@@ -43,3 +43,16 @@ provided by the mobile `ApplicationWindow`. `Main.qml` owns the
 wizard opened automatically while already at root, nothing is popped.
 Cancelled or unsuccessful flows must not navigate. Only Settings pages opt in, so a dialog triggered while editing a note will not close that editor. Desktop/standalone hosts
 do not expose this method and continue their existing behavior.
+
+## Remote storage connectivity indicators
+
+`StoragesPage.qml` reads `connectivityState` and `connectivityText` from
+`StoragePriorityModel`, using an icon badge **and** a plain-text status.
+`NotApplicable` (local PTF) has no badge. Unlike the `accessible` role,
+connectivity must reflect the live XMPP connection: an offline-cached
+storage can still be accessible for reading and accepting queued writes.
+Color is supplemental; labels are always visible and use the theme palette.
+
+The same statuses drive desktop storage settings and system-tray
+indicators through `TrayIconUtils`, so the mobile shell must not implement
+its own polling or infer network health from visible notes.

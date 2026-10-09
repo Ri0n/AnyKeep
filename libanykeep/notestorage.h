@@ -49,6 +49,13 @@ public:
     using Ptr = QPointer<NoteStorage>;
 
     using QObject::QObject;
+
+    // Independent of isAccessible(): a disconnected remote storage may still
+    // expose readable local cache and accept durable offline draft writes.
+    enum class ConnectivityState { NotApplicable, Offline, Connecting, Online, Error };
+    Q_ENUM(ConnectivityState)
+    virtual ConnectivityState connectivityState() const { return ConnectivityState::NotApplicable; }
+
     virtual bool          init()               = 0;
     virtual const QString systemName() const   = 0;
     virtual const QString name() const         = 0;

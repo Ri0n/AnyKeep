@@ -26,7 +26,7 @@ class BaseIntegrationTray : public TrayImpl {
     PluginHostInterface  *host;
     QSystemTrayIcon      *tray;
     QMenu                *contextMenu;
-    QAction              *actQuit, *actNew, *actAbout, *actOptions, *actManager;
+    QAction              *actQuit, *actNew, *actAbout, *actOptions, *actManager, *actNetworkStatus;
     QPointer<QWidget>     currentPopup;
     std::function<void()> notificationAction;
 

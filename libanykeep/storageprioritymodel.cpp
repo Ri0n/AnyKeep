@@ -73,6 +73,20 @@ QVariant StoragePriorityModel::data(const QModelIndex &index, int role) const
         return storageIconSource(item.storageId);
     case AccessibleRole:
         return storage ? storage->isAccessible() : false;
+    case ConnectivityRole:
+        return storage ? int(storage->connectivityState()) : int(NoteStorage::ConnectivityState::NotApplicable);
+    case ConnectivityTextRole: {
+        if (!storage)
+            return QString();
+        switch (storage->connectivityState()) {
+        case NoteStorage::ConnectivityState::NotApplicable: return QString();
+        case NoteStorage::ConnectivityState::Offline: return tr("Offline");
+        case NoteStorage::ConnectivityState::Connecting: return tr("Reconnecting");
+        case NoteStorage::ConnectivityState::Online: return tr("Online");
+        case NoteStorage::ConnectivityState::Error: return tr("Needs attention");
+        }
+        return QString();
+    }
     case ConfigurableRole:
         return storage ? storage->isConfigurable() : false;
     default:
@@ -93,7 +107,8 @@ QHash<int, QByteArray> StoragePriorityModel::roleNames() const
     return {
         { StorageIdRole, "storageId" },       { NameRole, "name" },       { AccessibleRole, "accessible" },
         { ConfigurableRole, "configurable" }, { TooltipRole, "tooltip" }, { IconRole, "icon" },
-        { IconSourceRole, "iconSource" },
+        { IconSourceRole, "iconSource" }, { ConnectivityRole, "connectivityState" },
+        { ConnectivityTextRole, "connectivityText" },
     };
 }
 
