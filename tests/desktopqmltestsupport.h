@@ -51,9 +51,9 @@ public:
         case AccessibleRole:
             return true;
         case ConnectivityRole:
-            return id == QStringLiteral("a") ? 3 : id == QStringLiteral("b") ? 1 : 0;
+            return id == QStringLiteral("a") ? connectivityA_ : id == QStringLiteral("b") ? 1 : 0;
         case ConnectivityTextRole:
-            return id == QStringLiteral("a") ? QStringLiteral("Online")
+            return id == QStringLiteral("a") ? (connectivityA_ == 3 ? QStringLiteral("Online") : QStringLiteral("Offline"))
                  : id == QStringLiteral("b") ? QStringLiteral("Offline") : QString();
         case ConfigurableRole:
             return id != QStringLiteral("b");
@@ -84,6 +84,14 @@ public:
         return moveTo(sourceRow, destinationRow);
     }
 
+    void setConnectivityA(int state)
+    {
+        connectivityA_ = state;
+        const int row = ids_.indexOf(QStringLiteral("a"));
+        if (row >= 0)
+            emit dataChanged(index(row), index(row), { ConnectivityRole, ConnectivityTextRole });
+    }
+
     Q_INVOKABLE bool movePlugin(int sourceRow, int destinationRow)
     {
         ++pluginMoves;
@@ -112,6 +120,7 @@ private:
     }
 
     QStringList ids_;
+    int         connectivityA_ { 3 };
 };
 
 class FolderPageTestModel final : public QAbstractListModel {
