@@ -36,6 +36,7 @@ jobs:
     outputs:
       should_build: ${{ steps.gate.outputs.should_build }}
       update_channel: ${{ steps.channel.outputs.update_channel }}
+      release_tag: ${{ steps.channel.outputs.release_tag }}
       iris_tag: ${{ steps.dependencies.outputs.iris_tag }}
       qca_tag: ${{ steps.dependencies.outputs.qca_tag }}
       qtkeychain_tag: ${{ steps.dependencies.outputs.qtkeychain_tag }}
@@ -62,16 +63,20 @@ jobs:
           )"
           if [[ -n "$tagged_release" ]]; then
             channel=stable
+            release_tag="$tagged_release"
             echo "HEAD is tagged as $tagged_release; selecting stable."
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             channel="${{ inputs.update_channel }}"
+            release_tag="$channel"
             echo "Manual build selected channel: $channel"
           else
             channel=nightly
+            release_tag=nightly
             echo "Automatic untagged build; selecting nightly."
           fi
 
           printf 'update_channel=%s\n' "$channel" >> "$GITHUB_OUTPUT"
+          printf 'release_tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
 
       - name: Resolve package dependencies
         id: dependencies
@@ -234,6 +239,7 @@ jobs:
     runs-on: windows-2022
     env:
       ANYKEEP_WINDOWS_UPDATE_CHANNEL: ${{ needs.plan.outputs.update_channel }}
+      ANYKEEP_RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
       IRIS_TAG: ${{ needs.plan.outputs.iris_tag }}
       QCA_TAG: ${{ needs.plan.outputs.qca_tag }}
       QTKEYCHAIN_TAG: ${{ needs.plan.outputs.qtkeychain_tag }}
@@ -278,6 +284,7 @@ jobs:
           cmake -S . -B build/package -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             "-DANYKEEP_UPDATE_CHANNEL=$env:ANYKEEP_WINDOWS_UPDATE_CHANNEL" `
+            "-DANYKEEP_UPDATE_BASE_URL=https://github.com/${{ github.repository }}/releases/download/$env:ANYKEEP_RELEASE_TAG" `
             -DANYKEEP_XMPP_BACKEND=IRIS `
             -DANYKEEP_QCA_SDK_ROOT="$pwd/qca-sdk" `
             -DANYKEEP_IRIS_SDK_ROOT="$pwd/iris-sdk" `
@@ -545,13 +552,12 @@ jobs:
           compression-level: 0
 
 
-  publish-nightly-release:
-    name: Publish complete nightly release
+  publish-package-release:
+    name: Publish complete package release
     needs: [plan, debian, debian13, windows, macos, android]
     if: >-
       ${{ always()
           && needs.plan.outputs.should_build == 'true'
-          && needs.plan.outputs.update_channel == 'nightly'
           && needs.debian.result == 'success'
           && needs.debian13.result == 'success'
           && needs.windows.result == 'success'
@@ -566,6 +572,8 @@ jobs:
       IRIS_TAG: ${{ needs.plan.outputs.iris_tag }}
       QCA_TAG: ${{ needs.plan.outputs.qca_tag }}
       QTKEYCHAIN_TAG: ${{ needs.plan.outputs.qtkeychain_tag }}
+      UPDATE_CHANNEL: ${{ needs.plan.outputs.update_channel }}
+      RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
       DEPENDENCY_SUMMARY: ${{ needs.plan.outputs.dependency_summary }}
       DEPENDENCY_FINGERPRINT: ${{ needs.plan.outputs.dependency_fingerprint }}
 
@@ -576,7 +584,7 @@ jobs:
           pattern: anykeep-*
           path: downloaded
 
-      - name: Assemble nightly release assets
+      - name: Assemble release assets
         shell: bash
         run: |
           set -euo pipefail
@@ -609,31 +617,45 @@ jobs:
 
           windows=downloaded/anykeep-windows-x64
           test -d "$windows"
-          find "$windows" -maxdepth 1 -type f -exec cp -v {} release-assets/ \;
-          nightly_updates="$windows/updates/nightly"
-          test -d "$nightly_updates"
-          find "$nightly_updates" -maxdepth 1 -type f -exec cp -v {} release-assets/ \;
 
-          echo "Nightly release assets:"
+          # The versioned MSI in updates/<channel> is the canonical direct
+          # download and self-update payload. Do not publish the duplicate
+          # build-tree AnyKeep.msi under a second name.
+          find "$windows" -maxdepth 1 -type f \(             -name 'AnyKeep.Installer-*.exe' -o             -name 'AnyKeep-*-windows-x86_64.msix'           \) -exec cp -v {} release-assets/ \;
+
+          channel_updates="$windows/updates/$UPDATE_CHANNEL"
+          test -d "$channel_updates"
+          find "$channel_updates" -maxdepth 1 -type f -exec cp -v {} release-assets/ \;
+
+          echo "Release assets:"
           find release-assets -maxdepth 1 -type f -printf '  %f\n' | sort
           test -n "$(find release-assets -maxdepth 1 -type f -print -quit)"
 
-      - name: Publish rolling nightly release
+      - name: Publish GitHub release assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          release_tag=nightly
-          release_title="AnyKeep Nightly"
+          release_tag="$RELEASE_TAG"
+          if [[ "$UPDATE_CHANNEL" == "nightly" ]]; then
+            release_title="AnyKeep Nightly"
+            release_kind=(--prerelease)
+          elif [[ "$release_tag" == "stable" ]]; then
+            release_title="AnyKeep Stable"
+            release_kind=()
+          else
+            release_title="AnyKeep $release_tag"
+            release_kind=()
+          fi
 
           if ! gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$release_tag" --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "$release_title" \
-              --prerelease \
-              --notes "Nightly artifacts are being published. No successful build marker has been recorded yet."
+              "${release_kind[@]}" \
+              --notes "Package artifacts are being published. No successful build marker has been recorded yet."
           fi
 
           declare -A new_assets=()
@@ -654,23 +676,36 @@ jobs:
           done
 
           built_at="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          notes_file="$RUNNER_TEMP/anykeep-nightly-notes.md"
-          cat >"$notes_file" <<EOF
-          Rolling AnyKeep nightly build.
+          notes_file="$RUNNER_TEMP/anykeep-release-notes.md"
+          {
+            if [[ "$UPDATE_CHANNEL" == "nightly" ]]; then
+              echo "Rolling AnyKeep nightly build."
+            else
+              echo "AnyKeep stable package build."
+            fi
+            echo
+            echo "Commit: $GITHUB_SHA"
+            echo "Built: $built_at"
+            echo
+            echo "Dependencies:"
+            echo "- Iris: $IRIS_TAG"
+            echo "- QCA: $QCA_TAG"
+            echo "- QtKeychain bundle: $QTKEYCHAIN_TAG"
+            if [[ "$UPDATE_CHANNEL" == "nightly" ]]; then
+              echo
+              echo "<!-- anykeep-nightly-sha:$GITHUB_SHA -->"
+              echo "<!-- anykeep-nightly-deps:$DEPENDENCY_FINGERPRINT -->"
+            fi
+          } >"$notes_file"
 
-          Commit: $GITHUB_SHA
-          Built: $built_at
-
-          Dependencies:
-          - Iris: $IRIS_TAG
-          - QCA: $QCA_TAG
-          - QtKeychain bundle: $QTKEYCHAIN_TAG
-
-          <!-- anykeep-nightly-sha:$GITHUB_SHA -->
-          <!-- anykeep-nightly-deps:$DEPENDENCY_FINGERPRINT -->
-          EOF
+          edit_kind=()
+          if [[ "$UPDATE_CHANNEL" == "nightly" ]]; then
+            edit_kind=(--prerelease)
+          else
+            edit_kind=(--prerelease=false)
+          fi
 
           gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" \
             --title "$release_title" \
-            --prerelease \
+            "${edit_kind[@]}" \
             --notes-file "$notes_file"
