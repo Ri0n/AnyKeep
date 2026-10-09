@@ -76,8 +76,11 @@ void XmppKeyResolutionControllerTest::completesRecovery()
 
     controller.next();
     QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ReviewPage));
+    QCOMPARE(controller.nextText(), QStringLiteral("Sync notes"));
     controller.next();
     QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ResultPage));
+    QCOMPARE(controller.nextText(), QStringLiteral("Finish"));
+    QVERIFY(controller.resultText().contains(QStringLiteral("Synchronization completed")));
     QCOMPARE(rekeyKeys, QList<QByteArray> { storageKey });
     QCOMPARE(canonical, storageKey);
     QVERIFY(controller.rekeyResult().ok);
