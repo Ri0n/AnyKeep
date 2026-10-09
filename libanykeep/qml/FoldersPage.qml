@@ -255,6 +255,11 @@ Item {
 
     function createFolder(parentFolderId) {
         const parentId = String(parentFolderId || "")
+        if (root.touchActions) {
+            openCreateFolderDialog(parentId)
+            return
+        }
+        // Preserve desktop's established create-then-inline-rename flow.
         const created = workspace.createFolder("", parentId)
         if (created.length === 0)
             return
@@ -263,6 +268,38 @@ Item {
         selectedFolderId = created
         unsortedSelected = false
         beginFolderRename(created)
+    }
+
+    function openCreateFolderDialog(parentFolderId) {
+        if (!workspace.folderCatalogAvailable)
+            return
+        createFolderDialog.parentFolderId = String(parentFolderId || "")
+        createFolderName.text = ""
+        createFolderFavorite.checked = false
+        createFolderArchived.checked = false
+        createFolderDialog.errorText = ""
+        createFolderDialog.open()
+    }
+
+    function submitFolderCreation() {
+        if (!workspace.folderCatalogAvailable)
+            return
+        const name = createFolderName.text.trim()
+        if (name.length === 0)
+            return
+        const parentId = createFolderDialog.parentFolderId
+        const created = workspace.createFolderWithFlags(name, parentId,
+                                                        createFolderFavorite.checked,
+                                                        createFolderArchived.checked)
+        if (created.length === 0) {
+            createFolderDialog.errorText = String(workspace.errorString || qsTr("Could not create folder"))
+            return
+        }
+        createFolderDialog.close()
+        if (parentId.length > 0)
+            workspace.setFolderCollapsed(parentId, false)
+        selectedFolderId = created
+        unsortedSelected = false
     }
 
     function focusFolderRename(folderId) {
@@ -350,12 +387,38 @@ Item {
                     objectName: "newFolderButton"
                     display: AbstractButton.IconOnly
                     enabled: root.workspace.folderCatalogAvailable
-                    contentItem: ThemedIcon {
-                        themeName: "__bundled__"
-                        fallbackName: "folder-symbolic.svg"
-                        recolorFallback: true
-                        fallbackTintMode: "auto"
-                        pixelSize: 24
+                    contentItem: Item {
+                        implicitWidth: 32
+                        implicitHeight: 32
+
+                        ThemedIcon {
+                            anchors.centerIn: parent
+                            themeName: "__bundled__"
+                            fallbackName: "folder-symbolic.svg"
+                            recolorFallback: true
+                            fallbackTintMode: "auto"
+                            pixelSize: 24
+                        }
+
+                        // Explicit create affordance instead of a bare folder.
+                        Rectangle {
+                            width: 15
+                            height: 15
+                            radius: width / 2
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            color: palette.window
+                            border.color: palette.windowText
+                            border.width: 1
+
+                            Label {
+                                anchors.centerIn: parent
+                                text: "+"
+                                font.bold: true
+                                font.pixelSize: 14
+                                color: palette.windowText
+                            }
+                        }
                     }
                     Accessible.name: qsTr("New folder")
                     ToolTip.visible: hovered
@@ -516,6 +579,102 @@ Item {
                 wrapMode: Text.WordWrap
                 color: palette.brightText
                 text: qsTr("Folders are unavailable until the encrypted folder catalog is recovered.")
+            }
+        }
+    }
+
+    // On touch screens the keyboard and recycled TreeView delegates make
+    // inline creation fragile. A modal dialog collects all initial attributes
+    // before committing the folder in one catalog transaction. Existing folder
+    // renaming deliberately remains inline (desktop and touch).
+    Dialog {
+        id: createFolderDialog
+        objectName: "createFolderDialog"
+        property string parentFolderId: ""
+        property string errorText: ""
+
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        title: qsTr("Create folder")
+        closePolicy: Popup.CloseOnEscape
+        width: Math.min(420, Math.max(260, root.width - 32))
+        x: parent ? (parent.width - width) / 2 : 0
+        y: parent ? Math.max(12, (parent.height - height
+                 - (Qt.inputMethod.visible ? Qt.inputMethod.keyboardRectangle.height : 0)) / 2) : 0
+
+        onOpened: Qt.callLater(function() { createFolderName.forceActiveFocus() })
+
+        contentItem: ColumnLayout {
+            spacing: 10
+
+            Label {
+                text: qsTr("Folder name")
+                Layout.fillWidth: true
+            }
+
+            TextField {
+                id: createFolderName
+                objectName: "createFolderName"
+                Layout.fillWidth: true
+                placeholderText: qsTr("Name")
+                selectByMouse: true
+                onTextChanged: createFolderDialog.errorText = ""
+                onAccepted: root.submitFolderCreation()
+            }
+
+            CheckBox {
+                id: createFolderFavorite
+                objectName: "createFolderFavorite"
+                text: qsTr("Add to favorites")
+                checked: false
+                Layout.fillWidth: true
+            }
+
+            CheckBox {
+                id: createFolderArchived
+                objectName: "createFolderArchived"
+                text: qsTr("Hide from menu (Archive)")
+                checked: false
+                Layout.fillWidth: true
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Archived folders stay available in the folder tree.")
+                color: palette.placeholderText
+                wrapMode: Text.WordWrap
+                visible: createFolderArchived.checked
+            }
+
+            Label {
+                objectName: "createFolderError"
+                Layout.fillWidth: true
+                text: createFolderDialog.errorText
+                color: palette.text
+                wrapMode: Text.WordWrap
+                visible: text.length > 0
+            }
+        }
+
+        footer: RowLayout {
+            spacing: 8
+
+            Item { Layout.fillWidth: true }
+
+            Button {
+                objectName: "createFolderCancel"
+                text: qsTr("Cancel")
+                onClicked: createFolderDialog.close()
+            }
+
+            Button {
+                objectName: "createFolderConfirm"
+                text: qsTr("Create")
+                highlighted: true
+                enabled: createFolderName.text.trim().length > 0
+                         && root.workspace.folderCatalogAvailable
+                onClicked: root.submitFolderCreation()
             }
         }
     }
