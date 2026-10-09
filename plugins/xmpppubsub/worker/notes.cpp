@@ -236,6 +236,12 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
             return obsoleteItems + malformedItems + unsupportedItems + protectedUnreadableItems + keyMismatchItems;
         }
     } decodeSummary;
+    // The user may explicitly start with a new local storage key on a JID
+    // that already contains older encrypted notes. Keep mismatched items
+    // untouched and readable again with their old key; do not turn the
+    // intentional fresh-storage choice into another forced recovery loop.
+    // For all other configurations, an index containing only foreign keys
+    // remains a security error and triggers normal key recovery.
     const auto configuredKeyId = SecureEnvelope::keyId(config_.masterKey, KeyDerivationProfile::PrivateNotes);
     const auto decodeItems     = [this, &decodeSummary, &configuredKeyId](const auto &items, XmppListResult &result) {
         for (const auto &item : items) {
@@ -305,7 +311,7 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
             }
             decodeItems(std::get<QXmppPubSubManager::Items<PrivateNotesPubSubItem>>(result).items, output);
         }
-        if (output.notes.isEmpty() && decodeSummary.keyMismatchItems > 0) {
+        if (!config_.allowForeignKeyIndices && output.notes.isEmpty() && decodeSummary.keyMismatchItems > 0) {
             output.error     = decodeSummary.firstKeyMismatch;
             output.errorKind = XmppErrorKind::Security;
             co_return output;
@@ -337,7 +343,7 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
     const auto &items = std::get<QXmppPubSubManager::Items<PrivateNotesPubSubItem>>(result);
     output.partial    = items.continuation.has_value();
     decodeItems(items.items, output);
-    if (output.notes.isEmpty() && decodeSummary.keyMismatchItems > 0) {
+    if (!config_.allowForeignKeyIndices && output.notes.isEmpty() && decodeSummary.keyMismatchItems > 0) {
         output.error     = decodeSummary.firstKeyMismatch;
         output.errorKind = XmppErrorKind::Security;
         co_return output;
