@@ -27,7 +27,7 @@ Item {
         case 2:
             return qsTr("Choose the key to keep");
         case 3:
-            return qsTr("Review and repair");
+            return root.controller.freshStart ? qsTr("Review new storage") : qsTr("Review and repair");
         case 4:
             return qsTr("Recovery result");
         default:
