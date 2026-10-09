@@ -45,3 +45,12 @@ native-provider folder synchronization. Both flags are supported; archived
 branches are hidden from the navigation menu but remain in the folder tree.
 The collapsed flag is display state, not an initial folder attribute.
 
+
+## Storage connectivity display
+
+`AnimatedSettingsList.qml` renders `StoragePriorityModel`'s
+`connectivityState` and `connectivityText` with a small colored icon
+badge and a legible subtitle. Both are suppressed in plugin mode and for
+local/non-network storages (`NotApplicable`). Connectivity is **not** the
+same as `accessible`: XMPP can serve cached notes while offline. Reuse
+this model state instead of watching provider-specific signals in QML.
