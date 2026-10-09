@@ -11,6 +11,7 @@ REQUIRED_ASSETS = {
     "iris": {
         "iris-deb-ubuntu-24.04.zip",
         "iris-deb-ubuntu-26.04.zip",
+        "iris-deb-debian-13.zip",
         "iris-qt6-windows-x64.zip",
         "iris-qt6-macos-arm64.zip",
         "iris-qt6-macos-x86_64.zip",
@@ -20,6 +21,7 @@ REQUIRED_ASSETS = {
     "qca": {
         "qca3-deb-ubuntu-24.04.zip",
         "qca3-deb-ubuntu-26.04.zip",
+        "qca3-deb-debian-13.zip",
         "qca3-qt6-windows-x64.zip",
         "qca3-qt6-macos-arm64.zip",
         "qca3-qt6-macos-x86_64.zip",
