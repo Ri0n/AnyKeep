@@ -13,6 +13,14 @@ ApplicationWindow {
     title: qsTr("AnyKeep")
     Material.theme: mobileApp.darkColorScheme ? Material.Dark : Material.Light
 
+    // Called by the shared XMPP setup host only after the user finishes a
+    // successful key synchronization. Pop all settings pages back to Notes.
+    // The root notes view is already visible if the wizard opened on startup.
+    function showNotesAfterXmppKeyResolution() {
+        if (navigation.depth > 1)
+            navigation.pop(null, StackView.Immediate)
+    }
+
     StackView {
         id: navigation
         anchors.fill: parent
