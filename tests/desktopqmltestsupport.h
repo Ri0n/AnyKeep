@@ -22,6 +22,8 @@ public:
         TooltipRole,
         IconSourceRole,
         LoadPolicyRole,
+        ConnectivityRole,
+        ConnectivityTextRole,
     };
 
     explicit SettingsReorderTestModel(QObject *parent = nullptr) : QAbstractListModel(parent)
@@ -48,6 +50,11 @@ public:
             return 2;
         case AccessibleRole:
             return true;
+        case ConnectivityRole:
+            return id == QStringLiteral("a") ? 3 : id == QStringLiteral("b") ? 1 : 0;
+        case ConnectivityTextRole:
+            return id == QStringLiteral("a") ? QStringLiteral("Online")
+                 : id == QStringLiteral("b") ? QStringLiteral("Offline") : QString();
         case ConfigurableRole:
             return id != QStringLiteral("b");
         case TooltipRole:
@@ -66,7 +73,8 @@ public:
             { StorageIdRole, "storageId" },       { PluginIdRole, "pluginId" },     { NameRole, "name" },
             { VersionTextRole, "versionText" },   { LoadStatusRole, "loadStatus" }, { AccessibleRole, "accessible" },
             { ConfigurableRole, "configurable" }, { TooltipRole, "tooltip" },       { IconSourceRole, "iconSource" },
-            { LoadPolicyRole, "loadPolicy" },
+            { LoadPolicyRole, "loadPolicy" }, { ConnectivityRole, "connectivityState" },
+            { ConnectivityTextRole, "connectivityText" },
         };
     }
 
