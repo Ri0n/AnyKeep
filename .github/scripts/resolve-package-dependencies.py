@@ -33,7 +33,10 @@ REPOSITORIES = {
     "qca": "psi-im/qca",
 }
 
-SEMVER_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+SEMVER_RE = re.compile(r"^v?(\\d+)\\.(\\d+)\\.(\\d+)$")
+QTKEYCHAIN_TAG_RE = re.compile(
+    r"^deps-qtkeychain-(\\d+)\\.(\\d+)\\.(\\d+)-r(\\d+)-qt6\\.11$"
+)
 
 
 def parse_version(tag: str) -> tuple[int, int, int]:
@@ -89,6 +92,60 @@ def latest_compatible_release(name: str, locked: dict) -> str:
     return max(candidates)[1]
 
 
+def latest_compatible_qtkeychain(locked: dict) -> tuple[str, str, str]:
+    locked_version = parse_version(locked["version"])
+    locked_revision_match = re.fullmatch(r"r(\\d+)", locked["revision"])
+    if not locked_revision_match:
+        raise ValueError(f"Unsupported QtKeychain revision: {locked['revision']}")
+    locked_revision = int(locked_revision_match.group(1))
+
+    policy = locked.get("nightly_compatibility", "locked")
+    if policy == "locked":
+        return locked["tag"], locked["version"], locked["revision"]
+    if policy != "same-minor":
+        raise RuntimeError(f"Unsupported QtKeychain nightly compatibility policy: {policy}")
+
+    releases = gh_json("/repos/Ri0n/AnyKeep/releases?per_page=100")
+    candidates: list[tuple[tuple[int, int, int], int, str, str, str]] = []
+
+    for release in releases:
+        if release.get("draft"):
+            continue
+        tag = release.get("tag_name", "")
+        match = QTKEYCHAIN_TAG_RE.fullmatch(tag)
+        if not match:
+            continue
+
+        version = tuple(int(part) for part in match.groups()[:3])
+        revision = int(match.group(4))
+        if version[:2] != locked_version[:2]:
+            continue
+        if (version, revision) < (locked_version, locked_revision):
+            continue
+
+        version_text = ".".join(str(part) for part in version)
+        revision_text = f"r{revision}"
+        prefix = f"qtkeychain-{version_text}-{revision_text}-qt6.11"
+        required_assets = {
+            f"{prefix}-windows-x64.tar.gz",
+            f"{prefix}-macos-arm64.tar.gz",
+            f"{prefix}-macos-x86_64.tar.gz",
+            f"{prefix}-android-arm64-v8a.tar.gz",
+            f"{prefix}-android-x86_64.tar.gz",
+        }
+        assets = {asset.get("name", "") for asset in release.get("assets", [])}
+        if not required_assets.issubset(assets):
+            continue
+
+        candidates.append((version, revision, tag, version_text, revision_text))
+
+    if not candidates:
+        return locked["tag"], locked["version"], locked["revision"]
+
+    _, _, tag, version_text, revision_text = max(candidates)
+    return tag, version_text, revision_text
+
+
 def write_output(name: str, value: str) -> None:
     if "\n" in value or "\r" in value:
         raise RuntimeError(f"Invalid multiline output for {name}")
@@ -115,18 +172,24 @@ def main() -> None:
         qca_tag = latest_compatible_release("qca", lock["qca"])
 
     qtkeychain = lock["qtkeychain"]
+    qtkeychain_tag = qtkeychain["tag"]
+    qtkeychain_version = qtkeychain["version"]
+    qtkeychain_revision = qtkeychain["revision"]
+    if args.mode == "nightly":
+        qtkeychain_tag, qtkeychain_version, qtkeychain_revision = latest_compatible_qtkeychain(qtkeychain)
+
     summary = (
         f"iris={iris_tag};"
         f"qca={qca_tag};"
-        f"qtkeychain={qtkeychain['tag']}"
+        f"qtkeychain={qtkeychain_tag}"
     )
     fingerprint = hashlib.sha256(summary.encode("utf-8")).hexdigest()
 
     write_output("iris_tag", iris_tag)
     write_output("qca_tag", qca_tag)
-    write_output("qtkeychain_tag", qtkeychain["tag"])
-    write_output("qtkeychain_version", qtkeychain["version"])
-    write_output("qtkeychain_revision", qtkeychain["revision"])
+    write_output("qtkeychain_tag", qtkeychain_tag)
+    write_output("qtkeychain_version", qtkeychain_version)
+    write_output("qtkeychain_revision", qtkeychain_revision)
     write_output("dependency_summary", summary)
     write_output("dependency_fingerprint", fingerprint)
 
