@@ -384,6 +384,7 @@ Item {
                 spacing: 3
 
                 ToolButton {
+                    id: newFolderButton
                     objectName: "newFolderButton"
                     display: AbstractButton.IconOnly
                     enabled: root.workspace.folderCatalogAvailable
@@ -407,8 +408,8 @@ Item {
                             radius: width / 2
                             anchors.right: parent.right
                             anchors.bottom: parent.bottom
-                            color: palette.window
-                            border.color: palette.windowText
+                            color: newFolderButton.palette.window
+                            border.color: newFolderButton.palette.windowText
                             border.width: 1
 
                             Label {
@@ -416,7 +417,7 @@ Item {
                                 text: "+"
                                 font.bold: true
                                 font.pixelSize: 14
-                                color: palette.windowText
+                                color: newFolderButton.palette.windowText
                             }
                         }
                     }
