@@ -71,6 +71,24 @@ class AndroidQmlFilterTests(unittest.TestCase):
             kept = json.loads(output.getvalue())
             self.assertEqual([entry["name"] for entry in kept], ["QtQuick.Controls.Material"])
 
+    def test_configure_without_optional_qt_host_dir(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "Qt/6.11.3"
+            android = root / "android_arm64_v8a"
+            android.mkdir(parents=True)
+            host = root / "gcc_64/libexec"
+            host.mkdir(parents=True)
+            scanner = host / "qmlimportscanner"
+            scanner.write_text("#!/bin/sh\\nexit 0\\n", encoding="utf-8")
+            scanner.chmod(0o755)
+            settings = android / "deployment.json"
+            settings.write_text(json.dumps({"qt": str(android)}), encoding="utf-8")
+            with mock.patch.dict(os.environ, {"QT_ROOT_DIR": str(android)}):
+                with contextlib.redirect_stdout(io.StringIO()) as output:
+                    result = filter_module.configure(settings)
+            self.assertEqual(result, 0)
+            self.assertEqual(output.getvalue().strip(), str(scanner.resolve()))
+
     def test_configure_preserves_other_deployment_settings(self):
         with tempfile.TemporaryDirectory() as temp:
             host = Path(temp)
