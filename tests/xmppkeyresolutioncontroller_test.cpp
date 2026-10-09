@@ -21,6 +21,7 @@ private slots:
     void firstInstallKeyGenerationFailureCanRetry();
     void firstInstallCancelledDoesNotInstallKey();
     void existingLocalKeyCannotStartFresh();
+    void freshKeyMismatchPolicyIsScopedToExplicitChoice();
 };
 
 void XmppKeyResolutionControllerTest::completesRecovery()
@@ -368,6 +369,22 @@ void XmppKeyResolutionControllerTest::existingLocalKeyCannotStartFresh()
     controller.startFresh();
     QCOMPARE(generated, 0);
     QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ProblemPage));
+}
+
+void XmppKeyResolutionControllerTest::freshKeyMismatchPolicyIsScopedToExplicitChoice()
+{
+    XmppConfig config;
+    // Ordinary key recovery must still be triggered when all published
+    // encrypted indices belong to a foreign key.
+    QVERIFY(config.foreignKeyOnlyIsError(0, 3));
+    QVERIFY(!config.foreignKeyOnlyIsError(1, 3));
+    QVERIFY(!config.foreignKeyOnlyIsError(0, 0));
+
+    // A user-selected fresh local storage preserves and ignores old indices,
+    // instead of immediately reopening recovery after installing the key.
+    config.allowForeignKeyIndices = true;
+    QVERIFY(!config.foreignKeyOnlyIsError(0, 3));
+    QVERIFY(!config.foreignKeyOnlyIsError(4, 3));
 }
 
 QTEST_GUILESS_MAIN(XmppKeyResolutionControllerTest)
