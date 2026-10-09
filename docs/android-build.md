@@ -15,6 +15,35 @@ application and the shared Qt Quick editor.
 The Android target is allowed to use Qt 6.11 APIs because Qt is deployed with the
 APK/AAB. `QT_ANDROID_MIN_SDK_VERSION` is set to 28 on `anykeep_mobile`.
 
+
+## Release APK size
+
+Release CI/package builds strip the AnyKeep application ELF explicitly with the
+`llvm-strip` from the pinned Android NDK before Qt's Android deployment step.
+
+This is intentional. The Gradle `stripReleaseDebugSymbols` task can fail to
+locate an NDK that was provisioned outside the Android SDK's side-by-side
+`ndk/` directory. When that happens Gradle logs `Unable to strip ...` and
+packages the application library unchanged. In October 2026 this made
+`libanykeep_arm64-v8a.so` about 107 MB, with roughly 100 MB of DWARF/debug
+sections, and produced a ~203 MB single-ABI APK.
+
+The shared Android build action now:
+
+1. builds `anykeep_mobile` first;
+2. strips its application `.so` with the exact configured NDK;
+3. rejects remaining DWARF sections;
+4. builds the APK;
+5. rejects an application library above 32 MiB or an APK above 140 MiB.
+
+Most Qt, Iris, QCA and FFmpeg libraries shipped by their upstream/prebuilt
+packages are already stripped. After the application ELF regression is fixed,
+the next size-reduction layer is dependency pruning: Qt Android's automatic
+deployment currently includes several Quick Controls styles and QML tooling
+plugins that a production AnyKeep APK may not need. Those should only be
+removed with explicit runtime coverage because `QT_ANDROID_DEPLOYMENT_DEPENDENCIES`
+overrides Qt's automatic dependency detection completely.
+
 ## Qt Creator setup
 
 1. Install Qt 6.11 for Desktop and Android, including the `arm64-v8a` Android
