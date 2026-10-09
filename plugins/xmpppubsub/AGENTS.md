@@ -87,6 +87,13 @@ key recovery. The remote encrypted items are never deleted.
 This avoids bypassing key recovery silently, while permitting a new user
 to initialize XMPP notes without owning another AnyKeep device.
 
+On the final review screen, existing-key synchronization uses **Sync notes**
+rather than **Repair**. The shared QML host can ask the Android shell to
+return to the notes list once `finished(true)` is emitted; this is a
+presentation-only optional window method and must never fire on cancel
+or incomplete recovery. The Android `StackView` belongs to the mobile
+shell, not the XMPP plugin.
+
 ## Verification
 
 ```sh
