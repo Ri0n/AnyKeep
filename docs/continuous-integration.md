@@ -54,15 +54,24 @@ QtKeychain is resolved from AnyKeep's own packaged dependency releases using
 the same conservative same-minor rule; a newer bundle is eligible only when
 the complete Windows/macOS/Android asset set exists.
 
-The 03:00 UTC scheduled run is skipped when both the AnyKeep commit and the
-resolved compatible dependency set are identical to the markers recorded by
-the last successful `nightly` release. Manual runs and version-tag builds are
-never suppressed by this gate.
+The 03:00 UTC scheduled run is skipped when no build-relevant repository files
+have changed since the last successful `nightly` release and the resolved
+compatible dependency set is unchanged. Documentation-only changes under
+`docs/`, README/AGENTS files, and license text do not wake the nightly build;
+source, CMake, packaging, workflow/action, and other build inputs do. Manual
+runs and semantic-version-tag builds are never suppressed by this gate.
 
 The separate `windows-nightly.yml` workflow is intentionally no longer needed.
 Keeping nightly and stable assembly in one workflow prevents CMake flags,
 dependency setup, update-channel selection, and package targets from drifting
 apart.
+
+
+The post-package `Publish AnyKeep updates` workflow derives the updater channel
+from the Windows artifact itself. A tagged or explicitly selected stable build
+publishes to `updates/stable`; a nightly build publishes to `updates/nightly`.
+The four-file updater payload is validated before the mutable channel manifest
+is atomically made visible.
 
 ## Windows distribution artifacts
 
