@@ -80,6 +80,8 @@ class XmppThemeContrastTests(unittest.TestCase):
         self.assertIn('window.showNotesAfterXmppKeyResolution()', qml)
         self.assertIn('function showNotesAfterXmppKeyResolution()', shell)
         self.assertIn('navigation.pop(null, StackView.Immediate)', shell)
+        self.assertIn('page.returnToNotesAfterXmppKeyResolution === true', shell)
+        self.assertGreaterEqual(shell.count('property bool returnToNotesAfterXmppKeyResolution: true'), 6)
 
         # The user-facing action is synchronization, not device repair.
         controller = (PLUGIN / "xmppkeyresolutioncontroller.cpp").read_text(encoding="utf-8")
