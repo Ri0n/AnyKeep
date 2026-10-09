@@ -148,7 +148,8 @@ jobs:
       - name: Download and install QCA packages
         uses: ./.github/actions/install-qca-iris-linux
         with:
-          ubuntu-version: ${{ matrix.ubuntu-version }}
+          distribution: ubuntu
+          distribution-version: ${{ matrix.ubuntu-version }}
           qca-tag: ${{ env.QCA_TAG }}
           github-token: ${{ github.token }}
 
@@ -211,6 +212,36 @@ jobs:
 
       - name: Test
         run: ctest --test-dir "${{ matrix.build_dir }}" --output-on-failure --timeout 180
+
+  debian13-package:
+    name: Debian 13 / package
+    runs-on: ubuntu-latest
+    container: debian:13
+    timeout-minutes: 120
+    steps:
+      - name: Bootstrap Debian container
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates cmake gh git python3
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Load dependency versions
+        uses: ./.github/actions/load-dependencies
+
+      - name: Build Debian 13 packages
+        uses: ./.github/actions/build-deb-package
+        with:
+          profile: sdk-debian-13
+          distribution: debian
+          distribution-version: "13"
+          qca-tag: ${{ env.QCA_TAG }}
+          iris-tag: ${{ env.IRIS_TAG }}
+          github-token: ${{ github.token }}
 
   android:
     name: Android / ${{ matrix.abi }} APK
