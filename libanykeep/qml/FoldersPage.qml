@@ -403,6 +403,7 @@ Item {
 
                         // Explicit create affordance instead of a bare folder.
                         Rectangle {
+                            objectName: "newFolderPlusBadge"
                             width: 15
                             height: 15
                             radius: width / 2
