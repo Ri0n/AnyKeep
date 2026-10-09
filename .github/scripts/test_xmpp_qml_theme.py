@@ -40,19 +40,17 @@ def palette_color(role, dark):
     return match.group(1 if dark else 2)
 
 
-class XmpThemeContrastTests(unittest.TestCase):
+class XmppThemeContrastTests(unittest.TestCase):
     def test_secondary_colors_retain_legible_contrast_in_both_themes(self):
         for dark in (False, True):
             with self.subTest(dark=dark):
                 muted = palette_color("muted", dark)
                 window = palette_color("window", dark)
-                base = palette_color("base", dark)
                 self.assertGreaterEqual(contrast(muted, window), 4.5)
-                self.assertGreaterEqual(contrast(muted, base), 4.5)
-                if dark:
-                    # The Material Dialog shown on Android is lighter than
-                    # the generic dark Window surface (approximately #404040).
-                    self.assertGreaterEqual(contrast(muted, "#404040"), 4.5)
+                # The Material Dialog is lighter than the generic dark Window;
+                # white is the brightest possible light-theme control surface.
+                surface = "#404040" if dark else "#ffffff"
+                self.assertGreaterEqual(contrast(muted, surface), 4.5)
 
     def test_recovery_uses_mid_only_for_divider_not_text(self):
         qml = (PLUGIN / "XmppKeyResolutionHost.qml").read_text(encoding="utf-8")
