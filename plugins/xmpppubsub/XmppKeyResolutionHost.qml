@@ -107,7 +107,7 @@ Item {
 
             Label {
                 text: qsTr("%1 / %2").arg(root.controller.currentPage + 1).arg(root.controller.pageCount)
-                color: palette.mid
+                color: palette.placeholderText
             }
         }
 
@@ -116,7 +116,7 @@ Item {
             visible: text.length > 0
             text: root.pageSubtitle()
             wrapMode: Text.WordWrap
-            color: palette.mid
+            color: palette.placeholderText
         }
 
         Rectangle {
@@ -222,7 +222,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: deviceDelegate.fingerprint
                                     wrapMode: Text.WordWrap
-                                    color: palette.mid
+                                    color: palette.placeholderText
                                     font.family: "monospace"
                                     font.pixelSize: 11
                                 }
@@ -230,7 +230,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     text: deviceDelegate.trustText
-                                    color: deviceDelegate.trusted ? palette.highlight : palette.mid
+                                    color: deviceDelegate.trusted ? palette.text : palette.placeholderText
                                     font.pixelSize: 12
                                     elide: Text.ElideRight
                                     maximumLineCount: 1
@@ -258,7 +258,7 @@ Item {
                         horizontalAlignment: Text.AlignHCenter
                         text: qsTr("No OMEMO devices are currently available. Start AnyKeep on another device and retry.")
                         wrapMode: Text.WordWrap
-                        color: palette.mid
+                        color: palette.placeholderText
                     }
                 }
 
@@ -272,7 +272,7 @@ Item {
                     Layout.fillWidth: true
                     text: qsTr("Compare fingerprints on the other device. The client label is shown separately from the OMEMO ID; AnyKeep normally publishes its XMPP resource as that label, but XMPP does not guarantee this mapping or provide a last-used time.")
                     wrapMode: Text.WordWrap
-                    color: palette.mid
+                    color: palette.placeholderText
                     font.pixelSize: 12
                 }
             }
@@ -309,7 +309,10 @@ Item {
                         required property bool available
 
                         width: Math.max(0, ListView.view.width - keysScrollBar.width - 6)
-                        opacity: keyDelegate.available ? 1.0 : 0.55
+                        // Keep descriptions legible for unavailable keys. The
+                        // disabled radio control already conveys that a key
+                        // cannot be selected; dimming the whole Frame also
+                        // fades its explanatory text below readable contrast.
                         padding: 6
 
                         contentItem: RowLayout {
@@ -328,6 +331,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     text: keyDelegate.fingerprint
+                                    color: keyDelegate.available ? palette.text : palette.placeholderText
                                     font.bold: true
                                     font.family: "monospace"
                                     font.pixelSize: 12
@@ -338,13 +342,14 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     text: qsTr("Available from: %1").arg(keyDelegate.source)
+                                    color: keyDelegate.available ? palette.text : palette.placeholderText
                                     wrapMode: Text.WordWrap
                                 }
 
                                 Label {
                                     Layout.fillWidth: true
                                     text: qsTr("Notes: %1 — %2").arg(keyDelegate.noteCount).arg(keyDelegate.status)
-                                    color: palette.mid
+                                    color: palette.placeholderText
                                     wrapMode: Text.WordWrap
                                 }
                             }
@@ -376,7 +381,7 @@ Item {
                             : qsTr("Start AnyKeep on a device that still has access to your notes, then try again. If you saved a recovery key, return to XMPP settings and import it on this device. If the old key is permanently lost, you can start with an empty storage instead.")
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
-                        color: palette.mid
+                        color: palette.placeholderText
                     }
 
                     RowLayout {
@@ -420,7 +425,7 @@ Item {
                     visible: keysView.count > 0
                     text: qsTr("Usually you should keep the key that owns the most notes. A key marked unavailable cannot be selected; bring one of its devices online or import its recovery key first.")
                     wrapMode: Text.WordWrap
-                    color: palette.mid
+                    color: palette.placeholderText
                 }
             }
 
