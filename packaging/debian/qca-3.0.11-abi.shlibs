@@ -1,6 +1,0 @@
-# Temporary override for QCA v3.0.11's incorrectly exact-versioned shlibs.
-# QCA's 3.x SONAME ABI baseline is 3.0.0. This shlibs record is NOT
-# AnyKeep's desired minimum: AnyKeep independently requires >= 3.0.10 in
-# its runtime Debian control file for QCA reliability fixes.
-# Only injected when packaging against a QCA 3.0.11 runtime.
-libqca3-qt6 3 libqca3-qt6-3 (>= 3.0.0)
