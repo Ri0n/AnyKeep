@@ -41,6 +41,7 @@
 #include <iris/xmpp_status.h>
 #include <iris/xmpp_tasks.h>
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QtCrypto>
 
