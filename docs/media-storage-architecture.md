@@ -693,3 +693,41 @@ Integration guardrails:
 - replacing a playback source detaches the old `QIODevice` from `QMediaPlayer` before destroying it;
 - derived posters are cache artifacts produced by an explicit probe/extraction path, never persisted once per decoded playback frame;
 - external-file locators and chunk fingerprints are encrypted local source-registry state and must never be serialized into portable `MediaReference` or remote media descriptors.
+
+
+## Local-only synchronization observability
+
+`MediaSyncService` is a provider-independent observation interface for
+durably available media content on **this installation**. Providers publish
+`MediaSyncSnapshot` values in *plaintext file bytes*, and the shared
+`MediaSyncController` watches only the media referenced by a live
+`NoteEditor`. Its lifecycle follows the canonical editor; changing/removing
+media drops watchers without changing the note model. Media sync state is
+never serialized into note bodies, manifests, undo/redo history, drafts or
+remote metadata. A local managed blob is immediately complete.
+
+`IrisMediaSync` owns retrieval. A chunk contributes plaintext bytes to the
+snapshot only after AES-GCM authentication and successful atomic `QSaveFile`
+commit, including the shorter final record. Its startup scan revalidates
+previously saved encrypted records. Playback seeking only changes Jingle
+transfer priority and never increments already-accounted bytes; range
+completion or decoder EOF do not signify full offline availability. Connection
+loss reports waiting, not an active transfer. Verified bytes survive temporary
+network failures and restart.
+
+For an open note the controller forms unique immutable media identities
+from content fingerprints, sums their `verifiedBytes` and `totalBytes`
+and divides these **byte totals**, not per-file percentages. Repeated
+references are counted once. The four states — waiting/paused, actively
+transferring, error and complete — drive the same themed circular QML
+indicator in the desktop toolbar, Android header, image/video alignment
+controls and audio player strip. Progress is the arc fraction; only actual
+transfer animates its rotation. No quantities are displayed. Distinct
+pause/transfer/error/check center glyphs and accessibility text distinguish
+states without relying on color.
+
+The progressive Jingle chunked representation is the source of verified
+partial progress. Legacy single-object and HTTP-only transports currently
+have no per-record durable progress feed; locally materialized files can
+still report completion. Extending the provider-neutral observation
+contract to other storage backends requires no changes to the shared UI.
