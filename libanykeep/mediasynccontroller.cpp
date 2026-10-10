@@ -5,6 +5,7 @@
 #include "noteeditor.h"
 
 #include <QSet>
+#include <utility>
 
 namespace AnyKeep {
 MediaSyncController::MediaSyncController(NoteEditor *editor, QObject *parent) :
