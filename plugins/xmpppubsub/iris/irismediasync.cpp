@@ -563,14 +563,16 @@ void IrisMediaSync::prioritize(quint64 index)
     d->demandPending = true;
     d->schedule();
 }
-void IrisMediaSync::setConnected(bool connected)
+void IrisMediaSync::setConnected(bool connected, XMPP::Client *client)
 {
+    d->client = client;
+    if (!connected && !d->stopped && (!d->parts.isEmpty() || d->request))
+        d->fail(QStringLiteral("Media connection lost"));
     d->transferring = false;
+    d->error.clear();
     d->report();
-    if (connected && !d->stopped) {
-        d->error.clear();
+    if (connected && !d->stopped)
         d->schedule();
-    }
 }
 void IrisMediaSync::cancel()
 {
