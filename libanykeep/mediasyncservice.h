@@ -4,6 +4,8 @@
 #include "anykeep_export.h"
 #include "mediareference.h"
 #include <QObject>
+#include <QHash>
+#include <QList>
 #include <QPointer>
 #include <functional>
 
