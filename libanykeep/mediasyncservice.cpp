@@ -98,8 +98,13 @@ void MediaSyncService::watch(QObject *subscriber, const MediaReference &referenc
     entries.append({subscriber, reference});
     if (first)
         dispatch(reference);
-    connect(subscriber, &QObject::destroyed, this, [this, subscriber] { unwatch(subscriber); },
-            Qt::AutoConnection);
+    if (!connectedSubscribers_.contains(subscriber)) {
+        connectedSubscribers_.insert(subscriber);
+        connect(subscriber, &QObject::destroyed, this, [this, subscriber] {
+            unwatch(subscriber);
+            connectedSubscribers_.remove(subscriber);
+        });
+    }
 }
 
 void MediaSyncService::unwatch(QObject *subscriber)
