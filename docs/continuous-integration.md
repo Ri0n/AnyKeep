@@ -150,7 +150,7 @@ with compatible QCA v3.0.10. The [QCA v3.0.10 → v3.0.11 diff]
 (https://github.com/psi-im/qca/compare/v3.0.10...v3.0.11) modifies
 version/CI logic only; no public headers or compiled source changes.
 
-The canonical fix belongs to QCA's Debian packaging (QCA PR #22):
+QCA's Debian packaging fix belongs in QCA PR #22:
 `libqca3-qt6 3 libqca3-qt6-3 (>= 3.0.10)`. Already released QCA
 v3.0.11 packages cannot be edited in place. For builds against **exactly**
 v3.0.11, `debian/rules` temporarily passes
