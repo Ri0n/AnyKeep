@@ -31,6 +31,7 @@ namespace AnyKeep {
 class IrisKeySyncTask;
 struct IrisJingleCapability;
 class IrisJinglePublicationProvider;
+class IrisMediaSync;
 class IrisOmemoStorage;
 class IrisTrustStorage;
 
@@ -87,6 +88,7 @@ private:
     void startPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize, quint64 offset,
                                   quint64 length, MediaRangeService::Completion callback);
     QHash<QString, QList<MediaRangeService::Completion>> pendingMediaChunks_;
+    QHash<QString, QPointer<IrisMediaSync>>              mediaSyncJobs_;
     QHash<QString, MediaReference>                       cachedLegacyMedia_;
     QString                                              cachedMediaChunk_;
     QByteArray                                           cachedMediaPlain_;

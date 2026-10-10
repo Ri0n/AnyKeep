@@ -1,3 +1,4 @@
+#include "iris/irismediasync.h"
 #include "iris/irisxmppbackend.h"
 #include "localmediastore.h"
 #include "mediarangeservice.h"
@@ -6,6 +7,7 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QDirIterator>
+#include <QDomDocument>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QLoggingCategory>
@@ -159,6 +161,73 @@ private slots:
             reference.remoteData.insert(QStringLiteral("xmpp.sfs"), loaded.note.media[0].fileSharingXml);
             reference.remoteData.insert(QStringLiteral("xmpp.instance"), config.instanceId);
             QVERIFY(!store->contains(reference));
+#ifdef IRIS_FT_DEFERRED_RECEIPTS
+            QDomDocument descriptorXml;
+            QVERIFY(descriptorXml.setContent(loaded.note.media[0].fileSharingXml, true));
+            XMPP::StatelessFileSharing::FileSharing sharing(descriptorXml.documentElement());
+            IrisChunkedMediaSource                  chunked;
+            for (const auto &source : sharing.sources().items()) {
+                const auto parsed = IrisChunkedMediaSource::fromSource(source, reference.size, reference.checksum);
+                if (parsed)
+                    chunked = parsed.value;
+            }
+            QVERIFY(chunked.isValid());
+            const auto parameters = chunked.parameters;
+            QVERIFY(parameters.chunkCount() > 8);
+            const QByteArray identity = parameters.rootKey + parameters.noncePrefix + parameters.plainChecksum
+                + QByteArray::number(parameters.plainSize) + ':' + QByteArray::number(parameters.chunkSize);
+            const QString cacheDirectory = Utils::anykeepDataDir() + QStringLiteral("/media-ranges/")
+                + QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
+            QVERIFY(QDir().mkpath(cacheDirectory));
+            const QSet<quint64> seeded { parameters.chunkCount() / 4, parameters.chunkCount() / 4 + 1,
+                                         parameters.chunkCount() / 2, parameters.chunkCount() / 2 + 1,
+                                         parameters.chunkCount() - 2, parameters.chunkCount() - 1 };
+            const auto          seededTime = QDateTime::fromSecsSinceEpoch(946684800, Qt::UTC);
+            QFile               seedOriginal(video);
+            QVERIFY(seedOriginal.open(QIODevice::ReadOnly));
+            for (const auto index : seeded) {
+                QVERIFY(seedOriginal.seek(index * parameters.chunkSize));
+                const auto record
+                    = MediaChunkWire::encryptChunk(parameters, index, seedOriginal.read(parameters.chunkSize));
+                QVERIFY(record);
+                QFile file(cacheDirectory + '/' + QString::number(index));
+                QVERIFY(file.open(QIODevice::WriteOnly));
+                QCOMPARE(file.write(record.value), record.value.size());
+                QVERIFY(file.setFileTime(seededTime, QFileDevice::FileModificationTime));
+            }
+            struct RequestedGap {
+                quint64 first, count;
+                QString sid;
+            };
+            QList<RequestedGap> requests;
+            int                 added            = 0;
+            bool                sessionCompleted = false;
+            connect(backend.client_, &XMPP::Client::xmlOutgoing, this, [&](const QString &xml) {
+                QDomDocument doc;
+                if (!doc.setContent(xml, true))
+                    return;
+                const auto jingle = doc.documentElement().firstChildElement(QStringLiteral("jingle"));
+                const auto action = jingle.attribute(QStringLiteral("action"));
+                if (action == QStringLiteral("session-terminate")
+                    && !jingle.firstChildElement(QStringLiteral("reason"))
+                            .firstChildElement(QStringLiteral("success"))
+                            .isNull())
+                    sessionCompleted = true;
+                if (action != QStringLiteral("content-add") && action != QStringLiteral("session-accept"))
+                    return;
+                const auto                       content = jingle.firstChildElement(QStringLiteral("content"));
+                XMPP::Jingle::FileTransfer::File file(
+                    content.firstChildElement(QStringLiteral("description")).firstChildElement(QStringLiteral("file")));
+                const auto range = file.range();
+                if (!range.isValid() || !range.length)
+                    return;
+                const auto span = quint64(parameters.chunkSize) + MediaChunkWire::Overhead;
+                requests.append(
+                    { range.offset / span, (range.length + span - 1) / span, jingle.attribute(QStringLiteral("sid")) });
+                if (action == QStringLiteral("content-add"))
+                    ++added;
+            });
+#endif
             QNetworkAccessManager manager;
             const auto            url = MediaRangeService::urlFor(reference);
             QVERIFY(!url.isEmpty());
@@ -219,7 +288,28 @@ private slots:
                 cachedBytes += cache.fileInfo().size();
             }
             qCInfo(lcProgressiveLive) << "LIVE_CACHED_WIRE_BYTES" << cachedBytes;
+#ifdef IRIS_FT_DEFERRED_RECEIPTS
+            QTRY_COMPARE_WITH_TIMEOUT(QDir(cacheDirectory).entryList(QDir::Files).size(),
+                                      qsizetype(parameters.chunkCount()), 180000);
+            QTRY_VERIFY_WITH_TIMEOUT(sessionCompleted, 30000);
+            for (const auto index : seeded)
+                QCOMPARE(QFileInfo(cacheDirectory + '/' + QString::number(index)).lastModified().toSecsSinceEpoch(),
+                         seededTime.toSecsSinceEpoch());
+            QSet<QString> sessionIds;
+            for (const auto &gap : requests) {
+                sessionIds.insert(gap.sid);
+                for (const auto index : seeded)
+                    QVERIFY2(index < gap.first || index >= gap.first + gap.count, "Requested an already cached chunk");
+            }
+            if (transportProfile == QStringLiteral("ice")) {
+                QVERIFY(added > 0);
+                QCOMPARE(sessionIds.size(), 1);
+            }
+            qCInfo(lcProgressiveLive) << "LIVE_FULL_SYNC_GAPS" << requests.size() << "CONTENT_ADDS" << added
+                                      << "SESSIONS" << sessionIds.size() << "CHUNKS" << parameters.chunkCount();
+#else
             QVERIFY(cachedBytes > 0 && cachedBytes < reference.size / 10);
+#endif
             // Cached records remain usable after disconnect; unauthenticated
             // bytes must never reach the decoder, even from persistent storage.
             backend.shutdown();

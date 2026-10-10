@@ -413,37 +413,74 @@ bool IrisJinglePublicationProvider::cacheCapability(const IrisJingleCapability &
             file.setSize(capability.wireSize);
             file.addHash(XMPP::Hash(XMPP::Hash::Sha256, capability.cipherHash));
             app->setFile(file);
-            QObject::connect(app, &XMPP::Jingle::FileTransfer::Application::deviceRequested, app,
-                             [app, capability, sid = session->sid()](quint64 offset, std::optional<quint64> size) {
-                                 qCDebug(lcIrisJingleMedia)
-                                     << "Published media device requested: publication=" << capability.publicationId
-                                     << "sid=" << sid << "offset=" << offset
-                                     << "length=" << (size ? QString::number(*size) : QStringLiteral("to-end"))
-                                     << "wire-size=" << capability.wireSize;
-                                 const bool invalidRange
-                                     = offset > capability.wireSize || (size && *size > capability.wireSize - offset);
-                                 if (invalidRange) {
-                                     qCWarning(lcIrisJingleMedia)
-                                         << "Published media range is out of bounds: publication="
-                                         << capability.publicationId;
-                                     app->setDevice(nullptr);
-                                     return;
-                                 }
-                                 auto *wire = new MediaChunkWireStream(capability.reference, capability.chunked, app);
-                                 if (!wire->open(QIODevice::ReadOnly) || !wire->seek(qint64(offset))) {
-                                     qCWarning(lcIrisJingleMedia)
-                                         << "Could not open/seek published media stream: publication="
-                                         << capability.publicationId << "offset=" << offset
-                                         << "stream-error=" << wire->errorString();
-                                     wire->deleteLater();
-                                     app->setDevice(nullptr);
-                                     return;
-                                 }
-                                 // Iris owns the requested range length through its internal
-                                 // bytesLeft counter, so the same seekable deterministic wire
-                                 // object can serve both complete and resumed transfers.
-                                 app->setDevice(wire);
-                             });
+            auto configureContent = [capability, session](XMPP::Jingle::FileTransfer::Application *content) {
+#ifdef IRIS_FT_DEFERRED_RECEIPTS
+                content->setKeepTransportUntilReceipt();
+#endif
+                QObject::connect(
+                    content, &XMPP::Jingle::FileTransfer::Application::deviceRequested, content,
+                    [content, capability, sid = session->sid()](quint64 offset, std::optional<quint64> size) {
+                        qCDebug(lcIrisJingleMedia)
+                            << "Published media device requested: publication=" << capability.publicationId
+                            << "sid=" << sid << "offset=" << offset
+                            << "length=" << (size ? QString::number(*size) : QStringLiteral("to-end"))
+                            << "wire-size=" << capability.wireSize;
+                        const bool invalidRange
+                            = offset > capability.wireSize || (size && *size > capability.wireSize - offset);
+                        if (invalidRange) {
+                            qCWarning(lcIrisJingleMedia)
+                                << "Published media range is out of bounds: publication=" << capability.publicationId;
+                            content->setDevice(nullptr);
+                            return;
+                        }
+                        auto *wire = new MediaChunkWireStream(capability.reference, capability.chunked, content);
+                        if (!wire->open(QIODevice::ReadOnly) || !wire->seek(qint64(offset))) {
+                            qCWarning(lcIrisJingleMedia) << "Could not open/seek published media stream: publication="
+                                                         << capability.publicationId << "offset=" << offset
+                                                         << "stream-error=" << wire->errorString();
+                            wire->deleteLater();
+                            content->setDevice(nullptr);
+                            return;
+                        }
+                        // Iris owns the requested range length through its internal
+                        // bytesLeft counter, so the same seekable deterministic wire
+                        // object can serve both complete and resumed transfers.
+                        content->setDevice(wire);
+                    });
+            };
+            configureContent(app);
+            QObject::connect(
+                session, &XMPP::Jingle::Session::newContentReceived, session, [session, capability, configureContent] {
+                    for (auto *base : session->contentList()) {
+                        if (!base || base->state() != XMPP::Jingle::State::Created || !base->isRemote())
+                            continue;
+                        if (base->pad()->ns() != XMPP::Jingle::FileTransfer::NS || base->senders() != session->role()) {
+                            base->remove(XMPP::Jingle::Reason::SecurityError,
+                                         QStringLiteral("Unsupported publication request"));
+                            continue;
+                        }
+                        auto         *content = static_cast<XMPP::Jingle::FileTransfer::Application *>(base);
+                        const auto    file    = content->file();
+                        const auto    range   = file.range();
+                        const auto    first = MediaChunkWire::chunkIndexForWireOffset(capability.chunked, range.offset);
+                        const quint64 end   = range.offset + range.length;
+                        const bool    alignedEnd = end == capability.wireSize
+                            || end % (quint64(capability.chunked.chunkSize) + MediaChunkWire::Overhead) == 0;
+                        if (!file.size() || *file.size() != capability.wireSize || !range.isValid() || !range.length
+                            || range.offset >= capability.wireSize || range.length > capability.wireSize - range.offset
+                            || !first || !alignedEnd
+                            || range.offset % (quint64(capability.chunked.chunkSize) + MediaChunkWire::Overhead) != 0) {
+                            content->remove(XMPP::Jingle::Reason::SecurityError,
+                                            QStringLiteral("Invalid publication gap"));
+                            continue;
+                        }
+                        auto accepted = file;
+                        accepted.setHashes({ XMPP::Hash(XMPP::Hash::Sha256) });
+                        content->setAcceptFile(accepted);
+                        configureContent(content);
+                        content->prepare();
+                    }
+                });
             session->addContent(app);
             QObject::connect(app, &XMPP::Jingle::FileTransfer::Application::stateChanged, app,
                              [id, sid = session->sid(), app](XMPP::Jingle::State status) {

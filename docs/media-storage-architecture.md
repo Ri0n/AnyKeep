@@ -604,10 +604,15 @@ Containers designed for progressive playback (for example fast-start MP4) can
 start as soon as their required metadata and initial samples are available.
 When a container needs metadata near the end of the object, the range scheduler can request that range independently.
 
-The existing Iris Jingle file-transfer implementation already has negotiated
-`Range { offset, length }` support and a streaming mode; the XMPP backend should
-map MediaStream range demand onto those facilities rather than introduce a
-second XMPP streaming protocol. HTTP sources use byte-range requests when the
+The Iris backend uses negotiated `Range { offset, length }` requests for finite
+uncached gaps. With Iris 1.1.3, one storage-owned job continues synchronizing the
+whole encrypted chunk representation while playback changes its priority. On
+shared transports, successive gaps use `content-add` in the existing BUNDLE;
+the previous content drains its partial chunk before removal, and completed
+content defers its receipt until the successor is accepted and connected.
+Authenticated cached islands are skipped, and earlier gaps are filled after the
+tail. Only complete, authenticated records enter the persistent range cache.
+HTTP sources use byte-range requests when the
 server supports them. A backend/source that cannot serve ranges remains valid,
 but playback may have to wait for sufficient sequential hydration.
 

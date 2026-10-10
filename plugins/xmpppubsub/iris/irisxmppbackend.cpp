@@ -3,6 +3,7 @@
 #include "irischunkedmediasource.h"
 #include "irisjinglepublicationprovider.h"
 #include "iriskeysynctask.h"
+#include "irismediasync.h"
 #include "irisomemostorage.h"
 #include "iristruststorage.h"
 #include "localmediastore.h"
@@ -386,6 +387,12 @@ XmppStatusResult IrisXmppBackend::cancelledResult() const
 void IrisXmppBackend::resetClient()
 {
     ++generation_;
+#ifdef IRIS_FT_DEFERRED_RECEIPTS
+    const auto syncJobs = std::exchange(mediaSyncJobs_, {});
+    for (const auto &job : syncJobs)
+        if (job)
+            delete job;
+#endif
     mediaRangeTransfers_.clear();
     mediaRangeTransferActive_ = false;
     cachedLegacyMedia_.clear();
@@ -1631,7 +1638,15 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
     // to four records (normally 4 MiB), including random seeks near EOF.
     quint64 windowCount  = 1;
     quint64 windowLength = *firstWireLength;
-    while (windowCount < 4) {
+#ifdef IRIS_FT_DEFERRED_RECEIPTS
+    const auto transportSources = descriptor.sources.items();
+    const bool publishedSync = std::any_of(transportSources.cbegin(), transportSources.cend(), [](const auto &source) {
+        return source.type() == XMPP::StatelessFileSharing::Source::Type::JinglePub;
+    });
+#else
+    const bool publishedSync = false;
+#endif
+    while (!publishedSync && windowCount < 4) {
         const auto nextLength = MediaChunkWire::wireChunkSize(parameters, index + windowCount);
         if (!nextLength || windowLength + *nextLength > 4 * (1048576 + 80))
             break;
@@ -1657,7 +1672,36 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
               }
               callback(plain.mid(qsizetype(within), qsizetype(qMin<qint64>(length, plain.size() - within))), {});
           };
+#ifdef IRIS_FT_DEFERRED_RECEIPTS
+    auto syncJob = [this, directory, descriptor]() -> IrisMediaSync * {
+        if (!connected_ || !client_)
+            return nullptr;
+        auto job = mediaSyncJobs_.value(directory);
+        if (!job) {
+            XMPP::Jingle::JinglePub publication;
+            for (const auto &source : descriptor.sources.items()) {
+                if (source.type() == XMPP::StatelessFileSharing::Source::Type::JinglePub) {
+                    publication = source.jinglePub();
+                    break;
+                }
+            }
+            if (!publication.isValid() || !publication.from().compare(bareJid(config_), false))
+                return nullptr;
+            job = new IrisMediaSync(client_, publication, descriptor.parameters, directory, config_.timeoutMs, this);
+            mediaSyncJobs_.insert(directory, job);
+        }
+        return job;
+    };
+    auto prioritizeSync = [syncJob, index] {
+        if (const auto job = syncJob())
+            job->prioritize(index);
+    };
+#else
+    auto syncJob        = [] { return nullptr; };
+    auto prioritizeSync = [] {};
+#endif
     if (cachedMediaChunk_ == path) {
+        prioritizeSync();
         deliver(cachedMediaPlain_, {});
         return;
     }
@@ -1668,6 +1712,7 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
             if (opened) {
                 cachedMediaChunk_ = path;
                 cachedMediaPlain_ = opened.value;
+                prioritizeSync();
                 deliver(opened.value, {});
                 return;
             }
@@ -1726,7 +1771,8 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
         for (const auto &callback : callbacks)
             callback(plain, error);
     };
-    ensureReadyAsync([this, generation, descriptor, wireOffset, wireLength, wireSize, finish](XmppStatusResult ready) {
+    ensureReadyAsync([this, generation, descriptor, syncJob, index, wireOffset, wireLength, wireSize,
+                      finish](XmppStatusResult ready) {
         if (generation != generation_)
             return;
         if (!ready.ok) {
@@ -1785,6 +1831,21 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
             startHttp();
             return;
         }
+#ifdef IRIS_FT_DEFERRED_RECEIPTS
+        auto job = syncJob();
+        if (!job) {
+            startHttp();
+            return;
+        }
+        job->readWireChunk(index, [finish, startHttp](QByteArray bytes, QString error) {
+            if (error.isEmpty())
+                finish(std::move(bytes), {});
+            else {
+                qCWarning(lcIrisXmpp) << "Jingle media synchronization failed:" << error;
+                startHttp();
+            }
+        });
+#else
         fetchPublishedRangeAsync(publication.from(), publication.id(), *wireSize, *wireOffset, *wireLength,
                                  [finish, startHttp](QByteArray bytes, QString error) {
                                      if (error.isEmpty())
@@ -1794,6 +1855,7 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
                                          startHttp();
                                      }
                                  });
+#endif
     });
 }
 

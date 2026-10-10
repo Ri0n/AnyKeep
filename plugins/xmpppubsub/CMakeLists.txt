@@ -27,7 +27,9 @@ if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
          iris/irisjinglepublicationprovider.cpp
          iris/irisjinglepublicationprovider.h
          iris/irischunkedmediasource.cpp
-         iris/irischunkedmediasource.h)
+         iris/irischunkedmediasource.h
+         iris/irismediasync.cpp
+         iris/irismediasync.h)
   endif()
 else()
   if(NOT TARGET QCoro::Core)

@@ -132,6 +132,31 @@ All three nodes must be persistent, payload-delivering, and allowlist-only. The
 plugin refuses to use a server that does not advertise a PEP identity and
 PubSub `publish-options`.
 
+## Chunked media synchronization
+
+With Iris 1.1.3, a requested chunked Jingle attachment starts a backend-owned
+download of the entire encrypted representation. Playback prioritizes missing
+data; closing a playback HTTP request does not cancel background synchronization.
+The job restores and authenticates existing cached records before planning its
+next finite gap. Each received record is authenticated and committed atomically;
+cached islands bound requests so previously verified chunks are not fetched again.
+
+For a negotiated shared transport, a seek adds the nearest missing gap through
+XEP-0234 `content-add` in the existing BUNDLE session. The previous content finishes
+its partial chunk and pauses. It is removed only after the successor's
+`content-accept` commits its BUNDLE membership and its data channel connects.
+A completed gap defers its `received` receipt until this same handover succeeds.
+After reaching the file tail, the job fills earlier gaps and closes the session
+once all chunks and their transfer receipts have completed. A seek into a wholly
+cached tail keeps the current background content running.
+
+Both endpoints need the updated Iris/AnyKeep implementation for this behavior.
+Transports without negotiated sharing use fresh publication sessions for finite
+gaps. Builds using older Iris retain the previous bounded range-fetching path.
+HTTP sources retain bounded Range fetching and serve as a fallback on Jingle
+failure. Reconnect/shutdown cancels transport work while committed encrypted
+cache records remain reusable; a later read can retry a transient failure.
+
 ## Jingle media range diagnostics
 
 Enable the dedicated Qt logging category on both the publisher and receiver:
