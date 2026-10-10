@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../../reorder" as Reorder
+import "../../shared" as Shared
 
 FocusScope {
     id: mediaRoot
@@ -393,11 +394,22 @@ FocusScope {
                 }
             }
             ToolButton {
+                id: fullScreenMediaButton
+                objectName: "mediaFullscreenButton-" + mediaRoot.block.index
                 visible: mediaRoot.video
                 Layout.preferredWidth: parent.height - 2
                 Layout.preferredHeight: Layout.preferredWidth
                 enabled: mediaRoot.playback && mediaRoot.playback.available
-                text: "⛶"
+                padding: 6
+                display: AbstractButton.IconOnly
+                contentItem: Shared.ThemedIconImpl {
+                    objectName: "mediaFullscreenGlyph-" + mediaRoot.block.index
+                    themeName: "__bundled__"
+                    fallbackName: "view-fullscreen-symbolic.svg"
+                    recolorFallback: true
+                    fallbackTintMode: String(fullScreenMediaButton.palette.buttonText)
+                    pixelSize: 20
+                }
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Full screen")
                 Accessible.name: qsTr("Show video full screen")
@@ -413,9 +425,20 @@ FocusScope {
                 }
             }
             ToolButton {
+                id: mediaActionsButton
+                objectName: "mediaActionsButton-" + mediaRoot.block.index
                 Layout.preferredWidth: parent.height - 2
                 Layout.preferredHeight: Layout.preferredWidth
-                text: "⋮"
+                padding: 6
+                display: AbstractButton.IconOnly
+                contentItem: Shared.ThemedIconImpl {
+                    objectName: "mediaActionsGlyph-" + mediaRoot.block.index
+                    themeName: "__bundled__"
+                    fallbackName: "view-more-vertical-symbolic.svg"
+                    recolorFallback: true
+                    fallbackTintMode: String(mediaActionsButton.palette.buttonText)
+                    pixelSize: 20
+                }
                 Accessible.name: qsTr("Media actions")
                 onClicked: {
                     mediaRoot.selectAndFocus()
@@ -496,6 +519,7 @@ FocusScope {
 
         ToolButton {
             id: resetImageButton
+            objectName: "mediaResetPresentationButton-" + mediaRoot.block.index
             width: imageActions.height
             height: imageActions.height
             padding: 4
@@ -503,13 +527,13 @@ FocusScope {
             enabled: mediaRoot.block.mediaDisplayWidth > 0 || mediaRoot.normalizedAlignment !== "center"
             ToolTip.visible: hovered
             ToolTip.text: qsTr("Reset media size and alignment")
-            contentItem: Label {
-                text: "↺"
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                color: resetImageButton.palette.buttonText
-                opacity: resetImageButton.enabled ? 1 : 0.45
-                font.pixelSize: Math.max(15, resetImageButton.height * 0.62)
+            contentItem: Shared.ThemedIconImpl {
+                objectName: "mediaResetPresentationGlyph-" + mediaRoot.block.index
+                themeName: "__bundled__"
+                fallbackName: "view-refresh-symbolic.svg"
+                recolorFallback: true
+                fallbackTintMode: String(resetImageButton.palette.buttonText)
+                pixelSize: 20
             }
             onClicked: mediaRoot.resetPresentation()
         }

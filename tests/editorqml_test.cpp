@@ -2,6 +2,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFont>
+#include <QFile>
 #include <QMimeData>
 #include <QPalette>
 #include <QQmlComponent>
@@ -138,6 +139,55 @@ private slots:
         QTRY_COMPARE(component.status(), QQmlComponent::Ready);
         std::unique_ptr<QObject> surface(component.create());
         QVERIFY2(surface, qPrintable(component.errorString()));
+    }
+
+    void mediaControlIconsAreBundledAndRenderWithoutUnicodeGlyphs()
+    {
+        // Regression: some Android system fonts lack the fullscreen, vertical
+        // ellipsis and reset-arrow glyphs. Icons must come from the packaged
+        // SVG resource provider rather than Unicode text.
+        for (const QString &name : { QStringLiteral("view-fullscreen-symbolic.svg"),
+                                     QStringLiteral("view-more-vertical-symbolic.svg"),
+                                     QStringLiteral("view-refresh-symbolic.svg") }) {
+            QVERIFY2(QFile::exists(QStringLiteral(":/svg/") + name), qPrintable(name));
+        }
+
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Media"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(note, drafts);
+        editor.model()->insertMedia(editor.model()->rowCount(), QStringLiteral("qrc:/svg/anykeep"),
+                                    QStringLiteral("Video"), QStringLiteral("video/mp4"), 4000);
+
+        DesktopNoteEditorHost host(&editor);
+        host.resize(670, 700);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QTRY_VERIFY(quickItemByName(root, QStringLiteral("mediaBlockEditor-2")));
+
+        const QStringList names {
+            QStringLiteral("mediaFullscreenGlyph-2"),
+            QStringLiteral("mediaActionsGlyph-2"),
+            QStringLiteral("mediaResetPresentationGlyph-2"),
+        };
+        const QStringList assets {
+            QStringLiteral("view-fullscreen-symbolic.svg"),
+            QStringLiteral("view-more-vertical-symbolic.svg"),
+            QStringLiteral("view-refresh-symbolic.svg"),
+        };
+        for (int i = 0; i < names.size(); ++i) {
+            QQuickItem *glyph = nullptr;
+            QTRY_VERIFY((glyph = quickItemByName(root, names.at(i))));
+            const auto source = glyph->property("iconSource").toUrl().toString();
+            QVERIFY2(source.startsWith(QStringLiteral("image://anykeepicons/")), qPrintable(source));
+            QVERIFY2(source.contains(assets.at(i)), qPrintable(source));
+            QVERIFY(!glyph->childItems().isEmpty());
+            // QML Image.Ready is 1. This also validates Qt's SVG provider,
+            // not only that the icon filenames were declared in a resource.
+            QTRY_COMPARE(glyph->childItems().first()->property("status").toInt(), 1);
+        }
     }
 
     void favoriteButtonTracksBackendAcrossRepeatedClicks()
