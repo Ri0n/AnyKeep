@@ -1,8 +1,8 @@
 #include <QClipboard>
 #include <QDragEnterEvent>
 #include <QDropEvent>
-#include <QFont>
 #include <QFile>
+#include <QFont>
 #include <QMimeData>
 #include <QPalette>
 #include <QQmlComponent>
@@ -134,11 +134,44 @@ private slots:
         auto                 *quick = host.quickWidget();
         QVERIFY(quick);
 
-        QQmlComponent component(quick->engine(),
-                                QUrl(QStringLiteral("qrc:/qml/editor/blocks/MediaVideoSurface.qml")));
+        QQmlComponent component(quick->engine(), QUrl(QStringLiteral("qrc:/qml/editor/blocks/MediaVideoSurface.qml")));
         QTRY_COMPARE(component.status(), QQmlComponent::Ready);
         std::unique_ptr<QObject> surface(component.create());
         QVERIFY2(surface, qPrintable(component.errorString()));
+
+        QQmlComponent playbackComponent(quick->engine());
+        playbackComponent.setData(R"(
+            import QtQml
+            QtObject {
+                property bool loading: false
+                property bool seeking: false
+                function attachVideoOutput(output) {}
+                function detachVideoOutput(output) {}
+            }
+        )",
+                                  QUrl());
+        std::unique_ptr<QObject> playback(playbackComponent.create());
+        QVERIFY2(playback, qPrintable(playbackComponent.errorString()));
+        QVERIFY(surface->setProperty("playback", QVariant::fromValue(playback.get())));
+        auto *inlineBusy     = surface->findChild<QObject *>(QStringLiteral("inlineVideoBusyIndicator"));
+        auto *fullScreenBusy = surface->findChild<QObject *>(QStringLiteral("fullScreenVideoBusyIndicator"));
+        QVERIFY(inlineBusy);
+        QVERIFY(fullScreenBusy);
+        QVERIFY(!inlineBusy->property("running").toBool());
+        QVERIFY(playback->setProperty("seeking", true));
+        QTRY_VERIFY(inlineBusy->property("running").toBool());
+        QVERIFY(QMetaObject::invokeMethod(surface.get(), "openFullScreen"));
+        QTRY_VERIFY(fullScreenBusy->property("running").toBool());
+        QVERIFY(!inlineBusy->property("running").toBool());
+        QVERIFY(playback->setProperty("seeking", false));
+        QTRY_VERIFY(!fullScreenBusy->property("running").toBool());
+        QVERIFY(playback->setProperty("loading", true));
+        QTRY_VERIFY(fullScreenBusy->property("running").toBool());
+        QVERIFY(QMetaObject::invokeMethod(surface.get(), "closeFullScreen"));
+        QTRY_VERIFY(inlineBusy->property("running").toBool());
+        QVERIFY(playback->setProperty("loading", false));
+        QTRY_VERIFY(!inlineBusy->property("running").toBool());
+        QVERIFY(surface->setProperty("playback", QVariant::fromValue<QObject *>(nullptr)));
     }
 
     void mediaControlIconsAreBundledAndRenderWithoutUnicodeGlyphs()
@@ -146,9 +179,9 @@ private slots:
         // Regression: some Android system fonts lack the fullscreen, vertical
         // ellipsis and reset-arrow glyphs. Icons must come from the packaged
         // SVG resource provider rather than Unicode text.
-        for (const QString &name : { QStringLiteral("view-fullscreen-symbolic.svg"),
-                                     QStringLiteral("view-more-vertical-symbolic.svg"),
-                                     QStringLiteral("view-refresh-symbolic.svg") }) {
+        for (const QString &name :
+             { QStringLiteral("view-fullscreen-symbolic.svg"), QStringLiteral("view-more-vertical-symbolic.svg"),
+               QStringLiteral("view-refresh-symbolic.svg") }) {
             QVERIFY2(QFile::exists(QStringLiteral(":/svg/") + name), qPrintable(name));
         }
 
@@ -156,7 +189,7 @@ private slots:
         note.setTitle(QStringLiteral("Media"));
         note.setText(QStringLiteral("Body"), Note::Markdown);
         DraftManager drafts(std::make_unique<MemoryDraftStore>());
-        NoteEditor editor(note, drafts);
+        NoteEditor   editor(note, drafts);
         editor.model()->insertMedia(editor.model()->rowCount(), QStringLiteral("qrc:/svg/anykeep"),
                                     QStringLiteral("Video"), QStringLiteral("video/mp4"), 4000);
 
@@ -192,13 +225,12 @@ private slots:
 
     void mediaSyncIndicatorRendersWaitingTransferErrorAndCompletion()
     {
-        DraftManager drafts(std::make_unique<MemoryDraftStore>());
-        NoteEditor editor(plainNote(), drafts);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(plainNote(), drafts);
         DesktopNoteEditorHost host(&editor);
-        auto *quick = host.quickWidget();
+        auto                 *quick = host.quickWidget();
         QVERIFY(quick);
-        QQmlComponent component(quick->engine(),
-                                QUrl(QStringLiteral("qrc:/qml/editor/MediaSyncIndicator.qml")));
+        QQmlComponent component(quick->engine(), QUrl(QStringLiteral("qrc:/qml/editor/MediaSyncIndicator.qml")));
         QTRY_COMPARE(component.status(), QQmlComponent::Ready);
         std::unique_ptr<QObject> object(component.create());
         QVERIFY2(object, qPrintable(component.errorString()));
@@ -226,22 +258,22 @@ private slots:
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("Media sync"));
         note.setText(QStringLiteral("Body"), Note::Markdown);
-        DraftManager drafts(std::make_unique<MemoryDraftStore>());
-        NoteEditor editor(note, drafts);
+        DraftManager   drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor     editor(note, drafts);
         MediaReference picture, recording;
-        picture.id = QUuid::createUuid();
-        picture.portableName = QStringLiteral("image.png");
-        picture.mediaType = QStringLiteral("image/png");
-        picture.size = 100;
-        recording.id = QUuid::createUuid();
+        picture.id             = QUuid::createUuid();
+        picture.portableName   = QStringLiteral("image.png");
+        picture.mediaType      = QStringLiteral("image/png");
+        picture.size           = 100;
+        recording.id           = QUuid::createUuid();
         recording.portableName = QStringLiteral("audio.m4a");
-        recording.mediaType = QStringLiteral("audio/mp4");
-        recording.size = 1000;
-        editor.setMedia({picture, recording});
-        editor.model()->insertMedia(editor.model()->rowCount(), picture.uri(),
-                                    QStringLiteral("Image"), picture.mediaType);
-        editor.model()->insertMedia(editor.model()->rowCount(), recording.uri(),
-                                    QStringLiteral("Audio"), recording.mediaType, 4000);
+        recording.mediaType    = QStringLiteral("audio/mp4");
+        recording.size         = 1000;
+        editor.setMedia({ picture, recording });
+        editor.model()->insertMedia(editor.model()->rowCount(), picture.uri(), QStringLiteral("Image"),
+                                    picture.mediaType);
+        editor.model()->insertMedia(editor.model()->rowCount(), recording.uri(), QStringLiteral("Audio"),
+                                    recording.mediaType, 4000);
 
         DesktopNoteEditorHost host(&editor);
         host.resize(700, 700);
@@ -1291,7 +1323,8 @@ private:
         DraftManager  drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor    editor(note, drafts);
         const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
-        editor.model()->insertMedia(editor.model()->rowCount(), source, QStringLiteral("Voice memo"), QStringLiteral("audio/*"), 2500);
+        editor.model()->insertMedia(editor.model()->rowCount(), source, QStringLiteral("Voice memo"),
+                                    QStringLiteral("audio/*"), 2500);
         DesktopNoteEditorHost host(&editor);
 
         host.resize(620, 440);
@@ -1322,7 +1355,8 @@ private:
         DraftManager  drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor    editor(note, drafts);
         const QString source = QStringLiteral("anykeep-media:/00000000-0000-0000-0000-000000000001/audio.m4a");
-        editor.model()->insertMedia(editor.model()->rowCount(), source, QStringLiteral("Voice memo"), QStringLiteral("audio/*"), 2500);
+        editor.model()->insertMedia(editor.model()->rowCount(), source, QStringLiteral("Voice memo"),
+                                    QStringLiteral("audio/*"), 2500);
         DesktopNoteEditorHost host(&editor);
 
         host.resize(620, 440);
@@ -1330,8 +1364,8 @@ private:
         auto *quick = host.quickWidget();
         auto *root  = qobject_cast<QQuickItem *>(quick->rootObject());
         QVERIFY(root);
-        QQuickItem *body  = nullptr;
-        QQuickItem *audio = nullptr;
+        QQuickItem *body    = nullptr;
+        QQuickItem *audio   = nullptr;
         QQuickItem *outline = nullptr;
         QQuickItem *label   = nullptr;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
@@ -1398,7 +1432,8 @@ private:
         note.setText(QStringLiteral("Select this text"), Note::Markdown);
         DraftManager drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor   editor(note, drafts);
-        editor.model()->insertMedia(editor.model()->rowCount(), QStringLiteral("qrc:/svg/anykeep"), QStringLiteral("Diagram"), QStringLiteral("image/*"));
+        editor.model()->insertMedia(editor.model()->rowCount(), QStringLiteral("qrc:/svg/anykeep"),
+                                    QStringLiteral("Diagram"), QStringLiteral("image/*"));
         editor.model()->setMediaDisplayWidth(2, 240);
         DesktopNoteEditorHost host(&editor);
 

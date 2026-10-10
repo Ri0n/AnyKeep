@@ -8,6 +8,7 @@ Item {
     property var playback: null
     property var attachedPlayback: null
     readonly property bool fullScreen: fullScreenWindow.visible
+    readonly property bool waitingForVideo: playback && (playback.loading || playback.seeking)
 
     function attach() {
         if (attachedPlayback === playback)
@@ -55,6 +56,23 @@ Item {
         fillMode: VideoOutput.PreserveAspectFit
     }
 
+    Rectangle {
+        anchors.centerIn: parent
+        width: 80
+        height: 80
+        radius: 40
+        color: "#90000000"
+        visible: root.waitingForVideo && !root.fullScreen
+        BusyIndicator {
+            objectName: "inlineVideoBusyIndicator"
+            anchors.centerIn: parent
+            width: 64
+            height: 64
+            running: parent.visible
+            Accessible.name: root.playback && root.playback.seeking ? qsTr("Seeking video") : qsTr("Loading video")
+        }
+    }
+
     Window {
         id: fullScreenWindow
         visible: false
@@ -77,6 +95,23 @@ Item {
                 id: fullScreenVideo
                 anchors.fill: parent
                 fillMode: VideoOutput.PreserveAspectFit
+            }
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: 80
+                height: 80
+                radius: 40
+                color: "#90000000"
+                visible: root.waitingForVideo
+                BusyIndicator {
+                    objectName: "fullScreenVideoBusyIndicator"
+                    anchors.centerIn: parent
+                    width: 64
+                    height: 64
+                    running: parent.visible && root.fullScreen
+                    Accessible.name: root.playback && root.playback.seeking ? qsTr("Seeking video") : qsTr("Loading video")
+                }
             }
 
             ToolButton {

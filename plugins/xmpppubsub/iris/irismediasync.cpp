@@ -213,7 +213,7 @@ public:
         });
     }
 
-    void read(quint64 index, MediaRangeService::Completion callback)
+    void read(quint64 index, MediaRangeService::Completion callback, bool prioritize)
     {
         if (index >= parameters.chunkCount()) {
             callback({}, QStringLiteral("Invalid media chunk"));
@@ -227,8 +227,10 @@ public:
         if (!error.isEmpty())
             error.clear();
         waiters[index].append(std::move(callback));
-        priority      = index;
-        demandPending = true;
+        if (prioritize) {
+            priority      = index;
+            demandPending = true;
+        }
         if (auto bytes = load(index); !bytes.isEmpty())
             deliver(index, std::move(bytes));
         schedule();
@@ -307,6 +309,12 @@ public:
         }
         if (current && !current->accepted)
             return;
+        // Removing a previous BUNDLE member changes the negotiated topology.
+        // Wait for that teardown before offering another extension, otherwise
+        // the peer can cancel it while acknowledging the previous removal.
+        for (const auto &part : parts)
+            if (part != current && part->closing && part->app && part->app->state() != J::State::Finished)
+                return;
         auto gap = map.nextGap(priority);
         if (current && !current->verified) {
             if (!demandPending)
@@ -558,9 +566,9 @@ IrisMediaSync::IrisMediaSync(XMPP::Client *client, J::JinglePub publication, Med
 {
 }
 IrisMediaSync::~IrisMediaSync() { cancel(); }
-void IrisMediaSync::readWireChunk(quint64 index, MediaRangeService::Completion callback)
+void IrisMediaSync::readWireChunk(quint64 index, MediaRangeService::Completion callback, bool prioritize)
 {
-    d->read(index, std::move(callback));
+    d->read(index, std::move(callback), prioritize);
 }
 void IrisMediaSync::prioritize(quint64 index)
 {

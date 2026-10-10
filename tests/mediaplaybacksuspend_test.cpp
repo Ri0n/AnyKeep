@@ -4,19 +4,18 @@
 
 #include <QDataStream>
 #include <QtTest>
+#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+#include <QVideoFrame>
+#include <QVideoFrameFormat>
+#include <QVideoSink>
+#endif
 
 using namespace AnyKeep;
 
 class MediaPlaybackSuspendTest : public QObject {
     Q_OBJECT
-private slots:
-    void remotePlaybackReopensAtSavedPosition()
+    static QByteArray silentWav()
     {
-        NoteEditor              editor;
-        MediaPlaybackController playback(&editor);
-        if (!playback.available())
-            QSKIP("Qt Multimedia is unavailable");
-
         QByteArray  wav;
         QDataStream data(&wav, QIODevice::WriteOnly);
         data.setByteOrder(QDataStream::LittleEndian);
@@ -29,6 +28,18 @@ private slots:
         data.writeRawData("data", 4);
         data << payloadSize;
         wav.append(QByteArray(payloadSize, '\0'));
+        return wav;
+    }
+
+private slots:
+    void remotePlaybackReopensAtSavedPosition()
+    {
+        NoteEditor              editor;
+        MediaPlaybackController playback(&editor);
+        if (!playback.available())
+            QSKIP("Qt Multimedia is unavailable");
+
+        const auto wav = silentWav();
 
         MediaReference reference;
         reference.id           = QUuid::createUuid();
@@ -69,6 +80,53 @@ private slots:
         playback.stop();
         QVERIFY(playback.currentSourceUri().isEmpty());
         QCOMPARE(playback.position(), qint64(0));
+    }
+
+    void seekWaitsForNewFrameAndClearsOnStop()
+    {
+#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+        NoteEditor              editor;
+        MediaPlaybackController playback(&editor);
+        const auto              wav = silentWav();
+        MediaReference          reference;
+        reference.id           = QUuid::createUuid();
+        reference.portableName = QStringLiteral("seek.wav");
+        reference.mediaType    = QStringLiteral("audio/wav");
+        reference.size         = wav.size();
+        editor.setMedia({ reference });
+        MediaRangeService::registerResolver(
+            &editor, [reference](const MediaReference &r) { return r.id == reference.id; },
+            [&wav](MediaReference, qint64 offset, qint64 length, MediaRangeService::Completion done) {
+                done(wav.mid(offset, length), {});
+            });
+        QVERIFY(playback.play(reference.uri()));
+        QTRY_COMPARE_WITH_TIMEOUT(playback.duration(), qint64(8000), 10000);
+        playback.pause();
+
+        // Control frame delivery independently of the decoder to reproduce the
+        // interval between the updated playhead and the first frame after seek.
+        QVideoSink sink;
+        playback.attachVideoOutput(&sink);
+        QVERIFY(playback.seek(reference.uri(), 4000));
+        QTRY_COMPARE(playback.position(), qint64(4000));
+        QVERIFY(playback.seeking());
+        QVideoFrame oldFrame(QVideoFrameFormat(QSize(2, 2), QVideoFrameFormat::Format_RGBA8888));
+        oldFrame.setStartTime(0);
+        sink.setVideoFrame(oldFrame);
+        QVERIFY(playback.seeking());
+        QVideoFrame newFrame(QVideoFrameFormat(QSize(2, 2), QVideoFrameFormat::Format_RGBA8888));
+        newFrame.setStartTime(4000000);
+        sink.setVideoFrame(newFrame);
+        QVERIFY(!playback.seeking());
+
+        QVERIFY(playback.seek(reference.uri(), 6000));
+        QVERIFY(playback.seeking());
+        playback.stop();
+        QVERIFY(!playback.seeking());
+        playback.detachVideoOutput(&sink);
+#else
+        QSKIP("Qt Multimedia is unavailable");
+#endif
     }
 };
 

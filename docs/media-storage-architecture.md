@@ -726,6 +726,16 @@ transfer animates its rotation. No quantities are displayed. Distinct
 pause/transfer/error/check center glyphs and accessibility text distinguish
 states without relying on color.
 
+The local HTTP Range adapter distinguishes the first read of a GET from its
+64 KiB continuation reads. Only the first read may reprioritize Jingle
+synchronization. A previous decoder connection may still drain buffered data
+after a seek; its continuation reads remain valid consumers of the cache but
+cannot cancel the content selected by the newer GET. Resolvers using the
+original reader signature retain their existing data-delivery behavior.
+Rapid seeks keep the latest priority while a previous content is closing;
+another BUNDLE extension waits until that removal/receipt has completed, so
+the peer does not invalidate an in-flight offer by retiring an older member.
+
 The progressive Jingle chunked representation is the source of verified
 partial progress. Legacy single-object and HTTP-only transports currently
 have no per-record durable progress feed; locally materialized files can

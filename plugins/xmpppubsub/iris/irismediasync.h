@@ -80,10 +80,9 @@ private:
 class IrisMediaSync final : public QObject {
 public:
     IrisMediaSync(XMPP::Client *client, XMPP::Jingle::JinglePub publication, MediaChunkWireParameters parameters,
-                  QString directory, int timeoutMs, QObject *parent = nullptr,
-                  MediaReference reference = {});
+                  QString directory, int timeoutMs, QObject *parent = nullptr, MediaReference reference = {});
     ~IrisMediaSync() override;
-    void readWireChunk(quint64 index, MediaRangeService::Completion callback);
+    void readWireChunk(quint64 index, MediaRangeService::Completion callback, bool prioritize = true);
     void prioritize(quint64 index);
     void setConnected(bool connected, XMPP::Client *client);
     void cancel();

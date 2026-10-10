@@ -281,16 +281,23 @@ private slots:
             QVERIFY2(frames > 0, qPrintable(player.errorString()));
             qCInfo(lcProgressiveLive) << "LIVE_FIRST_FRAME" << frames << "SIZE" << reference.size << "ELAPSED_MS"
                                       << playbackTime.elapsed();
-            const auto seekPosition = player.duration() / 2;
-            QVERIFY(seekPosition > 0);
-            player.setPosition(seekPosition);
-            frames        = 0;
-            lastFrameTime = -1;
-            QTRY_VERIFY_WITH_TIMEOUT((frames > 0 && lastFrameTime >= (seekPosition - 5000) * 1000)
-                                         || player.error() != QMediaPlayer::NoError,
-                                     120000);
-            QVERIFY2(frames > 0 && lastFrameTime >= (seekPosition - 5000) * 1000, qPrintable(player.errorString()));
-            qCInfo(lcProgressiveLive) << "LIVE_SEEK_FRAME_MS" << lastFrameTime / 1000;
+            const auto duration = player.duration();
+            QVERIFY(duration > 0);
+            for (const auto seekPosition : { duration / 2, duration * 3 / 4, duration / 4, duration * 2 / 3 }) {
+                frames        = 0;
+                lastFrameTime = -1;
+                player.setPosition(seekPosition);
+                qCInfo(lcProgressiveLive)
+                    << "LIVE_SEEK_REQUEST_MS" << seekPosition << "POSITION_MS" << player.position();
+                QTRY_VERIFY_WITH_TIMEOUT((frames > 0 && lastFrameTime >= (seekPosition - 1000) * 1000
+                                          && lastFrameTime <= (seekPosition + 5000) * 1000)
+                                             || player.error() != QMediaPlayer::NoError,
+                                         120000);
+                QVERIFY2(frames > 0 && lastFrameTime >= (seekPosition - 1000) * 1000
+                             && lastFrameTime <= (seekPosition + 5000) * 1000,
+                         qPrintable(player.errorString()));
+                qCInfo(lcProgressiveLive) << "LIVE_SEEK_FRAME_MS" << lastFrameTime / 1000;
+            }
             player.stop();
             player.setSource(QUrl());
 #endif

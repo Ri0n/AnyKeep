@@ -80,7 +80,7 @@ private:
 
     void observeMedia(const MediaReference &reference);
     void readMediaRangeAsync(MediaReference reference, qint64 offset, qint64 length,
-                             MediaRangeService::Completion callback);
+                             MediaRangeService::Completion callback, bool prioritize = true);
     void fetchPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize, quint64 offset,
                                   quint64 length, MediaRangeService::Completion callback);
     QQueue<std::function<void()>> mediaRangeTransfers_;

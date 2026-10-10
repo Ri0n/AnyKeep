@@ -10,6 +10,47 @@ using namespace AnyKeep;
 class MediaRangeServiceTest : public QObject {
     Q_OBJECT
 private slots:
+    void oldStreamContinuationDoesNotReprioritizeSeek()
+    {
+        QObject        owner;
+        MediaReference reference;
+        reference.id           = QUuid::createUuid();
+        reference.portableName = QStringLiteral("video.avi");
+        reference.size         = 8 * 65536;
+        QList<qint64>                 priorities;
+        QList<qint64>                 continuations;
+        MediaRangeService::Completion oldRead;
+        MediaRangeService::registerResolver(
+            &owner, [reference](const MediaReference &r) { return r.id == reference.id; },
+            [&](MediaReference, qint64 offset, qint64 length, bool prioritize, MediaRangeService::Completion done) {
+                (prioritize ? priorities : continuations).append(offset);
+                if (offset == 0) {
+                    oldRead = std::move(done);
+                    return;
+                }
+                done(QByteArray(qsizetype(length), 'v'), {});
+            });
+        const auto            url = MediaRangeService::urlFor(reference);
+        QNetworkAccessManager manager;
+        QNetworkRequest       request(url);
+        request.setRawHeader("Range", "bytes=0-131071");
+        auto      *oldReply = manager.get(request);
+        QSignalSpy oldFinished(oldReply, &QNetworkReply::finished);
+        QTRY_VERIFY(bool(oldRead));
+        request.setRawHeader("Range", "bytes=262144-262159");
+        auto      *seekReply = manager.get(request);
+        QSignalSpy seekFinished(seekReply, &QNetworkReply::finished);
+        QVERIFY(seekFinished.wait(5000));
+        QCOMPARE(seekReply->readAll(), QByteArray(16, 'v'));
+        oldRead(QByteArray(65536, 'v'), {});
+        QVERIFY(oldFinished.wait(5000));
+        QCOMPARE(oldReply->readAll(), QByteArray(131072, 'v'));
+        QCOMPARE(priorities, QList<qint64>({ 0, 262144 }));
+        QCOMPARE(continuations, QList<qint64>({ 65536 }));
+        oldReply->deleteLater();
+        seekReply->deleteLater();
+        MediaRangeService::releaseUrl(url);
+    }
     void rangedReadIsAsyncAndBounded()
     {
         QObject        owner;

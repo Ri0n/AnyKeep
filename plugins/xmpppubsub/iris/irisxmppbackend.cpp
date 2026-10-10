@@ -9,8 +9,8 @@
 #include "localmediastore.h"
 #include "mediachunkwirestream.h"
 #include "mediasource.h"
-#include "mediasyncservice.h"
 #include "mediastream.h"
+#include "mediasyncservice.h"
 #include "secureenvelope.h"
 #include "utils.h"
 #include "xmppnotecodec.h"
@@ -355,10 +355,13 @@ IrisXmppBackend::IrisXmppBackend(QObject *parent) : XmppBackend(parent)
                 job->setConnected(online, client_);
 #endif
         if (online && QCoreApplication::instance()) {
-            QMetaObject::invokeMethod(QCoreApplication::instance(), [guard = QPointer<IrisXmppBackend>(this)] {
-                if (guard)
-                    MediaSyncService::instance()->refreshProvider(guard);
-            }, Qt::QueuedConnection);
+            QMetaObject::invokeMethod(
+                QCoreApplication::instance(),
+                [guard = QPointer<IrisXmppBackend>(this)] {
+                    if (guard)
+                        MediaSyncService::instance()->refreshProvider(guard);
+                },
+                Qt::QueuedConnection);
         }
     });
 }
@@ -387,7 +390,8 @@ void IrisXmppBackend::setConfig(const XmppConfig &config)
     config_ = config;
     resetClient();
     if (QCoreApplication::instance()) {
-        QMetaObject::invokeMethod(QCoreApplication::instance(),
+        QMetaObject::invokeMethod(
+            QCoreApplication::instance(),
             [guard = QPointer<IrisXmppBackend>(this), instanceId = config_.instanceId] {
                 if (!guard)
                     return;
@@ -401,7 +405,8 @@ void IrisXmppBackend::setConfig(const XmppConfig &config)
                         if (guard)
                             guard->observeMedia(reference);
                     });
-            }, Qt::QueuedConnection);
+            },
+            Qt::QueuedConnection);
     }
     MediaRangeService::registerResolver(
         this,
@@ -409,8 +414,9 @@ void IrisXmppBackend::setConfig(const XmppConfig &config)
             return reference.remoteData.value(QStringLiteral("xmpp.instance")).toString() == instanceId
                 && !reference.remoteData.value(QStringLiteral("xmpp.sfs")).toByteArray().isEmpty();
         },
-        [this](MediaReference reference, qint64 offset, qint64 length, MediaRangeService::Completion callback) {
-            readMediaRangeAsync(std::move(reference), offset, length, std::move(callback));
+        [this](MediaReference reference, qint64 offset, qint64 length, bool prioritize,
+               MediaRangeService::Completion callback) {
+            readMediaRangeAsync(std::move(reference), offset, length, std::move(callback), prioritize);
         });
 }
 
@@ -1612,7 +1618,7 @@ void IrisXmppBackend::observeMedia(const MediaReference &reference)
     if (!descriptor.isValid())
         return;
     const QString directory = mediaChunkDirectory(descriptor.parameters);
-    auto *job = mediaSyncJobs_.value(directory).data();
+    auto         *job       = mediaSyncJobs_.value(directory).data();
     if (!job) {
         XMPP::Jingle::JinglePub publication;
         for (const auto &source : descriptor.sources.items()) {
@@ -1625,8 +1631,8 @@ void IrisXmppBackend::observeMedia(const MediaReference &reference)
             return;
         // Opening a note starts a storage-owned background cache restoration
         // and missing-range synchronization. No player is required.
-        job = new IrisMediaSync(client_, publication, descriptor.parameters, directory, config_.timeoutMs,
-                                this, reference);
+        job = new IrisMediaSync(client_, publication, descriptor.parameters, directory, config_.timeoutMs, this,
+                                reference);
         mediaSyncJobs_.insert(directory, job);
     }
     job->setConnected(connected_, client_);
@@ -1636,7 +1642,7 @@ void IrisXmppBackend::observeMedia(const MediaReference &reference)
 }
 
 void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offset, qint64 length,
-                                          MediaRangeService::Completion callback)
+                                          MediaRangeService::Completion callback, bool prioritize)
 {
     const auto sharing = parseFileSharing(reference.remoteData.value(QStringLiteral("xmpp.sfs")).toByteArray());
     if (!sharing || offset < 0 || length <= 0 || offset >= reference.size) {
@@ -1736,9 +1742,9 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
         windowLength += *nextLength;
         ++windowCount;
     }
-    const auto       wireLength = std::optional<quint64>(windowLength);
-    const QString directory = mediaChunkDirectory(parameters);
-    const QString path = directory + '/' + QString::number(index);
+    const auto    wireLength = std::optional<quint64>(windowLength);
+    const QString directory  = mediaChunkDirectory(parameters);
+    const QString path       = directory + '/' + QString::number(index);
     auto          deliver
         = [parameters, index, offset, length, callback = std::move(callback)](QByteArray plain, QString error) {
               if (!error.isEmpty()) {
@@ -1773,9 +1779,10 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
         }
         return job;
     };
-    auto prioritizeSync = [syncJob, index] {
-        if (const auto job = syncJob())
-            job->prioritize(index);
+    auto prioritizeSync = [syncJob, index, prioritize] {
+        if (prioritize)
+            if (const auto job = syncJob())
+                job->prioritize(index);
     };
 #else
     auto syncJob        = [] { return nullptr; };
@@ -1807,8 +1814,10 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
         return;
     }
     pendingMediaChunks_[path].append(std::move(deliver));
-    if (pending)
+    if (pending) {
+        prioritizeSync();
         return;
+    }
     const auto generation = generation_;
     auto finish = [this, generation, path, directory, parameters, index, windowCount](QByteArray wire, QString error) {
         if (generation != generation_)
@@ -1852,7 +1861,7 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
         for (const auto &callback : callbacks)
             callback(plain, error);
     };
-    ensureReadyAsync([this, generation, descriptor, syncJob, index, wireOffset, wireLength, wireSize,
+    ensureReadyAsync([this, generation, descriptor, syncJob, index, wireOffset, wireLength, wireSize, prioritize,
                       finish](XmppStatusResult ready) {
         if (generation != generation_)
             return;
@@ -1918,14 +1927,17 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
             startHttp();
             return;
         }
-        job->readWireChunk(index, [finish, startHttp](QByteArray bytes, QString error) {
-            if (error.isEmpty())
-                finish(std::move(bytes), {});
-            else {
-                qCWarning(lcIrisXmpp) << "Jingle media synchronization failed:" << error;
-                startHttp();
-            }
-        });
+        job->readWireChunk(
+            index,
+            [finish, startHttp](QByteArray bytes, QString error) {
+                if (error.isEmpty())
+                    finish(std::move(bytes), {});
+                else {
+                    qCWarning(lcIrisXmpp) << "Jingle media synchronization failed:" << error;
+                    startHttp();
+                }
+            },
+            prioritize);
 #else
         fetchPublishedRangeAsync(publication.from(), publication.id(), *wireSize, *wireOffset, *wireLength,
                                  [finish, startHttp](QByteArray bytes, QString error) {

@@ -14,6 +14,8 @@
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
 #include <QAudioOutput>
 #include <QMediaPlayer>
+#include <QVideoFrame>
+#include <QVideoSink>
 #endif
 
 namespace AnyKeep {
@@ -66,16 +68,42 @@ public:
         QObject::connect(player.get(), &QMediaPlayer::playbackStateChanged, owner,
                          [this](QMediaPlayer::PlaybackState) { emit owner->stateChanged(); });
         QObject::connect(player.get(), &QMediaPlayer::mediaStatusChanged, owner, [this](QMediaPlayer::MediaStatus) {
+            const auto status = player->mediaStatus();
+            if (status == QMediaPlayer::NoMedia || status == QMediaPlayer::InvalidMedia
+                || status == QMediaPlayer::EndOfMedia)
+                pendingSeekPosition = -1;
             resumeWhenLoaded();
             emit owner->stateChanged();
         });
         QObject::connect(player.get(), &QMediaPlayer::seekableChanged, owner, [this](bool) { resumeWhenLoaded(); });
         QObject::connect(player.get(), &QMediaPlayer::errorOccurred, owner,
                          [this](QMediaPlayer::Error, const QString &message) {
-                             error = message;
+                             error               = message;
+                             pendingSeekPosition = -1;
                              emit owner->stateChanged();
                          });
         return true;
+    }
+
+    void watchVideoSink()
+    {
+        QObject::disconnect(videoFrameConnection);
+        if (auto *sink = player->videoSink()) {
+            videoFrameConnection
+                = QObject::connect(sink, &QVideoSink::videoFrameChanged, owner, [this](const QVideoFrame &frame) {
+                      if (pendingSeekPosition < 0 || !frame.isValid())
+                          return;
+                      // setPosition updates the playhead before decoding finishes.
+                      // Buffered frames from the old position must not dismiss the spinner.
+                      if (frame.startTime() >= 0 && qAbs(frame.startTime() / 1000 - pendingSeekPosition) > 1000)
+                          return;
+                      pendingSeekPosition = -1;
+                      emit owner->stateChanged();
+                  });
+        } else {
+            pendingSeekPosition = -1;
+            emit owner->stateChanged();
+        }
     }
 
     void resumeWhenLoaded()
@@ -128,6 +156,7 @@ public:
             return false;
         reloadAfterSuspend    = false;
         pendingResumePosition = -1;
+        pendingSeekPosition   = -1;
         const auto media      = editor->media();
         const auto it         = std::find_if(media.cbegin(), media.cend(), [&uri](const MediaReference &item) {
             return item.uri() == uri
@@ -233,6 +262,7 @@ public:
         const qint64 savedPosition = pendingResumePosition >= 0 ? pendingResumePosition : positionMs;
         const qint64 savedDuration = durationMs;
         pendingResumePosition      = -1;
+        pendingSeekPosition        = -1;
         reloadAfterSuspend         = true;
         player->stop();
         player->setSource(QUrl());
@@ -245,6 +275,7 @@ public:
     void stop()
     {
         pendingResumePosition = -1;
+        pendingSeekPosition   = -1;
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
         if (player) {
             player->stop();
@@ -273,9 +304,11 @@ public:
     qint64                       durationMs { 0 };
     bool                         reloadAfterSuspend { false };
     qint64                       pendingResumePosition { -1 };
+    qint64                       pendingSeekPosition { -1 };
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     std::unique_ptr<QAudioOutput> audioOutput;
     std::unique_ptr<QMediaPlayer> player;
+    QMetaObject::Connection       videoFrameConnection;
 #endif
 };
 
@@ -288,8 +321,10 @@ MediaPlaybackController::~MediaPlaybackController() = default;
 void MediaPlaybackController::attachVideoOutput(QObject *output)
 {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-    if (output && impl_->ensurePlayer())
+    if (output && impl_->ensurePlayer()) {
         impl_->player->setVideoOutput(output);
+        impl_->watchVideoSink();
+    }
 #else
     Q_UNUSED(output)
 #endif
@@ -298,8 +333,10 @@ void MediaPlaybackController::attachVideoOutput(QObject *output)
 void MediaPlaybackController::detachVideoOutput(QObject *output)
 {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-    if (impl_->player && impl_->player->videoOutput() == output)
+    if (impl_->player && impl_->player->videoOutput() == output) {
         impl_->player->setVideoOutput(nullptr);
+        impl_->watchVideoSink();
+    }
 #else
     Q_UNUSED(output)
 #endif
@@ -335,6 +372,7 @@ bool MediaPlaybackController::loading() const
 #endif
 }
 qint64  MediaPlaybackController::position() const { return impl_->positionMs; }
+bool    MediaPlaybackController::seeking() const { return impl_->pendingSeekPosition >= 0; }
 qint64  MediaPlaybackController::duration() const { return impl_->durationMs; }
 QString MediaPlaybackController::errorString() const { return impl_->error; }
 bool    MediaPlaybackController::play(const QString &sourceUri) { return impl_->play(sourceUri); }
@@ -361,7 +399,15 @@ bool MediaPlaybackController::seek(const QString &sourceUri, qint64 positionMs)
     }
     if (impl_->sourceUri != sourceUri && !impl_->load(sourceUri))
         return false;
-    impl_->player->setPosition(qMax<qint64>(0, positionMs));
+    const auto target = impl_->player->duration() > 0 ? qBound<qint64>(0, positionMs, impl_->player->duration())
+                                                      : qMax<qint64>(0, positionMs);
+    if (target == impl_->player->position())
+        return true;
+    if (impl_->player->videoSink() && impl_->player->isSeekable()) {
+        impl_->pendingSeekPosition = target;
+        emit stateChanged();
+    }
+    impl_->player->setPosition(target);
     return true;
 #else
     Q_UNUSED(sourceUri)

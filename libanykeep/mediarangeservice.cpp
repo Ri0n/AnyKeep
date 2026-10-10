@@ -10,18 +10,19 @@
 #include <QTimer>
 #include <QUuid>
 #include <memory>
+#include <utility>
 
 namespace AnyKeep {
 namespace {
     struct Resolver {
-        QPointer<QObject>          owner;
-        MediaRangeService::Accepts accepts;
-        MediaRangeService::Reader  read;
+        QPointer<QObject>                owner;
+        MediaRangeService::Accepts       accepts;
+        MediaRangeService::RequestReader read;
     };
     struct Resource {
-        QPointer<QObject>         owner;
-        MediaReference            reference;
-        MediaRangeService::Reader read;
+        QPointer<QObject>                owner;
+        MediaReference                   reference;
+        MediaRangeService::RequestReader read;
     };
     class Server : public QObject {
     public:
@@ -139,7 +140,8 @@ namespace {
             struct State {
                 QPointer<QTcpSocket> socket;
                 qint64               pos, end;
-                bool                 pending = false;
+                bool                 pending   = false;
+                bool                 firstRead = true;
                 QByteArray           header;
                 Resource             resource;
             };
@@ -166,10 +168,11 @@ namespace {
                     socket->disconnectFromHost();
                     return;
                 }
-                state->pending         = true;
-                const qint64 requested = qMin<qint64>(64 * 1024, state->end - state->pos + 1);
+                state->pending          = true;
+                const bool   prioritize = std::exchange(state->firstRead, false);
+                const qint64 requested  = qMin<qint64>(64 * 1024, state->end - state->pos + 1);
                 state->resource.read(
-                    state->resource.reference, state->pos, requested,
+                    state->resource.reference, state->pos, requested, prioritize,
                     [state, pump, requested](QByteArray bytes, QString error) {
                         if (!state->socket || state->socket->state() != QAbstractSocket::ConnectedState)
                             return;
@@ -205,6 +208,14 @@ namespace {
 
 void MediaRangeService::registerResolver(QObject *owner, Accepts accepts, Reader reader)
 {
+    registerResolver(
+        owner, std::move(accepts),
+        [reader = std::move(reader)](MediaReference reference, qint64 offset, qint64 length, bool, Completion done) {
+            reader(std::move(reference), offset, length, std::move(done));
+        });
+}
+void MediaRangeService::registerResolver(QObject *owner, Accepts accepts, RequestReader reader)
+{
     auto *application = QCoreApplication::instance();
     if (!owner || !application)
         return;
@@ -223,17 +234,18 @@ void MediaRangeService::registerResolver(QObject *owner, Accepts accepts, Reader
         if (server->resolvers[i].owner == owner)
             server->resolvers.removeAt(i);
     }
-    Reader dispatched
-        = [guard = QPointer<QObject>(owner), target = QPointer<Server>(server),
-           reader = std::move(reader)](MediaReference reference, qint64 offset, qint64 length, Completion done) {
+    RequestReader dispatched
+        = [guard = QPointer<QObject>(owner), target = QPointer<Server>(server), reader = std::move(reader)](
+              MediaReference reference, qint64 offset, qint64 length, bool prioritize, Completion done) {
               if (!guard) {
                   done({}, QStringLiteral("Media provider is unavailable"));
                   return;
               }
               QMetaObject::invokeMethod(
                   guard,
-                  [target, reader, reference = std::move(reference), offset, length, done = std::move(done)]() mutable {
-                      reader(std::move(reference), offset, length,
+                  [target, reader, reference = std::move(reference), offset, length, prioritize,
+                   done = std::move(done)]() mutable {
+                      reader(std::move(reference), offset, length, prioritize,
                              [target, done = std::move(done)](QByteArray bytes, QString error) mutable {
                                  if (!target)
                                      return;
