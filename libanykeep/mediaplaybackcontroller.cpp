@@ -52,23 +52,42 @@ public:
         player      = std::make_unique<QMediaPlayer>();
         player->setAudioOutput(audioOutput.get());
         QObject::connect(player.get(), &QMediaPlayer::positionChanged, owner, [this](qint64 value) {
+            if (reloadAfterSuspend)
+                return;
             positionMs = value;
             emit owner->stateChanged();
         });
         QObject::connect(player.get(), &QMediaPlayer::durationChanged, owner, [this](qint64 value) {
+            if (reloadAfterSuspend)
+                return;
             durationMs = value;
             emit owner->stateChanged();
         });
         QObject::connect(player.get(), &QMediaPlayer::playbackStateChanged, owner,
                          [this](QMediaPlayer::PlaybackState) { emit owner->stateChanged(); });
-        QObject::connect(player.get(), &QMediaPlayer::mediaStatusChanged, owner,
-                         [this](QMediaPlayer::MediaStatus) { emit owner->stateChanged(); });
+        QObject::connect(player.get(), &QMediaPlayer::mediaStatusChanged, owner, [this](QMediaPlayer::MediaStatus) {
+            resumeWhenLoaded();
+            emit owner->stateChanged();
+        });
         QObject::connect(player.get(), &QMediaPlayer::errorOccurred, owner,
                          [this](QMediaPlayer::Error, const QString &message) {
                              error = message;
                              emit owner->stateChanged();
                          });
         return true;
+    }
+
+    void resumeWhenLoaded()
+    {
+        if (pendingResumePosition < 0 || !player)
+            return;
+        const auto status = player->mediaStatus();
+        if (status != QMediaPlayer::LoadedMedia && status != QMediaPlayer::BufferedMedia)
+            return;
+        const qint64 resumePosition = pendingResumePosition;
+        pendingResumePosition       = -1;
+        player->setPosition(resumePosition);
+        player->play();
     }
 #endif
 
@@ -102,8 +121,10 @@ public:
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
         if (!editor || uri.isEmpty() || !ensurePlayer())
             return false;
-        const auto media = editor->media();
-        const auto it    = std::find_if(media.cbegin(), media.cend(), [&uri](const MediaReference &item) {
+        reloadAfterSuspend    = false;
+        pendingResumePosition = -1;
+        const auto media      = editor->media();
+        const auto it         = std::find_if(media.cbegin(), media.cend(), [&uri](const MediaReference &item) {
             return item.uri() == uri
                 && (item.mediaType.startsWith(QLatin1String("audio/"))
                     || item.mediaType.startsWith(QLatin1String("video/")));
@@ -155,6 +176,14 @@ public:
     bool play(const QString &uri)
     {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+        if (reloadAfterSuspend && sourceUri == uri) {
+            const qint64 resumePosition = positionMs;
+            if (!load(uri))
+                return false;
+            pendingResumePosition = resumePosition;
+            resumeWhenLoaded();
+            return true;
+        }
         if (sourceUri != uri && !load(uri))
             return false;
         // Some multimedia backends leave EndOfMedia after the player loses
@@ -175,14 +204,42 @@ public:
 
     void pause()
     {
+        if (pendingResumePosition >= 0) {
+            suspend();
+            return;
+        }
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
         if (player)
             player->pause();
 #endif
     }
 
+    void suspend()
+    {
+#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+        if (!player || sourceUri.isEmpty() || reloadAfterSuspend)
+            return;
+        if (remoteUrl.isEmpty()) {
+            pause();
+            return;
+        }
+        // A suspended process can lose XMPP and the decoder's HTTP connection.
+        // Reopening on Play uses the authenticated cache and a fresh request.
+        const qint64 savedPosition = pendingResumePosition >= 0 ? pendingResumePosition : positionMs;
+        const qint64 savedDuration = durationMs;
+        pendingResumePosition      = -1;
+        reloadAfterSuspend         = true;
+        player->stop();
+        player->setSource(QUrl());
+        positionMs = savedPosition;
+        durationMs = savedDuration;
+        emit owner->stateChanged();
+#endif
+    }
+
     void stop()
     {
+        pendingResumePosition = -1;
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
         if (player) {
             player->stop();
@@ -194,8 +251,9 @@ public:
             MediaRangeService::releaseUrl(remoteUrl);
         remoteUrl = QUrl();
         sourceUri.clear();
-        positionMs = 0;
-        durationMs = 0;
+        reloadAfterSuspend = false;
+        positionMs         = 0;
+        durationMs         = 0;
         error.clear();
         emit owner->stateChanged();
     }
@@ -208,6 +266,8 @@ public:
     std::unique_ptr<MediaStream> stream;
     qint64                       positionMs { 0 };
     qint64                       durationMs { 0 };
+    bool                         reloadAfterSuspend { false };
+    qint64                       pendingResumePosition { -1 };
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
     std::unique_ptr<QAudioOutput> audioOutput;
     std::unique_ptr<QMediaPlayer> player;
@@ -282,10 +342,18 @@ bool    MediaPlaybackController::toggle(const QString &sourceUri)
     return play(sourceUri);
 }
 void MediaPlaybackController::pause() { impl_->pause(); }
+void MediaPlaybackController::suspend() { impl_->suspend(); }
 void MediaPlaybackController::stop() { impl_->stop(); }
 bool MediaPlaybackController::seek(const QString &sourceUri, qint64 positionMs)
 {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+    if ((impl_->reloadAfterSuspend || impl_->pendingResumePosition >= 0) && impl_->sourceUri == sourceUri) {
+        impl_->positionMs = qMax<qint64>(0, positionMs);
+        if (impl_->pendingResumePosition >= 0)
+            impl_->pendingResumePosition = impl_->positionMs;
+        emit stateChanged();
+        return true;
+    }
     if (impl_->sourceUri != sourceUri && !impl_->load(sourceUri))
         return false;
     impl_->player->setPosition(qMax<qint64>(0, positionMs));

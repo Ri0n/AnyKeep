@@ -23,6 +23,7 @@ public:
     bool requestPhoto();
     bool addHomeScreenShortcut(const QString &storageId, const QString &noteId, const QString &title);
     QUrl pendingLaunchUrl() const;
+    void setKeepScreenOn(bool enabled);
 
 signals:
     void speechRecognized(const QString &text);
@@ -30,6 +31,9 @@ signals:
     void fileSelected(const QByteArray &data, const QString &name, const QString &mediaType);
     void operationFailed(const QString &message);
     void exportCompleted();
+
+private:
+    bool keepScreenOn_ { false };
 };
 
 } // namespace AnyKeep

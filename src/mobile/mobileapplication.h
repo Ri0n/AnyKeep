@@ -134,6 +134,9 @@ private:
     VoiceInputMode effectiveVoiceInputMode() const;
     void           refreshSpeechProvider();
     void           applyColorScheme();
+    void           updateVideoScreenOn();
+
+    QMetaObject::Connection playbackStateConnection_;
 
     AndroidPlatformServices     *platformServices_ { nullptr };
     SpeechRecognitionController *speechController_ { nullptr };

@@ -678,6 +678,14 @@ monolithic AES-GCM object safely seekable.
 
 Implementation note: timed media shares one playback controller. Video presentation lazily attaches an inline Qt Multimedia output to that player and switches the same player to a dedicated OS-fullscreen output while fullscreen is active; playback position and state remain unchanged. Probing/poster extraction is a separate derived-cache concern and must not write frame-by-frame playback state into storage.
 
+The mobile shell keeps the screen awake while foreground video is playing and
+clears this request on pause or navigation. When the application becomes hidden
+or suspended, local playback pauses; remote playback releases the decoder's
+HTTP connection while retaining its source and position. Play reopens the
+remote source at that position, allowing storage to reuse verified cache chunks
+and recover from a lost XMPP session. Unlocking does not automatically resume
+playback. These transitions do not alter note metadata or delete media caches.
+
 Integration guardrails:
 
 - editor/model code uses symbolic `NoteBlockType.Media` / `NoteBlockType.Attachment`; QML must not depend on numeric enum values;

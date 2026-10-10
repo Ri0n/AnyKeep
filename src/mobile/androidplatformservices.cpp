@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QPointer>
 #include <QUrlQuery>
+#include <QVariant>
 
 #ifdef Q_OS_ANDROID
 #include <QGuiApplication>
@@ -13,6 +14,30 @@
 #endif
 
 namespace AnyKeep {
+
+void AndroidPlatformServices::setKeepScreenOn(bool enabled)
+{
+    if (keepScreenOn_ == enabled)
+        return;
+    keepScreenOn_ = enabled;
+#ifdef Q_OS_ANDROID
+    QNativeInterface::QAndroidApplication::runOnAndroidMainThread([enabled]() -> QVariant {
+        if (!QNativeInterface::QAndroidApplication::isActivityContext())
+            return {};
+        const QJniObject activity = QNativeInterface::QAndroidApplication::context();
+        if (!activity.isValid())
+            return {};
+        const auto window = activity.callObjectMethod("getWindow", "()Landroid/view/Window;");
+        if (window.isValid()) {
+            constexpr jint keepScreenOn = 128; // WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            window.callMethod<void>(enabled ? "addFlags" : "clearFlags", "(I)V", keepScreenOn);
+        }
+        return {};
+    });
+#else
+    Q_UNUSED(enabled)
+#endif
+}
 
 namespace {
 #ifdef Q_OS_ANDROID

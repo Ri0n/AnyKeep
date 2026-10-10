@@ -5,6 +5,7 @@
 #include "dialogservice.h"
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
+#include "mediaplaybackcontroller.h"
 #include "mobilebundledplugins.h"
 #include "mobileeditorplatformbackend.h"
 #include "noteeditor.h"
@@ -131,6 +132,13 @@ MobileApplication::MobileApplication(QObject *parent) :
         editorPlatformBackend_->setEditor(workspace_->editor());
         speechController_->setEditor(workspace_->editor());
         const auto *editor = workspace_->editor();
+        disconnect(playbackStateConnection_);
+        if (editor) {
+            playbackStateConnection_
+                = connect(qobject_cast<MediaPlaybackController *>(editor->mediaPlayback()),
+                          &MediaPlaybackController::stateChanged, this, &MobileApplication::updateVideoScreenOn);
+        }
+        updateVideoScreenOn();
         qCInfo(logMobilePersistence) << "Current mobile editor changed: present=" << bool(editor)
                                      << "storage=" << (editor ? editor->storageId() : QString())
                                      << "noteIdPresent=" << (editor ? !editor->noteId().isEmpty() : false)
@@ -140,6 +148,9 @@ MobileApplication::MobileApplication(QObject *parent) :
     });
     connect(qGuiApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
         const auto *editor = workspace_->editor();
+        if (editor && (state == Qt::ApplicationHidden || state == Qt::ApplicationSuspended))
+            qobject_cast<MediaPlaybackController *>(editor->mediaPlayback())->suspend();
+        updateVideoScreenOn();
         qCInfo(logMobilePersistence) << "Android application state changed:" << applicationStateName(state)
                                      << "editor=" << bool(editor)
                                      << "storage=" << (editor ? editor->storageId() : QString())
@@ -729,6 +740,21 @@ void MobileApplication::applyColorScheme()
 #ifdef Q_OS_ANDROID
     applyAndroidNavigationBar(window, dark);
 #endif
+}
+
+void MobileApplication::updateVideoScreenOn()
+{
+    const auto *editor   = workspace_->editor();
+    const auto *playback = editor ? qobject_cast<MediaPlaybackController *>(editor->mediaPlayback()) : nullptr;
+    bool        keepOn   = false;
+    if (playback && playback->playing() && qGuiApp->applicationState() == Qt::ApplicationActive) {
+        const auto media = editor->media();
+        keepOn           = std::any_of(media.cbegin(), media.cend(), [playback](const MediaReference &reference) {
+            return reference.uri() == playback->currentSourceUri()
+                && reference.mediaType.startsWith(QLatin1String("video/"));
+        });
+    }
+    platformServices_->setKeepScreenOn(keepOn);
 }
 
 } // namespace AnyKeep

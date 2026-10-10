@@ -35,6 +35,8 @@ public:
     Q_INVOKABLE bool play(const QString &sourceUri);
     Q_INVOKABLE bool toggle(const QString &sourceUri);
     Q_INVOKABLE void pause();
+    // Release decoder/network state before the mobile process is suspended.
+    void             suspend();
     Q_INVOKABLE void stop();
     Q_INVOKABLE bool seek(const QString &sourceUri, qint64 positionMs);
     Q_INVOKABLE void attachVideoOutput(QObject *output);
