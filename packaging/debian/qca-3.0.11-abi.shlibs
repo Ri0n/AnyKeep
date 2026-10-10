@@ -1,0 +1,6 @@
+# Work around exact-version shlibs metadata in upstream QCA v3.0.11 .deb.
+# QCA v3.0.10 -> v3.0.11 only changed version detection and CI packaging;
+# no sources or exported public headers changed. Keep the lowest compatible
+# QCA runtime dependency while building against the installed v3.0.11.
+# This override is intentionally used ONLY for QCA 3.0.11 by debian/rules.
+libqca3-qt6 3 libqca3-qt6-3 (>= 3.0.10)
