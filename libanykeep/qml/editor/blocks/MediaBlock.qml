@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import "../../reorder" as Reorder
 import "../../shared" as Shared
+import ".." as EditorComponents
 
 FocusScope {
     id: mediaRoot
@@ -11,6 +12,12 @@ FocusScope {
     objectName: "mediaBlockEditor-" + block.index
     required property var block
     property var playback: mediaRoot.editorView.editorBackend ? mediaRoot.editorView.editorBackend.mediaPlayback : null
+    property var mediaSync: mediaRoot.editorView.editorBackend ? mediaRoot.editorView.editorBackend.mediaSync : null
+    readonly property var syncStatus: {
+        const generation = mediaRoot.mediaSync ? mediaRoot.mediaSync.revision : 0
+        return mediaRoot.mediaSync ? mediaRoot.mediaSync.statusForUri(mediaRoot.block.url)
+                                   : ({ valid: false, progress: 0, state: 0 })
+    }
     property var transcription: mediaRoot.editorView.audioTranscriptionController
     property bool transcriptExpanded: false
     readonly property bool timed: block.mediaType.startsWith("audio/") || block.mediaType.startsWith("video/")
@@ -377,6 +384,15 @@ FocusScope {
                       + " / " + mediaRoot.formatTime(mediaRoot.knownDuration)
                 color: mediaRoot.editorView.documentSecondaryTextColor
             }
+            EditorComponents.MediaSyncIndicator {
+                objectName: "mediaAudioSync-" + mediaRoot.block.index
+                visible: mediaRoot.audio && Boolean(mediaRoot.syncStatus.valid)
+                Layout.preferredWidth: visible ? parent.height - 2 : 0
+                Layout.preferredHeight: Layout.preferredWidth
+                progress: mediaRoot.syncStatus.progress || 0
+                syncState: mediaRoot.syncStatus.state || 0
+                errorString: mediaRoot.syncStatus.error || ""
+            }
             ToolButton {
                 visible: mediaRoot.canTranscribe
                 Layout.preferredWidth: parent.height - 2
@@ -515,6 +531,16 @@ FocusScope {
                 }
                 onClicked: mediaRoot.setAlignment(modelData)
             }
+        }
+
+        EditorComponents.MediaSyncIndicator {
+            objectName: "mediaVisualSync-" + mediaRoot.block.index
+            visible: Boolean(mediaRoot.syncStatus.valid)
+            width: visible ? imageActions.height : 0
+            height: imageActions.height
+            progress: mediaRoot.syncStatus.progress || 0
+            syncState: mediaRoot.syncStatus.state || 0
+            errorString: mediaRoot.syncStatus.error || ""
         }
 
         ToolButton {
