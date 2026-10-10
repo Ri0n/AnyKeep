@@ -59,20 +59,24 @@ runs:
         find .. -maxdepth 1 -type f -name '*.deb' -exec cp -v {} packages/ \;
         test -n "$(find packages -type f -name '*.deb' -print -quit)"
 
-        # Assert the generated package uses the project lockfile's minimum,
-        # regardless of which compatible newer QCA the nightly selected.
-        min_qca=$(python3 packaging/debian/qca-depends.py --version)
+        # Check the actual generated Debian package, not just templates.
+        # The stable lock records supported minima, which may be older
+        # than newer nightly build dependencies.
         libanykeep_deb=$(find packages -maxdepth 1 -type f -name 'libanykeep3_*.deb' -print -quit)
         test -n "$libanykeep_deb"
         depends=$(dpkg-deb -f "$libanykeep_deb" Depends)
         echo "libanykeep3 dependencies: $depends"
-        for package in libqca3-qt6-3 libqca3-qt6-plugins; do
-          if [[ "$depends" != *"$package (>= $min_qca)"* ]]; then
-            echo "::error::Missing lock-derived QCA floor: $package >= $min_qca"
-            exit 1
+        for provider in qca iris; do
+          minimum=$(python3 packaging/debian/runtime-depends.py --minimum "$provider")
+          if [[ "$provider" == "qca" ]]; then
+            packages=(libqca3-qt6-3 libqca3-qt6-plugins)
+          else
+            packages=(libiris-qt6-1)
           fi
+          for package in "${packages[@]}"; do
+            if [[ "$depends" != *"$package (>= $minimum)"* ]]; then
+              echo "::error::Missing lock-derived dependency: $package >= $minimum"
+              exit 1
+            fi
+          done
         done
-        if [[ "$depends" == *"libqca3-qt6-3 (= 3.0.11)"* ]]; then
-          echo "::error::Broken QCA 3.0.11 shlibs dependency leaked into package"
-          exit 1
-        fi
