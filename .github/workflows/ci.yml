@@ -32,6 +32,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Verify PR diff whitespace
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          git diff --check FETCH_HEAD HEAD
+
       - name: Validate stable dependency lock
         run: python3 .github/scripts/resolve-package-dependencies.py --mode stable
 
