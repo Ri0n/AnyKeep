@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QHash>
 #include <QList>
+#include <QSet>
 #include <QPointer>
 #include <functional>
 
@@ -57,6 +58,7 @@ private:
     QList<Provider> providers_;
     QHash<QString, QList<Watch>> watchers_;
     QHash<QString, MediaSyncSnapshot> snapshots_;
+    QSet<QObject *> connectedSubscribers_;
 };
 
 } // namespace AnyKeep
