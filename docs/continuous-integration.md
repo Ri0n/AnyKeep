@@ -140,25 +140,37 @@ cmake --build build/windows --target msix_package --parallel 4
 
 Qt, Conan, QCA/Iris SDKs, WiX, and the MSVC environment must be available in the
 same way as in CI.
-## QCA Debian runtime dependency floor
+## QCA Debian runtime dependency policy
 
-QCA v3.0.11's released Debian runtime packages erroneously ship a
-`DEBIAN/shlibs` entry demanding exactly `libqca3-qt6-3 (= 3.0.11)`.
-Those records are consumed by `dpkg-shlibdeps` when building AnyKeep,
-causing freshly built `libanykeep3` to become uninstallable on machines
-with compatible QCA v3.0.10. The [QCA v3.0.10 → v3.0.11 diff]
-(https://github.com/psi-im/qca/compare/v3.0.10...v3.0.11) modifies
-version/CI logic only; no public headers or compiled source changes.
+QCA v3.0.11's released Debian packages shipped a `DEBIAN/shlibs`
+entry requiring exactly `libqca3-qt6-3 (= 3.0.11)`. Their metadata
+unnecessarily pins all consumers to the QCA build version, including
+AnyKeep packages that work with QCA v3.0.10. The QCA
+[v3.0.10 → v3.0.11 diff](https://github.com/psi-im/qca/compare/v3.0.10...v3.0.11)
+changes only versioning and CI; no public headers or compiled code.
 
-QCA's Debian packaging fix belongs in QCA PR #22:
-`libqca3-qt6 3 libqca3-qt6-3 (>= 3.0.10)`. Already released QCA
-v3.0.11 packages cannot be edited in place. For builds against **exactly**
-v3.0.11, `debian/rules` temporarily passes
-`packaging/debian/qca-3.0.11-abi.shlibs` to `dpkg-shlibdeps -L`.
-Other QCA versions use their own packaging metadata untouched so
-future ABI changes cannot be silently masked. The Debian packaging
-workflow asserts the final `libanykeep3` control file depends on
-QCA >= 3.0.10 rather than = 3.0.11.
+**Two distinct version requirements apply:**
 
-The AnyKeep SDK profiles still use QCA from system packages; the
-workaround does not alter `dependencies.lock.json` or rebuild QCA.
+1. QCA's `libqca3-qt6.so.3` ABI line goes back to v3.0.0. QCA
+   [PR #22](https://github.com/psi-im/qca/pull/22) changes the
+   broad `shlibs` fallback to `libqca3-qt6-3 (>= 3.0.0)`.
+   This fallback cannot calculate version minima for symbols added
+   later in the QCA 3.0 series. Consumers using those symbols must
+   declare a suitable minimum; Debian `symbols` metadata would
+   express per-symbol versions more precisely.
+2. **AnyKeep** explicitly requires `libqca3-qt6-3 (>= 3.0.10)`
+   and `libqca3-qt6-plugins (>= 3.0.10)` in its Debian runtime
+   metadata, for desirable bug fixes in QCA 3.0.10. These are
+   AnyKeep-specific policy requirements, not QCA's global ABI floor.
+
+Already released QCA v3.0.11 packages cannot be edited in place.
+Only while building against *exactly* QCA 3.0.11, `debian/rules`
+injects `packaging/debian/qca-3.0.11-abi.shlibs` into
+`dpkg-shlibdeps`. That entry states the common QCA 3.x ABI floor;
+AnyKeep's higher minimum comes from its own `debian/control`
+profiles. Other QCA versions use their own package metadata so
+future ABI changes are not silently masked. CI inspects the actual
+generated `libanykeep3` Depends for the AnyKeep minimum and rejects
+an exact QCA 3.0.11 version pin.
+
+This does not change AnyKeep's `dependencies.lock.json` or bundle QCA.
