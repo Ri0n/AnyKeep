@@ -78,6 +78,7 @@ private:
     struct ConnectionAttempt;
     struct ReadyAttempt;
 
+    void observeMedia(const MediaReference &reference);
     void readMediaRangeAsync(MediaReference reference, qint64 offset, qint64 length,
                              MediaRangeService::Completion callback);
     void fetchPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize, quint64 offset,

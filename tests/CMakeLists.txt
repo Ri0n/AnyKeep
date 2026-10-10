@@ -150,6 +150,7 @@ add_anykeep_test(secureenvelope_test secureenvelope_test.cpp)
 
 add_anykeep_test(localmediastore_test localmediastore_test.cpp)
 add_anykeep_test(mediarangeservice_test mediarangeservice_test.cpp)
+add_anykeep_test(mediasynccontroller_test mediasynccontroller_test.cpp)
 add_anykeep_test(mediaplaybacksuspend_test mediaplaybacksuspend_test.cpp)
 target_link_libraries(mediarangeservice_test PRIVATE Qt6::Network)
 

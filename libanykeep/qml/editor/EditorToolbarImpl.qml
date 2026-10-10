@@ -174,7 +174,9 @@ ToolBar {
                                                && root.editorBackend !== undefined
                                                && Boolean(root.editorBackend.favoriteSupported)
     readonly property int microphoneSelectorWidth: microphoneVisible && microphoneModeSwitchVisible ? 14 : 0
-    readonly property int mandatoryButtonCount: 3
+    readonly property bool mediaSyncVisible: root.editorBackend && root.editorBackend.mediaSync
+                                             && root.editorBackend.mediaSync.hasMedia
+    readonly property int mandatoryButtonCount: 3 + (mediaSyncVisible ? 1 : 0)
                                                 + (showBackButton ? 1 : 0)
                                                 + (microphoneVisible ? 1 : 0)
                                                 + (folderPickerAvailable ? 1 : 0)
@@ -206,6 +208,18 @@ ToolBar {
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
             onClicked: root.backRequested()
+        }
+
+        MediaSyncIndicator {
+            objectName: "noteMediaSyncDesktop"
+            visible: root.mediaSyncVisible
+            Layout.preferredWidth: visible ? root.controlSize : 0
+            Layout.preferredHeight: root.controlSize
+            progress: root.editorBackend && root.editorBackend.mediaSync
+                      ? root.editorBackend.mediaSync.progress : 0
+            syncState: root.editorBackend && root.editorBackend.mediaSync
+                       ? root.editorBackend.mediaSync.state : 0
+            noteWide: true
         }
 
         Item {

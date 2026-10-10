@@ -5,6 +5,7 @@
 
 #include "draftmanager.h"
 #include "mediaplaybackcontroller.h"
+#include "mediasynccontroller.h"
 #include "noteblockmodel.h"
 #include "notedata.h"
 #include "notedocumenthistory.h"
@@ -164,6 +165,7 @@ NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draf
         if (!history_->isRestoring() && !history_->inTransaction())
             history_->observeChange({ model_->state(), media_ }, captureEditorViewState());
     });
+    mediaSync_ = new MediaSyncController(this, this);
 }
 
 NoteEditor::~NoteEditor()
@@ -644,6 +646,7 @@ void NoteEditor::markFolderPersisted(const QUuid &folderId)
 QObject *NoteEditor::blockModel() const { return model_; }
 
 QObject *NoteEditor::mediaPlayback() const { return mediaPlayback_; }
+QObject *NoteEditor::mediaSync() const { return mediaSync_; }
 
 void NoteEditor::resetContent(const QString &text, Note::Format format)
 {

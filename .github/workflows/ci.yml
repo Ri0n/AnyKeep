@@ -32,6 +32,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Verify PR diff whitespace
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          git diff --check FETCH_HEAD HEAD
+
       - name: Validate stable dependency lock
         run: python3 .github/scripts/resolve-package-dependencies.py --mode stable
 
@@ -162,6 +170,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             gettext \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-tools \
             libgl1-mesa-dev \
             libhunspell-dev \
             libssl-dev \
@@ -185,6 +196,13 @@ jobs:
             qt6-tools-dev \
             qt6-tools-dev-tools \
             qtkeychain-qt6-dev
+
+          # Qt 6.4 on Ubuntu 24.04 uses GStreamer for WAV playback. With
+          # --no-install-recommends, libqt6multimedia6 alone does not bring
+          # the runtime elements required by the real player/suspend tests.
+          for element in audioconvert audioresample wavparse; do
+            gst-inspect-1.0 "$element" >/dev/null
+          done
 
           # Starting with Ubuntu 26.04, the SVG icon/image plugins are split out
           # of libqt6svg6. Noble still ships them in libqt6svg6 itself.
@@ -214,7 +232,25 @@ jobs:
         run: cmake --build "${{ matrix.build_dir }}" --parallel 4
 
       - name: Test
-        run: ctest --test-dir "${{ matrix.build_dir }}" --output-on-failure --timeout 180
+        shell: bash
+        run: |
+          status=0
+          ctest --test-dir "${{ matrix.build_dir }}" --output-on-failure --timeout 180 || status=$?
+          if [ "$status" -ne 0 ] && [ "${{ matrix.ubuntu-version }}" = "24.04" ]; then
+            echo "::group::Ubuntu 24.04 multimedia failure diagnostics"
+            # Preserve the original test failure. The stack trace helps
+            # distinguish a Qt/GStreamer crash from an AnyKeep regression.
+            sudo apt-get install -y --no-install-recommends gdb
+            for element in audioconvert audioresample wavparse autoaudiosink; do
+              gst-inspect-1.0 "$element" >/dev/null && echo "Available: $element" || echo "Missing: $element"
+            done
+            gdb --batch --quiet -ex "set pagination off" -ex "run" \
+              -ex "thread apply all bt 15" \
+              --args "./${{ matrix.build_dir }}/tests/mediaplaybacksuspend_test" \
+              remotePlaybackReopensAtSavedPosition || true
+            echo "::endgroup::"
+          fi
+          exit "$status"
 
   debian13-package:
     name: Debian 13 / package

@@ -83,6 +83,8 @@ set(anykeep_CORE_SRCS
     audioattachmentrecorder.cpp
     mediaplaybackcontroller.cpp
     mediarangeservice.cpp
+    mediasyncservice.cpp
+    mediasynccontroller.cpp
     mediasource.cpp
     mediastream.cpp
     mediachunkwire.cpp
@@ -171,6 +173,8 @@ set(anykeep_CORE_HDRS
     audioattachmentrecorder.h
     mediaplaybackcontroller.h
     mediarangeservice.h
+    mediasyncservice.h
+    mediasynccontroller.h
     mediasource.h
     mediastream.h
     mediachunkwire.h

@@ -3,6 +3,7 @@
 
 #include "irischunkedmediasource.h"
 #include "mediarangeservice.h"
+#include "mediasyncservice.h"
 #include <QIODevice>
 #include <QSet>
 #include <functional>
@@ -79,10 +80,12 @@ private:
 class IrisMediaSync final : public QObject {
 public:
     IrisMediaSync(XMPP::Client *client, XMPP::Jingle::JinglePub publication, MediaChunkWireParameters parameters,
-                  QString directory, int timeoutMs, QObject *parent = nullptr);
+                  QString directory, int timeoutMs, QObject *parent = nullptr,
+                  MediaReference reference = {});
     ~IrisMediaSync() override;
     void readWireChunk(quint64 index, MediaRangeService::Completion callback);
     void prioritize(quint64 index);
+    void setConnected(bool connected, XMPP::Client *client);
     void cancel();
 
 private:

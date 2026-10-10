@@ -190,6 +190,72 @@ private slots:
         }
     }
 
+    void mediaSyncIndicatorRendersWaitingTransferErrorAndCompletion()
+    {
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(plainNote(), drafts);
+        DesktopNoteEditorHost host(&editor);
+        auto *quick = host.quickWidget();
+        QVERIFY(quick);
+        QQmlComponent component(quick->engine(),
+                                QUrl(QStringLiteral("qrc:/qml/editor/MediaSyncIndicator.qml")));
+        QTRY_COMPARE(component.status(), QQmlComponent::Ready);
+        std::unique_ptr<QObject> object(component.create());
+        QVERIFY2(object, qPrintable(component.errorString()));
+        auto *item = qobject_cast<QQuickItem *>(object.get());
+        QVERIFY(item);
+
+        item->setWidth(26);
+        item->setHeight(26);
+        for (int state : { 0, 1, 2, 3 }) {
+            QVERIFY(item->setProperty("syncState", state));
+            QVERIFY(item->setProperty("progress", 0.625));
+            const QString status = item->property("statusText").toString();
+            QVERIFY(!status.isEmpty());
+            QVERIFY(!status.contains(QStringLiteral("%")));
+            QVERIFY(!status.contains(QStringLiteral("bytes")));
+            QCOMPARE(item->property("fraction").toDouble(), state == 3 ? 1.0 : 0.625);
+            QCOMPARE(item->property("syncState").toInt(), state);
+        }
+        QVERIFY(item->setProperty("noteWide", true));
+        QVERIFY(item->property("statusText").toString().contains(QStringLiteral("Note")));
+    }
+
+    void mediaSyncIsPlacedInVisualAudioAndNoteToolbar()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Media sync"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(note, drafts);
+        MediaReference picture, recording;
+        picture.id = QUuid::createUuid();
+        picture.portableName = QStringLiteral("image.png");
+        picture.mediaType = QStringLiteral("image/png");
+        picture.size = 100;
+        recording.id = QUuid::createUuid();
+        recording.portableName = QStringLiteral("audio.m4a");
+        recording.mediaType = QStringLiteral("audio/mp4");
+        recording.size = 1000;
+        editor.setMedia({picture, recording});
+        editor.model()->insertMedia(editor.model()->rowCount(), picture.uri(),
+                                    QStringLiteral("Image"), picture.mediaType);
+        editor.model()->insertMedia(editor.model()->rowCount(), recording.uri(),
+                                    QStringLiteral("Audio"), recording.mediaType, 4000);
+
+        DesktopNoteEditorHost host(&editor);
+        host.resize(700, 700);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QTRY_VERIFY(quickItemByName(root, QStringLiteral("noteMediaSyncDesktop")));
+        QTRY_VERIFY(quickItemByName(root, QStringLiteral("mediaVisualSync-2")));
+        QTRY_VERIFY(quickItemByName(root, QStringLiteral("mediaAudioSync-3")));
+        const auto *noteSync = quickItemByName(root, QStringLiteral("noteMediaSyncDesktop"));
+        QVERIFY(noteSync->isVisible());
+        QVERIFY(noteSync->property("progress").toDouble() < 1.0);
+    }
+
     void favoriteButtonTracksBackendAcrossRepeatedClicks()
     {
         FavoriteEditorStorage storage;
