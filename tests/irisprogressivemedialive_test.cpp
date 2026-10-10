@@ -200,8 +200,22 @@ private slots:
                 QString sid;
             };
             QList<RequestedGap> requests;
-            int                 added            = 0;
-            bool                sessionCompleted = false;
+            int                 added                    = 0;
+            bool                sessionCompleted         = false;
+            qint64              lastVerifiedBytes        = 0;
+            bool                activeGapReportedWaiting = false;
+            QObject             progressObserver;
+            connect(MediaSyncService::instance(), &MediaSyncService::snapshotChanged, &progressObserver,
+                    [&](const QString &key) {
+                        if (key != MediaSyncService::key(reference))
+                            return;
+                        const auto status = MediaSyncService::instance()->snapshot(reference);
+                        if (added > 0 && status.verifiedBytes > lastVerifiedBytes
+                            && status.state != MediaSyncSnapshot::Complete
+                            && status.state != MediaSyncSnapshot::Transferring)
+                            activeGapReportedWaiting = true;
+                        lastVerifiedBytes = status.verifiedBytes;
+                    });
             connect(backend.client_, &XMPP::Client::xmlOutgoing, this, [&](const QString &xml) {
                 QDomDocument doc;
                 if (!doc.setContent(xml, true))
@@ -292,6 +306,7 @@ private slots:
             QTRY_COMPARE_WITH_TIMEOUT(QDir(cacheDirectory).entryList(QDir::Files).size(),
                                       qsizetype(parameters.chunkCount()), 180000);
             QTRY_VERIFY_WITH_TIMEOUT(sessionCompleted, 30000);
+            QVERIFY2(!activeGapReportedWaiting, "Receiving a successor gap must remain transferring");
             for (const auto index : seeded)
                 QCOMPARE(QFileInfo(cacheDirectory + '/' + QString::number(index)).lastModified().toSecsSinceEpoch(),
                          seededTime.toSecsSinceEpoch());

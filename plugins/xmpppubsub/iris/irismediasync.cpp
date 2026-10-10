@@ -81,7 +81,7 @@ public:
         QPointer<FT::Application>    app;
         QPointer<IrisMediaChunkSink> sink;
         bool accepted = false, verified = false, draining = false, drained = false, closing = false;
-        bool shared = false;
+        bool shared = false, receiving = false;
     };
     IrisMediaSync                                       *q;
     QPointer<XMPP::Client>                               client;
@@ -90,7 +90,7 @@ public:
     QString                                              directory;
     MediaReference                                       reference;
     quint64                                              verifiedPlain = 0;
-    bool                                                 transferring = false;
+    bool                                                 connected     = false;
     IrisMediaGapMap                                      map;
     quint64                                              priority = 0;
     QHash<quint64, QList<MediaRangeService::Completion>> waiters;
@@ -108,8 +108,8 @@ public:
     Impl(IrisMediaSync *owner, XMPP::Client *c, J::JinglePub pub, MediaChunkWireParameters p, QString dir,
          int timeoutMs, MediaReference ref) :
         q(owner), client(c), publication(std::move(pub)), parameters(std::move(p)), directory(std::move(dir)),
-        reference(std::move(ref)),
-        map(parameters.chunkCount()), timer(new QTimer(owner)), timeout(qBound(1000, timeoutMs, 25000))
+        reference(std::move(ref)), connected(c != nullptr), map(parameters.chunkCount()), timer(new QTimer(owner)),
+        timeout(qBound(1000, timeoutMs, 25000))
     {
         timer->setSingleShot(true);
         QObject::connect(timer, &QTimer::timeout, q, [this] { fail(QStringLiteral("Media gap handover timed out")); });
@@ -119,16 +119,21 @@ public:
 
     void report()
     {
-        if (!reference.isValid())
+        // Publish the restored cache as one snapshot. Incremental scanning
+        // would briefly replace a previous verified total with its first chunk.
+        if (!reference.isValid() || scanning)
             return;
         MediaSyncSnapshot snapshot;
-        snapshot.verifiedBytes = qint64(qMin(verifiedPlain, parameters.plainSize));
-        snapshot.totalBytes = qint64(parameters.plainSize);
-        snapshot.state = map.complete() ? MediaSyncSnapshot::Complete
-                       : stopped ? MediaSyncSnapshot::Waiting
-                       : !error.isEmpty() ? MediaSyncSnapshot::Failed
-                       : transferring ? MediaSyncSnapshot::Transferring
-                                       : MediaSyncSnapshot::Waiting;
+        const bool        transferring = std::any_of(parts.cbegin(), parts.cend(), [](const auto &part) {
+            return part->receiving && !part->closing && !part->verified && !part->drained;
+        });
+        snapshot.verifiedBytes         = qint64(qMin(verifiedPlain, parameters.plainSize));
+        snapshot.totalBytes            = qint64(parameters.plainSize);
+        snapshot.state                 = map.complete() ? MediaSyncSnapshot::Complete
+            : stopped || !connected                     ? MediaSyncSnapshot::Waiting
+            : !error.isEmpty()                          ? MediaSyncSnapshot::Failed
+            : transferring                              ? MediaSyncSnapshot::Transferring
+                                                        : MediaSyncSnapshot::Waiting;
         if (snapshot.state == MediaSyncSnapshot::Failed)
             snapshot.error = error;
         MediaSyncService::instance()->publish(reference, snapshot);
@@ -256,7 +261,6 @@ public:
         if (!part || part->closing || !part->app)
             return;
         part->closing = true;
-        transferring = false;
         report();
         if (part->verified)
             part->app->acknowledgeReceived();
@@ -266,7 +270,7 @@ public:
 
     void plan()
     {
-        if (stopped || scanning || !error.isEmpty() || !client)
+        if (stopped || scanning || !error.isEmpty() || !client || !connected)
             return;
         if (pending) {
             if (!pending->accepted)
@@ -326,6 +330,7 @@ public:
             if (current->sink && !current->sink->hasPartialChunk()) {
                 current->drained = true;
                 current->app->setReceivingPaused(true);
+                report();
             }
         }
         pending      = std::make_shared<Part>();
@@ -372,6 +377,7 @@ public:
                 timer->start(timeout);
                 if (part->draining) {
                     part->drained = true;
+                    report();
                     if (part->app)
                         part->app->setReceivingPaused(true);
                     schedule();
@@ -389,7 +395,7 @@ public:
                                  fail(QStringLiteral("Peer changed the requested media gap"));
                                  return;
                              }
-                             transferring = true;
+                             part->receiving = true;
                              report();
                              part->app->setDevice(part->sink, false);
                          });
@@ -404,7 +410,6 @@ public:
                 return;
             }
             part->verified = true;
-            transferring = false;
             report();
             schedule();
         });
@@ -515,7 +520,6 @@ public:
         if (stopped || !error.isEmpty())
             return;
         error = std::move(reason);
-        transferring = false;
         report();
         qCDebug(lcIrisJingleMedia) << "Media synchronization stopped:" << error;
         timer->stop();
@@ -569,6 +573,7 @@ void IrisMediaSync::prioritize(quint64 index)
 }
 void IrisMediaSync::setConnected(bool connected, XMPP::Client *client)
 {
+    d->connected = connected;
     if (connected && d->client == client && !d->stopped) {
         if (!d->error.isEmpty()) {
             d->error.clear();
@@ -580,7 +585,6 @@ void IrisMediaSync::setConnected(bool connected, XMPP::Client *client)
     d->client = client;
     if (!connected && !d->stopped && (!d->parts.isEmpty() || d->request))
         d->fail(QStringLiteral("Media connection lost"));
-    d->transferring = false;
     d->error.clear();
     d->report();
     if (connected && !d->stopped)

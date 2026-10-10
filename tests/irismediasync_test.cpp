@@ -130,19 +130,19 @@ private slots:
 #ifdef IRIS_FT_DEFERRED_RECEIPTS
     void reportsOnlyAuthenticatedPersistedPlaintextBytes()
     {
-        const auto p = parameters(); // 37 plaintext bytes in 8-byte records.
+        const auto    p = parameters(); // 37 plaintext bytes in 8-byte records.
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         MediaReference reference;
-        reference.id = QUuid::createUuid();
+        reference.id           = QUuid::createUuid();
         reference.portableName = QStringLiteral("verified.bin");
-        reference.size = plain.size();
-        reference.checksum = p.plainChecksum;
+        reference.size         = plain.size();
+        reference.checksum     = p.plainChecksum;
         reference.remoteData.insert(QStringLiteral("xmpp.instance"), reference.id.toString());
 
         // A valid first chunk, a corrupt second chunk and a valid short
         // final chunk. Partial/corrupt data must not count.
-        for (quint64 i : {quint64(0), quint64(1), p.chunkCount() - 1}) {
+        for (quint64 i : { quint64(0), quint64(1), p.chunkCount() - 1 }) {
             QFile file(directory.filePath(QString::number(i)));
             QVERIFY(file.open(QIODevice::WriteOnly));
             auto wire = records(p, i, 1);
@@ -167,8 +167,18 @@ private slots:
         }
         // The new task must authenticate the persisted cache after restart.
         {
+            QList<qint64> restoredProgress;
+            QObject       observer;
+            connect(MediaSyncService::instance(), &MediaSyncService::snapshotChanged, &observer,
+                    [&](const QString &key) {
+                        if (key == MediaSyncService::key(reference))
+                            restoredProgress.append(MediaSyncService::instance()->snapshot(reference).verifiedBytes);
+                    });
             IrisMediaSync restored(nullptr, {}, p, directory.path(), 1000, nullptr, reference);
+            QTest::qWait(25);
             QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(13));
+            for (const auto bytes : restoredProgress)
+                QCOMPARE(bytes, qint64(13));
             QVERIFY(QFile::exists(directory.filePath(QStringLiteral("0"))));
             QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("1"))));
         }
@@ -176,14 +186,14 @@ private slots:
 
     void completeMeansEveryRecordVerifiedNotEndOfRange()
     {
-        const auto p = parameters();
+        const auto    p = parameters();
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         MediaReference reference;
-        reference.id = QUuid::createUuid();
+        reference.id           = QUuid::createUuid();
         reference.portableName = QStringLiteral("entire.bin");
-        reference.size = plain.size();
-        reference.checksum = p.plainChecksum;
+        reference.size         = plain.size();
+        reference.checksum     = p.plainChecksum;
         reference.remoteData.insert(QStringLiteral("xmpp.instance"), reference.id.toString());
 
         // A final cached record is not equivalent to a complete file.
@@ -207,6 +217,38 @@ private slots:
         IrisMediaSync completed(nullptr, {}, p, directory.path(), 1000, nullptr, reference);
         QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(plain.size()));
         QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Complete);
+    }
+
+    void disconnectedClientDoesNotStartBackgroundRequests()
+    {
+        const auto    p = parameters();
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        MediaReference reference;
+        reference.id           = QUuid::createUuid();
+        reference.portableName = QStringLiteral("offline.bin");
+        reference.size         = plain.size();
+        reference.checksum     = p.plainChecksum;
+        reference.remoteData.insert(QStringLiteral("xmpp.instance"), reference.id.toString());
+        XMPP::Client            client;
+        XMPP::Jingle::JinglePub publication;
+        publication.setFrom(XMPP::Jid(QStringLiteral("source@example.test/device")));
+        publication.setId(QStringLiteral("offline-publication"));
+        QSignalSpy    outgoing(&client, &XMPP::Client::xmlOutgoing);
+        IrisMediaSync sync(&client, publication, p, directory.path(), 1000, nullptr, reference);
+        sync.setConnected(false, &client);
+        sync.prioritize(0);
+        // Wait beyond the handover timeout: an accidentally started request
+        // would otherwise still look like Waiting during its first event turn.
+        QTest::qWait(1200);
+        QCOMPARE(outgoing.count(), 0);
+        QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
+        QVERIFY(MediaSyncService::instance()->snapshot(reference).error.isEmpty());
+        // A second demand must not restart signaling while still offline.
+        sync.prioritize(2);
+        QTest::qWait(50);
+        QCOMPARE(outgoing.count(), 0);
+        QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
     }
 
     void completedCacheNeedsNoPublicationSession()

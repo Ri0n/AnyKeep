@@ -69,6 +69,7 @@ public:
             resumeWhenLoaded();
             emit owner->stateChanged();
         });
+        QObject::connect(player.get(), &QMediaPlayer::seekableChanged, owner, [this](bool) { resumeWhenLoaded(); });
         QObject::connect(player.get(), &QMediaPlayer::errorOccurred, owner,
                          [this](QMediaPlayer::Error, const QString &message) {
                              error = message;
@@ -83,6 +84,10 @@ public:
             return;
         const auto status = player->mediaStatus();
         if (status != QMediaPlayer::LoadedMedia && status != QMediaPlayer::BufferedMedia)
+            return;
+        // LoadedMedia can precede seekableChanged with Qt 6.4/GStreamer.
+        // QMediaPlayer silently ignores setPosition until seeking is enabled.
+        if (pendingResumePosition > 0 && !player->isSeekable())
             return;
         const qint64 resumePosition = pendingResumePosition;
         pendingResumePosition       = -1;
