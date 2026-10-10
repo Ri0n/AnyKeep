@@ -256,6 +256,8 @@ public:
         if (!part || part->closing || !part->app)
             return;
         part->closing = true;
+        transferring = false;
+        report();
         if (part->verified)
             part->app->acknowledgeReceived();
         else
@@ -402,6 +404,8 @@ public:
                 return;
             }
             part->verified = true;
+            transferring = false;
+            report();
             schedule();
         });
         QObject::connect(app, &J::Application::stateChanged, q, [this, part](J::State state) {
