@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "editor" as EditorComponents
 
 ToolBar {
     id: root
@@ -60,6 +61,19 @@ ToolBar {
         }
 
         Item { Layout.fillWidth: true }
+
+        EditorComponents.MediaSyncIndicator {
+            objectName: "noteMediaSyncMobile"
+            visible: root.editorBackend && root.editorBackend.mediaSync
+                     && root.editorBackend.mediaSync.hasMedia
+            Layout.preferredWidth: visible ? 36 : 0
+            Layout.preferredHeight: 36
+            progress: root.editorBackend && root.editorBackend.mediaSync
+                      ? root.editorBackend.mediaSync.progress : 0
+            syncState: root.editorBackend && root.editorBackend.mediaSync
+                       ? root.editorBackend.mediaSync.state : 0
+            noteWide: true
+        }
 
         ToolButton {
             Layout.preferredWidth: 44
