@@ -29,5 +29,5 @@ override_dh_shlibdeps:
 # Runtime requirements are sourced from dependency-specific minimum_version
 # fields in the lock, not from the nightly-selected build tags.
 override_dh_gencontrol:
-	runtime_depends=$(python3 packaging/debian/runtime-depends.py --depends) || exit $?; \
-	dh_gencontrol -- "-Vruntime:Depends=$runtime_depends"
+	runtime_depends=$$(python3 packaging/debian/runtime-depends.py --depends) || exit $$?; \
+	dh_gencontrol -- "-Vruntime:Depends=$$runtime_depends"
