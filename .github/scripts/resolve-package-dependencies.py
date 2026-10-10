@@ -167,6 +167,17 @@ def main() -> None:
 
     lock = json.loads(Path(args.lock).read_text(encoding="utf-8"))
 
+    # Minimum supported runtime versions are independent of the chosen
+    # build tags. Reject a stable build that would use an older dependency.
+    for name in ("iris", "qca"):
+        minimum = parse_version(lock[name]["minimum_version"])
+        pinned = parse_version(lock[name]["tag"])
+        if pinned < minimum:
+            raise RuntimeError(
+                f"{name}: pinned tag {lock[name]['tag']} is older than "
+                f"minimum_version {lock[name]['minimum_version']}"
+            )
+
     iris_tag = lock["iris"]["tag"]
     qca_tag = lock["qca"]["tag"]
     if args.mode == "nightly":
@@ -183,6 +194,8 @@ def main() -> None:
     summary = (
         f"iris={iris_tag};"
         f"qca={qca_tag};"
+        f"minimum_iris={lock['iris']['minimum_version']};"
+        f"minimum_qca={lock['qca']['minimum_version']};"
         f"qtkeychain={qtkeychain_tag}"
     )
     fingerprint = hashlib.sha256(summary.encode("utf-8")).hexdigest()
