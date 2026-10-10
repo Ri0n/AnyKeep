@@ -48,23 +48,31 @@ void MediaSyncController::refresh()
             usedUris.insert(model->data(index, NoteBlockModel::UrlRole).toString());
     }
 
-    auto *service = MediaSyncService::instance();
-    service->unwatch(this);
-    media_.clear();
-    byUri_.clear();
+    QList<MediaReference> nextMedia;
+    QHash<QString, MediaReference> nextByUri;
     QSet<QString> seen;
     for (const auto &reference : editor_->media()) {
         if (!usedUris.contains(reference.uri()))
             continue;
-        byUri_.insert(reference.uri(), reference);
+        nextByUri.insert(reference.uri(), reference);
         const QString id = MediaSyncService::key(reference);
         if (seen.contains(id))
             continue;
         seen.insert(id);
-        media_.append(reference);
+        nextMedia.append(reference);
+    }
+    // Ordinary text edits must not restart background media observers or
+    // their Jingle sessions. Rebind only when the referenced media changes.
+    if (nextMedia == media_ && nextByUri == byUri_)
+        return;
+
+    auto *service = MediaSyncService::instance();
+    service->unwatch(this);
+    media_ = std::move(nextMedia);
+    byUri_ = std::move(nextByUri);
+    for (const auto &reference : std::as_const(media_))
         if (!LocalMediaStore::instance()->contains(reference))
             service->watch(this, reference);
-    }
     notifyChange();
 }
 
