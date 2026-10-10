@@ -35,6 +35,9 @@ jobs:
       - name: Validate stable dependency lock
         run: python3 .github/scripts/resolve-package-dependencies.py --mode stable
 
+      - name: Test lock-derived Debian dependency floors
+        run: python3 -m unittest discover -s .github/scripts -p 'test_debian_qca_minimum.py'
+
       - name: Resolve compatible nightly dependencies
         id: nightly
         env:
