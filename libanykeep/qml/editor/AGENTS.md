@@ -65,3 +65,18 @@ model, and backend explicitly; they must not reach into private visual ids.
 cmake --build build/Desktop-Debug --target editor_tests -j4
 ctest --test-dir build/Desktop-Debug -L editor --output-on-failure
 ```
+
+## Font-independent media controls
+
+`blocks/MediaBlock.qml` uses bundled SVG icons from `core.qrc` through
+`shared/ThemedIconImpl.qml` for full screen, the media overflow menu and
+resetting media presentation. Do **not** replace these controls with Unicode
+pseudo-icons (`⛶`, `⋮`, `↺`): Android system fonts can lack these glyphs and
+display missing-character boxes. Explicit `__bundled__` fallbacks avoid
+depending on a system icon theme. Palette-based tinting maintains contrast
+for both light and dark themes. Keep the existing keyboard shortcuts, tooltips,
+accessibility labels and actions unchanged.
+
+The editor QML regression test verifies the vector files are embedded under
+`:/svg/` and that the actual image-provider-backed control glyphs load. The
+Android and desktop builds both need to retain the shared core resource pack.
