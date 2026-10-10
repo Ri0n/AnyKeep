@@ -17,8 +17,7 @@ Depends: qml6-module-qtqml-workerscript,
  qml6-module-qtmultimedia,
  qml6-module-qtquick-templates,
  qml6-module-qtquick-window,
- ${qca:Depends},
- libiris-qt6-1,
+ ${runtime:Depends},
  ${shlibs:Depends},
  ${misc:Depends}
 Description: AnyKeep library to work with various notes storages
