@@ -140,3 +140,25 @@ cmake --build build/windows --target msix_package --parallel 4
 
 Qt, Conan, QCA/Iris SDKs, WiX, and the MSVC environment must be available in the
 same way as in CI.
+## QCA Debian runtime dependency floor
+
+QCA v3.0.11's released Debian runtime packages erroneously ship a
+`DEBIAN/shlibs` entry demanding exactly `libqca3-qt6-3 (= 3.0.11)`.
+Those records are consumed by `dpkg-shlibdeps` when building AnyKeep,
+causing freshly built `libanykeep3` to become uninstallable on machines
+with compatible QCA v3.0.10. The [QCA v3.0.10 → v3.0.11 diff]
+(https://github.com/psi-im/qca/compare/v3.0.10...v3.0.11) modifies
+version/CI logic only; no public headers or compiled source changes.
+
+The canonical fix belongs to QCA's Debian packaging (QCA PR #22):
+`libqca3-qt6 3 libqca3-qt6-3 (>= 3.0.10)`. Already released QCA
+v3.0.11 packages cannot be edited in place. For builds against **exactly**
+v3.0.11, `debian/rules` temporarily passes
+`packaging/debian/qca-3.0.11-abi.shlibs` to `dpkg-shlibdeps -L`.
+Other QCA versions use their own packaging metadata untouched so
+future ABI changes cannot be silently masked. The Debian packaging
+workflow asserts the final `libanykeep3` control file depends on
+QCA >= 3.0.10 rather than = 3.0.11.
+
+The AnyKeep SDK profiles still use QCA from system packages; the
+workaround does not alter `dependencies.lock.json` or rebuild QCA.
