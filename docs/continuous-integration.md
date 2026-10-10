@@ -140,40 +140,34 @@ cmake --build build/windows --target msix_package --parallel 4
 
 Qt, Conan, QCA/Iris SDKs, WiX, and the MSVC environment must be available in the
 same way as in CI.
-## QCA Debian runtime dependency policy
 
-QCA v3.0.11's released Debian packages shipped an incorrect
-`DEBIAN/shlibs` entry requiring the exact runtime version
-(`libqca3-qt6-3 (= 3.0.11)`). That made all newly compiled consumers
-inherit the build machine's QCA patch version, even when their own
-minimum was older. The upstream [QCA PR #22]
-(https://github.com/psi-im/qca/pull/22) fixes the generic `shlibs`
-entry to use the `libqca3-qt6.so.3` ABI baseline. A SONAME baseline
-does not guarantee that newer exported symbols exist in earlier
-releases; Debian `symbols` metadata can eventually express that
-difference per symbol.
+## QCA and Iris minimum supported runtime versions
 
-**The single authoritative AnyKeep QCA minimum is
-`dependencies.lock.json` → `qca.tag`.** That version is also the
-stable build baseline; nightly builds may select a newer compatible
-patch release. No Debian package profile defines a separate minimum.
+The minimum supported runtime versions are declared centrally in
+`dependencies.lock.json` under `qca.minimum_version` and
+`iris.minimum_version`. The separate `tag` and `commit` fields select
+the reproducible stable build; nightly packaging may choose a newer
+compatible published release. Build tags must never fall below the
+declared minimum.
 
-`packaging/debian/qca-depends.py` reads the lock and generates a
-`qca:Depends` substitution. `debian/rules` populates it during
-`dh_gencontrol`, and `libanykeep3` package control profiles reference
-only `${qca:Depends}`. Both the core QCA runtime and its crypto
-plugins receive the same lock-derived minimum. The native distro
-QCA/Qt6 profile (`qt6-noble`) does not use the QCA3 package names.
+The `packaging/debian/runtime-depends.py` helper validates the lock
+and creates a single `${runtime:Depends}` substitution with explicit
+minimums for QCA's core library, QCA's crypto plugins and the Iris
+runtime library. Each QCA3/Iris Debian profile references the
+substitution, and `debian/rules` supplies it to `dh_gencontrol`.
+No Debian profile hardcodes a dependency minimum. The distro-native
+`qt6-noble` profile does not depend on these separately packaged
+QCA3 and Iris runtimes.
 
-For published QCA v3.0.11 packages, `debian/rules` temporarily
-passes `packaging/debian/qca-3.0.11-abi.shlibs` to
-`dpkg-shlibdeps` **only when the build machine has exactly
-v3.0.11**. This override describes QCA's ABI baseline, not
-AnyKeep's minimum. With any other QCA version, the vendor's
-own shlibs/symbols metadata is retained.
+`.github/scripts/resolve-package-dependencies.py` rejects a stable
+build tag below its component's minimum and includes the minimums in
+its dependency fingerprint. CI unit tests verify distinct pinned
+build versions versus minimums, malformed versions and changed
+lock values; Debian packaging CI inspects the actual generated
+`libanykeep3` package's `Depends` field for all three requirements.
 
-CI tests that editing only the lock updates both dependencies,
-rejects malformed version tags, and verifies the *actual generated*
-`libanykeep3` .deb includes the lock-derived minimum without an
-exact v3.0.11 pin. Existing published .deb packages must be rebuilt
-to acquire corrected control metadata.
+A shared-library ABI/SONAME baseline and a consumer project's
+minimum supported version are different concepts. The lock records
+the latter and may be raised for fixes or features even when the ABI
+is unchanged. Existing Debian artifacts must be rebuilt for changes
+to their package dependencies to take effect.
