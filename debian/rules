@@ -21,26 +21,13 @@ override_dh_auto_configure:
 		$(ANYKEEP_CMAKE_EXTRA_ARGS) \
 		$(CCACHE_CMAKE_ARGS)
 
-# QCA v3.0.11 released .deb files incorrectly announce an *exact* runtime
-# dependency (= 3.0.11) in their shlibs metadata, even though v3.0.11 only
-# changed build/version machinery since ABI-compatible v3.0.10. Restrict the
-# temporary consumer-side override to this affected QCA package version.
-# Other versions continue to use the installed provider's own shlibs/symbols
-# metadata, so future ABI increases cannot be silently masked.
-QCA_RUNTIME_VERSION := $(shell dpkg-query -W -f='$${Version}' libqca3-qt6-3 2>/dev/null)
-ifeq ($(shell dpkg --compare-versions '$(QCA_RUNTIME_VERSION)' eq 3.0.11 && echo yes),yes)
-QCA_SHLIBDEPS_FLAGS := -L$(CURDIR)/packaging/debian/qca-3.0.11-abi.shlibs
-endif
-
-# Private/bundled QCA builds still resolve staged libraries and ignore missing
-# metadata only for libraries without a Debian shlibs/symbols file.
+# Keep the existing staged-library lookup. Dependency versions for the
+# application itself are generated from dependencies.lock.json at gencontrol.
 override_dh_shlibdeps:
-	dh_shlibdeps -l$(CURDIR)/debian/libanykeep3/usr/lib/$(DEB_HOST_MULTIARCH)/anykeep -- $(QCA_SHLIBDEPS_FLAGS) --ignore-missing-info
+	dh_shlibdeps -l$(CURDIR)/debian/libanykeep3/usr/lib/$(DEB_HOST_MULTIARCH)/anykeep -- --ignore-missing-info
 
-# Generate the *consumer's* runtime minimum from the single authoritative
-# dependencies.lock.json qca.tag. The selected nightly QCA build version must
-# not leak into the minimum supported runtime. Only libanykeep3 consumes the
-# ${qca:Depends} substvar in Debian control files.
+# Runtime requirements are sourced from dependency-specific minimum_version
+# fields in the lock, not from the nightly-selected build tags.
 override_dh_gencontrol:
-	qca_depends=$$(python3 packaging/debian/qca-depends.py --depends) || exit $$?; \
-	dh_gencontrol -- "-Vqca:Depends=$$qca_depends"
+	runtime_depends=$(python3 packaging/debian/runtime-depends.py --depends) || exit $?; \
+	dh_gencontrol -- "-Vruntime:Depends=$runtime_depends"
