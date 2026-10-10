@@ -85,7 +85,7 @@ public:
     ~IrisMediaSync() override;
     void readWireChunk(quint64 index, MediaRangeService::Completion callback);
     void prioritize(quint64 index);
-    void setConnected(bool connected);
+    void setConnected(bool connected, XMPP::Client *client);
     void cancel();
 
 private:
