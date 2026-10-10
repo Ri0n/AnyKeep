@@ -88,6 +88,9 @@ public:
     J::JinglePub                                         publication;
     MediaChunkWireParameters                             parameters;
     QString                                              directory;
+    MediaReference                                       reference;
+    quint64                                              verifiedPlain = 0;
+    bool                                                 transferring = false;
     IrisMediaGapMap                                      map;
     quint64                                              priority = 0;
     QHash<quint64, QList<MediaRangeService::Completion>> waiters;
@@ -103,8 +106,9 @@ public:
     int     timeout;
 
     Impl(IrisMediaSync *owner, XMPP::Client *c, J::JinglePub pub, MediaChunkWireParameters p, QString dir,
-         int timeoutMs) :
+         int timeoutMs, MediaReference ref) :
         q(owner), client(c), publication(std::move(pub)), parameters(std::move(p)), directory(std::move(dir)),
+        reference(std::move(ref)),
         map(parameters.chunkCount()), timer(new QTimer(owner)), timeout(qBound(1000, timeoutMs, 25000))
     {
         timer->setSingleShot(true);
@@ -113,25 +117,60 @@ public:
         QTimer::singleShot(0, q, [this] { restoreNext(); });
     }
 
+    void report()
+    {
+        if (!reference.isValid())
+            return;
+        MediaSyncSnapshot snapshot;
+        snapshot.verifiedBytes = qint64(qMin(verifiedPlain, parameters.plainSize));
+        snapshot.totalBytes = qint64(parameters.plainSize);
+        snapshot.state = map.complete() ? MediaSyncSnapshot::Complete
+                       : stopped ? MediaSyncSnapshot::Waiting
+                       : !error.isEmpty() ? MediaSyncSnapshot::Failed
+                       : transferring ? MediaSyncSnapshot::Transferring
+                                       : MediaSyncSnapshot::Waiting;
+        if (snapshot.state == MediaSyncSnapshot::Failed)
+            snapshot.error = error;
+        MediaSyncService::instance()->publish(reference, snapshot);
+    }
+
+    void markAvailable(quint64 index)
+    {
+        if (map.contains(index))
+            return;
+        map.markAvailable(index);
+        verifiedPlain += MediaChunkWire::plainChunkSize(parameters, index).value_or(0);
+        report();
+    }
+
+    void invalidate(quint64 index)
+    {
+        if (!map.contains(index))
+            return;
+        map.invalidate(index);
+        verifiedPlain -= MediaChunkWire::plainChunkSize(parameters, index).value_or(0);
+        report();
+    }
+
     QString    path(quint64 index) const { return directory + '/' + QString::number(index); }
     QByteArray load(quint64 index)
     {
         const auto expected = MediaChunkWire::wireChunkSize(parameters, index);
         QFile      file(path(index));
         if (!expected || !file.open(QIODevice::ReadOnly)) {
-            map.invalidate(index);
+            invalidate(index);
             return {};
         }
         if (quint64(file.size()) == *expected) {
             auto bytes = file.readAll();
             if (MediaChunkWire::decryptChunk(parameters, index, bytes)) {
-                map.markAvailable(index);
+                markAvailable(index);
                 return bytes;
             }
         }
         file.close();
         file.remove();
-        map.invalidate(index);
+        invalidate(index);
         return {};
     }
 
@@ -150,6 +189,7 @@ public:
             QTimer::singleShot(0, q, [this] { restoreNext(); });
         else {
             scanning = false;
+            report();
             schedule();
         }
     }
@@ -325,7 +365,7 @@ public:
                 file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
                 if (file.write(wire) != wire.size() || !file.commit())
                     return IrisMediaChunkSink::Action::Error;
-                map.markAvailable(index);
+                markAvailable(index);
                 deliver(index, wire);
                 timer->start(timeout);
                 if (part->draining) {
@@ -347,6 +387,8 @@ public:
                                  fail(QStringLiteral("Peer changed the requested media gap"));
                                  return;
                              }
+                             transferring = true;
+                             report();
                              part->app->setDevice(part->sink, false);
                          });
         QObject::connect(app, &FT::Application::progress, q, [this](quint64) {
@@ -469,6 +511,8 @@ public:
         if (stopped || !error.isEmpty())
             return;
         error = std::move(reason);
+        transferring = false;
+        report();
         qCDebug(lcIrisJingleMedia) << "Media synchronization stopped:" << error;
         timer->stop();
         QObject::disconnect(incoming);
@@ -500,9 +544,9 @@ public:
 };
 
 IrisMediaSync::IrisMediaSync(XMPP::Client *client, J::JinglePub publication, MediaChunkWireParameters parameters,
-                             QString directory, int timeoutMs, QObject *parent) :
+                             QString directory, int timeoutMs, QObject *parent, MediaReference reference) :
     QObject(parent), d(std::make_unique<Impl>(this, client, std::move(publication), std::move(parameters),
-                                              std::move(directory), timeoutMs))
+                                              std::move(directory), timeoutMs, std::move(reference)))
 {
 }
 IrisMediaSync::~IrisMediaSync() { cancel(); }
@@ -519,12 +563,22 @@ void IrisMediaSync::prioritize(quint64 index)
     d->demandPending = true;
     d->schedule();
 }
+void IrisMediaSync::setConnected(bool connected)
+{
+    d->transferring = false;
+    d->report();
+    if (connected && !d->stopped) {
+        d->error.clear();
+        d->schedule();
+    }
+}
 void IrisMediaSync::cancel()
 {
     if (d->stopped)
         return;
     d->fail(QStringLiteral("Media synchronization cancelled"));
     d->stopped = true;
+    d->report();
 }
 }
 #endif
