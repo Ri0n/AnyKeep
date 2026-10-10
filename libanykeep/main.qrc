@@ -47,6 +47,7 @@
         <file alias="editor/EditorContextMenu.qml">qml/editor/EditorContextMenu.qml</file>
         <file alias="editor/EditorReorderController.qml">qml/editor/EditorReorderController.qml</file>
         <file alias="editor/EditorToolbarImpl.qml">qml/editor/EditorToolbarImpl.qml</file>
+        <file alias="editor/MediaSyncIndicator.qml">qml/editor/MediaSyncIndicator.qml</file>
         <file alias="editor/EditorActionControllerImpl.qml">qml/editor/EditorActionControllerImpl.qml</file>
         <file alias="editor/support/ListBlockBehavior.js">qml/editor/support/ListBlockBehavior.js</file>
         <file alias="editor/components/ListBlockEditor.qml">qml/editor/components/ListBlockEditor.qml</file>
