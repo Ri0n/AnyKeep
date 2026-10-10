@@ -58,3 +58,25 @@ runs:
         mkdir packages
         find .. -maxdepth 1 -type f -name '*.deb' -exec cp -v {} packages/ \;
         test -n "$(find packages -type f -name '*.deb' -print -quit)"
+
+        # Check the actual generated Debian package, not just templates.
+        # The stable lock records supported minima, which may be older
+        # than newer nightly build dependencies.
+        libanykeep_deb=$(find packages -maxdepth 1 -type f -name 'libanykeep3_*.deb' -print -quit)
+        test -n "$libanykeep_deb"
+        depends=$(dpkg-deb -f "$libanykeep_deb" Depends)
+        echo "libanykeep3 dependencies: $depends"
+        for provider in qca iris; do
+          minimum=$(python3 packaging/debian/runtime-depends.py --minimum "$provider")
+          if [[ "$provider" == "qca" ]]; then
+            packages=(libqca3-qt6-3 libqca3-qt6-plugins)
+          else
+            packages=(libiris-qt6-1)
+          fi
+          for package in "${packages[@]}"; do
+            if [[ "$depends" != *"$package (>= $minimum)"* ]]; then
+              echo "::error::Missing lock-derived dependency: $package >= $minimum"
+              exit 1
+            fi
+          done
+        done

@@ -140,3 +140,34 @@ cmake --build build/windows --target msix_package --parallel 4
 
 Qt, Conan, QCA/Iris SDKs, WiX, and the MSVC environment must be available in the
 same way as in CI.
+
+## QCA and Iris minimum supported runtime versions
+
+The minimum supported runtime versions are declared centrally in
+`dependencies.lock.json` under `qca.minimum_version` and
+`iris.minimum_version`. The separate `tag` and `commit` fields select
+the reproducible stable build; nightly packaging may choose a newer
+compatible published release. Build tags must never fall below the
+declared minimum.
+
+The `packaging/debian/runtime-depends.py` helper validates the lock
+and creates a single `${runtime:Depends}` substitution with explicit
+minimums for QCA's core library, QCA's crypto plugins and the Iris
+runtime library. Each QCA3/Iris Debian profile references the
+substitution, and `debian/rules` supplies it to `dh_gencontrol`.
+No Debian profile hardcodes a dependency minimum. The distro-native
+`qt6-noble` profile does not depend on these separately packaged
+QCA3 and Iris runtimes.
+
+`.github/scripts/resolve-package-dependencies.py` rejects a stable
+build tag below its component's minimum and includes the minimums in
+its dependency fingerprint. CI unit tests verify distinct pinned
+build versions versus minimums, malformed versions and changed
+lock values; Debian packaging CI inspects the actual generated
+`libanykeep3` package's `Depends` field for all three requirements.
+
+A shared-library ABI/SONAME baseline and a consumer project's
+minimum supported version are different concepts. The lock records
+the latter and may be raised for fixes or features even when the ABI
+is unchanged. Existing Debian artifacts must be rebuilt for changes
+to their package dependencies to take effect.
