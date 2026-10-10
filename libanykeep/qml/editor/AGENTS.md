@@ -80,3 +80,16 @@ accessibility labels and actions unchanged.
 The editor QML regression test verifies the vector files are embedded under
 `:/svg/` and that the actual image-provider-backed control glyphs load. The
 Android and desktop builds both need to retain the shared core resource pack.
+
+
+## Media synchronization presentation
+
+The editor exposes `NoteEditor.mediaSync`, backed by a provider-independent
+per-editor `MediaSyncController`. Use `MediaSyncIndicator.qml` for visual and
+audio blocks and the note toolbar. The mobile `MobileNoteTopBar` uses the
+same component. Never infer offline media completion from playback position,
+network bytes or individual range completion. The controller deduplicates
+identical content and aggregates verified plaintext bytes without affecting
+the document, manifest or undo history. Keep the four state glyphs,
+rotation-only-while-transferring behavior, tooltips and accessible names.
+Do not import plugin-specific QML types into editor blocks.
