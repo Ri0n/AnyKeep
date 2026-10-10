@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QThread>
+#include <utility>
 
 namespace AnyKeep {
 
@@ -98,7 +99,7 @@ void MediaSyncService::watch(QObject *subscriber, const MediaReference &referenc
     if (first)
         dispatch(reference);
     connect(subscriber, &QObject::destroyed, this, [this, subscriber] { unwatch(subscriber); },
-            Qt::UniqueConnection);
+            Qt::AutoConnection);
 }
 
 void MediaSyncService::unwatch(QObject *subscriber)
