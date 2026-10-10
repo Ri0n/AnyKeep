@@ -56,6 +56,7 @@ set(anykeep_mobile_editor_qml
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/EditorContextMenu.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/EditorReorderController.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/EditorToolbarImpl.qml"
+    "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/MediaSyncIndicator.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/EditorActionControllerImpl.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/NoteBlockEditorImpl.qml"
     "${CMAKE_SOURCE_DIR}/libanykeep/qml/editor/NoteEditorPaneImpl.qml"
