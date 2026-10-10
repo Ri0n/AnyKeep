@@ -21,8 +21,18 @@ override_dh_auto_configure:
 		$(ANYKEEP_CMAKE_EXTRA_ARGS) \
 		$(CCACHE_CMAKE_ARGS)
 
-# QCA is bundled privately with libanykeep3 for the Iris build profile. It has
-# no Debian shlibs/symbols file, so resolve it in the staged package and omit
-# only its unavailable dependency metadata.
+# QCA v3.0.11 released .deb files incorrectly announce an *exact* runtime
+# dependency (= 3.0.11) in their shlibs metadata, even though v3.0.11 only
+# changed build/version machinery since ABI-compatible v3.0.10. Restrict the
+# temporary consumer-side override to this affected QCA package version.
+# Other versions continue to use the installed provider's own shlibs/symbols
+# metadata, so future ABI increases cannot be silently masked.
+QCA_RUNTIME_VERSION := $(shell dpkg-query -W -f='${Version}' libqca3-qt6-3 2>/dev/null)
+ifeq ($(shell dpkg --compare-versions '$(QCA_RUNTIME_VERSION)' eq 3.0.11 && echo yes),yes)
+QCA_SHLIBDEPS_FLAGS := -L$(CURDIR)/packaging/debian/qca-3.0.11-abi.shlibs
+endif
+
+# Private/bundled QCA builds still resolve staged libraries and ignore missing
+# metadata only for libraries without a Debian shlibs/symbols file.
 override_dh_shlibdeps:
-	dh_shlibdeps -l$(CURDIR)/debian/libanykeep3/usr/lib/$(DEB_HOST_MULTIARCH)/anykeep -- --ignore-missing-info
+	dh_shlibdeps -l$(CURDIR)/debian/libanykeep3/usr/lib/$(DEB_HOST_MULTIARCH)/anykeep -- $(QCA_SHLIBDEPS_FLAGS) --ignore-missing-info
