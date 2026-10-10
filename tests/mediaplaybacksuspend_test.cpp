@@ -61,7 +61,10 @@ private slots:
         QVERIFY(playback.toggle(reference.uri()));
         QTRY_VERIFY_WITH_TIMEOUT(reads > previousReads, 10000);
         QTRY_VERIFY_WITH_TIMEOUT(playback.playing(), 10000);
-        QTRY_VERIFY_WITH_TIMEOUT(playback.position() >= 2400, 1500);
+        // Qt Multimedia 6.4/GStreamer applies the restored seek asynchronously.
+// CI runners without a live PulseAudio service may take several seconds.
+// Keep the position assertion; only relax the platform timing budget.
+        QTRY_VERIFY_WITH_TIMEOUT(playback.position() >= 2400, 10000);
         playback.stop();
         QVERIFY(playback.currentSourceUri().isEmpty());
         QCOMPARE(playback.position(), qint64(0));
