@@ -27,7 +27,7 @@ override_dh_auto_configure:
 # temporary consumer-side override to this affected QCA package version.
 # Other versions continue to use the installed provider's own shlibs/symbols
 # metadata, so future ABI increases cannot be silently masked.
-QCA_RUNTIME_VERSION := $(shell dpkg-query -W -f='${Version}' libqca3-qt6-3 2>/dev/null)
+QCA_RUNTIME_VERSION := $(shell dpkg-query -W -f='$${Version}' libqca3-qt6-3 2>/dev/null)
 ifeq ($(shell dpkg --compare-versions '$(QCA_RUNTIME_VERSION)' eq 3.0.11 && echo yes),yes)
 QCA_SHLIBDEPS_FLAGS := -L$(CURDIR)/packaging/debian/qca-3.0.11-abi.shlibs
 endif
