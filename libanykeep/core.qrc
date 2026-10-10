@@ -29,6 +29,9 @@
         <file alias="task-list-symbolic.svg">images/task-list-symbolic.svg</file>
         <file alias="media-record-symbolic.svg">images/media-record-symbolic.svg</file>
         <file alias="overflow-menu-symbolic.svg">images/overflow-menu-symbolic.svg</file>
+        <file alias="view-fullscreen-symbolic.svg">images/view-fullscreen-symbolic.svg</file>
+        <file alias="view-refresh-symbolic.svg">images/view-refresh-symbolic.svg</file>
+        <file alias="view-more-vertical-symbolic.svg">images/view-more-vertical-symbolic.svg</file>
         <file alias="document-share-symbolic.svg">images/document-share-symbolic.svg</file>
         <file alias="document-open-recent-symbolic.svg">images/document-open-recent-symbolic.svg</file>
         <file alias="drive-harddisk-symbolic.svg">images/drive-harddisk-symbolic.svg</file>
