@@ -128,6 +128,87 @@ private slots:
         QVERIFY(!sink.complete());
     }
 #ifdef IRIS_FT_DEFERRED_RECEIPTS
+    void reportsOnlyAuthenticatedPersistedPlaintextBytes()
+    {
+        const auto p = parameters(); // 37 plaintext bytes in 8-byte records.
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        MediaReference reference;
+        reference.id = QUuid::createUuid();
+        reference.portableName = QStringLiteral("verified.bin");
+        reference.size = plain.size();
+        reference.checksum = p.plainChecksum;
+        reference.remoteData.insert(QStringLiteral("xmpp.instance"), reference.id.toString());
+
+        // A valid first chunk, a corrupt second chunk and a valid short
+        // final chunk. Partial/corrupt data must not count.
+        for (quint64 i : {quint64(0), quint64(1), p.chunkCount() - 1}) {
+            QFile file(directory.filePath(QString::number(i)));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            auto wire = records(p, i, 1);
+            if (i == 1)
+                wire[wire.size() - 1] ^= 1;
+            QCOMPARE(file.write(wire), wire.size());
+        }
+        {
+            IrisMediaSync sync(nullptr, {}, p, directory.path(), 1000, nullptr, reference);
+            QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(13));
+            QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
+            // Reprioritization, offline/online changes and cached reads cannot
+            // make already verified chunks appear twice.
+            sync.prioritize(p.chunkCount() - 1);
+            sync.setConnected(false, nullptr);
+            sync.setConnected(true, nullptr);
+            QCOMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(13));
+            QByteArray delivered;
+            sync.readWireChunk(0, [&](QByteArray bytes, QString) { delivered = bytes; });
+            QTRY_COMPARE(delivered, records(p, 0, 1));
+            QCOMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(13));
+        }
+        // The new task must authenticate the persisted cache after restart.
+        {
+            IrisMediaSync restored(nullptr, {}, p, directory.path(), 1000, nullptr, reference);
+            QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(13));
+            QVERIFY(QFile::exists(directory.filePath(QStringLiteral("0"))));
+            QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("1"))));
+        }
+    }
+
+    void completeMeansEveryRecordVerifiedNotEndOfRange()
+    {
+        const auto p = parameters();
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        MediaReference reference;
+        reference.id = QUuid::createUuid();
+        reference.portableName = QStringLiteral("entire.bin");
+        reference.size = plain.size();
+        reference.checksum = p.plainChecksum;
+        reference.remoteData.insert(QStringLiteral("xmpp.instance"), reference.id.toString());
+
+        // A final cached record is not equivalent to a complete file.
+        {
+            QFile file(directory.filePath(QString::number(p.chunkCount() - 1)));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            const auto wire = records(p, p.chunkCount() - 1, 1);
+            QCOMPARE(file.write(wire), wire.size());
+        }
+        {
+            IrisMediaSync sync(nullptr, {}, p, directory.path(), 1000, nullptr, reference);
+            QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(5));
+            QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
+        }
+        for (quint64 i = 0; i < p.chunkCount() - 1; ++i) {
+            QFile file(directory.filePath(QString::number(i)));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            const auto wire = records(p, i, 1);
+            QCOMPARE(file.write(wire), wire.size());
+        }
+        IrisMediaSync completed(nullptr, {}, p, directory.path(), 1000, nullptr, reference);
+        QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(plain.size()));
+        QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Complete);
+    }
+
     void completedCacheNeedsNoPublicationSession()
     {
         const auto    p = parameters();
