@@ -58,3 +58,21 @@ runs:
         mkdir packages
         find .. -maxdepth 1 -type f -name '*.deb' -exec cp -v {} packages/ \;
         test -n "$(find packages -type f -name '*.deb' -print -quit)"
+
+        # QCA v3.0.11's published shlibs metadata incorrectly pins *every*
+        # consumer to exactly v3.0.11. The library ABI remains compatible
+        # with v3.0.10; assert our shlibs override actually reaches the .deb.
+        if [[ "${{ inputs.qca-tag }}" == "v3.0.11" ]]; then
+          libanykeep_deb=$(find packages -maxdepth 1 -type f -name 'libanykeep3_*.deb' -print -quit)
+          test -n "$libanykeep_deb"
+          depends=$(dpkg-deb -f "$libanykeep_deb" Depends)
+          echo "libanykeep3 dependencies: $depends"
+          if [[ "$depends" != *"libqca3-qt6-3 (>= 3.0.10)"* ]]; then
+            echo "::error::QCA v3.0.11 packaging incorrectly requires an exact patch version: $depends"
+            exit 1
+          fi
+          if [[ "$depends" == *"libqca3-qt6-3 (= 3.0.11)"* ]]; then
+            echo "::error::QCA exact-version dependency leaked into generated package"
+            exit 1
+          fi
+        fi
