@@ -1752,7 +1752,7 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
               callback(plain.mid(qsizetype(within), qsizetype(qMin<qint64>(length, plain.size() - within))), {});
           };
 #ifdef IRIS_FT_DEFERRED_RECEIPTS
-    auto syncJob = [this, directory, descriptor]() -> IrisMediaSync * {
+    auto syncJob = [this, directory, descriptor, reference]() -> IrisMediaSync * {
         if (!connected_ || !client_)
             return nullptr;
         auto job = mediaSyncJobs_.value(directory);
