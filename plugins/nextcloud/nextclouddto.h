@@ -1,6 +1,7 @@
 #ifndef NEXTCLOUDDTO_H
 #define NEXTCLOUDDTO_H
 
+#include <QByteArray>
 #include <QList>
 #include <QString>
 #include <QUrl>
@@ -34,6 +35,11 @@ struct NextcloudStatusResult {
     bool    ok { false };
     int     httpStatus { 0 };
     QString error;
+};
+
+struct NextcloudAttachmentResult : NextcloudStatusResult {
+    QString path;
+    QByteArray data;
 };
 
 struct NextcloudListResult : NextcloudStatusResult {
