@@ -81,9 +81,14 @@ Read `README.md` for the HTTP/API behavior and user-facing configuration.
   during note opening. MediaRangeService requests must validate the account
   digest, note ownership/path, size, category and pinned `If-Match` before
   delivering plaintext; never store app credentials in media metadata.
-  The shared playback bridge can stream memory-bounded ranges, but **does
-  not imply a durable encrypted cache**. Never report bytes as durably
-  synced until a verified encrypted chunk cache actually exists.
+  Use shared `MediaPartialChunkCache` for durable, encrypted 1 MiB
+  records, sealed under `LocalMedia` domain and revision/index-bound AEAD
+  context. XMPP uses the same class for its already-encrypted wire records
+  without changing existing on-disk paths. A cache hit must reauthenticate
+  local bytes before playback; a corrupt record must be invalidated and
+  fetched again with the original strong WebDAV ETag. Progress includes
+  only durably committed authenticated bytes, never transient network
+  reads. Keychain access belongs on the application thread.
 - Synchronous media saves are still rejected; media capability stays disabled.
   Missing zero-byte/large remote hydration, multi-device checks and safe
   cleanup are separate lifecycle work.

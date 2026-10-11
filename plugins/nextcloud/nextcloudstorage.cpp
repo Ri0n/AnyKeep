@@ -602,9 +602,17 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
 
                     QMetaObject::invokeMethod(
                         owner,
-                        [owner, output = std::move(output), failure, done = std::move(done)]() mutable {
-                            if (owner)
-                                done(failure.isEmpty() ? std::move(output) : QByteArray(), failure);
+                        [owner, ref, output = std::move(output), failure, done = std::move(done)]() mutable {
+                            if (!owner)
+                                return;
+                            // A configuration switch can occur while an
+                            // authenticated WebDAV range is in flight. Do not
+                            // return the previous account's bytes to a player.
+                            if (!matchesRemoteMedia(ref, owner->readConfig())) {
+                                done({}, QStringLiteral("Nextcloud media account changed during the read"));
+                                return;
+                            }
+                            done(failure.isEmpty() ? std::move(output) : QByteArray(), failure);
                         },
                         Qt::QueuedConnection);
                 },

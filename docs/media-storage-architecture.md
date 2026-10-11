@@ -458,13 +458,32 @@ the discovered `If-Match` ETag and the expected total byte length.
 Changing the configured account invalidates the resolver. No remote URL
 with credentials is inserted into document content.
 
-The current ranged bridge is transient memory streaming, not a complete
-encrypted persistent partial-cache implementation. Playback may re-fetch
-ranges on repeat seeks/restarts; these bytes do not contribute to durable
-`MediaSyncSnapshot.verifiedBytes`. Subsequent work must add authenticated
-encrypted segment persistence, cancellation, coalesced requests and
-disk eviction before enabling `supportsMedia()` or advertising complete
-cross-device media synchronization.
+The ranged bridge now uses **`MediaPartialChunkCache`**, extracted from
+the XMPP media implementation as a provider-neutral record store. The
+existing `IrisMediaSync` continues to validate and store opaque XMPP
+wire-encrypted records at the same numeric paths, preserving previously
+downloaded data. The Nextcloud adapter uses the same record store in
+locally sealed mode: a missing byte range hydrates its containing 1 MiB
+chunk, writes it via `SecureEnvelope` with the local media master key and
+revision/index-bound AAD, then serves authenticated plaintext to the
+existing local HTTP bridge. Subsequent seeks and process restarts verify
+the cached chunk without requesting WebDAV again. Corrupted records
+are removed and re-fetched from the same pinned ETag. Durable authenticated
+plaintext-byte progress is reported through `MediaSyncService`; transient
+wire transfer bytes are not counted.
+
+Nextcloud does not encrypt server-side bytes: native Notes clients continue
+to see ordinary Markdown and WebDAV files. Unlike XMPP, server-side
+WebDAV ETags and TLS ensure revision consistency and transport security,
+but do not provide an independent end-to-end signed file checksum.
+The partial-media cache is deliberately separate from complete managed
+`AKMC` blobs because a partial file has no authenticated complete
+content fingerprint yet.
+
+Remaining work: fully proactive prefetch, eviction, cancellation under
+rapid account changes, multi-device/native-client verification and safe
+orphan cleanup. `supportsMedia()` must stay disabled until the complete
+lifecycle is validated.
 
 ### XMPP implementation
 
