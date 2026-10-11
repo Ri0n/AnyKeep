@@ -733,6 +733,24 @@ NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relat
     return result;
 }
 
+NextcloudStatusResult NextcloudWorker::ensureWebDavFolder(const QString &relativeFolderPath)
+{
+    NextcloudStatusResult result;
+    if (!NextcloudMediaLinks::isSafeNativePath(relativeFolderPath)) {
+        result.error = QStringLiteral("Invalid Nextcloud WebDAV attachment folder");
+        return result;
+    }
+    const auto reply = collectReply(manager()->sendCustomRequest(
+        makeRequest(webDavFileUrl(relativeFolderPath)), QByteArrayLiteral("MKCOL")));
+    result.httpStatus = reply.status;
+    // An existing collection returns 405 under Nextcloud's WebDAV server.
+    // The subsequent upload still has to pass server-side authorization.
+    result.ok = reply.ok || reply.status == 405;
+    if (!result.ok)
+        result.error = errorText(reply);
+    return result;
+}
+
 NextcloudWebDavUploadResult NextcloudWorker::uploadWebDavChunks(const QString &relativeFilePath,
                                                                  QIODevice *source, qint64 size)
 {
