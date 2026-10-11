@@ -955,6 +955,39 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                 } else {
                     QHash<QString, QString> nativePaths;
                     for (const auto &attachment : attachments) {
+                        const QString receiptPath
+                            = attachment.reference.remoteData.value(QStringLiteral("nextcloud.path")).toString();
+                        const QString receiptNote
+                            = attachment.reference.remoteData.value(QStringLiteral("nextcloud.noteId")).toString();
+                        const QString ownPrefix = QStringLiteral(".attachments.") + oldId + QLatin1Char('/');
+                        if (receiptNote == oldId && receiptPath.startsWith(ownPrefix)
+                            && NextcloudMediaLinks::isSafeNativePath(receiptPath)) {
+                            // A save after a successful publication must not create a
+                            // fresh attachment every time the note text is edited.
+                            // Never trust the local receipt without rechecking bytes:
+                            // native clients can modify an attachment independently
+                            // of the Notes body ETag.
+                            const auto previous = worker_->downloadAttachment(oldId, receiptPath);
+                            if (previous.ok) {
+                                if (previous.data != attachment.bytes) {
+                                    publication.note.conflict = true;
+                                    publication.note.httpStatus = 412;
+                                    publication.note.error = QStringLiteral(
+                                        "The native Nextcloud attachment changed on the server");
+                                    break;
+                                }
+                                nativePaths.insert(attachment.reference.uri(), receiptPath);
+                                publication.media.append(attachment.reference);
+                                continue;
+                            }
+                            if (previous.httpStatus != 404) {
+                                publication.note.httpStatus = previous.httpStatus;
+                                publication.note.error = previous.error;
+                                break;
+                            }
+                            // The server no longer has this object; upload a
+                            // replacement without writing Markdown until verified.
+                        }
                         const QString uniqueName = attachment.reference.id.toString(QUuid::WithoutBraces)
                             + QLatin1Char('-') + QUuid::createUuid().toString(QUuid::WithoutBraces)
                             + QLatin1Char('-') + attachment.reference.portableName.left(100);
