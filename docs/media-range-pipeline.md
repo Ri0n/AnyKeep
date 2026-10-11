@@ -27,7 +27,7 @@ network traffic*, not just the number of queued range requests.
 | --- | --- | --- |
 | `MediaRangeService` | Loopback HTTP server for `QMediaPlayer`: parses HTTP Range; asynchronously requests 64 KiB slices; throttles socket writes; only the first read of each GET may reprioritize retrieval | Cancellation propagated upstream on socket disconnect, explicit per-player demand/session tracking |
 | `MediaSyncService` | Publishes and observes *durably verified* byte counts and download states | Intentionally not a scheduler; keep it separate |
-| `MediaPartialChunkCache` | Provider-neutral atomic persistent cache; `VerifiedOpaque` for XMPP wire chunks and locally `SecureEnvelope`-sealed chunks for Nextcloud; reads reauthenticate | Centralized in-flight/scheduled state and coalescing (must not be added to the persistence class) |
+| `LocalMediaStore` / `MediaPartialChunkCache` | Shared storage layer already exposes `LocalMediaStore::partialMediaCache()` for Nextcloud. The returned shared `MediaPartialChunkCache` stores locally sealed, reauthenticated 1 MiB records under `media/partial/`. The same cache class also accepts `VerifiedOpaque` XMPP wire records, which Iris currently constructs itself in its existing `media-ranges/` directory. | Make `LocalMediaStore` the sole factory/namespace and lifecycle authority for **both** partial-cache representations; move scheduling and network requests **out** of the storage layer |
 | `NextcloudStorage` + `NextcloudWorker` | Pinned-ETag WebDAV reads; playback Range resolver; bounded encrypted cache | Uses storage-wide FIFO after PR #155 to avoid reentrancy of `collectReply()`; no independent-chunk parallelism or request cancellation |
 | `IrisMediaSync` | One XMPP media sync per source, verified opaque chunks, gap/seek priority, and overlapping old/new Jingle content during BUNDLE handover (old partial chunk drains while new content is negotiated); different media syncs can coexist | Global admission/bandwidth budgeting across independent media and providers; retain existing safe Jingle overlap and receipt ordering |
 | `MediaStream` / `MediaSource` | Seekable synchronous access to *already available* verified local bytes | Remain local-only; do not put network/blocking reads into `QIODevice::readData()` |
@@ -53,33 +53,43 @@ QMediaPlayer / media preview / future readers
      - attach/detach consumers waiting on each verified chunk
      - satisfy local hits and emit available verified slices
      - reprioritize needed chunks; publish validated progress
-                  |
-                  v
-     Shared chunk scheduler / downloader
-     - single-flight per immutable object and chunk index
-     - demand priority, fair scheduling, bounded parallelism
-     - cancellation and optional background/prefetch demand
-     - latency/throughput/backpressure measurements
-                  |
-           +------+-------+
-           |              |
-         XMPP/Iris       Nextcloud/WebDAV        (future sources)
-         chunk source    HTTP chunk source
-           |              |
-           +------+-------+
-                  |
-        per-source authentication / validation
-                  |
-        MediaPartialChunkCache
-        durable verified records
-                  |
-        verified plaintext to coordinator
+            |                          |
+            v                          v
+     LocalMediaStore            Shared chunk scheduler
+     - openPartialCache()       - single-flight, priorities
+     - cache identities         - fair bounded parallelism
+     - local key / encryption   - cancellation, prefetch
+     - verified cache records   - network statistics
+            ^                          |
+            |                   +------+-------+
+            |                   |              |
+            |                 XMPP/Iris     Nextcloud/WebDAV
+            |                   |              |
+            +-- verified opaque-+              |
+            +-- validated plaintext ---------+
+            |
+     reauthenticated requested slices
+     returned to range coordinator
 ```
 
-The diagram is logical; a source may hand an authenticated opaque wire record
-to its verifier, or a validated plaintext response to the locally sealed cache.
-Do **not** require Nextcloud to store AnyKeep ciphertext remotely; native Notes
-and WebDAV clients must remain interoperable.
+The diagram is logical. **The local partial cache is owned/provided by
+`LocalMediaStore`, not by the transport plugin or the downloader.** The
+coordinator receives a cache handle; source-specific validation is performed
+before the shared store accepts a record. XMPP hands the store a verified,
+already wire-encrypted AEAD record; Nextcloud hands it a validated plaintext
+WebDAV chunk for local sealing under the profile key. Plugins retain only
+account/source identification, transport and verification rules, not cache
+directory construction, encryption keys or garbage collection. Do **not**
+require Nextcloud to store AnyKeep ciphertext remotely; native Notes/WebDAV
+clients must remain interoperable.
+
+**Current deviation:** Iris still uses `MediaPartialChunkCache(VerifiedOpaque,
+directory)` directly and its durable numeric files live in
+`<AnyKeep data>/media-ranges/<hash>/`. A unified `LocalMediaStore` API must
+adopt or transparently open these old paths without losing existing cached
+chunks. The present `LocalMediaStore::partialMediaCache()` supports only
+locally sealed Nextcloud-shaped chunks, so this requires extending the
+factory, not merely changing a call site.
 
 ## Proposed contracts and invariants
 
@@ -198,11 +208,17 @@ and WebDAV clients must remain interoperable.
    cancellation, revised ETag, changed account, corruption, restart, error
    propagation and deterministic concurrency ceilings. Retain XMPP Jingle
    handover/receipt regression coverage.
-2. **Extract common coordinator.** Keep existing transport adapters and cache
-   record formats. Move waiters, chunk state, geometry and priority handling out
-   of `NextcloudStorage` into shared code. Initially use concurrency = 1 for
-   Nextcloud to preserve PR #155 behavior. Keep the existing XMPP transport as
-   source-specific ownership until its lifecycle fits the new contract.
+2. **Unify partial-cache ownership and extract the coordinator.** Extend
+   `LocalMediaStore` with a handle/factory for both locally sealed plaintext
+   records and verified opaque XMPP wire records; retain transparent access to
+   existing XMPP `media-ranges` paths and all existing encrypted formats.
+   Centralize cache namespace, identity, quotas and eventual reference-aware
+   eviction in the shared store, **not** in transport plugins. Move waiters,
+   chunk state, geometry and priority handling out of `NextcloudStorage`
+   into a separate shared coordinator. Keep the actual download scheduler
+   separate from the store. Initially use concurrency = 1 for Nextcloud to
+   preserve PR #155 behavior. Keep the existing XMPP transfer implementation
+   until its lifecycle fits the coordinator contract.
 3. **Asynchronous WebDAV source.** Remove synchronous `collectReply()` from
    the remote-media path, implement abortable `QNetworkReply` fetches with
    immutable per-request credentials and ETag validation; enable a tested small
@@ -220,6 +236,10 @@ and WebDAV clients must remain interoperable.
 
 ## Acceptance criteria for first code PR
 
+- All media plugins obtain partial cache handles from `LocalMediaStore`,
+  with isolated immutable source identities and no plugin-specific cache
+  directory or profile-key handling. Previously downloaded XMPP wire records
+  continue to open and verify at their original paths.
 - Two simultaneous decoder reads of one uncached chunk cause exactly one
   transport request and return correct byte slices to both clients.
 - Requests for different chunks can be scheduled independently without
