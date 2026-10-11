@@ -124,6 +124,7 @@ private slots:
     void legacyMediaLinksPreventUnsafeFolderMove();
     void dirtyPublishIncludesFolderCategory();
     void mediaIsUploadedAndVerifiedBeforeMarkdownCommit();
+    void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges_data();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges();
     void staleEtagPreventsAttachmentStaging();
     void existingMediaReceiptIsReusedOrRejected_data();
@@ -385,8 +386,16 @@ void NextcloudStorageTest::mediaIsUploadedAndVerifiedBeforeMarkdownCommit()
     settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
 }
 
+void NextcloudStorageTest::nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges_data()
+{
+    QTest::addColumn<QString>("nativePath");
+    QTest::newRow("web-native-directory") << QStringLiteral(".attachments.42/image.png");
+    QTest::newRow("notes-api-legacy-sibling") << QStringLiteral("legacy-upload.png");
+}
+
 void NextcloudStorageTest::nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges()
 {
+    QFETCH(QString, nativePath);
     QVERIFY(FileFolderCatalogStore::cryptoAvailable());
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -394,7 +403,7 @@ void NextcloudStorageTest::nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges(
                                SecureEnvelope::generateMasterKey());
 
     const QByteArray bytes = QByteArrayLiteral("remotely-published-image");
-    const QString remotePath = QStringLiteral(".attachments.42/image.png");
+    const QString remotePath = nativePath;
     const QString nativeMarkdown = QStringLiteral("![image](") + remotePath + QLatin1Char(')');
     QJsonObject json = QJsonDocument::fromJson(
         noteJson(QStringLiteral("42"), QStringLiteral("old-etag"), QString(), 1700000000)).object();
