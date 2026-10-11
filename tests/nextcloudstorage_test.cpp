@@ -198,6 +198,7 @@ private slots:
     void shutdownRejectsPreviouslyIssuedMediaRangeUrl();
     void concurrentRangeReadsReuseOneVerifiedWebDavChunk();
     void accountSwitchDuringRangeReadRejectsStaleBytes();
+    void reentrantStorageOperationCannotChangePinnedWebDavAccount();
     void oversizedNativeAttachmentStreamsRemoteWebDavRanges_data();
     void oversizedNativeAttachmentStreamsRemoteWebDavRanges();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges_data();
@@ -1225,6 +1226,87 @@ void NextcloudStorageTest::accountSwitchDuringRangeReadRejectsStaleBytes()
     QVERIFY(reply->readAll().isEmpty());
     QVERIFY(MediaRangeService::urlFor(reference).isEmpty());
     reply->deleteLater();
+    MediaRangeService::releaseUrl(url);
+
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+
+void NextcloudStorageTest::reentrantStorageOperationCannotChangePinnedWebDavAccount()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+    constexpr qint64 remoteSize = 20LL * 1024 * 1024;
+    const QString nativePath = QStringLiteral(".attachments.pin-1/movie.mp4");
+    ScriptedHttpServer server({
+        noteWithContent(QStringLiteral("pin-1"), QStringLiteral("note-etag"),
+                        QStringLiteral("Video"), QStringLiteral("![movie](") + nativePath + QLatin1Char(')')),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, 1, remoteSize),
+        // Pause Alice's settings request. A nested worker event loop then
+        // allows a different note request to switch the worker to Bob.
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        noteWithContent(QStringLiteral("other"), QStringLiteral("other-etag"),
+                        QStringLiteral("Other"), QStringLiteral("Nothing attached")),
+        remoteByteRangeResponse(0, LocalMediaStore::ManagedChunkSize, remoteSize)
+    });
+    server.holdResponseOnRequest(4);
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 5000);
+
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto *load = storage.loadNoteAsync(QStringLiteral("pin-1"));
+    QTRY_VERIFY_WITH_TIMEOUT(load->isFinished(), 10000);
+    QCOMPARE(load->state(), StorageJob::Succeeded);
+    QCOMPARE(load->result().media().size(), 1);
+    const MediaReference reference = load->result().media().first();
+    load->deleteLater();
+
+    const QUrl url = MediaRangeService::urlFor(reference);
+    QVERIFY(!url.isEmpty());
+    QNetworkAccessManager client;
+    QNetworkRequest request(url);
+    request.setRawHeader("Range", "bytes=1024-1055");
+    auto *reply = client.get(request);
+    QTRY_VERIFY_WITH_TIMEOUT(server.requests().size() == 4 && server.hasHeldResponse(), 10000);
+
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("bob"));
+    auto *other = storage.loadNoteAsync(QStringLiteral("other"));
+    QTRY_VERIFY_WITH_TIMEOUT(other->isFinished(), 10000);
+    QCOMPARE(other->state(), StorageJob::Succeeded);
+    other->deleteLater();
+    QCOMPARE(server.requests().size(), 5);
+    QVERIFY(server.requests().at(4).startsWith("GET /index.php/apps/notes/api/v1/notes/other "));
+
+    server.releaseHeldResponse();
+    QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 15000);
+    QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 503);
+    QVERIFY(reply->readAll().isEmpty());
+    reply->deleteLater();
+
+    QCOMPARE(server.requests().size(), 6);
+    QVERIFY(server.requests().at(5).startsWith(
+        "GET /remote.php/dav/files/alice/Notes/.attachments.pin-1/movie.mp4 "));
+    QVERIFY(server.requests().at(5).contains("Range: bytes=0-1048575"));
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+
+    // The verified cache is keyed to Alice's object, never Bob's account.
+    auto *cached = client.get(request);
+    QTRY_VERIFY_WITH_TIMEOUT(cached->isFinished(), 10000);
+    QCOMPARE(cached->error(), QNetworkReply::NoError);
+    QCOMPARE(cached->readAll(), QByteArray(32, 'R'));
+    cached->deleteLater();
+    QCOMPARE(server.requests().size(), 6);
     MediaRangeService::releaseUrl(url);
 
     settings.remove(QStringLiteral("storage.nextcloud.url"));
