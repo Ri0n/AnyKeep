@@ -118,6 +118,25 @@ QString NextcloudMediaLinks::toNative(const QString &markdown, const QHash<QStri
     return result;
 }
 
+QString NextcloudMediaLinks::toCanonical(const QString &markdown, const QHash<QString, QString> &canonicalUris)
+{
+    QString result = markdown;
+    const auto links = linkTargets(markdown);
+    for (auto it = links.crbegin(); it != links.crend(); ++it) {
+        if (inFencedCode(markdown, it->offset))
+            continue;
+        const QString decoded = decodedSafePath(it->raw);
+        if (decoded.isEmpty())
+            continue;
+        const auto mapped = canonicalUris.constFind(decoded);
+        if (mapped == canonicalUris.cend()
+            || !mapped.value().startsWith(QStringLiteral("anykeep-media:/"), Qt::CaseInsensitive))
+            continue;
+        result.replace(it->offset, it->length, mapped.value());
+    }
+    return result;
+}
+
 QStringList NextcloudMediaLinks::referencedNativePaths(const QString &markdown)
 {
     QSet<QString> seen;
