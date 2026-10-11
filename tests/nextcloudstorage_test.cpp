@@ -91,6 +91,15 @@ QByteArray noteJson(const QString &id, const QString &etag, const QString &categ
         .toJson(QJsonDocument::Compact);
 }
 
+QByteArray noteWithContent(const QString &id, const QString &etag, const QString &title,
+                           const QString &body, const QString &category = {})
+{
+    auto object = QJsonDocument::fromJson(noteJson(id, etag, category, 1700000000)).object();
+    object.insert(QStringLiteral("title"), title);
+    object.insert(QStringLiteral("content"), body);
+    return QJsonDocument(object).toJson(QJsonDocument::Compact);
+}
+
 QByteArray httpError(int status, const QByteArray &label)
 {
     return QByteArrayLiteral("HTTP/1.1 ") + QByteArray::number(status) + ' ' + label
@@ -127,6 +136,9 @@ private slots:
     void legacyMediaLinksPreventUnsafeFolderMove();
     void dirtyPublishIncludesFolderCategory();
     void mediaIsUploadedAndVerifiedBeforeMarkdownCommit();
+    void newNoteWithMediaGetsServerIdBeforeAttachmentUpload();
+    void ambiguousCreateIsRecoveredAfterStorageRestart();
+    void ambiguousCreateNeverRetriesPostWhenIdentityIsNotVisible();
     void streamPublishWithoutWholePlaintextBuffer_data();
     void streamPublishWithoutWholePlaintextBuffer();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges_data();
@@ -386,6 +398,197 @@ void NextcloudStorageTest::mediaIsUploadedAndVerifiedBeforeMarkdownCommit()
     QCOMPARE(payload.object().value(QStringLiteral("content")).toString(),
              QStringLiteral("![image](") + nativePath + QLatin1Char(')'));
 
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+void NextcloudStorageTest::newNoteWithMediaGetsServerIdBeforeAttachmentUpload()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+    const QByteArray bytes = QByteArrayLiteral("first-new-note-media");
+    const auto media = mediaStore.importData(bytes, QStringLiteral("new.png"), QStringLiteral("image/png"));
+    QVERIFY2(media, qPrintable(media.error));
+
+    // Stable creation identity is generated before the async save and belongs
+    // to the draft rather than to the eventual server-assigned note ID.
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto note = storage.createNote();
+    const QString token = note.backendValue(QStringLiteral("nextcloud.createToken")).toString();
+    QVERIFY(!QUuid(token).isNull());
+    const QString marker = QStringLiteral("<!-- anykeep-media-create:") + token + QStringLiteral(" -->");
+    const QString pendingTitle = QStringLiteral("AnyKeep pending media ") + token;
+    const QString pendingBody = QStringLiteral("# ") + pendingTitle + QStringLiteral("\n\n") + marker;
+    const QString nativePath = QStringLiteral(".attachments.42/")
+        + media.value.id.toString(QUuid::WithoutBraces) + QLatin1Char('-')
+        + QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256)
+                              .toHex().left(24)) + QStringLiteral(".png");
+    const QString canonical = QStringLiteral("![new](") + media.value.uri() + QLatin1Char(')');
+    const QString nativeBody = QStringLiteral("![new](") + nativePath + QLatin1Char(')');
+    ScriptedHttpServer server({
+        noteWithContent(QStringLiteral("42"), QStringLiteral("created-etag"), pendingTitle, pendingBody), // POST
+        noteWithContent(QStringLiteral("42"), QStringLiteral("created-etag"), pendingTitle, pendingBody), // GET
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"), // settings
+        QByteArrayLiteral("{}"), // MKCOL native attachment folder
+        httpError(404, QByteArrayLiteral("Not Found")), // existing deterministic file absent
+        QByteArrayLiteral("{}"), // MKCOL chunk staging
+        QByteArrayLiteral("{}"), // PUT chunk
+        QByteArrayLiteral("{}"), // MOVE staged upload
+        byteRangeResponse(bytes, 0, bytes.size()), // verify file
+        noteWithContent(QStringLiteral("42"), QStringLiteral("final-etag"),
+                        QStringLiteral("Final note"), nativeBody) // PUT Markdown
+    });
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 2000);
+    note.setText(canonical, Note::Markdown);
+    note.setMedia({ media.value });
+    auto *job = storage.saveNoteAsync(note);
+    QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 20000);
+    QCOMPARE(job->state(), StorageJob::Succeeded);
+    QCOMPARE(job->result().id(), QStringLiteral("42"));
+    QCOMPARE(job->result().text(), canonical);
+    QCOMPARE(job->result().media().first().remoteData.value(QStringLiteral("nextcloud.path")).toString(),
+             nativePath);
+    job->deleteLater();
+
+    QCOMPARE(server.requests().size(), 10);
+    QVERIFY(server.requests().at(0).startsWith("POST /index.php/apps/notes/api/v1/notes "));
+    QVERIFY(server.requests().at(0).contains(marker.toUtf8()));
+    QVERIFY(!server.requests().at(0).contains(media.value.uri().toUtf8()));
+    QVERIFY(server.requests().at(1).startsWith("GET /index.php/apps/notes/api/v1/notes/42 "));
+    QVERIFY(server.requests().at(3).startsWith("MKCOL /remote.php/dav/files/alice/Notes/.attachments.42 "));
+    QVERIFY(server.requests().last().startsWith("PUT /index.php/apps/notes/api/v1/notes/42 "));
+    QVERIFY(server.requests().last().contains(nativePath.toUtf8()));
+
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+void NextcloudStorageTest::ambiguousCreateIsRecoveredAfterStorageRestart()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+    const QByteArray bytes = QByteArrayLiteral("crash-recovery-image");
+    const auto media = mediaStore.importData(bytes, QStringLiteral("recover.png"),
+                                            QStringLiteral("image/png"));
+    QVERIFY2(media, qPrintable(media.error));
+    const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QString marker = QStringLiteral("<!-- anykeep-media-create:") + token + QStringLiteral(" -->");
+    const QString pendingTitle = QStringLiteral("AnyKeep pending media ") + token;
+    const QString pendingBody = QStringLiteral("# ") + pendingTitle + QStringLiteral("\n\n") + marker;
+    const QString nativePath = QStringLiteral(".attachments.74/")
+        + media.value.id.toString(QUuid::WithoutBraces) + QLatin1Char('-')
+        + QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256)
+                              .toHex().left(24)) + QStringLiteral(".png");
+    const QByteArray remote = noteWithContent(QStringLiteral("74"), QStringLiteral("etag-start"),
+                                              pendingTitle, pendingBody);
+    const QByteArray listed = QByteArrayLiteral("[") + remote + QByteArrayLiteral("]");
+    ScriptedHttpServer server({
+        httpError(503, QByteArrayLiteral("Service Unavailable")), // ambiguous POST
+        listed, // metadata search after restart
+        remote, // verify candidate body marker
+        remote, // normal ETag guard
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        QByteArrayLiteral("{}"), // MKCOL native folder
+        httpError(404, QByteArrayLiteral("Not Found")),
+        QByteArrayLiteral("{}"), // upload collection
+        QByteArrayLiteral("{}"), // chunk
+        QByteArrayLiteral("{}"), // MOVE
+        byteRangeResponse(bytes, 0, bytes.size()),
+        noteWithContent(QStringLiteral("74"), QStringLiteral("etag-done"),
+                        QStringLiteral("Recovered"), QStringLiteral("![x](") + nativePath + QLatin1Char(')'))
+    });
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 2000);
+
+    const QString canonical = QStringLiteral("![x](") + media.value.uri() + QLatin1Char(')');
+    {
+        NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+        auto draft = storage.createNote();
+        draft.setBackendValue(QStringLiteral("anykeep.publicationDraftId"), token);
+        draft.setText(canonical, Note::Markdown);
+        draft.setMedia({ media.value });
+        auto *job = storage.saveNoteAsync(draft);
+        QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 10000);
+        QCOMPARE(job->state(), StorageJob::Failed);
+        QCOMPARE(job->error().code, StorageError::Network);
+        job->deleteLater();
+    }
+    {
+        NextcloudStorage restarted(nullptr, nullptr, &mediaStore);
+        auto draft = restarted.createNote();
+        draft.setBackendValue(QStringLiteral("anykeep.publicationDraftId"), token);
+        draft.setText(canonical, Note::Markdown);
+        draft.setMedia({ media.value });
+        auto *job = restarted.saveNoteAsync(draft);
+        QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 20000);
+        QCOMPARE(job->state(), StorageJob::Succeeded);
+        QCOMPARE(job->result().id(), QStringLiteral("74"));
+        QCOMPARE(job->result().text(), canonical);
+        job->deleteLater();
+    }
+    int creates = 0;
+    for (const auto &request : server.requests())
+        if (request.startsWith("POST /index.php/apps/notes/api/v1/notes "))
+            ++creates;
+    QCOMPARE(creates, 1); // an ambiguous POST can NEVER be repeated
+
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+void NextcloudStorageTest::ambiguousCreateNeverRetriesPostWhenIdentityIsNotVisible()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+    const auto media = mediaStore.importData(QByteArrayLiteral("a"), QStringLiteral("x.png"),
+                                            QStringLiteral("image/png"));
+    QVERIFY2(media, qPrintable(media.error));
+    ScriptedHttpServer server({ httpError(503, QByteArrayLiteral("Service Unavailable")),
+                                QByteArrayLiteral("[]") });
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 2000);
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto draft = storage.createNote();
+    draft.setText(QStringLiteral("![x](") + media.value.uri() + QLatin1Char(')'), Note::Markdown);
+    draft.setMedia({ media.value });
+    for (int index = 0; index < 2; ++index) {
+        auto *job = storage.saveNoteAsync(draft);
+        QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 10000);
+        QCOMPARE(job->state(), StorageJob::Failed);
+        QCOMPARE(job->error().code, StorageError::Network);
+        job->deleteLater();
+    }
+    QCOMPARE(server.requests().size(), 2);
+    QVERIFY(server.requests().first().startsWith("POST /index.php/apps/notes/api/v1/notes "));
+    QVERIFY(server.requests().last().startsWith("GET /index.php/apps/notes/api/v1/notes?"));
     settings.remove(QStringLiteral("storage.nextcloud.url"));
     settings.remove(QStringLiteral("storage.nextcloud.username"));
     settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
