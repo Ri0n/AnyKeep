@@ -35,6 +35,14 @@ Read `README.md` for the HTTP/API behavior and user-facing configuration.
   file. Native-client changes to a previously published attachment are
   conflicts, never overwrites. Retry/duplicate saves must reuse verified
   receipts or deterministic staged paths, not proliferate copies.
+- MediaSource/MediaStream handle background preflight and publishing. Never
+  restore whole-object local `QByteArray` materialization in the Nextcloud
+  media publisher. Hash/verify in bounded chunks; check the source against
+  the preflight SHA-256 before uploading, and compare remote Range bytes
+  against the authenticated local source before writing Markdown.
+- Initialize LocalMediaStore's keychain-backed key on the application
+  thread; only file reads/hashing and network transfers run on the worker.
+  Preserve fail-closed behavior if external source fingerprints change.
 - Never use Notes 5.0.2's attachment v1.4 upload layout for new publications:
   files are siblings of the note and break on category moves (live-tested).
   Instead create the web-native `.attachments.<noteId>/` WebDAV collection.

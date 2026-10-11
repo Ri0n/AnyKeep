@@ -2,13 +2,14 @@
 
 #include "foldercatalogmanager.h"
 #include "localmediastore.h"
+#include "mediasource.h"
+#include "mediastream.h"
 #include "nextcloudcategory.h"
 #include "nextcloudmedialinks.h"
 #include "nextcloudworker.h"
 #include "notedata.h"
 #include "settingscontroller.h"
 
-#include <QBuffer>
 #include <QCryptographicHash>
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -104,18 +105,49 @@ namespace {
     }
 
 
-    // The provider currently publishes bounded, native Notes attachments only.
-    // Large objects need a streaming LocalMediaStore source and chunked WebDAV.
-    constexpr qint64 MaxNativeAttachmentBytes = 16 * 1024 * 1024;
+    // Individual QIODevice reads and WebDAV chunks are bounded. An upload can
+    // represent a large local object without ever materializing the whole
+    // plaintext in RAM. The worker's chunked-v2 protocol has a 50 GiB bound.
+    constexpr qint64 MaxNativeAttachmentBytes = 5LL * 1024 * 1024 * 10000;
+    constexpr qint64 StreamReadSize = 1024 * 1024;
 
     struct PreparedAttachment {
         MediaReference reference;
-        QByteArray bytes;
+        QByteArray sha256;  // SHA-256 of the verified plaintext source.
+        qint64 size = 0;
     };
+
+    // A reader is always opened from the local encrypted store. It must not
+    // return unauthenticated bytes or depend on a fully decrypted buffer.
+    QString hashStream(QIODevice &source, qint64 expectedSize, QByteArray *digest)
+    {
+        if (expectedSize <= 0 || expectedSize > MaxNativeAttachmentBytes)
+            return QStringLiteral("Unsupported media size for streamed Nextcloud publication");
+        if (!source.seek(0))
+            return QStringLiteral("Could not seek to the beginning of local media");
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        qint64 consumed = 0;
+        while (consumed < expectedSize) {
+            const QByteArray chunk = source.read(qMin(StreamReadSize, expectedSize - consumed));
+            if (chunk.isEmpty())
+                return source.errorString().isEmpty()
+                    ? QStringLiteral("Local media ended before the expected length")
+                    : source.errorString();
+            hash.addData(chunk);
+            consumed += chunk.size();
+        }
+        if (source.read(1).size() != 0)
+            return QStringLiteral("Local media exceeds its expected length");
+        *digest = hash.result();
+        return {};
+    }
 
     struct MediaSaveResult {
         NextcloudNoteResult note;
         QList<MediaReference> media;
+        // Errors involving the local source must never be retried as if they
+        // were transient HTTP/network failures.
+        bool localSourceFailure { false };
     };
 
     struct NativeRestoredFile {
@@ -145,26 +177,27 @@ namespace {
         static const QRegularExpression safeSuffix(QStringLiteral("^[a-z0-9]{1,12}$"));
         if (!safeSuffix.match(suffix).hasMatch())
             suffix = QStringLiteral("bin");
-        const auto digest = QCryptographicHash::hash(attachment.bytes, QCryptographicHash::Sha256)
-                                .toHex().left(24);
+        const auto digest = attachment.sha256.toHex().left(24);
         return attachment.reference.id.toString(QUuid::WithoutBraces)
             + QLatin1Char('-') + QString::fromLatin1(digest) + QLatin1Char('.') + suffix;
     }
 
-    // Bounded independent Range GETs: verification never downloads an
-    // unbounded HTTP response, nor publishes a URL pointing at incomplete
-    // or corrupted bytes. Empty objects require a separate metadata probe.
+    // Every response is compared to the source through an authenticated local
+    // stream. Only bounded chunks of each side are resident in memory.
     QString verifyNativeBytes(NextcloudWorker *worker, const QString &davPath,
-                              const QByteArray &expected, bool *missing, int *httpStatus)
+                              QIODevice &expected, qint64 size, const QByteArray &digest,
+                              bool *missing, int *httpStatus)
     {
         if (missing)
             *missing = false;
-        if (expected.isEmpty())
-            return QStringLiteral("Zero-length media requires an explicit WebDAV stat");
-        constexpr qint64 readSize = 1024 * 1024;
+        if (size <= 0 || size > MaxNativeAttachmentBytes)
+            return QStringLiteral("Zero-length or oversized remote media cannot be verified");
+        if (!expected.seek(0))
+            return QStringLiteral("Could not seek to local media for remote verification");
         QString baseEtag;
-        for (qint64 offset = 0; offset < expected.size();) {
-            const qint64 count = qMin<qint64>(readSize, expected.size() - offset);
+        QCryptographicHash contentHash(QCryptographicHash::Sha256);
+        for (qint64 offset = 0; offset < size;) {
+            const qint64 count = qMin(StreamReadSize, size - offset);
             const auto response = worker->readWebDavRange(davPath, offset, count, baseEtag);
             if (httpStatus)
                 *httpStatus = response.httpStatus;
@@ -175,58 +208,73 @@ namespace {
             }
             if (baseEtag.isEmpty())
                 baseEtag = response.etag;
+            const QByteArray localChunk = expected.read(count);
             if ((!baseEtag.isEmpty() && !response.etag.isEmpty() && response.etag != baseEtag)
-                || response.totalSize != expected.size() || response.data.size() != count
-                || response.data != expected.mid(offset, count))
+                || response.totalSize != size || response.data.size() != count
+                || localChunk.size() != count || response.data != localChunk)
                 return QStringLiteral("The native Nextcloud attachment changed or failed read-back");
+            contentHash.addData(localChunk);
             offset += count;
         }
+        if (contentHash.result() != digest)
+            return QStringLiteral("Local media changed during WebDAV read-back verification");
         return {};
     }
 
-    bool prepareAttachments(const Note &note, LocalMediaStore *store, QList<PreparedAttachment> *prepared,
-                            QString *error)
+    bool prepareAttachments(const QString &noteId, const QString &body,
+                            const QList<MediaReference> &references, LocalMediaStore *store,
+                            QList<PreparedAttachment> *prepared, QString *error)
     {
-        if (note.media().isEmpty())
+        if (references.isEmpty())
             return true;
-        if (note.id().isEmpty()) {
+        if (noteId.isEmpty()) {
             *error = QStringLiteral("Creating notes with media requires a recoverable remote note identity");
             return false;
         }
 
-        if (!store->initialize(error))
-            return false;
-
         QHash<QString, QString> probePaths;
-        for (const auto &reference : note.media()) {
-            if (!reference.isValid() || reference.size < 0 || reference.size > MaxNativeAttachmentBytes) {
-                *error = QStringLiteral("Invalid or oversized media reference; streaming upload is not available yet");
+        for (const auto &reference : references) {
+            if (!reference.isValid() || reference.size <= 0
+                || reference.size > MaxNativeAttachmentBytes) {
+                *error = QStringLiteral("Invalid, empty or oversized Nextcloud media reference");
                 return false;
             }
-            // Every persisted manifest entry must be reachable from the body;
-            // otherwise another native client could never reconstruct it.
-            if (!note.text().contains(reference.uri())) {
+            if (!body.contains(reference.uri())) {
                 *error = QStringLiteral("Media manifest contains an attachment not referenced by Markdown");
                 return false;
             }
-            const auto data = store->data(reference);
-            if (!data) {
-                *error = QStringLiteral("Could not read local media: ") + data.error;
+            // Pre-chunking managed blobs still require legacy whole-object
+            // decryption by MediaSource. Bound this compatibility fallback
+            // until those blobs can be converted to managed chunks.
+            if (!reference.blobId.isEmpty() && store->containsManagedBlob(reference.blobId)
+                && !store->isChunkedManagedBlob(reference.blobId)
+                && reference.size > 16LL * 1024 * 1024) {
+                *error = QStringLiteral(
+                    "Large legacy monolithic media must be migrated to chunked local storage");
                 return false;
             }
-            if (data.value.size() > MaxNativeAttachmentBytes
-                || (reference.size != 0 && data.value.size() != reference.size)
-                || (reference.checksum.size() == 32
-                    && QCryptographicHash::hash(data.value, QCryptographicHash::Sha256) != reference.checksum)) {
-                *error = QStringLiteral("Local media size or SHA-256 checksum changed");
+            MediaStream source(createLocalMediaSource(reference, store));
+            if (!source.open(QIODevice::ReadOnly)) {
+                *error = QStringLiteral("Could not open local media: ") + source.errorString();
+                return false;
+            }
+            if (source.size() != reference.size) {
+                *error = QStringLiteral("Local media size changed before publication");
+                return false;
+            }
+            QByteArray digest;
+            const QString problem = hashStream(source, reference.size, &digest);
+            if (!problem.isEmpty() || (reference.checksum.size() == 32 && reference.checksum != digest)) {
+                *error = problem.isEmpty()
+                    ? QStringLiteral("Local media SHA-256 checksum changed") : problem;
                 return false;
             }
             probePaths.insert(reference.uri(), QStringLiteral("pending/") + reference.portableName);
-            prepared->append({ reference, data.value });
+            prepared->append({ reference, digest, reference.size });
         }
 
         QString linkError;
-        (void)NextcloudMediaLinks::toNative(note.text(), probePaths, &linkError);
+        (void)NextcloudMediaLinks::toNative(body, probePaths, &linkError);
         if (!linkError.isEmpty()) {
             *error = linkError;
             return false;
@@ -972,12 +1020,21 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
         return job;
     }
 
-    const bool hasMedia = !note.media().isEmpty();
-    QList<PreparedAttachment> attachments;
-    QString preparationError;
-    if (hasMedia && !prepareAttachments(note, mediaStore_, &attachments, &preparationError)) {
-        job->fail({ StorageError::Other, preparationError, false });
+    const auto mediaReferences = note.media();
+    const bool hasMedia = !mediaReferences.isEmpty();
+    if (hasMedia && note.id().isEmpty()) {
+        job->fail({ StorageError::Other,
+                    tr("Creating notes with media requires a recoverable remote note identity"), false });
         return job;
+    }
+    // Resolve the keychain-backed local key on the application thread.
+    // Opening, hashing and transferring large media runs on the worker.
+    if (hasMedia) {
+        QString keyError;
+        if (!mediaStore_->initialize(&keyError)) {
+            job->fail({ StorageError::Other, keyError, false });
+            return job;
+        }
     }
 
     NextcloudRemoteNote local;
@@ -1004,10 +1061,22 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
     QPointer<NoteSaveJob> guard(job);
     QMetaObject::invokeMethod(
         worker_,
-        [this, guard, config, local, oldId, attachments, hasMedia, canonicalText]() {
+        [this, guard, config, local, oldId, mediaReferences, hasMedia, canonicalText]() {
             worker_->setConfig(config);
             MediaSaveResult publication;
-            if (!hasMedia) {
+            QList<PreparedAttachment> attachments;
+            if (hasMedia) {
+                QString preparationError;
+                if (!prepareAttachments(oldId, canonicalText, mediaReferences, mediaStore_,
+                                        &attachments, &preparationError)) {
+                    publication.note.error = preparationError;
+                    publication.localSourceFailure = true;
+                }
+            }
+            if (!publication.note.error.isEmpty()) {
+                // Missing or corrupted local plaintext is a hard failure;
+                // no remote HTTP requests may happen before preflight.
+            } else if (!hasMedia) {
                 publication.note = oldId.isEmpty() ? worker_->createNote(local) : worker_->updateNote(local);
             } else {
                 // Check before staging data. Recheck the ETag again atomically
@@ -1049,6 +1118,22 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                         }
                         if (publication.note.error.isEmpty()) {
                             for (const auto &attachment : attachments) {
+                                MediaStream source(createLocalMediaSource(attachment.reference, mediaStore_));
+                                if (!source.open(QIODevice::ReadOnly) || source.size() != attachment.size) {
+                                    publication.note.error = QStringLiteral(
+                                        "Could not open the prepared local media stream or its size changed");
+                                    publication.localSourceFailure = true;
+                                    break;
+                                }
+                                QByteArray actualDigest;
+                                const QString localError = hashStream(source, attachment.size, &actualDigest);
+                                if (!localError.isEmpty() || actualDigest != attachment.sha256) {
+                                    publication.note.error = localError.isEmpty()
+                                        ? QStringLiteral("Local media changed after preflight")
+                                        : localError;
+                                    publication.localSourceFailure = true;
+                                    break;
+                                }
                                 const QString receiptPath = attachment.reference.remoteData
                                     .value(QStringLiteral("nextcloud.path")).toString();
                                 const QString receiptNote = attachment.reference.remoteData
@@ -1063,7 +1148,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                         settings.notesPath, local.category, oldId)
                                         + QLatin1Char('/') + receiptPath.mid(ownedPrefix.size());
                                     bool missing = false;
-                                    QString error = verifyNativeBytes(worker_, previousDav, attachment.bytes,
+                                    QString error = verifyNativeBytes(worker_, previousDav, source, attachment.size, attachment.sha256,
                                                                       &missing, &publication.note.httpStatus);
                                     if (error.isEmpty()) {
                                         nativePath = receiptPath;
@@ -1079,7 +1164,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                     const QString davPath = davFolder + QLatin1Char('/')
                                         + nativePath.mid(ownedPrefix.size());
                                     bool missing = false;
-                                    const QString before = verifyNativeBytes(worker_, davPath, attachment.bytes,
+                                    const QString before = verifyNativeBytes(worker_, davPath, source, attachment.size, attachment.sha256,
                                                                              &missing, &publication.note.httpStatus);
                                     if (before.isEmpty()) {
                                         verified = true; // recover a previously staged upload
@@ -1090,19 +1175,19 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                     }
 
                                     if (!verified) {
-                                        QBuffer source;
-                                        source.setData(attachment.bytes);
-                                        if (!source.open(QIODevice::ReadOnly)) {
-                                            publication.note.error = source.errorString();
+                                        if (!source.seek(0)) {
+                                            publication.note.error = QStringLiteral(
+                                                "Could not rewind authenticated media before upload");
+                                            publication.localSourceFailure = true;
                                             break;
                                         }
                                         const auto uploaded
-                                            = worker_->uploadWebDavChunks(davPath, &source, attachment.bytes.size());
+                                            = worker_->uploadWebDavChunks(davPath, &source, attachment.size);
                                         if (!uploaded.ok) {
                                             // A racing identical upload might win the
                                             // atomic no-overwrite MOVE.
                                             const QString check = verifyNativeBytes(
-                                                worker_, davPath, attachment.bytes, nullptr,
+                                                worker_, davPath, source, attachment.size, attachment.sha256, nullptr,
                                                 &publication.note.httpStatus);
                                             if (!check.isEmpty()) {
                                                 publication.note.error = uploaded.error;
@@ -1110,7 +1195,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                                 break;
                                             }
                                         }
-                                        const QString check = verifyNativeBytes(worker_, davPath, attachment.bytes,
+                                        const QString check = verifyNativeBytes(worker_, davPath, source, attachment.size, attachment.sha256,
                                                                                  nullptr, &publication.note.httpStatus);
                                         if (!check.isEmpty()) {
                                             publication.note.error = check;
@@ -1148,8 +1233,12 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                         return;
                     const auto &result = publication.note;
                     if (!result.ok) {
-                        StorageError error { result.conflict ? StorageError::Conflict : StorageError::Network,
-                                             result.error, !result.conflict };
+                        StorageError error {
+                            result.conflict ? StorageError::Conflict
+                                           : publication.localSourceFailure ? StorageError::Other
+                                                                            : StorageError::Network,
+                            result.error, !result.conflict && !publication.localSourceFailure
+                        };
                         if (result.remoteOnConflict) {
                             reconcileRemoteFolders({ *result.remoteOnConflict });
                             cache_.insert(result.remoteOnConflict->id, fromRemote(*result.remoteOnConflict));

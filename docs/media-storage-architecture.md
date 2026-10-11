@@ -371,10 +371,14 @@ are siblings of the Markdown document and become inaccessible after a
 category move; the real-server regression test reproduces this 404. The
 web-native per-note directory follows the moved note (verified by live test).
 
-Before a Markdown update the adapter reads its local immutable content,
-checks the known ETag, stages files using unique deterministic names and
-WebDAV atomic MOVE (no overwrite), and verifies remote bytes with capped
-HTTP Range reads. A previously verified receipt can be reused; a file
+Before a Markdown update the adapter checks its known ETag and
+authenticates the local `MediaSource` through bounded worker-thread
+`MediaStream` reads (without allocating a whole-file plaintext buffer).
+The preflight keeps only a `MediaReference`, size and SHA-256. A second
+checksum check before transmission protects against source changes.
+WebDAV chunked-v2 stages the bytes using atomic MOVE (no overwrite),
+and verification compares HTTP Range chunks to the authenticated source,
+rather than holding either complete file in RAM. A previously verified receipt can be reused; a file
 changed by another client causes a conflict, not an overwrite. The server
 receives standard relative Markdown URLs; the local note retains stable
 `anykeep-media:` links and remote path receipts. On another device,
@@ -385,7 +389,7 @@ them; the move response preserves matching canonical local media manifests.
 
 This is **partial** and not yet a supported editor workflow:
 `NextcloudStorage::supportsMedia()` remains false. New-note media creation,
-streaming upload from local encrypted chunks, full cross-device hydration,
+full cross-device hydration,
 progressive playback, zero-byte attachment support, persistent retry
 receipts, reference-aware cleanup, safe migration of legacy sibling links
 before moves, and multi-device/native-client end-to-end verification still
