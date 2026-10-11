@@ -1,4 +1,5 @@
 #include "nextcloudworker.h"
+#include "nextcloudmedialinks.h"
 
 #include <QEventLoop>
 #include <QHttpMultiPart>
@@ -10,6 +11,8 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
+#include <limits>
 #include <QSet>
 #include <QTimer>
 #include <QUrlQuery>
@@ -600,6 +603,91 @@ NextcloudAttachmentResult NextcloudWorker::downloadAttachment(const QString &not
     }
     result.path = path;
     result.data = reply.body;
+    result.ok = true;
+    return result;
+}
+
+NextcloudSettingsResult NextcloudWorker::getSettings()
+{
+    const auto reply = perform(Method::Get, apiUrl(QStringLiteral("settings")));
+    NextcloudSettingsResult result;
+    result.httpStatus = reply.status;
+    if (!reply.ok) {
+        result.error = errorText(reply);
+        return result;
+    }
+
+    QJsonParseError parseError;
+    const auto json = QJsonDocument::fromJson(reply.body, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !json.isObject()) {
+        result.error = QStringLiteral("Invalid Nextcloud Notes settings response");
+        return result;
+    }
+    result.notesPath = json.object().value(QStringLiteral("notesPath")).toString();
+    if (!NextcloudMediaLinks::isSafeNativePath(result.notesPath)) {
+        result.error = QStringLiteral("Notes folder path is missing or invalid");
+        return result;
+    }
+    result.ok = true;
+    return result;
+}
+
+NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relativeFilePath, qint64 offset, qint64 count)
+{
+    NextcloudWebDavRangeResult result;
+    // Ranged reads must never accidentally pull entire large remote files.
+    if (!NextcloudMediaLinks::isSafeNativePath(relativeFilePath) || offset < 0
+        || count <= 0 || count > 1024 * 1024 || offset > std::numeric_limits<qint64>::max() - count) {
+        result.error = QStringLiteral("Invalid WebDAV range or remote path");
+        return result;
+    }
+
+    QUrl url = config_.serverUrl;
+    url.setQuery(QString());
+    url.setFragment(QString());
+    QString base = url.path();
+    const auto indexPhp = base.indexOf(QStringLiteral("/index.php"));
+    if (indexPhp >= 0)
+        base.truncate(indexPhp);
+    while (base.endsWith(QLatin1Char('/')))
+        base.chop(1);
+    url.setPath(base + QStringLiteral("/remote.php/dav/files/") + config_.userName
+                + QLatin1Char('/') + relativeFilePath);
+
+    const QByteArray range = QByteArrayLiteral("bytes=") + QByteArray::number(offset) + '-'
+        + QByteArray::number(offset + count - 1);
+    const auto reply = perform(Method::Get, url, {},
+                               { { QByteArrayLiteral("Range"), range },
+                                 { QByteArrayLiteral("Accept"), QByteArrayLiteral("application/octet-stream") } });
+    result.httpStatus = reply.status;
+    if (!reply.ok || reply.status != 206) {
+        result.error = reply.status == 200
+            ? QStringLiteral("WebDAV server ignored the byte-range request")
+            : errorText(reply);
+        return result;
+    }
+
+    static const QRegularExpression contentRangePattern(
+        QStringLiteral(R"(^bytes (\d+)-(\d+)/(\d+)$)"));
+    const QString header = QString::fromLatin1(headerValue(reply, QByteArrayLiteral("Content-Range")));
+    const auto match = contentRangePattern.match(header);
+    if (!match.hasMatch()) {
+        result.error = QStringLiteral("WebDAV response is missing a valid Content-Range");
+        return result;
+    }
+    bool fromOk = false;
+    bool toOk = false;
+    bool totalOk = false;
+    const qint64 from = match.captured(1).toLongLong(&fromOk);
+    const qint64 to = match.captured(2).toLongLong(&toOk);
+    const qint64 total = match.captured(3).toLongLong(&totalOk);
+    if (!fromOk || !toOk || !totalOk || from != offset || to < from
+        || to - from + 1 != reply.body.size() || reply.body.size() > count || total <= to) {
+        result.error = QStringLiteral("WebDAV returned an inconsistent byte range");
+        return result;
+    }
+    result.data = reply.body;
+    result.totalSize = total;
     result.ok = true;
     return result;
 }
