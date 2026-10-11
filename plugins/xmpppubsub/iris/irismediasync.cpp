@@ -88,8 +88,7 @@ public:
     QPointer<XMPP::Client>                               client;
     J::JinglePub                                         publication;
     MediaChunkWireParameters                             parameters;
-    QString                                              directory;
-    std::unique_ptr<MediaPartialChunkCache>              partialCache;
+    std::shared_ptr<MediaPartialChunkCache>              partialCache;
     MediaReference                                       reference;
     quint64                                              verifiedPlain = 0;
     bool                                                 connected     = false;
@@ -107,11 +106,11 @@ public:
     QString error;
     int     timeout;
 
-    Impl(IrisMediaSync *owner, XMPP::Client *c, J::JinglePub pub, MediaChunkWireParameters p, QString dir,
-         int timeoutMs, MediaReference ref) :
-        q(owner), client(c), publication(std::move(pub)), parameters(std::move(p)), directory(std::move(dir)),
-        partialCache(std::make_unique<MediaPartialChunkCache>(
-            MediaPartialChunkCache::Format::VerifiedOpaque, directory)), reference(std::move(ref)), connected(c != nullptr), map(parameters.chunkCount()), timer(new QTimer(owner)),
+    Impl(IrisMediaSync *owner, XMPP::Client *c, J::JinglePub pub, MediaChunkWireParameters p,
+         std::shared_ptr<MediaPartialChunkCache> cache, int timeoutMs, MediaReference ref) :
+        q(owner), client(c), publication(std::move(pub)), parameters(std::move(p)),
+        partialCache(std::move(cache)), reference(std::move(ref)), connected(c != nullptr),
+        map(parameters.chunkCount()), timer(new QTimer(owner)),
         timeout(qBound(1000, timeoutMs, 25000))
     {
         timer->setSingleShot(true);
@@ -558,9 +557,10 @@ public:
 };
 
 IrisMediaSync::IrisMediaSync(XMPP::Client *client, J::JinglePub publication, MediaChunkWireParameters parameters,
-                             QString directory, int timeoutMs, QObject *parent, MediaReference reference) :
+                             std::shared_ptr<MediaPartialChunkCache> cache, int timeoutMs, QObject *parent,
+                             MediaReference reference) :
     QObject(parent), d(std::make_unique<Impl>(this, client, std::move(publication), std::move(parameters),
-                                              std::move(directory), timeoutMs, std::move(reference)))
+                                              std::move(cache), timeoutMs, std::move(reference)))
 {
 }
 IrisMediaSync::~IrisMediaSync() { cancel(); }
