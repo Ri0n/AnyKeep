@@ -806,13 +806,6 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
         return job;
     }
 
-    const auto config = readConfig();
-    QString configError;
-    if (!configIsValid(config, &configError)) {
-        job->fail({ StorageError::NotConfigured, configError, false });
-        return job;
-    }
-
     const bool hasMedia = !note.media().isEmpty();
     QList<PreparedAttachment> attachments;
     QString preparationError;
@@ -827,6 +820,13 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
         job->fail({ StorageError::Other, folderError, false });
         return job;
     }
+    const auto config = readConfig();
+    QString configError;
+    if (!configIsValid(config, &configError)) {
+        job->fail({ StorageError::NotConfigured, configError, false });
+        return job;
+    }
+
     if (hasMedia && local.etag.isEmpty()) {
         job->fail({ StorageError::Conflict, tr("A known ETag is required before publishing Nextcloud media."),
                     false });
