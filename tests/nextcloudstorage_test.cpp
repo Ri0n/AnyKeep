@@ -165,6 +165,7 @@ private slots:
     void recoveredCreationRejectsUnrelatedNativeEdit();
     void streamPublishWithoutWholePlaintextBuffer_data();
     void streamPublishWithoutWholePlaintextBuffer();
+    void oversizedNativeAttachmentStreamsRemoteWebDavRanges_data();
     void oversizedNativeAttachmentStreamsRemoteWebDavRanges();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges_data();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges();
@@ -1032,8 +1033,16 @@ void NextcloudStorageTest::streamPublishWithoutWholePlaintextBuffer()
     settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
 }
 
+void NextcloudStorageTest::oversizedNativeAttachmentStreamsRemoteWebDavRanges_data()
+{
+    QTest::addColumn<bool>("remoteRevisionChanged");
+    QTest::newRow("same-webdav-revision") << false;
+    QTest::newRow("webdav-revision-replaced") << true;
+}
+
 void NextcloudStorageTest::oversizedNativeAttachmentStreamsRemoteWebDavRanges()
 {
+    QFETCH(bool, remoteRevisionChanged);
     QVERIFY(FileFolderCatalogStore::cryptoAvailable());
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -1048,7 +1057,9 @@ void NextcloudStorageTest::oversizedNativeAttachmentStreamsRemoteWebDavRanges()
         QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
         remoteByteRangeResponse(0, 1, remoteSize),
         QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
-        remoteByteRangeResponse(1024, 32, remoteSize)
+        remoteByteRangeResponse(1024, 32, remoteSize,
+                                remoteRevisionChanged ? QByteArrayLiteral("\"changed-revision\"")
+                                                      : QByteArrayLiteral("\"remote-revision\""))
     });
     QVERIFY(server.listen());
     QSettings settings;
@@ -1085,9 +1096,14 @@ void NextcloudStorageTest::oversizedNativeAttachmentStreamsRemoteWebDavRanges()
     request.setRawHeader("Range", "bytes=1024-1055");
     auto *reply = client.get(request);
     QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 15000);
-    QCOMPARE(reply->error(), QNetworkReply::NoError);
-    QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 206);
-    QCOMPARE(reply->readAll(), QByteArray(32, 'R'));
+    if (remoteRevisionChanged) {
+        QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 503);
+        QVERIFY(reply->readAll().isEmpty()); // Never forward bytes from another file revision.
+    } else {
+        QCOMPARE(reply->error(), QNetworkReply::NoError);
+        QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 206);
+        QCOMPARE(reply->readAll(), QByteArray(32, 'R'));
+    }
     reply->deleteLater();
     MediaRangeService::releaseUrl(url);
 
@@ -1097,6 +1113,12 @@ void NextcloudStorageTest::oversizedNativeAttachmentStreamsRemoteWebDavRanges()
     const auto ranged = server.requests().at(4);
     QVERIFY(ranged.contains("Range: bytes=1024-1055"));
     QVERIFY(ranged.toLower().contains("if-match: \"remote-revision\""));
+
+    // References must never be routed to credentials of another configured
+    // account, even if their remote note ID and pathname happen to match.
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("bob"));
+    QVERIFY(MediaRangeService::urlFor(reference).isEmpty());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
 
     settings.remove(QStringLiteral("storage.nextcloud.url"));
     settings.remove(QStringLiteral("storage.nextcloud.username"));
