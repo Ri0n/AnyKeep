@@ -44,6 +44,7 @@ private slots:
     void nativeAttachmentRoundtrip();
     void mediaLinkCodec();
     void chunkedWebDavUploadRoundtrip();
+    void webDavNativeAttachmentSurvivesCategoryMove();
 };
 
 void NextcloudLiveTest::initTestCase()
@@ -227,14 +228,13 @@ void NextcloudLiveTest::nativeAttachmentRoundtrip()
     QVERIFY2(movedNote.ok, qPrintable(movedNote.error));
     QCOMPARE(movedNote.note.category, destination);
     QCOMPARE(movedNote.note.content, note.content);
+    // Notes 5.0.2's v1.4 upload endpoint places attachments alongside
+    // the note instead of its move-aware .attachments.<id> directory.
+    // The older API upload is still supported, but is not a safe transport
+    // for AnyKeep media that must survive category changes.
     const auto nativeAfterMove = worker.downloadAttachment(created.note.id, uploaded.path);
-    QVERIFY2(nativeAfterMove.ok, qPrintable(nativeAfterMove.error));
-    QCOMPARE(nativeAfterMove.data, bytes);
-    const QString movedDavPath = settings.notesPath + QLatin1Char('/')
-        + destination + QLatin1Char('/') + uploaded.path;
-    const auto movedRange = worker.readWebDavRange(movedDavPath, 0, 8);
-    QVERIFY2(movedRange.ok, qPrintable(movedRange.error));
-    QCOMPARE(movedRange.data, bytes.left(8));
+    QVERIFY(!nativeAfterMove.ok);
+    QCOMPARE(nativeAfterMove.httpStatus, 404);
 }
 
 void NextcloudLiveTest::mediaLinkCodec()
@@ -308,6 +308,58 @@ void NextcloudLiveTest::chunkedWebDavUploadRoundtrip()
     const auto boundary = worker.readWebDavRange(davPath, 5 * 1024 * 1024 - 4, 24);
     QVERIFY2(boundary.ok, qPrintable(boundary.error));
     QCOMPARE(boundary.data, bytes.mid(5 * 1024 * 1024 - 4, 24));
+}
+
+void NextcloudLiveTest::webDavNativeAttachmentSurvivesCategoryMove()
+{
+    NextcloudWorker worker;
+    worker.setConfig(liveConfig());
+    const QString unique = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    NextcloudRemoteNote draft;
+    draft.title = QStringLiteral("AnyKeep native DAV ") + unique;
+    draft.content = QStringLiteral("# Native DAV attachment test ") + unique;
+    draft.contentPresent = true;
+    draft.category = QStringLiteral("AnyKeep Integration/WebDavOriginal");
+    const auto created = worker.createNote(draft);
+    QVERIFY2(created.ok, qPrintable(created.error));
+    CleanupNote cleanup { worker, created.note.id };
+
+    const auto settings = worker.getSettings();
+    QVERIFY2(settings.ok, qPrintable(settings.error));
+    const QString nativeDir = QStringLiteral(".attachments.") + created.note.id;
+    const QString relativeName = nativeDir + QStringLiteral("/portable.bin");
+    const QString directoryPath = settings.notesPath + QLatin1Char('/')
+        + draft.category + QLatin1Char('/') + nativeDir;
+    const auto mkcol = worker.ensureWebDavFolder(directoryPath);
+    QVERIFY2(mkcol.ok, qPrintable(mkcol.error));
+    const QByteArray bytes = QByteArrayLiteral("AN-YKEEP-NATIVE-WEBDAV-ATTACHMENT");
+    QBuffer buffer;
+    buffer.setData(bytes);
+    QVERIFY(buffer.open(QIODevice::ReadOnly));
+    const QString davFilePath = directoryPath + QStringLiteral("/portable.bin");
+    const auto uploaded = worker.uploadWebDavChunks(davFilePath, &buffer, bytes.size());
+    QVERIFY2(uploaded.ok, qPrintable(uploaded.error));
+    const auto before = worker.readWebDavRange(davFilePath, 0, bytes.size());
+    QVERIFY2(before.ok, qPrintable(before.error));
+    QCOMPARE(before.data, bytes);
+
+    auto linkedNote = created.note;
+    linkedNote.content += QStringLiteral("\n[attachment](") + relativeName + QLatin1Char(')');
+    const auto saved = worker.updateNote(linkedNote);
+    QVERIFY2(saved.ok, qPrintable(saved.error));
+    const QString nextCategory = QStringLiteral("AnyKeep Integration/WebDavMoved");
+    const auto moved = worker.updateNoteCategory(created.note.id, nextCategory, saved.note.etag);
+    QVERIFY2(moved.ok, qPrintable(moved.error));
+
+    const auto reloaded = worker.getNote(created.note.id);
+    QVERIFY2(reloaded.ok, qPrintable(reloaded.error));
+    QCOMPARE(reloaded.note.category, nextCategory);
+    QCOMPARE(reloaded.note.content, linkedNote.content);
+    const QString relocatedPath = settings.notesPath + QLatin1Char('/')
+        + nextCategory + QLatin1Char('/') + relativeName;
+    const auto after = worker.readWebDavRange(relocatedPath, 0, bytes.size());
+    QVERIFY2(after.ok, qPrintable(after.error));
+    QCOMPARE(after.data, bytes);
 }
 
 QTEST_GUILESS_MAIN(NextcloudLiveTest)
