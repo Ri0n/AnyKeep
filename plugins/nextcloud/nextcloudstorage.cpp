@@ -582,6 +582,12 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
                                         }
                                         haveDavPath = true;
                                     }
+                                    // Another storage operation can re-enter the
+                                    // worker during getSettings() and replace its
+                                    // mutable account config. Restore this
+                                    // request's snapshot before constructing
+                                    // every WebDAV HTTP request.
+                                    worker_->setConfig(config);
                                     const auto remote = worker_->readWebDavRange(
                                         davPath, chunkOffset, expected, pinnedEtag);
                                     if (!remote.ok || remote.totalSize != ref.size || remote.data.size() != expected) {
