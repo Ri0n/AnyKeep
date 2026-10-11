@@ -182,7 +182,8 @@ namespace {
     // Every response is compared to the source through an authenticated local
     // stream. Only bounded chunks of each side are resident in memory.
     QString verifyNativeBytes(NextcloudWorker *worker, const QString &davPath,
-                              QIODevice &expected, qint64 size, bool *missing, int *httpStatus)
+                              QIODevice &expected, qint64 size, const QByteArray &digest,
+                              bool *missing, int *httpStatus)
     {
         if (missing)
             *missing = false;
@@ -191,6 +192,7 @@ namespace {
         if (!expected.seek(0))
             return QStringLiteral("Could not seek to local media for remote verification");
         QString baseEtag;
+        QCryptographicHash contentHash(QCryptographicHash::Sha256);
         for (qint64 offset = 0; offset < size;) {
             const qint64 count = qMin(StreamReadSize, size - offset);
             const auto response = worker->readWebDavRange(davPath, offset, count, baseEtag);
@@ -208,8 +210,11 @@ namespace {
                 || response.totalSize != size || response.data.size() != count
                 || localChunk.size() != count || response.data != localChunk)
                 return QStringLiteral("The native Nextcloud attachment changed or failed read-back");
+            contentHash.addData(localChunk);
             offset += count;
         }
+        if (contentHash.result() != digest)
+            return QStringLiteral("Local media changed during WebDAV read-back verification");
         return {};
     }
 
@@ -1137,7 +1142,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                         settings.notesPath, local.category, oldId)
                                         + QLatin1Char('/') + receiptPath.mid(ownedPrefix.size());
                                     bool missing = false;
-                                    QString error = verifyNativeBytes(worker_, previousDav, source, attachment.size,
+                                    QString error = verifyNativeBytes(worker_, previousDav, source, attachment.size, attachment.sha256,
                                                                       &missing, &publication.note.httpStatus);
                                     if (error.isEmpty()) {
                                         nativePath = receiptPath;
@@ -1153,7 +1158,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                     const QString davPath = davFolder + QLatin1Char('/')
                                         + nativePath.mid(ownedPrefix.size());
                                     bool missing = false;
-                                    const QString before = verifyNativeBytes(worker_, davPath, source, attachment.size,
+                                    const QString before = verifyNativeBytes(worker_, davPath, source, attachment.size, attachment.sha256,
                                                                              &missing, &publication.note.httpStatus);
                                     if (before.isEmpty()) {
                                         verified = true; // recover a previously staged upload
@@ -1175,7 +1180,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                             // A racing identical upload might win the
                                             // atomic no-overwrite MOVE.
                                             const QString check = verifyNativeBytes(
-                                                worker_, davPath, source, attachment.size, nullptr,
+                                                worker_, davPath, source, attachment.size, attachment.sha256, nullptr,
                                                 &publication.note.httpStatus);
                                             if (!check.isEmpty()) {
                                                 publication.note.error = uploaded.error;
@@ -1183,7 +1188,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                                 break;
                                             }
                                         }
-                                        const QString check = verifyNativeBytes(worker_, davPath, source, attachment.size,
+                                        const QString check = verifyNativeBytes(worker_, davPath, source, attachment.size, attachment.sha256,
                                                                                  nullptr, &publication.note.httpStatus);
                                         if (!check.isEmpty()) {
                                             publication.note.error = check;
