@@ -341,6 +341,32 @@ flowchart LR
     API --> OTHER["Other storage-specific transport"]
 ```
 
+### Nextcloud interoperability policy (planned backend)
+
+Nextcloud is a deliberately **non-E2EE** backend so native Nextcloud Notes
+clients can read and edit notes and media. Notes bodies remain ordinary
+Markdown; attachment bytes must be uploaded as native, server-readable files,
+not as AnyKeep/XMPP encrypted transport payloads. Use HTTPS in transit; remote
+storage protection/access control belongs to Nextcloud. Locally, the normal
+AnyKeep encrypted draft, cache and `LocalMediaStore` representations are
+unchanged. Decryption happens inside the provider adapter before HTTPS upload.
+
+Keep `anykeep-media:` UUIDs as the canonical logical document identity in
+AnyKeep's durable drafts. Map those identities to native relative Markdown
+links and files when publishing, and back to `MediaReference` on import.
+Do not expose internal UUID URLs without a native readable file target.
+Plan for attachment path changes during category moves, deduplication, cleanup
+and crash-safe publication. Large uploads should use WebDAV/chunked upload,
+and ranged playback should use the same shared media stream abstraction when
+WebDAV HTTP Range is supported. Notes attachment endpoints, file layout,
+WebDAV behavior and API versions must be detected and verified against a
+real server, including edits made by native Notes clients.
+
+The Nextcloud adapter has **not** implemented remote media yet, so its
+`supportsMedia()` remains false. Do not silently drop a note's media
+manifest during transfer. This policy is independent of the XMPP E2EE
+transport described below.
+
 ### XMPP implementation
 
 The Iris backend maps every XMPP attachment to
