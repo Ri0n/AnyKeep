@@ -618,8 +618,8 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
                                     if (!owner)
                                         return;
                                     owner->completeMediaRead(requestId, ref, std::move(output), failure);
-                        },
-                        Qt::QueuedConnection);
+                                },
+                                Qt::QueuedConnection);
                         },
                         Qt::QueuedConnection);
                     if (!queued)
