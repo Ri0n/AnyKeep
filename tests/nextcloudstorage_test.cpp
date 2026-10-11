@@ -121,6 +121,7 @@ class NextcloudStorageTest : public QObject {
 
 private slots:
     void metadataOnlyFolderMoveUsesCategoryPath();
+    void legacyMediaLinksPreventUnsafeFolderMove();
     void dirtyPublishIncludesFolderCategory();
     void mediaIsUploadedAndVerifiedBeforeMarkdownCommit();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges();
@@ -147,6 +148,7 @@ void NextcloudStorageTest::metadataOnlyFolderMoveUsesCategoryPath()
           QByteArrayLiteral("[")
               + noteJson(QStringLiteral("note-1"), QStringLiteral("old-etag"), QStringLiteral("Inbox"), 1700000000)
               + QByteArrayLiteral("]"),
+          noteJson(QStringLiteral("note-1"), QStringLiteral("old-etag"), QStringLiteral("Inbox"), 1700000000),
           noteJson(QStringLiteral("note-1"), QStringLiteral("new-etag"), QStringLiteral("Projects/2026"),
                    2100000000) });
     QVERIFY(server.listen());
@@ -186,7 +188,7 @@ void NextcloudStorageTest::metadataOnlyFolderMoveUsesCategoryPath()
     QCOMPARE(catalog.catalog().folderForNote(storage.systemName(), QStringLiteral("note-1")), destination.value);
     moved->deleteLater();
 
-    QCOMPARE(server.requests().size(), 4);
+    QCOMPARE(server.requests().size(), 5);
     const auto request   = server.requests().last();
     const auto headerEnd = request.indexOf("\r\n\r\n");
     QVERIFY(headerEnd >= 0);
@@ -199,6 +201,49 @@ void NextcloudStorageTest::metadataOnlyFolderMoveUsesCategoryPath()
     QCOMPARE(body.object().value(QStringLiteral("category")).toString(), QStringLiteral("Projects/2026"));
 
     clearSettings();
+}
+
+void NextcloudStorageTest::legacyMediaLinksPreventUnsafeFolderMove()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(std::make_unique<FileFolderCatalogStore>(
+        directory.filePath(QStringLiteral("folders.bin")), SecureEnvelope::generateMasterKey()));
+    QVERIFY(catalog.initialize());
+    const auto target = addFolder(catalog, QStringLiteral("Destination"));
+    QVERIFY(target);
+
+    QJsonObject remote = QJsonDocument::fromJson(
+        noteJson(QStringLiteral("42"), QStringLiteral("old-etag"), QStringLiteral("Origin"), 1700000000)).object();
+    remote.insert(QStringLiteral("content"),
+                  QStringLiteral("# With legacy API image\n![image](old-api-image.png)"));
+    ScriptedHttpServer server({ QJsonDocument(remote).toJson(QJsonDocument::Compact) });
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 1000);
+
+    NextcloudStorage storage(nullptr, &catalog);
+    auto note = storage.createNote();
+    note.setId(QStringLiteral("42"));
+    note.setBackendValue(QStringLiteral("etag"), QStringLiteral("old-etag"));
+    note.setFolderId(target.value);
+    auto *job = storage.changeNoteFolderAsync(note);
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->state(), StorageJob::Failed);
+    QCOMPARE(job->error().code, StorageError::Other);
+    QVERIFY(job->error().message.contains(QStringLiteral("legacy")));
+    QCOMPARE(server.requests().size(), 1);
+    QVERIFY(server.requests().first().startsWith("GET /index.php/apps/notes/api/v1/notes/42 "));
+    job->deleteLater();
+
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
 }
 
 void NextcloudStorageTest::dirtyPublishIncludesFolderCategory()
