@@ -31,12 +31,24 @@ Read `README.md` for the HTTP/API behavior and user-facing configuration.
 - While media support is disabled, reject unresolved canonical `anykeep-media:`
   links and incomplete media publication. An existing-note async publication
   may stage native files only after preflighting the whole local manifest and
-  the base ETag. Update Markdown only after read-back verifies every file.
-  Failed updates must leave the durable draft intact; staged uploads are
-  orphans for a future cleanup pass, never grounds for deleting source data.
-- Native attachments are imported by the async load job only for
-  `.attachments.<noteId>/` paths. Keep unknown links untouched. Bounded
-  WebDAV ranges are essential: never silently materialize a large file in RAM.
+  the base ETag. Update Markdown only after ranged read-back verifies every
+  file. Native-client changes to a previously published attachment are
+  conflicts, never overwrites. Retry/duplicate saves must reuse verified
+  receipts or deterministic staged paths, not proliferate copies.
+- Never use Notes 5.0.2's attachment v1.4 upload layout for new publications:
+  files are siblings of the note and break on category moves (live-tested).
+  Instead create the web-native `.attachments.<noteId>/` WebDAV collection.
+  Only move notes with move-safe relative links; block unknown/legacy links
+  until there is a tested rehome transaction. Preserve canonical manifests
+  after metadata-only moves, even if the API includes the Markdown body.
+- Failed updates must leave the durable draft intact. Staged, unreferenced
+  files are candidates for future reference-aware garbage collection, never
+  grounds for deleting source data.
+- Async load recognizes both web-native `.attachments.<noteId>/` and legacy
+  flat Notes API relative files, but must not import other notes' attachment
+  directories, traversal URLs, or links to Markdown documents.
+  Unknown/oversized links remain intact. Bounded WebDAV ranges and capped
+  response buffers are essential: never silently materialize large media in RAM.
 - A new note with media is still rejected: it needs a durable recoverable
   remote note ID before attachment staging. Synchronous media saves are rejected.
 - Enforce HTTPS for real Nextcloud accounts; HTTP is for loopback fixtures only.
