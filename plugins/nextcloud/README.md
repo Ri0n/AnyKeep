@@ -145,19 +145,36 @@ relative links instead of silently breaking them. A successful move also
 preserves the local canonical manifest when the response includes the body.
 
 A bounded `loadNoteAsync()` path recognizes both web-native per-note URLs
-and older Notes API sibling URLs, downloads small nonempty files in WebDAV
-byte ranges, imports them into encrypted `LocalMediaStore`, and restores
-canonical local Markdown URIs. Each file is limited to 16 MiB; at most
-12 attachments and 32 MiB of plaintext are restored per note. Unavailable
-or oversized remote links are preserved verbatim, never truncated or
-deleted. Remote HTTP replies are capped even if the server ignores Range.
+and older Notes API sibling URLs. Nonempty files up to 16 MiB can be
+downloaded in bounded WebDAV ranges into encrypted `LocalMediaStore`
+(up to 32 MiB eager data per note). Large files and files exceeding the
+remaining eager budget become **remote-only** `MediaReference` entries:
+a one-byte 206 probe provides their size and opaque WebDAV ETag, and the
+canonical Markdown URI is restored immediately without downloading the
+whole video. Up to 48 referenced native paths are considered during load.
+
+Remote-only playback and image preview reuse the shared
+`MediaRangeService` local HTTP bridge and Nextcloud's worker-thread WebDAV
+Range reader; the request is capped at 1 MiB and pins `If-Match` to the
+initial ETag. A changed revision, wrong response size, missing ETag,
+untrusted path or changed account fails closed. Account identity is
+SHA-256-scoped in the manifest: **no app password, bearer URL or remote
+plaintext is saved in the reference**. Range responses are transient in
+memory, not a persistent encrypted partial cache. A missing local encryption
+key does not prevent discovering a remote-only reference.
+
+This is **not** full resumable synchronization: no disk-backed encrypted
+range cache, prefetch scheduler, progress from durable chunks or zero-byte
+WebDAV range fallback yet. Remote-only content cannot be republished as a
+new attachment without downloading/importing it first. Links that cannot
+be probed or pinned remain native Markdown. Remote replies stay capped even
+when a server ignores Range.
 Real Nextcloud accounts require HTTPS; only loopback HTTP fixtures are
 allowed. No custom Nextcloud E2EE is applied.
 
 **Not yet a complete media feature:** manual resolution for an ambiguous POST
-whose marker never becomes visible, progressive large-file playback and
-remote-only hydration beyond the
-current 16 MiB per-file/32 MiB per-note load cap; zero-byte media, deferred
+whose marker never becomes visible, durable encrypted partial caching and
+verified seek/prefetch recovery; zero-byte media, deferred
 reference-aware cleanup of abandoned/stale attachments, safe legacy
 attachment migration before category moves, and multi-device end-to-end
 verification. A failed Markdown update may leave unreferenced staged files

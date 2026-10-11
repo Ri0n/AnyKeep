@@ -1,6 +1,7 @@
 #include "filefoldercatalogstore.h"
 #include "foldercatalogmanager.h"
 #include "nextcloudstorage.h"
+#include "mediarangeservice.h"
 #include "localmediastore.h"
 #include "secureenvelope.h"
 #include <QCryptographicHash>
@@ -12,6 +13,9 @@
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTcpServer>
@@ -94,6 +98,18 @@ QByteArray noteJson(const QString &id, const QString &etag, const QString &categ
         .toJson(QJsonDocument::Compact);
 }
 
+QByteArray remoteByteRangeResponse(qint64 offset, qint64 count, qint64 total,
+                                  const QByteArray &etag = QByteArrayLiteral("\"remote-revision\""))
+{
+    const QByteArray bytes(count, 'R');
+    return QByteArrayLiteral("HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\n")
+        + QByteArrayLiteral("Accept-Ranges: bytes\r\nETag: ") + etag
+        + QByteArrayLiteral("\r\nContent-Range: bytes ") + QByteArray::number(offset)
+        + '-' + QByteArray::number(offset + count - 1) + '/'
+        + QByteArray::number(total) + QByteArrayLiteral("\r\nContent-Length: ")
+        + QByteArray::number(count) + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + bytes;
+}
+
 QByteArray noteWithContent(const QString &id, const QString &etag, const QString &title,
                            const QString &body, const QString &category = {})
 {
@@ -149,6 +165,7 @@ private slots:
     void recoveredCreationRejectsUnrelatedNativeEdit();
     void streamPublishWithoutWholePlaintextBuffer_data();
     void streamPublishWithoutWholePlaintextBuffer();
+    void oversizedNativeAttachmentStreamsRemoteWebDavRanges();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges_data();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges();
     void staleEtagPreventsAttachmentStaging_data();
@@ -1009,6 +1026,78 @@ void NextcloudStorageTest::streamPublishWithoutWholePlaintextBuffer()
     QCOMPARE(rangeGets, int((dataSize + 1024 * 1024 - 1) / (1024 * 1024) + 1));
     QCOMPARE(markdownWrites, 1);
     QCOMPARE(requests.last().contains(nativePath.toUtf8()), true);
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+void NextcloudStorageTest::oversizedNativeAttachmentStreamsRemoteWebDavRanges()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+    constexpr qint64 remoteSize = 20LL * 1024 * 1024;
+    const QString remotePath = QStringLiteral(".attachments.vid-1/movie.mp4");
+    const QString markdown = QStringLiteral("![movie](") + remotePath + QLatin1Char(')');
+    ScriptedHttpServer server({
+        noteWithContent(QStringLiteral("vid-1"), QStringLiteral("note-etag"),
+                        QStringLiteral("Video"), markdown),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, 1, remoteSize),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(1024, 32, remoteSize)
+    });
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 2000);
+
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto *job = storage.loadNoteAsync(QStringLiteral("vid-1"));
+    QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 10000);
+    QVERIFY2(job->state() == StorageJob::Succeeded, qPrintable(job->error().message));
+    const Note note = job->result();
+    QVERIFY(note.text().contains(QStringLiteral("anykeep-media:/")));
+    QCOMPARE(note.media().size(), 1);
+    const auto reference = note.media().first();
+    QVERIFY(reference.isValid());
+    QCOMPARE(reference.size, remoteSize);
+    QCOMPARE(reference.mediaType, QStringLiteral("video/mp4"));
+    QVERIFY(reference.blobId.isEmpty());
+    QVERIFY(reference.remoteData.value(QStringLiteral("nextcloud.remoteOnly")).toBool());
+    QCOMPARE(reference.remoteData.value(QStringLiteral("nextcloud.etag")).toString(),
+             QStringLiteral("\"remote-revision\""));
+    QCOMPARE(reference.remoteData.value(QStringLiteral("nextcloud.path")).toString(), remotePath);
+    QVERIFY(!mediaStore.contains(reference));
+    job->deleteLater();
+
+    // The existing Qt player/browser local-range bridge must request only
+    // the actual sought segment, pinning the exact WebDAV ETag.
+    const QUrl url = MediaRangeService::urlFor(reference);
+    QVERIFY2(url.isValid() && !url.isEmpty(), "Nextcloud remote-only range resolver was not registered");
+    QNetworkAccessManager client;
+    QNetworkRequest request(url);
+    request.setRawHeader("Range", "bytes=1024-1055");
+    auto *reply = client.get(request);
+    QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 15000);
+    QCOMPARE(reply->error(), QNetworkReply::NoError);
+    QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 206);
+    QCOMPARE(reply->readAll(), QByteArray(32, 'R'));
+    reply->deleteLater();
+    MediaRangeService::releaseUrl(url);
+
+    QCOMPARE(server.requests().size(), 5);
+    QVERIFY(server.requests().at(2).startsWith("GET /remote.php/dav/files/alice/Notes/.attachments.vid-1/movie.mp4 "));
+    QVERIFY(server.requests().at(2).contains("Range: bytes=0-0"));
+    const auto ranged = server.requests().at(4);
+    QVERIFY(ranged.contains("Range: bytes=1024-1055"));
+    QVERIFY(ranged.toLower().contains("if-match: \"remote-revision\""));
+
     settings.remove(QStringLiteral("storage.nextcloud.url"));
     settings.remove(QStringLiteral("storage.nextcloud.username"));
     settings.remove(QStringLiteral("storage.nextcloud.appPassword"));

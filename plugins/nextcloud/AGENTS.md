@@ -76,6 +76,14 @@ Read `README.md` for the HTTP/API behavior and user-facing configuration.
   server note or issuing duplicate POST. If a final PUT ACK is lost,
   verify the deterministic native body and remote bytes to conclude success.
   Changed remote Markdown is a conflict, not a reason to overwrite.
+- Large WebDAV attachments become remote-only references only after a bounded
+  206 probe with a positive size and an opaque ETag. Never fetch a whole video
+  during note opening. MediaRangeService requests must validate the account
+  digest, note ownership/path, size, category and pinned `If-Match` before
+  delivering plaintext; never store app credentials in media metadata.
+  The shared playback bridge can stream memory-bounded ranges, but **does
+  not imply a durable encrypted cache**. Never report bytes as durably
+  synced until a verified encrypted chunk cache actually exists.
 - Synchronous media saves are still rejected; media capability stays disabled.
   Missing zero-byte/large remote hydration, multi-device checks and safe
   cleanup are separate lifecycle work.

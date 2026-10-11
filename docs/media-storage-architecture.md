@@ -445,6 +445,27 @@ orphan staging objects cannot be garbage-collected safely yet. Do not
 enable `supportsMedia()` before this and remote-only hydration/cleanup
 are exercised end-to-end on multiple clients.
 
+#### Nextcloud remote-only WebDAV media (first stage)
+
+For remote-native attachments larger than the eager import budget, a bounded
+one-byte WebDAV Range probe discovers the byte length and strong/pinnable
+opaque ETag. `loadNoteAsync()` returns stable `anykeep-media:` references
+with account-scoped identity, note ID, category and safe relative path, but
+does not materialize a 20 MiB+ video into plaintext RAM or touch encrypted
+local disk. The shared `MediaRangeService`/Qt multimedia HTTP bridge
+issues on-demand Range requests on the Nextcloud worker; each segment uses
+the discovered `If-Match` ETag and the expected total byte length.
+Changing the configured account invalidates the resolver. No remote URL
+with credentials is inserted into document content.
+
+The current ranged bridge is transient memory streaming, not a complete
+encrypted persistent partial-cache implementation. Playback may re-fetch
+ranges on repeat seeks/restarts; these bytes do not contribute to durable
+`MediaSyncSnapshot.verifiedBytes`. Subsequent work must add authenticated
+encrypted segment persistence, cancellation, coalesced requests and
+disk eviction before enabling `supportsMedia()` or advertising complete
+cross-device media synchronization.
+
 ### XMPP implementation
 
 The Iris backend maps every XMPP attachment to
