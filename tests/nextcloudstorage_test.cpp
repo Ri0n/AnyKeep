@@ -128,6 +128,7 @@ private slots:
     void mediaIsUploadedAndVerifiedBeforeMarkdownCommit();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges_data();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges();
+    void staleEtagPreventsAttachmentStaging_data();
     void staleEtagPreventsAttachmentStaging();
     void existingMediaReceiptIsReusedOrRejected_data();
     void existingMediaReceiptIsReusedOrRejected();
@@ -458,8 +459,16 @@ void NextcloudStorageTest::nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges(
     settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
 }
 
+void NextcloudStorageTest::staleEtagPreventsAttachmentStaging_data()
+{
+    QTest::addColumn<bool>("categoryWasChanged");
+    QTest::newRow("stale-etag") << false;
+    QTest::newRow("category-transition") << true;
+}
+
 void NextcloudStorageTest::staleEtagPreventsAttachmentStaging()
 {
+    QFETCH(bool, categoryWasChanged);
     QVERIFY(FileFolderCatalogStore::cryptoAvailable());
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -470,7 +479,9 @@ void NextcloudStorageTest::staleEtagPreventsAttachmentStaging()
     QVERIFY2(imported, qPrintable(imported.error));
 
     ScriptedHttpServer server({
-        noteJson(QStringLiteral("42"), QStringLiteral("changed-on-server"), QString(), 2100000000)
+        noteJson(QStringLiteral("42"),
+                 categoryWasChanged ? QStringLiteral("stale-etag") : QStringLiteral("changed-on-server"),
+                 categoryWasChanged ? QStringLiteral("RemoteOtherCategory") : QString(), 2100000000)
     });
     QVERIFY(server.listen());
     QSettings settings;
