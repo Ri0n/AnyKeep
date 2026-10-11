@@ -1250,7 +1250,11 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                 const auto current = worker_->getNote(publishingId);
                 if (!current.ok) {
                     publication.note = current;
-                } else if (current.note.etag != publishingLocal.etag) {
+                } else if (current.note.etag.isEmpty()) {
+                    publication.note.error = QStringLiteral(
+                        "The Nextcloud note has no usable ETag for safe media publication");
+                } else if (!publishingLocal.etag.isEmpty()
+                           && current.note.etag != publishingLocal.etag) {
                     publication.note.conflict = true;
                     publication.note.httpStatus = 412;
                     publication.note.remoteOnConflict = current.note;
@@ -1282,7 +1286,8 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                     const QString expectedNative = NextcloudMediaLinks::toNative(
                         canonicalText, expectedPaths, &expectedError);
                     const bool alreadyCommitted = newMediaNote && expectedError.isEmpty()
-                        && current.note.contentPresent && current.note.content == expectedNative;
+                        && current.note.contentPresent && current.note.content == expectedNative
+                        && current.note.favorite == publishingLocal.favorite;
                     if (newMediaNote && !alreadyCommitted
                         && (!current.note.contentPresent
                             || !current.note.content.contains(creationMarker(creationToken)))) {
@@ -1419,7 +1424,11 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                 publication.note = current;
                             } else {
                                 outgoing.id = publishingId;
-                                outgoing.etag = publishingLocal.etag;
+                                // POST responses may omit an ETag. GET is the
+                                // authoritative precondition in that case;
+                                // never issue an unguarded initial PUT.
+                                outgoing.etag = publishingLocal.etag.isEmpty()
+                                    ? current.note.etag : publishingLocal.etag;
                                 publication.note = worker_->updateNote(outgoing);
                             }
                         }
