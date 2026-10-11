@@ -804,25 +804,102 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
         return job;
     }
 
-    const auto          config = readConfig();
+    const auto config = readConfig();
+    QString configError;
+    if (!configIsValid(config, &configError)) {
+        job->fail({ StorageError::NotConfigured, configError, false });
+        return job;
+    }
+
+    const bool hasMedia = !note.media().isEmpty();
+    QList<PreparedAttachment> attachments;
+    QString preparationError;
+    if (hasMedia && !prepareAttachments(note, &attachments, &preparationError)) {
+        job->fail({ StorageError::Other, preparationError, false });
+        return job;
+    }
+
     NextcloudRemoteNote local;
-    QString             folderError;
-    if (!toRemote(note, &local, &folderError)) {
+    QString folderError;
+    if (!toRemote(note, &local, &folderError, hasMedia)) {
         job->fail({ StorageError::Other, folderError, false });
         return job;
     }
-    const auto            oldId = note.id();
+    if (hasMedia && local.etag.isEmpty()) {
+        job->fail({ StorageError::Conflict, tr("A known ETag is required before publishing Nextcloud media."),
+                    false });
+        return job;
+    }
+
+    const QString oldId = note.id();
+    const QString canonicalText = note.text();
     QPointer<NoteSaveJob> guard(job);
     QMetaObject::invokeMethod(
         worker_,
-        [this, guard, config, local, oldId]() {
+        [this, guard, config, local, oldId, attachments, hasMedia, canonicalText]() {
             worker_->setConfig(config);
-            const auto result = oldId.isEmpty() ? worker_->createNote(local) : worker_->updateNote(local);
+            MediaSaveResult publication;
+            if (!hasMedia) {
+                publication.note = oldId.isEmpty() ? worker_->createNote(local) : worker_->updateNote(local);
+            } else {
+                // Check before staging data. Recheck the ETag again atomically
+                // during the final updateNote() to handle concurrent native edits.
+                const auto current = worker_->getNote(oldId);
+                if (!current.ok) {
+                    publication.note = current;
+                } else if (current.note.etag != local.etag) {
+                    publication.note.conflict = true;
+                    publication.note.httpStatus = 412;
+                    publication.note.remoteOnConflict = current.note;
+                    publication.note.error = QStringLiteral("The Nextcloud note changed before media publication");
+                } else {
+                    QHash<QString, QString> nativePaths;
+                    for (const auto &attachment : attachments) {
+                        const QString uniqueName = attachment.reference.id.toString(QUuid::WithoutBraces)
+                            + QLatin1Char('-') + QUuid::createUuid().toString(QUuid::WithoutBraces)
+                            + QLatin1Char('-') + attachment.reference.portableName.left(100);
+                        const auto uploaded = worker_->uploadAttachment(oldId, uniqueName, attachment.bytes);
+                        if (!uploaded.ok || !NextcloudMediaLinks::isSafeNativePath(uploaded.path)) {
+                            publication.note.error = uploaded.ok
+                                ? QStringLiteral("Nextcloud returned an unsafe attachment path") : uploaded.error;
+                            publication.note.httpStatus = uploaded.httpStatus;
+                            break;
+                        }
+                        // The native API must serve the exact plaintext before we
+                        // expose a Markdown link to this object.
+                        const auto verified = worker_->downloadAttachment(oldId, uploaded.path);
+                        if (!verified.ok || verified.data != attachment.bytes) {
+                            publication.note.error = verified.ok
+                                ? QStringLiteral("Nextcloud attachment read-back checksum mismatch") : verified.error;
+                            publication.note.httpStatus = verified.httpStatus;
+                            break;
+                        }
+                        nativePaths.insert(attachment.reference.uri(), uploaded.path);
+                        auto publishedReference = attachment.reference;
+                        publishedReference.remoteData.insert(QStringLiteral("nextcloud.noteId"), oldId);
+                        publishedReference.remoteData.insert(QStringLiteral("nextcloud.path"), uploaded.path);
+                        publication.media.append(publishedReference);
+                    }
+
+                    if (publication.note.error.isEmpty()) {
+                        QString linkError;
+                        auto outgoing = local;
+                        outgoing.content = NextcloudMediaLinks::toNative(canonicalText, nativePaths, &linkError);
+                        if (!linkError.isEmpty()) {
+                            publication.note.error = linkError;
+                        } else {
+                            publication.note = worker_->updateNote(outgoing);
+                        }
+                    }
+                }
+            }
+
             QMetaObject::invokeMethod(
                 this,
-                [this, guard, result, oldId]() {
+                [this, guard, publication, oldId, hasMedia, canonicalText]() {
                     if (!guard || guard->isFinished())
                         return;
+                    const auto &result = publication.note;
                     if (!result.ok) {
                         StorageError error { result.conflict ? StorageError::Conflict : StorageError::Network,
                                              result.error, !result.conflict };
@@ -834,7 +911,14 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                         return;
                     }
                     reconcileRemoteFolders({ result.note });
-                    auto       saved   = fromRemote(result.note);
+                    auto saved = fromRemote(result.note);
+                    if (hasMedia) {
+                        // Nextcloud stores only native relative Markdown links.
+                        // Keep the stable canonical URIs and the verified
+                        // publication receipts in the local/cache manifest.
+                        saved.setText(canonicalText, Note::Markdown);
+                        saved.setMedia(publication.media);
+                    }
                     const bool existed = !oldId.isEmpty() && cache_.contains(oldId);
                     if (!oldId.isEmpty() && oldId != saved.id())
                         cache_.remove(oldId);
