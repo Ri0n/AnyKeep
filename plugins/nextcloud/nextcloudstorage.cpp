@@ -2,6 +2,7 @@
 
 #include "foldercatalogmanager.h"
 #include "nextcloudcategory.h"
+#include "nextcloudmedialinks.h"
 #include "nextcloudworker.h"
 #include "notedata.h"
 #include "settingscontroller.h"
@@ -325,6 +326,18 @@ bool NextcloudStorage::toRemote(const Note &note, NextcloudRemoteNote *remote, Q
 {
     if (!remote)
         return false;
+    if (!note.media().isEmpty()) {
+        if (error)
+            *error = tr("Nextcloud media publication is not available yet.");
+        return false;
+    }
+    QString linkError;
+    (void)NextcloudMediaLinks::toNative(note.text(), {}, &linkError);
+    if (!linkError.isEmpty()) {
+        if (error)
+            *error = tr("Nextcloud media links require a completed native upload.");
+        return false;
+    }
     NextcloudRemoteNote result;
     result.id             = note.id();
     result.etag           = note.backendValue(QStringLiteral("etag")).toString();

@@ -362,10 +362,40 @@ WebDAV HTTP Range is supported. Notes attachment endpoints, file layout,
 WebDAV behavior and API versions must be detected and verified against a
 real server, including edits made by native Notes clients.
 
-The Nextcloud adapter has **not** implemented remote media yet, so its
-`supportsMedia()` remains false. Do not silently drop a note's media
-manifest during transfer. This policy is independent of the XMPP E2EE
-transport described below.
+The Nextcloud worker currently implements native Notes v1.4 attachment
+upload/download, WebDAV chunked-v2 upload and bounded HTTP Range reads. The
+link codec translates between canonical and native relative Markdown URLs.
+These are **transport primitives**, not a complete media backend:
+`NextcloudStorage::supportsMedia()` stays false. Until the lifecycle is
+implemented, saves with nonempty media manifests or unresolved canonical media
+links fail instead of claiming success after losing attachment references.
+
+The intended publication transaction is:
+
+1. Resolve every referenced `MediaReference` from the durable draft and
+   `LocalMediaStore`. Reject missing or changed external-file sources.
+2. Create or identify the remote note and native attachment directory; stage
+   each plaintext file over HTTPS, using the Notes attachment API or chunked
+   WebDAV as appropriate. Verify the remote object and retain its native path
+   and checksum in provider-specific metadata.
+3. Rewrite **only** media link targets to safe relative native URLs. Update
+   the ordinary Markdown body using the current ETag. A 412 conflict or
+   interrupted upload must preserve the original draft and local blobs.
+4. Commit the remote cache manifest and clear the draft only after the body
+   and all referenced files have been confirmed. Failed staged uploads become
+   cleanup candidates, never grounds for dropping a draft.
+
+On another device, import native links without rewriting the server note:
+construct stable local references and remote-only metadata, then hydrate
+asynchronously on demand with checked WebDAV ranges. Progressive playback
+must support cancellation, partial-cache validation and retries without
+fetching the entire file. Category moves must rebase/relocate native links
+without breaking old clients; deletion must use a delayed, reference-aware
+cleanup pass rather than immediately deleting potentially shared files.
+Test native-client edits, interrupted publication, conflict recovery, stale
+remote paths, category moves, zero-byte and large attachments, and multi-device
+rehydration before enabling the capability. This policy is independent of the
+XMPP E2EE transport described below.
 
 ### XMPP implementation
 

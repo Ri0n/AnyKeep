@@ -148,6 +148,12 @@ add_anykeep_test(nextcloudstorage_test nextcloudstorage_test.cpp ../plugins/next
 target_include_directories(nextcloudstorage_test PRIVATE ../plugins/nextcloud)
 target_link_libraries(nextcloudstorage_test PRIVATE Qt6::Network)
 
+add_anykeep_test(nextcloudmediaguard_test nextcloudmediaguard_test.cpp ../plugins/nextcloud/nextcloudcategory.cpp
+                 ../plugins/nextcloud/nextcloudstorage.cpp ../plugins/nextcloud/nextcloudworker.cpp
+                 ../plugins/nextcloud/nextcloudmedialinks.cpp)
+target_include_directories(nextcloudmediaguard_test PRIVATE ../plugins/nextcloud)
+target_link_libraries(nextcloudmediaguard_test PRIVATE Qt6::Network)
+
 add_anykeep_test(secureenvelope_test secureenvelope_test.cpp)
 
 add_anykeep_test(localmediastore_test localmediastore_test.cpp)
@@ -274,7 +280,7 @@ set_tests_properties(
   PROPERTIES LABELS folders)
 set_tests_properties(ptfstorage_test notesindex_test fileremotecachestore_test secureenvelope_test localmediastore_test
                      PROPERTIES LABELS storage)
-set_tests_properties(nextcloudcategory_test nextcloudworker_test nextcloudstorage_test PROPERTIES LABELS
+set_tests_properties(nextcloudcategory_test nextcloudworker_test nextcloudstorage_test nextcloudmediaguard_test PROPERTIES LABELS
                                                                                                   "nextcloud;storage")
 set_tests_properties(xmppnotecodec_test xmppchunkedmediafeature_test xmpppayloadxml_test PROPERTIES LABELS "storage;xmpp")
 if(TARGET xmppstorage_test)
