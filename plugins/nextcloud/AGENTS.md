@@ -28,9 +28,15 @@ Read `README.md` for the HTTP/API behavior and user-facing configuration.
   ciphertext, encrypted filenames, or `anykeep-media:`-only remote markup.
   Keep local draft/media/cache at-rest encryption as-is and publish native
   plaintext files over HTTPS.
-- While media support is disabled, reject saves with a nonempty media manifest
-  or unresolved canonical `anykeep-media:` links. A failed publication must
-  leave the durable draft intact, never silently lose attachments.
+- While media support is disabled, reject unresolved canonical `anykeep-media:`
+  links and incomplete media publication. An existing-note async publication
+  may stage native files only after preflighting the whole local manifest and
+  the base ETag. Update Markdown only after read-back verifies every file.
+  Failed updates must leave the durable draft intact; staged uploads are
+  orphans for a future cleanup pass, never grounds for deleting source data.
+- A new note with media is still rejected: it needs a durable recoverable
+  remote note ID before attachment staging. Synchronous media saves are rejected.
+- Enforce HTTPS for real Nextcloud accounts; HTTP is for loopback fixtures only.
 - Do not enable `supportsMedia()` before implementing and live-testing the
   native attachment/WebDAV adapter, cross-client Markdown links, category
   moves, media durability, and cleanup. Preserve capability fallback on older
