@@ -737,8 +737,11 @@ NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relat
         return result;
     }
     result.etag = QString::fromUtf8(headerValue(reply, QByteArrayLiteral("ETag"))).trimmed();
-    if (!ifMatchEtag.isEmpty() && !result.etag.isEmpty() && result.etag != ifMatchEtag) {
-        result.error = QStringLiteral("WebDAV media ETag changed between byte-range reads");
+    // If-Match must never silently degrade into an unverified cross-revision
+    // stream. Some misconfigured DAV proxies omit response ETags entirely;
+    // a pinned read then fails closed even if the server ignored If-Match.
+    if (!ifMatchEtag.isEmpty() && result.etag != ifMatchEtag) {
+        result.error = QStringLiteral("WebDAV media ETag is missing or changed between byte-range reads");
         return result;
     }
     result.data = reply.body;
