@@ -8,7 +8,10 @@
 #include "notedata.h"
 #include "settingscontroller.h"
 
+#include <QBuffer>
 #include <QCryptographicHash>
+#include <QFileInfo>
+#include <QRegularExpression>
 #include <QHostAddress>
 #include <QMetaObject>
 #include <QMimeDatabase>
@@ -124,6 +127,58 @@ namespace {
         NextcloudNoteResult note;
         QList<NativeRestoredFile> files;
     };
+
+    // The Notes 5.0.2 API uploads to the category directory and its files
+    // become inaccessible after a category move. The web Notes editor instead
+    // stores per-note attachments under .attachments.<noteId>; its directory
+    // follows the note when moved. Preserve that native on-disk convention.
+    QString attachmentDirectory(const QString &notesPath, const QString &category, const QString &id)
+    {
+        return notesPath + QLatin1Char('/')
+            + (category.isEmpty() ? QString() : category + QLatin1Char('/'))
+            + QStringLiteral(".attachments.") + id;
+    }
+
+    QString stableAttachmentFileName(const PreparedAttachment &attachment)
+    {
+        QString suffix = QFileInfo(attachment.reference.portableName).suffix().toLower();
+        static const QRegularExpression safeSuffix(QStringLiteral("^[a-z0-9]{1,12}$"));
+        if (!safeSuffix.match(suffix).hasMatch())
+            suffix = QStringLiteral("bin");
+        const auto digest = QCryptographicHash::hash(attachment.bytes, QCryptographicHash::Sha256)
+                                .toHex().left(24);
+        return attachment.reference.id.toString(QUuid::WithoutBraces)
+            + QLatin1Char('-') + QString::fromLatin1(digest) + QLatin1Char('.') + suffix;
+    }
+
+    // Bounded independent Range GETs: verification never downloads an
+    // unbounded HTTP response, nor publishes a URL pointing at incomplete
+    // or corrupted bytes. Empty objects require a separate metadata probe.
+    QString verifyNativeBytes(NextcloudWorker *worker, const QString &davPath,
+                              const QByteArray &expected, bool *missing, int *httpStatus)
+    {
+        if (missing)
+            *missing = false;
+        if (expected.isEmpty())
+            return QStringLiteral("Zero-length media requires an explicit WebDAV stat");
+        constexpr qint64 readSize = 1024 * 1024;
+        for (qint64 offset = 0; offset < expected.size();) {
+            const qint64 count = qMin<qint64>(readSize, expected.size() - offset);
+            const auto response = worker->readWebDavRange(davPath, offset, count);
+            if (httpStatus)
+                *httpStatus = response.httpStatus;
+            if (!response.ok) {
+                if (missing && offset == 0 && response.httpStatus == 404)
+                    *missing = true;
+                return response.error;
+            }
+            if (response.totalSize != expected.size() || response.data.size() != count
+                || response.data != expected.mid(offset, count))
+                return QStringLiteral("The native Nextcloud attachment changed or failed read-back");
+            offset += count;
+        }
+        return {};
+    }
 
     bool prepareAttachments(const Note &note, LocalMediaStore *store, QList<PreparedAttachment> *prepared,
                             QString *error)
@@ -954,64 +1009,100 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                     publication.note.error = QStringLiteral("The Nextcloud note changed before media publication");
                 } else {
                     QHash<QString, QString> nativePaths;
-                    for (const auto &attachment : attachments) {
-                        const QString receiptPath
-                            = attachment.reference.remoteData.value(QStringLiteral("nextcloud.path")).toString();
-                        const QString receiptNote
-                            = attachment.reference.remoteData.value(QStringLiteral("nextcloud.noteId")).toString();
-                        const QString ownPrefix = QStringLiteral(".attachments.") + oldId + QLatin1Char('/');
-                        if (receiptNote == oldId && receiptPath.startsWith(ownPrefix)
-                            && NextcloudMediaLinks::isSafeNativePath(receiptPath)) {
-                            // A save after a successful publication must not create a
-                            // fresh attachment every time the note text is edited.
-                            // Never trust the local receipt without rechecking bytes:
-                            // native clients can modify an attachment independently
-                            // of the Notes body ETag.
-                            const auto previous = worker_->downloadAttachment(oldId, receiptPath);
-                            if (previous.ok) {
-                                if (previous.data != attachment.bytes) {
-                                    publication.note.conflict = true;
-                                    publication.note.httpStatus = 412;
-                                    publication.note.error = QStringLiteral(
-                                        "The native Nextcloud attachment changed on the server");
-                                    break;
+                    const auto settings = worker_->getSettings();
+                    if (!settings.ok) {
+                        publication.note.error = settings.error;
+                        publication.note.httpStatus = settings.httpStatus;
+                    } else {
+                        const QString davFolder = attachmentDirectory(settings.notesPath, local.category, oldId);
+                        if (!NextcloudMediaLinks::isSafeNativePath(davFolder)) {
+                            publication.note.error = QStringLiteral("Unsafe native Notes attachment directory");
+                        } else {
+                            const auto folder = worker_->ensureWebDavFolder(davFolder);
+                            if (!folder.ok) {
+                                publication.note.error = folder.error;
+                                publication.note.httpStatus = folder.httpStatus;
+                            }
+                        }
+                        if (publication.note.error.isEmpty()) {
+                            for (const auto &attachment : attachments) {
+                                const QString receiptPath = attachment.reference.remoteData
+                                    .value(QStringLiteral("nextcloud.path")).toString();
+                                const QString receiptNote = attachment.reference.remoteData
+                                    .value(QStringLiteral("nextcloud.noteId")).toString();
+                                const QString ownedPrefix = QStringLiteral(".attachments.") + oldId
+                                    + QLatin1Char('/');
+                                QString nativePath = ownedPrefix + stableAttachmentFileName(attachment);
+                                bool verified = false;
+                                if (receiptNote == oldId && receiptPath.startsWith(ownedPrefix)
+                                    && NextcloudMediaLinks::isSafeNativePath(receiptPath)) {
+                                    const QString previousDav = attachmentDirectory(
+                                        settings.notesPath, local.category, oldId)
+                                        + QLatin1Char('/') + receiptPath.mid(ownedPrefix.size());
+                                    bool missing = false;
+                                    QString error = verifyNativeBytes(worker_, previousDav, attachment.bytes,
+                                                                      &missing, &publication.note.httpStatus);
+                                    if (error.isEmpty()) {
+                                        nativePath = receiptPath;
+                                        verified = true;
+                                    } else if (!missing) {
+                                        publication.note.conflict = true;
+                                        publication.note.error = error;
+                                        break;
+                                    }
                                 }
-                                nativePaths.insert(attachment.reference.uri(), receiptPath);
-                                publication.media.append(attachment.reference);
-                                continue;
+
+                                if (!verified) {
+                                    const QString davPath = davFolder + QLatin1Char('/')
+                                        + nativePath.mid(ownedPrefix.size());
+                                    bool missing = false;
+                                    const QString before = verifyNativeBytes(worker_, davPath, attachment.bytes,
+                                                                             &missing, &publication.note.httpStatus);
+                                    if (before.isEmpty()) {
+                                        verified = true; // recover a previously staged upload
+                                    } else if (!missing) {
+                                        publication.note.conflict = true;
+                                        publication.note.error = before;
+                                        break;
+                                    }
+
+                                    if (!verified) {
+                                        QBuffer source;
+                                        source.setData(attachment.bytes);
+                                        if (!source.open(QIODevice::ReadOnly)) {
+                                            publication.note.error = source.errorString();
+                                            break;
+                                        }
+                                        const auto uploaded
+                                            = worker_->uploadWebDavChunks(davPath, &source, attachment.bytes.size());
+                                        if (!uploaded.ok) {
+                                            // A racing identical upload might win the
+                                            // atomic no-overwrite MOVE.
+                                            const QString check = verifyNativeBytes(
+                                                worker_, davPath, attachment.bytes, nullptr,
+                                                &publication.note.httpStatus);
+                                            if (!check.isEmpty()) {
+                                                publication.note.error = uploaded.error;
+                                                publication.note.httpStatus = uploaded.httpStatus;
+                                                break;
+                                            }
+                                        }
+                                        const QString check = verifyNativeBytes(worker_, davPath, attachment.bytes,
+                                                                                 nullptr, &publication.note.httpStatus);
+                                        if (!check.isEmpty()) {
+                                            publication.note.error = check;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                nativePaths.insert(attachment.reference.uri(), nativePath);
+                                auto publishedReference = attachment.reference;
+                                publishedReference.remoteData.insert(QStringLiteral("nextcloud.noteId"), oldId);
+                                publishedReference.remoteData.insert(QStringLiteral("nextcloud.path"), nativePath);
+                                publication.media.append(std::move(publishedReference));
                             }
-                            if (previous.httpStatus != 404) {
-                                publication.note.httpStatus = previous.httpStatus;
-                                publication.note.error = previous.error;
-                                break;
-                            }
-                            // The server no longer has this object; upload a
-                            // replacement without writing Markdown until verified.
                         }
-                        const QString uniqueName = attachment.reference.id.toString(QUuid::WithoutBraces)
-                            + QLatin1Char('-') + QUuid::createUuid().toString(QUuid::WithoutBraces)
-                            + QLatin1Char('-') + attachment.reference.portableName.left(100);
-                        const auto uploaded = worker_->uploadAttachment(oldId, uniqueName, attachment.bytes);
-                        if (!uploaded.ok || !NextcloudMediaLinks::isSafeNativePath(uploaded.path)) {
-                            publication.note.error = uploaded.ok
-                                ? QStringLiteral("Nextcloud returned an unsafe attachment path") : uploaded.error;
-                            publication.note.httpStatus = uploaded.httpStatus;
-                            break;
-                        }
-                        // The native API must serve the exact plaintext before we
-                        // expose a Markdown link to this object.
-                        const auto verified = worker_->downloadAttachment(oldId, uploaded.path);
-                        if (!verified.ok || verified.data != attachment.bytes) {
-                            publication.note.error = verified.ok
-                                ? QStringLiteral("Nextcloud attachment read-back checksum mismatch") : verified.error;
-                            publication.note.httpStatus = verified.httpStatus;
-                            break;
-                        }
-                        nativePaths.insert(attachment.reference.uri(), uploaded.path);
-                        auto publishedReference = attachment.reference;
-                        publishedReference.remoteData.insert(QStringLiteral("nextcloud.noteId"), oldId);
-                        publishedReference.remoteData.insert(QStringLiteral("nextcloud.path"), uploaded.path);
-                        publication.media.append(publishedReference);
                     }
 
                     if (publication.note.error.isEmpty()) {
