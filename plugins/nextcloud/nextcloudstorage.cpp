@@ -730,15 +730,21 @@ NoteLoadJob *NextcloudStorage::loadNoteAsync(const QString &id, QObject *owner)
             NativeRestoreResult restored;
             restored.note = worker_->getNote(id);
             if (restored.note.ok && restored.note.note.contentPresent) {
-                // Only Notes' own .attachments.<noteId>/ paths may be read
-                // automatically. Arbitrary relative/external links are not
-                // considered media owned by this note.
+                // Modern web-native Notes attachments live under a
+                // .attachments.<noteId>/ directory. Notes <= 5.0.2's REST
+                // attachment API instead publishes flat files beside the
+                // note, so those safe relative links must be recoverable too.
+                // Do not import links to other Markdown notes as attachments,
+                // and never traverse into a different note's attachment dir.
                 const QString prefix = QStringLiteral(".attachments.") + id + QLatin1Char('/');
                 const auto paths = NextcloudMediaLinks::referencedNativePaths(restored.note.note.content);
                 QStringList nativePaths;
                 for (const auto &path : paths) {
-                    if (path.startsWith(prefix))
-                        nativePaths.append(path);
+                    if (!NextcloudMediaLinks::isSafeNativePath(path)
+                        || path.endsWith(QStringLiteral(".md"), Qt::CaseInsensitive)
+                        || (path.startsWith(QStringLiteral(".attachments.")) && !path.startsWith(prefix)))
+                        continue;
+                    nativePaths.append(path);
                 }
                 constexpr qint64 maxRestoredBytes = 32 * 1024 * 1024;
                 constexpr int maxRestoredFiles = 12;
