@@ -85,11 +85,22 @@ clients must remain interoperable.
 
 **Current deviation:** Iris still uses `MediaPartialChunkCache(VerifiedOpaque,
 directory)` directly and its durable numeric files live in
-`<AnyKeep data>/media-ranges/<hash>/`. A unified `LocalMediaStore` API must
-adopt or transparently open these old paths without losing existing cached
-chunks. The present `LocalMediaStore::partialMediaCache()` supports only
-locally sealed Nextcloud-shaped chunks, so this requires extending the
-factory, not merely changing a call site.
+`<AnyKeep data>/media-ranges/<hash>/`. The present
+`LocalMediaStore::partialMediaCache()` supports only locally sealed
+Nextcloud-shaped chunks, so the factory needs to be extended.
+
+**Nightly-only cache compatibility policy:** no on-disk backwards compatibility
+or cache migration is required for partial XMPP media. When switching to the
+single `LocalMediaStore` cache namespace/format, obsolete `media-ranges/`
+records may be safely discarded **as disposable remote-media cache**, then
+reacquired from the authenticated remote source. An unreadable, stale, or
+incompatible partial record is a cache miss, not a damaged note or permanent
+sync failure. Cleanup must be limited to recognized obsolete *cache* paths;
+never wipe media blobs, original local files, drafts, published media metadata
+or note bodies. If offline, report unavailable/waiting and retry on reconnect
+rather than marking missing bytes as verified. Do not weaken authenticated
+chunk validation. This policy does **not** relax native Nextcloud Notes
+interoperability or portable published note formats.
 
 ## Proposed contracts and invariants
 
@@ -209,12 +220,14 @@ factory, not merely changing a call site.
    propagation and deterministic concurrency ceilings. Retain XMPP Jingle
    handover/receipt regression coverage.
 2. **Unify partial-cache ownership and extract the coordinator.** Extend
-   `LocalMediaStore` with a handle/factory for both locally sealed plaintext
-   records and verified opaque XMPP wire records; retain transparent access to
-   existing XMPP `media-ranges` paths and all existing encrypted formats.
-   Centralize cache namespace, identity, quotas and eventual reference-aware
-   eviction in the shared store, **not** in transport plugins. Move waiters,
-   chunk state, geometry and priority handling out of `NextcloudStorage`
+   `LocalMediaStore` with a handle/factory for locally sealed plaintext
+   records and verified opaque XMPP wire records. Use a single cache namespace
+   and current format, with no migration/compatibility reader for the obsolete
+   XMPP `media-ranges/` partial cache: invalidate it, treat it as a miss and
+   resynchronize remotely. Do not delete original managed blobs or notes.
+   Centralize cache identity, quotas and eventual reference-aware eviction
+   in the shared store, **not** in transport plugins. Move waiters, chunk
+   state, geometry and priority handling out of `NextcloudStorage`
    into a separate shared coordinator. Keep the actual download scheduler
    separate from the store. Initially use concurrency = 1 for Nextcloud to
    preserve PR #155 behavior. Keep the existing XMPP transfer implementation
@@ -238,8 +251,9 @@ factory, not merely changing a call site.
 
 - All media plugins obtain partial cache handles from `LocalMediaStore`,
   with isolated immutable source identities and no plugin-specific cache
-  directory or profile-key handling. Previously downloaded XMPP wire records
-  continue to open and verify at their original paths.
+  directory or profile-key handling. Obsolete XMPP partial cache records
+  are safely treated as cache misses and re-fetched; no legacy path reader
+  or format migration is required.
 - Two simultaneous decoder reads of one uncached chunk cause exactly one
   transport request and return correct byte slices to both clients.
 - Requests for different chunks can be scheduled independently without
@@ -259,5 +273,7 @@ factory, not merely changing a call site.
   authenticated AEAD chunk are exposed; progress counts only verified durable
   bytes.
 - Shutdown and source switching settle every waiter promptly; no UI blocking.
-- XMPP existing wire/cache format, Nextcloud-native Markdown/files, and
-  existing cross-platform media tests remain compatible.
+- XMPP authenticated *remote wire protocol*, native Nextcloud Markdown/files,
+  portable note/attachment data, and existing cross-platform media behavior
+  remain compatible; **local XMPP partial-cache disk format is explicitly
+  exempt** from backward compatibility.
