@@ -11,6 +11,7 @@
 #include <QCryptographicHash>
 #include <QHostAddress>
 #include <QMetaObject>
+#include <QMimeDatabase>
 #include <QPointer>
 #include <QSet>
 #include <QSettings>
@@ -112,6 +113,16 @@ namespace {
     struct MediaSaveResult {
         NextcloudNoteResult note;
         QList<MediaReference> media;
+    };
+
+    struct NativeRestoredFile {
+        QString path;
+        QByteArray bytes;
+    };
+
+    struct NativeRestoreResult {
+        NextcloudNoteResult note;
+        QList<NativeRestoredFile> files;
     };
 
     bool prepareAttachments(const Note &note, LocalMediaStore *store, QList<PreparedAttachment> *prepared,
@@ -649,18 +660,74 @@ NoteLoadJob *NextcloudStorage::loadNoteAsync(const QString &id, QObject *owner)
         job->fail({ StorageError::NotFound, tr("Note was not found"), false });
         return job;
     }
-    const auto            config = readConfig();
+    const auto config = readConfig();
+    QString configError;
+    if (!configIsValid(config, &configError)) {
+        job->fail({ StorageError::NotConfigured, configError, false });
+        return job;
+    }
+
     QPointer<NoteLoadJob> guard(job);
     QMetaObject::invokeMethod(
         worker_,
         [this, guard, config, id]() {
             worker_->setConfig(config);
-            const auto result = worker_->getNote(id);
+            NativeRestoreResult restored;
+            restored.note = worker_->getNote(id);
+            if (restored.note.ok && restored.note.note.contentPresent) {
+                // Only Notes' own .attachments.<noteId>/ paths may be read
+                // automatically. Arbitrary relative/external links are not
+                // considered media owned by this note.
+                const QString prefix = QStringLiteral(".attachments.") + id + QLatin1Char('/');
+                const auto paths = NextcloudMediaLinks::referencedNativePaths(restored.note.note.content);
+                QStringList nativePaths;
+                for (const auto &path : paths) {
+                    if (path.startsWith(prefix))
+                        nativePaths.append(path);
+                }
+                constexpr qint64 maxRestoredBytes = 32 * 1024 * 1024;
+                constexpr int maxRestoredFiles = 12;
+                if (!nativePaths.isEmpty()) {
+                    const auto settings = worker_->getSettings();
+                    if (settings.ok) {
+                        qint64 budget = maxRestoredBytes;
+                        const QString noteFolder = restored.note.note.category;
+                        for (const auto &path : nativePaths.mid(0, maxRestoredFiles)) {
+                            const QString davPath = settings.notesPath + QLatin1Char('/')
+                                + (noteFolder.isEmpty() ? QString() : noteFolder + QLatin1Char('/')) + path;
+                            if (!NextcloudMediaLinks::isSafeNativePath(davPath))
+                                continue;
+                            const auto first = worker_->readWebDavRange(davPath, 0, 1);
+                            if (!first.ok || first.totalSize <= 0
+                                || first.totalSize > MaxNativeAttachmentBytes || first.totalSize > budget)
+                                continue;
+                            QByteArray bytes = first.data;
+                            bool complete = true;
+                            while (bytes.size() < first.totalSize) {
+                                const qint64 amount = qMin<qint64>(1024 * 1024, first.totalSize - bytes.size());
+                                const auto segment = worker_->readWebDavRange(davPath, bytes.size(), amount);
+                                if (!segment.ok || segment.totalSize != first.totalSize
+                                    || segment.data.size() != amount) {
+                                    complete = false;
+                                    break;
+                                }
+                                bytes.append(segment.data);
+                            }
+                            if (!complete)
+                                continue;
+                            budget -= bytes.size();
+                            restored.files.append({ path, std::move(bytes) });
+                        }
+                    }
+                }
+            }
+
             QMetaObject::invokeMethod(
                 this,
-                [this, guard, result, id]() {
+                [this, guard, restored, id, config]() {
                     if (!guard || guard->isFinished())
                         return;
+                    const auto &result = restored.note;
                     if (!result.ok) {
                         if (result.httpStatus == 404)
                             cache_.remove(id);
@@ -670,6 +737,37 @@ NoteLoadJob *NextcloudStorage::loadNoteAsync(const QString &id, QObject *owner)
                     }
                     reconcileRemoteFolders({ result.note });
                     auto loaded = fromRemote(result.note);
+                    if (!restored.files.isEmpty()) {
+                        QString initError;
+                        if (mediaStore_->initialize(&initError)) {
+                            QHash<QString, QString> canonicalUris;
+                            QList<MediaReference> refs;
+                            QMimeDatabase mime;
+                            for (const auto &file : restored.files) {
+                                const QString fileName = file.path.section(QLatin1Char('/'), -1);
+                                const QByteArray identity
+                                    = (config.serverUrl.toString() + QLatin1Char('|') + config.userName
+                                       + QLatin1Char('|') + id + QLatin1Char('|') + file.path).toUtf8();
+                                const QUuid stableId = QUuid::fromRfc4122(
+                                    QCryptographicHash::hash(identity, QCryptographicHash::Sha256).left(16));
+                                const auto imported = mediaStore_->importData(
+                                    file.bytes, fileName,
+                                    mime.mimeTypeForFile(fileName, QMimeDatabase::MatchExtension).name(), stableId);
+                                if (!imported)
+                                    continue;
+                                auto reference = imported.value;
+                                reference.remoteData.insert(QStringLiteral("nextcloud.noteId"), id);
+                                reference.remoteData.insert(QStringLiteral("nextcloud.path"), file.path);
+                                canonicalUris.insert(file.path, reference.uri());
+                                refs.append(reference);
+                            }
+                            if (!canonicalUris.isEmpty()) {
+                                loaded.setText(NextcloudMediaLinks::toCanonical(result.note.content, canonicalUris),
+                                               Note::Markdown);
+                                loaded.setMedia(refs);
+                            }
+                        }
+                    }
                     cache_.insert(result.note.id, loaded);
                     accessible_ = true;
                     guard->complete(loaded);
