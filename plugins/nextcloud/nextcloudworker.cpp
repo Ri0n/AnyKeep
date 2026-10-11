@@ -1,6 +1,8 @@
 #include "nextcloudworker.h"
 
 #include <QEventLoop>
+#include <QHttpMultiPart>
+#include <QHttpPart>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -115,34 +117,9 @@ QNetworkRequest NextcloudWorker::makeRequest(const QUrl &url) const
     return request;
 }
 
-NextcloudWorker::HttpResult NextcloudWorker::perform(Method method, const QUrl &url, const QByteArray &body,
-                                                     const QHash<QByteArray, QByteArray> &extraHeaders)
+NextcloudWorker::HttpResult NextcloudWorker::collectReply(QNetworkReply *reply)
 {
     HttpResult result;
-    auto       request = makeRequest(url);
-
-    for (auto it = extraHeaders.cbegin(); it != extraHeaders.cend(); ++it) {
-        request.setRawHeader(it.key(), it.value());
-    }
-
-    QNetworkReply *reply = nullptr;
-    switch (method) {
-    case Method::Get:
-        reply = manager()->get(request);
-        break;
-    case Method::Post:
-        request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-        reply = manager()->post(request, body);
-        break;
-    case Method::Put:
-        request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-        reply = manager()->put(request, body);
-        break;
-    case Method::Delete:
-        reply = manager()->deleteResource(request);
-        break;
-    }
-
     QEventLoop loop;
     QTimer     timeout;
     timeout.setSingleShot(true);
@@ -179,6 +156,45 @@ NextcloudWorker::HttpResult NextcloudWorker::perform(Method method, const QUrl &
 
     reply->deleteLater();
     return result;
+}
+
+NextcloudWorker::HttpResult NextcloudWorker::performMultipart(const QUrl &url, QHttpMultiPart *multipart)
+{
+    auto request = makeRequest(url);
+    QNetworkReply *reply = manager()->post(request, multipart);
+    multipart->setParent(reply);
+    return collectReply(reply);
+}
+
+NextcloudWorker::HttpResult NextcloudWorker::perform(Method method, const QUrl &url, const QByteArray &body,
+                                                     const QHash<QByteArray, QByteArray> &extraHeaders)
+{
+    HttpResult result;
+    auto       request = makeRequest(url);
+
+    for (auto it = extraHeaders.cbegin(); it != extraHeaders.cend(); ++it) {
+        request.setRawHeader(it.key(), it.value());
+    }
+
+    QNetworkReply *reply = nullptr;
+    switch (method) {
+    case Method::Get:
+        reply = manager()->get(request);
+        break;
+    case Method::Post:
+        request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+        reply = manager()->post(request, body);
+        break;
+    case Method::Put:
+        request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+        reply = manager()->put(request, body);
+        break;
+    case Method::Delete:
+        reply = manager()->deleteResource(request);
+        break;
+    }
+
+    return collectReply(reply);
 }
 
 QByteArray NextcloudWorker::headerValue(const HttpResult &reply, const QByteArray &name)
@@ -503,6 +519,88 @@ NextcloudStatusResult NextcloudWorker::deleteNote(const QString &id)
     if (!reply.ok) {
         result.error = errorText(reply);
     }
+    return result;
+}
+
+NextcloudAttachmentResult NextcloudWorker::uploadAttachment(const QString &noteId, const QString &fileName,
+                                                            const QByteArray &data)
+{
+    NextcloudAttachmentResult result;
+    // Disallow remote path traversal and multipart header injection.
+    if (noteId.isEmpty() || fileName.isEmpty() || fileName == QStringLiteral(".")
+        || fileName == QStringLiteral("..") || fileName.contains(QLatin1Char('/'))
+        || fileName.contains(QLatin1Char('\\')) || fileName.contains(QLatin1Char('"'))
+        || fileName.contains(QLatin1Char('\r')) || fileName.contains(QLatin1Char('\n'))) {
+        result.error = QStringLiteral("Invalid attachment file name or note ID");
+        return result;
+    }
+
+    auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    QHttpPart part;
+    const QByteArray disposition = QByteArrayLiteral("form-data; name=\"file\"; filename=\"")
+        + fileName.toUtf8() + QByteArrayLiteral("\"");
+    part.setHeader(QNetworkRequest::ContentDispositionHeader, disposition);
+    part.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/octet-stream"));
+    part.setBody(data);
+    multipart->append(part);
+
+    // Nextcloud Notes 5.x exposes attachments on the v1.4 route, while the
+    // ordinary notes CRUD endpoints stay on v1.
+    QUrl url = apiUrl(QStringLiteral("attachment/") + noteId);
+    QString path = url.path();
+    path.replace(QStringLiteral("/api/v1/"), QStringLiteral("/api/v1.4/"));
+    url.setPath(path);
+
+    const auto reply = performMultipart(url, multipart);
+    result.httpStatus = reply.status;
+    if (!reply.ok) {
+        result.error = errorText(reply);
+        return result;
+    }
+
+    QJsonParseError parseError;
+    const auto document = QJsonDocument::fromJson(reply.body, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        result.error = QStringLiteral("Invalid attachment upload response");
+        return result;
+    }
+    result.path = document.object().value(QStringLiteral("filename")).toString();
+    if (result.path.isEmpty() || result.path.startsWith(QLatin1Char('/'))
+        || result.path.contains(QStringLiteral("..")) || result.path.contains(QLatin1Char('\\'))) {
+        result.error = QStringLiteral("Nextcloud returned an unsafe attachment path");
+        result.path.clear();
+        return result;
+    }
+    result.ok = true;
+    return result;
+}
+
+NextcloudAttachmentResult NextcloudWorker::downloadAttachment(const QString &noteId, const QString &path)
+{
+    NextcloudAttachmentResult result;
+    if (noteId.isEmpty() || path.isEmpty() || path.startsWith(QLatin1Char('/'))
+        || path.contains(QStringLiteral("..")) || path.contains(QLatin1Char('\\'))) {
+        result.error = QStringLiteral("Invalid attachment path");
+        return result;
+    }
+
+    QUrl url = apiUrl(QStringLiteral("attachment/") + noteId);
+    QString endpoint = url.path();
+    endpoint.replace(QStringLiteral("/api/v1/"), QStringLiteral("/api/v1.4/"));
+    url.setPath(endpoint);
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("path"), path);
+    url.setQuery(query);
+    const auto reply = perform(Method::Get, url, {},
+                               { { QByteArrayLiteral("Accept"), QByteArrayLiteral("application/octet-stream") } });
+    result.httpStatus = reply.status;
+    if (!reply.ok) {
+        result.error = errorText(reply);
+        return result;
+    }
+    result.path = path;
+    result.data = reply.body;
+    result.ok = true;
     return result;
 }
 
