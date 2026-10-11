@@ -83,7 +83,7 @@ jobs:
           token_output="$(docker exec --env "NC_PASS=${NEXTCLOUD_TEST_PASSWORD}" \
             --user www-data anykeep-notes-ci php occ --no-ansi \
             user:auth-tokens:add --password-from-env "${NEXTCLOUD_TEST_USER}")"
-          token="$(printf '%s\\n' "$token_output" | sed -n 's/.*app password:[[:space:]]*//p' | tail -n1)"
+          token="$(sed -n 's/.*app password:[[:space:]]*//p' <<< "$token_output" | tail -n1)"
           test -n "$token"
           echo "::add-mask::$token"
           echo "NEXTCLOUD_TEST_PASSWORD=$token" >> "$GITHUB_ENV"
