@@ -3,6 +3,7 @@
 #include "nextcloudstorage.h"
 #include "localmediastore.h"
 #include "secureenvelope.h"
+#include <QCryptographicHash>
 
 #include <QHostAddress>
 #include <QJsonDocument>
@@ -87,6 +88,22 @@ QByteArray noteJson(const QString &id, const QString &etag, const QString &categ
                                        { QStringLiteral("readonly"), false },
                                        { QStringLiteral("modified"), modified } })
         .toJson(QJsonDocument::Compact);
+}
+
+QByteArray httpError(int status, const QByteArray &label)
+{
+    return QByteArrayLiteral("HTTP/1.1 ") + QByteArray::number(status) + ' ' + label
+        + QByteArrayLiteral("\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+}
+
+QByteArray byteRangeResponse(const QByteArray &bytes, qint64 start, qint64 count)
+{
+    const QByteArray data = bytes.mid(start, count);
+    return QByteArrayLiteral("HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\n")
+        + QByteArrayLiteral("Content-Range: bytes ") + QByteArray::number(start) + '-'
+        + QByteArray::number(start + data.size() - 1) + '/' + QByteArray::number(bytes.size())
+        + QByteArrayLiteral("\r\nContent-Length: ") + QByteArray::number(data.size())
+        + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + data;
 }
 
 FolderCatalogResult<QUuid> addFolder(FolderCatalogManager &manager, const QString &name, const QUuid &parent = {})
@@ -255,12 +272,20 @@ void NextcloudStorageTest::mediaIsUploadedAndVerifiedBeforeMarkdownCommit()
                                                 QStringLiteral("image/png"));
     QVERIFY2(imported, qPrintable(imported.error));
     const auto reference = imported.value;
-    const QString nativePath = QStringLiteral(".attachments.42/native-image.png");
+    const QString nativePath = QStringLiteral(".attachments.42/")
+        + reference.id.toString(QUuid::WithoutBraces) + QLatin1Char('-')
+        + QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256)
+                                  .toHex().left(24)) + QStringLiteral(".png");
 
     ScriptedHttpServer server({
         noteJson(QStringLiteral("42"), QStringLiteral("old-etag"), QString(), 1700000000),
-        QByteArrayLiteral("{\"filename\":\".attachments.42/native-image.png\"}"),
-        bytes,
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        QByteArrayLiteral("{}"), // MKCOL note's attachment directory
+        httpError(404, QByteArrayLiteral("Not Found")), // no previous staged content
+        QByteArrayLiteral("{}"), // MKCOL chunk staging collection
+        QByteArrayLiteral("{}"), // PUT the chunk
+        QByteArrayLiteral("{}"), // MOVE the assembled file
+        byteRangeResponse(bytes, 0, bytes.size()), // verify published plaintext
         noteJson(QStringLiteral("42"), QStringLiteral("new-etag"), QString(), 2100000000)
     });
     QVERIFY(server.listen());
@@ -288,11 +313,18 @@ void NextcloudStorageTest::mediaIsUploadedAndVerifiedBeforeMarkdownCommit()
              nativePath);
     saved->deleteLater();
 
-    QCOMPARE(server.requests().size(), 4);
+    QCOMPARE(server.requests().size(), 9);
     QVERIFY(server.requests().at(0).startsWith("GET /index.php/apps/notes/api/v1/notes/42 "));
-    QVERIFY(server.requests().at(1).startsWith("POST /index.php/apps/notes/api/v1.4/attachment/42 "));
-    QVERIFY(server.requests().at(2).startsWith("GET /index.php/apps/notes/api/v1.4/attachment/42?"));
-    const QByteArray request = server.requests().at(3);
+    QVERIFY(server.requests().at(1).startsWith("GET /index.php/apps/notes/api/v1/settings "));
+    QVERIFY(server.requests().at(2).startsWith(
+        "MKCOL /remote.php/dav/files/alice/Notes/.attachments.42 "));
+    QVERIFY(server.requests().at(3).startsWith(
+        "GET /remote.php/dav/files/alice/Notes/.attachments.42/"));
+    QVERIFY(server.requests().at(4).startsWith("MKCOL /remote.php/dav/uploads/alice/"));
+    QVERIFY(server.requests().at(5).startsWith("PUT /remote.php/dav/uploads/alice/"));
+    QVERIFY(server.requests().at(6).startsWith("MOVE /remote.php/dav/uploads/alice/"));
+    QVERIFY(server.requests().at(7).contains("Range: bytes=0-") );
+    const QByteArray request = server.requests().at(8);
     QVERIFY(request.startsWith("PUT /index.php/apps/notes/api/v1/notes/42 "));
     QVERIFY(request.contains("If-Match: \"old-etag\"\r\n"));
     const auto marker = request.indexOf("\r\n\r\n");
@@ -300,7 +332,7 @@ void NextcloudStorageTest::mediaIsUploadedAndVerifiedBeforeMarkdownCommit()
     const auto payload = QJsonDocument::fromJson(request.mid(marker + 4));
     QVERIFY(payload.isObject());
     QCOMPARE(payload.object().value(QStringLiteral("content")).toString(),
-             QStringLiteral("![image](.attachments.42/native-image.png)"));
+             QStringLiteral("![image](") + nativePath + QLatin1Char(')'));
 
     settings.remove(QStringLiteral("storage.nextcloud.url"));
     settings.remove(QStringLiteral("storage.nextcloud.username"));
