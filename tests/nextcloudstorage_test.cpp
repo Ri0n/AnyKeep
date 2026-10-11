@@ -103,8 +103,9 @@ QByteArray remoteByteRangeResponse(qint64 offset, qint64 count, qint64 total,
 {
     const QByteArray bytes(count, 'R');
     return QByteArrayLiteral("HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\n")
-        + QByteArrayLiteral("Accept-Ranges: bytes\r\nETag: ") + etag
-        + QByteArrayLiteral("\r\nContent-Range: bytes ") + QByteArray::number(offset)
+        + QByteArrayLiteral("Accept-Ranges: bytes\r\n")
+        + (etag.isEmpty() ? QByteArray() : QByteArrayLiteral("ETag: ") + etag + QByteArrayLiteral("\r\n"))
+        + QByteArrayLiteral("Content-Range: bytes ") + QByteArray::number(offset)
         + '-' + QByteArray::number(offset + count - 1) + '/'
         + QByteArray::number(total) + QByteArrayLiteral("\r\nContent-Length: ")
         + QByteArray::number(count) + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + bytes;
@@ -1035,14 +1036,15 @@ void NextcloudStorageTest::streamPublishWithoutWholePlaintextBuffer()
 
 void NextcloudStorageTest::oversizedNativeAttachmentStreamsRemoteWebDavRanges_data()
 {
-    QTest::addColumn<bool>("remoteRevisionChanged");
-    QTest::newRow("same-webdav-revision") << false;
-    QTest::newRow("webdav-revision-replaced") << true;
+    QTest::addColumn<int>("revisionScenario");
+    QTest::newRow("same-webdav-revision") << 0;
+    QTest::newRow("webdav-revision-replaced") << 1;
+    QTest::newRow("webdav-response-omits-etag") << 2;
 }
 
 void NextcloudStorageTest::oversizedNativeAttachmentStreamsRemoteWebDavRanges()
 {
-    QFETCH(bool, remoteRevisionChanged);
+    QFETCH(int, revisionScenario);
     QVERIFY(FileFolderCatalogStore::cryptoAvailable());
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -1058,8 +1060,8 @@ void NextcloudStorageTest::oversizedNativeAttachmentStreamsRemoteWebDavRanges()
         remoteByteRangeResponse(0, 1, remoteSize),
         QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
         remoteByteRangeResponse(1024, 32, remoteSize,
-                                remoteRevisionChanged ? QByteArrayLiteral("\"changed-revision\"")
-                                                      : QByteArrayLiteral("\"remote-revision\""))
+                                revisionScenario == 1 ? QByteArrayLiteral("\"changed-revision\"")
+                                    : revisionScenario == 2 ? QByteArray() : QByteArrayLiteral("\"remote-revision\""))
     });
     QVERIFY(server.listen());
     QSettings settings;
@@ -1096,7 +1098,7 @@ void NextcloudStorageTest::oversizedNativeAttachmentStreamsRemoteWebDavRanges()
     request.setRawHeader("Range", "bytes=1024-1055");
     auto *reply = client.get(request);
     QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 15000);
-    if (remoteRevisionChanged) {
+    if (revisionScenario != 0) {
         QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 503);
         QVERIFY(reply->readAll().isEmpty()); // Never forward bytes from another file revision.
     } else {
