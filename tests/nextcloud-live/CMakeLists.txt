@@ -12,6 +12,8 @@ find_package(Qt6 6.4 REQUIRED COMPONENTS Core Network Test)
 
 add_executable(nextcloud_live_test
     nextcloud_live_test.cpp
+    ../../plugins/nextcloud/nextcloudmedialinks.cpp
+    ../../plugins/nextcloud/nextcloudmedialinks.h
     ../../plugins/nextcloud/nextclouddto.h
     ../../plugins/nextcloud/nextcloudworker.cpp
     ../../plugins/nextcloud/nextcloudworker.h
