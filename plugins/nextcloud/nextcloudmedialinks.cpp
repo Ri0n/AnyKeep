@@ -27,11 +27,12 @@ QList<LinkTarget> linkTargets(const QString &markdown)
         QStringLiteral(R"(<(?:img|audio|video|source|a)\b[^>]*?\b(?:src|href)\s*=\s*(["'])(.*?)\1)"),
         QRegularExpression::CaseInsensitiveOption);
 
-    for (const auto &expression : { markdownLink, htmlLink }) {
+    for (int index = 0; index < 2; ++index) {
+        const auto &expression = index == 0 ? markdownLink : htmlLink;
         auto match = expression.globalMatch(markdown);
         while (match.hasNext()) {
             const auto item = match.next();
-            const int capture = &expression == &markdownLink ? 1 : 2;
+            const int capture = index == 0 ? 1 : 2;
             const auto target = item.captured(capture);
             if (!target.isEmpty())
                 result.append({ item.capturedStart(capture), item.capturedLength(capture), target });
