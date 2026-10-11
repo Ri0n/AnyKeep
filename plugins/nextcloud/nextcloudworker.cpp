@@ -36,6 +36,16 @@ namespace {
         return path + apiSuffix;
     }
 
+    // HTTP If-Match uses the quoted entity-tag syntax (RFC 9110). The
+    // Nextcloud Notes JSON "etag" attribute itself contains only the tag.
+    QByteArray ifMatchValue(const QString &etag)
+    {
+        const QByteArray value = etag.toUtf8();
+        if (value.startsWith('"') && value.endsWith('"'))
+            return value;
+        return QByteArrayLiteral("\"") + value + QByteArrayLiteral("\"");
+    }
+
     QString serverMessage(const QByteArray &body)
     {
         QJsonParseError parseError;
@@ -411,7 +421,7 @@ NextcloudNoteResult NextcloudWorker::updateNote(const NextcloudRemoteNote &note)
 {
     QHash<QByteArray, QByteArray> headers;
     if (!note.etag.isEmpty()) {
-        headers.insert(QByteArrayLiteral("If-Match"), note.etag.toUtf8());
+        headers.insert(QByteArrayLiteral("If-Match"), ifMatchValue(note.etag));
     }
 
     const auto reply = perform(Method::Put, apiUrl(QStringLiteral("notes/") + note.id), serializeNote(note), headers);
@@ -451,7 +461,7 @@ NextcloudNoteResult NextcloudWorker::updateNoteCategory(const QString &id, const
 {
     QHash<QByteArray, QByteArray> headers;
     if (!etag.isEmpty())
-        headers.insert(QByteArrayLiteral("If-Match"), etag.toUtf8());
+        headers.insert(QByteArrayLiteral("If-Match"), ifMatchValue(etag));
 
     const auto reply
         = perform(Method::Put, apiUrl(QStringLiteral("notes/") + id), serializeCategory(category), headers);
