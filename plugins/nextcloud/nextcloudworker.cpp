@@ -153,14 +153,28 @@ QNetworkRequest NextcloudWorker::makeRequest(const QUrl &url) const
     return request;
 }
 
-NextcloudWorker::HttpResult NextcloudWorker::collectReply(QNetworkReply *reply)
+NextcloudWorker::HttpResult NextcloudWorker::collectReply(QNetworkReply *reply, qint64 maxBodyBytes)
 {
     HttpResult result;
     QEventLoop loop;
-    QTimer     timeout;
+    QTimer timeout;
     timeout.setSingleShot(true);
 
     bool timedOut = false;
+    bool tooLarge = false;
+    reply->setReadBufferSize(maxBodyBytes + 8192);
+    const auto drain = [&]() {
+        if (tooLarge)
+            return;
+        const qint64 available = reply->bytesAvailable();
+        if (available > maxBodyBytes - result.body.size()) {
+            tooLarge = true;
+            reply->abort();
+            return;
+        }
+        result.body.append(reply->readAll());
+    };
+    QObject::connect(reply, &QNetworkReply::readyRead, &loop, drain);
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     QObject::connect(&timeout, &QTimer::timeout, reply, [&]() {
         timedOut = true;
@@ -168,26 +182,28 @@ NextcloudWorker::HttpResult NextcloudWorker::collectReply(QNetworkReply *reply)
     });
 
     timeout.start(qMax(1000, config_.timeoutMs));
-    loop.exec();
+    drain();
+    if (!reply->isFinished())
+        loop.exec();
     timeout.stop();
+    drain();
 
     result.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    result.body   = reply->readAll();
-
-    for (const auto &pair : reply->rawHeaderPairs()) {
+    for (const auto &pair : reply->rawHeaderPairs())
         result.headers.insert(pair.first, pair.second);
-    }
 
-    result.ok = !timedOut && reply->error() == QNetworkReply::NoError && result.status >= 200 && result.status < 300;
+    result.ok = !timedOut && !tooLarge && reply->error() == QNetworkReply::NoError
+        && result.status >= 200 && result.status < 300;
 
     if (timedOut) {
         result.error = QStringLiteral("Request timed out after %1 ms").arg(config_.timeoutMs);
+    } else if (tooLarge) {
+        result.error = QStringLiteral("HTTP response exceeded the permitted media/body size");
     } else if (!result.ok) {
-        result.error       = reply->errorString();
+        result.error = reply->errorString();
         const auto message = serverMessage(result.body);
-        if (!message.isEmpty()) {
+        if (!message.isEmpty())
             result.error += QStringLiteral(": ") + message;
-        }
     }
 
     reply->deleteLater();
@@ -203,7 +219,8 @@ NextcloudWorker::HttpResult NextcloudWorker::performMultipart(const QUrl &url, Q
 }
 
 NextcloudWorker::HttpResult NextcloudWorker::perform(Method method, const QUrl &url, const QByteArray &body,
-                                                     const QHash<QByteArray, QByteArray> &extraHeaders)
+                                                     const QHash<QByteArray, QByteArray> &extraHeaders,
+                                                     qint64 maxBodyBytes)
 {
     HttpResult result;
     auto       request = makeRequest(url);
@@ -230,7 +247,7 @@ NextcloudWorker::HttpResult NextcloudWorker::perform(Method method, const QUrl &
         break;
     }
 
-    return collectReply(reply);
+    return collectReply(reply, maxBodyBytes);
 }
 
 QByteArray NextcloudWorker::headerValue(const HttpResult &reply, const QByteArray &name)
@@ -681,7 +698,8 @@ NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relat
         + QByteArray::number(offset + count - 1);
     const auto reply = perform(Method::Get, url, {},
                                { { QByteArrayLiteral("Range"), range },
-                                 { QByteArrayLiteral("Accept"), QByteArrayLiteral("application/octet-stream") } });
+                                 { QByteArrayLiteral("Accept"), QByteArrayLiteral("application/octet-stream") } },
+                               count + 8192);
     result.httpStatus = reply.status;
     if (!reply.ok || reply.status != 206) {
         result.error = reply.status == 200
