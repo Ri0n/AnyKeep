@@ -23,6 +23,15 @@ Read `README.md` for the HTTP/API behavior and user-facing configuration.
 - Keep successful local writes/removals visible while eventually consistent
   list responses catch up.
 - Do not bypass Qt network TLS validation or log app passwords/note content.
+- Nextcloud is deliberately **not** an AnyKeep E2EE backend. Keep note bodies
+  and attachments readable by the native Nextcloud Notes clients: no custom
+  ciphertext, encrypted filenames, or `anykeep-media:`-only remote markup.
+  Keep local draft/media/cache at-rest encryption as-is and publish native
+  plaintext files over HTTPS.
+- Do not enable `supportsMedia()` before implementing and live-testing the
+  native attachment/WebDAV adapter, cross-client Markdown links, category
+  moves, media durability, and cleanup. Preserve capability fallback on older
+  Notes installations.
 
 ## Verification
 
