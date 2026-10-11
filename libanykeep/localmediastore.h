@@ -93,6 +93,14 @@ public:
         const QString &provider, const QString &immutableSourceId,
         qint64 plainSize, QString *error = nullptr) const;
 
+    // XMPP records already contain authenticated remote ciphertext. Store
+    // their verified wire representation in the same profile-wide partial
+    // cache namespace, without encrypting it again or depending on plugin
+    // paths. Obsolete nightly media-ranges/ entries are not imported.
+    std::shared_ptr<MediaPartialChunkCache> opaqueMediaCache(
+        const QString &provider, const QString &immutableSourceId,
+        QString *error = nullptr) const;
+
 private:
     friend class IrisProgressiveMediaLiveTest;
     QByteArray                     masterKey(QString *error) const;
