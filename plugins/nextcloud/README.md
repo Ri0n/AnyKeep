@@ -87,7 +87,10 @@ the stable local UUID and a content digest. A bounded Range read-back
 is compared chunk by chunk against the same authenticated source; no
 whole-object `QByteArray` crosses threads. The original SHA-256 is rechecked
 before upload so a changed external file does not inherit a stale
-deterministic filename. Remote bytes must match before updating Markdown
+deterministic filename. Older pre-chunking managed blobs still use the
+legacy whole-object decoder in `MediaSource`; publication rejects those
+legacy objects above 16 MiB until a chunked local migration is available.
+Modern managed chunks and lazy external files remain stream-backed. Remote bytes must match before updating Markdown
 body with `If-Match`. Repeated saves verify/reuse the existing remote
 receipt; previously staged identical uploads are also recoverable by
 their deterministic filename. Native-client edits to an attachment cause a
