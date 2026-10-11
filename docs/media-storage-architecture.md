@@ -785,6 +785,11 @@ the non-random-access profile until a compatible chunked/seekable encrypted
 representation is defined. Jingle `<range/>` support alone does not make a
 monolithic AES-GCM object safely seekable.
 
+For the proposed cross-plugin download coordinator, cancellation propagation,
+single-flight chunk coalescing, scheduling policy, and integrity boundaries, see
+[Shared remote-media range pipeline](media-range-pipeline.md). This is a
+future design, not part of PR #155.
+
 ## Failure and security rules
 
 - Validate declared size, MIME type, decoded dimensions, and integrity digest.
