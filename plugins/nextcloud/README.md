@@ -77,12 +77,17 @@ atomic final MOVE, capability/settings lookup, and bounded HTTP Range reads.
 paths. The disposable-server live test exercises these HTTP operations.
 
 An internal `NextcloudStorage::saveNoteAsync()` path accepts a media
-manifest for an **existing note with a known ETag**. It verifies local
-managed/external contents (up to 16 MiB per file), creates the native
+manifest for an **existing note with a known ETag**. It authenticates and hashes local
+managed/external content through `MediaSource`/`MediaStream` in the worker
+thread without materializing the whole plaintext (up to the 50,000-chunk
+WebDAV upload bound, 48.8 GiB), and creates the native
 `.attachments.<noteId>/` directory through WebDAV, and stages each file
 with chunked-v2 upload and atomic no-overwrite MOVE. The filename includes
-the stable local UUID and a content digest. A bounded range read-back
-must match the source bytes before the code updates the ordinary Markdown
+the stable local UUID and a content digest. A bounded Range read-back
+is compared chunk by chunk against the same authenticated source; no
+whole-object `QByteArray` crosses threads. The original SHA-256 is rechecked
+before upload so a changed external file does not inherit a stale
+deterministic filename. Remote bytes must match before updating Markdown
 body with `If-Match`. Repeated saves verify/reuse the existing remote
 receipt; previously staged identical uploads are also recoverable by
 their deterministic filename. Native-client edits to an attachment cause a
@@ -111,9 +116,8 @@ Real Nextcloud accounts require HTTPS; only loopback HTTP fixtures are
 allowed. No custom Nextcloud E2EE is applied.
 
 **Not yet a complete media feature:** creating a new note with attachments
-still needs an idempotent, crash-recoverable remote ID; streaming from a
-local encrypted source rather than whole-object materialization; progressive
-large-file playback, remote-only manifests, zero-byte media, deferred
+still needs an idempotent, crash-recoverable remote ID; progressive large-file playback and remote-only hydration beyond the
+current 16 MiB per-file/32 MiB per-note load cap; zero-byte media, deferred
 reference-aware cleanup of abandoned/stale attachments, safe legacy
 attachment migration before category moves, and multi-device end-to-end
 verification. A failed Markdown update may leave unreferenced staged files
