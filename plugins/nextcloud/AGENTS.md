@@ -34,6 +34,9 @@ Read `README.md` for the HTTP/API behavior and user-facing configuration.
   the base ETag. Update Markdown only after read-back verifies every file.
   Failed updates must leave the durable draft intact; staged uploads are
   orphans for a future cleanup pass, never grounds for deleting source data.
+- Native attachments are imported by the async load job only for
+  `.attachments.<noteId>/` paths. Keep unknown links untouched. Bounded
+  WebDAV ranges are essential: never silently materialize a large file in RAM.
 - A new note with media is still rejected: it needs a durable recoverable
   remote note ID before attachment staging. Synchronous media saves are rejected.
 - Enforce HTTPS for real Nextcloud accounts; HTTP is for loopback fixtures only.
