@@ -455,7 +455,7 @@ void NextcloudStorageTest::newNoteWithMediaGetsServerIdBeforeAttachmentUpload()
     note.setMedia({ media.value });
     auto *job = storage.saveNoteAsync(note);
     QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 20000);
-    QCOMPARE(job->state(), StorageJob::Succeeded);
+    QVERIFY2(job->state() == StorageJob::Succeeded, qPrintable(job->error().message));
     QCOMPARE(job->result().id(), QStringLiteral("42"));
     QCOMPARE(job->result().text(), canonical);
     QCOMPARE(job->result().media().first().remoteData.value(QStringLiteral("nextcloud.path")).toString(),
@@ -542,7 +542,7 @@ void NextcloudStorageTest::ambiguousCreateIsRecoveredAfterStorageRestart()
         draft.setMedia({ media.value });
         auto *job = restarted.saveNoteAsync(draft);
         QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 20000);
-        QCOMPARE(job->state(), StorageJob::Succeeded);
+        QVERIFY2(job->state() == StorageJob::Succeeded, qPrintable(job->error().message));
         QCOMPARE(job->result().id(), QStringLiteral("74"));
         QCOMPARE(job->result().text(), canonical);
         job->deleteLater();
@@ -660,7 +660,7 @@ void NextcloudStorageTest::successfulRemoteCommitSurvivesLostMarkdownAcknowledgm
 
     auto *retry = storage.saveNoteAsync(draft);
     QTRY_VERIFY_WITH_TIMEOUT(retry->isFinished(), 15000);
-    QCOMPARE(retry->state(), StorageJob::Succeeded);
+    QVERIFY2(retry->state() == StorageJob::Succeeded, qPrintable(retry->error().message));
     QCOMPARE(retry->result().id(), QStringLiteral("88"));
     QCOMPARE(retry->result().text(), canonical);
     retry->deleteLater();
@@ -726,7 +726,7 @@ void NextcloudStorageTest::recoveredCreationRejectsUnrelatedNativeEdit()
     auto *second = storage.saveNoteAsync(draft);
     QTRY_VERIFY_WITH_TIMEOUT(second->isFinished(), 10000);
     QCOMPARE(second->state(), StorageJob::Failed);
-    QCOMPARE(second->error().code, StorageError::Conflict);
+    QVERIFY2(second->error().code == StorageError::Conflict, qPrintable(second->error().message));
     QCOMPARE(second->error().retryable, false);
     second->deleteLater();
     QCOMPARE(server.requests().size(), 4);
