@@ -137,12 +137,14 @@ add_anykeep_test(fileremotecachestore_test fileremotecachestore_test.cpp)
 add_anykeep_test(nextcloudcategory_test nextcloudcategory_test.cpp ../plugins/nextcloud/nextcloudcategory.cpp)
 target_include_directories(nextcloudcategory_test PRIVATE ../plugins/nextcloud)
 
-add_anykeep_test(nextcloudworker_test nextcloudworker_test.cpp ../plugins/nextcloud/nextcloudworker.cpp)
+add_anykeep_test(nextcloudworker_test nextcloudworker_test.cpp ../plugins/nextcloud/nextcloudworker.cpp
+                 ../plugins/nextcloud/nextcloudmedialinks.cpp)
 target_include_directories(nextcloudworker_test PRIVATE ../plugins/nextcloud)
 target_link_libraries(nextcloudworker_test PRIVATE Qt6::Network)
 
 add_anykeep_test(nextcloudstorage_test nextcloudstorage_test.cpp ../plugins/nextcloud/nextcloudcategory.cpp
-                 ../plugins/nextcloud/nextcloudstorage.cpp ../plugins/nextcloud/nextcloudworker.cpp)
+                 ../plugins/nextcloud/nextcloudstorage.cpp ../plugins/nextcloud/nextcloudworker.cpp
+                 ../plugins/nextcloud/nextcloudmedialinks.cpp)
 target_include_directories(nextcloudstorage_test PRIVATE ../plugins/nextcloud)
 target_link_libraries(nextcloudstorage_test PRIVATE Qt6::Network)
 
