@@ -98,6 +98,35 @@ private slots:
         QCOMPARE(controller->statusForUri(another.uri()).value(QStringLiteral("progress")).toDouble(), 1.0);
     }
 
+    void remoteRevisionChangesInvalidateOldProgress()
+    {
+        MediaReference original;
+        original.id = QUuid::createUuid();
+        original.portableName = QStringLiteral("movie.mp4");
+        original.originalName = original.portableName;
+        original.mediaType = QStringLiteral("video/mp4");
+        original.size = 3 * 1024 * 1024;
+        original.remoteData.insert(QStringLiteral("nextcloud.remoteOnly"), true);
+        original.remoteData.insert(QStringLiteral("nextcloud.instance"), QStringLiteral("account-a"));
+        original.remoteData.insert(QStringLiteral("nextcloud.etag"), QStringLiteral("\"revision-1\""));
+
+        const auto previousKey = MediaSyncService::key(original);
+        MediaSyncService::instance()->publish(
+            original, snapshot(original.size, original.size, MediaSyncSnapshot::Complete));
+        QCOMPARE(MediaSyncService::instance()->snapshot(original).verifiedBytes, original.size);
+
+        auto changed = original;
+        changed.remoteData.insert(QStringLiteral("nextcloud.etag"), QStringLiteral("\"revision-2\""));
+        QVERIFY(MediaSyncService::key(changed) != previousKey);
+        QCOMPARE(MediaSyncService::instance()->snapshot(changed).verifiedBytes, 0);
+        QCOMPARE(MediaSyncService::instance()->snapshot(changed).state, MediaSyncSnapshot::Waiting);
+
+        changed.remoteData.insert(QStringLiteral("nextcloud.etag"), QStringLiteral("\"revision-1\""));
+        changed.remoteData.insert(QStringLiteral("nextcloud.instance"), QStringLiteral("account-b"));
+        QVERIFY(MediaSyncService::key(changed) != previousKey);
+        QCOMPARE(MediaSyncService::instance()->snapshot(changed).verifiedBytes, 0);
+    }
+
     void failureWaitingAndUnreferencedMediaRemoval()
     {
         const auto first = reference(500, QUuid::createUuid().toRfc4122());

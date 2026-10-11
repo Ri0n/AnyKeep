@@ -25,7 +25,17 @@ QString MediaSyncService::key(const MediaReference &reference)
     if (identity.isEmpty())
         identity = !reference.blobId.isEmpty() ? reference.blobId : reference.id.toRfc4122();
     identity += ':' + QByteArray::number(reference.size);
-    const QByteArray instance = reference.remoteData.value(QStringLiteral("xmpp.instance")).toString().toUtf8();
+    QByteArray instance = reference.remoteData.value(QStringLiteral("xmpp.instance")).toString().toUtf8();
+    if (reference.remoteData.value(QStringLiteral("nextcloud.remoteOnly")).toBool()) {
+        // Native Nextcloud attachments may change at the same note path and
+        // UUID. Cache progress belongs to a pinned server revision, not the
+        // reusable Markdown attachment ID. Prevent stale "100% downloaded"
+        // UI after a native client's replacement of a remote file.
+        instance += '\0';
+        instance += reference.remoteData.value(QStringLiteral("nextcloud.instance")).toString().toUtf8();
+        instance += '\0';
+        instance += reference.remoteData.value(QStringLiteral("nextcloud.etag")).toString().toUtf8();
+    }
     return QString::fromLatin1(QCryptographicHash::hash(instance + '\0' + identity,
                                                         QCryptographicHash::Sha256).toHex());
 }
