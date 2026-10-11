@@ -17,6 +17,10 @@ public:
     // server paths returned by the attachment API.
     static QString toNative(const QString &markdown, const QHash<QString, QString> &paths, QString *error = nullptr);
 
+    // Convert known native-relative links back to stable anykeep-media URIs.
+    // Unrecognized external/native links are preserved without modification.
+    static QString toCanonical(const QString &markdown, const QHash<QString, QString> &canonicalUris);
+
     // Enumerate native relative paths referenced by Markdown and HTML media
     // tags, preserving order but discarding duplicates and unsafe URLs.
     static QStringList referencedNativePaths(const QString &markdown);
