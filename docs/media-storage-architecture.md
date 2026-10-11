@@ -823,3 +823,25 @@ partial progress. Legacy single-object and HTTP-only transports currently
 have no per-record durable progress feed; locally materialized files can
 still report completion. Extending the provider-neutral observation
 contract to other storage backends requires no changes to the shared UI.
+
+### Recoverable Nextcloud Notes media creation
+
+The Nextcloud adapter assigns new server note IDs through a two-phase
+transaction. A durable `DraftRecord.id` becomes an opaque publication UUID.
+The worker records a create-attempt tombstone (scoped by hashed server and
+account) before issuing POST, and creates only a temporary Markdown note
+with a marker. If the server response is ambiguous, the next attempt
+must discover that exact marker before any file staging or final Markdown
+write; it must **not issue a second POST**. Once known, the server ID remains
+in the journal so retries after a crash or lost final PUT acknowledgment can
+validate the native Markdown and content-addressed WebDAV files without
+duplicate notes. Native-client edits to the placeholder are conflicts.
+
+The draft and its encrypted local media are not cleared until the storage
+save acknowledges publication. Journal state does not contain note plaintext
+or credentials. Ambiguous POSTs that never become discoverable remain
+fail-closed and may need manual reconciliation; remote placeholders and
+orphan staging objects cannot be garbage-collected safely yet. Do not
+enable `supportsMedia()` before this and remote-only hydration/cleanup
+are exercised end-to-end on multiple clients.
+
