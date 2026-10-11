@@ -1142,30 +1142,30 @@ NoteLoadJob *NextcloudStorage::loadNoteAsync(const QString &id, QObject *owner)
                             }
                         }
                         const QString account = mediaInstanceKey(config);
-                            for (const auto &remote : restored.remoteOnly) {
-                                const QString fileName = remote.path.section(QLatin1Char('/'), -1);
-                                const QByteArray identity
-                                    = (config.serverUrl.toString() + QLatin1Char('|') + config.userName
-                                       + QLatin1Char('|') + id + QLatin1Char('|') + remote.path).toUtf8();
-                                MediaReference reference;
-                                reference.id = QUuid::fromRfc4122(
-                                    QCryptographicHash::hash(identity, QCryptographicHash::Sha256).left(16));
-                                reference.originalName = fileName;
-                                reference.portableName = fileName;
-                                reference.mediaType = mime.mimeTypeForFile(
-                                    fileName, QMimeDatabase::MatchExtension).name();
-                                reference.size = remote.size;
-                                reference.remoteData.insert(QStringLiteral("nextcloud.instance"), account);
-                                reference.remoteData.insert(QStringLiteral("nextcloud.remoteOnly"), true);
-                                reference.remoteData.insert(QStringLiteral("nextcloud.noteId"), id);
-                                reference.remoteData.insert(QStringLiteral("nextcloud.path"), remote.path);
-                                reference.remoteData.insert(QStringLiteral("nextcloud.category"), result.note.category);
-                                reference.remoteData.insert(QStringLiteral("nextcloud.etag"), remote.etag);
-                                if (!matchesRemoteMedia(reference, config))
-                                    continue;
-                                canonicalUris.insert(remote.path, reference.uri());
-                                refs.append(std::move(reference));
-                            }
+                        for (const auto &remote : restored.remoteOnly) {
+                            const QString fileName = remote.path.section(QLatin1Char('/'), -1);
+                            const QByteArray identity
+                                = (config.serverUrl.toString() + QLatin1Char('|') + config.userName
+                                   + QLatin1Char('|') + id + QLatin1Char('|') + remote.path).toUtf8();
+                            MediaReference reference;
+                            reference.id = QUuid::fromRfc4122(
+                                QCryptographicHash::hash(identity, QCryptographicHash::Sha256).left(16));
+                            reference.originalName = fileName;
+                            reference.portableName = fileName;
+                            reference.mediaType = mime.mimeTypeForFile(
+                                fileName, QMimeDatabase::MatchExtension).name();
+                            reference.size = remote.size;
+                            reference.remoteData.insert(QStringLiteral("nextcloud.instance"), account);
+                            reference.remoteData.insert(QStringLiteral("nextcloud.remoteOnly"), true);
+                            reference.remoteData.insert(QStringLiteral("nextcloud.noteId"), id);
+                            reference.remoteData.insert(QStringLiteral("nextcloud.path"), remote.path);
+                            reference.remoteData.insert(QStringLiteral("nextcloud.category"), result.note.category);
+                            reference.remoteData.insert(QStringLiteral("nextcloud.etag"), remote.etag);
+                            if (!matchesRemoteMedia(reference, config))
+                                continue;
+                            canonicalUris.insert(remote.path, reference.uri());
+                            refs.append(std::move(reference));
+                        }
                         if (!canonicalUris.isEmpty()) {
                             loaded.setText(NextcloudMediaLinks::toCanonical(result.note.content, canonicalUris),
                                            Note::Markdown);
