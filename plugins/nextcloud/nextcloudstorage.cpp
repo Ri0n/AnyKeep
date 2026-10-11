@@ -218,7 +218,11 @@ namespace {
             result.error = QStringLiteral("Another process is creating the same Nextcloud note");
             return result;
         }
-        QSettings journal;
+        // Do not depend on QCoreApplication's organization/application names:
+        // storage unit tests and plugins can run before those are configured.
+        // Use a dedicated, explicitly named user-scoped INI journal.
+        QSettings journal(QSettings::IniFormat, QSettings::UserScope,
+                          QStringLiteral("AnyKeep"), QStringLiteral("nextcloud-creation-journal"));
         const bool attempted = journal.value(key + QStringLiteral("/attempted")).toBool();
         QString remoteId = journal.value(key + QStringLiteral("/remoteId")).toString();
 
