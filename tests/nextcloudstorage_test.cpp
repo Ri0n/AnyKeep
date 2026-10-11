@@ -4,6 +4,7 @@
 #include "localmediastore.h"
 #include "secureenvelope.h"
 #include <QCryptographicHash>
+#include <QFile>
 
 #include <QHostAddress>
 #include <QJsonDocument>
@@ -126,6 +127,8 @@ private slots:
     void legacyMediaLinksPreventUnsafeFolderMove();
     void dirtyPublishIncludesFolderCategory();
     void mediaIsUploadedAndVerifiedBeforeMarkdownCommit();
+    void streamPublishWithoutWholePlaintextBuffer_data();
+    void streamPublishWithoutWholePlaintextBuffer();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges_data();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges();
     void staleEtagPreventsAttachmentStaging_data();
@@ -383,6 +386,113 @@ void NextcloudStorageTest::mediaIsUploadedAndVerifiedBeforeMarkdownCommit()
     QCOMPARE(payload.object().value(QStringLiteral("content")).toString(),
              QStringLiteral("![image](") + nativePath + QLatin1Char(')'));
 
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+void NextcloudStorageTest::streamPublishWithoutWholePlaintextBuffer_data()
+{
+    QTest::addColumn<bool>("externalFile");
+    QTest::newRow("large-encrypted-managed-file") << false;
+    QTest::newRow("lazy-linked-external-file") << true;
+}
+
+void NextcloudStorageTest::streamPublishWithoutWholePlaintextBuffer()
+{
+    QFETCH(bool, externalFile);
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+    // The managed variant is deliberately larger than the old 16 MiB cap;
+    // production publishing must not materialize its entire plaintext.
+    const qint64 dataSize = externalFile ? 57 * 1024 : 17 * 1024 * 1024 + 31;
+    QByteArray bytes(dataSize, char('a'));
+    bytes.replace(1024 * 1024 - 4, 8, QByteArrayLiteral("CHUNKBND"));
+    bytes.replace(bytes.size() - 9, 9, QByteArrayLiteral("FINALTAIL"));
+
+    LocalMediaResult source;
+    if (externalFile) {
+        const QString original = directory.filePath(QStringLiteral("linked-image.png"));
+        QFile file(original);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(bytes), qint64(bytes.size()));
+        file.close();
+        source = mediaStore.referenceFile(original);
+    } else {
+        source = mediaStore.importData(bytes, QStringLiteral("large-video.mp4"), QStringLiteral("video/mp4"));
+    }
+    QVERIFY2(source, qPrintable(source.error));
+    QVERIFY(source.value.size > 0);
+    const QByteArray digest = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
+    const QString ext = externalFile ? QStringLiteral("png") : QStringLiteral("mp4");
+    const QString nativePath = QStringLiteral(".attachments.42/")
+        + source.value.id.toString(QUuid::WithoutBraces) + QLatin1Char('-')
+        + QString::fromLatin1(digest.toHex().left(24)) + QLatin1Char('.') + ext;
+
+    QList<QByteArray> responses {
+        noteJson(QStringLiteral("42"), QStringLiteral("old-etag"), QString(), 1700000000),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        QByteArrayLiteral("{}"), // MKCOL native per-note folder
+        httpError(404, QByteArrayLiteral("Not Found")), // missing staged object
+        QByteArrayLiteral("{}"), // MKCOL staging folder
+    };
+    const qint64 uploadChunks = (dataSize + 5 * 1024 * 1024 - 1) / (5 * 1024 * 1024);
+    for (qint64 i = 0; i < uploadChunks; ++i)
+        responses.append(QByteArrayLiteral("{}")); // streamed PUT body
+    responses.append(QByteArrayLiteral("{}")); // MOVE assembled file
+    for (qint64 offset = 0; offset < dataSize; offset += 1024 * 1024) {
+        const qint64 count = qMin<qint64>(1024 * 1024, dataSize - offset);
+        responses.append(byteRangeResponse(bytes, offset, count, QByteArrayLiteral("\"verified\"")));
+    }
+    responses.append(noteJson(QStringLiteral("42"), QStringLiteral("new-etag"), QString(), 2100000000));
+    ScriptedHttpServer server(std::move(responses));
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 5000);
+
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto note = storage.createNote();
+    note.setId(QStringLiteral("42"));
+    note.setBackendValue(QStringLiteral("etag"), QStringLiteral("old-etag"));
+    note.setText(QStringLiteral("[media](") + source.value.uri() + QLatin1Char(')'), Note::Markdown);
+    note.setMedia({ source.value });
+    auto *saved = storage.saveNoteAsync(note);
+    QTRY_VERIFY_WITH_TIMEOUT(saved->isFinished(), 60000);
+    QCOMPARE(saved->state(), StorageJob::Succeeded);
+    QCOMPARE(saved->result().media().size(), 1);
+    QCOMPARE(saved->result().media().first().remoteData.value(QStringLiteral("nextcloud.path")).toString(),
+             nativePath);
+    QCOMPARE(saved->result().text(), note.text());
+    saved->deleteLater();
+
+    const auto &requests = server.requests();
+    QCOMPARE(requests.size(), 6 + uploadChunks + (dataSize + 1024 * 1024 - 1) / (1024 * 1024));
+    int putChunks = 0;
+    int rangeGets = 0;
+    int markdownWrites = 0;
+    for (const auto &request : requests) {
+        if (request.startsWith("PUT /remote.php/dav/uploads/alice/")) {
+            ++putChunks;
+            const auto bodyPos = request.indexOf("\r\n\r\n");
+            QVERIFY(bodyPos >= 0);
+            QVERIFY(request.size() - bodyPos - 4 <= 5 * 1024 * 1024);
+        }
+        if (request.startsWith("GET /remote.php/dav/files/alice/Notes/.attachments.42/"))
+            ++rangeGets;
+        if (request.startsWith("PUT /index.php/apps/notes/api/v1/notes/42 "))
+            ++markdownWrites;
+    }
+    QCOMPARE(putChunks, int(uploadChunks));
+    QCOMPARE(rangeGets, int((dataSize + 1024 * 1024 - 1) / (1024 * 1024) + 1));
+    QCOMPARE(markdownWrites, 1);
+    QCOMPARE(requests.last().contains(nativePath.toUtf8()), true);
     settings.remove(QStringLiteral("storage.nextcloud.url"));
     settings.remove(QStringLiteral("storage.nextcloud.username"));
     settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
