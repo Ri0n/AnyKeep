@@ -162,9 +162,10 @@ namespace {
         if (expected.isEmpty())
             return QStringLiteral("Zero-length media requires an explicit WebDAV stat");
         constexpr qint64 readSize = 1024 * 1024;
+        QString baseEtag;
         for (qint64 offset = 0; offset < expected.size();) {
             const qint64 count = qMin<qint64>(readSize, expected.size() - offset);
-            const auto response = worker->readWebDavRange(davPath, offset, count);
+            const auto response = worker->readWebDavRange(davPath, offset, count, baseEtag);
             if (httpStatus)
                 *httpStatus = response.httpStatus;
             if (!response.ok) {
@@ -172,7 +173,10 @@ namespace {
                     *missing = true;
                 return response.error;
             }
-            if (response.totalSize != expected.size() || response.data.size() != count
+            if (baseEtag.isEmpty())
+                baseEtag = response.etag;
+            if ((!baseEtag.isEmpty() && !response.etag.isEmpty() && response.etag != baseEtag)
+                || response.totalSize != expected.size() || response.data.size() != count
                 || response.data != expected.mid(offset, count))
                 return QStringLiteral("The native Nextcloud attachment changed or failed read-back");
             offset += count;
@@ -766,9 +770,12 @@ NoteLoadJob *NextcloudStorage::loadNoteAsync(const QString &id, QObject *owner)
                             bool complete = true;
                             while (bytes.size() < first.totalSize) {
                                 const qint64 amount = qMin<qint64>(1024 * 1024, first.totalSize - bytes.size());
-                                const auto segment = worker_->readWebDavRange(davPath, bytes.size(), amount);
+                                const auto segment
+                                    = worker_->readWebDavRange(davPath, bytes.size(), amount, first.etag);
                                 if (!segment.ok || segment.totalSize != first.totalSize
-                                    || segment.data.size() != amount) {
+                                    || segment.data.size() != amount
+                                    || (!first.etag.isEmpty() && !segment.etag.isEmpty()
+                                        && first.etag != segment.etag)) {
                                     complete = false;
                                     break;
                                 }
