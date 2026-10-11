@@ -201,7 +201,7 @@ private slots:
                 // location here only to assert that a cache hit is not
                 // overwritten by the live range downloader.
                 if (cacheDirectory.isEmpty()) {
-                    QDirIterator files(Utils::anykeepDataDir() + QStringLiteral("/media/partial"),
+                    QDirIterator files(store->rootPath_ + QStringLiteral("/partial"),
                                        QStringList {QString::number(index)}, QDir::Files,
                                        QDirIterator::Subdirectories);
                     QVERIFY(files.hasNext());
@@ -318,7 +318,7 @@ private slots:
             player.setSource(QUrl());
 #endif
             qint64       cachedBytes = 0;
-            QDirIterator cache(Utils::anykeepDataDir() + QStringLiteral("/media/partial"), QDir::Files,
+            QDirIterator cache(store->rootPath_ + QStringLiteral("/partial"), QDir::Files,
                                QDirIterator::Subdirectories);
             while (cache.hasNext()) {
                 cache.next();
