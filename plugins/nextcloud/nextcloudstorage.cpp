@@ -145,6 +145,9 @@ namespace {
     struct MediaSaveResult {
         NextcloudNoteResult note;
         QList<MediaReference> media;
+        // Errors involving the local source must never be retried as if they
+        // were transient HTTP/network failures.
+        bool localSourceFailure { false };
     };
 
     struct NativeRestoredFile {
@@ -1067,6 +1070,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                 if (!prepareAttachments(oldId, canonicalText, mediaReferences, mediaStore_,
                                         &attachments, &preparationError)) {
                     publication.note.error = preparationError;
+                    publication.localSourceFailure = true;
                 }
             }
             if (!publication.note.error.isEmpty()) {
@@ -1118,6 +1122,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                 if (!source.open(QIODevice::ReadOnly) || source.size() != attachment.size) {
                                     publication.note.error = QStringLiteral(
                                         "Could not open the prepared local media stream or its size changed");
+                                    publication.localSourceFailure = true;
                                     break;
                                 }
                                 QByteArray actualDigest;
@@ -1126,6 +1131,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                     publication.note.error = localError.isEmpty()
                                         ? QStringLiteral("Local media changed after preflight")
                                         : localError;
+                                    publication.localSourceFailure = true;
                                     break;
                                 }
                                 const QString receiptPath = attachment.reference.remoteData
@@ -1172,6 +1178,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                         if (!source.seek(0)) {
                                             publication.note.error = QStringLiteral(
                                                 "Could not rewind authenticated media before upload");
+                                            publication.localSourceFailure = true;
                                             break;
                                         }
                                         const auto uploaded
@@ -1226,8 +1233,12 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                         return;
                     const auto &result = publication.note;
                     if (!result.ok) {
-                        StorageError error { result.conflict ? StorageError::Conflict : StorageError::Network,
-                                             result.error, !result.conflict };
+                        StorageError error {
+                            result.conflict ? StorageError::Conflict
+                                           : publication.localSourceFailure ? StorageError::Other
+                                                                            : StorageError::Network,
+                            result.error, !result.conflict && !publication.localSourceFailure
+                        };
                         if (result.remoteOnConflict) {
                             reconcileRemoteFolders({ *result.remoteOnConflict });
                             cache_.insert(result.remoteOnConflict->id, fromRemote(*result.remoteOnConflict));
