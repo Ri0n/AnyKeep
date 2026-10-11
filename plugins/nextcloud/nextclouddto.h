@@ -48,6 +48,9 @@ struct NextcloudWebDavUploadResult : NextcloudStatusResult {
 struct NextcloudWebDavRangeResult : NextcloudStatusResult {
     QByteArray data;
     qint64 totalSize { -1 };
+    // Opaque WebDAV ETag, including quotes. A multi-range reader can use
+    // If-Match to ensure a seek never joins different file revisions.
+    QString etag;
 };
 
 struct NextcloudAttachmentResult : NextcloudStatusResult {
