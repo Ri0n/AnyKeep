@@ -7,6 +7,7 @@
 #include "notedata.h"
 #include "settingscontroller.h"
 
+#include <QHostAddress>
 #include <QMetaObject>
 #include <QPointer>
 #include <QSet>
@@ -28,7 +29,7 @@ public:
         Field        server;
         server.key         = QStringLiteral("serverUrl");
         server.label       = tr("Server URL");
-        server.description = tr("The base HTTP or HTTPS URL of the Nextcloud server.");
+        server.description = tr("Use HTTPS for Nextcloud. Plain HTTP is permitted only for loopback tests.");
         server.value       = config.serverUrl.toString();
         server.placeholder = QStringLiteral("https://cloud.example.org");
         fields.append(server);
@@ -144,6 +145,16 @@ bool NextcloudStorage::configIsValid(const NextcloudConfig &config, QString *err
         if (error) {
             *error = tr("Enter a valid HTTP or HTTPS Nextcloud server URL.");
         }
+        return false;
+    }
+
+    const QString host = config.serverUrl.host();
+    const QHostAddress address(host);
+    const bool loopback = host.compare(QStringLiteral("localhost"), Qt::CaseInsensitive) == 0
+        || (!address.isNull() && address.isLoopback());
+    if (config.serverUrl.scheme() == QStringLiteral("http") && !loopback) {
+        if (error)
+            *error = tr("Nextcloud requires HTTPS except for loopback test servers.");
         return false;
     }
 
