@@ -41,6 +41,10 @@ struct NextcloudSettingsResult : NextcloudStatusResult {
     QString notesPath;
 };
 
+struct NextcloudWebDavUploadResult : NextcloudStatusResult {
+    QString path;
+};
+
 struct NextcloudWebDavRangeResult : NextcloudStatusResult {
     QByteArray data;
     qint64 totalSize { -1 };
