@@ -78,7 +78,11 @@ jobs:
         run: |
           set -euo pipefail
           docker exec --user www-data anykeep-notes-ci php occ app:install notes
-          curl --fail-with-body --silent --show-error \
+          # Apache may briefly reset connections while app:install activates
+          # Notes; wait for the HTTP endpoint rather than racing activation.
+          curl --retry 20 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 5 --max-time 20 \
+            --fail-with-body --silent --show-error \
             --user "${NEXTCLOUD_TEST_USER}:${NEXTCLOUD_TEST_PASSWORD}" \
             --header 'Accept: application/json' \
             "${NEXTCLOUD_TEST_URL}/index.php/apps/notes/api/v1/notes" \
