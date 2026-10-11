@@ -96,13 +96,15 @@ QByteArray httpError(int status, const QByteArray &label)
         + QByteArrayLiteral("\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
 }
 
-QByteArray byteRangeResponse(const QByteArray &bytes, qint64 start, qint64 count)
+QByteArray byteRangeResponse(const QByteArray &bytes, qint64 start, qint64 count,
+                             const QByteArray &etag = {})
 {
     const QByteArray data = bytes.mid(start, count);
     return QByteArrayLiteral("HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\n")
         + QByteArrayLiteral("Content-Range: bytes ") + QByteArray::number(start) + '-'
         + QByteArray::number(start + data.size() - 1) + '/' + QByteArray::number(bytes.size())
         + QByteArrayLiteral("\r\nContent-Length: ") + QByteArray::number(data.size())
+        + (etag.isEmpty() ? QByteArray() : QByteArrayLiteral("\r\nETag: ") + etag)
         + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + data;
 }
 
@@ -389,13 +391,16 @@ void NextcloudStorageTest::mediaIsUploadedAndVerifiedBeforeMarkdownCommit()
 void NextcloudStorageTest::nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges_data()
 {
     QTest::addColumn<QString>("nativePath");
-    QTest::newRow("web-native-directory") << QStringLiteral(".attachments.42/image.png");
-    QTest::newRow("notes-api-legacy-sibling") << QStringLiteral("legacy-upload.png");
+    QTest::addColumn<bool>("racingEdit");
+    QTest::newRow("web-native-directory") << QStringLiteral(".attachments.42/image.png") << false;
+    QTest::newRow("notes-api-legacy-sibling") << QStringLiteral("legacy-upload.png") << false;
+    QTest::newRow("concurrent-native-file-change") << QStringLiteral(".attachments.42/image.png") << true;
 }
 
 void NextcloudStorageTest::nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges()
 {
     QFETCH(QString, nativePath);
+    QFETCH(bool, racingEdit);
     QVERIFY(FileFolderCatalogStore::cryptoAvailable());
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -421,8 +426,9 @@ void NextcloudStorageTest::nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges(
     ScriptedHttpServer server({
         remoteNote,
         QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
-        rangeResponse(0, 1),
-        rangeResponse(1, bytes.size() - 1)
+        byteRangeResponse(bytes, 0, 1, QByteArrayLiteral("\"rev-one\"")),
+        byteRangeResponse(bytes, 1, bytes.size() - 1,
+                          racingEdit ? QByteArrayLiteral("\"rev-two\"") : QByteArrayLiteral("\"rev-one\""))
     });
     QVERIFY(server.listen());
 
@@ -437,15 +443,21 @@ void NextcloudStorageTest::nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges(
     QTRY_VERIFY(loaded->isFinished());
     QCOMPARE(loaded->state(), StorageJob::Succeeded);
     const auto note = loaded->result();
-    QCOMPARE(note.media().size(), 1);
-    QVERIFY(note.text().startsWith(QStringLiteral("![image](anykeep-media:/")));
-    QCOMPARE(note.media().first().remoteData.value(QStringLiteral("nextcloud.path")).toString(),
-             remotePath);
-    QCOMPARE(mediaStore.data(note.media().first()).value, bytes);
+    if (racingEdit) {
+        QCOMPARE(note.media().size(), 0);
+        QCOMPARE(note.text(), nativeMarkdown);
+    } else {
+        QCOMPARE(note.media().size(), 1);
+        QVERIFY(note.text().startsWith(QStringLiteral("![image](anykeep-media:/")));
+        QCOMPARE(note.media().first().remoteData.value(QStringLiteral("nextcloud.path")).toString(),
+                 remotePath);
+        QCOMPARE(mediaStore.data(note.media().first()).value, bytes);
+    }
     loaded->deleteLater();
 
     QCOMPARE(server.requests().size(), 4);
     QVERIFY(server.requests().at(2).contains("Range: bytes=0-0\r\n"));
+    QVERIFY(server.requests().at(3).contains("If-Match: \"rev-one\"\r\n"));
     QVERIFY(server.requests().at(3).contains(
         QByteArrayLiteral("Range: bytes=1-") + QByteArray::number(bytes.size() - 1) + "\r\n"));
     settings.remove(QStringLiteral("storage.nextcloud.url"));
