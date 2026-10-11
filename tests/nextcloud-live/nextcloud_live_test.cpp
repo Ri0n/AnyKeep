@@ -232,6 +232,10 @@ void NextcloudLiveTest::mediaLinkCodec()
     QVERIFY(native.contains(QStringLiteral("src=\".attachments.42/picture%20name.png\"")));
     QVERIFY(native.contains(QStringLiteral("![literal](") + uri + QLatin1Char(')')));
 
+    const auto restored = NextcloudMediaLinks::toCanonical(
+        native, { { QStringLiteral(".attachments.42/picture name.png"), uri } });
+    QCOMPARE(restored, body);
+
     const auto paths = NextcloudMediaLinks::referencedNativePaths(native);
     QCOMPARE(paths, QStringList({ QStringLiteral(".attachments.42/picture name.png") }));
     QVERIFY(!NextcloudMediaLinks::isSafeNativePath(QStringLiteral("../private")));
