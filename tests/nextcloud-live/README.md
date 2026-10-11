@@ -20,6 +20,13 @@ test and executes it against `http://127.0.0.1:8080`.
 - Reusing a stale ETag must return HTTP 412 with the current remote note;
   the server's winning content must remain unchanged.
 - Delete, then verify the note is absent.
+- Native Notes v1.4 attachment multipart upload and binary roundtrip.
+- Preserve a standard Markdown image link containing the server's attachment
+  path (rather than an `anykeep-media:`-only remote target).
+- Nextcloud Notes settings and byte-range reads via authenticated WebDAV.
+- WebDAV chunked upload v2 (>5 MiB) and random reads across the chunk boundary.
+- Pure Markdown URL translation, fenced code preservation, path traversal
+  rejection, and missing-path failure.
 
 Notes use unique IDs and best-effort scoped cleanup, so a failed assertion
 does not contaminate subsequent local runs. The CI container is destroyed on
