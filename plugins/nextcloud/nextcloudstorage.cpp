@@ -1,12 +1,14 @@
 #include "nextcloudstorage.h"
 
 #include "foldercatalogmanager.h"
+#include "localmediastore.h"
 #include "nextcloudcategory.h"
 #include "nextcloudmedialinks.h"
 #include "nextcloudworker.h"
 #include "notedata.h"
 #include "settingscontroller.h"
 
+#include <QCryptographicHash>
 #include <QHostAddress>
 #include <QMetaObject>
 #include <QPointer>
@@ -95,6 +97,71 @@ namespace {
             result.error = QStringLiteral("Failed to invoke the Nextcloud network worker");
         }
         return result;
+    }
+
+
+    // The provider currently publishes bounded, native Notes attachments only.
+    // Large objects need a streaming LocalMediaStore source and chunked WebDAV.
+    constexpr qint64 MaxNativeAttachmentBytes = 16 * 1024 * 1024;
+
+    struct PreparedAttachment {
+        MediaReference reference;
+        QByteArray bytes;
+    };
+
+    struct MediaSaveResult {
+        NextcloudNoteResult note;
+        QList<MediaReference> media;
+    };
+
+    bool prepareAttachments(const Note &note, QList<PreparedAttachment> *prepared, QString *error)
+    {
+        if (note.media().isEmpty())
+            return true;
+        if (note.id().isEmpty()) {
+            *error = QStringLiteral("Creating notes with media requires a recoverable remote note identity");
+            return false;
+        }
+
+        auto *store = LocalMediaStore::instance();
+        if (!store->initialize(error))
+            return false;
+
+        QHash<QString, QString> probePaths;
+        for (const auto &reference : note.media()) {
+            if (!reference.isValid() || reference.size < 0 || reference.size > MaxNativeAttachmentBytes) {
+                *error = QStringLiteral("Invalid or oversized media reference; streaming upload is not available yet");
+                return false;
+            }
+            // Every persisted manifest entry must be reachable from the body;
+            // otherwise another native client could never reconstruct it.
+            if (!note.text().contains(reference.uri())) {
+                *error = QStringLiteral("Media manifest contains an attachment not referenced by Markdown");
+                return false;
+            }
+            const auto data = store->data(reference);
+            if (!data) {
+                *error = QStringLiteral("Could not read local media: ") + data.error;
+                return false;
+            }
+            if (data.value.size() > MaxNativeAttachmentBytes
+                || (reference.size != 0 && data.value.size() != reference.size)
+                || (reference.checksum.size() == 32
+                    && QCryptographicHash::hash(data.value, QCryptographicHash::Sha256) != reference.checksum)) {
+                *error = QStringLiteral("Local media size or SHA-256 checksum changed");
+                return false;
+            }
+            probePaths.insert(reference.uri(), QStringLiteral("pending/") + reference.portableName);
+            prepared->append({ reference, data.value });
+        }
+
+        QString linkError;
+        (void)NextcloudMediaLinks::toNative(note.text(), probePaths, &linkError);
+        if (!linkError.isEmpty()) {
+            *error = linkError;
+            return false;
+        }
+        return true;
     }
 
 } // namespace
@@ -333,17 +400,18 @@ bool NextcloudStorage::categoryForNote(const Note &note, QString *category, QStr
     return true;
 }
 
-bool NextcloudStorage::toRemote(const Note &note, NextcloudRemoteNote *remote, QString *error) const
+bool NextcloudStorage::toRemote(const Note &note, NextcloudRemoteNote *remote, QString *error, bool mediaPrepared) const
 {
     if (!remote)
         return false;
-    if (!note.media().isEmpty()) {
+    if (!mediaPrepared && !note.media().isEmpty()) {
         if (error)
             *error = tr("Nextcloud media publication is not available yet.");
         return false;
     }
     QString linkError;
-    (void)NextcloudMediaLinks::toNative(note.text(), {}, &linkError);
+    if (!mediaPrepared)
+        (void)NextcloudMediaLinks::toNative(note.text(), {}, &linkError);
     if (!linkError.isEmpty()) {
         if (error)
             *error = tr("Nextcloud media links require a completed native upload.");
