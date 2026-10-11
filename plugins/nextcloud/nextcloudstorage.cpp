@@ -11,6 +11,9 @@
 #include "settingscontroller.h"
 
 #include <QCryptographicHash>
+#include <QDir>
+#include <QLockFile>
+#include <QStandardPaths>
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QHostAddress>
@@ -199,6 +202,22 @@ namespace {
     {
         NextcloudNoteResult result;
         const QString key = creationJournalKey(config, token);
+        // Both multiple workers and a second AnyKeep process may try to
+        // publish the same durable draft. Serialize the journal claim and
+        // ambiguous POST across processes before reading attempted=false.
+        const QByteArray lockHash = QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Sha256).toHex();
+        const QString lockDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+            + QStringLiteral("/nextcloud-create-locks");
+        if (!QDir().mkpath(lockDir)) {
+            result.error = QStringLiteral("Cannot create the Nextcloud publication lock directory");
+            return result;
+        }
+        QLockFile claimLock(lockDir + QLatin1Char('/') + QString::fromLatin1(lockHash)
+                            + QStringLiteral(".lock"));
+        if (!claimLock.tryLock(5000)) {
+            result.error = QStringLiteral("Another process is creating the same Nextcloud note");
+            return result;
+        }
         QSettings journal;
         const bool attempted = journal.value(key + QStringLiteral("/attempted")).toBool();
         QString remoteId = journal.value(key + QStringLiteral("/remoteId")).toString();
