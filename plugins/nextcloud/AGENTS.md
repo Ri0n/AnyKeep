@@ -89,6 +89,14 @@ Read `README.md` for the HTTP/API behavior and user-facing configuration.
   fetched again with the original strong WebDAV ETag. Progress includes
   only durably committed authenticated bytes, never transient network
   reads. Keychain access belongs on the application thread.
+- Range resolver URLs may outlive storage shutdown. Reject new reads and finish
+  every pending completion exactly once before stopping the worker; never leave
+  the local HTTP bridge waiting for a stopped event loop. `collectReply()`
+  runs a nested event loop, so queued worker invocations can re-enter during
+  network reads. Serialize Nextcloud media hydrations on the storage thread,
+  preserving one verified WebDAV fetch per missing chunk even when decoders
+  request overlapping ranges concurrently. Recheck the active account at
+  completion before returning any bytes.
 - Synchronous media saves are still rejected; media capability stays disabled.
   Missing zero-byte/large remote hydration, multi-device checks and safe
   cleanup are separate lifecycle work.
