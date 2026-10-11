@@ -1002,12 +1002,21 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
         return job;
     }
 
-    const bool hasMedia = !note.media().isEmpty();
-    QList<PreparedAttachment> attachments;
-    QString preparationError;
-    if (hasMedia && !prepareAttachments(note, mediaStore_, &attachments, &preparationError)) {
-        job->fail({ StorageError::Other, preparationError, false });
+    const auto mediaReferences = note.media();
+    const bool hasMedia = !mediaReferences.isEmpty();
+    if (hasMedia && note.id().isEmpty()) {
+        job->fail({ StorageError::Other,
+                    tr("Creating notes with media requires a recoverable remote note identity"), false });
         return job;
+    }
+    // Resolve the keychain-backed local key on the application thread.
+    // Opening, hashing and transferring large media runs on the worker.
+    if (hasMedia) {
+        QString keyError;
+        if (!mediaStore_->initialize(&keyError)) {
+            job->fail({ StorageError::Other, keyError, false });
+            return job;
+        }
     }
 
     NextcloudRemoteNote local;
@@ -1034,10 +1043,21 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
     QPointer<NoteSaveJob> guard(job);
     QMetaObject::invokeMethod(
         worker_,
-        [this, guard, config, local, oldId, attachments, hasMedia, canonicalText]() {
+        [this, guard, config, local, oldId, mediaReferences, hasMedia, canonicalText]() {
             worker_->setConfig(config);
             MediaSaveResult publication;
-            if (!hasMedia) {
+            QList<PreparedAttachment> attachments;
+            if (hasMedia) {
+                QString preparationError;
+                if (!prepareAttachments(oldId, canonicalText, mediaReferences, mediaStore_,
+                                        &attachments, &preparationError)) {
+                    publication.note.error = preparationError;
+                }
+            }
+            if (!publication.note.error.isEmpty()) {
+                // Missing or corrupted local plaintext is a hard failure;
+                // no remote HTTP requests may happen before preflight.
+            } else if (!hasMedia) {
                 publication.note = oldId.isEmpty() ? worker_->createNote(local) : worker_->updateNote(local);
             } else {
                 // Check before staging data. Recheck the ETag again atomically
@@ -1079,6 +1099,20 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                         }
                         if (publication.note.error.isEmpty()) {
                             for (const auto &attachment : attachments) {
+                                MediaStream source(createLocalMediaSource(attachment.reference, mediaStore_));
+                                if (!source.open(QIODevice::ReadOnly) || source.size() != attachment.size) {
+                                    publication.note.error = QStringLiteral(
+                                        "Could not open the prepared local media stream or its size changed");
+                                    break;
+                                }
+                                QByteArray actualDigest;
+                                const QString localError = hashStream(source, attachment.size, &actualDigest);
+                                if (!localError.isEmpty() || actualDigest != attachment.sha256) {
+                                    publication.note.error = localError.isEmpty()
+                                        ? QStringLiteral("Local media changed after preflight")
+                                        : localError;
+                                    break;
+                                }
                                 const QString receiptPath = attachment.reference.remoteData
                                     .value(QStringLiteral("nextcloud.path")).toString();
                                 const QString receiptNote = attachment.reference.remoteData
@@ -1093,7 +1127,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                         settings.notesPath, local.category, oldId)
                                         + QLatin1Char('/') + receiptPath.mid(ownedPrefix.size());
                                     bool missing = false;
-                                    QString error = verifyNativeBytes(worker_, previousDav, attachment.bytes,
+                                    QString error = verifyNativeBytes(worker_, previousDav, source, attachment.size,
                                                                       &missing, &publication.note.httpStatus);
                                     if (error.isEmpty()) {
                                         nativePath = receiptPath;
@@ -1109,7 +1143,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                     const QString davPath = davFolder + QLatin1Char('/')
                                         + nativePath.mid(ownedPrefix.size());
                                     bool missing = false;
-                                    const QString before = verifyNativeBytes(worker_, davPath, attachment.bytes,
+                                    const QString before = verifyNativeBytes(worker_, davPath, source, attachment.size,
                                                                              &missing, &publication.note.httpStatus);
                                     if (before.isEmpty()) {
                                         verified = true; // recover a previously staged upload
@@ -1120,14 +1154,13 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                     }
 
                                     if (!verified) {
-                                        QBuffer source;
-                                        source.setData(attachment.bytes);
-                                        if (!source.open(QIODevice::ReadOnly)) {
-                                            publication.note.error = source.errorString();
+                                        if (!source.seek(0)) {
+                                            publication.note.error = QStringLiteral(
+                                                "Could not rewind authenticated media before upload");
                                             break;
                                         }
                                         const auto uploaded
-                                            = worker_->uploadWebDavChunks(davPath, &source, attachment.bytes.size());
+                                            = worker_->uploadWebDavChunks(davPath, &source, attachment.size);
                                         if (!uploaded.ok) {
                                             // A racing identical upload might win the
                                             // atomic no-overwrite MOVE.
@@ -1140,7 +1173,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                                 break;
                                             }
                                         }
-                                        const QString check = verifyNativeBytes(worker_, davPath, attachment.bytes,
+                                        const QString check = verifyNativeBytes(worker_, davPath, source, attachment.size,
                                                                                  nullptr, &publication.note.httpStatus);
                                         if (!check.isEmpty()) {
                                             publication.note.error = check;
