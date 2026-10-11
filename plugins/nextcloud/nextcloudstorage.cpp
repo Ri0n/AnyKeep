@@ -1020,6 +1020,16 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                     publication.note.httpStatus = 412;
                     publication.note.remoteOnConflict = current.note;
                     publication.note.error = QStringLiteral("The Nextcloud note changed before media publication");
+                } else if (current.note.category != local.category) {
+                    // Staging inside the destination category before Notes has
+                    // moved the source note risks splitting its attachments
+                    // between the old and new directories. Require the caller
+                    // to finish a separate safe category-move operation first.
+                    publication.note.conflict = true;
+                    publication.note.httpStatus = 412;
+                    publication.note.remoteOnConflict = current.note;
+                    publication.note.error = QStringLiteral(
+                        "Move the Nextcloud note to its destination category before publishing media");
                 } else {
                     QHash<QString, QString> nativePaths;
                     const auto settings = worker_->getSettings();
