@@ -1301,7 +1301,9 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                     // client might append text while publication is in flight.
                     if (newMediaNote && !alreadyCommitted
                         && (!current.note.contentPresent
-                            || current.note.content != creationPlaceholder(creationToken))) {
+                            || current.note.content != creationPlaceholder(creationToken)
+                            || current.note.favorite != publishingLocal.favorite
+                            || current.note.readOnly)) {
                         publication.note.conflict = true;
                         publication.note.httpStatus = 412;
                         publication.note.remoteOnConflict = current.note;
