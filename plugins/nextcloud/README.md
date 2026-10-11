@@ -56,10 +56,12 @@ the only attachment representation.
 - Keep stable `MediaReference` identities in canonical drafts and local
   manifests, but publish native relative Markdown links and native Nextcloud
   file objects so other Notes clients can read them.
-- Use Notes attachment API where appropriate for supported server versions;
-  use WebDAV and chunked upload for large files, and WebDAV ranged reads
-  where supported. Detect API/server capabilities rather than assume a new
-  Notes attachment layout works on older installations.
+- Preserve the web client's per-note attachment layout (`.attachments.<noteId>/`)
+  through WebDAV for servers running Notes 5.0.2 and older. WebDAV chunked v2
+  uploads and HTTP Range reads are transport primitives; the v1.4 attachment
+  API remains available for compatibility and migration only.
+- Detect API/server capabilities rather than assume a new Notes attachment
+  layout works on older installations.
 - Download/import native attachments into AnyKeep media references without
   changing the source note unexpectedly. Preserve content when moving
   between categories and avoid orphaned files during deletion or failed saves.
@@ -74,39 +76,59 @@ atomic final MOVE, capability/settings lookup, and bounded HTTP Range reads.
 `NextcloudMediaLinks` translates canonical URI targets to safe native Markdown
 paths. The disposable-server live test exercises these HTTP operations.
 
-An initial `NextcloudStorage::saveNoteAsync()` path now accepts a media manifest
-for an **existing note with an ETag**. It preflights local managed/external
-content (16 MiB/file cap), uploads each file through native Notes, downloads
-the published bytes to check integrity, then updates the Markdown using
-`If-Match`. The returned local note retains canonical URIs and attachment
-receipts (`nextcloud.noteId`, `nextcloud.path`). A missing blob, stale ETag,
-unsafe path or failed readback prevents the Markdown update. HTTP is accepted
-only on loopback addresses; other servers require HTTPS.
+An internal `NextcloudStorage::saveNoteAsync()` path accepts a media
+manifest for an **existing note with a known ETag**. It verifies local
+managed/external contents (up to 16 MiB per file), creates the native
+`.attachments.<noteId>/` directory through WebDAV, and stages each file
+with chunked-v2 upload and atomic no-overwrite MOVE. The filename includes
+the stable local UUID and a content digest. A bounded range read-back
+must match the source bytes before the code updates the ordinary Markdown
+body with `If-Match`. Repeated saves verify/reuse the existing remote
+receipt; previously staged identical uploads are also recoverable by
+their deterministic filename. Native-client edits to an attachment cause a
+conflict rather than a silent replacement. Locally the saved note retains
+canonical URIs and `nextcloud.noteId`/`nextcloud.path` receipts.
 
-A first recovery path in `loadNoteAsync()` recognizes native `.attachments.<noteId>/`
-links, fetches small nonempty files using bounded WebDAV ranges, imports them
-into encrypted `LocalMediaStore`, and restores canonical local Markdown URIs.
-It currently caps each attachment at 16 MiB, a note at 12 attachments and
-32 MiB total; unavailable ranges remain untouched native links instead of
-being deleted or rewritten.
+**Confirmed Notes 5.0.2 interoperability trap:** uploads through its native
+v1.4 attachment API are placed alongside the Markdown note, and the
+server does **not** move those sibling files when the note changes category.
+A real-server test reproduced HTTP 404 for the attachment after a move.
+The web client's `.attachments.<noteId>/` directory follows the note and
+is used by this adapter for safe publication. The upstream Notes fix
+([PR #1998](https://github.com/nextcloud/notes/pull/1998)) was merged in
+August 2026, after Notes 5.0.2. Metadata-only category moves reject legacy
+relative links instead of silently breaking them. A successful move also
+preserves the local canonical manifest when the response includes the body.
 
-This is **not** complete media support: new-note publication, progressive
-streaming for large files, remote-only manifests, idempotent retries,
-recovery of staged orphans, category moves, deletion cleanup and cross-client
-end-to-end tests remain. The synchronous save entrypoint still refuses media.
-`supportsMedia()` remains false; users must not mistake the internal transport
-path for a production media feature.
-The Notes multipart endpoint buffers uploads on the server and is not a
-substitute for WebDAV large-file transfers.
+A bounded `loadNoteAsync()` path recognizes both web-native per-note URLs
+and older Notes API sibling URLs, downloads small nonempty files in WebDAV
+byte ranges, imports them into encrypted `LocalMediaStore`, and restores
+canonical local Markdown URIs. Each file is limited to 16 MiB; at most
+12 attachments and 32 MiB of plaintext are restored per note. Unavailable
+or oversized remote links are preserved verbatim, never truncated or
+deleted. Remote HTTP replies are capped even if the server ignores Range.
+Real Nextcloud accounts require HTTPS; only loopback HTTP fixtures are
+allowed. No custom Nextcloud E2EE is applied.
+
+**Not yet a complete media feature:** creating a new note with attachments
+still needs an idempotent, crash-recoverable remote ID; streaming from a
+local encrypted source rather than whole-object materialization; progressive
+large-file playback, remote-only manifests, zero-byte media, deferred
+reference-aware cleanup of abandoned/stale attachments, safe legacy
+attachment migration before category moves, and multi-device end-to-end
+verification. A failed Markdown update may leave unreferenced staged files
+but keeps the durable local draft untouched. The synchronous save method
+still rejects media and `supportsMedia()` stays false.
 
 ## Credential storage
 
 This minimal integration stores the app password in `QSettings`, matching the plugin's other settings.
 For a distributable production build, replace that field with a platform keychain integration such as QtKeychain.
 
-## Validation performed
+## Validation
 
-The source layout and overrides were checked against the current public AnyKeep
-`master` interfaces. This archive was not fully compiled in the generation
-environment because Qt development packages and the complete AnyKeep build tree
-were not available there.
+The branch has GitHub Actions runs for cross-platform compilation/QtTest and
+a disposable real Nextcloud 32 / Notes 5.0.2 server. Check the **current
+branch HEAD**, not just a previously successful transport-only run. Before
+enabling media, add end-to-end tests covering native-client edits, multiple
+devices, retries, category moves, cleanup and progressive playback.
