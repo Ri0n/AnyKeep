@@ -1,6 +1,7 @@
 #include "filefoldercatalogstore.h"
 #include "foldercatalogmanager.h"
 #include "nextcloudstorage.h"
+#include "localmediastore.h"
 #include "secureenvelope.h"
 
 #include <QHostAddress>
@@ -101,6 +102,7 @@ class NextcloudStorageTest : public QObject {
 private slots:
     void metadataOnlyFolderMoveUsesCategoryPath();
     void dirtyPublishIncludesFolderCategory();
+    void mediaIsUploadedAndVerifiedBeforeMarkdownCommit();
 };
 
 void NextcloudStorageTest::metadataOnlyFolderMoveUsesCategoryPath()
@@ -226,6 +228,72 @@ void NextcloudStorageTest::dirtyPublishIncludesFolderCategory()
     QCOMPARE(body.object().value(QStringLiteral("category")).toString(), QStringLiteral("Projects/2026"));
     QCOMPARE(body.object().value(QStringLiteral("content")).toString(), QStringLiteral("Draft body"));
     QVERIFY(body.object().value(QStringLiteral("favorite")).toBool());
+
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+void NextcloudStorageTest::mediaIsUploadedAndVerifiedBeforeMarkdownCommit()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+
+    const QByteArray bytes = QByteArrayLiteral("image-content-verified");
+    const auto imported = mediaStore.importData(bytes, QStringLiteral("image.png"),
+                                                QStringLiteral("image/png"));
+    QVERIFY2(imported, qPrintable(imported.error));
+    const auto reference = imported.value;
+    const QString nativePath = QStringLiteral(".attachments.42/native-image.png");
+
+    ScriptedHttpServer server({
+        noteJson(QStringLiteral("42"), QStringLiteral("old-etag"), QString(), 1700000000),
+        QByteArrayLiteral("{\"filename\":\".attachments.42/native-image.png\"}"),
+        bytes,
+        noteJson(QStringLiteral("42"), QStringLiteral("new-etag"), QString(), 2100000000)
+    });
+    QVERIFY(server.listen());
+
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 1000);
+
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto note = storage.createNote();
+    note.setId(QStringLiteral("42"));
+    note.setBackendValue(QStringLiteral("etag"), QStringLiteral("old-etag"));
+    const QString canonical = QStringLiteral("![image](") + reference.uri() + QLatin1Char(')');
+    note.setText(canonical, Note::Markdown);
+    note.setMedia({ reference });
+
+    auto *saved = storage.saveNoteAsync(note);
+    QTRY_VERIFY(saved->isFinished());
+    QCOMPARE(saved->state(), StorageJob::Succeeded);
+    QCOMPARE(saved->result().text(), canonical);
+    QCOMPARE(saved->result().media().size(), 1);
+    QCOMPARE(saved->result().media().first().remoteData.value(QStringLiteral("nextcloud.path")).toString(),
+             nativePath);
+    saved->deleteLater();
+
+    QCOMPARE(server.requests().size(), 4);
+    QVERIFY(server.requests().at(0).startsWith("GET /index.php/apps/notes/api/v1/notes/42 "));
+    QVERIFY(server.requests().at(1).startsWith("POST /index.php/apps/notes/api/v1.4/attachment/42 "));
+    QVERIFY(server.requests().at(2).startsWith("GET /index.php/apps/notes/api/v1.4/attachment/42?"));
+    const QByteArray request = server.requests().at(3);
+    QVERIFY(request.startsWith("PUT /index.php/apps/notes/api/v1/notes/42 "));
+    QVERIFY(request.contains("If-Match: \"old-etag\"\r\n"));
+    const auto marker = request.indexOf("\r\n\r\n");
+    QVERIFY(marker > 0);
+    const auto payload = QJsonDocument::fromJson(request.mid(marker + 4));
+    QVERIFY(payload.isObject());
+    QCOMPARE(payload.object().value(QStringLiteral("content")).toString(),
+             QStringLiteral("![image](.attachments.42/native-image.png)"));
 
     settings.remove(QStringLiteral("storage.nextcloud.url"));
     settings.remove(QStringLiteral("storage.nextcloud.username"));
