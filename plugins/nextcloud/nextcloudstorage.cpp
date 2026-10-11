@@ -160,6 +160,128 @@ namespace {
         QList<NativeRestoredFile> files;
     };
 
+    // A Nextcloud Notes POST assigns the note ID on the server. A timed-out
+    // POST is ambiguous: repeating it blindly creates a duplicate note.
+    // Store the attempt *before* POST, keyed by the durable encrypted draft
+    // identity (or by createNote()'s session identity for direct callers).
+    // The journal contains only a token and remote ID, never note plaintext.
+    QString creationJournalKey(const NextcloudConfig &config, const QString &token)
+    {
+        const QByteArray account = (config.serverUrl.toString(QUrl::RemoveQuery | QUrl::RemoveFragment)
+                                    + QLatin1Char('\n') + config.userName).toUtf8();
+        const QByteArray digest = QCryptographicHash::hash(account, QCryptographicHash::Sha256).toHex();
+        return QStringLiteral("storage.nextcloud.creationJournal/")
+            + QString::fromLatin1(digest) + QLatin1Char('/') + token;
+    }
+
+    QString creationMarker(const QString &token)
+    {
+        return QStringLiteral("<!-- anykeep-media-create:") + token + QStringLiteral(" -->");
+    }
+
+    QString creationTitle(const QString &token)
+    {
+        return QStringLiteral("AnyKeep pending media ") + token;
+    }
+
+    QString creationPlaceholder(const QString &token)
+    {
+        return QStringLiteral("# ") + creationTitle(token) + QStringLiteral("\n\n")
+            + creationMarker(token);
+    }
+
+    // This is intentionally conservative. If the POST was sent but the reply
+    // was lost, only search for its stable marker; never issue a second POST
+    // until a positive identity has been established. The durable DraftRecord
+    // remains available for another recovery attempt.
+    NextcloudNoteResult ensureCreatedMediaNote(NextcloudWorker *worker, const NextcloudConfig &config,
+                                                const NextcloudRemoteNote &requested, const QString &token)
+    {
+        NextcloudNoteResult result;
+        const QString key = creationJournalKey(config, token);
+        QSettings journal;
+        const bool attempted = journal.value(key + QStringLiteral("/attempted")).toBool();
+        QString remoteId = journal.value(key + QStringLiteral("/remoteId")).toString();
+
+        if (!attempted) {
+            journal.setValue(key + QStringLiteral("/attempted"), true);
+            journal.sync();
+            if (journal.status() != QSettings::NoError) {
+                result.error = QStringLiteral("Could not persist the Nextcloud create attempt before POST");
+                return result;
+            }
+
+            auto placeholder = requested;
+            placeholder.title = creationTitle(token);
+            placeholder.content = creationPlaceholder(token);
+            placeholder.contentPresent = true;
+            result = worker->createNote(placeholder);
+            if (!result.ok)
+                return result; // unknown whether POST committed: retry must search
+
+            if (result.note.id.isEmpty()) {
+                result.ok = false;
+                result.error = QStringLiteral("Created Nextcloud note has no usable ID");
+                return result;
+            }
+            remoteId = result.note.id;
+            journal.setValue(key + QStringLiteral("/remoteId"), remoteId);
+            journal.sync();
+            if (journal.status() != QSettings::NoError) {
+                result.ok = false;
+                result.error = QStringLiteral("Could not persist the created Nextcloud note ID");
+            }
+            return result;
+        }
+
+        if (remoteId.isEmpty()) {
+            const auto listed = worker->listNotes();
+            if (!listed.ok) {
+                result.httpStatus = listed.httpStatus;
+                result.error = listed.error;
+                return result;
+            }
+
+            // Notes list is metadata-only; GET candidate notes to confirm the
+            // exact body marker instead of trusting a title collision.
+            int matches = 0;
+            NextcloudNoteResult found;
+            for (const auto &candidate : listed.notes) {
+                if (!candidate.title.contains(token) || candidate.category != requested.category)
+                    continue;
+                const auto fetched = worker->getNote(candidate.id);
+                if (!fetched.ok) {
+                    result.httpStatus = fetched.httpStatus;
+                    result.error = fetched.error;
+                    return result;
+                }
+                if (!fetched.note.contentPresent
+                    || !fetched.note.content.contains(creationMarker(token)))
+                    continue;
+                ++matches;
+                found = fetched;
+            }
+            if (matches != 1) {
+                result.conflict = matches > 1;
+                result.error = matches > 1
+                    ? QStringLiteral("Multiple Nextcloud notes match the pending creation identity")
+                    : QStringLiteral(
+                        "The previous Nextcloud create attempt is unresolved; waiting for its server identity");
+                return result;
+            }
+            remoteId = found.note.id;
+            journal.setValue(key + QStringLiteral("/remoteId"), remoteId);
+            journal.sync();
+            if (journal.status() != QSettings::NoError) {
+                result.error = QStringLiteral("Could not persist the recovered Nextcloud note ID");
+                return result;
+            }
+            return found;
+        }
+
+        return worker->getNote(remoteId);
+    }
+
     // The Notes 5.0.2 API uploads to the category directory and its files
     // become inaccessible after a category move. The web Notes editor instead
     // stores per-note attachments under .attachments.<noteId>; its directory
