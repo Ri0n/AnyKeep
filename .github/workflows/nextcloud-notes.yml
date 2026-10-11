@@ -109,6 +109,7 @@ jobs:
         run: |
           docker logs --tail 120 anykeep-notes-ci 2>&1 || true
           docker exec --user www-data anykeep-notes-ci php occ status || true
+          docker exec --user www-data anykeep-notes-ci sh -c 'tail -n 60 /var/www/html/data/nextcloud.log' || true
 
       - name: Remove disposable server
         if: always()
