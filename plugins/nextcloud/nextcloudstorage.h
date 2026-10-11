@@ -2,6 +2,7 @@
 #define NEXTCLOUDSTORAGE_H
 
 #include "nextclouddto.h"
+#include "mediarangeservice.h"
 #include "notestorage.h"
 
 #include <QHash>
@@ -81,6 +82,11 @@ private:
     LocalMediaStore     *mediaStore_ { nullptr };
     // Created on the application thread, then operated on only by the worker.
     QHash<QString, std::shared_ptr<MediaPartialChunkCache>> partialCaches_;
+    // Resolver URLs can outlive shutdown(). Complete every outstanding HTTP
+    // request once, on the storage thread, before stopping the worker.
+    QHash<quint64, MediaRangeService::Completion> pendingMediaReads_;
+    quint64              nextMediaReadId_ { 0 };
+    bool                 shuttingDown_ { false };
     QHash<QString, Note>  cache_;
     // Successful writes may briefly be absent from an eventually consistent
     // list response. Keep them until the server snapshot acknowledges them.
