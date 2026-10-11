@@ -39,6 +39,7 @@ private slots:
     void initTestCase();
     void createReadUpdateConflictDelete();
     void invalidPasswordIsRejected();
+    void nativeAttachmentRoundtrip();
 };
 
 void NextcloudLiveTest::initTestCase()
@@ -159,6 +160,47 @@ void NextcloudLiveTest::invalidPasswordIsRejected()
     const auto result = worker.probe();
     QVERIFY(!result.ok);
     QCOMPARE(result.httpStatus, 401);
+}
+
+void NextcloudLiveTest::nativeAttachmentRoundtrip()
+{
+    NextcloudWorker worker;
+    worker.setConfig(liveConfig());
+
+    const QString unique = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    NextcloudRemoteNote draft;
+    draft.title = QStringLiteral("AnyKeep attachment ") + unique;
+    draft.content = QStringLiteral("# Binary attachment test ") + unique;
+    draft.contentPresent = true;
+    draft.category = QStringLiteral("AnyKeep Integration/Files");
+
+    const auto created = worker.createNote(draft);
+    QVERIFY2(created.ok, qPrintable(created.error));
+    CleanupNote cleanup { worker, created.note.id };
+
+    const QByteArray bytes = QByteArray::fromHex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489");
+    const auto badName = worker.uploadAttachment(created.note.id, QStringLiteral("../secret"), bytes);
+    QVERIFY(!badName.ok);
+    QCOMPARE(badName.httpStatus, 0);
+
+    const auto uploaded = worker.uploadAttachment(created.note.id, QStringLiteral("test.png"), bytes);
+    QVERIFY2(uploaded.ok, qPrintable(uploaded.error));
+    QVERIFY2(!uploaded.path.isEmpty(), "The server should return an attachment path");
+
+    const auto fetched = worker.downloadAttachment(created.note.id, uploaded.path);
+    QVERIFY2(fetched.ok, qPrintable(fetched.error));
+    QCOMPARE(fetched.data, bytes);
+
+    // Save a standard relative image link, not an AnyKeep-only URI. The
+    // server should preserve it exactly for native Notes clients.
+    NextcloudRemoteNote note = created.note;
+    note.content = QStringLiteral("# Binary attachment test ") + unique + QStringLiteral("\n![image](")
+        + uploaded.path + QStringLiteral(")");
+    const auto linked = worker.updateNote(note);
+    QVERIFY2(linked.ok, qPrintable(linked.error));
+    const auto reopened = worker.getNote(created.note.id);
+    QVERIFY2(reopened.ok, qPrintable(reopened.error));
+    QCOMPARE(reopened.note.content, note.content);
 }
 
 QTEST_GUILESS_MAIN(NextcloudLiveTest)
