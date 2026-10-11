@@ -83,8 +83,15 @@ receipts (`nextcloud.noteId`, `nextcloud.path`). A missing blob, stale ETag,
 unsafe path or failed readback prevents the Markdown update. HTTP is accepted
 only on loopback addresses; other servers require HTTPS.
 
-This is **not** complete media support: new-note publication, streaming
-local sources, cross-device native attachment hydration, idempotent retries,
+A first recovery path in `loadNoteAsync()` recognizes native `.attachments.<noteId>/`
+links, fetches small nonempty files using bounded WebDAV ranges, imports them
+into encrypted `LocalMediaStore`, and restores canonical local Markdown URIs.
+It currently caps each attachment at 16 MiB, a note at 12 attachments and
+32 MiB total; unavailable ranges remain untouched native links instead of
+being deleted or rewritten.
+
+This is **not** complete media support: new-note publication, progressive
+streaming for large files, remote-only manifests, idempotent retries,
 recovery of staged orphans, category moves, deletion cleanup and cross-client
 end-to-end tests remain. The synchronous save entrypoint still refuses media.
 `supportsMedia()` remains false; users must not mistake the internal transport
