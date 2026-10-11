@@ -2,17 +2,22 @@
 #define NEXTCLOUDSTORAGE_H
 
 #include "nextclouddto.h"
+#include "mediarangeservice.h"
 #include "notestorage.h"
 
 #include <QHash>
+#include <QQueue>
 #include <QSet>
 #include <QThread>
+#include <functional>
+#include <memory>
 
 namespace AnyKeep {
 
 class NextcloudWorker;
 class FolderCatalogManager;
 class LocalMediaStore;
+class MediaPartialChunkCache;
 
 class NextcloudStorage final : public NoteStorage {
     Q_OBJECT
@@ -59,7 +64,12 @@ public:
 private:
     friend class NextcloudSettingsController;
     NextcloudConfig readConfig() const;
+    std::shared_ptr<MediaPartialChunkCache> partialCacheFor(
+        const MediaReference &reference, const NextcloudConfig &config, QString *error);
     bool            configIsValid(const NextcloudConfig &config, QString *error) const;
+    void            dispatchNextMediaRead();
+    void            completeMediaRead(quint64 requestId, const MediaReference &reference,
+                                      QByteArray bytes, QString failure);
     Note            fromRemote(const NextcloudRemoteNote &remote);
     void            applyRemote(Note &note, const NextcloudRemoteNote &remote);
     bool            toRemote(const Note &note, NextcloudRemoteNote *remote, QString *error,
@@ -75,6 +85,15 @@ private:
     NextcloudWorker      *worker_ { nullptr };
     FolderCatalogManager *folderCatalogManager_ { nullptr };
     LocalMediaStore     *mediaStore_ { nullptr };
+    // Created on the application thread, then operated on only by the worker.
+    QHash<QString, std::shared_ptr<MediaPartialChunkCache>> partialCaches_;
+    // Resolver URLs can outlive shutdown(). Complete every outstanding HTTP
+    // request once, on the storage thread, before stopping the worker.
+    QHash<quint64, MediaRangeService::Completion> pendingMediaReads_;
+    QQueue<std::function<void()>> mediaReadTasks_;
+    quint64              nextMediaReadId_ { 0 };
+    bool                 mediaReadActive_ { false };
+    bool                 shuttingDown_ { false };
     QHash<QString, Note>  cache_;
     // Successful writes may briefly be absent from an eventually consistent
     // list response. Keep them until the server snapshot acknowledges them.

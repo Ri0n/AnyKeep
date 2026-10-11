@@ -1,10 +1,12 @@
 #include "filefoldercatalogstore.h"
 #include "foldercatalogmanager.h"
 #include "nextcloudstorage.h"
+#include "mediarangeservice.h"
 #include "localmediastore.h"
 #include "secureenvelope.h"
 #include <QCryptographicHash>
 #include <QDir>
+#include <QDirIterator>
 #include <QLockFile>
 #include <QStandardPaths>
 #include <QFile>
@@ -12,6 +14,10 @@
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QPointer>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTcpServer>
@@ -41,7 +47,30 @@ public:
 
     const QList<QByteArray> &requests() const { return requests_; }
 
+    // Hold an HTTP response until the test has changed storage state. This
+    // avoids relying on races with a fast loopback WebDAV server.
+    void holdResponseOnRequest(int ordinal) { holdAtRequest_ = ordinal; }
+    bool hasHeldResponse() const { return !heldSocket_.isNull(); }
+    void releaseHeldResponse()
+    {
+        if (!heldSocket_)
+            return;
+        QTcpSocket *socket = heldSocket_.data();
+        heldSocket_.clear();
+        writeResponse(socket, std::exchange(heldResponse_, {}));
+    }
+
 private:
+    static void writeResponse(QTcpSocket *socket, const QByteArray &body)
+    {
+        if (body.startsWith("HTTP/1.1 "))
+            socket->write(body);
+        else
+            socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                          + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+        socket->disconnectFromHost();
+    }
+
     static qsizetype contentLength(const QByteArray &headers)
     {
         for (const auto &line : headers.split('\n')) {
@@ -68,18 +97,21 @@ private:
         pending_.remove(socket);
         QVERIFY2(!responses_.isEmpty(), "Unexpected Nextcloud request");
         const auto body = responses_.takeFirst();
-        if (body.startsWith("HTTP/1.1 "))
-            socket->write(body);
-        else
-            socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
-                          + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
-        socket->disconnectFromHost();
+        if (requests_.size() == holdAtRequest_) {
+            heldSocket_ = socket;
+            heldResponse_ = body;
+            return;
+        }
+        writeResponse(socket, body);
     }
 
     QTcpServer                      server_;
     QList<QByteArray>               responses_;
     QList<QByteArray>               requests_;
     QHash<QTcpSocket *, QByteArray> pending_;
+    int                            holdAtRequest_ { -1 };
+    QPointer<QTcpSocket>           heldSocket_;
+    QByteArray                    heldResponse_;
 };
 
 QByteArray noteJson(const QString &id, const QString &etag, const QString &category, qint64 modified)
@@ -92,6 +124,19 @@ QByteArray noteJson(const QString &id, const QString &etag, const QString &categ
                                        { QStringLiteral("readonly"), false },
                                        { QStringLiteral("modified"), modified } })
         .toJson(QJsonDocument::Compact);
+}
+
+QByteArray remoteByteRangeResponse(qint64 offset, qint64 count, qint64 total,
+                                  const QByteArray &etag = QByteArrayLiteral("\"remote-revision\""))
+{
+    const QByteArray bytes(count, 'R');
+    return QByteArrayLiteral("HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\n")
+        + QByteArrayLiteral("Accept-Ranges: bytes\r\n")
+        + (etag.isEmpty() ? QByteArray() : QByteArrayLiteral("ETag: ") + etag + QByteArrayLiteral("\r\n"))
+        + QByteArrayLiteral("Content-Range: bytes ") + QByteArray::number(offset)
+        + '-' + QByteArray::number(offset + count - 1) + '/'
+        + QByteArray::number(total) + QByteArrayLiteral("\r\nContent-Length: ")
+        + QByteArray::number(count) + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + bytes;
 }
 
 QByteArray noteWithContent(const QString &id, const QString &etag, const QString &title,
@@ -149,6 +194,13 @@ private slots:
     void recoveredCreationRejectsUnrelatedNativeEdit();
     void streamPublishWithoutWholePlaintextBuffer_data();
     void streamPublishWithoutWholePlaintextBuffer();
+    void encryptedNextcloudPartialCacheSurvivesRestartAndTamper();
+    void shutdownRejectsPreviouslyIssuedMediaRangeUrl();
+    void concurrentRangeReadsReuseOneVerifiedWebDavChunk();
+    void accountSwitchDuringRangeReadRejectsStaleBytes();
+    void reentrantStorageOperationCannotChangePinnedWebDavAccount();
+    void oversizedNativeAttachmentStreamsRemoteWebDavRanges_data();
+    void oversizedNativeAttachmentStreamsRemoteWebDavRanges();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges_data();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges();
     void staleEtagPreventsAttachmentStaging_data();
@@ -1009,6 +1061,460 @@ void NextcloudStorageTest::streamPublishWithoutWholePlaintextBuffer()
     QCOMPARE(rangeGets, int((dataSize + 1024 * 1024 - 1) / (1024 * 1024) + 1));
     QCOMPARE(markdownWrites, 1);
     QCOMPARE(requests.last().contains(nativePath.toUtf8()), true);
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+
+void NextcloudStorageTest::shutdownRejectsPreviouslyIssuedMediaRangeUrl()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+    constexpr qint64 remoteSize = 20LL * 1024 * 1024;
+    const QString nativePath = QStringLiteral(".attachments.shut-1/clip.mp4");
+    ScriptedHttpServer server({
+        noteWithContent(QStringLiteral("shut-1"), QStringLiteral("note-etag"),
+                        QStringLiteral("Video"), QStringLiteral("![video](") + nativePath + QLatin1Char(')')),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, 1, remoteSize)
+    });
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 2000);
+
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto *load = storage.loadNoteAsync(QStringLiteral("shut-1"));
+    QTRY_VERIFY_WITH_TIMEOUT(load->isFinished(), 10000);
+    QCOMPARE(load->state(), StorageJob::Succeeded);
+    QCOMPARE(load->result().media().size(), 1);
+    const MediaReference reference = load->result().media().first();
+    load->deleteLater();
+
+    const QUrl existingUrl = MediaRangeService::urlFor(reference);
+    QVERIFY(!existingUrl.isEmpty());
+    storage.shutdown();
+    storage.shutdown(); // Idempotent and never restart a stopped worker.
+    QVERIFY(MediaRangeService::urlFor(reference).isEmpty());
+
+    QNetworkAccessManager client;
+    QNetworkRequest request(existingUrl);
+    request.setRawHeader("Range", "bytes=1024-1055");
+    auto *reply = client.get(request);
+    QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 10000);
+    QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 503);
+    QVERIFY(reply->readAll().isEmpty());
+    reply->deleteLater();
+    QCOMPARE(server.requests().size(), 3); // Shutdown must not reach WebDAV.
+    MediaRangeService::releaseUrl(existingUrl);
+
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+void NextcloudStorageTest::concurrentRangeReadsReuseOneVerifiedWebDavChunk()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+    constexpr qint64 remoteSize = 20LL * 1024 * 1024;
+    const QString nativePath = QStringLiteral(".attachments.concurrent-1/movie.mp4");
+    ScriptedHttpServer server({
+        noteWithContent(QStringLiteral("concurrent-1"), QStringLiteral("note-etag"),
+                        QStringLiteral("Video"), QStringLiteral("![movie](") + nativePath + QLatin1Char(')')),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, 1, remoteSize),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, LocalMediaStore::ManagedChunkSize, remoteSize)
+    });
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 2000);
+
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto *load = storage.loadNoteAsync(QStringLiteral("concurrent-1"));
+    QTRY_VERIFY_WITH_TIMEOUT(load->isFinished(), 10000);
+    QCOMPARE(load->state(), StorageJob::Succeeded);
+    QCOMPARE(load->result().media().size(), 1);
+    const QUrl url = MediaRangeService::urlFor(load->result().media().first());
+    QVERIFY(!url.isEmpty());
+    load->deleteLater();
+
+    QNetworkAccessManager client;
+    QNetworkRequest firstRequest(url);
+    firstRequest.setRawHeader("Range", "bytes=1024-1055");
+    QNetworkRequest secondRequest(url);
+    secondRequest.setRawHeader("Range", "bytes=4096-4127");
+    auto *first = client.get(firstRequest);
+    auto *second = client.get(secondRequest);
+    QTRY_VERIFY_WITH_TIMEOUT(first->isFinished() && second->isFinished(), 15000);
+    QCOMPARE(first->error(), QNetworkReply::NoError);
+    QCOMPARE(second->error(), QNetworkReply::NoError);
+    QCOMPARE(first->readAll(), QByteArray(32, 'R'));
+    QCOMPARE(second->readAll(), QByteArray(32, 'R'));
+    first->deleteLater();
+    second->deleteLater();
+    QCOMPARE(server.requests().size(), 5);
+    QVERIFY(server.requests().at(4).contains("Range: bytes=0-1048575"));
+    MediaRangeService::releaseUrl(url);
+
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+void NextcloudStorageTest::accountSwitchDuringRangeReadRejectsStaleBytes()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+    constexpr qint64 remoteSize = 20LL * 1024 * 1024;
+    const QString nativePath = QStringLiteral(".attachments.switch-1/movie.mp4");
+    ScriptedHttpServer server({
+        noteWithContent(QStringLiteral("switch-1"), QStringLiteral("note-etag"),
+                        QStringLiteral("Video"), QStringLiteral("![movie](") + nativePath + QLatin1Char(')')),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, 1, remoteSize),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, LocalMediaStore::ManagedChunkSize, remoteSize)
+    });
+    server.holdResponseOnRequest(5);
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 5000);
+
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto *load = storage.loadNoteAsync(QStringLiteral("switch-1"));
+    QTRY_VERIFY_WITH_TIMEOUT(load->isFinished(), 10000);
+    QCOMPARE(load->state(), StorageJob::Succeeded);
+    QCOMPARE(load->result().media().size(), 1);
+    const auto reference = load->result().media().first();
+    load->deleteLater();
+
+    const QUrl url = MediaRangeService::urlFor(reference);
+    QVERIFY(!url.isEmpty());
+    QNetworkAccessManager client;
+    QNetworkRequest request(url);
+    request.setRawHeader("Range", "bytes=1024-1055");
+    auto *reply = client.get(request);
+    QTRY_VERIFY_WITH_TIMEOUT(server.requests().size() == 5 && server.hasHeldResponse(), 10000);
+    QVERIFY(!reply->isFinished());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("bob"));
+    server.releaseHeldResponse();
+    QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 15000);
+    QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 503);
+    QVERIFY(reply->readAll().isEmpty());
+    QVERIFY(MediaRangeService::urlFor(reference).isEmpty());
+    reply->deleteLater();
+    MediaRangeService::releaseUrl(url);
+
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+
+void NextcloudStorageTest::reentrantStorageOperationCannotChangePinnedWebDavAccount()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+    constexpr qint64 remoteSize = 20LL * 1024 * 1024;
+    const QString nativePath = QStringLiteral(".attachments.pin-1/movie.mp4");
+    ScriptedHttpServer server({
+        noteWithContent(QStringLiteral("pin-1"), QStringLiteral("note-etag"),
+                        QStringLiteral("Video"), QStringLiteral("![movie](") + nativePath + QLatin1Char(')')),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, 1, remoteSize),
+        // Pause Alice's settings request. A nested worker event loop then
+        // allows a different note request to switch the worker to Bob.
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        noteWithContent(QStringLiteral("other"), QStringLiteral("other-etag"),
+                        QStringLiteral("Other"), QStringLiteral("Nothing attached")),
+        remoteByteRangeResponse(0, LocalMediaStore::ManagedChunkSize, remoteSize)
+    });
+    server.holdResponseOnRequest(4);
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 5000);
+
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto *load = storage.loadNoteAsync(QStringLiteral("pin-1"));
+    QTRY_VERIFY_WITH_TIMEOUT(load->isFinished(), 10000);
+    QCOMPARE(load->state(), StorageJob::Succeeded);
+    QCOMPARE(load->result().media().size(), 1);
+    const MediaReference reference = load->result().media().first();
+    load->deleteLater();
+
+    const QUrl url = MediaRangeService::urlFor(reference);
+    QVERIFY(!url.isEmpty());
+    QNetworkAccessManager client;
+    QNetworkRequest request(url);
+    request.setRawHeader("Range", "bytes=1024-1055");
+    auto *reply = client.get(request);
+    QTRY_VERIFY_WITH_TIMEOUT(server.requests().size() == 4 && server.hasHeldResponse(), 10000);
+
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("bob"));
+    auto *other = storage.loadNoteAsync(QStringLiteral("other"));
+    QTRY_VERIFY_WITH_TIMEOUT(other->isFinished(), 10000);
+    QCOMPARE(other->state(), StorageJob::Succeeded);
+    other->deleteLater();
+    QCOMPARE(server.requests().size(), 5);
+    QVERIFY(server.requests().at(4).startsWith("GET /index.php/apps/notes/api/v1/notes/other "));
+
+    server.releaseHeldResponse();
+    QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 15000);
+    QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 503);
+    QVERIFY(reply->readAll().isEmpty());
+    reply->deleteLater();
+
+    // clearConnectionCache() is allowed to abort the outstanding settings
+    // GET when Bob takes over. If Qt leaves the request alive, its subsequent
+    // WebDAV GET must still be pinned to Alice. Neither path may disclose
+    // bytes from the other account or cache them under the wrong identity.
+    const qsizetype requestCount = server.requests().size();
+    QVERIFY(requestCount == 5 || requestCount == 6);
+    if (requestCount == 6) {
+        QVERIFY(server.requests().at(5).startsWith(
+            "GET /remote.php/dav/files/alice/Notes/.attachments.pin-1/movie.mp4 "));
+        QVERIFY(server.requests().at(5).contains("Range: bytes=0-1048575"));
+        settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+
+        // The verified cache is keyed to Alice's object, never Bob's account.
+        auto *cached = client.get(request);
+        QTRY_VERIFY_WITH_TIMEOUT(cached->isFinished(), 10000);
+        QCOMPARE(cached->error(), QNetworkReply::NoError);
+        QCOMPARE(cached->readAll(), QByteArray(32, 'R'));
+        cached->deleteLater();
+        QCOMPARE(server.requests().size(), 6);
+    }
+    MediaRangeService::releaseUrl(url);
+
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+void NextcloudStorageTest::encryptedNextcloudPartialCacheSurvivesRestartAndTamper()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QByteArray profileKey = SecureEnvelope::generateMasterKey();
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")), profileKey);
+    constexpr qint64 size = 20LL * 1024 * 1024;
+    const QString nativePath = QStringLiteral(".attachments.stream-1/clip.mp4");
+    const QString body = QStringLiteral("![video](") + nativePath + QLatin1Char(')');
+    ScriptedHttpServer server({
+        noteWithContent(QStringLiteral("stream-1"), QStringLiteral("note-etag"),
+                        QStringLiteral("Video"), body),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, 1, size),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, LocalMediaStore::ManagedChunkSize, size),
+        // After a corrupted local record is rejected, the worker reloads the
+        // same pinned revision instead of sending unauthenticated bytes.
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, LocalMediaStore::ManagedChunkSize, size)
+    });
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 2000);
+
+    MediaReference reference;
+    auto requestBytes = [](QNetworkAccessManager &client, const QUrl &url) {
+        QNetworkRequest request(url);
+        request.setRawHeader("Range", "bytes=1024-1055");
+        return client.get(request);
+    };
+    {
+        NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+        auto *load = storage.loadNoteAsync(QStringLiteral("stream-1"));
+        QTRY_VERIFY_WITH_TIMEOUT(load->isFinished(), 10000);
+        QCOMPARE(load->state(), StorageJob::Succeeded);
+        QCOMPARE(load->result().media().size(), 1);
+        reference = load->result().media().first();
+        load->deleteLater();
+
+        QNetworkAccessManager client;
+        const QUrl url = MediaRangeService::urlFor(reference);
+        QVERIFY(!url.isEmpty());
+        auto *first = requestBytes(client, url);
+        QTRY_VERIFY_WITH_TIMEOUT(first->isFinished(), 10000);
+        QCOMPARE(first->error(), QNetworkReply::NoError);
+        QCOMPARE(first->readAll(), QByteArray(32, 'R'));
+        first->deleteLater();
+        QCOMPARE(server.requests().size(), 5);
+        auto *again = requestBytes(client, url);
+        QTRY_VERIFY_WITH_TIMEOUT(again->isFinished(), 10000);
+        QCOMPARE(again->error(), QNetworkReply::NoError);
+        QCOMPARE(again->readAll(), QByteArray(32, 'R'));
+        again->deleteLater();
+        QCOMPARE(server.requests().size(), 5); // Cache hit: no WebDAV.
+        MediaRangeService::releaseUrl(url);
+    }
+    // Destroying and recreating the storage object must not erase encrypted
+    // chunks; no call to getNote() is necessary to resume playback.
+    {
+        NextcloudStorage restarted(nullptr, nullptr, &mediaStore);
+        QNetworkAccessManager client;
+        const QUrl url = MediaRangeService::urlFor(reference);
+        QVERIFY(!url.isEmpty());
+        auto *offline = requestBytes(client, url);
+        QTRY_VERIFY_WITH_TIMEOUT(offline->isFinished(), 10000);
+        QCOMPARE(offline->error(), QNetworkReply::NoError);
+        QCOMPARE(offline->readAll(), QByteArray(32, 'R'));
+        offline->deleteLater();
+        QCOMPARE(server.requests().size(), 5);
+
+        QDirIterator files(directory.filePath(QStringLiteral("media/partial")), QDir::Files,
+                           QDirIterator::Subdirectories);
+        QVERIFY(files.hasNext());
+        const QString recordPath = files.next();
+        QFile encrypted(recordPath);
+        QVERIFY(encrypted.open(QIODevice::ReadWrite));
+        QVERIFY(!encrypted.readAll().contains(QByteArray(64, 'R')));
+        QVERIFY(encrypted.seek(encrypted.size() / 2));
+        const char corrupt = '\x5e';
+        QCOMPARE(encrypted.write(&corrupt, 1), qint64(1));
+        encrypted.close();
+
+        auto *repaired = requestBytes(client, url);
+        QTRY_VERIFY_WITH_TIMEOUT(repaired->isFinished(), 10000);
+        QCOMPARE(repaired->error(), QNetworkReply::NoError);
+        QCOMPARE(repaired->readAll(), QByteArray(32, 'R'));
+        repaired->deleteLater();
+        QCOMPARE(server.requests().size(), 7);
+        QVERIFY(server.requests().at(6).contains("Range: bytes=0-1048575"));
+        QVERIFY(server.requests().at(6).toLower().contains("if-match: \"remote-revision\""));
+        MediaRangeService::releaseUrl(url);
+    }
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+void NextcloudStorageTest::oversizedNativeAttachmentStreamsRemoteWebDavRanges_data()
+{
+    QTest::addColumn<int>("revisionScenario");
+    QTest::newRow("same-webdav-revision") << 0;
+    QTest::newRow("webdav-revision-replaced") << 1;
+    QTest::newRow("webdav-response-omits-etag") << 2;
+}
+
+void NextcloudStorageTest::oversizedNativeAttachmentStreamsRemoteWebDavRanges()
+{
+    QFETCH(int, revisionScenario);
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+    constexpr qint64 remoteSize = 20LL * 1024 * 1024;
+    const QString remotePath = QStringLiteral(".attachments.vid-1/movie.mp4");
+    const QString markdown = QStringLiteral("![movie](") + remotePath + QLatin1Char(')');
+    ScriptedHttpServer server({
+        noteWithContent(QStringLiteral("vid-1"), QStringLiteral("note-etag"),
+                        QStringLiteral("Video"), markdown),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, 1, remoteSize),
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        remoteByteRangeResponse(0, LocalMediaStore::ManagedChunkSize, remoteSize,
+                                revisionScenario == 1 ? QByteArrayLiteral("\"changed-revision\"")
+                                    : revisionScenario == 2 ? QByteArray() : QByteArrayLiteral("\"remote-revision\""))
+    });
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 2000);
+
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto *job = storage.loadNoteAsync(QStringLiteral("vid-1"));
+    QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 10000);
+    QVERIFY2(job->state() == StorageJob::Succeeded, qPrintable(job->error().message));
+    const Note note = job->result();
+    QVERIFY(note.text().contains(QStringLiteral("anykeep-media:/")));
+    QCOMPARE(note.media().size(), 1);
+    const auto reference = note.media().first();
+    QVERIFY(reference.isValid());
+    QCOMPARE(reference.size, remoteSize);
+    QCOMPARE(reference.mediaType, QStringLiteral("video/mp4"));
+    QVERIFY(reference.blobId.isEmpty());
+    QVERIFY(reference.remoteData.value(QStringLiteral("nextcloud.remoteOnly")).toBool());
+    QCOMPARE(reference.remoteData.value(QStringLiteral("nextcloud.etag")).toString(),
+             QStringLiteral("\"remote-revision\""));
+    QCOMPARE(reference.remoteData.value(QStringLiteral("nextcloud.path")).toString(), remotePath);
+    QVERIFY(!mediaStore.contains(reference));
+    job->deleteLater();
+
+    // The existing Qt player/browser local-range bridge must request only
+    // the actual sought segment, pinning the exact WebDAV ETag.
+    const QUrl url = MediaRangeService::urlFor(reference);
+    QVERIFY2(url.isValid() && !url.isEmpty(), "Nextcloud remote-only range resolver was not registered");
+    QNetworkAccessManager client;
+    QNetworkRequest request(url);
+    request.setRawHeader("Range", "bytes=1024-1055");
+    auto *reply = client.get(request);
+    QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 15000);
+    if (revisionScenario != 0) {
+        QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 503);
+        QVERIFY(reply->readAll().isEmpty()); // Never forward bytes from another file revision.
+    } else {
+        QCOMPARE(reply->error(), QNetworkReply::NoError);
+        QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 206);
+        QCOMPARE(reply->readAll(), QByteArray(32, 'R'));
+    }
+    reply->deleteLater();
+    MediaRangeService::releaseUrl(url);
+
+    QCOMPARE(server.requests().size(), 5);
+    QVERIFY(server.requests().at(2).startsWith("GET /remote.php/dav/files/alice/Notes/.attachments.vid-1/movie.mp4 "));
+    QVERIFY(server.requests().at(2).contains("Range: bytes=0-0"));
+    const auto ranged = server.requests().at(4);
+    // Decoder asks for 32 bytes, but the durable cache hydrates the
+    // containing 1 MiB authenticated record just once.
+    QVERIFY(ranged.contains("Range: bytes=0-1048575"));
+    QVERIFY(ranged.toLower().contains("if-match: \"remote-revision\""));
+
+    // References must never be routed to credentials of another configured
+    // account, even if their remote note ID and pathname happen to match.
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("bob"));
+    QVERIFY(MediaRangeService::urlFor(reference).isEmpty());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+
     settings.remove(QStringLiteral("storage.nextcloud.url"));
     settings.remove(QStringLiteral("storage.nextcloud.username"));
     settings.remove(QStringLiteral("storage.nextcloud.appPassword"));

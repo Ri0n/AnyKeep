@@ -76,6 +76,27 @@ Read `README.md` for the HTTP/API behavior and user-facing configuration.
   server note or issuing duplicate POST. If a final PUT ACK is lost,
   verify the deterministic native body and remote bytes to conclude success.
   Changed remote Markdown is a conflict, not a reason to overwrite.
+- Large WebDAV attachments become remote-only references only after a bounded
+  206 probe with a positive size and an opaque ETag. Never fetch a whole video
+  during note opening. MediaRangeService requests must validate the account
+  digest, note ownership/path, size, category and pinned `If-Match` before
+  delivering plaintext; never store app credentials in media metadata.
+  Use shared `MediaPartialChunkCache` for durable, encrypted 1 MiB
+  records, sealed under `LocalMedia` domain and revision/index-bound AEAD
+  context. XMPP uses the same class for its already-encrypted wire records
+  without changing existing on-disk paths. A cache hit must reauthenticate
+  local bytes before playback; a corrupt record must be invalidated and
+  fetched again with the original strong WebDAV ETag. Progress includes
+  only durably committed authenticated bytes, never transient network
+  reads. Keychain access belongs on the application thread.
+- Range resolver URLs may outlive storage shutdown. Reject new reads and finish
+  every pending completion exactly once before stopping the worker; never leave
+  the local HTTP bridge waiting for a stopped event loop. `collectReply()`
+  runs a nested event loop, so queued worker invocations can re-enter during
+  network reads. Serialize Nextcloud media hydrations on the storage thread,
+  preserving one verified WebDAV fetch per missing chunk even when decoders
+  request overlapping ranges concurrently. Recheck the active account at
+  completion before returning any bytes.
 - Synchronous media saves are still rejected; media capability stays disabled.
   Missing zero-byte/large remote hydration, multi-device checks and safe
   cleanup are separate lifecycle work.

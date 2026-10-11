@@ -87,6 +87,7 @@ set(anykeep_CORE_SRCS
     mediasynccontroller.cpp
     mediasource.cpp
     mediastream.cpp
+    mediapartialchunkcache.cpp
     mediachunkwire.cpp
     mediachunkwirestream.cpp
     bundledpluginregistry.cpp
@@ -177,6 +178,7 @@ set(anykeep_CORE_HDRS
     mediasynccontroller.h
     mediasource.h
     mediastream.h
+    mediapartialchunkcache.h
     mediachunkwire.h
     mediachunkwirestream.h
     bundledplugininterface.h

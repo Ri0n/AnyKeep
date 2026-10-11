@@ -145,19 +145,49 @@ relative links instead of silently breaking them. A successful move also
 preserves the local canonical manifest when the response includes the body.
 
 A bounded `loadNoteAsync()` path recognizes both web-native per-note URLs
-and older Notes API sibling URLs, downloads small nonempty files in WebDAV
-byte ranges, imports them into encrypted `LocalMediaStore`, and restores
-canonical local Markdown URIs. Each file is limited to 16 MiB; at most
-12 attachments and 32 MiB of plaintext are restored per note. Unavailable
-or oversized remote links are preserved verbatim, never truncated or
-deleted. Remote HTTP replies are capped even if the server ignores Range.
+and older Notes API sibling URLs. Nonempty files up to 16 MiB can be
+downloaded in bounded WebDAV ranges into encrypted `LocalMediaStore`
+(up to 32 MiB eager data per note). Large files and files exceeding the
+remaining eager budget become **remote-only** `MediaReference` entries:
+a one-byte 206 probe provides their size and opaque WebDAV ETag, and the
+canonical Markdown URI is restored immediately without downloading the
+whole video. Up to 48 referenced native paths are considered during load.
+
+Remote-only playback and image preview reuse the shared
+`MediaRangeService` local HTTP bridge and Nextcloud's worker-thread WebDAV
+Range reader; the request is capped at 1 MiB and pins `If-Match` to the
+initial ETag. Each missing 1 MiB plaintext chunk is fetched once and
+committed atomically via the **shared `MediaPartialChunkCache`**, sealed
+locally with `SecureEnvelope` and the profile's existing media key.
+Only authenticated local chunks are returned on cache hits, so repeated
+seeks and restarts do not require the remote server for already cached
+ranges. A changed revision, wrong response size, missing/weak ETag,
+untrusted path or changed account fails closed. Account identity is
+SHA-256-scoped in the manifest and the cache's AEAD context binds the
+source revision, size, geometry and chunk index: **no app password, bearer
+URL or unencrypted remote payload is saved on disk**. The cache key is
+resolved on the application thread before dispatching worker operations;
+a locked keychain does not prevent displaying the note, but prevents
+hydrating or reading its encrypted partial media.
+
+XMPP uses this same partial-cache class in verified-opaque mode, preserving
+existing XMPP encrypted wire-chunk files without re-encrypting or relocating
+them. Nextcloud uses locally sealed mode, because native Notes attachments
+remain plain HTTPS/WebDAV bytes for other clients.
+
+This is **not** a full background mirror: there is no automatic complete-file
+prefetch scheduler, cache eviction policy, zero-byte WebDAV range fallback,
+or new-note publication directly from an incomplete remote-only reference.
+The current remote-only transport fetches missing chunks on demand and
+reports only authenticated, durably committed bytes in `MediaSyncService`.
+Links that cannot be probed or pinned remain native Markdown. WebDAV
+replies stay capped even when a server ignores Range.
 Real Nextcloud accounts require HTTPS; only loopback HTTP fixtures are
 allowed. No custom Nextcloud E2EE is applied.
 
 **Not yet a complete media feature:** manual resolution for an ambiguous POST
-whose marker never becomes visible, progressive large-file playback and
-remote-only hydration beyond the
-current 16 MiB per-file/32 MiB per-note load cap; zero-byte media, deferred
+whose marker never becomes visible, automatic prefetch/eviction and
+partial-object publication; zero-byte media, deferred
 reference-aware cleanup of abandoned/stale attachments, safe legacy
 attachment migration before category moves, and multi-device end-to-end
 verification. A failed Markdown update may leave unreferenced staged files

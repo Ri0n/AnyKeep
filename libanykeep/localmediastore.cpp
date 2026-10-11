@@ -1,6 +1,7 @@
 #include "localmediastore.h"
 
 #include "localdatakeystore.h"
+#include "mediapartialchunkcache.h"
 #include "secureenvelope.h"
 #include "utils.h"
 
@@ -587,6 +588,30 @@ QByteArray LocalMediaStore::masterKey(QString *error) const
 
     const QMutexLocker locker(&masterKeyMutex_);
     return masterKey_;
+}
+
+std::shared_ptr<MediaPartialChunkCache> LocalMediaStore::partialMediaCache(
+    const QString &provider, const QString &immutableSourceId, qint64 plainSize, QString *error) const
+{
+    if (provider.isEmpty() || immutableSourceId.isEmpty() || plainSize <= 0) {
+        if (error)
+            *error = QStringLiteral("Invalid immutable partial-media source");
+        return {};
+    }
+    // Do not use source paths or ETags as directory names. The digest also
+    // binds the cache to the remote revision, without exposing note names.
+    const auto sourceHash = QCryptographicHash::hash(
+        (provider + QLatin1Char('\n') + immutableSourceId).toUtf8(), QCryptographicHash::Sha256).toHex();
+    const auto root = rootPath_.isEmpty() ? Utils::anykeepDataDir() + QStringLiteral("/media") : rootPath_;
+    const QString directory = root + QStringLiteral("/partial/") + QString::fromLatin1(sourceHash.left(2))
+        + QLatin1Char('/') + QString::fromLatin1(sourceHash);
+    const auto key = masterKey(error);
+    if (key.size() != SecureEnvelope::MasterKeySize)
+        return {};
+    auto cache = std::make_shared<MediaPartialChunkCache>(
+        MediaPartialChunkCache::Format::LocallySealed, directory, QString::fromLatin1(sourceHash),
+        plainSize, ManagedChunkSize, key);
+    return cache->isValid() ? cache : std::shared_ptr<MediaPartialChunkCache> {};
 }
 
 LocalMediaResult LocalMediaStore::importFile(const QString &fileName, const QUuid &attachmentId)

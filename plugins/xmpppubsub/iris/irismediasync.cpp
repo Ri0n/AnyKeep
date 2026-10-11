@@ -1,5 +1,6 @@
 #include "irismediasync.h"
 #include "irisjinglepublicationprovider.h"
+#include "mediapartialchunkcache.h"
 #include <QDir>
 #include <QFile>
 #include <QPointer>
@@ -88,6 +89,7 @@ public:
     J::JinglePub                                         publication;
     MediaChunkWireParameters                             parameters;
     QString                                              directory;
+    std::unique_ptr<MediaPartialChunkCache>              partialCache;
     MediaReference                                       reference;
     quint64                                              verifiedPlain = 0;
     bool                                                 connected     = false;
@@ -108,12 +110,13 @@ public:
     Impl(IrisMediaSync *owner, XMPP::Client *c, J::JinglePub pub, MediaChunkWireParameters p, QString dir,
          int timeoutMs, MediaReference ref) :
         q(owner), client(c), publication(std::move(pub)), parameters(std::move(p)), directory(std::move(dir)),
-        reference(std::move(ref)), connected(c != nullptr), map(parameters.chunkCount()), timer(new QTimer(owner)),
+        partialCache(std::make_unique<MediaPartialChunkCache>(
+            MediaPartialChunkCache::Format::VerifiedOpaque, directory)), reference(std::move(ref)), connected(c != nullptr), map(parameters.chunkCount()), timer(new QTimer(owner)),
         timeout(qBound(1000, timeoutMs, 25000))
     {
         timer->setSingleShot(true);
         QObject::connect(timer, &QTimer::timeout, q, [this] { fail(QStringLiteral("Media gap handover timed out")); });
-        restore = QDir(directory).entryList(QDir::Files, QDir::Name);
+        restore = partialCache->storedChunkNames();
         QTimer::singleShot(0, q, [this] { restoreNext(); });
     }
 
@@ -157,26 +160,23 @@ public:
         report();
     }
 
-    QString    path(quint64 index) const { return directory + '/' + QString::number(index); }
     QByteArray load(quint64 index)
     {
         const auto expected = MediaChunkWire::wireChunkSize(parameters, index);
-        QFile      file(path(index));
-        if (!expected || !file.open(QIODevice::ReadOnly)) {
+        if (!expected) {
             invalidate(index);
             return {};
         }
-        if (quint64(file.size()) == *expected) {
-            auto bytes = file.readAll();
-            if (MediaChunkWire::decryptChunk(parameters, index, bytes)) {
-                markAvailable(index);
-                return bytes;
-            }
-        }
-        file.close();
-        file.remove();
-        invalidate(index);
-        return {};
+        auto bytes = partialCache->read(
+            index, qint64(*expected),
+            [this](quint64 i, const QByteArray &wire) {
+                return bool(MediaChunkWire::decryptChunk(parameters, i, wire));
+            });
+        if (!bytes.isEmpty())
+            markAvailable(index);
+        else
+            invalidate(index);
+        return bytes;
     }
 
     void restoreNext()
@@ -371,14 +371,12 @@ public:
                 const auto part = weak.lock();
                 if (!part || stopped || !error.isEmpty())
                     return IrisMediaChunkSink::Action::Error;
-                if (!QDir().mkpath(directory))
-                    return IrisMediaChunkSink::Action::Error;
-                QSaveFile file(path(index));
-                file.setDirectWriteFallback(false);
-                if (!file.open(QIODevice::WriteOnly))
-                    return IrisMediaChunkSink::Action::Error;
-                file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-                if (file.write(wire) != wire.size() || !file.commit())
+                const auto expected = MediaChunkWire::wireChunkSize(parameters, index);
+                if (!expected || !partialCache->write(
+                        index, wire, qint64(*expected),
+                        [this](quint64 i, const QByteArray &bytes) {
+                            return bool(MediaChunkWire::decryptChunk(parameters, i, bytes));
+                        }))
                     return IrisMediaChunkSink::Action::Error;
                 markAvailable(index);
                 deliver(index, wire);

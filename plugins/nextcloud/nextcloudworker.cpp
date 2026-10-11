@@ -77,6 +77,12 @@ NextcloudWorker::NextcloudWorker(QObject *parent) : QObject(parent) {}
 
 void NextcloudWorker::setConfig(const NextcloudConfig &config)
 {
+    // Streaming may pin the captured account again before each chunk.
+    // Preserve keep-alive connections when nothing changed; credentials or
+    // endpoint changes must still flush pooled/authenticated connections.
+    if (config_.serverUrl == config.serverUrl && config_.userName == config.userName
+        && config_.appPassword == config.appPassword && config_.timeoutMs == config.timeoutMs)
+        return;
     config_ = config;
     if (manager_) {
         manager_->clearAccessCache();
@@ -737,8 +743,11 @@ NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relat
         return result;
     }
     result.etag = QString::fromUtf8(headerValue(reply, QByteArrayLiteral("ETag"))).trimmed();
-    if (!ifMatchEtag.isEmpty() && !result.etag.isEmpty() && result.etag != ifMatchEtag) {
-        result.error = QStringLiteral("WebDAV media ETag changed between byte-range reads");
+    // If-Match must never silently degrade into an unverified cross-revision
+    // stream. Some misconfigured DAV proxies omit response ETags entirely;
+    // a pinned read then fails closed even if the server ignored If-Match.
+    if (!ifMatchEtag.isEmpty() && result.etag != ifMatchEtag) {
+        result.error = QStringLiteral("WebDAV media ETag is missing or changed between byte-range reads");
         return result;
     }
     result.data = reply.body;

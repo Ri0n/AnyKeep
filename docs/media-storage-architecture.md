@@ -445,6 +445,46 @@ orphan staging objects cannot be garbage-collected safely yet. Do not
 enable `supportsMedia()` before this and remote-only hydration/cleanup
 are exercised end-to-end on multiple clients.
 
+#### Nextcloud remote-only WebDAV media (first stage)
+
+For remote-native attachments larger than the eager import budget, a bounded
+one-byte WebDAV Range probe discovers the byte length and strong/pinnable
+opaque ETag. `loadNoteAsync()` returns stable `anykeep-media:` references
+with account-scoped identity, note ID, category and safe relative path, but
+does not materialize a 20 MiB+ video into plaintext RAM or touch encrypted
+local disk. The shared `MediaRangeService`/Qt multimedia HTTP bridge
+issues on-demand Range requests on the Nextcloud worker; each segment uses
+the discovered `If-Match` ETag and the expected total byte length.
+Changing the configured account invalidates the resolver. No remote URL
+with credentials is inserted into document content.
+
+The ranged bridge now uses **`MediaPartialChunkCache`**, extracted from
+the XMPP media implementation as a provider-neutral record store. The
+existing `IrisMediaSync` continues to validate and store opaque XMPP
+wire-encrypted records at the same numeric paths, preserving previously
+downloaded data. The Nextcloud adapter uses the same record store in
+locally sealed mode: a missing byte range hydrates its containing 1 MiB
+chunk, writes it via `SecureEnvelope` with the local media master key and
+revision/index-bound AAD, then serves authenticated plaintext to the
+existing local HTTP bridge. Subsequent seeks and process restarts verify
+the cached chunk without requesting WebDAV again. Corrupted records
+are removed and re-fetched from the same pinned ETag. Durable authenticated
+plaintext-byte progress is reported through `MediaSyncService`; transient
+wire transfer bytes are not counted.
+
+Nextcloud does not encrypt server-side bytes: native Notes clients continue
+to see ordinary Markdown and WebDAV files. Unlike XMPP, server-side
+WebDAV ETags and TLS ensure revision consistency and transport security,
+but do not provide an independent end-to-end signed file checksum.
+The partial-media cache is deliberately separate from complete managed
+`AKMC` blobs because a partial file has no authenticated complete
+content fingerprint yet.
+
+Remaining work: fully proactive prefetch, eviction, cancellation under
+rapid account changes, multi-device/native-client verification and safe
+orphan cleanup. `supportsMedia()` must stay disabled until the complete
+lifecycle is validated.
+
 ### XMPP implementation
 
 The Iris backend maps every XMPP attachment to

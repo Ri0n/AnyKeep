@@ -352,8 +352,12 @@ void NextcloudLiveTest::chunkedWebDavUploadRoundtrip()
     QVERIFY2(head.ok, qPrintable(head.error));
     QCOMPARE(head.totalSize, qint64(bytes.size()));
     QCOMPARE(head.data, bytes.left(16));
+    QVERIFY2(!head.etag.isEmpty(), "Nextcloud must provide a usable WebDAV ETag for pinned partial caching");
+    QVERIFY(!head.etag.startsWith(QStringLiteral("W/"), Qt::CaseInsensitive));
 
-    const auto boundary = worker.readWebDavRange(davPath, 5 * 1024 * 1024 - 4, 24);
+    // Exercise the same strong If-Match precondition that the partial cache
+    // uses on every uncached seek against a disposable real Nextcloud.
+    const auto boundary = worker.readWebDavRange(davPath, 5 * 1024 * 1024 - 4, 24, head.etag);
     QVERIFY2(boundary.ok, qPrintable(boundary.error));
     QCOMPARE(boundary.data, bytes.mid(5 * 1024 * 1024 - 4, 24));
 }
