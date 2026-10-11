@@ -32,6 +32,8 @@ public:
 
     // Native, non-encrypted Notes attachments: compatible with other clients.
     NextcloudSettingsResult getSettings();
+    // Create a Notes-native per-note attachment directory; 405 means it already exists.
+    NextcloudStatusResult       ensureWebDavFolder(const QString &relativeFolderPath);
     NextcloudWebDavUploadResult uploadWebDavChunks(const QString &relativeFilePath, QIODevice *source, qint64 size);
     NextcloudWebDavRangeResult readWebDavRange(const QString &relativeFilePath, qint64 offset, qint64 count);
 
