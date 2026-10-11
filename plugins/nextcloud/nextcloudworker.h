@@ -55,10 +55,11 @@ private:
     QUrl                   webDavFileUrl(const QString &relativeFilePath) const;
     QUrl                   webDavUploadUrl(const QString &uploadId) const;
     QNetworkRequest        makeRequest(const QUrl &url) const;
-    HttpResult             collectReply(QNetworkReply *reply);
+    HttpResult             collectReply(QNetworkReply *reply, qint64 maxBodyBytes = 32 * 1024 * 1024);
     HttpResult             performMultipart(const QUrl &url, QHttpMultiPart *multipart);
     HttpResult             perform(Method method, const QUrl &url, const QByteArray &body = {},
-                                   const QHash<QByteArray, QByteArray> &extraHeaders = {});
+                                   const QHash<QByteArray, QByteArray> &extraHeaders = {},
+                                   qint64 maxBodyBytes = 32 * 1024 * 1024);
 
     static QByteArray                         headerValue(const HttpResult &reply, const QByteArray &name);
     static QString                            errorText(const HttpResult &reply);
