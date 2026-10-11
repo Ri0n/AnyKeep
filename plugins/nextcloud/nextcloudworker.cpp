@@ -729,6 +729,7 @@ NextcloudWebDavUploadResult NextcloudWorker::uploadWebDavChunks(const QString &r
         auto request = makeRequest(url);
         request.setRawHeader("Destination", destinationHeader);
         request.setRawHeader("OC-Total-Length", sizeHeader);
+        request.setRawHeader("X-Requested-With", "XMLHttpRequest");
         return request;
     };
 
