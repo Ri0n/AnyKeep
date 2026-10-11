@@ -1,6 +1,7 @@
 #include "nextcloudworker.h"
 #include "nextcloudmedialinks.h"
 
+#include <QBuffer>
 #include <QCoreApplication>
 #include <QUuid>
 #include <QtTest>
@@ -42,6 +43,7 @@ private slots:
     void invalidPasswordIsRejected();
     void nativeAttachmentRoundtrip();
     void mediaLinkCodec();
+    void chunkedWebDavUploadRoundtrip();
 };
 
 void NextcloudLiveTest::initTestCase()
@@ -240,6 +242,50 @@ void NextcloudLiveTest::mediaLinkCodec()
                                                          {}, &error);
     QVERIFY(failed.isEmpty());
     QVERIFY(!error.isEmpty());
+}
+
+void NextcloudLiveTest::chunkedWebDavUploadRoundtrip()
+{
+    NextcloudWorker worker;
+    worker.setConfig(liveConfig());
+
+    const QString unique = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    NextcloudRemoteNote draft;
+    draft.title = QStringLiteral("AnyKeep chunked ") + unique;
+    draft.content = QStringLiteral("# Chunked test ") + unique;
+    draft.contentPresent = true;
+    draft.category = QStringLiteral("AnyKeep Integration/LargeFiles");
+    const auto note = worker.createNote(draft);
+    QVERIFY2(note.ok, qPrintable(note.error));
+    CleanupNote cleanup { worker, note.note.id };
+
+    const auto settings = worker.getSettings();
+    QVERIFY2(settings.ok, qPrintable(settings.error));
+    const QString fileName = unique + QStringLiteral(".bin");
+    const QString davPath = settings.notesPath + QLatin1Char('/')
+        + draft.category + QLatin1Char('/') + fileName;
+
+    QByteArray bytes(5 * 1024 * 1024 + 1024, char('x'));
+    bytes.replace(0, 8, QByteArrayLiteral("ANYKEEP!"));
+    bytes.replace(5 * 1024 * 1024, 8, QByteArrayLiteral("TAILTEST"));
+    QBuffer source(&bytes);
+    QVERIFY(source.open(QIODevice::ReadOnly));
+
+    const auto uploaded = worker.uploadWebDavChunks(davPath, &source, bytes.size());
+    QVERIFY2(uploaded.ok, qPrintable(uploaded.error));
+    QCOMPARE(uploaded.path, davPath);
+    QCOMPARE(source.pos(), qint64(bytes.size()));
+
+    // The two reads straddle the chunk boundary. Only requested bytes
+    // should be fetched by the plugin, regardless of the full file size.
+    const auto head = worker.readWebDavRange(davPath, 0, 16);
+    QVERIFY2(head.ok, qPrintable(head.error));
+    QCOMPARE(head.totalSize, qint64(bytes.size()));
+    QCOMPARE(head.data, bytes.left(16));
+
+    const auto boundary = worker.readWebDavRange(davPath, 5 * 1024 * 1024 - 4, 24);
+    QVERIFY2(boundary.ok, qPrintable(boundary.error));
+    QCOMPARE(boundary.data, bytes.mid(5 * 1024 * 1024 - 4, 24));
 }
 
 QTEST_GUILESS_MAIN(NextcloudLiveTest)
