@@ -38,6 +38,40 @@ The code appends `/index.php/apps/notes/api/v1`.
 - `favorite` is exposed through the generic note API and can be changed directly from the note editor.
 - There is no persistent offline cache and no three-way merge in this first version.
 
+## Interoperability and encryption policy
+
+Nextcloud Notes is an **interoperable, server-readable storage**. Do not apply
+AnyKeep's XMPP end-to-end encryption to Nextcloud note bodies, attachment
+payloads, paths or filenames. Server-side Notes clients (web, desktop and
+mobile) must be able to open and edit the same Markdown and attachments.
+Use HTTPS (except for an isolated loopback test server); Nextcloud's own
+server-side encryption and access policies are independent of AnyKeep.
+
+Local AnyKeep draft/media/cache encryption **remains enabled**. Decrypt locally
+at the provider boundary before publishing a file to Nextcloud; do not upload
+AnyKeep's internal encrypted blob format or `anykeep-media:` URI verbatim as
+the only attachment representation.
+
+**Planned media adapter (not yet implemented):**
+- Keep stable `MediaReference` identities in canonical drafts and local
+  manifests, but publish native relative Markdown links and native Nextcloud
+  file objects so other Notes clients can read them.
+- Use Notes attachment API where appropriate for supported server versions;
+  use WebDAV and chunked upload for large files, and WebDAV ranged reads
+  where supported. Detect API/server capabilities rather than assume a new
+  Notes attachment layout works on older installations.
+- Download/import native attachments into AnyKeep media references without
+  changing the source note unexpectedly. Preserve content when moving
+  between categories and avoid orphaned files during deletion or failed saves.
+- Preserve the remote note/attachment publication contract: never claim
+  a new attachment is durably published until its remote object is available.
+- Test with live Nextcloud Notes and a native-client-compatible Markdown
+  representation, including cross-client edit roundtrips.
+
+**Current status:** the Nextcloud plugin advertises `supportsMedia() == false`.
+Only note text, folders and favorites are supported. The live HTTP integration
+harness does **not** validate attachments or WebDAV; these are follow-up work.
+
 ## Credential storage
 
 This minimal integration stores the app password in `QSettings`, matching the plugin's other settings.
