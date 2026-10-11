@@ -107,6 +107,7 @@ private slots:
     void dirtyPublishIncludesFolderCategory();
     void mediaIsUploadedAndVerifiedBeforeMarkdownCommit();
     void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges();
+    void staleEtagPreventsAttachmentStaging();
 };
 
 void NextcloudStorageTest::metadataOnlyFolderMoveUsesCategoryPath()
@@ -359,6 +360,49 @@ void NextcloudStorageTest::nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges(
     QVERIFY(server.requests().at(2).contains("Range: bytes=0-0\r\n"));
     QVERIFY(server.requests().at(3).contains(
         QByteArrayLiteral("Range: bytes=1-") + QByteArray::number(bytes.size() - 1) + "\r\n"));
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+void NextcloudStorageTest::staleEtagPreventsAttachmentStaging()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("media")),
+                               SecureEnvelope::generateMasterKey());
+    const auto imported = mediaStore.importData(QByteArrayLiteral("unchanged-source"),
+                                                QStringLiteral("image.png"), QStringLiteral("image/png"));
+    QVERIFY2(imported, qPrintable(imported.error));
+
+    ScriptedHttpServer server({
+        noteJson(QStringLiteral("42"), QStringLiteral("changed-on-server"), QString(), 2100000000)
+    });
+    QVERIFY(server.listen());
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 1000);
+
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto note = storage.createNote();
+    note.setId(QStringLiteral("42"));
+    note.setBackendValue(QStringLiteral("etag"), QStringLiteral("stale-etag"));
+    note.setMedia({ imported.value });
+    note.setText(QStringLiteral("![image](") + imported.value.uri() + QLatin1Char(')'), Note::Markdown);
+
+    auto *saved = storage.saveNoteAsync(note);
+    QTRY_VERIFY(saved->isFinished());
+    QCOMPARE(saved->state(), StorageJob::Failed);
+    QCOMPARE(saved->error().code, StorageError::Conflict);
+    QVERIFY(!saved->error().retryable);
+    QCOMPARE(server.requests().size(), 1); // No upload, no destructive Markdown PUT.
+    QVERIFY(server.requests().first().startsWith("GET /index.php/apps/notes/api/v1/notes/42 "));
+    saved->deleteLater();
+
     settings.remove(QStringLiteral("storage.nextcloud.url"));
     settings.remove(QStringLiteral("storage.nextcloud.username"));
     settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
