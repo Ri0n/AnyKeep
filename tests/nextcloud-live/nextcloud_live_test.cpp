@@ -1,4 +1,5 @@
 #include "nextcloudworker.h"
+#include "nextcloudmedialinks.h"
 
 #include <QCoreApplication>
 #include <QUuid>
@@ -40,6 +41,7 @@ private slots:
     void createReadUpdateConflictDelete();
     void invalidPasswordIsRejected();
     void nativeAttachmentRoundtrip();
+    void mediaLinkCodec();
 };
 
 void NextcloudLiveTest::initTestCase()
@@ -201,6 +203,31 @@ void NextcloudLiveTest::nativeAttachmentRoundtrip()
     const auto reopened = worker.getNote(created.note.id);
     QVERIFY2(reopened.ok, qPrintable(reopened.error));
     QCOMPARE(reopened.note.content, note.content);
+}
+
+void NextcloudLiveTest::mediaLinkCodec()
+{
+    const QString uri = QStringLiteral("anykeep-media:/01234567-89ab-cdef-0123-456789abcdef/picture.png");
+    const QString body = QStringLiteral("![picture](") + uri + QStringLiteral(")\n<audio controls src=\"")
+        + uri + QStringLiteral("\"></audio>\n```md\n![literal](") + uri + QStringLiteral(")\n```");
+    QString error;
+    const QString native = NextcloudMediaLinks::toNative(
+        body, { { uri, QStringLiteral(".attachments.42/picture name.png") } }, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY(native.contains(QStringLiteral("![picture](.attachments.42/picture%20name.png)")));
+    QVERIFY(native.contains(QStringLiteral("src=\".attachments.42/picture%20name.png\"")));
+    QVERIFY(native.contains(QStringLiteral("![literal](") + uri + QLatin1Char(')')));
+
+    const auto paths = NextcloudMediaLinks::referencedNativePaths(native);
+    QCOMPARE(paths, QStringList({ QStringLiteral(".attachments.42/picture name.png") }));
+    QVERIFY(!NextcloudMediaLinks::isSafeNativePath(QStringLiteral("../private")));
+    QVERIFY(!NextcloudMediaLinks::isSafeNativePath(QStringLiteral("%2E%2E/private")));
+    QVERIFY(!NextcloudMediaLinks::isSafeNativePath(QStringLiteral("https://external/file.png")));
+
+    const QString failed = NextcloudMediaLinks::toNative(QStringLiteral("![x](") + uri + QLatin1Char(')'),
+                                                         {}, &error);
+    QVERIFY(failed.isEmpty());
+    QVERIFY(!error.isEmpty());
 }
 
 QTEST_GUILESS_MAIN(NextcloudLiveTest)
