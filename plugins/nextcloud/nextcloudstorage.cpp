@@ -114,7 +114,8 @@ namespace {
         QList<MediaReference> media;
     };
 
-    bool prepareAttachments(const Note &note, QList<PreparedAttachment> *prepared, QString *error)
+    bool prepareAttachments(const Note &note, LocalMediaStore *store, QList<PreparedAttachment> *prepared,
+                            QString *error)
     {
         if (note.media().isEmpty())
             return true;
@@ -123,7 +124,6 @@ namespace {
             return false;
         }
 
-        auto *store = LocalMediaStore::instance();
         if (!store->initialize(error))
             return false;
 
@@ -166,9 +166,11 @@ namespace {
 
 } // namespace
 
-NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folderCatalogManager) :
+NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folderCatalogManager,
+                                   LocalMediaStore *mediaStore) :
     NoteStorage(parent),
-    folderCatalogManager_(folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance())
+    folderCatalogManager_(folderCatalogManager ? folderCatalogManager : FolderCatalogManager::instance()),
+    mediaStore_(mediaStore ? mediaStore : LocalMediaStore::instance())
 {
     workerThread_.setObjectName(QStringLiteral("AnyKeepNextcloudWorker"));
     worker_ = new NextcloudWorker;
@@ -814,7 +816,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
     const bool hasMedia = !note.media().isEmpty();
     QList<PreparedAttachment> attachments;
     QString preparationError;
-    if (hasMedia && !prepareAttachments(note, &attachments, &preparationError)) {
+    if (hasMedia && !prepareAttachments(note, mediaStore_, &attachments, &preparationError)) {
         job->fail({ StorageError::Other, preparationError, false });
         return job;
     }
