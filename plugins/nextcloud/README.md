@@ -68,9 +68,18 @@ the only attachment representation.
 - Test with live Nextcloud Notes and a native-client-compatible Markdown
   representation, including cross-client edit roundtrips.
 
-**Current status:** the Nextcloud plugin advertises `supportsMedia() == false`.
-Only note text, folders and favorites are supported. The live HTTP integration
-harness does **not** validate attachments or WebDAV; these are follow-up work.
+**Implementation in progress:** `NextcloudWorker` now has native Notes v1.4
+multipart attachment upload/download, WebDAV chunked v2 upload with an
+atomic final MOVE, capability/settings lookup, and bounded HTTP Range reads.
+`NextcloudMediaLinks` translates canonical URI targets to safe native Markdown
+paths. The disposable-server live test exercises these HTTP operations.
+
+However `NextcloudStorage` still advertises `supportsMedia() == false`:
+the editor/draft lifecycle and remote MediaReference hydration are not
+connected yet. Do not enable media until source/destination publication,
+cross-client imports, category moves, crash recovery and cleanup are covered.
+The Notes multipart endpoint buffers uploads on the server and is not a
+substitute for WebDAV large-file transfers.
 
 ## Credential storage
 
