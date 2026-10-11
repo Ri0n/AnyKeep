@@ -78,6 +78,16 @@ jobs:
         run: |
           set -euo pipefail
           docker exec --user www-data anykeep-notes-ci php occ app:install notes
+          # Exercise the same app-password authentication that real AnyKeep
+          # users configure; account passwords can be rejected for DAV writes.
+          token_output="$(docker exec --env "NC_PASS=${NEXTCLOUD_TEST_PASSWORD}" \
+            --user www-data anykeep-notes-ci php occ --no-ansi \
+            user:auth-tokens:add --password-from-env "${NEXTCLOUD_TEST_USER}")"
+          token="$(printf '%s\\n' "$token_output" | sed -n 's/.*app password:[[:space:]]*//p' | tail -n1)"
+          test -n "$token"
+          echo "::add-mask::$token"
+          echo "NEXTCLOUD_TEST_PASSWORD=$token" >> "$GITHUB_ENV"
+          NEXTCLOUD_TEST_PASSWORD="$token"
           # Apache may briefly reset connections while app:install activates
           # Notes; wait for the HTTP endpoint rather than racing activation.
           curl --retry 20 --retry-all-errors --retry-delay 2 \
