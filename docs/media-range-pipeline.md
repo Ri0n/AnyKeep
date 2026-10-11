@@ -1,6 +1,10 @@
 # Shared remote-media range pipeline (proposed)
 
-Status: **design proposal, not implemented**. Base implementation: PR #155, squash commit `af3c0fe`.
+Status: **work in progress** on PR #156. Base remote-range implementation: PR #155,
+squash commit `af3c0fe`. The first code slice routes opaque XMPP
+partial-cache reads/writes (both Jingle and HTTP) through a factory in
+`LocalMediaStore`; the shared scheduler, request cancellation and async
+WebDAV transport remain proposed, not implemented.
 See [media storage architecture](media-storage-architecture.md) for the persistent data model, security constraints,
 and the current ranged playback design.
 
@@ -27,7 +31,7 @@ network traffic*, not just the number of queued range requests.
 | --- | --- | --- |
 | `MediaRangeService` | Loopback HTTP server for `QMediaPlayer`: parses HTTP Range; asynchronously requests 64 KiB slices; throttles socket writes; only the first read of each GET may reprioritize retrieval | Cancellation propagated upstream on socket disconnect, explicit per-player demand/session tracking |
 | `MediaSyncService` | Publishes and observes *durably verified* byte counts and download states | Intentionally not a scheduler; keep it separate |
-| `LocalMediaStore` / `MediaPartialChunkCache` | Shared storage layer already exposes `LocalMediaStore::partialMediaCache()` for Nextcloud. The returned shared `MediaPartialChunkCache` stores locally sealed, reauthenticated 1 MiB records under `media/partial/`. The same cache class also accepts `VerifiedOpaque` XMPP wire records, which Iris currently constructs itself in its existing `media-ranges/` directory. | Make `LocalMediaStore` the sole factory/namespace and lifecycle authority for **both** partial-cache representations; move scheduling and network requests **out** of the storage layer |
+| `LocalMediaStore` / `MediaPartialChunkCache` | Shared storage exposes `partialMediaCache()` for sealed Nextcloud plaintext records and (in PR #156) `opaqueMediaCache()` for verified XMPP ciphertext, both under `media/partial/`; reads authenticate individual records. | Shared cache lifecycle/quotas/eviction and a separate network scheduler; the cache itself must not schedule transfers |
 | `NextcloudStorage` + `NextcloudWorker` | Pinned-ETag WebDAV reads; playback Range resolver; bounded encrypted cache | Uses storage-wide FIFO after PR #155 to avoid reentrancy of `collectReply()`; no independent-chunk parallelism or request cancellation |
 | `IrisMediaSync` | One XMPP media sync per source, verified opaque chunks, gap/seek priority, and overlapping old/new Jingle content during BUNDLE handover (old partial chunk drains while new content is negotiated); different media syncs can coexist | Global admission/bandwidth budgeting across independent media and providers; retain existing safe Jingle overlap and receipt ordering |
 | `MediaStream` / `MediaSource` | Seekable synchronous access to *already available* verified local bytes | Remain local-only; do not put network/blocking reads into `QIODevice::readData()` |
@@ -83,11 +87,13 @@ directory construction, encryption keys or garbage collection. Do **not**
 require Nextcloud to store AnyKeep ciphertext remotely; native Notes/WebDAV
 clients must remain interoperable.
 
-**Current deviation:** Iris still uses `MediaPartialChunkCache(VerifiedOpaque,
-directory)` directly and its durable numeric files live in
-`<AnyKeep data>/media-ranges/<hash>/`. The present
-`LocalMediaStore::partialMediaCache()` supports only locally sealed
-Nextcloud-shaped chunks, so the factory needs to be extended.
+**Implementation in PR #156:** `LocalMediaStore::opaqueMediaCache()`
+now provides verified opaque XMPP wire-record handles under the profile's
+`media/partial/` namespace, domain-separated from locally sealed Nextcloud
+records. Both `IrisMediaSync` and Iris HTTP media range reads use this shared
+factory; `IrisMediaSync` receives the cache handle rather than its own disk
+directory. The prior `media-ranges/` paths are no longer consulted.
+The shared download coordinator and scheduler are still future work.
 
 **Nightly-only cache compatibility policy:** no on-disk backwards compatibility
 or cache migration is required for partial XMPP media. When switching to the
@@ -221,7 +227,8 @@ interoperability or portable published note formats.
    handover/receipt regression coverage.
 2. **Unify partial-cache ownership and extract the coordinator.** Extend
    `LocalMediaStore` with a handle/factory for locally sealed plaintext
-   records and verified opaque XMPP wire records. Use a single cache namespace
+   records and verified opaque XMPP wire records (**implemented as the first
+   PR #156 code slice**). Use a single cache namespace
    and current format, with no migration/compatibility reader for the obsolete
    XMPP `media-ranges/` partial cache: invalidate it, treat it as a miss and
    resynchronize remotely. Do not delete original managed blobs or notes.
