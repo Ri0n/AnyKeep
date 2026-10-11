@@ -388,11 +388,12 @@ Category moves block legacy/unknown relative links rather than breaking
 them; the move response preserves matching canonical local media manifests.
 
 This is **partial** and not yet a supported editor workflow:
-`NextcloudStorage::supportsMedia()` remains false. New-note media creation,
-full cross-device hydration,
-progressive playback, zero-byte attachment support, persistent retry
-receipts, reference-aware cleanup, safe migration of legacy sibling links
-before moves, and multi-device/native-client end-to-end verification still
+`NextcloudStorage::supportsMedia()` remains false. The initial new-note
+creation/recovery transaction exists, but fully automatic resolution of
+an ambiguous, undiscoverable POST, full cross-device hydration,
+progressive playback, zero-byte attachment support, remote-only manifests,
+reference-aware cleanup, safe migration of legacy sibling links before
+moves, and multi-device/native-client end-to-end verification still
 need implementation. An interrupted update can leave remote staged orphans;
 it must never delete the local durable draft or its blob.
 
@@ -422,6 +423,27 @@ Test native-client edits, interrupted publication, conflict recovery, stale
 remote paths, category moves, zero-byte and large attachments, and multi-device
 rehydration before enabling the capability. This policy is independent of the
 XMPP E2EE transport described below.
+
+#### Recoverable Nextcloud Notes media creation
+
+The Nextcloud adapter assigns new server note IDs through a two-phase
+transaction. A durable `DraftRecord.id` becomes an opaque publication UUID.
+The worker records a create-attempt tombstone (scoped by hashed server and
+account) before issuing POST, and creates only a temporary Markdown note
+with a marker. If the server response is ambiguous, the next attempt
+must discover that exact marker before any file staging or final Markdown
+write; it must **not issue a second POST**. Once known, the server ID remains
+in the journal so retries after a crash or lost final PUT acknowledgment can
+validate the native Markdown and content-addressed WebDAV files without
+duplicate notes. Native-client edits to the placeholder are conflicts.
+
+The draft and its encrypted local media are not cleared until the storage
+save acknowledges publication. Journal state does not contain note plaintext
+or credentials. Ambiguous POSTs that never become discoverable remain
+fail-closed and may need manual reconciliation; remote placeholders and
+orphan staging objects cannot be garbage-collected safely yet. Do not
+enable `supportsMedia()` before this and remote-only hydration/cleanup
+are exercised end-to-end on multiple clients.
 
 ### XMPP implementation
 
@@ -823,24 +845,3 @@ partial progress. Legacy single-object and HTTP-only transports currently
 have no per-record durable progress feed; locally materialized files can
 still report completion. Extending the provider-neutral observation
 contract to other storage backends requires no changes to the shared UI.
-
-### Recoverable Nextcloud Notes media creation
-
-The Nextcloud adapter assigns new server note IDs through a two-phase
-transaction. A durable `DraftRecord.id` becomes an opaque publication UUID.
-The worker records a create-attempt tombstone (scoped by hashed server and
-account) before issuing POST, and creates only a temporary Markdown note
-with a marker. If the server response is ambiguous, the next attempt
-must discover that exact marker before any file staging or final Markdown
-write; it must **not issue a second POST**. Once known, the server ID remains
-in the journal so retries after a crash or lost final PUT acknowledgment can
-validate the native Markdown and content-addressed WebDAV files without
-duplicate notes. Native-client edits to the placeholder are conflicts.
-
-The draft and its encrypted local media are not cleared until the storage
-save acknowledges publication. Journal state does not contain note plaintext
-or credentials. Ambiguous POSTs that never become discoverable remain
-fail-closed and may need manual reconciliation; remote placeholders and
-orphan staging objects cannot be garbage-collected safely yet. Do not
-enable `supportsMedia()` before this and remote-only hydration/cleanup
-are exercised end-to-end on multiple clients.
