@@ -1,6 +1,7 @@
 #include "iris/irismediasync.h"
 #include "iris/irisxmppbackend.h"
 #include "localmediastore.h"
+#include "mediapartialchunkcache.h"
 #include "mediarangeservice.h"
 #include "secureenvelope.h"
 #include "utils.h"
@@ -176,9 +177,11 @@ private slots:
             QVERIFY(parameters.chunkCount() > 8);
             const QByteArray identity = parameters.rootKey + parameters.noncePrefix + parameters.plainChecksum
                 + QByteArray::number(parameters.plainSize) + ':' + QByteArray::number(parameters.chunkSize);
-            const QString cacheDirectory = Utils::anykeepDataDir() + QStringLiteral("/media-ranges/")
-                + QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
-            QVERIFY(QDir().mkpath(cacheDirectory));
+            const QString cacheId =
+                QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
+            auto partialCache = store->opaqueMediaCache(QStringLiteral("xmpp"), cacheId);
+            QVERIFY(partialCache);
+            QString cacheDirectory;
             const QSet<quint64> seeded { parameters.chunkCount() / 4, parameters.chunkCount() / 4 + 1,
                                          parameters.chunkCount() / 2, parameters.chunkCount() / 2 + 1,
                                          parameters.chunkCount() - 2, parameters.chunkCount() - 1 };
@@ -190,9 +193,22 @@ private slots:
                 const auto record
                     = MediaChunkWire::encryptChunk(parameters, index, seedOriginal.read(parameters.chunkSize));
                 QVERIFY(record);
+                QVERIFY(partialCache->write(index, record.value, record.value.size(),
+                                            [parameters](quint64 i, const QByteArray &wire) {
+                                                return bool(MediaChunkWire::decryptChunk(parameters, i, wire));
+                                            }));
+                // The cache owns the opaque physical namespace. Discover its
+                // location here only to assert that a cache hit is not
+                // overwritten by the live range downloader.
+                if (cacheDirectory.isEmpty()) {
+                    QDirIterator files(Utils::anykeepDataDir() + QStringLiteral("/media/partial"),
+                                       QStringList {QString::number(index)}, QDir::Files,
+                                       QDirIterator::Subdirectories);
+                    QVERIFY(files.hasNext());
+                    cacheDirectory = QFileInfo(files.next()).absolutePath();
+                }
                 QFile file(cacheDirectory + '/' + QString::number(index));
-                QVERIFY(file.open(QIODevice::WriteOnly));
-                QCOMPARE(file.write(record.value), record.value.size());
+                QVERIFY(file.open(QIODevice::ReadWrite));
                 QVERIFY(file.setFileTime(seededTime, QFileDevice::FileModificationTime));
             }
             struct RequestedGap {
@@ -302,7 +318,7 @@ private slots:
             player.setSource(QUrl());
 #endif
             qint64       cachedBytes = 0;
-            QDirIterator cache(Utils::anykeepDataDir() + QStringLiteral("/media-ranges"), QDir::Files,
+            QDirIterator cache(Utils::anykeepDataDir() + QStringLiteral("/media/partial"), QDir::Files,
                                QDirIterator::Subdirectories);
             while (cache.hasNext()) {
                 cache.next();
