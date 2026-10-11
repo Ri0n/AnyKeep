@@ -685,13 +685,16 @@ void NextcloudStorageTest::successfulRemoteCommitSurvivesLostMarkdownAcknowledgm
 void NextcloudStorageTest::recoveredCreationRejectsUnrelatedNativeEdit_data()
 {
     QTest::addColumn<bool>("preserveMarker");
-    QTest::newRow("native-client-replaces-placeholder") << false;
-    QTest::newRow("native-client-appends-but-keeps-marker") << true;
+    QTest::addColumn<bool>("changeFavorite");
+    QTest::newRow("native-client-replaces-placeholder") << false << false;
+    QTest::newRow("native-client-appends-but-keeps-marker") << true << false;
+    QTest::newRow("native-client-changes-favorite") << true << true;
 }
 
 void NextcloudStorageTest::recoveredCreationRejectsUnrelatedNativeEdit()
 {
     QFETCH(bool, preserveMarker);
+    QFETCH(bool, changeFavorite);
     QVERIFY(FileFolderCatalogStore::cryptoAvailable());
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -706,11 +709,16 @@ void NextcloudStorageTest::recoveredCreationRejectsUnrelatedNativeEdit()
         + QStringLiteral("<!-- anykeep-media-create:") + token + QStringLiteral(" -->");
     const auto pending = noteWithContent(QStringLiteral("88"), QStringLiteral("etag-1"),
                                          pendingTitle, pendingBody);
-    const auto edited = noteWithContent(QStringLiteral("88"), QStringLiteral("etag-2"),
-                                        preserveMarker ? pendingTitle
-                                                       : QStringLiteral("Edited by another client"),
-                                        preserveMarker ? pendingBody + QStringLiteral("\nNative client's addition")
-                                                       : QStringLiteral("# Native client's unrelated edit"));
+    auto editedBody = preserveMarker ? pendingBody : QStringLiteral("# Native client's unrelated edit");
+    if (preserveMarker && !changeFavorite)
+        editedBody += QStringLiteral("\nNative client's addition");
+    auto editedObject = QJsonDocument::fromJson(
+        noteWithContent(QStringLiteral("88"), QStringLiteral("etag-2"),
+                        preserveMarker ? pendingTitle : QStringLiteral("Edited by another client"),
+                        editedBody)).object();
+    if (changeFavorite)
+        editedObject.insert(QStringLiteral("favorite"), true);
+    const auto edited = QJsonDocument(editedObject).toJson(QJsonDocument::Compact);
     ScriptedHttpServer server({
         pending, // original create note
         httpError(503, QByteArrayLiteral("Service Unavailable")), // initial get fails
