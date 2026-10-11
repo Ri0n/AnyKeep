@@ -6,6 +6,7 @@
 #include <QByteArray>
 #include <QString>
 #include <QStringList>
+#include <QSet>
 #include <QtGlobal>
 #include <functional>
 
@@ -38,12 +39,13 @@ public:
     // Restore and authenticate on the caller's worker thread. Only sealed
     // records have known plaintext chunk geometry; no remote fetch occurs.
     qint64 restoreVerifiedBytes() const;
+    qint64 verifiedBytes() const { return verifiedBytes_; }
     qint64 expectedPlainSize(quint64 index) const;
 
 private:
     QString path(quint64 index) const;
     bool requestValid(quint64 index, qint64 expectedBytes) const;
-    QString recordIdentity(quint64 index) const;
+    void track(quint64 index, qint64 size, bool available) const;
 
     Format format_;
     QString directory_;
@@ -51,6 +53,10 @@ private:
     qint64 totalPlainSize_ { 0 };
     qint64 chunkSize_ { 0 };
     QByteArray masterKey_;
+    // Accessed only by the owning storage worker, not the GUI thread.
+    mutable QSet<quint64> verified_;
+    mutable qint64 verifiedBytes_ { 0 };
+    mutable bool restored_ { false };
 };
 
 } // namespace AnyKeep

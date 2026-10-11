@@ -62,9 +62,16 @@ QString MediaPartialChunkCache::path(quint64 index) const
     return directory_ + QLatin1Char('/') + QString::number(index);
 }
 
-QString MediaPartialChunkCache::recordIdentity(quint64 index) const
+void MediaPartialChunkCache::track(quint64 index, qint64 size, bool available) const
 {
-    return identity_ + QLatin1Char(':') + QString::number(index);
+    if (format_ != Format::LocallySealed)
+        return;
+    if (available && !verified_.contains(index)) {
+        verified_.insert(index);
+        verifiedBytes_ += size;
+    } else if (!available && verified_.remove(index)) {
+        verifiedBytes_ -= size;
+    }
 }
 
 QStringList MediaPartialChunkCache::storedChunkNames() const
@@ -86,13 +93,16 @@ QByteArray MediaPartialChunkCache::read(quint64 index, qint64 expectedBytes, Ver
     }
 
     QFile file(path(index));
-    if (!file.exists())
+    if (!file.exists()) {
+        track(index, expectedBytes, false);
         return {};
+    }
     const qint64 limit = expectedBytes + (format_ == Format::LocallySealed ? MaxEnvelopeOverhead : 0);
     if (!file.open(QIODevice::ReadOnly) || !QFileInfo(file).isFile() || QFileInfo(file).isSymLink()
         || file.size() <= 0 || file.size() > limit) {
         file.close();
         QFile::remove(path(index));
+        track(index, expectedBytes, false);
         if (error)
             *error = QStringLiteral("Unusable partial-media cache record");
         return {};
@@ -110,10 +120,13 @@ QByteArray MediaPartialChunkCache::read(quint64 index, qint64 expectedBytes, Ver
     } else if (fullRead) {
         plain = stored;
     }
-    if (plain.size() == expectedBytes && (!verify || verify(index, plain)))
+    if (plain.size() == expectedBytes && (!verify || verify(index, plain))) {
+        track(index, expectedBytes, true);
         return plain;
+    }
 
     QFile::remove(path(index));
+    track(index, expectedBytes, false);
     if (error)
         *error = QStringLiteral("Partial-media cache record failed authentication");
     return {};
@@ -159,6 +172,7 @@ bool MediaPartialChunkCache::write(quint64 index, const QByteArray &bytes, qint6
             *error = QStringLiteral("Could not commit authenticated media record");
         return false;
     }
+    track(index, expectedBytes, true);
     return true;
 }
 
@@ -166,16 +180,20 @@ qint64 MediaPartialChunkCache::restoreVerifiedBytes() const
 {
     if (!isValid() || format_ != Format::LocallySealed)
         return 0;
-    qint64 available = 0;
+    if (restored_)
+        return verifiedBytes_;
+    restored_ = true;
+    verified_.clear();
+    verifiedBytes_ = 0;
     for (const QString &name : storedChunkNames()) {
         bool ok = false;
         const quint64 index = name.toULongLong(&ok);
         if (!ok || QString::number(index) != name)
             continue;
         const qint64 expected = expectedPlainSize(index);
-        if (expected > 0 && !read(index, expected).isEmpty())
-            available += expected;
+        if (expected > 0)
+            read(index, expected);
     }
-    return available;
+    return verifiedBytes_;
 }
 } // namespace AnyKeep

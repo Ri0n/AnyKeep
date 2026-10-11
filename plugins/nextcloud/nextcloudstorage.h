@@ -81,8 +81,6 @@ private:
     LocalMediaStore     *mediaStore_ { nullptr };
     // Created on the application thread, then operated on only by the worker.
     QHash<QString, std::shared_ptr<MediaPartialChunkCache>> partialCaches_;
-    // Accessed exclusively by the serialized Nextcloud worker queue.
-    QHash<QString, qint64> partialVerifiedBytes_;
     QHash<QString, Note>  cache_;
     // Successful writes may briefly be absent from an eventually consistent
     // list response. Keep them until the server snapshot acknowledges them.

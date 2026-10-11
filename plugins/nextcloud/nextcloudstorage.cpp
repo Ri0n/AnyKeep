@@ -512,7 +512,6 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
             }
             // LocalMediaStore resolves the profile keychain key on this
             // application thread, before handing a cache to the worker.
-            const QString identity = mediaCacheIdentity(ref, config);
             const auto cache = partialCacheFor(ref, config, &error);
             if (!cache) {
                 done({}, error.isEmpty() ? QStringLiteral("Cannot unlock encrypted media cache") : error);
@@ -524,20 +523,16 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
             QPointer<NextcloudStorage> owner(this);
             QMetaObject::invokeMethod(
                 worker_,
-                [this, owner, config, category, remotePath, pinnedEtag, identity, cache, ref, offset, count,
+                [this, owner, config, category, remotePath, pinnedEtag, cache, ref, offset, count,
                  done = std::move(done)]() mutable {
                     if (!owner)
                         return;
                     worker_->setConfig(config);
-                    auto existing = partialVerifiedBytes_.constFind(identity);
-                    if (existing == partialVerifiedBytes_.cend()) {
-                        partialVerifiedBytes_.insert(identity, cache->restoreVerifiedBytes());
-                        existing = partialVerifiedBytes_.constFind(identity);
-                    }
-                    auto publish = [this, &ref, &identity](MediaSyncSnapshot::State state, const QString &error = {}) {
+                    cache->restoreVerifiedBytes();
+                    auto publish = [cache, &ref](MediaSyncSnapshot::State state, const QString &error = {}) {
                         MediaSyncSnapshot snapshot;
                         snapshot.totalBytes = ref.size;
-                        snapshot.verifiedBytes = partialVerifiedBytes_.value(identity);
+                        snapshot.verifiedBytes = cache->verifiedBytes();
                         snapshot.state = state;
                         snapshot.error = error;
                         MediaSyncService::instance()->publish(ref, snapshot);
@@ -589,7 +584,6 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
                                 break;
                             }
                             bytes = remote.data;
-                            partialVerifiedBytes_[identity] += expected;
                             publish(MediaSyncSnapshot::Transferring);
                         }
                         const qint64 inner = cursor - chunkOffset;
@@ -632,20 +626,15 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
                     MediaSyncService::instance()->publish(ref, state);
                     return;
                 }
-                const QString identity = mediaCacheIdentity(ref, config);
                 QPointer<NextcloudStorage> owner(this);
                 QMetaObject::invokeMethod(
-                    worker_, [this, owner, cache, ref, identity] {
+                    worker_, [owner, cache, ref] {
                         if (!owner)
                             return;
-                        auto it = partialVerifiedBytes_.constFind(identity);
-                        if (it == partialVerifiedBytes_.cend()) {
-                            partialVerifiedBytes_.insert(identity, cache->restoreVerifiedBytes());
-                            it = partialVerifiedBytes_.constFind(identity);
-                        }
+                        cache->restoreVerifiedBytes();
                         MediaSyncSnapshot state;
                         state.totalBytes = ref.size;
-                        state.verifiedBytes = it.value();
+                        state.verifiedBytes = cache->verifiedBytes();
                         state.state = MediaSyncSnapshot::Waiting;
                         MediaSyncService::instance()->publish(ref, state);
                     }, Qt::QueuedConnection);
