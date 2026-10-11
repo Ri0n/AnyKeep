@@ -108,7 +108,7 @@ namespace {
     // Individual QIODevice reads and WebDAV chunks are bounded. An upload can
     // represent a large local object without ever materializing the whole
     // plaintext in RAM. The worker's chunked-v2 protocol has a 50 GiB bound.
-    constexpr qint64 MaxNativeAttachmentBytes = 50LL * 1024 * 1024 * 1024;
+    constexpr qint64 MaxNativeAttachmentBytes = 5LL * 1024 * 1024 * 10000;
     constexpr qint64 StreamReadSize = 1024 * 1024;
 
     struct PreparedAttachment {
