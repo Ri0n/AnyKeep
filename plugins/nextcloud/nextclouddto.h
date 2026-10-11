@@ -1,6 +1,7 @@
 #ifndef NEXTCLOUDDTO_H
 #define NEXTCLOUDDTO_H
 
+#include <QByteArray>
 #include <QList>
 #include <QString>
 #include <QUrl>
@@ -34,6 +35,27 @@ struct NextcloudStatusResult {
     bool    ok { false };
     int     httpStatus { 0 };
     QString error;
+};
+
+struct NextcloudSettingsResult : NextcloudStatusResult {
+    QString notesPath;
+};
+
+struct NextcloudWebDavUploadResult : NextcloudStatusResult {
+    QString path;
+};
+
+struct NextcloudWebDavRangeResult : NextcloudStatusResult {
+    QByteArray data;
+    qint64 totalSize { -1 };
+    // Opaque WebDAV ETag, including quotes. A multi-range reader can use
+    // If-Match to ensure a seek never joins different file revisions.
+    QString etag;
+};
+
+struct NextcloudAttachmentResult : NextcloudStatusResult {
+    QString path;
+    QByteArray data;
 };
 
 struct NextcloudListResult : NextcloudStatusResult {

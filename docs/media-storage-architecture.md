@@ -341,6 +341,84 @@ flowchart LR
     API --> OTHER["Other storage-specific transport"]
 ```
 
+### Nextcloud interoperability policy (planned backend)
+
+Nextcloud is a deliberately **non-E2EE** backend so native Nextcloud Notes
+clients can read and edit notes and media. Notes bodies remain ordinary
+Markdown; attachment bytes must be uploaded as native, server-readable files,
+not as AnyKeep/XMPP encrypted transport payloads. Use HTTPS in transit; remote
+storage protection/access control belongs to Nextcloud. Locally, the normal
+AnyKeep encrypted draft, cache and `LocalMediaStore` representations are
+unchanged. Decryption happens inside the provider adapter before HTTPS upload.
+
+Keep `anykeep-media:` UUIDs as the canonical logical document identity in
+AnyKeep's durable drafts. Map those identities to native relative Markdown
+links and files when publishing, and back to `MediaReference` on import.
+Do not expose internal UUID URLs without a native readable file target.
+Plan for attachment path changes during category moves, deduplication, cleanup
+and crash-safe publication. Large uploads should use WebDAV/chunked upload,
+and ranged playback should use the same shared media stream abstraction when
+WebDAV HTTP Range is supported. Notes attachment endpoints, file layout,
+WebDAV behavior and API versions must be detected and verified against a
+real server, including edits made by native Notes clients.
+
+The Nextcloud worker implements Notes v1.4 attachment APIs as compatibility
+primitives, WebDAV chunked-v2 uploads, and bounded HTTP Range requests.
+The storage's existing-note async publication path uses the **web-native**
+`.attachments.<noteId>/` directory, not Notes 5.0.2's legacy REST
+attachment upload target. On that older Notes version, attachment REST uploads
+are siblings of the Markdown document and become inaccessible after a
+category move; the real-server regression test reproduces this 404. The
+web-native per-note directory follows the moved note (verified by live test).
+
+Before a Markdown update the adapter reads its local immutable content,
+checks the known ETag, stages files using unique deterministic names and
+WebDAV atomic MOVE (no overwrite), and verifies remote bytes with capped
+HTTP Range reads. A previously verified receipt can be reused; a file
+changed by another client causes a conflict, not an overwrite. The server
+receives standard relative Markdown URLs; the local note retains stable
+`anykeep-media:` links and remote path receipts. On another device,
+`loadNoteAsync()` imports bounded web-native or legacy flat relative files
+into encrypted `LocalMediaStore` without altering remote Markdown.
+Category moves block legacy/unknown relative links rather than breaking
+them; the move response preserves matching canonical local media manifests.
+
+This is **partial** and not yet a supported editor workflow:
+`NextcloudStorage::supportsMedia()` remains false. New-note media creation,
+streaming upload from local encrypted chunks, full cross-device hydration,
+progressive playback, zero-byte attachment support, persistent retry
+receipts, reference-aware cleanup, safe migration of legacy sibling links
+before moves, and multi-device/native-client end-to-end verification still
+need implementation. An interrupted update can leave remote staged orphans;
+it must never delete the local durable draft or its blob.
+
+The intended publication transaction is:
+
+1. Resolve every referenced `MediaReference` from the durable draft and
+   `LocalMediaStore`. Reject missing or changed external-file sources.
+2. Create or identify the remote note and native attachment directory; stage
+   each plaintext file over HTTPS, using the Notes attachment API or chunked
+   WebDAV as appropriate. Verify the remote object and retain its native path
+   and checksum in provider-specific metadata.
+3. Rewrite **only** media link targets to safe relative native URLs. Update
+   the ordinary Markdown body using the current ETag. A 412 conflict or
+   interrupted upload must preserve the original draft and local blobs.
+4. Commit the remote cache manifest and clear the draft only after the body
+   and all referenced files have been confirmed. Failed staged uploads become
+   cleanup candidates, never grounds for dropping a draft.
+
+On another device, import native links without rewriting the server note:
+construct stable local references and remote-only metadata, then hydrate
+asynchronously on demand with checked WebDAV ranges. Progressive playback
+must support cancellation, partial-cache validation and retries without
+fetching the entire file. Category moves must rebase/relocate native links
+without breaking old clients; deletion must use a delayed, reference-aware
+cleanup pass rather than immediately deleting potentially shared files.
+Test native-client edits, interrupted publication, conflict recovery, stale
+remote paths, category moves, zero-byte and large attachments, and multi-device
+rehydration before enabling the capability. This policy is independent of the
+XMPP E2EE transport described below.
+
 ### XMPP implementation
 
 The Iris backend maps every XMPP attachment to

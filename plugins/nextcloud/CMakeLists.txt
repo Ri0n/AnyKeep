@@ -1,6 +1,8 @@
 include(AnyKeepMacro)
 
 set(nextcloud_sources
+    nextcloudmedialinks.cpp
+    nextcloudmedialinks.h
     nextcloudcategory.cpp
     nextcloudcategory.h
     nextclouddto.h

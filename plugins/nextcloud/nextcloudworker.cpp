@@ -1,6 +1,10 @@
 #include "nextcloudworker.h"
+#include "nextcloudmedialinks.h"
 
 #include <QEventLoop>
+#include <QHttpMultiPart>
+#include <QHttpPart>
+#include <QIODevice>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -8,9 +12,12 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
+#include <limits>
 #include <QSet>
 #include <QTimer>
 #include <QUrlQuery>
+#include <QUuid>
 
 namespace AnyKeep {
 
@@ -34,6 +41,16 @@ namespace {
         }
 
         return path + apiSuffix;
+    }
+
+    // HTTP If-Match uses the quoted entity-tag syntax (RFC 9110). The
+    // Nextcloud Notes JSON "etag" attribute itself contains only the tag.
+    QByteArray ifMatchValue(const QString &etag)
+    {
+        const QByteArray value = etag.toUtf8();
+        if (value.startsWith('"') && value.endsWith('"'))
+            return value;
+        return QByteArrayLiteral("\"") + value + QByteArrayLiteral("\"");
     }
 
     QString serverMessage(const QByteArray &body)
@@ -92,6 +109,31 @@ QUrl NextcloudWorker::apiUrl(const QString &relativePath) const
     return url;
 }
 
+QUrl NextcloudWorker::webDavFileUrl(const QString &relativeFilePath) const
+{
+    QUrl url = config_.serverUrl;
+    url.setQuery(QString());
+    url.setFragment(QString());
+    QString base = url.path();
+    const auto indexPhp = base.indexOf(QStringLiteral("/index.php"));
+    if (indexPhp >= 0)
+        base.truncate(indexPhp);
+    while (base.endsWith(QLatin1Char('/')))
+        base.chop(1);
+    url.setPath(base + QStringLiteral("/remote.php/dav/files/") + config_.userName
+                + QLatin1Char('/') + relativeFilePath);
+    return url;
+}
+
+QUrl NextcloudWorker::webDavUploadUrl(const QString &uploadId) const
+{
+    QUrl url = webDavFileUrl(QString());
+    QString path = url.path();
+    path.replace(QStringLiteral("/dav/files/"), QStringLiteral("/dav/uploads/"));
+    url.setPath(path + uploadId);
+    return url;
+}
+
 QNetworkRequest NextcloudWorker::makeRequest(const QUrl &url) const
 {
     QNetworkRequest request(url);
@@ -101,12 +143,84 @@ QNetworkRequest NextcloudWorker::makeRequest(const QUrl &url) const
     const QByteArray credentials = (config_.userName + QLatin1Char(':') + config_.appPassword).toUtf8().toBase64();
     request.setRawHeader("Authorization", "Basic " + credentials);
 
+    // Notes and WebDAV use stateless Basic/app-password authentication.
+    // Reusing an unrelated PHP session cookie from Notes REST on a DAV write
+    // makes Nextcloud reject MKCOL/PUT with HTTP 401 (CSRF protection).
+    request.setAttribute(QNetworkRequest::CookieLoadControlAttribute, QNetworkRequest::Manual);
+    request.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
+
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     return request;
 }
 
+NextcloudWorker::HttpResult NextcloudWorker::collectReply(QNetworkReply *reply, qint64 maxBodyBytes)
+{
+    HttpResult result;
+    QEventLoop loop;
+    QTimer timeout;
+    timeout.setSingleShot(true);
+
+    bool timedOut = false;
+    bool tooLarge = false;
+    reply->setReadBufferSize(maxBodyBytes + 8192);
+    const auto drain = [&]() {
+        if (tooLarge)
+            return;
+        const qint64 available = reply->bytesAvailable();
+        if (available > maxBodyBytes - result.body.size()) {
+            tooLarge = true;
+            reply->abort();
+            return;
+        }
+        result.body.append(reply->readAll());
+    };
+    QObject::connect(reply, &QNetworkReply::readyRead, &loop, drain);
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QObject::connect(&timeout, &QTimer::timeout, reply, [&]() {
+        timedOut = true;
+        reply->abort();
+    });
+
+    timeout.start(qMax(1000, config_.timeoutMs));
+    drain();
+    if (!reply->isFinished())
+        loop.exec();
+    timeout.stop();
+    drain();
+
+    result.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    for (const auto &pair : reply->rawHeaderPairs())
+        result.headers.insert(pair.first, pair.second);
+
+    result.ok = !timedOut && !tooLarge && reply->error() == QNetworkReply::NoError
+        && result.status >= 200 && result.status < 300;
+
+    if (timedOut) {
+        result.error = QStringLiteral("Request timed out after %1 ms").arg(config_.timeoutMs);
+    } else if (tooLarge) {
+        result.error = QStringLiteral("HTTP response exceeded the permitted media/body size");
+    } else if (!result.ok) {
+        result.error = reply->errorString();
+        const auto message = serverMessage(result.body);
+        if (!message.isEmpty())
+            result.error += QStringLiteral(": ") + message;
+    }
+
+    reply->deleteLater();
+    return result;
+}
+
+NextcloudWorker::HttpResult NextcloudWorker::performMultipart(const QUrl &url, QHttpMultiPart *multipart)
+{
+    auto request = makeRequest(url);
+    QNetworkReply *reply = manager()->post(request, multipart);
+    multipart->setParent(reply);
+    return collectReply(reply);
+}
+
 NextcloudWorker::HttpResult NextcloudWorker::perform(Method method, const QUrl &url, const QByteArray &body,
-                                                     const QHash<QByteArray, QByteArray> &extraHeaders)
+                                                     const QHash<QByteArray, QByteArray> &extraHeaders,
+                                                     qint64 maxBodyBytes)
 {
     HttpResult result;
     auto       request = makeRequest(url);
@@ -133,42 +247,7 @@ NextcloudWorker::HttpResult NextcloudWorker::perform(Method method, const QUrl &
         break;
     }
 
-    QEventLoop loop;
-    QTimer     timeout;
-    timeout.setSingleShot(true);
-
-    bool timedOut = false;
-    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    QObject::connect(&timeout, &QTimer::timeout, reply, [&]() {
-        timedOut = true;
-        reply->abort();
-    });
-
-    timeout.start(qMax(1000, config_.timeoutMs));
-    loop.exec();
-    timeout.stop();
-
-    result.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    result.body   = reply->readAll();
-
-    for (const auto &pair : reply->rawHeaderPairs()) {
-        result.headers.insert(pair.first, pair.second);
-    }
-
-    result.ok = !timedOut && reply->error() == QNetworkReply::NoError && result.status >= 200 && result.status < 300;
-
-    if (timedOut) {
-        result.error = QStringLiteral("Request timed out after %1 ms").arg(config_.timeoutMs);
-    } else if (!result.ok) {
-        result.error       = reply->errorString();
-        const auto message = serverMessage(result.body);
-        if (!message.isEmpty()) {
-            result.error += QStringLiteral(": ") + message;
-        }
-    }
-
-    reply->deleteLater();
-    return result;
+    return collectReply(reply, maxBodyBytes);
 }
 
 QByteArray NextcloudWorker::headerValue(const HttpResult &reply, const QByteArray &name)
@@ -411,7 +490,7 @@ NextcloudNoteResult NextcloudWorker::updateNote(const NextcloudRemoteNote &note)
 {
     QHash<QByteArray, QByteArray> headers;
     if (!note.etag.isEmpty()) {
-        headers.insert(QByteArrayLiteral("If-Match"), note.etag.toUtf8());
+        headers.insert(QByteArrayLiteral("If-Match"), ifMatchValue(note.etag));
     }
 
     const auto reply = perform(Method::Put, apiUrl(QStringLiteral("notes/") + note.id), serializeNote(note), headers);
@@ -451,7 +530,7 @@ NextcloudNoteResult NextcloudWorker::updateNoteCategory(const QString &id, const
 {
     QHash<QByteArray, QByteArray> headers;
     if (!etag.isEmpty())
-        headers.insert(QByteArrayLiteral("If-Match"), etag.toUtf8());
+        headers.insert(QByteArrayLiteral("If-Match"), ifMatchValue(etag));
 
     const auto reply
         = perform(Method::Put, apiUrl(QStringLiteral("notes/") + id), serializeCategory(category), headers);
@@ -493,6 +572,272 @@ NextcloudStatusResult NextcloudWorker::deleteNote(const QString &id)
     if (!reply.ok) {
         result.error = errorText(reply);
     }
+    return result;
+}
+
+NextcloudAttachmentResult NextcloudWorker::uploadAttachment(const QString &noteId, const QString &fileName,
+                                                            const QByteArray &data)
+{
+    NextcloudAttachmentResult result;
+    // Disallow remote path traversal and multipart header injection.
+    if (noteId.isEmpty() || fileName.isEmpty() || fileName == QStringLiteral(".")
+        || fileName == QStringLiteral("..") || fileName.contains(QLatin1Char('/'))
+        || fileName.contains(QLatin1Char('\\')) || fileName.contains(QLatin1Char('"'))
+        || fileName.contains(QLatin1Char('\r')) || fileName.contains(QLatin1Char('\n'))) {
+        result.error = QStringLiteral("Invalid attachment file name or note ID");
+        return result;
+    }
+
+    auto *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    QHttpPart part;
+    const QByteArray disposition = QByteArrayLiteral("form-data; name=\"file\"; filename=\"")
+        + fileName.toUtf8() + QByteArrayLiteral("\"");
+    part.setHeader(QNetworkRequest::ContentDispositionHeader, disposition);
+    part.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/octet-stream"));
+    part.setBody(data);
+    multipart->append(part);
+
+    // Nextcloud Notes 5.x exposes attachments on the v1.4 route, while the
+    // ordinary notes CRUD endpoints stay on v1.
+    QUrl url = apiUrl(QStringLiteral("attachment/") + noteId);
+    QString path = url.path();
+    path.replace(QStringLiteral("/api/v1/"), QStringLiteral("/api/v1.4/"));
+    url.setPath(path);
+
+    const auto reply = performMultipart(url, multipart);
+    result.httpStatus = reply.status;
+    if (!reply.ok) {
+        result.error = errorText(reply);
+        return result;
+    }
+
+    QJsonParseError parseError;
+    const auto document = QJsonDocument::fromJson(reply.body, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        result.error = QStringLiteral("Invalid attachment upload response");
+        return result;
+    }
+    result.path = document.object().value(QStringLiteral("filename")).toString();
+    if (result.path.isEmpty() || result.path.startsWith(QLatin1Char('/'))
+        || result.path.contains(QStringLiteral("..")) || result.path.contains(QLatin1Char('\\'))) {
+        result.error = QStringLiteral("Nextcloud returned an unsafe attachment path");
+        result.path.clear();
+        return result;
+    }
+    result.ok = true;
+    return result;
+}
+
+NextcloudAttachmentResult NextcloudWorker::downloadAttachment(const QString &noteId, const QString &path)
+{
+    NextcloudAttachmentResult result;
+    if (noteId.isEmpty() || path.isEmpty() || path.startsWith(QLatin1Char('/'))
+        || path.contains(QStringLiteral("..")) || path.contains(QLatin1Char('\\'))) {
+        result.error = QStringLiteral("Invalid attachment path");
+        return result;
+    }
+
+    QUrl url = apiUrl(QStringLiteral("attachment/") + noteId);
+    QString endpoint = url.path();
+    endpoint.replace(QStringLiteral("/api/v1/"), QStringLiteral("/api/v1.4/"));
+    url.setPath(endpoint);
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("path"), path);
+    url.setQuery(query);
+    const auto reply = perform(Method::Get, url, {},
+                               { { QByteArrayLiteral("Accept"), QByteArrayLiteral("application/octet-stream") } });
+    result.httpStatus = reply.status;
+    if (!reply.ok) {
+        result.error = errorText(reply);
+        return result;
+    }
+    result.path = path;
+    result.data = reply.body;
+    result.ok = true;
+    return result;
+}
+
+NextcloudSettingsResult NextcloudWorker::getSettings()
+{
+    const auto reply = perform(Method::Get, apiUrl(QStringLiteral("settings")));
+    NextcloudSettingsResult result;
+    result.httpStatus = reply.status;
+    if (!reply.ok) {
+        result.error = errorText(reply);
+        return result;
+    }
+
+    QJsonParseError parseError;
+    const auto json = QJsonDocument::fromJson(reply.body, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !json.isObject()) {
+        result.error = QStringLiteral("Invalid Nextcloud Notes settings response");
+        return result;
+    }
+    result.notesPath = json.object().value(QStringLiteral("notesPath")).toString();
+    if (!NextcloudMediaLinks::isSafeNativePath(result.notesPath)) {
+        result.error = QStringLiteral("Notes folder path is missing or invalid");
+        return result;
+    }
+    result.ok = true;
+    return result;
+}
+
+NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relativeFilePath, qint64 offset,
+                                                           qint64 count, const QString &ifMatchEtag)
+{
+    NextcloudWebDavRangeResult result;
+    // Ranged reads must never accidentally pull entire large remote files.
+    if (!NextcloudMediaLinks::isSafeNativePath(relativeFilePath) || offset < 0
+        || count <= 0 || count > 1024 * 1024 || offset > std::numeric_limits<qint64>::max() - count) {
+        result.error = QStringLiteral("Invalid WebDAV range or remote path");
+        return result;
+    }
+
+    const QUrl url = webDavFileUrl(relativeFilePath);
+
+    const QByteArray range = QByteArrayLiteral("bytes=") + QByteArray::number(offset) + '-'
+        + QByteArray::number(offset + count - 1);
+    if (ifMatchEtag.size() > 256 || ifMatchEtag.contains(QLatin1Char('\r'))
+        || ifMatchEtag.contains(QLatin1Char('\n'))) {
+        result.error = QStringLiteral("Invalid WebDAV conditional ETag");
+        return result;
+    }
+    QHash<QByteArray, QByteArray> headers {
+        { QByteArrayLiteral("Range"), range },
+        { QByteArrayLiteral("Accept"), QByteArrayLiteral("application/octet-stream") }
+    };
+    if (!ifMatchEtag.isEmpty())
+        headers.insert(QByteArrayLiteral("If-Match"), ifMatchEtag.toUtf8());
+    const auto reply = perform(Method::Get, url, {}, headers, count + 8192);
+    result.httpStatus = reply.status;
+    if (!reply.ok || reply.status != 206) {
+        result.error = reply.status == 200
+            ? QStringLiteral("WebDAV server ignored the byte-range request")
+            : errorText(reply);
+        return result;
+    }
+
+    static const QRegularExpression contentRangePattern(
+        QStringLiteral(R"(^bytes (\d+)-(\d+)/(\d+)$)"));
+    const QString header = QString::fromLatin1(headerValue(reply, QByteArrayLiteral("Content-Range")));
+    const auto match = contentRangePattern.match(header);
+    if (!match.hasMatch()) {
+        result.error = QStringLiteral("WebDAV response is missing a valid Content-Range");
+        return result;
+    }
+    bool fromOk = false;
+    bool toOk = false;
+    bool totalOk = false;
+    const qint64 from = match.captured(1).toLongLong(&fromOk);
+    const qint64 to = match.captured(2).toLongLong(&toOk);
+    const qint64 total = match.captured(3).toLongLong(&totalOk);
+    if (!fromOk || !toOk || !totalOk || from != offset || to < from
+        || to - from + 1 != reply.body.size() || reply.body.size() > count || total <= to) {
+        result.error = QStringLiteral("WebDAV returned an inconsistent byte range");
+        return result;
+    }
+    result.etag = QString::fromUtf8(headerValue(reply, QByteArrayLiteral("ETag"))).trimmed();
+    if (!ifMatchEtag.isEmpty() && !result.etag.isEmpty() && result.etag != ifMatchEtag) {
+        result.error = QStringLiteral("WebDAV media ETag changed between byte-range reads");
+        return result;
+    }
+    result.data = reply.body;
+    result.totalSize = total;
+    result.ok = true;
+    return result;
+}
+
+NextcloudStatusResult NextcloudWorker::ensureWebDavFolder(const QString &relativeFolderPath)
+{
+    NextcloudStatusResult result;
+    if (!NextcloudMediaLinks::isSafeNativePath(relativeFolderPath)) {
+        result.error = QStringLiteral("Invalid Nextcloud WebDAV attachment folder");
+        return result;
+    }
+    const auto reply = collectReply(manager()->sendCustomRequest(
+        makeRequest(webDavFileUrl(relativeFolderPath)), QByteArrayLiteral("MKCOL")));
+    result.httpStatus = reply.status;
+    // An existing collection returns 405 under Nextcloud's WebDAV server.
+    // The subsequent upload still has to pass server-side authorization.
+    result.ok = reply.ok || reply.status == 405;
+    if (!result.ok)
+        result.error = errorText(reply);
+    return result;
+}
+
+NextcloudWebDavUploadResult NextcloudWorker::uploadWebDavChunks(const QString &relativeFilePath,
+                                                                 QIODevice *source, qint64 size)
+{
+    NextcloudWebDavUploadResult result;
+    constexpr qint64 chunkSize = 5 * 1024 * 1024;
+    if (!NextcloudMediaLinks::isSafeNativePath(relativeFilePath) || !source || !source->isReadable()
+        || size < 0 || size > chunkSize * 10000) {
+        result.error = QStringLiteral("Invalid WebDAV upload path, source or size");
+        return result;
+    }
+
+    const QUrl destination = webDavFileUrl(relativeFilePath);
+    const QByteArray destinationHeader = destination.toEncoded();
+    const QByteArray sizeHeader = QByteArray::number(size);
+    const QString uploadId = QStringLiteral("anykeep-") + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QUrl uploadFolder = webDavUploadUrl(uploadId);
+    const auto withHeaders = [this, &destinationHeader, &sizeHeader](const QUrl &url) {
+        auto request = makeRequest(url);
+        request.setRawHeader("Destination", destinationHeader);
+        request.setRawHeader("OC-Total-Length", sizeHeader);
+        request.setRawHeader("X-Requested-With", "XMLHttpRequest");
+        return request;
+    };
+
+    const auto folder = collectReply(manager()->sendCustomRequest(withHeaders(uploadFolder), QByteArrayLiteral("MKCOL")));
+    result.httpStatus = folder.status;
+    if (!folder.ok) {
+        result.error = errorText(folder);
+        return result;
+    }
+
+    const auto abort = [this, &uploadFolder]() {
+        // Ignore cleanup errors. They must not mask the original failure.
+        collectReply(manager()->sendCustomRequest(makeRequest(uploadFolder), QByteArrayLiteral("DELETE")));
+    };
+
+    qint64 written = 0;
+    int chunkNumber = 0;
+    while (written < size) {
+        const qint64 amount = qMin(chunkSize, size - written);
+        const QByteArray bytes = source->read(amount);
+        if (bytes.size() != amount) {
+            abort();
+            result.error = QStringLiteral("Cannot read the next WebDAV upload chunk");
+            return result;
+        }
+        ++chunkNumber;
+        QUrl chunkUrl = uploadFolder;
+        chunkUrl.setPath(uploadFolder.path() + QLatin1Char('/') + QStringLiteral("%1").arg(chunkNumber, 5, 10, QLatin1Char('0')));
+        const auto response = collectReply(manager()->put(withHeaders(chunkUrl), bytes));
+        result.httpStatus = response.status;
+        if (!response.ok) {
+            abort();
+            result.error = errorText(response);
+            return result;
+        }
+        written += amount;
+    }
+
+    QUrl assemblyUrl = uploadFolder;
+    assemblyUrl.setPath(uploadFolder.path() + QStringLiteral("/.file"));
+    auto request = withHeaders(assemblyUrl);
+    request.setRawHeader("Overwrite", "F");
+    const auto assembled = collectReply(manager()->sendCustomRequest(request, QByteArrayLiteral("MOVE")));
+    result.httpStatus = assembled.status;
+    if (!assembled.ok) {
+        abort();
+        result.error = errorText(assembled);
+        return result;
+    }
+
+    result.ok = true;
+    result.path = relativeFilePath;
     return result;
 }
 
