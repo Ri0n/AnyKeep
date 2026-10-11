@@ -63,8 +63,11 @@ private:
         pending_.remove(socket);
         QVERIFY2(!responses_.isEmpty(), "Unexpected Nextcloud request");
         const auto body = responses_.takeFirst();
-        socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
-                      + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+        if (body.startsWith("HTTP/1.1 "))
+            socket->write(body);
+        else
+            socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                          + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
         socket->disconnectFromHost();
     }
 
@@ -103,6 +106,7 @@ private slots:
     void metadataOnlyFolderMoveUsesCategoryPath();
     void dirtyPublishIncludesFolderCategory();
     void mediaIsUploadedAndVerifiedBeforeMarkdownCommit();
+    void nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges();
 };
 
 void NextcloudStorageTest::metadataOnlyFolderMoveUsesCategoryPath()
@@ -295,6 +299,66 @@ void NextcloudStorageTest::mediaIsUploadedAndVerifiedBeforeMarkdownCommit()
     QCOMPARE(payload.object().value(QStringLiteral("content")).toString(),
              QStringLiteral("![image](.attachments.42/native-image.png)"));
 
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
+    settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
+}
+
+void NextcloudStorageTest::nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges()
+{
+    QVERIFY(FileFolderCatalogStore::cryptoAvailable());
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore mediaStore(directory.filePath(QStringLiteral("restored")),
+                               SecureEnvelope::generateMasterKey());
+
+    const QByteArray bytes = QByteArrayLiteral("remotely-published-image");
+    const QString remotePath = QStringLiteral(".attachments.42/image.png");
+    const QString nativeMarkdown = QStringLiteral("![image](") + remotePath + QLatin1Char(')');
+    QJsonObject json = QJsonDocument::fromJson(
+        noteJson(QStringLiteral("42"), QStringLiteral("old-etag"), QString(), 1700000000)).object();
+    json.insert(QStringLiteral("content"), nativeMarkdown);
+    const QByteArray remoteNote = QJsonDocument(json).toJson(QJsonDocument::Compact);
+
+    const auto rangeResponse = [&bytes](int start, int count) {
+        const auto data = bytes.mid(start, count);
+        return QByteArrayLiteral("HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\n")
+            + QByteArrayLiteral("Content-Range: bytes ") + QByteArray::number(start) + '-'
+            + QByteArray::number(start + count - 1) + '/' + QByteArray::number(bytes.size())
+            + QByteArrayLiteral("\r\nContent-Length: ") + QByteArray::number(data.size())
+            + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + data;
+    };
+    ScriptedHttpServer server({
+        remoteNote,
+        QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+        rangeResponse(0, 1),
+        rangeResponse(1, bytes.size() - 1)
+    });
+    QVERIFY(server.listen());
+
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("secret"));
+    settings.setValue(QStringLiteral("storage.nextcloud.timeoutMs"), 1000);
+
+    NextcloudStorage storage(nullptr, nullptr, &mediaStore);
+    auto *loaded = storage.loadNoteAsync(QStringLiteral("42"));
+    QTRY_VERIFY(loaded->isFinished());
+    QCOMPARE(loaded->state(), StorageJob::Succeeded);
+    const auto note = loaded->result();
+    QCOMPARE(note.media().size(), 1);
+    QVERIFY(note.text().startsWith(QStringLiteral("![image](anykeep-media:/")));
+    QCOMPARE(note.media().first().remoteData.value(QStringLiteral("nextcloud.path")).toString(),
+             remotePath);
+    QCOMPARE(mediaStore.data(note.media().first()).value, bytes);
+    loaded->deleteLater();
+
+    QCOMPARE(server.requests().size(), 4);
+    QVERIFY(server.requests().at(2).contains("Range: bytes=0-0\r\n"));
+    QVERIFY(server.requests().at(3).contains(
+        QByteArrayLiteral("Range: bytes=1-") + QByteArray::number(bytes.size() - 1) + "\r\n"));
     settings.remove(QStringLiteral("storage.nextcloud.url"));
     settings.remove(QStringLiteral("storage.nextcloud.username"));
     settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
