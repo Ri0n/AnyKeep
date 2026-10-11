@@ -14,9 +14,12 @@ wait for it. Already authenticated cache records are reused without network acce
 
 Transport throughput, connection limits, cancellation semantics, and support for
 out-of-order retrieval vary. The common layer should manage demand and bounded
-parallelism, but allow each source to declare its constraints (e.g. WebDAV permits
-concurrent HTTP ranges; the existing Iris/Jingle BUNDLE state machine has its
-own range handover and may need one active receive operation).
+parallelism **without reducing parallelism already implemented in a provider**.
+WebDAV can fetch independent ranges concurrently; Iris/Jingle already overlaps
+old and new content during BUNDLE range handover, may have multiple live media
+syncs, and must preserve its negotiated transport and deferred-receipt rules.
+These are not interchangeable HTTP connections: account for *actual active
+network traffic*, not just the number of queued range requests.
 
 ## Current implementation (October 2026)
 
@@ -26,7 +29,7 @@ own range handover and may need one active receive operation).
 | `MediaSyncService` | Publishes and observes *durably verified* byte counts and download states | Intentionally not a scheduler; keep it separate |
 | `MediaPartialChunkCache` | Provider-neutral atomic persistent cache; `VerifiedOpaque` for XMPP wire chunks and locally `SecureEnvelope`-sealed chunks for Nextcloud; reads reauthenticate | Centralized in-flight/scheduled state and coalescing (must not be added to the persistence class) |
 | `NextcloudStorage` + `NextcloudWorker` | Pinned-ETag WebDAV reads; playback Range resolver; bounded encrypted cache | Uses storage-wide FIFO after PR #155 to avoid reentrancy of `collectReply()`; no independent-chunk parallelism or request cancellation |
-| `IrisMediaSync` | One XMPP media synchronization session, verified opaque chunks, next-gap selection, seek priority, reconnect/recovery | Provider-wide scheduling independent of the Iris-specific session state |
+| `IrisMediaSync` | One XMPP media sync per source, verified opaque chunks, gap/seek priority, and overlapping old/new Jingle content during BUNDLE handover (old partial chunk drains while new content is negotiated); different media syncs can coexist | Global admission/bandwidth budgeting across independent media and providers; retain existing safe Jingle overlap and receipt ordering |
 | `MediaStream` / `MediaSource` | Seekable synchronous access to *already available* verified local bytes | Remain local-only; do not put network/blocking reads into `QIODevice::readData()` |
 
 The common HTTP bridge already stops writing to a disconnected client, but a
@@ -107,15 +110,45 @@ and WebDAV clients must remain interoperable.
   user-requested offline sync and lower-priority background gap filling.
   A seek immediately reprioritizes demand; old readers can continue consuming
   verified data without preempting the new position.
-- Start with deterministic caps, not automatic unlimited parallelism: a small
-  global cap plus per-provider/per-host concurrency ceilings, declared source
-  capabilities and a bounded queue. Provider-specific transport rules are
-  authoritative; an Iris Jingle BUNDLE cannot be made parallel by a generic HTTP
-  connection limit.
-- Only after instrumentation, consider adaptive concurrency using rolling
-  throughput, transfer setup latency, RTT/failure rate, network changes and
-  decoder buffer health. Throughput alone is insufficient to distinguish a
-  saturated link from a slow remote endpoint.
+- **Two independent controls:** admission limits (maximum simultaneous active
+  remote media fetches) and a configurable aggregate *download bitrate* budget.
+  Limiting fetch count alone does not prevent two fast transfers from saturating
+  a user's connection. The global budget applies across XMPP, WebDAV and future
+  plugins, not separately per storage instance or note.
+- Begin with conservative app-wide and per-provider/per-host admission caps,
+  a bounded queue, and per-source declared capabilities. Count actual active
+  transport/network work, not logical waiters: several callers for the same
+  chunk are still one transfer; overlapping Jingle content sharing a BUNDLE
+  does not necessarily mean two independent network connections. Preserve
+  existing Iris partial-chunk drain, `content-add` and receipt handover.
+- Budget not only active request count but also total buffered/in-flight
+  plaintext and ciphertext. Apply bounded backpressure before allocating
+  another full 1 MiB record, particularly when many notes/videos are open.
+- **Bandwidth control:** support an optional user-configurable aggregate cap
+  (bytes/s) enforced at a common byte-accounting/admission point, e.g. a
+  token-bucket or paced grants that can be reported by each transport. A strict
+  aggregate *hard cap* requires transports with byte-level flow control; when
+  Jingle/HTTP cannot pause safely, the scheduler can only limit admission and
+  defer new work, not honestly promise precise instant-rate limiting. Never
+  pause a Jingle stream halfway through an authenticated chunk merely to meet
+  a rate target; preserve its existing safe drain/handover behavior.
+- Reserve responsiveness for foreground seeks and small urgent media reads:
+  allow them to displace speculative prefetch, but do not consume the entire
+  network budget indefinitely. Use weighted fairness across independent media,
+  storage accounts, and providers, and allow background work to yield under
+  decoder underrun or network congestion.
+- Add rolling measurements of *useful delivered bytes/sec*, time to first
+  verified chunk, RTT/setup cost, error/retry rate, stalled playback and queue
+  time. Adapt admission gradually (increase conservatively, reduce quickly
+  after errors, latency spikes or congestion), with cooldown/hysteresis.
+  Throughput alone cannot distinguish link saturation from a slow remote
+  endpoint. Changing network, metered connections and user policy can demand
+  lower caps.
+- The scheduler can only account for traffic it manages; other application
+  uploads, calls and unrelated processes can compete for bandwidth. Eventually
+  expose a shared traffic budget to AnyKeep's uploads too. Never equate adaptive
+  concurrency with a guarantee of leaving bandwidth free for the rest of the
+  system.
 - A canceled decoder GET removes that *consumer's* demand and reprioritizes
   remaining waiters. Cancel the underlying fetch only when no playback,
   prefetch, or durable sync demand remains **and** the transport can safely
@@ -174,21 +207,31 @@ and WebDAV clients must remain interoperable.
    the remote-media path, implement abortable `QNetworkReply` fetches with
    immutable per-request credentials and ETag validation; enable a tested small
    parallelism cap for *different* Nextcloud chunks.
-4. **Move Iris gap scheduling behind source capabilities.** Keep the current
-   Jingle BUNDLE/receipt safety rules while allowing the coordinator to choose
-   high-priority missing chunks and coalesce playback waiters.
-5. **Adaptive scheduling and prefetch.** Add per-network/provider metrics and
-   conservative optional lookahead. Bound memory, sockets and disk growth;
-   add cache eviction/orphan collection only as a separate, reference-aware
-   lifecycle design.
+4. **Budget shared network traffic, preserve Iris parallelism.** Admit Jingle
+   and WebDAV work through the same global transfer budget while retaining
+   existing Iris overlapping BUNDLE content and its drain/receipt semantics.
+   Let the coordinator choose high-priority missing chunks, coalesce waiters,
+   and count physical transport work rather than Jingle content count.
+5. **Adaptive scheduling and prefetch.** Add per-network/provider metrics,
+   user-configurable bandwidth/parallelism policies and conservative lookahead.
+   Use a real pacing mechanism only where byte-level flow control is safe.
+   Bound memory, sockets and disk growth; add cache eviction/orphan collection
+   only as a separate, reference-aware lifecycle design.
 
 ## Acceptance criteria for first code PR
 
 - Two simultaneous decoder reads of one uncached chunk cause exactly one
   transport request and return correct byte slices to both clients.
 - Requests for different chunks can be scheduled independently without
-  re-entering provider code; concurrent fetch count never exceeds policy
-  and provider capability.
+  re-entering provider code; total concurrent *active transfers* and buffer
+  allocations never exceed global/per-source budgets and transport capability.
+- Independently active XMPP and WebDAV sources share the admission budget,
+  while an existing Jingle BUNDLE handover may overlap safely and complete
+  deferred receipts without deadlock or regression.
+- Foreground playback keeps priority and background prefetch yields under
+  congestion. An explicit throughput cap is tested only for transports that
+  expose reliable byte-level pacing; all others document best-effort admission
+  rather than claiming a bandwidth guarantee.
 - Aborting one client request never aborts another client's shared chunk;
   with no consumers, cancellation honors active durable sync demand.
 - A seek takes priority over prefetch and stale GET continuations.
