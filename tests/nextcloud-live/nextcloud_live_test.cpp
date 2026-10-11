@@ -217,6 +217,24 @@ void NextcloudLiveTest::nativeAttachmentRoundtrip()
     const auto reopened = worker.getNote(created.note.id);
     QVERIFY2(reopened.ok, qPrintable(reopened.error));
     QCOMPARE(reopened.note.content, note.content);
+
+    // Notes categories correspond to native directories. A metadata-only
+    // category move must not leave its relative attachment link dangling.
+    const QString destination = QStringLiteral("AnyKeep Integration/MovedFiles");
+    const auto moved = worker.updateNoteCategory(created.note.id, destination, reopened.note.etag);
+    QVERIFY2(moved.ok, qPrintable(moved.error));
+    const auto movedNote = worker.getNote(created.note.id);
+    QVERIFY2(movedNote.ok, qPrintable(movedNote.error));
+    QCOMPARE(movedNote.note.category, destination);
+    QCOMPARE(movedNote.note.content, note.content);
+    const auto nativeAfterMove = worker.downloadAttachment(created.note.id, uploaded.path);
+    QVERIFY2(nativeAfterMove.ok, qPrintable(nativeAfterMove.error));
+    QCOMPARE(nativeAfterMove.data, bytes);
+    const QString movedDavPath = settings.notesPath + QLatin1Char('/')
+        + destination + QLatin1Char('/') + uploaded.path;
+    const auto movedRange = worker.readWebDavRange(movedDavPath, 0, 8);
+    QVERIFY2(movedRange.ok, qPrintable(movedRange.error));
+    QCOMPARE(movedRange.data, bytes.left(8));
 }
 
 void NextcloudLiveTest::mediaLinkCodec()
