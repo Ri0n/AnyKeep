@@ -235,6 +235,16 @@ namespace {
                 *error = QStringLiteral("Media manifest contains an attachment not referenced by Markdown");
                 return false;
             }
+            // Pre-chunking managed blobs still require legacy whole-object
+            // decryption by MediaSource. Bound this compatibility fallback
+            // until those blobs can be converted to managed chunks.
+            if (!reference.blobId.isEmpty() && store->containsManagedBlob(reference.blobId)
+                && !store->isChunkedManagedBlob(reference.blobId)
+                && reference.size > 16LL * 1024 * 1024) {
+                *error = QStringLiteral(
+                    "Large legacy monolithic media must be migrated to chunked local storage");
+                return false;
+            }
             MediaStream source(createLocalMediaSource(reference, store));
             if (!source.open(QIODevice::ReadOnly)) {
                 *error = QStringLiteral("Could not open local media: ") + source.errorString();
