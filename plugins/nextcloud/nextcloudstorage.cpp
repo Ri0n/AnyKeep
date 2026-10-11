@@ -1202,10 +1202,37 @@ NoteFolderChangeJob *NextcloudStorage::changeNoteFolderAsync(const Note &note, Q
         worker_,
         [this, guard, config, noteId, category, etag, folderId]() {
             worker_->setConfig(config);
-            const auto result = worker_->updateNoteCategory(noteId, category, etag);
+            // Notes 5.0.2 does not move sibling files uploaded by its old
+            // attachment API. Such relative links would break on a category
+            // change; reject the move before touching the remote note.
+            const auto current = worker_->getNote(noteId);
+            NextcloudNoteResult result;
+            bool unsafeLegacyLinks = false;
+            if (!current.ok) {
+                result = current;
+            } else if (current.note.etag != etag) {
+                result.conflict = true;
+                result.httpStatus = 412;
+                result.remoteOnConflict = current.note;
+                result.error = QStringLiteral("The note changed before its category move");
+            } else {
+                const QString prefix = QStringLiteral(".attachments.") + noteId + QLatin1Char('/');
+                const auto referenced = NextcloudMediaLinks::referencedNativePaths(current.note.content);
+                for (const QString &path : referenced) {
+                    if (!path.startsWith(prefix)) {
+                        unsafeLegacyLinks = true;
+                        result.error = QStringLiteral(
+                            "This note has legacy relative files that would break after a category move. "
+                            "Move the attachments into its native per-note folder first.");
+                        break;
+                    }
+                }
+                if (!unsafeLegacyLinks)
+                    result = worker_->updateNoteCategory(noteId, category, etag);
+            }
             QMetaObject::invokeMethod(
                 this,
-                [this, guard, result, noteId, folderId]() {
+                [this, guard, result, noteId, folderId, unsafeLegacyLinks]() {
                     if (!guard || guard->isFinished())
                         return;
                     if (!result.ok) {
@@ -1213,8 +1240,10 @@ NoteFolderChangeJob *NextcloudStorage::changeNoteFolderAsync(const Note &note, Q
                             reconcileRemoteFolders({ *result.remoteOnConflict });
                             cache_.insert(result.remoteOnConflict->id, fromRemote(*result.remoteOnConflict));
                         }
-                        guard->fail({ result.conflict ? StorageError::Conflict : StorageError::Network, result.error,
-                                      !result.conflict });
+                        guard->fail({ unsafeLegacyLinks ? StorageError::Other
+                                                       : result.conflict ? StorageError::Conflict
+                                                                         : StorageError::Network,
+                                      result.error, !result.conflict && !unsafeLegacyLinks });
                         return;
                     }
 
