@@ -9,6 +9,7 @@
 #include <QObject>
 
 class QHttpMultiPart;
+class QIODevice;
 class QNetworkAccessManager;
 class QNetworkReply;
 class QNetworkRequest;
@@ -31,6 +32,7 @@ public:
 
     // Native, non-encrypted Notes attachments: compatible with other clients.
     NextcloudSettingsResult getSettings();
+    NextcloudWebDavUploadResult uploadWebDavChunks(const QString &relativeFilePath, QIODevice *source, qint64 size);
     NextcloudWebDavRangeResult readWebDavRange(const QString &relativeFilePath, qint64 offset, qint64 count);
 
     NextcloudAttachmentResult uploadAttachment(const QString &noteId, const QString &fileName,
@@ -50,6 +52,8 @@ private:
 
     QNetworkAccessManager *manager();
     QUrl                   apiUrl(const QString &relativePath) const;
+    QUrl                   webDavFileUrl(const QString &relativeFilePath) const;
+    QUrl                   webDavUploadUrl(const QString &uploadId) const;
     QNetworkRequest        makeRequest(const QUrl &url) const;
     HttpResult             collectReply(QNetworkReply *reply);
     HttpResult             performMultipart(const QUrl &url, QHttpMultiPart *multipart);
