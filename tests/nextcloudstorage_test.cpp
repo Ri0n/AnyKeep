@@ -473,10 +473,17 @@ void NextcloudStorageTest::existingMediaReceiptIsReusedOrRejected()
     response.insert(QStringLiteral("content"), body);
     const QByteArray initial = QJsonDocument(response).toJson(QJsonDocument::Compact);
 
+    QByteArray remoteBytes = bytes;
+    if (modifiedRemotely)
+        remoteBytes[0] = 'X';
     ScriptedHttpServer server(modifiedRemotely
-        ? QList<QByteArray> { initial, QByteArrayLiteral("a-native-client-edited-this") }
-        : QList<QByteArray> { initial, bytes,
-                             noteJson(QStringLiteral("42"), QStringLiteral("new-etag"), QString(), 2100000000) });
+        ? QList<QByteArray> { initial, QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+                              QByteArrayLiteral("{}"),
+                              byteRangeResponse(remoteBytes, 0, remoteBytes.size()) }
+        : QList<QByteArray> { initial, QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
+                              QByteArrayLiteral("{}"),
+                              byteRangeResponse(remoteBytes, 0, remoteBytes.size()),
+                              noteJson(QStringLiteral("42"), QStringLiteral("new-etag"), QString(), 2100000000) });
     QVERIFY(server.listen());
     QSettings settings;
     settings.setValue(QStringLiteral("storage.nextcloud.url"), server.url().toString());
@@ -497,13 +504,13 @@ void NextcloudStorageTest::existingMediaReceiptIsReusedOrRejected()
     if (modifiedRemotely) {
         QCOMPARE(saved->state(), StorageJob::Failed);
         QCOMPARE(saved->error().code, StorageError::Conflict);
-        QCOMPARE(server.requests().size(), 2);
+        QCOMPARE(server.requests().size(), 4);
     } else {
         QCOMPARE(saved->state(), StorageJob::Succeeded);
         QCOMPARE(saved->result().media().size(), 1);
         QCOMPARE(saved->result().media().first().remoteData.value(QStringLiteral("nextcloud.path")).toString(),
                  remotePath);
-        QCOMPARE(server.requests().size(), 3);
+        QCOMPARE(server.requests().size(), 5);
         const QByteArray put = server.requests().last();
         QVERIFY(put.startsWith("PUT /index.php/apps/notes/api/v1/notes/42 "));
         const auto headerEnd = put.indexOf("\r\n\r\n");
@@ -512,8 +519,10 @@ void NextcloudStorageTest::existingMediaReceiptIsReusedOrRejected()
                      .value(QStringLiteral("content")).toString(),
                  QStringLiteral("A harmless text edit\n![image](.attachments.42/persisted.png)"));
     }
-    QVERIFY(server.requests().at(1).startsWith(
-        "GET /index.php/apps/notes/api/v1.4/attachment/42?"));
+    QVERIFY(server.requests().at(1).startsWith("GET /index.php/apps/notes/api/v1/settings "));
+    QVERIFY(server.requests().at(2).startsWith("MKCOL /remote.php/dav/files/alice/Notes/.attachments.42 "));
+    QVERIFY(server.requests().at(3).startsWith(
+        "GET /remote.php/dav/files/alice/Notes/.attachments.42/persisted.png "));
     for (const auto &request : server.requests())
         QVERIFY(!request.startsWith("POST /index.php/apps/notes/api/v1.4/attachment/"));
     saved->deleteLater();
