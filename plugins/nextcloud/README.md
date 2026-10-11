@@ -52,7 +52,7 @@ at the provider boundary before publishing a file to Nextcloud; do not upload
 AnyKeep's internal encrypted blob format or `anykeep-media:` URI verbatim as
 the only attachment representation.
 
-**Planned media adapter (not yet implemented):**
+**Media adapter requirements (partially implemented):**
 - Keep stable `MediaReference` identities in canonical drafts and local
   manifests, but publish native relative Markdown links and native Nextcloud
   file objects so other Notes clients can read them.
@@ -74,10 +74,21 @@ atomic final MOVE, capability/settings lookup, and bounded HTTP Range reads.
 `NextcloudMediaLinks` translates canonical URI targets to safe native Markdown
 paths. The disposable-server live test exercises these HTTP operations.
 
-However `NextcloudStorage` still advertises `supportsMedia() == false`:
-the editor/draft lifecycle and remote MediaReference hydration are not
-connected yet. Do not enable media until source/destination publication,
-cross-client imports, category moves, crash recovery and cleanup are covered.
+An initial `NextcloudStorage::saveNoteAsync()` path now accepts a media manifest
+for an **existing note with an ETag**. It preflights local managed/external
+content (16 MiB/file cap), uploads each file through native Notes, downloads
+the published bytes to check integrity, then updates the Markdown using
+`If-Match`. The returned local note retains canonical URIs and attachment
+receipts (`nextcloud.noteId`, `nextcloud.path`). A missing blob, stale ETag,
+unsafe path or failed readback prevents the Markdown update. HTTP is accepted
+only on loopback addresses; other servers require HTTPS.
+
+This is **not** complete media support: new-note publication, streaming
+local sources, cross-device native attachment hydration, idempotent retries,
+recovery of staged orphans, category moves, deletion cleanup and cross-client
+end-to-end tests remain. The synchronous save entrypoint still refuses media.
+`supportsMedia()` remains false; users must not mistake the internal transport
+path for a production media feature.
 The Notes multipart endpoint buffers uploads on the server and is not a
 substitute for WebDAV large-file transfers.
 
