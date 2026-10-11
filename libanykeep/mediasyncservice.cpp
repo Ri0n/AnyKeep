@@ -31,10 +31,11 @@ QString MediaSyncService::key(const MediaReference &reference)
         // UUID. Cache progress belongs to a pinned server revision, not the
         // reusable Markdown attachment ID. Prevent stale "100% downloaded"
         // UI after a native client's replacement of a remote file.
-        instance += '\0';
-        instance += reference.remoteData.value(QStringLiteral("nextcloud.instance")).toString().toUtf8();
-        instance += '\0';
-        instance += reference.remoteData.value(QStringLiteral("nextcloud.etag")).toString().toUtf8();
+        for (const auto *field : { "nextcloud.instance", "nextcloud.noteId", "nextcloud.category",
+                                    "nextcloud.path", "nextcloud.etag" }) {
+            instance += '\0';
+            instance += reference.remoteData.value(QString::fromLatin1(field)).toString().toUtf8();
+        }
     }
     return QString::fromLatin1(QCryptographicHash::hash(instance + '\0' + identity,
                                                         QCryptographicHash::Sha256).toHex());

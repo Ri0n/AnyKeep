@@ -108,6 +108,9 @@ private slots:
         original.size = 3 * 1024 * 1024;
         original.remoteData.insert(QStringLiteral("nextcloud.remoteOnly"), true);
         original.remoteData.insert(QStringLiteral("nextcloud.instance"), QStringLiteral("account-a"));
+        original.remoteData.insert(QStringLiteral("nextcloud.noteId"), QStringLiteral("note-1"));
+        original.remoteData.insert(QStringLiteral("nextcloud.category"), QStringLiteral("Projects"));
+        original.remoteData.insert(QStringLiteral("nextcloud.path"), QStringLiteral(".attachments.note-1/movie.mp4"));
         original.remoteData.insert(QStringLiteral("nextcloud.etag"), QStringLiteral("\"revision-1\""));
 
         const auto previousKey = MediaSyncService::key(original);
@@ -123,6 +126,11 @@ private slots:
 
         changed.remoteData.insert(QStringLiteral("nextcloud.etag"), QStringLiteral("\"revision-1\""));
         changed.remoteData.insert(QStringLiteral("nextcloud.instance"), QStringLiteral("account-b"));
+        QVERIFY(MediaSyncService::key(changed) != previousKey);
+        QCOMPARE(MediaSyncService::instance()->snapshot(changed).verifiedBytes, 0);
+
+        changed.remoteData.insert(QStringLiteral("nextcloud.instance"), QStringLiteral("account-a"));
+        changed.remoteData.insert(QStringLiteral("nextcloud.category"), QStringLiteral("Archive"));
         QVERIFY(MediaSyncService::key(changed) != previousKey);
         QCOMPARE(MediaSyncService::instance()->snapshot(changed).verifiedBytes, 0);
     }
