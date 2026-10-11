@@ -143,6 +143,12 @@ QNetworkRequest NextcloudWorker::makeRequest(const QUrl &url) const
     const QByteArray credentials = (config_.userName + QLatin1Char(':') + config_.appPassword).toUtf8().toBase64();
     request.setRawHeader("Authorization", "Basic " + credentials);
 
+    // Notes and WebDAV use stateless Basic/app-password authentication.
+    // Reusing an unrelated PHP session cookie from Notes REST on a DAV write
+    // makes Nextcloud reject MKCOL/PUT with HTTP 401 (CSRF protection).
+    request.setAttribute(QNetworkRequest::CookieLoadControlAttribute, QNetworkRequest::Manual);
+    request.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
+
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     return request;
 }
