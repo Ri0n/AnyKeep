@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QObject>
 
+class QHttpMultiPart;
 class QNetworkAccessManager;
 class QNetworkReply;
 class QNetworkRequest;
@@ -28,6 +29,11 @@ public:
     NextcloudNoteResult   updateNoteCategory(const QString &id, const QString &category, const QString &etag);
     NextcloudStatusResult deleteNote(const QString &id);
 
+    // Native, non-encrypted Notes attachments: compatible with other clients.
+    NextcloudAttachmentResult uploadAttachment(const QString &noteId, const QString &fileName,
+                                               const QByteArray &data);
+    NextcloudAttachmentResult downloadAttachment(const QString &noteId, const QString &path);
+
 private:
     enum class Method { Get, Post, Put, Delete };
 
@@ -42,6 +48,8 @@ private:
     QNetworkAccessManager *manager();
     QUrl                   apiUrl(const QString &relativePath) const;
     QNetworkRequest        makeRequest(const QUrl &url) const;
+    HttpResult             collectReply(QNetworkReply *reply);
+    HttpResult             performMultipart(const QUrl &url, QHttpMultiPart *multipart);
     HttpResult             perform(Method method, const QUrl &url, const QByteArray &body = {},
                                    const QHash<QByteArray, QByteArray> &extraHeaders = {});
 
