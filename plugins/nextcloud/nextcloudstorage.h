@@ -60,7 +60,8 @@ private:
     bool            configIsValid(const NextcloudConfig &config, QString *error) const;
     Note            fromRemote(const NextcloudRemoteNote &remote);
     void            applyRemote(Note &note, const NextcloudRemoteNote &remote);
-    bool            toRemote(const Note &note, NextcloudRemoteNote *remote, QString *error) const;
+    bool            toRemote(const Note &note, NextcloudRemoteNote *remote, QString *error,
+                             bool mediaPrepared = false) const;
     bool            categoryForNote(const Note &note, QString *category, QString *error) const;
     bool            categoryForFolder(const QUuid &folderId, QString *category, QString *error) const;
     void            reconcileRemoteFolders(const QList<NextcloudRemoteNote> &notes);
