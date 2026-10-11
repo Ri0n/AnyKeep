@@ -37,6 +37,15 @@ struct NextcloudStatusResult {
     QString error;
 };
 
+struct NextcloudSettingsResult : NextcloudStatusResult {
+    QString notesPath;
+};
+
+struct NextcloudWebDavRangeResult : NextcloudStatusResult {
+    QByteArray data;
+    qint64 totalSize { -1 };
+};
+
 struct NextcloudAttachmentResult : NextcloudStatusResult {
     QString path;
     QByteArray data;
