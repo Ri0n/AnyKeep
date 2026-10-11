@@ -77,6 +77,12 @@ NextcloudWorker::NextcloudWorker(QObject *parent) : QObject(parent) {}
 
 void NextcloudWorker::setConfig(const NextcloudConfig &config)
 {
+    // Streaming may pin the captured account again before each chunk.
+    // Preserve keep-alive connections when nothing changed; credentials or
+    // endpoint changes must still flush pooled/authenticated connections.
+    if (config_.serverUrl == config.serverUrl && config_.userName == config.userName
+        && config_.appPassword == config.appPassword && config_.timeoutMs == config.timeoutMs)
+        return;
     config_ = config;
     if (manager_) {
         manager_->clearAccessCache();
