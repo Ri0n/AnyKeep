@@ -65,6 +65,12 @@ Read `README.md` for the HTTP/API behavior and user-facing configuration.
   temporary heading token, GET candidate content and verify the marker
   before adopting the server ID. Retain the journal remote ID through
   completion to prevent duplicate posts across lost ACK/restart.
+  Serialize claims with QLockFile (no time-based stale-lock stealing:
+  a slow POST may exceed 30 seconds) and treat lock contention as a
+  publication failure rather than risking a duplicate POST.
+  The placeholder body must be an exact match before committing; retaining
+  only its hidden marker is insufficient. Native favorite or read-only
+  changes are conflicts too.
 - An unresolved creation attempt must fail closed: preserve the encrypted
   draft and wait for a confirmed remote identity, without deleting any
   server note or issuing duplicate POST. If a final PUT ACK is lost,
