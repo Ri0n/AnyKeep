@@ -682,7 +682,8 @@ NextcloudSettingsResult NextcloudWorker::getSettings()
     return result;
 }
 
-NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relativeFilePath, qint64 offset, qint64 count)
+NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relativeFilePath, qint64 offset,
+                                                           qint64 count, const QString &ifMatchEtag)
 {
     NextcloudWebDavRangeResult result;
     // Ranged reads must never accidentally pull entire large remote files.
@@ -696,10 +697,18 @@ NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relat
 
     const QByteArray range = QByteArrayLiteral("bytes=") + QByteArray::number(offset) + '-'
         + QByteArray::number(offset + count - 1);
-    const auto reply = perform(Method::Get, url, {},
-                               { { QByteArrayLiteral("Range"), range },
-                                 { QByteArrayLiteral("Accept"), QByteArrayLiteral("application/octet-stream") } },
-                               count + 8192);
+    if (ifMatchEtag.size() > 256 || ifMatchEtag.contains(QLatin1Char('\r'))
+        || ifMatchEtag.contains(QLatin1Char('\n'))) {
+        result.error = QStringLiteral("Invalid WebDAV conditional ETag");
+        return result;
+    }
+    QHash<QByteArray, QByteArray> headers {
+        { QByteArrayLiteral("Range"), range },
+        { QByteArrayLiteral("Accept"), QByteArrayLiteral("application/octet-stream") }
+    };
+    if (!ifMatchEtag.isEmpty())
+        headers.insert(QByteArrayLiteral("If-Match"), ifMatchEtag.toUtf8());
+    const auto reply = perform(Method::Get, url, {}, headers, count + 8192);
     result.httpStatus = reply.status;
     if (!reply.ok || reply.status != 206) {
         result.error = reply.status == 200
@@ -725,6 +734,11 @@ NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relat
     if (!fromOk || !toOk || !totalOk || from != offset || to < from
         || to - from + 1 != reply.body.size() || reply.body.size() > count || total <= to) {
         result.error = QStringLiteral("WebDAV returned an inconsistent byte range");
+        return result;
+    }
+    result.etag = QString::fromUtf8(headerValue(reply, QByteArrayLiteral("ETag"))).trimmed();
+    if (!ifMatchEtag.isEmpty() && !result.etag.isEmpty() && result.etag != ifMatchEtag) {
+        result.error = QStringLiteral("WebDAV media ETag changed between byte-range reads");
         return result;
     }
     result.data = reply.body;
