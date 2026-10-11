@@ -5,10 +5,13 @@
 
 #include <QByteArray>
 #include <QList>
+#include <memory>
 #include <QMutex>
 #include <QString>
 
 namespace AnyKeep {
+
+class MediaPartialChunkCache;
 
 struct ANYKEEP_EXPORT LocalMediaResult {
     MediaReference value;
@@ -82,6 +85,13 @@ public:
     bool                           contains(const MediaReference &reference) const;
     bool                           containsManagedBlob(const QByteArray &blobId) const;
     bool                           isChunkedManagedBlob(const QByteArray &blobId) const;
+
+    // Cache *incomplete* media without making it appear as a complete managed
+    // blob. Resolve the same profile master key as AKMC, on the calling
+    // application thread, before the returned cache is used by a worker.
+    std::shared_ptr<MediaPartialChunkCache> partialMediaCache(
+        const QString &provider, const QString &immutableSourceId,
+        qint64 plainSize, QString *error = nullptr) const;
 
 private:
     friend class IrisProgressiveMediaLiveTest;
