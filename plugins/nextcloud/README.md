@@ -77,7 +77,8 @@ atomic final MOVE, capability/settings lookup, and bounded HTTP Range reads.
 paths. The disposable-server live test exercises these HTTP operations.
 
 An internal `NextcloudStorage::saveNoteAsync()` path accepts a media
-manifest for an **existing note with a known ETag**. It authenticates and hashes local
+manifest for an **existing note with a known ETag**, or creates a new
+note via a crash-recoverable placeholder transaction. It authenticates and hashes local
 managed/external content through `MediaSource`/`MediaStream` in the worker
 thread without materializing the whole plaintext (up to the 50,000-chunk
 WebDAV upload bound, 48.8 GiB), and creates the native
@@ -96,6 +97,41 @@ receipt; previously staged identical uploads are also recoverable by
 their deterministic filename. Native-client edits to an attachment cause a
 conflict rather than a silent replacement. Locally the saved note retains
 canonical URIs and `nextcloud.noteId`/`nextcloud.path` receipts.
+
+### New notes with media: durable identity and ambiguous POST
+
+Nextcloud Notes assigns a server note ID during POST. If a response is lost,
+blindly repeating POST can create duplicate notes. For an initial media save,
+AnyKeep authenticates the local media **before** writing a durable, account-
+scoped creation journal (a hashed server URL/account plus a stable UUID,
+with an attempt flag and eventual remote ID; no note plaintext or credentials).
+`DraftManager` passes the persisted encrypted `DraftRecord.id` as
+`anykeep.publicationDraftId`. A direct `createNote()` caller instead
+receives a session `nextcloud.createToken`; full restart safety for user
+drafts relies on the durable DraftRecord.
+
+Only after journaling an attempt does the worker issue exactly one Notes POST
+with a temporary `# AnyKeep pending media <UUID>` heading and
+`<!-- anykeep-media-create:<UUID> -->` marker. Once the server ID is known,
+the worker persists it, stages verified WebDAV files into
+`.attachments.<noteId>/`, and commits native Markdown with If-Match.
+Successful saves return the original canonical text and media manifest.
+
+On restart/retry with no saved remote ID, the worker searches Notes metadata
+for that specific marker, fetches matching candidates to verify the exact
+body marker, and resumes the existing note. If it cannot yet establish the
+identity, it **does not send another POST**: the encrypted draft remains
+recoverable, but automatic publication may pause indefinitely until the
+ambiguous outcome can be resolved. Once a remote ID is journaled, a retry
+can also detect a previously completed Markdown update and verify the
+already-staged attachments without another write. Unrelated native-client
+edits are conflicts, not overwritten.
+
+A failed/crashed upload may leave a visible, temporary marker note or
+unreferenced native WebDAV files. There is deliberately no automatic
+delete/cleanup until reference-aware reconciliation exists. Creation-journal
+entries are retained as duplicate-prevention tombstones until a future
+durable ACK/garbage-collection protocol can safely prune them.
 
 **Confirmed Notes 5.0.2 interoperability trap:** uploads through its native
 v1.4 attachment API are placed alongside the Markdown note, and the
@@ -118,8 +154,9 @@ deleted. Remote HTTP replies are capped even if the server ignores Range.
 Real Nextcloud accounts require HTTPS; only loopback HTTP fixtures are
 allowed. No custom Nextcloud E2EE is applied.
 
-**Not yet a complete media feature:** creating a new note with attachments
-still needs an idempotent, crash-recoverable remote ID; progressive large-file playback and remote-only hydration beyond the
+**Not yet a complete media feature:** manual resolution for an ambiguous POST
+whose marker never becomes visible, progressive large-file playback and
+remote-only hydration beyond the
 current 16 MiB per-file/32 MiB per-note load cap; zero-byte media, deferred
 reference-aware cleanup of abandoned/stale attachments, safe legacy
 attachment migration before category moves, and multi-device end-to-end
