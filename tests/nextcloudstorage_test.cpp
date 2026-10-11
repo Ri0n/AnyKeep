@@ -166,7 +166,7 @@ void NextcloudStorageTest::metadataOnlyFolderMoveUsesCategoryPath()
     QVERIFY(headerEnd >= 0);
     const auto headers = request.left(headerEnd);
     QVERIFY(headers.startsWith("PUT /index.php/apps/notes/api/v1/notes/note-1 HTTP/1.1\r\n"));
-    QVERIFY(headers.contains("If-Match: old-etag\r\n"));
+    QVERIFY(headers.contains("If-Match: \"old-etag\"\r\n"));
     const auto body = QJsonDocument::fromJson(request.mid(headerEnd + 4));
     QVERIFY(body.isObject());
     QCOMPARE(body.object().keys(), QStringList({ QStringLiteral("category") }));
