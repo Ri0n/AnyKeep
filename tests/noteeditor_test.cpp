@@ -194,6 +194,27 @@ private slots:
         QCOMPARE(record.backendData.value(QStringLiteral("etag")).toString(), QStringLiteral("base-etag"));
     }
 
+    void markdownEditorDoesNotCheckpointExtraTitleBlankLines()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        auto        *data = store.get();
+        DraftManager drafts(std::move(store));
+        Note         note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Moved note"));
+        note.setText(QStringLiteral("Original body"), Note::Markdown);
+        NoteEditor editor(note, drafts);
+
+        // Some Qt Markdown serializers, especially on Windows, insert an
+        // extra paragraph separator between title and body. It must never
+        // turn into a leading newline in the persisted draft.
+        editor.setText(QStringLiteral("Moved note\n\n\nLatest local body"));
+        QCOMPARE(editor.note().title(), QStringLiteral("Moved note"));
+        QCOMPARE(editor.note().text(), QStringLiteral("Latest local body"));
+        QVERIFY(editor.save());
+        const auto persisted = data->drafts.value(editor.draftId());
+        QCOMPARE(persisted.body, QStringLiteral("Latest local body"));
+    }
+
     void markdownTagLineIsCheckpointedAsTags()
     {
         Note note(new NoteData(nullptr));

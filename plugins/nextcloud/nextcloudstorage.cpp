@@ -11,6 +11,9 @@
 #include "settingscontroller.h"
 
 #include <QCryptographicHash>
+#include <QDir>
+#include <QLockFile>
+#include <QStandardPaths>
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QHostAddress>
@@ -160,6 +163,152 @@ namespace {
         QList<NativeRestoredFile> files;
     };
 
+    // A Nextcloud Notes POST assigns the note ID on the server. A timed-out
+    // POST is ambiguous: repeating it blindly creates a duplicate note.
+    // Store the attempt *before* POST, keyed by the durable encrypted draft
+    // identity (or by createNote()'s session identity for direct callers).
+    // The journal contains only a token and remote ID, never note plaintext.
+    QString creationJournalKey(const NextcloudConfig &config, const QString &token)
+    {
+        const QByteArray account = (config.serverUrl.toString(QUrl::RemoveQuery | QUrl::RemoveFragment)
+                                    + QLatin1Char('\n') + config.userName).toUtf8();
+        const QByteArray digest = QCryptographicHash::hash(account, QCryptographicHash::Sha256).toHex();
+        return QStringLiteral("storage.nextcloud.creationJournal/")
+            + QString::fromLatin1(digest) + QLatin1Char('/') + token;
+    }
+
+    QString creationMarker(const QString &token)
+    {
+        return QStringLiteral("<!-- anykeep-media-create:") + token + QStringLiteral(" -->");
+    }
+
+    QString creationTitle(const QString &token)
+    {
+        return QStringLiteral("AnyKeep pending media ") + token;
+    }
+
+    QString creationPlaceholder(const QString &token)
+    {
+        return QStringLiteral("# ") + creationTitle(token) + QStringLiteral("\n\n")
+            + creationMarker(token);
+    }
+
+    // This is intentionally conservative. If the POST was sent but the reply
+    // was lost, only search for its stable marker; never issue a second POST
+    // until a positive identity has been established. The durable DraftRecord
+    // remains available for another recovery attempt.
+    NextcloudNoteResult ensureCreatedMediaNote(NextcloudWorker *worker, const NextcloudConfig &config,
+                                                const NextcloudRemoteNote &requested, const QString &token)
+    {
+        NextcloudNoteResult result;
+        const QString key = creationJournalKey(config, token);
+        // Both multiple workers and a second AnyKeep process may try to
+        // publish the same durable draft. Serialize the journal claim and
+        // ambiguous POST across processes before reading attempted=false.
+        const QByteArray lockHash = QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Sha256).toHex();
+        const QString lockDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+            + QStringLiteral("/nextcloud-create-locks");
+        if (!QDir().mkpath(lockDir)) {
+            result.error = QStringLiteral("Cannot create the Nextcloud publication lock directory");
+            return result;
+        }
+        QLockFile claimLock(lockDir + QLatin1Char('/') + QString::fromLatin1(lockHash)
+                            + QStringLiteral(".lock"));
+        // A slow Notes POST may exceed Qt's default 30-second stale lock
+        // threshold. Do not let another process steal a live create claim:
+        // OS/PID-based stale detection still handles crashed publishers.
+        claimLock.setStaleLockTime(0);
+        if (!claimLock.tryLock(5000)) {
+            result.error = QStringLiteral("Another process is creating the same Nextcloud note");
+            return result;
+        }
+        // Do not depend on QCoreApplication's organization/application names:
+        // storage unit tests and plugins can run before those are configured.
+        // Use a dedicated, explicitly named user-scoped INI journal.
+        QSettings journal(QSettings::IniFormat, QSettings::UserScope,
+                          QStringLiteral("AnyKeep"), QStringLiteral("nextcloud-creation-journal"));
+        const bool attempted = journal.value(key + QStringLiteral("/attempted")).toBool();
+        QString remoteId = journal.value(key + QStringLiteral("/remoteId")).toString();
+
+        if (!attempted) {
+            journal.setValue(key + QStringLiteral("/attempted"), true);
+            journal.sync();
+            if (journal.status() != QSettings::NoError) {
+                result.error = QStringLiteral("Could not persist the Nextcloud create attempt before POST");
+                return result;
+            }
+
+            auto placeholder = requested;
+            placeholder.title = creationTitle(token);
+            placeholder.content = creationPlaceholder(token);
+            placeholder.contentPresent = true;
+            result = worker->createNote(placeholder);
+            if (!result.ok)
+                return result; // unknown whether POST committed: retry must search
+
+            if (result.note.id.isEmpty()) {
+                result.ok = false;
+                result.error = QStringLiteral("Created Nextcloud note has no usable ID");
+                return result;
+            }
+            remoteId = result.note.id;
+            journal.setValue(key + QStringLiteral("/remoteId"), remoteId);
+            journal.sync();
+            if (journal.status() != QSettings::NoError) {
+                result.ok = false;
+                result.error = QStringLiteral("Could not persist the created Nextcloud note ID");
+            }
+            return result;
+        }
+
+        if (remoteId.isEmpty()) {
+            const auto listed = worker->listNotes();
+            if (!listed.ok) {
+                result.httpStatus = listed.httpStatus;
+                result.error = listed.error;
+                return result;
+            }
+
+            // Notes list is metadata-only; GET candidate notes to confirm the
+            // exact body marker instead of trusting a title collision.
+            int matches = 0;
+            NextcloudNoteResult found;
+            for (const auto &candidate : listed.notes) {
+                if (!candidate.title.contains(token) || candidate.category != requested.category)
+                    continue;
+                const auto fetched = worker->getNote(candidate.id);
+                if (!fetched.ok) {
+                    result.httpStatus = fetched.httpStatus;
+                    result.error = fetched.error;
+                    return result;
+                }
+                if (!fetched.note.contentPresent
+                    || !fetched.note.content.contains(creationMarker(token)))
+                    continue;
+                ++matches;
+                found = fetched;
+            }
+            if (matches != 1) {
+                result.conflict = matches > 1;
+                result.error = matches > 1
+                    ? QStringLiteral("Multiple Nextcloud notes match the pending creation identity")
+                    : QStringLiteral(
+                        "The previous Nextcloud create attempt is unresolved; waiting for its server identity");
+                return result;
+            }
+            remoteId = found.note.id;
+            journal.setValue(key + QStringLiteral("/remoteId"), remoteId);
+            journal.sync();
+            if (journal.status() != QSettings::NoError) {
+                result.error = QStringLiteral("Could not persist the recovered Nextcloud note ID");
+                return result;
+            }
+            return found;
+        }
+
+        return worker->getNote(remoteId);
+    }
+
     // The Notes 5.0.2 API uploads to the category directory and its files
     // become inaccessible after a category move. The web Notes editor instead
     // stores per-note attachments under .attachments.<noteId>; its directory
@@ -221,16 +370,11 @@ namespace {
         return {};
     }
 
-    bool prepareAttachments(const QString &noteId, const QString &body,
-                            const QList<MediaReference> &references, LocalMediaStore *store,
-                            QList<PreparedAttachment> *prepared, QString *error)
+    bool prepareAttachments(const QString &body, const QList<MediaReference> &references,
+                            LocalMediaStore *store, QList<PreparedAttachment> *prepared, QString *error)
     {
         if (references.isEmpty())
             return true;
-        if (noteId.isEmpty()) {
-            *error = QStringLiteral("Creating notes with media requires a recoverable remote note identity");
-            return false;
-        }
 
         QHash<QString, QString> probePaths;
         for (const auto &reference : references) {
@@ -899,6 +1043,8 @@ Note NextcloudStorage::createNote()
     Note note(new NoteData(this));
     note.setText(QString(), Note::Markdown);
     note.setLastChangeUTC(QDateTime::currentDateTimeUtc());
+    note.setBackendValue(QStringLiteral("nextcloud.createToken"),
+                         QUuid::createUuid().toString(QUuid::WithoutBraces));
     return note;
 }
 
@@ -1022,9 +1168,24 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
 
     const auto mediaReferences = note.media();
     const bool hasMedia = !mediaReferences.isEmpty();
-    if (hasMedia && note.id().isEmpty()) {
+    // Cheap manifest/body consistency checks must remain synchronous,
+    // even though hashing and I/O preflight now run on the network worker.
+    // This also prevents a malformed draft from reaching the create journal.
+    for (const auto &reference : mediaReferences) {
+        if (!reference.isValid() || !note.text().contains(reference.uri())) {
+            job->fail({ StorageError::Other,
+                        tr("Media manifest contains an invalid or unreferenced attachment"), false });
+            return job;
+        }
+    }
+    const QString rawToken = note.backendValue(QStringLiteral("anykeep.publicationDraftId")).toString()
+        .isEmpty() ? note.backendValue(QStringLiteral("nextcloud.createToken")).toString()
+                   : note.backendValue(QStringLiteral("anykeep.publicationDraftId")).toString();
+    const QUuid creationUuid(rawToken);
+    const QString creationToken = creationUuid.toString(QUuid::WithoutBraces);
+    if (hasMedia && note.id().isEmpty() && creationUuid.isNull()) {
         job->fail({ StorageError::Other,
-                    tr("Creating notes with media requires a recoverable remote note identity"), false });
+                    tr("Creating Nextcloud media requires a stable, recoverable draft identity"), false });
         return job;
     }
     // Resolve the keychain-backed local key on the application thread.
@@ -1050,7 +1211,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
         return job;
     }
 
-    if (hasMedia && local.etag.isEmpty()) {
+    if (hasMedia && !note.id().isEmpty() && local.etag.isEmpty()) {
         job->fail({ StorageError::Conflict, tr("A known ETag is required before publishing Nextcloud media."),
                     false });
         return job;
@@ -1061,35 +1222,52 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
     QPointer<NoteSaveJob> guard(job);
     QMetaObject::invokeMethod(
         worker_,
-        [this, guard, config, local, oldId, mediaReferences, hasMedia, canonicalText]() {
+        [this, guard, config, local, oldId, mediaReferences, hasMedia, canonicalText, creationToken]() {
             worker_->setConfig(config);
             MediaSaveResult publication;
             QList<PreparedAttachment> attachments;
             if (hasMedia) {
                 QString preparationError;
-                if (!prepareAttachments(oldId, canonicalText, mediaReferences, mediaStore_,
+                if (!prepareAttachments(canonicalText, mediaReferences, mediaStore_,
                                         &attachments, &preparationError)) {
                     publication.note.error = preparationError;
                     publication.localSourceFailure = true;
                 }
             }
+            QString publishingId = oldId;
+            auto publishingLocal = local;
+            const bool newMediaNote = hasMedia && oldId.isEmpty();
+            if (publication.note.error.isEmpty() && newMediaNote) {
+                const auto created = ensureCreatedMediaNote(worker_, config, local, creationToken);
+                if (!created.ok) {
+                    publication.note = created;
+                } else {
+                    publishingId = created.note.id;
+                    publishingLocal.id = publishingId;
+                    publishingLocal.etag = created.note.etag;
+                }
+            }
             if (!publication.note.error.isEmpty()) {
-                // Missing or corrupted local plaintext is a hard failure;
-                // no remote HTTP requests may happen before preflight.
+                // Missing/corrupt local plaintext and ambiguous creation are
+                // both failure states: do not publish a partial Markdown body.
             } else if (!hasMedia) {
                 publication.note = oldId.isEmpty() ? worker_->createNote(local) : worker_->updateNote(local);
             } else {
                 // Check before staging data. Recheck the ETag again atomically
-                // during the final updateNote() to handle concurrent native edits.
-                const auto current = worker_->getNote(oldId);
+                // during the final updateNote() to handle concurrent edits.
+                const auto current = worker_->getNote(publishingId);
                 if (!current.ok) {
                     publication.note = current;
-                } else if (current.note.etag != local.etag) {
+                } else if (current.note.etag.isEmpty()) {
+                    publication.note.error = QStringLiteral(
+                        "The Nextcloud note has no usable ETag for safe media publication");
+                } else if (!publishingLocal.etag.isEmpty()
+                           && current.note.etag != publishingLocal.etag) {
                     publication.note.conflict = true;
                     publication.note.httpStatus = 412;
                     publication.note.remoteOnConflict = current.note;
                     publication.note.error = QStringLiteral("The Nextcloud note changed before media publication");
-                } else if (current.note.category != local.category) {
+                } else if (current.note.category != publishingLocal.category) {
                     // Staging inside the destination category before Notes has
                     // moved the source note risks splitting its attachments
                     // between the old and new directories. Require the caller
@@ -1101,12 +1279,47 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                         "Move the Nextcloud note to its destination category before publishing media");
                 } else {
                     QHash<QString, QString> nativePaths;
-                    const auto settings = worker_->getSettings();
-                    if (!settings.ok) {
-                        publication.note.error = settings.error;
-                        publication.note.httpStatus = settings.httpStatus;
-                    } else {
-                        const QString davFolder = attachmentDirectory(settings.notesPath, local.category, oldId);
+                    // A recovered POST may already have completed its final
+                    // Markdown PUT before the last response was lost. Do not
+                    // blindly update that document again (or overwrite an
+                    // external edit). Compare with the deterministic native
+                    // body, and still verify each remote attachment.
+                    QHash<QString, QString> expectedPaths;
+                    for (const auto &attachment : attachments) {
+                        expectedPaths.insert(attachment.reference.uri(),
+                            QStringLiteral(".attachments.") + publishingId + QLatin1Char('/')
+                                + stableAttachmentFileName(attachment));
+                    }
+                    QString expectedError;
+                    const QString expectedNative = NextcloudMediaLinks::toNative(
+                        canonicalText, expectedPaths, &expectedError);
+                    const bool alreadyCommitted = newMediaNote && expectedError.isEmpty()
+                        && current.note.contentPresent && current.note.content == expectedNative
+                        && current.note.favorite == publishingLocal.favorite;
+                    // Merely retaining the hidden marker does not make a
+                    // modified placeholder safe to overwrite. A native Notes
+                    // client might append text while publication is in flight.
+                    if (newMediaNote && !alreadyCommitted
+                        && (!current.note.contentPresent
+                            || current.note.content != creationPlaceholder(creationToken)
+                            || current.note.favorite != publishingLocal.favorite
+                            || current.note.readOnly)) {
+                        publication.note.conflict = true;
+                        publication.note.httpStatus = 412;
+                        publication.note.remoteOnConflict = current.note;
+                        publication.note.error = QStringLiteral(
+                            "The recoverable Nextcloud note was changed before media publication");
+                    }
+                    NextcloudSettingsResult settings;
+                    if (publication.note.error.isEmpty()) {
+                        settings = worker_->getSettings();
+                        if (!settings.ok) {
+                            publication.note.error = settings.error;
+                            publication.note.httpStatus = settings.httpStatus;
+                        }
+                    }
+                    if (publication.note.error.isEmpty()) {
+                        const QString davFolder = attachmentDirectory(settings.notesPath, publishingLocal.category, publishingId);
                         if (!NextcloudMediaLinks::isSafeNativePath(davFolder)) {
                             publication.note.error = QStringLiteral("Unsafe native Notes attachment directory");
                         } else {
@@ -1138,14 +1351,14 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                     .value(QStringLiteral("nextcloud.path")).toString();
                                 const QString receiptNote = attachment.reference.remoteData
                                     .value(QStringLiteral("nextcloud.noteId")).toString();
-                                const QString ownedPrefix = QStringLiteral(".attachments.") + oldId
+                                const QString ownedPrefix = QStringLiteral(".attachments.") + publishingId
                                     + QLatin1Char('/');
                                 QString nativePath = ownedPrefix + stableAttachmentFileName(attachment);
                                 bool verified = false;
-                                if (receiptNote == oldId && receiptPath.startsWith(ownedPrefix)
+                                if (receiptNote == publishingId && receiptPath.startsWith(ownedPrefix)
                                     && NextcloudMediaLinks::isSafeNativePath(receiptPath)) {
                                     const QString previousDav = attachmentDirectory(
-                                        settings.notesPath, local.category, oldId)
+                                        settings.notesPath, publishingLocal.category, publishingId)
                                         + QLatin1Char('/') + receiptPath.mid(ownedPrefix.size());
                                     bool missing = false;
                                     QString error = verifyNativeBytes(worker_, previousDav, source, attachment.size, attachment.sha256,
@@ -1206,7 +1419,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
 
                                 nativePaths.insert(attachment.reference.uri(), nativePath);
                                 auto publishedReference = attachment.reference;
-                                publishedReference.remoteData.insert(QStringLiteral("nextcloud.noteId"), oldId);
+                                publishedReference.remoteData.insert(QStringLiteral("nextcloud.noteId"), publishingId);
                                 publishedReference.remoteData.insert(QStringLiteral("nextcloud.path"), nativePath);
                                 publication.media.append(std::move(publishedReference));
                             }
@@ -1220,7 +1433,17 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                         if (!linkError.isEmpty()) {
                             publication.note.error = linkError;
                         } else {
-                            publication.note = worker_->updateNote(outgoing);
+                            if (alreadyCommitted) {
+                                publication.note = current;
+                            } else {
+                                outgoing.id = publishingId;
+                                // POST responses may omit an ETag. GET is the
+                                // authoritative precondition in that case;
+                                // never issue an unguarded initial PUT.
+                                outgoing.etag = publishingLocal.etag.isEmpty()
+                                    ? current.note.etag : publishingLocal.etag;
+                                publication.note = worker_->updateNote(outgoing);
+                            }
                         }
                     }
                 }

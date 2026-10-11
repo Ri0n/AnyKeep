@@ -40,6 +40,7 @@ class NextcloudLiveTest final : public QObject {
 private slots:
     void initTestCase();
     void createReadUpdateConflictDelete();
+    void temporaryCreationMarkerIsDiscoverableByNotesMetadata();
     void invalidPasswordIsRejected();
     void nativeAttachmentRoundtrip();
     void mediaLinkCodec();
@@ -152,6 +153,53 @@ void NextcloudLiveTest::createReadUpdateConflictDelete()
     QVERIFY2(listAfterDelete.ok, qPrintable(listAfterDelete.error));
     for (const auto &item : listAfterDelete.notes)
         QVERIFY(item.id != created.note.id);
+}
+
+void NextcloudLiveTest::temporaryCreationMarkerIsDiscoverableByNotesMetadata()
+{
+    NextcloudWorker worker;
+    worker.setConfig(liveConfig());
+    const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QString pendingTitle = QStringLiteral("AnyKeep pending media ") + token;
+    const QString pendingBody = QStringLiteral("# ") + pendingTitle + QStringLiteral("\n\n")
+        + QStringLiteral("<!-- anykeep-media-create:") + token + QStringLiteral(" -->");
+    NextcloudRemoteNote draft;
+    draft.title = pendingTitle;
+    draft.content = pendingBody;
+    draft.contentPresent = true;
+    draft.category = QStringLiteral("AnyKeep Integration/PendingMedia");
+    const auto created = worker.createNote(draft);
+    QVERIFY2(created.ok, qPrintable(created.error));
+    QVERIFY(!created.note.id.isEmpty());
+    CleanupNote cleanup { worker, created.note.id };
+
+    // Recovery intentionally starts with metadata-only discovery after the
+    // create response is lost. Validate the actual Notes server title rules.
+    const auto listed = worker.listNotes();
+    QVERIFY2(listed.ok, qPrintable(listed.error));
+    bool found = false;
+    for (const auto &candidate : listed.notes) {
+        if (candidate.id != created.note.id)
+            continue;
+        QCOMPARE(candidate.category, draft.category);
+        QVERIFY2(candidate.title.contains(token),
+                 "Notes must expose the pending creation token in list metadata");
+        const auto retrieved = worker.getNote(candidate.id);
+        QVERIFY2(retrieved.ok, qPrintable(retrieved.error));
+        QCOMPARE(retrieved.note.content, pendingBody);
+        found = true;
+    }
+    QVERIFY2(found, "Temporary media note was not discoverable");
+    const auto fresh = worker.getNote(created.note.id);
+    QVERIFY2(fresh.ok, qPrintable(fresh.error));
+    NextcloudRemoteNote completed = fresh.note;
+    completed.content = QStringLiteral("# Native visible note after publication ") + token;
+    const auto written = worker.updateNote(completed);
+    QVERIFY2(written.ok, qPrintable(written.error));
+    const auto after = worker.getNote(created.note.id);
+    QVERIFY2(after.ok, qPrintable(after.error));
+    QCOMPARE(after.note.content, completed.content);
+    QVERIFY(!after.note.content.contains(QStringLiteral("anykeep-media-create:")));
 }
 
 void NextcloudLiveTest::invalidPasswordIsRejected()
