@@ -30,6 +30,9 @@ public:
     NextcloudStatusResult deleteNote(const QString &id);
 
     // Native, non-encrypted Notes attachments: compatible with other clients.
+    NextcloudSettingsResult getSettings();
+    NextcloudWebDavRangeResult readWebDavRange(const QString &relativeFilePath, qint64 offset, qint64 count);
+
     NextcloudAttachmentResult uploadAttachment(const QString &noteId, const QString &fileName,
                                                const QByteArray &data);
     NextcloudAttachmentResult downloadAttachment(const QString &noteId, const QString &path);
