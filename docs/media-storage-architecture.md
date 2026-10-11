@@ -362,20 +362,35 @@ WebDAV HTTP Range is supported. Notes attachment endpoints, file layout,
 WebDAV behavior and API versions must be detected and verified against a
 real server, including edits made by native Notes clients.
 
-The Nextcloud worker implements native Notes v1.4 attachment upload/download,
-WebDAV chunked-v2 upload and bounded HTTP Range reads. The link codec translates
-canonical and native Markdown URLs. An **internal, existing-note-only async
-publication path** now verifies local content, checks the base ETag, uploads
-native plaintext attachments, verifies read-back, and finally writes native
-Markdown with an `If-Match` precondition. The returned in-memory manifest keeps
-canonical `anykeep-media:` URIs and remote native-path receipts.
+The Nextcloud worker implements Notes v1.4 attachment APIs as compatibility
+primitives, WebDAV chunked-v2 uploads, and bounded HTTP Range requests.
+The storage's existing-note async publication path uses the **web-native**
+`.attachments.<noteId>/` directory, not Notes 5.0.2's legacy REST
+attachment upload target. On that older Notes version, attachment REST uploads
+are siblings of the Markdown document and become inaccessible after a
+category move; the real-server regression test reproduces this 404. The
+web-native per-note directory follows the moved note (verified by live test).
+
+Before a Markdown update the adapter reads its local immutable content,
+checks the known ETag, stages files using unique deterministic names and
+WebDAV atomic MOVE (no overwrite), and verifies remote bytes with capped
+HTTP Range reads. A previously verified receipt can be reused; a file
+changed by another client causes a conflict, not an overwrite. The server
+receives standard relative Markdown URLs; the local note retains stable
+`anykeep-media:` links and remote path receipts. On another device,
+`loadNoteAsync()` imports bounded web-native or legacy flat relative files
+into encrypted `LocalMediaStore` without altering remote Markdown.
+Category moves block legacy/unknown relative links rather than breaking
+them; the move response preserves matching canonical local media manifests.
 
 This is **partial** and not yet a supported editor workflow:
-`NextcloudStorage::supportsMedia()` stays false. New-note media creation,
-streaming upload from local encrypted chunks, full cross-device hydration,\nidempotent retry, orphan cleanup, category moves, safe deletion and native-client
-end-to-end tests must be implemented first. Failure after attachment staging
-currently leaves remote orphan candidates; the local draft remains the source
-of truth and must not be discarded. Synchronous saves still refuse media.
+`NextcloudStorage::supportsMedia()` remains false. New-note media creation,
+streaming upload from local encrypted chunks, full cross-device hydration,
+progressive playback, zero-byte attachment support, persistent retry
+receipts, reference-aware cleanup, safe migration of legacy sibling links
+before moves, and multi-device/native-client end-to-end verification still
+need implementation. An interrupted update can leave remote staged orphans;
+it must never delete the local durable draft or its blob.
 
 The intended publication transaction is:
 
