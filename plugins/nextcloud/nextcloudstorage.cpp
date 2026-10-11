@@ -1263,13 +1263,15 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                         publication.note.error = QStringLiteral(
                             "The recoverable Nextcloud note was changed before media publication");
                     }
-                    const auto settings = publication.note.error.isEmpty()
-                        ? worker_->getSettings() : NextcloudSettingsResult {};
-
-                    if (!settings.ok) {
-                        publication.note.error = settings.error;
-                        publication.note.httpStatus = settings.httpStatus;
-                    } else {
+                    NextcloudSettingsResult settings;
+                    if (publication.note.error.isEmpty()) {
+                        settings = worker_->getSettings();
+                        if (!settings.ok) {
+                            publication.note.error = settings.error;
+                            publication.note.httpStatus = settings.httpStatus;
+                        }
+                    }
+                    if (publication.note.error.isEmpty()) {
                         const QString davFolder = attachmentDirectory(settings.notesPath, publishingLocal.category, publishingId);
                         if (!NextcloudMediaLinks::isSafeNativePath(davFolder)) {
                             publication.note.error = QStringLiteral("Unsafe native Notes attachment directory");
