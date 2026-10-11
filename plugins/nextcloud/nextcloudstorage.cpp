@@ -1249,9 +1249,23 @@ NoteFolderChangeJob *NextcloudStorage::changeNoteFolderAsync(const Note &note, Q
 
                     reconcileRemoteFolders({ result.note });
                     auto changed = fromRemote(result.note);
-                    if (!result.note.contentPresent) {
-                        const auto cached = cache_.value(noteId);
-                        if (!cached.isNull() && cached.isLoaded()) {
+                    const auto cached = cache_.value(noteId);
+                    if (!cached.isNull() && cached.isLoaded()) {
+                        // A metadata-only category move must not downgrade the
+                        // verified canonical media manifest into raw native URLs
+                        // just because the Notes response happens to include
+                        // the Markdown body.
+                        QHash<QString, QString> nativePaths;
+                        for (const auto &ref : cached.media()) {
+                            const QString path = ref.remoteData.value(QStringLiteral("nextcloud.path")).toString();
+                            if (NextcloudMediaLinks::isSafeNativePath(path))
+                                nativePaths.insert(ref.uri(), path);
+                        }
+                        QString linkError;
+                        const QString canonicalAsNative
+                            = NextcloudMediaLinks::toNative(cached.text(), nativePaths, &linkError);
+                        if (linkError.isEmpty() && (!result.note.contentPresent
+                                                     || result.note.content == canonicalAsNative)) {
                             changed.setText(cached.text(), cached.format());
                             changed.setMedia(cached.media());
                         }
