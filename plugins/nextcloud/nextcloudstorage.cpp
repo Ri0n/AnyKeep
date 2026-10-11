@@ -3,6 +3,7 @@
 #include "foldercatalogmanager.h"
 #include "localmediastore.h"
 #include "mediarangeservice.h"
+#include "mediapartialchunkcache.h"
 #include "mediasyncservice.h"
 #include "mediasource.h"
 #include "mediastream.h"
@@ -193,10 +194,26 @@ namespace {
             && data.value(QStringLiteral("nextcloud.instance")).toString() == mediaInstanceKey(config)
             && !noteId.isEmpty() && !etag.isEmpty() && etag.size() <= 256
             && !etag.contains(QLatin1Char('\r')) && !etag.contains(QLatin1Char('\n'))
+            && !etag.startsWith(QStringLiteral("W/"), Qt::CaseInsensitive)
             && NextcloudMediaLinks::isSafeNativePath(path)
             && !path.endsWith(QStringLiteral(".md"), Qt::CaseInsensitive)
             && (!path.startsWith(QStringLiteral(".attachments."))
                 || path.startsWith(QStringLiteral(".attachments.") + noteId + QLatin1Char('/')));
+    }
+
+    // Immutable revision identity for the local encrypted partial cache.
+    // Category is part of WebDAV's native path and the ETag is part of the
+    // remote revision: a moved/replaced object must not reuse old bytes.
+    QString mediaCacheIdentity(const MediaReference &reference, const NextcloudConfig &config)
+    {
+        const auto &data = reference.remoteData;
+        const QByteArray parts = (mediaInstanceKey(config) + QLatin1Char('\n')
+            + data.value(QStringLiteral("nextcloud.noteId")).toString() + QLatin1Char('\n')
+            + data.value(QStringLiteral("nextcloud.category")).toString() + QLatin1Char('\n')
+            + data.value(QStringLiteral("nextcloud.path")).toString() + QLatin1Char('\n')
+            + data.value(QStringLiteral("nextcloud.etag")).toString() + QLatin1Char('\n')
+            + QString::number(reference.size)).toUtf8();
+        return QString::fromLatin1(QCryptographicHash::hash(parts, QCryptographicHash::Sha256).toHex());
     }
 
     // A Nextcloud Notes POST assigns the note ID on the server. A timed-out
@@ -493,40 +510,107 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
                 done({}, error.isEmpty() ? QStringLiteral("Invalid or stale Nextcloud remote media range") : error);
                 return;
             }
+            // LocalMediaStore resolves the profile keychain key on this
+            // application thread, before handing a cache to the worker.
+            const QString identity = mediaCacheIdentity(ref, config);
+            const auto cache = partialCacheFor(ref, config, &error);
+            if (!cache) {
+                done({}, error.isEmpty() ? QStringLiteral("Cannot unlock encrypted media cache") : error);
+                return;
+            }
             const QString category = ref.remoteData.value(QStringLiteral("nextcloud.category")).toString();
             const QString remotePath = ref.remoteData.value(QStringLiteral("nextcloud.path")).toString();
             const QString pinnedEtag = ref.remoteData.value(QStringLiteral("nextcloud.etag")).toString();
             QPointer<NextcloudStorage> owner(this);
             QMetaObject::invokeMethod(
                 worker_,
-                [this, owner, config, category, remotePath, pinnedEtag, ref, offset, count,
+                [this, owner, config, category, remotePath, pinnedEtag, identity, cache, ref, offset, count,
                  done = std::move(done)]() mutable {
                     if (!owner)
                         return;
                     worker_->setConfig(config);
-                    auto settings = worker_->getSettings();
-                    NextcloudWebDavRangeResult result;
-                    if (!settings.ok) {
-                        result.error = settings.error;
-                    } else {
-                        const QString davPath = settings.notesPath + QLatin1Char('/')
-                            + (category.isEmpty() ? QString() : category + QLatin1Char('/')) + remotePath;
-                        if (!NextcloudMediaLinks::isSafeNativePath(davPath)) {
-                            result.error = QStringLiteral("Unsafe Nextcloud remote media location");
-                        } else {
-                            result = worker_->readWebDavRange(davPath, offset, count, pinnedEtag);
-                            if (result.ok && (result.totalSize != ref.size || result.data.size() != count)) {
-                                result.ok = false;
-                                result.error = QStringLiteral("Nextcloud remote media size changed");
-                            }
-                        }
+                    auto existing = partialVerifiedBytes_.constFind(identity);
+                    if (existing == partialVerifiedBytes_.cend()) {
+                        partialVerifiedBytes_.insert(identity, cache->restoreVerifiedBytes());
+                        existing = partialVerifiedBytes_.constFind(identity);
                     }
+                    auto publish = [this, &ref, &identity](MediaSyncSnapshot::State state, const QString &error = {}) {
+                        MediaSyncSnapshot snapshot;
+                        snapshot.totalBytes = ref.size;
+                        snapshot.verifiedBytes = partialVerifiedBytes_.value(identity);
+                        snapshot.state = state;
+                        snapshot.error = error;
+                        MediaSyncService::instance()->publish(ref, snapshot);
+                    };
+                    publish(MediaSyncSnapshot::Transferring);
+
+                    QByteArray output;
+                    output.reserve(qsizetype(count));
+                    qint64 cursor = offset;
+                    const qint64 end = offset + count;
+                    QString failure;
+                    QString davPath;
+                    bool haveDavPath = false;
+                    while (cursor < end) {
+                        const quint64 index = quint64(cursor / LocalMediaStore::ManagedChunkSize);
+                        const qint64 chunkOffset = qint64(index) * LocalMediaStore::ManagedChunkSize;
+                        const qint64 expected = cache->expectedPlainSize(index);
+                        if (expected <= 0) {
+                            failure = QStringLiteral("Invalid Nextcloud cached media chunk geometry");
+                            break;
+                        }
+                        QByteArray bytes = cache->read(index, expected);
+                        if (bytes.isEmpty()) {
+                            if (!haveDavPath) {
+                                const auto settings = worker_->getSettings();
+                                if (!settings.ok) {
+                                    failure = settings.error;
+                                    break;
+                                }
+                                davPath = settings.notesPath + QLatin1Char('/')
+                                    + (category.isEmpty() ? QString() : category + QLatin1Char('/')) + remotePath;
+                                if (!NextcloudMediaLinks::isSafeNativePath(davPath)) {
+                                    failure = QStringLiteral("Unsafe Nextcloud media path");
+                                    break;
+                                }
+                                haveDavPath = true;
+                            }
+                            const auto remote = worker_->readWebDavRange(
+                                davPath, chunkOffset, expected, pinnedEtag);
+                            if (!remote.ok || remote.totalSize != ref.size || remote.data.size() != expected) {
+                                failure = !remote.error.isEmpty() ? remote.error
+                                    : QStringLiteral("WebDAV returned an inconsistent media chunk");
+                                break;
+                            }
+                            QString cacheError;
+                            if (!cache->write(index, remote.data, expected, {}, &cacheError)) {
+                                failure = cacheError.isEmpty()
+                                    ? QStringLiteral("Cannot durably encrypt downloaded media chunk") : cacheError;
+                                break;
+                            }
+                            bytes = remote.data;
+                            partialVerifiedBytes_[identity] += expected;
+                            publish(MediaSyncSnapshot::Transferring);
+                        }
+                        const qint64 inner = cursor - chunkOffset;
+                        const qint64 take = qMin(end - cursor, expected - inner);
+                        if (take <= 0) {
+                            failure = QStringLiteral("Invalid offset inside cached media chunk");
+                            break;
+                        }
+                        output.append(bytes.constData() + inner, qsizetype(take));
+                        cursor += take;
+                    }
+                    if (!failure.isEmpty())
+                        publish(MediaSyncSnapshot::Failed, failure);
+                    else
+                        publish(MediaSyncSnapshot::Waiting);
+
                     QMetaObject::invokeMethod(
                         owner,
-                        [owner, result = std::move(result), done = std::move(done)]() mutable {
+                        [owner, output = std::move(output), failure, done = std::move(done)]() mutable {
                             if (owner)
-                                done(result.ok ? std::move(result.data) : QByteArray(),
-                                     result.ok ? QString() : result.error);
+                                done(failure.isEmpty() ? std::move(output) : QByteArray(), failure);
                         },
                         Qt::QueuedConnection);
                 },
@@ -536,13 +620,35 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
         sync->registerObserver(
             this,
             [this](const MediaReference &ref) { return matchesRemoteMedia(ref, readConfig()); },
-            [](const MediaReference &ref) {
-                // On-demand range playback does not count undurable bytes as
-                // downloaded. A persistent encrypted partial cache is separate.
-                MediaSyncSnapshot snapshot;
-                snapshot.totalBytes = ref.size;
-                snapshot.state = MediaSyncSnapshot::Waiting;
-                MediaSyncService::instance()->publish(ref, snapshot);
+            [this](const MediaReference &ref) {
+                const auto config = readConfig();
+                QString error;
+                const auto cache = partialCacheFor(ref, config, &error);
+                if (!cache) {
+                    MediaSyncSnapshot state;
+                    state.totalBytes = ref.size;
+                    state.state = MediaSyncSnapshot::Failed;
+                    state.error = error.isEmpty() ? QStringLiteral("Encrypted media cache unavailable") : error;
+                    MediaSyncService::instance()->publish(ref, state);
+                    return;
+                }
+                const QString identity = mediaCacheIdentity(ref, config);
+                QPointer<NextcloudStorage> owner(this);
+                QMetaObject::invokeMethod(
+                    worker_, [this, owner, cache, ref, identity] {
+                        if (!owner)
+                            return;
+                        auto it = partialVerifiedBytes_.constFind(identity);
+                        if (it == partialVerifiedBytes_.cend()) {
+                            partialVerifiedBytes_.insert(identity, cache->restoreVerifiedBytes());
+                            it = partialVerifiedBytes_.constFind(identity);
+                        }
+                        MediaSyncSnapshot state;
+                        state.totalBytes = ref.size;
+                        state.verifiedBytes = it.value();
+                        state.state = MediaSyncSnapshot::Waiting;
+                        MediaSyncService::instance()->publish(ref, state);
+                    }, Qt::QueuedConnection);
             });
     }
 }
@@ -555,6 +661,24 @@ void NextcloudStorage::shutdown()
         return;
     workerThread_.quit();
     workerThread_.wait();
+}
+
+std::shared_ptr<MediaPartialChunkCache> NextcloudStorage::partialCacheFor(
+    const MediaReference &reference, const NextcloudConfig &config, QString *error)
+{
+    if (!matchesRemoteMedia(reference, config)) {
+        if (error)
+            *error = QStringLiteral("Invalid or stale remote media source");
+        return {};
+    }
+    const QString identity = mediaCacheIdentity(reference, config);
+    const auto current = partialCaches_.constFind(identity);
+    if (current != partialCaches_.cend())
+        return current.value();
+    auto cache = mediaStore_->partialMediaCache(QStringLiteral("nextcloud"), identity, reference.size, error);
+    if (cache)
+        partialCaches_.insert(identity, cache);
+    return cache;
 }
 
 NextcloudConfig NextcloudStorage::readConfig() const

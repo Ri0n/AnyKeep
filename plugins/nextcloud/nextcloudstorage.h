@@ -7,12 +7,14 @@
 #include <QHash>
 #include <QSet>
 #include <QThread>
+#include <memory>
 
 namespace AnyKeep {
 
 class NextcloudWorker;
 class FolderCatalogManager;
 class LocalMediaStore;
+class MediaPartialChunkCache;
 
 class NextcloudStorage final : public NoteStorage {
     Q_OBJECT
@@ -59,6 +61,8 @@ public:
 private:
     friend class NextcloudSettingsController;
     NextcloudConfig readConfig() const;
+    std::shared_ptr<MediaPartialChunkCache> partialCacheFor(
+        const MediaReference &reference, const NextcloudConfig &config, QString *error);
     bool            configIsValid(const NextcloudConfig &config, QString *error) const;
     Note            fromRemote(const NextcloudRemoteNote &remote);
     void            applyRemote(Note &note, const NextcloudRemoteNote &remote);
@@ -75,6 +79,10 @@ private:
     NextcloudWorker      *worker_ { nullptr };
     FolderCatalogManager *folderCatalogManager_ { nullptr };
     LocalMediaStore     *mediaStore_ { nullptr };
+    // Created on the application thread, then operated on only by the worker.
+    QHash<QString, std::shared_ptr<MediaPartialChunkCache>> partialCaches_;
+    // Accessed exclusively by the serialized Nextcloud worker queue.
+    QHash<QString, qint64> partialVerifiedBytes_;
     QHash<QString, Note>  cache_;
     // Successful writes may briefly be absent from an eventually consistent
     // list response. Keep them until the server snapshot acknowledges them.
