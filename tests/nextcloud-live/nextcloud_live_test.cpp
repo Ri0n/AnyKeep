@@ -193,6 +193,18 @@ void NextcloudLiveTest::nativeAttachmentRoundtrip()
     QVERIFY2(fetched.ok, qPrintable(fetched.error));
     QCOMPARE(fetched.data, bytes);
 
+    const auto settings = worker.getSettings();
+    QVERIFY2(settings.ok, qPrintable(settings.error));
+    const QString davPath = settings.notesPath + QLatin1Char('/')
+        + draft.category + QLatin1Char('/') + uploaded.path;
+    const auto firstRange = worker.readWebDavRange(davPath, 0, 12);
+    QVERIFY2(firstRange.ok, qPrintable(firstRange.error));
+    QCOMPARE(firstRange.totalSize, qint64(bytes.size()));
+    QCOMPARE(firstRange.data, bytes.left(12));
+    const auto secondRange = worker.readWebDavRange(davPath, 12, 13);
+    QVERIFY2(secondRange.ok, qPrintable(secondRange.error));
+    QCOMPARE(secondRange.data, bytes.mid(12, 13));
+
     // Save a standard relative image link, not an AnyKeep-only URI. The
     // server should preserve it exactly for native Notes clients.
     NextcloudRemoteNote note = created.note;
