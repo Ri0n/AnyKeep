@@ -309,9 +309,22 @@ std::pair<QString, QString> NoteEditor::titleAndBody() const
         return { title, {} };
     const QString separator = format_ == Note::PlainText ? QStringLiteral("\n") : QStringLiteral("\n\n");
     const QString prefix    = title + separator;
-    if (contents.startsWith(prefix))
-        return { title, contents.mid(prefix.size()) };
-    return { title, contents.startsWith(title) ? contents.mid(title.size()) : contents };
+    if (contents.startsWith(prefix)) {
+        QString body = contents.mid(prefix.size());
+        // QTextDocument's Markdown serializer may add another paragraph
+        // separator on Windows. Leading empty paragraphs are not part of the
+        // note body; don't persist them when recycling or checkpointing.
+        while (!body.isEmpty() && (body.front() == QLatin1Char('\n') || body.front() == QLatin1Char('\r')))
+            body.remove(0, 1);
+        return { title, body };
+    }
+    if (contents.startsWith(title)) {
+        QString body = contents.mid(title.size());
+        while (!body.isEmpty() && (body.front() == QLatin1Char('\n') || body.front() == QLatin1Char('\r')))
+            body.remove(0, 1);
+        return { title, body };
+    }
+    return { title, contents };
 }
 
 QString NoteEditor::displayTitle() const
