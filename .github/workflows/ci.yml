@@ -59,6 +59,11 @@ jobs:
     name: Windows / MSVC + Ninja / current Qt
     runs-on: windows-2022
     timeout-minutes: 90
+    env:
+      CCACHE_DIR: ${{ github.workspace }}\.ccache-windows
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 750M
     defaults:
       run:
         shell: pwsh
@@ -83,6 +88,40 @@ jobs:
           aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
           github-token: ${{ github.token }}
 
+      # ccache >= 4.13 officially supports cl.exe. Pin the Windows binary:
+      # Chocolatey/older setup actions may install an outdated MSVC cache.
+      - name: Install ccache 4.14.1 for MSVC
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '4.14.1'
+          $file = Join-Path $env:RUNNER_TEMP 'ccache-windows.zip'
+          $url = "https://github.com/ccache/ccache/releases/download/v$version/ccache-$version-windows-x86_64.zip"
+          Invoke-WebRequest -Uri $url -OutFile $file
+          $expected = '6219f3865ca59aec41ee4b678df171d5d35855ecb2b6dbbbd20690b3a68af7b4'
+          $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "ccache release archive SHA256 mismatch: $actual" }
+          $unpacked = Join-Path $env:RUNNER_TEMP 'ccache-extracted'
+          Expand-Archive -LiteralPath $file -DestinationPath $unpacked
+          $exe = Get-ChildItem -LiteralPath $unpacked -Filter ccache.exe -Recurse -File | Select-Object -First 1
+          if (-not $exe) { throw 'ccache.exe not found in verified release archive' }
+          $bin = Join-Path $env:RUNNER_TEMP 'ccache-bin'
+          New-Item -ItemType Directory -Path $bin -Force | Out-Null
+          Copy-Item -LiteralPath $exe.FullName -Destination (Join-Path $bin 'ccache.exe')
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Restore MSVC ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: anykeep-ccache-msvc2022-qt611-release-v1-${{ github.run_id }}
+          restore-keys: |
+            anykeep-ccache-msvc2022-qt611-release-v1-
+
+      - name: Reset ccache statistics
+        run: |
+          ccache --version
+          ccache --zero-stats
+
       - name: Configure
         run: |
           cmake -S . -B build/windows -G Ninja `
@@ -94,10 +133,17 @@ jobs:
             -DANYKEEP_QCA_SDK_ROOT="$pwd/qca-sdk" `
             -DANYKEEP_IRIS_SDK_ROOT="$pwd/iris-sdk" `
             -DANYKEEP_QTKEYCHAIN_SDK_ROOT="$pwd/qtkeychain-sdk" `
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
             -DBUILD_TESTING=ON
 
       - name: Build
         run: cmake --build build/windows --parallel 4
+
+      - name: Report MSVC ccache statistics
+        if: always()
+        run: |
+          if (Get-Command ccache -ErrorAction SilentlyContinue) { ccache --show-stats }
 
       - name: Test
         run: ctest --test-dir build/windows --output-on-failure --timeout 180
@@ -134,6 +180,10 @@ jobs:
     name: Linux / ${{ matrix.label }} / system Qt
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache-${{ matrix.ubuntu-version }}
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_MAXSIZE: 750M
     strategy:
       fail-fast: false
       matrix:
@@ -210,6 +260,22 @@ jobs:
             sudo apt-get install -y --no-install-recommends qt6-svg-plugins
           fi
 
+      - name: Install ccache
+        run: sudo apt-get install -y --no-install-recommends ccache
+
+      - name: Restore ccache for Ubuntu ${{ matrix.ubuntu-version }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: anykeep-ccache-ubuntu-${{ matrix.ubuntu-version }}-systemqt-release-v1-${{ github.run_id }}
+          restore-keys: |
+            anykeep-ccache-ubuntu-${{ matrix.ubuntu-version }}-systemqt-release-v1-
+
+      - name: Reset ccache statistics
+        run: |
+          ccache --version
+          ccache --zero-stats
+
       - name: Report system Qt and compilers
         run: |
           qmake6 -query QT_VERSION
@@ -226,10 +292,16 @@ jobs:
             -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF \
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBUILD_TESTING=ON
 
       - name: Build
         run: cmake --build "${{ matrix.build_dir }}" --parallel 4
+
+      - name: Report Ubuntu ccache statistics
+        if: always()
+        run: command -v ccache >/dev/null && ccache --show-stats || true
 
       - name: Test
         shell: bash
