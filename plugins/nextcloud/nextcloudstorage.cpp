@@ -1160,6 +1160,16 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
 
     const auto mediaReferences = note.media();
     const bool hasMedia = !mediaReferences.isEmpty();
+    // Cheap manifest/body consistency checks must remain synchronous,
+    // even though hashing and I/O preflight now run on the network worker.
+    // This also prevents a malformed draft from reaching the create journal.
+    for (const auto &reference : mediaReferences) {
+        if (!reference.isValid() || !note.text().contains(reference.uri())) {
+            job->fail({ StorageError::Other,
+                        tr("Media manifest contains an invalid or unreferenced attachment"), false });
+            return job;
+        }
+    }
     const QString rawToken = note.backendValue(QStringLiteral("anykeep.publicationDraftId")).toString()
         .isEmpty() ? note.backendValue(QStringLiteral("nextcloud.createToken")).toString()
                    : note.backendValue(QStringLiteral("anykeep.publicationDraftId")).toString();
