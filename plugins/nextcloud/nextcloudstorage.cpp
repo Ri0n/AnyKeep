@@ -1165,7 +1165,7 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                                             // A racing identical upload might win the
                                             // atomic no-overwrite MOVE.
                                             const QString check = verifyNativeBytes(
-                                                worker_, davPath, attachment.bytes, nullptr,
+                                                worker_, davPath, source, attachment.size, nullptr,
                                                 &publication.note.httpStatus);
                                             if (!check.isEmpty()) {
                                                 publication.note.error = uploaded.error;
