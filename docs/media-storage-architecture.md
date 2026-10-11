@@ -362,13 +362,21 @@ WebDAV HTTP Range is supported. Notes attachment endpoints, file layout,
 WebDAV behavior and API versions must be detected and verified against a
 real server, including edits made by native Notes clients.
 
-The Nextcloud worker currently implements native Notes v1.4 attachment
-upload/download, WebDAV chunked-v2 upload and bounded HTTP Range reads. The
-link codec translates between canonical and native relative Markdown URLs.
-These are **transport primitives**, not a complete media backend:
-`NextcloudStorage::supportsMedia()` stays false. Until the lifecycle is
-implemented, saves with nonempty media manifests or unresolved canonical media
-links fail instead of claiming success after losing attachment references.
+The Nextcloud worker implements native Notes v1.4 attachment upload/download,
+WebDAV chunked-v2 upload and bounded HTTP Range reads. The link codec translates
+canonical and native Markdown URLs. An **internal, existing-note-only async
+publication path** now verifies local content, checks the base ETag, uploads
+native plaintext attachments, verifies read-back, and finally writes native
+Markdown with an `If-Match` precondition. The returned in-memory manifest keeps
+canonical `anykeep-media:` URIs and remote native-path receipts.
+
+This is **partial** and not yet a supported editor workflow:
+`NextcloudStorage::supportsMedia()` stays false. New-note media creation,
+streaming upload from local encrypted chunks, cross-device hydration,
+idempotent retry, orphan cleanup, category moves, safe deletion and native-client
+end-to-end tests must be implemented first. Failure after attachment staging
+currently leaves remote orphan candidates; the local draft remains the source
+of truth and must not be discarded. Synchronous saves still refuse media.
 
 The intended publication transaction is:
 
