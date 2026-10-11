@@ -372,8 +372,7 @@ canonical `anykeep-media:` URIs and remote native-path receipts.
 
 This is **partial** and not yet a supported editor workflow:
 `NextcloudStorage::supportsMedia()` stays false. New-note media creation,
-streaming upload from local encrypted chunks, cross-device hydration,
-idempotent retry, orphan cleanup, category moves, safe deletion and native-client
+streaming upload from local encrypted chunks, full cross-device hydration,\nidempotent retry, orphan cleanup, category moves, safe deletion and native-client
 end-to-end tests must be implemented first. Failure after attachment staging
 currently leaves remote orphan candidates; the local draft remains the source
 of truth and must not be discarded. Synchronous saves still refuse media.
