@@ -12,13 +12,15 @@ namespace AnyKeep {
 
 class NextcloudWorker;
 class FolderCatalogManager;
+class LocalMediaStore;
 
 class NextcloudStorage final : public NoteStorage {
     Q_OBJECT
     Q_DISABLE_COPY(NextcloudStorage)
 
 public:
-    explicit NextcloudStorage(QObject *parent = nullptr, FolderCatalogManager *folderCatalogManager = nullptr);
+    explicit NextcloudStorage(QObject *parent = nullptr, FolderCatalogManager *folderCatalogManager = nullptr,
+                              LocalMediaStore *mediaStore = nullptr);
     ~NextcloudStorage() override;
     void shutdown() override;
 
@@ -72,6 +74,7 @@ private:
     QThread               workerThread_;
     NextcloudWorker      *worker_ { nullptr };
     FolderCatalogManager *folderCatalogManager_ { nullptr };
+    LocalMediaStore     *mediaStore_ { nullptr };
     QHash<QString, Note>  cache_;
     // Successful writes may briefly be absent from an eventually consistent
     // list response. Keep them until the server snapshot acknowledges them.
