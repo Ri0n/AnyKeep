@@ -499,9 +499,13 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
     // the GUI never blocks on WebDAV and plaintext is not written to disk.
     MediaRangeService::registerResolver(
         this,
-        [this](const MediaReference &ref) { return matchesRemoteMedia(ref, readConfig()); },
+        [this](const MediaReference &ref) { return !shuttingDown_ && matchesRemoteMedia(ref, readConfig()); },
         [this](MediaReference ref, qint64 offset, qint64 count, bool,
                MediaRangeService::Completion done) mutable {
+            if (shuttingDown_ || !workerThread_.isRunning()) {
+                done({}, QStringLiteral("Nextcloud media storage has stopped"));
+                return;
+            }
             const auto config = readConfig();
             QString error;
             if (!configIsValid(config, &error) || !matchesRemoteMedia(ref, config)
@@ -520,11 +524,13 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
             const QString category = ref.remoteData.value(QStringLiteral("nextcloud.category")).toString();
             const QString remotePath = ref.remoteData.value(QStringLiteral("nextcloud.path")).toString();
             const QString pinnedEtag = ref.remoteData.value(QStringLiteral("nextcloud.etag")).toString();
+            const quint64 requestId = ++nextMediaReadId_;
+            pendingMediaReads_.insert(requestId, std::move(done));
             QPointer<NextcloudStorage> owner(this);
-            QMetaObject::invokeMethod(
+            const bool queued = QMetaObject::invokeMethod(
                 worker_,
                 [this, owner, config, category, remotePath, pinnedEtag, cache, ref, offset, count,
-                 done = std::move(done)]() mutable {
+                 requestId]() mutable {
                     if (!owner)
                         return;
                     worker_->setConfig(config);
@@ -602,27 +608,42 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
 
                     QMetaObject::invokeMethod(
                         owner,
-                        [owner, ref, output = std::move(output), failure, done = std::move(done)]() mutable {
+                        [owner, ref, requestId, output = std::move(output), failure]() mutable {
                             if (!owner)
                                 return;
+                            // Shutdown may already have completed this request.
+                            auto it = owner->pendingMediaReads_.find(requestId);
+                            if (it == owner->pendingMediaReads_.end())
+                                return;
+                            auto done = std::move(it.value());
+                            owner->pendingMediaReads_.erase(it);
                             // A configuration switch can occur while an
                             // authenticated WebDAV range is in flight. Do not
                             // return the previous account's bytes to a player.
-                            if (!matchesRemoteMedia(ref, owner->readConfig())) {
+                            if (owner->shuttingDown_) {
+                                done({}, QStringLiteral("Nextcloud media storage has stopped"));
+                            } else if (!matchesRemoteMedia(ref, owner->readConfig())) {
                                 done({}, QStringLiteral("Nextcloud media account changed during the read"));
-                                return;
+                            } else {
+                                done(failure.isEmpty() ? std::move(output) : QByteArray(), failure);
                             }
-                            done(failure.isEmpty() ? std::move(output) : QByteArray(), failure);
                         },
                         Qt::QueuedConnection);
                 },
                 Qt::QueuedConnection);
+            if (!queued) {
+                auto failed = pendingMediaReads_.take(requestId);
+                if (failed)
+                    failed({}, QStringLiteral("Nextcloud media worker is unavailable"));
+            }
         });
     if (auto *sync = MediaSyncService::instance()) {
         sync->registerObserver(
             this,
-            [this](const MediaReference &ref) { return matchesRemoteMedia(ref, readConfig()); },
+            [this](const MediaReference &ref) { return !shuttingDown_ && matchesRemoteMedia(ref, readConfig()); },
             [this](const MediaReference &ref) {
+                if (shuttingDown_ || !workerThread_.isRunning())
+                    return;
                 const auto config = readConfig();
                 QString error;
                 const auto cache = partialCacheFor(ref, config, &error);
@@ -654,10 +675,22 @@ NextcloudStorage::~NextcloudStorage() { shutdown(); }
 
 void NextcloudStorage::shutdown()
 {
-    if (!workerThread_.isRunning())
+    if (shuttingDown_)
         return;
-    workerThread_.quit();
-    workerThread_.wait();
+    shuttingDown_ = true;
+    // Resolver URLs already handed to a decoder remain addressable until
+    // releaseUrl(). Fail outstanding requests now, rather than leaving the
+    // local HTTP response waiting for a worker whose event loop has stopped.
+    QHash<quint64, MediaRangeService::Completion> pending;
+    pending.swap(pendingMediaReads_);
+    for (auto it = pending.begin(); it != pending.end(); ++it) {
+        if (it.value())
+            it.value()({}, QStringLiteral("Nextcloud media storage has stopped"));
+    }
+    if (workerThread_.isRunning()) {
+        workerThread_.quit();
+        workerThread_.wait();
+    }
 }
 
 std::shared_ptr<MediaPartialChunkCache> NextcloudStorage::partialCacheFor(
