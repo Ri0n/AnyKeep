@@ -844,4 +844,3 @@ fail-closed and may need manual reconciliation; remote placeholders and
 orphan staging objects cannot be garbage-collected safely yet. Do not
 enable `supportsMedia()` before this and remote-only hydration/cleanup
 are exercised end-to-end on multiple clients.
-
