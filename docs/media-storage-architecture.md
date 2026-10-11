@@ -459,18 +459,24 @@ Changing the configured account invalidates the resolver. No remote URL
 with credentials is inserted into document content.
 
 The ranged bridge now uses **`MediaPartialChunkCache`**, extracted from
-the XMPP media implementation as a provider-neutral record store. The
-existing `IrisMediaSync` continues to validate and store opaque XMPP
-wire-encrypted records at the same numeric paths, preserving previously
-downloaded data. The Nextcloud adapter uses the same record store in
-locally sealed mode: a missing byte range hydrates its containing 1 MiB
-chunk, writes it via `SecureEnvelope` with the local media master key and
-revision/index-bound AAD, then serves authenticated plaintext to the
+the XMPP media implementation as a provider-neutral record store. Currently,
+`IrisMediaSync` validates and stores opaque XMPP wire-encrypted records in
+its existing numeric cache paths. The Nextcloud adapter uses the same record
+store in locally sealed mode: a missing byte range hydrates its containing
+1 MiB chunk, writes it via `SecureEnvelope` with the local media master key
+and revision/index-bound AAD, then serves authenticated plaintext to the
 existing local HTTP bridge. Subsequent seeks and process restarts verify
 the cached chunk without requesting WebDAV again. Corrupted records
 are removed and re-fetched from the same pinned ETag. Durable authenticated
 plaintext-byte progress is reported through `MediaSyncService`; transient
 wire transfer bytes are not counted.
+
+For the planned shared partial-cache namespace there is **no requirement to
+migrate older XMPP partial-cache files** from nightly builds. They are
+re-downloadable cache, so a changed/incompatible format or location is a
+cache miss followed by remote resynchronization, never a reason to remove
+notes, managed blobs, local media originals or attachment manifests. See
+[shared range pipeline proposal](media-range-pipeline.md).
 
 Nextcloud does not encrypt server-side bytes: native Notes clients continue
 to see ordinary Markdown and WebDAV files. Unlike XMPP, server-side
