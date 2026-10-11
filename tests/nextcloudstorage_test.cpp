@@ -140,6 +140,7 @@ private slots:
     void ambiguousCreateIsRecoveredAfterStorageRestart();
     void ambiguousCreateNeverRetriesPostWhenIdentityIsNotVisible();
     void successfulRemoteCommitSurvivesLostMarkdownAcknowledgment();
+    void recoveredCreationRejectsUnrelatedNativeEdit_data();
     void recoveredCreationRejectsUnrelatedNativeEdit();
     void streamPublishWithoutWholePlaintextBuffer_data();
     void streamPublishWithoutWholePlaintextBuffer();
@@ -681,8 +682,16 @@ void NextcloudStorageTest::successfulRemoteCommitSurvivesLostMarkdownAcknowledgm
     settings.remove(QStringLiteral("storage.nextcloud.timeoutMs"));
 }
 
+void NextcloudStorageTest::recoveredCreationRejectsUnrelatedNativeEdit_data()
+{
+    QTest::addColumn<bool>("preserveMarker");
+    QTest::newRow("native-client-replaces-placeholder") << false;
+    QTest::newRow("native-client-appends-but-keeps-marker") << true;
+}
+
 void NextcloudStorageTest::recoveredCreationRejectsUnrelatedNativeEdit()
 {
+    QFETCH(bool, preserveMarker);
     QVERIFY(FileFolderCatalogStore::cryptoAvailable());
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -698,8 +707,10 @@ void NextcloudStorageTest::recoveredCreationRejectsUnrelatedNativeEdit()
     const auto pending = noteWithContent(QStringLiteral("88"), QStringLiteral("etag-1"),
                                          pendingTitle, pendingBody);
     const auto edited = noteWithContent(QStringLiteral("88"), QStringLiteral("etag-2"),
-                                        QStringLiteral("Edited by another client"),
-                                        QStringLiteral("# Native client's unrelated edit"));
+                                        preserveMarker ? pendingTitle
+                                                       : QStringLiteral("Edited by another client"),
+                                        preserveMarker ? pendingBody + QStringLiteral("\nNative client's addition")
+                                                       : QStringLiteral("# Native client's unrelated edit"));
     ScriptedHttpServer server({
         pending, // original create note
         httpError(503, QByteArrayLiteral("Service Unavailable")), // initial get fails
