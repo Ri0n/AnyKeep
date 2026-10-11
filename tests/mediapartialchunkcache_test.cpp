@@ -3,6 +3,7 @@
 #include "secureenvelope.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QDirIterator>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -57,13 +58,30 @@ void MediaPartialChunkCacheTest::sealedPartialSurvivesRestartAndRejectsTampering
     const QByteArray ciphertext = raw.readAll();
     QVERIFY(!ciphertext.contains(QByteArray(64, 'p')));
     raw.close();
+    bool validIndex = false;
+    const quint64 index = QFileInfo(path).fileName().toULongLong(&validIndex);
+    QVERIFY(validIndex);
+    const qint64 expected = resumed->expectedPlainSize(index);
+    QVERIFY(expected > 0);
     QVERIFY(raw.open(QIODevice::ReadWrite));
-    QVERIFY(raw.seek(raw.size() / 2));
-    const char changed = '\x7f';
+    const qint64 tamperOffset = raw.size() / 2;
+    QVERIFY(raw.seek(tamperOffset));
+    const char changed = char(ciphertext.at(tamperOffset) ^ 0x7f);
     QCOMPARE(raw.write(&changed, 1), qint64(1));
     raw.close();
-    // At least one cached record must become unusable after corruption.
-    QVERIFY(resumed->restoreVerifiedBytes() < qint64(first.size() + last.size()));
+
+    // Existing readers validate the requested chunk when it is used, not
+    // on every call to the memoized restoration scan.
+    QVERIFY(resumed->read(index, expected).isEmpty());
+    QCOMPARE(resumed->verifiedBytes(), qint64(first.size() + last.size()) - expected);
+
+    // The same corruption must also be rejected during a *new* restoration.
+    LocalMediaStore reloaded(dir.path(), key);
+    auto afterRestart = reloaded.partialMediaCache(QStringLiteral("nextcloud"),
+                             QStringLiteral("account/note/movie/etag-v1"),
+                             2 * LocalMediaStore::ManagedChunkSize + 10);
+    QVERIFY(afterRestart);
+    QCOMPARE(afterRestart->restoreVerifiedBytes(), qint64(first.size() + last.size()) - expected);
 }
 
 void MediaPartialChunkCacheTest::independentRemoteRevisionsCannotShareCachedBytes()
