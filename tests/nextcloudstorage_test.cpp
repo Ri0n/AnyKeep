@@ -411,7 +411,8 @@ void NextcloudStorageTest::streamPublishWithoutWholePlaintextBuffer()
     // production publishing must not materialize its entire plaintext.
     const qint64 dataSize = externalFile ? 57 * 1024 : 17 * 1024 * 1024 + 31;
     QByteArray bytes(dataSize, char('a'));
-    bytes.replace(1024 * 1024 - 4, 8, QByteArrayLiteral("CHUNKBND"));
+    if (dataSize > 1024 * 1024)
+        bytes.replace(1024 * 1024 - 4, 8, QByteArrayLiteral("CHUNKBND"));
     bytes.replace(bytes.size() - 9, 9, QByteArrayLiteral("FINALTAIL"));
 
     LocalMediaResult source;
@@ -473,7 +474,7 @@ void NextcloudStorageTest::streamPublishWithoutWholePlaintextBuffer()
     saved->deleteLater();
 
     const auto &requests = server.requests();
-    QCOMPARE(requests.size(), 6 + uploadChunks + (dataSize + 1024 * 1024 - 1) / (1024 * 1024));
+    QCOMPARE(requests.size(), 7 + uploadChunks + (dataSize + 1024 * 1024 - 1) / (1024 * 1024));
     int putChunks = 0;
     int rangeGets = 0;
     int markdownWrites = 0;
