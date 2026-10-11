@@ -96,7 +96,7 @@ void NextcloudWorkerTest::categoryUpdateSendsOnlyCategoryAndEtag()
     QVERIFY(headerEnd >= 0);
     const auto headers = server.request.left(headerEnd);
     QVERIFY(headers.startsWith("PUT /index.php/apps/notes/api/v1/notes/42 HTTP/1.1\r\n"));
-    QVERIFY(headers.contains("If-Match: \\"old-etag\\"\r\n"));
+    QVERIFY(headers.contains("If-Match: \"old-etag\"\r\n"));
     const auto      body = server.request.mid(headerEnd + 4);
     QJsonParseError parseError;
     const auto      document = QJsonDocument::fromJson(body, &parseError);
