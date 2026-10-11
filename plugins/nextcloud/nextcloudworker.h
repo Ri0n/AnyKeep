@@ -35,7 +35,8 @@ public:
     // Create a Notes-native per-note attachment directory; 405 means it already exists.
     NextcloudStatusResult       ensureWebDavFolder(const QString &relativeFolderPath);
     NextcloudWebDavUploadResult uploadWebDavChunks(const QString &relativeFilePath, QIODevice *source, qint64 size);
-    NextcloudWebDavRangeResult readWebDavRange(const QString &relativeFilePath, qint64 offset, qint64 count);
+    NextcloudWebDavRangeResult readWebDavRange(const QString &relativeFilePath, qint64 offset, qint64 count,
+                                                const QString &ifMatchEtag = {});
 
     NextcloudAttachmentResult uploadAttachment(const QString &noteId, const QString &fileName,
                                                const QByteArray &data);
