@@ -671,6 +671,13 @@ void DraftManager::publish(const DraftRecord &record)
         note.setTags(record.tags);
         note.setFolderId(record.folderId);
         note.setMedia(record.media);
+        // Providers that create remote objects asynchronously may need an
+        // identity that survives an ambiguous create response and a restart.
+        // The encrypted DraftRecord UUID is stable across publication retries
+        // even when the server has not yet assigned its own note ID.
+        if (record.remoteNoteId.isEmpty())
+            note.setBackendValue(QStringLiteral("anykeep.publicationDraftId"),
+                                 record.id.toString(QUuid::WithoutBraces));
         qCInfo(logDraftPersistence) << "Submitting draft to storage: draft=" << record.id.toString(QUuid::WithoutBraces)
                                     << "storage=" << storage->systemName() << "noteIdPresent=" << !note.id().isEmpty();
         auto *job = storage->saveNoteAsync(note, this);
