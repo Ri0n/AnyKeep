@@ -415,14 +415,6 @@ void NextcloudStorageTest::nativeLinksRestoreEncryptedLocalMediaViaWebDavRanges(
     json.insert(QStringLiteral("content"), nativeMarkdown);
     const QByteArray remoteNote = QJsonDocument(json).toJson(QJsonDocument::Compact);
 
-    const auto rangeResponse = [&bytes](int start, int count) {
-        const auto data = bytes.mid(start, count);
-        return QByteArrayLiteral("HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\n")
-            + QByteArrayLiteral("Content-Range: bytes ") + QByteArray::number(start) + '-'
-            + QByteArray::number(start + count - 1) + '/' + QByteArray::number(bytes.size())
-            + QByteArrayLiteral("\r\nContent-Length: ") + QByteArray::number(data.size())
-            + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + data;
-    };
     ScriptedHttpServer server({
         remoteNote,
         QByteArrayLiteral("{\"notesPath\":\"Notes\"}"),
