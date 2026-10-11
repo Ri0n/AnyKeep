@@ -1,0 +1,111 @@
+name: Nextcloud Notes / live API
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/nextcloud-notes.yml"
+      - "plugins/nextcloud/**"
+      - "tests/nextcloud-live/**"
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/nextcloud-notes.yml"
+      - "plugins/nextcloud/**"
+      - "tests/nextcloud-live/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nextcloud-notes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  notes-api:
+    name: Real Nextcloud Notes API / Qt 6
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    env:
+      NEXTCLOUD_TEST_URL: http://127.0.0.1:8080
+      NEXTCLOUD_TEST_USER: anykeep-ci
+      # These credentials are for the disposable container bound to loopback
+      # on the ephemeral Actions runner, not for any real Nextcloud account.
+      NEXTCLOUD_TEST_PASSWORD: anykeep-local-ci-only
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qt6-base-dev ninja-build
+
+      - name: Start disposable Nextcloud
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --name anykeep-notes-ci \
+            --publish 127.0.0.1:8080:80 \
+            --env SQLITE_DATABASE=nextcloud \
+            --env NEXTCLOUD_ADMIN_USER="${NEXTCLOUD_TEST_USER}" \
+            --env NEXTCLOUD_ADMIN_PASSWORD="${NEXTCLOUD_TEST_PASSWORD}" \
+            --env NEXTCLOUD_TRUSTED_DOMAINS="127.0.0.1 localhost" \
+            nextcloud:32-apache
+
+      - name: Wait for Nextcloud installation
+        run: |
+          set -euo pipefail
+          ready=false
+          for attempt in $(seq 1 120); do
+            if docker exec --user www-data anykeep-notes-ci \
+              php occ status --output=json 2>/dev/null \
+              | grep -Eq '"installed"[[:space:]]*:[[:space:]]*true'; then
+              ready=true
+              break
+            fi
+            sleep 3
+          done
+          if [ "$ready" != true ]; then
+            echo "::error::Nextcloud did not finish installing"
+            exit 1
+          fi
+          docker exec --user www-data anykeep-notes-ci php occ status
+
+      - name: Install and enable Notes app
+        run: |
+          set -euo pipefail
+          docker exec --user www-data anykeep-notes-ci php occ app:install notes
+          curl --fail-with-body --silent --show-error \
+            --user "${NEXTCLOUD_TEST_USER}:${NEXTCLOUD_TEST_PASSWORD}" \
+            --header 'Accept: application/json' \
+            "${NEXTCLOUD_TEST_URL}/index.php/apps/notes/api/v1/notes" \
+            --output /tmp/nextcloud-notes-probe.json
+          python3 - <<'PY'
+          import json
+          with open("/tmp/nextcloud-notes-probe.json", encoding="utf-8") as stream:
+              assert isinstance(json.load(stream), list), "Notes endpoint did not return an array"
+          PY
+
+      - name: Configure standalone C++ integration test
+        run: |
+          cmake -S tests/nextcloud-live -B build/nextcloud-live -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build real NextcloudWorker implementation
+        run: cmake --build build/nextcloud-live --parallel 2
+
+      - name: Test against real Nextcloud Notes
+        run: ctest --test-dir build/nextcloud-live --output-on-failure --timeout 240
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          docker logs --tail 120 anykeep-notes-ci 2>&1 || true
+          docker exec --user www-data anykeep-notes-ci php occ status || true
+
+      - name: Remove disposable server
+        if: always()
+        run: docker rm --force anykeep-notes-ci 2>/dev/null || true
