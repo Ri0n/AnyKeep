@@ -38,6 +38,12 @@ void NextcloudMediaGuardTest::missingLocalContentCannotBePublished()
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     LocalMediaStore mediaStore(directory.path(), SecureEnvelope::generateMasterKey());
+    // Stream preflight now runs asynchronously, but must still fail before
+    // sending any HTTP request when the referenced local source is missing.
+    QSettings settings;
+    settings.setValue(QStringLiteral("storage.nextcloud.url"), QStringLiteral("http://127.0.0.1:1"));
+    settings.setValue(QStringLiteral("storage.nextcloud.username"), QStringLiteral("alice"));
+    settings.setValue(QStringLiteral("storage.nextcloud.appPassword"), QStringLiteral("password"));
     NextcloudStorage storage(nullptr, nullptr, &mediaStore);
     auto note = storage.createNote();
     note.setId(QStringLiteral("42"));
@@ -52,11 +58,14 @@ void NextcloudMediaGuardTest::missingLocalContentCannotBePublished()
     note.setMedia({ reference });
     note.setText(QStringLiteral("![image](") + reference.uri() + QLatin1Char(')'), Note::Markdown);
     auto *job = storage.saveNoteAsync(note);
-    QVERIFY(job->isFinished());
+    QTRY_VERIFY_WITH_TIMEOUT(job->isFinished(), 10000);
     QCOMPARE(job->state(), StorageJob::Failed);
     QCOMPARE(job->error().code, StorageError::Other);
     QVERIFY(job->error().message.contains(QStringLiteral("local media"), Qt::CaseInsensitive));
     job->deleteLater();
+    settings.remove(QStringLiteral("storage.nextcloud.url"));
+    settings.remove(QStringLiteral("storage.nextcloud.username"));
+    settings.remove(QStringLiteral("storage.nextcloud.appPassword"));
 }
 
 void NextcloudMediaGuardTest::insecureRemoteUrlIsRejected()
