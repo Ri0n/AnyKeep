@@ -214,6 +214,10 @@ namespace {
         }
         QLockFile claimLock(lockDir + QLatin1Char('/') + QString::fromLatin1(lockHash)
                             + QStringLiteral(".lock"));
+        // A slow Notes POST may exceed Qt's default 30-second stale lock
+        // threshold. Do not let another process steal a live create claim:
+        // OS/PID-based stale detection still handles crashed publishers.
+        claimLock.setStaleLockTime(0);
         if (!claimLock.tryLock(5000)) {
             result.error = QStringLiteral("Another process is creating the same Nextcloud note");
             return result;
@@ -1292,9 +1296,12 @@ NoteSaveJob *NextcloudStorage::saveNoteAsync(const Note &note, QObject *owner)
                     const bool alreadyCommitted = newMediaNote && expectedError.isEmpty()
                         && current.note.contentPresent && current.note.content == expectedNative
                         && current.note.favorite == publishingLocal.favorite;
+                    // Merely retaining the hidden marker does not make a
+                    // modified placeholder safe to overwrite. A native Notes
+                    // client might append text while publication is in flight.
                     if (newMediaNote && !alreadyCommitted
                         && (!current.note.contentPresent
-                            || !current.note.content.contains(creationMarker(creationToken)))) {
+                            || current.note.content != creationPlaceholder(creationToken))) {
                         publication.note.conflict = true;
                         publication.note.httpStatus = 412;
                         publication.note.remoteOnConflict = current.note;
