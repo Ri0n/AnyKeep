@@ -4,6 +4,7 @@
 #include <QEventLoop>
 #include <QHttpMultiPart>
 #include <QHttpPart>
+#include <QIODevice>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -16,6 +17,7 @@
 #include <QSet>
 #include <QTimer>
 #include <QUrlQuery>
+#include <QUuid>
 
 namespace AnyKeep {
 
@@ -104,6 +106,31 @@ QUrl NextcloudWorker::apiUrl(const QString &relativePath) const
         path += relativePath;
     }
     url.setPath(path);
+    return url;
+}
+
+QUrl NextcloudWorker::webDavFileUrl(const QString &relativeFilePath) const
+{
+    QUrl url = config_.serverUrl;
+    url.setQuery(QString());
+    url.setFragment(QString());
+    QString base = url.path();
+    const auto indexPhp = base.indexOf(QStringLiteral("/index.php"));
+    if (indexPhp >= 0)
+        base.truncate(indexPhp);
+    while (base.endsWith(QLatin1Char('/')))
+        base.chop(1);
+    url.setPath(base + QStringLiteral("/remote.php/dav/files/") + config_.userName
+                + QLatin1Char('/') + relativeFilePath);
+    return url;
+}
+
+QUrl NextcloudWorker::webDavUploadUrl(const QString &uploadId) const
+{
+    QUrl url = webDavFileUrl(QString());
+    QString path = url.path();
+    path.replace(QStringLiteral("/dav/files/"), QStringLiteral("/dav/uploads/"));
+    url.setPath(path + uploadId);
     return url;
 }
 
@@ -642,17 +669,7 @@ NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relat
         return result;
     }
 
-    QUrl url = config_.serverUrl;
-    url.setQuery(QString());
-    url.setFragment(QString());
-    QString base = url.path();
-    const auto indexPhp = base.indexOf(QStringLiteral("/index.php"));
-    if (indexPhp >= 0)
-        base.truncate(indexPhp);
-    while (base.endsWith(QLatin1Char('/')))
-        base.chop(1);
-    url.setPath(base + QStringLiteral("/remote.php/dav/files/") + config_.userName
-                + QLatin1Char('/') + relativeFilePath);
+    const QUrl url = webDavFileUrl(relativeFilePath);
 
     const QByteArray range = QByteArrayLiteral("bytes=") + QByteArray::number(offset) + '-'
         + QByteArray::number(offset + count - 1);
@@ -689,6 +706,81 @@ NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relat
     result.data = reply.body;
     result.totalSize = total;
     result.ok = true;
+    return result;
+}
+
+NextcloudWebDavUploadResult NextcloudWorker::uploadWebDavChunks(const QString &relativeFilePath,
+                                                                 QIODevice *source, qint64 size)
+{
+    NextcloudWebDavUploadResult result;
+    constexpr qint64 chunkSize = 5 * 1024 * 1024;
+    if (!NextcloudMediaLinks::isSafeNativePath(relativeFilePath) || !source || !source->isReadable()
+        || size < 0 || size > chunkSize * 10000) {
+        result.error = QStringLiteral("Invalid WebDAV upload path, source or size");
+        return result;
+    }
+
+    const QUrl destination = webDavFileUrl(relativeFilePath);
+    const QByteArray destinationHeader = destination.toEncoded();
+    const QByteArray sizeHeader = QByteArray::number(size);
+    const QString uploadId = QStringLiteral("anykeep-") + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QUrl uploadFolder = webDavUploadUrl(uploadId);
+    const auto withHeaders = [this, &destinationHeader, &sizeHeader](const QUrl &url) {
+        auto request = makeRequest(url);
+        request.setRawHeader("Destination", destinationHeader);
+        request.setRawHeader("OC-Total-Length", sizeHeader);
+        return request;
+    };
+
+    const auto folder = collectReply(manager()->sendCustomRequest(withHeaders(uploadFolder), QByteArrayLiteral("MKCOL")));
+    result.httpStatus = folder.status;
+    if (!folder.ok) {
+        result.error = errorText(folder);
+        return result;
+    }
+
+    const auto abort = [this, &uploadFolder]() {
+        // Ignore cleanup errors. They must not mask the original failure.
+        collectReply(manager()->sendCustomRequest(makeRequest(uploadFolder), QByteArrayLiteral("DELETE")));
+    };
+
+    qint64 written = 0;
+    int chunkNumber = 0;
+    while (written < size) {
+        const qint64 amount = qMin(chunkSize, size - written);
+        const QByteArray bytes = source->read(amount);
+        if (bytes.size() != amount) {
+            abort();
+            result.error = QStringLiteral("Cannot read the next WebDAV upload chunk");
+            return result;
+        }
+        ++chunkNumber;
+        QUrl chunkUrl = uploadFolder;
+        chunkUrl.setPath(uploadFolder.path() + QLatin1Char('/') + QStringLiteral("%1").arg(chunkNumber, 5, 10, QLatin1Char('0')));
+        const auto response = collectReply(manager()->put(withHeaders(chunkUrl), bytes));
+        result.httpStatus = response.status;
+        if (!response.ok) {
+            abort();
+            result.error = errorText(response);
+            return result;
+        }
+        written += amount;
+    }
+
+    QUrl assemblyUrl = uploadFolder;
+    assemblyUrl.setPath(uploadFolder.path() + QStringLiteral("/.file"));
+    auto request = withHeaders(assemblyUrl);
+    request.setRawHeader("Overwrite", "F");
+    const auto assembled = collectReply(manager()->sendCustomRequest(request, QByteArrayLiteral("MOVE")));
+    result.httpStatus = assembled.status;
+    if (!assembled.ok) {
+        abort();
+        result.error = errorText(assembled);
+        return result;
+    }
+
+    result.ok = true;
+    result.path = relativeFilePath;
     return result;
 }
 
