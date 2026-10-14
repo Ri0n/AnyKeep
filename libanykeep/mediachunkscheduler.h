@@ -22,6 +22,8 @@ class ANYKEEP_EXPORT MediaChunkScheduler final : public QObject {
 public:
     using Completion = std::function<void(QByteArray, QString)>;
     using Fetch = std::function<void(Completion)>;
+    using Abort = std::function<void()>;
+    using CancelableFetch = std::function<Abort(Completion)>;
 
     explicit MediaChunkScheduler(QObject *parent = nullptr);
     ~MediaChunkScheduler() override;
@@ -33,6 +35,10 @@ public:
     // its Completion may be invoked from any thread.
     quint64 request(QString immutableSource, quint64 index, QString lane, int priority,
                     Fetch fetch, Completion done, QObject *fetchOwner = nullptr);
+    // A cancelable provider returns an owner-thread-safe abort request. The
+    // active slot remains reserved until its completion acknowledges abort.
+    quint64 requestCancelable(QString immutableSource, quint64 index, QString lane, int priority,
+                              CancelableFetch fetch, Completion done, QObject *fetchOwner = nullptr);
 
     // Cancels only this consumer. An already active network operation stays
     // accounted for until the provider completes it; never abort a shared
@@ -65,11 +71,17 @@ private:
         QString lane;
         quint64 sequence = 0;
         Fetch fetch;
+        CancelableFetch cancelableFetch;
+        Abort abort;
+        bool aborting = false;
         QPointer<QObject> fetchOwner;
         QList<Waiter> waiters;
         bool active = false;
     };
     static QString makeKey(const QString &source, quint64 index);
+    quint64 addWaiter(QString immutableSource, quint64 index, QString lane, int priority,
+                      Fetch fetch, CancelableFetch cancelableFetch, Completion done,
+                      QObject *fetchOwner);
     void schedule();
     void pump();
     void finish(const QString &key, quint64 sequence, QByteArray bytes, QString error);
