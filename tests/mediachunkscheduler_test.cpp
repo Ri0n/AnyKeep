@@ -170,6 +170,66 @@ private slots:
         QVERIFY(!scheduler.abandonStopped(ticket));
     }
 
+    void retiringProviderReleasesOrphanedAndSharedFetches()
+    {
+        QObject workerOwner;
+        QObject survivingOwner;
+        MediaChunkScheduler scheduler;
+        scheduler.setMaxActive(1);
+        int networkStarts = 0;
+        int canceled = 0;
+        int survivingFailures = 0;
+        MediaChunkScheduler::Completion abandonedNetwork;
+        auto fetch = [&](MediaChunkScheduler::Completion completion) {
+            ++networkStarts;
+            abandonedNetwork = std::move(completion);
+        };
+        const auto staleTicket = scheduler.request(
+            QStringLiteral("account:revisionA"), 2, QStringLiteral("dav"), 20, fetch,
+            [&](QByteArray, QString error) {
+                QVERIFY(!error.isEmpty());
+                ++canceled;
+            }, &workerOwner);
+        QVERIFY(staleTicket);
+        scheduler.request(
+            QStringLiteral("account:revisionA"), 2, QStringLiteral("dav"), 20, fetch,
+            [&](QByteArray, QString error) {
+                QVERIFY(!error.isEmpty());
+                ++survivingFailures;
+            }, &survivingOwner);
+        QTRY_COMPARE(networkStarts, 1);
+        QVERIFY(scheduler.cancel(staleTicket));
+        QCOMPARE(canceled, 1);
+        QCOMPARE(scheduler.activeCount(), 1);
+        // Even with no old ticket, the original fetch is still owned by the
+        // stopped worker. Consumers from another owner fail once and may retry.
+        scheduler.retireStoppedOwner(&workerOwner);
+        QCOMPARE(scheduler.activeCount(), 0);
+        QCOMPARE(survivingFailures, 1);
+        QCOMPARE(canceled, 1);
+        abandonedNetwork(QByteArrayLiteral("stale"), {});
+        QTest::qWait(10);
+        QCOMPARE(scheduler.activeCount(), 0);
+        QCOMPARE(survivingFailures, 1);
+
+        int retried = 0;
+        auto finishRetry = MediaChunkScheduler::Completion();
+        const auto retry = [&](MediaChunkScheduler::Completion completion) {
+            ++networkStarts;
+            finishRetry = std::move(completion);
+        };
+        scheduler.request(QStringLiteral("account:revisionA"), 2, QStringLiteral("dav"),
+                          20, retry,
+                          [&](QByteArray bytes, QString error) {
+                              QVERIFY(error.isEmpty());
+                              QCOMPARE(bytes, QByteArrayLiteral("fresh"));
+                              ++retried;
+                          }, &survivingOwner);
+        QTRY_COMPARE(networkStarts, 2);
+        finishRetry(QByteArrayLiteral("fresh"), {});
+        QTRY_COMPARE(retried, 1);
+    }
+
     void immutableKeysAndTransportGroupsAreIsolated()
     {
         MediaChunkScheduler scheduler;
