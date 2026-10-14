@@ -240,6 +240,56 @@ private slots:
         QVERIFY(!scheduler.abandonStopped(ticket));
     }
 
+    void observedJingleTransportDefersWebDavWithoutBreakingBundleHandover()
+    {
+        MediaChunkScheduler scheduler;
+        scheduler.setMaxActive(2);
+        auto *firstSession = new QObject;
+        auto *secondSession = new QObject;
+        // Multiple Jingle contents in one BUNDLE share a physical session.
+        scheduler.observeExternalTransfer(firstSession);
+        scheduler.observeExternalTransfer(firstSession);
+        QCOMPARE(scheduler.externalActiveCount(), 1);
+        scheduler.observeExternalTransfer(secondSession);
+        QCOMPARE(scheduler.externalActiveCount(), 2);
+        QCOMPARE(scheduler.activeCount(), 2);
+
+        // SCTP/BUNDLE handover is not blocked or forcibly paused. It may
+        // briefly oversubscribe if another provider already has a slot.
+        auto *handoverSession = new QObject;
+        scheduler.observeExternalTransfer(handoverSession);
+        QCOMPARE(scheduler.externalActiveCount(), 3);
+        int starts = 0, deliveries = 0;
+        MediaChunkScheduler::Completion finish;
+        scheduler.request(QStringLiteral("dav/account/rev"), 1, QStringLiteral("webdav"), 100,
+                          [&](MediaChunkScheduler::Completion completion) {
+                              ++starts;
+                              finish = std::move(completion);
+                          },
+                          [&](QByteArray value, QString error) {
+                              QVERIFY(error.isEmpty());
+                              QCOMPARE(value, QByteArrayLiteral("verified"));
+                              ++deliveries;
+                          });
+        QCoreApplication::processEvents();
+        QCOMPARE(starts, 0);
+        // Draining an old session frees its physical reservation.
+        scheduler.releaseExternalTransfer(firstSession);
+        QCOMPARE(scheduler.externalActiveCount(), 2);
+        QCoreApplication::processEvents();
+        QCOMPARE(starts, 0);
+        delete firstSession;
+        QCOMPARE(scheduler.externalActiveCount(), 2);
+        delete secondSession; // QObject destruction also releases reservation.
+        QTRY_COMPARE(starts, 1);
+        QCOMPARE(scheduler.activeCount(), 2); // handover + WebDAV
+        finish(QByteArrayLiteral("verified"), {});
+        QTRY_COMPARE(deliveries, 1);
+        QCOMPARE(scheduler.activeCount(), 1);
+        delete handoverSession;
+        QCOMPARE(scheduler.activeCount(), 0);
+    }
+
     void retiringProviderReleasesOrphanedAndSharedFetches()
     {
         QObject workerOwner;
