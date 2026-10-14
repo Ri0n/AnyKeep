@@ -501,6 +501,7 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
     MediaRangeService::registerResolver(
         this,
         [this](const MediaReference &ref) { return !shuttingDown_ && matchesRemoteMedia(ref, readConfig()); },
+        MediaRangeService::CancelableRequestReader(
         [this](MediaReference ref, qint64 offset, qint64 count, bool prioritize,
                MediaRangeService::Completion done) mutable -> MediaRangeService::Cancel {
             if (shuttingDown_ || !workerThread_.isRunning()) {
@@ -533,7 +534,7 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
                 if (owner)
                     owner->cancelMediaRead(requestId);
             };
-        });
+        }));
     if (auto *sync = MediaSyncService::instance()) {
         sync->registerObserver(
             this,
