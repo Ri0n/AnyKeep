@@ -35,7 +35,7 @@ REPOSITORIES = {
     "qca": "psi-im/qca",
 }
 
-SEMVER_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+SEMVER_RE = re.compile(r"^v?(\d+)\.(\d+)(?:\.(\d+))?$")
 QTKEYCHAIN_TAG_RE = re.compile(
     r"^deps-qtkeychain-(\d+)\.(\d+)\.(\d+)-r(\d+)-qt6\.11$"
 )
@@ -45,7 +45,7 @@ def parse_version(tag: str) -> tuple[int, int, int]:
     match = SEMVER_RE.fullmatch(tag)
     if not match:
         raise ValueError(f"Unsupported semantic version tag: {tag}")
-    return tuple(int(part) for part in match.groups())
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3) or 0))
 
 
 def gh_json(endpoint: str):
