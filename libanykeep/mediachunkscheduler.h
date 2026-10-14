@@ -7,6 +7,7 @@
 #include <QList>
 #include <QObject>
 #include <QPointer>
+#include <QSet>
 #include <QString>
 #include <QtGlobal>
 #include <functional>
@@ -56,7 +57,14 @@ public:
 
     void setMaxActive(int count);
     void setLaneMaxActive(const QString &lane, int count);
-    int activeCount() const { return active_; }
+    // Observe an already negotiated, non-preemptible physical transport.
+    // Jingle BUNDLE contents sharing a session count only once; overlapping
+    // independent sessions count separately. Observations may temporarily
+    // exceed the target global budget instead of disrupting SCTP handovers.
+    void observeExternalTransfer(QObject *physicalTransport);
+    void releaseExternalTransfer(QObject *physicalTransport);
+    int externalActiveCount() const { return externalTransfers_.size(); }
+    int activeCount() const { return active_ + externalTransfers_.size(); }
     int pendingCount() const;
     void shutdown();
 
@@ -90,6 +98,7 @@ private:
     QHash<quint64, QString> ticketKeys_;
     QHash<QString, int> laneLimits_;
     QHash<QString, int> laneActive_;
+    QSet<QObject *> externalTransfers_;
     quint64 nextTicket_ = 0;
     quint64 nextSequence_ = 0;
     int maxActive_ = 3;
