@@ -744,7 +744,6 @@ NextcloudWebDavRangeResult NextcloudWorker::validateWebDavRange(
     result.ok = true;
     return result;
 }
-}
 
 void NextcloudWorker::readWebDavRangeAsync(
     NextcloudConfig config, QString relativeFilePath, qint64 offset, qint64 count,
