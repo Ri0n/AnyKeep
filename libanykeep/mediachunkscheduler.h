@@ -37,6 +37,10 @@ public:
     // accounted for until the provider completes it; never abort a shared
     // download on behalf of another consumer.
     bool cancel(quint64 ticket);
+    // Only after a provider's network worker has stopped: discard an
+    // orphaned in-flight request whose completion can no longer arrive.
+    // Must not be used as ordinary player cancellation.
+    bool abandonStopped(quint64 ticket);
     bool reprioritize(quint64 ticket, int priority);
 
     void setMaxActive(int count);
