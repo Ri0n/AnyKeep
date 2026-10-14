@@ -578,10 +578,6 @@ void NextcloudStorage::shutdown()
     pending.swap(pendingMediaReads_);
     const auto tickets = mediaChunkTickets_;
     mediaChunkTickets_.clear();
-    if (auto *scheduler = MediaChunkScheduler::instance()) {
-        for (quint64 ticket : tickets)
-            scheduler->cancel(ticket);
-    }
     for (auto it = pending.begin(); it != pending.end(); ++it) {
         if (it.value())
             it.value()({}, QStringLiteral("Nextcloud media storage has stopped"));
@@ -589,6 +585,12 @@ void NextcloudStorage::shutdown()
     if (workerThread_.isRunning()) {
         workerThread_.quit();
         workerThread_.wait();
+    }
+    // The transport is now stopped: orphaned async reads can no longer
+    // report completion, so release their global admission reservations.
+    if (auto *scheduler = MediaChunkScheduler::instance()) {
+        for (quint64 ticket : tickets)
+            scheduler->abandonStopped(ticket);
     }
 }
 
