@@ -142,6 +142,34 @@ private slots:
         QCOMPARE(failures, 3);
     }
 
+    void stoppedTransportCanReleaseAnOrphanedActiveSlot()
+    {
+        MediaChunkScheduler scheduler;
+        scheduler.setMaxActive(1);
+        int started = 0, failures = 0;
+        MediaChunkScheduler::Completion stale;
+        auto fetch = [&](MediaChunkScheduler::Completion finish) {
+            ++started;
+            stale = std::move(finish);
+        };
+        const quint64 ticket = scheduler.request(QStringLiteral("abandoned"), 0,
+                                                 QStringLiteral("nextcloud"), 10, fetch,
+                                                 [&](QByteArray, QString error) {
+                                                     QVERIFY(!error.isEmpty());
+                                                     ++failures;
+                                                 });
+        QTRY_COMPARE(started, 1);
+        QVERIFY(scheduler.abandonStopped(ticket));
+        QCOMPARE(failures, 1);
+        QCOMPARE(scheduler.activeCount(), 0);
+        // A late completion from a defunct worker must not resurrect state.
+        stale(QByteArrayLiteral("obsolete"), {});
+        QTest::qWait(10);
+        QCOMPARE(scheduler.activeCount(), 0);
+        QCOMPARE(failures, 1);
+        QVERIFY(!scheduler.abandonStopped(ticket));
+    }
+
     void immutableKeysAndTransportGroupsAreIsolated()
     {
         MediaChunkScheduler scheduler;
