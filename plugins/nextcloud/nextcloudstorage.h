@@ -6,7 +6,6 @@
 #include "notestorage.h"
 
 #include <QHash>
-#include <QQueue>
 #include <QSet>
 #include <QThread>
 #include <functional>
@@ -67,7 +66,10 @@ private:
     std::shared_ptr<MediaPartialChunkCache> partialCacheFor(
         const MediaReference &reference, const NextcloudConfig &config, QString *error);
     bool            configIsValid(const NextcloudConfig &config, QString *error) const;
-    void            dispatchNextMediaRead();
+    void            startMediaReadChunk(quint64 requestId, const MediaReference &reference,
+                                        NextcloudConfig config, std::shared_ptr<MediaPartialChunkCache> cache,
+                                        QString category, QString remotePath, QString pinnedEtag,
+                                        qint64 cursor, qint64 end, QByteArray output, int priority);
     void            completeMediaRead(quint64 requestId, const MediaReference &reference,
                                       QByteArray bytes, QString failure);
     Note            fromRemote(const NextcloudRemoteNote &remote);
@@ -90,9 +92,8 @@ private:
     // Resolver URLs can outlive shutdown(). Complete every outstanding HTTP
     // request once, on the storage thread, before stopping the worker.
     QHash<quint64, MediaRangeService::Completion> pendingMediaReads_;
-    QQueue<std::function<void()>> mediaReadTasks_;
+    QHash<quint64, quint64> mediaChunkTickets_;
     quint64              nextMediaReadId_ { 0 };
-    bool                 mediaReadActive_ { false };
     bool                 shuttingDown_ { false };
     QHash<QString, Note>  cache_;
     // Successful writes may briefly be absent from an eventually consistent
