@@ -4,9 +4,12 @@ Status: **work in progress** on PR #156. Base remote-range implementation:
 PR #155, squash commit `af3c0fe`. The first code slice routes opaque XMPP
 partial-cache reads/writes (both Jingle and HTTP) through `LocalMediaStore`.
 A reusable, tested `MediaChunkScheduler` now implements keyed single-flight,
-priority updates, cancelable consumer waiters and bounded concurrent admissions;
-**provider integration, actual transfer abort/backpressure, bandwidth control,
-exact-range coordination and async WebDAV still remain future stages**.
+priority updates, cancelable consumer waiters and bounded concurrent admissions.
+**Nextcloud playback range hydration now uses this scheduler and truly
+non-blocking WebDAV GETs with immutable account snapshots.** WebDAV still
+resolves the Notes folder through a synchronous Settings REST request on its
+worker; XMPP admission, player HTTP disconnect propagation, real transfer
+abort/backpressure and bandwidth adaptation remain future stages.
 See [media storage architecture](media-storage-architecture.md) for the persistent data model, security constraints,
 and the current ranged playback design.
 
@@ -34,9 +37,9 @@ network traffic*, not just the number of queued range requests.
 | `MediaRangeService` | Loopback HTTP server for `QMediaPlayer`: parses HTTP Range; asynchronously requests 64 KiB slices; throttles socket writes; only the first read of each GET may reprioritize retrieval | Cancellation propagated upstream on socket disconnect, explicit per-player demand/session tracking |
 | `MediaSyncService` | Publishes and observes *durably verified* byte counts and download states | Intentionally not a scheduler; keep it separate |
 | `LocalMediaStore` / `MediaPartialChunkCache` | Shared storage exposes `partialMediaCache()` for sealed Nextcloud plaintext records and (in PR #156) `opaqueMediaCache()` for verified XMPP ciphertext, both under `media/partial/`; reads authenticate individual records. | Shared cache lifecycle/quotas/eviction and a separate network scheduler; the cache itself must not schedule transfers |
-| `NextcloudStorage` + `NextcloudWorker` | Pinned-ETag WebDAV reads; playback Range resolver; bounded encrypted cache | Uses storage-wide FIFO after PR #155 to avoid reentrancy of `collectReply()`; no independent-chunk parallelism or request cancellation |
+| `NextcloudStorage` + `NextcloudWorker` (PR #156) | Pinned-ETag WebDAV reads, shared cache, per-chunk single-flight scheduler, nonblocking range GET with immutable account snapshot, exact byte-range validation and account/shutdown guards | Worker Settings REST still uses a nested event loop; physical WebDAV concurrency is intentionally capped at one per account initially; player socket abort does not yet cancel upstream demand |
 | `IrisMediaSync` | One XMPP media sync per source, verified opaque chunks, gap/seek priority, and overlapping old/new Jingle content during BUNDLE handover (old partial chunk drains while new content is negotiated); different media syncs can coexist | Wire Jingle synchronization admission into the common budget without breaking safe Jingle overlap and receipt ordering |
-| `MediaChunkScheduler` (PR #156) | Shared in-process queue with immutable chunk keys, coalesced waiters, per-lane and global active limits, prioritized admission, per-waiter cancellation, shutdown completion | Currently not wired into transports; lacks transport cancellation handles, traffic measurement, bandwidth pacing, fairness aging and prefetch policy |
+| `MediaChunkScheduler` (PR #156) | Shared in-process queue with immutable chunk keys, coalesced waiters, per-lane and global active limits, prioritized admission, per-waiter cancellation and safe retirement after provider stop; currently used by Nextcloud media reads | Iris/Jingle is not yet routed through admission; player abort propagation, transport cancellation handles, traffic measurement, bandwidth pacing, fairness aging and prefetch remain pending |
 | `MediaStream` / `MediaSource` | Seekable synchronous access to *already available* verified local bytes | Remain local-only; do not put network/blocking reads into `QIODevice::readData()` |
 
 The common HTTP bridge already stops writing to a disconnected client, but a
@@ -96,9 +99,12 @@ now provides verified opaque XMPP wire-record handles under the profile's
 records. Both `IrisMediaSync` and Iris HTTP media range reads use this shared
 factory; `IrisMediaSync` receives the cache handle rather than its own disk
 directory. The prior `media-ranges/` paths are no longer consulted.
-A basic shared chunk scheduler is implemented and covered by focused unit tests,
-but no plugin routes its transfers through it yet; the range coordinator is
-still future work.
+A basic shared chunk scheduler is implemented and covered by focused unit
+tests. Nextcloud range hydration now routes individual verified chunk fetches
+through it, with concurrency limited to one per Nextcloud account until
+real load/performance measurements justify safe parallelism. Other plugins
+and upstream player socket cancellations are not integrated yet; a generalized
+verified-range coordinator is still future work.
 
 **Nightly-only cache compatibility policy:** no on-disk backwards compatibility
 or cache migration is required for partial XMPP media. When switching to the
@@ -244,10 +250,12 @@ interoperability or portable published note formats.
    separate from the store. Initially use concurrency = 1 for Nextcloud to
    preserve PR #155 behavior. Keep the existing XMPP transfer implementation
    until its lifecycle fits the coordinator contract.
-3. **Asynchronous WebDAV source.** Remove synchronous `collectReply()` from
-   the remote-media path, implement abortable `QNetworkReply` fetches with
-   immutable per-request credentials and ETag validation; enable a tested small
-   parallelism cap for *different* Nextcloud chunks.
+3. **Asynchronous WebDAV source.** The per-chunk WebDAV GET is now async and
+   validated against the pinned source revision (**implemented**); complete
+   the transition by making the separate Notes Settings lookup asynchronous,
+   wiring player disconnect to waiter cancellation and providing safe
+   `QNetworkReply::abort()` handles. Enable a tested small parallelism cap
+   for *different* Nextcloud chunks only after this lifecycle work.
 4. **Budget shared network traffic, preserve Iris parallelism.** Admit Jingle
    and WebDAV work through the same global transfer budget while retaining
    existing Iris overlapping BUNDLE content and its drain/receipt semantics.
