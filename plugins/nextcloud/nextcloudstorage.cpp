@@ -632,12 +632,16 @@ void NextcloudStorage::startMediaReadChunk(
     const QString identity = QStringLiteral("nextcloud:") + mediaCacheIdentity(reference, config);
     const QString lane = QStringLiteral("nextcloud:") + mediaInstanceKey(config);
     QPointer<NextcloudStorage> owner(this);
-    auto fetch = [this, owner, config, cache, category, remotePath, pinnedEtag,
+    auto fetch = [owner, config, cache, category, remotePath, pinnedEtag,
                   reference, chunkOffset, expected, index](MediaChunkScheduler::Completion finish) mutable {
+        if (!owner) {
+            finish({}, QStringLiteral("Nextcloud storage owner has stopped"));
+            return;
+        }
         auto fallback = finish;
         const bool queued = QMetaObject::invokeMethod(
-            worker_,
-            [this, owner, config, cache, category, remotePath, pinnedEtag, reference,
+            owner->worker_,
+            [owner, config, cache, category, remotePath, pinnedEtag, reference,
              chunkOffset, expected, index, finish = std::move(finish)]() mutable {
                 if (!owner) {
                     finish({}, QStringLiteral("Nextcloud storage was destroyed"));
@@ -663,8 +667,8 @@ void NextcloudStorage::startMediaReadChunk(
                 // may reenter the worker's event loop. Its request is pinned
                 // first; the actual WebDAV transfer below is truly async and
                 // is constructed from its own immutable account snapshot.
-                worker_->setConfig(config);
-                const auto settings = worker_->getSettings();
+                owner->worker_->setConfig(config);
+                const auto settings = owner->worker_->getSettings();
                 if (!settings.ok) {
                     publish(MediaSyncSnapshot::Failed, settings.error);
                     finish({}, settings.error);
@@ -678,7 +682,7 @@ void NextcloudStorage::startMediaReadChunk(
                     finish({}, failure);
                     return;
                 }
-                worker_->readWebDavRangeAsync(
+                owner->worker_->readWebDavRangeAsync(
                     config, davPath, chunkOffset, expected, pinnedEtag,
                     [owner, cache, reference, index, expected, publish, finish = std::move(finish)](
                         NextcloudWebDavRangeResult remote) mutable {
