@@ -1,10 +1,12 @@
 # Shared remote-media range pipeline (proposed)
 
-Status: **work in progress** on PR #156. Base remote-range implementation: PR #155,
-squash commit `af3c0fe`. The first code slice routes opaque XMPP
-partial-cache reads/writes (both Jingle and HTTP) through a factory in
-`LocalMediaStore`; the shared scheduler, request cancellation and async
-WebDAV transport remain proposed, not implemented.
+Status: **work in progress** on PR #156. Base remote-range implementation:
+PR #155, squash commit `af3c0fe`. The first code slice routes opaque XMPP
+partial-cache reads/writes (both Jingle and HTTP) through `LocalMediaStore`.
+A reusable, tested `MediaChunkScheduler` now implements keyed single-flight,
+priority updates, cancelable consumer waiters and bounded concurrent admissions;
+**provider integration, actual transfer abort/backpressure, bandwidth control,
+exact-range coordination and async WebDAV still remain future stages**.
 See [media storage architecture](media-storage-architecture.md) for the persistent data model, security constraints,
 and the current ranged playback design.
 
@@ -33,7 +35,8 @@ network traffic*, not just the number of queued range requests.
 | `MediaSyncService` | Publishes and observes *durably verified* byte counts and download states | Intentionally not a scheduler; keep it separate |
 | `LocalMediaStore` / `MediaPartialChunkCache` | Shared storage exposes `partialMediaCache()` for sealed Nextcloud plaintext records and (in PR #156) `opaqueMediaCache()` for verified XMPP ciphertext, both under `media/partial/`; reads authenticate individual records. | Shared cache lifecycle/quotas/eviction and a separate network scheduler; the cache itself must not schedule transfers |
 | `NextcloudStorage` + `NextcloudWorker` | Pinned-ETag WebDAV reads; playback Range resolver; bounded encrypted cache | Uses storage-wide FIFO after PR #155 to avoid reentrancy of `collectReply()`; no independent-chunk parallelism or request cancellation |
-| `IrisMediaSync` | One XMPP media sync per source, verified opaque chunks, gap/seek priority, and overlapping old/new Jingle content during BUNDLE handover (old partial chunk drains while new content is negotiated); different media syncs can coexist | Global admission/bandwidth budgeting across independent media and providers; retain existing safe Jingle overlap and receipt ordering |
+| `IrisMediaSync` | One XMPP media sync per source, verified opaque chunks, gap/seek priority, and overlapping old/new Jingle content during BUNDLE handover (old partial chunk drains while new content is negotiated); different media syncs can coexist | Wire Jingle synchronization admission into the common budget without breaking safe Jingle overlap and receipt ordering |
+| `MediaChunkScheduler` (PR #156) | Shared in-process queue with immutable chunk keys, coalesced waiters, per-lane and global active limits, prioritized admission, per-waiter cancellation, shutdown completion | Currently not wired into transports; lacks transport cancellation handles, traffic measurement, bandwidth pacing, fairness aging and prefetch policy |
 | `MediaStream` / `MediaSource` | Seekable synchronous access to *already available* verified local bytes | Remain local-only; do not put network/blocking reads into `QIODevice::readData()` |
 
 The common HTTP bridge already stops writing to a disconnected client, but a
@@ -93,7 +96,9 @@ now provides verified opaque XMPP wire-record handles under the profile's
 records. Both `IrisMediaSync` and Iris HTTP media range reads use this shared
 factory; `IrisMediaSync` receives the cache handle rather than its own disk
 directory. The prior `media-ranges/` paths are no longer consulted.
-The shared download coordinator and scheduler are still future work.
+A basic shared chunk scheduler is implemented and covered by focused unit tests,
+but no plugin routes its transfers through it yet; the range coordinator is
+still future work.
 
 **Nightly-only cache compatibility policy:** no on-disk backwards compatibility
 or cache migration is required for partial XMPP media. When switching to the
