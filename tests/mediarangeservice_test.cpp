@@ -149,6 +149,40 @@ private slots:
         MediaRangeService::releaseUrl(url);
     }
 
+    void abortedPlayerSocketNotifiesCancelableReader()
+    {
+        QObject owner;
+        MediaReference reference;
+        reference.id = QUuid::createUuid();
+        reference.portableName = QStringLiteral("cancel.mp4");
+        reference.size = 1024 * 1024;
+        int started = 0;
+        int canceled = 0;
+        MediaRangeService::Completion pending;
+        MediaRangeService::registerResolver(
+            &owner, [reference](const MediaReference &r) { return r.id == reference.id; },
+            MediaRangeService::CancelableRequestReader(
+                [&](MediaReference, qint64, qint64, bool, MediaRangeService::Completion done)
+                    -> MediaRangeService::Cancel {
+                    ++started;
+                    pending = std::move(done);
+                    return [&] { ++canceled; };
+                }));
+        const auto url = MediaRangeService::urlFor(reference);
+        QVERIFY(!url.isEmpty());
+        QNetworkAccessManager manager;
+        QNetworkRequest req(url);
+        req.setRawHeader("Range", "bytes=4096-8191");
+        auto *reply = manager.get(req);
+        QTRY_COMPARE(started, 1);
+        QVERIFY(pending);
+        QCOMPARE(canceled, 0);
+        reply->abort(); // A seek or decoder teardown closes its HTTP GET.
+        QTRY_COMPARE(canceled, 1);
+        reply->deleteLater();
+        MediaRangeService::releaseUrl(url);
+    }
+
     void failureDoesNotExposePlaintext()
     {
         QObject        owner;
