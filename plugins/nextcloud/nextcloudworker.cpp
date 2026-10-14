@@ -101,7 +101,12 @@ QNetworkAccessManager *NextcloudWorker::manager()
 
 QUrl NextcloudWorker::apiUrl(const QString &relativePath) const
 {
-    QUrl url = config_.serverUrl;
+    return apiUrl(relativePath, config_);
+}
+
+QUrl NextcloudWorker::apiUrl(const QString &relativePath, const NextcloudConfig &config) const
+{
+    QUrl url = config.serverUrl;
     url.setQuery(QString());
     url.setFragment(QString());
 
