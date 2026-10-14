@@ -581,7 +581,6 @@ void NextcloudStorage::shutdown()
     // local HTTP response waiting for a worker whose event loop has stopped.
     QHash<quint64, MediaRangeService::Completion> pending;
     pending.swap(pendingMediaReads_);
-    const auto tickets = mediaChunkTickets_;
     mediaChunkTickets_.clear();
     for (auto it = pending.begin(); it != pending.end(); ++it) {
         if (it.value())
@@ -593,10 +592,8 @@ void NextcloudStorage::shutdown()
     }
     // The transport is now stopped: orphaned async reads can no longer
     // report completion, so release their global admission reservations.
-    if (auto *scheduler = MediaChunkScheduler::instance()) {
-        for (quint64 ticket : tickets)
-            scheduler->abandonStopped(ticket);
-    }
+    if (auto *scheduler = MediaChunkScheduler::instance())
+        scheduler->retireStoppedOwner(this);
 }
 
 void NextcloudStorage::startMediaReadChunk(
@@ -745,7 +742,7 @@ void NextcloudStorage::startMediaReadChunk(
         return;
     }
     mediaChunkTickets_.insert(requestId, scheduler->request(identity, index, lane, priority,
-                                                            std::move(fetch), std::move(done)));
+                                                            std::move(fetch), std::move(done), this));
 }
 
 void NextcloudStorage::cancelMediaRead(quint64 requestId)
