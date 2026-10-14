@@ -3,6 +3,7 @@
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkReply>
 #include <QPointer>
 #include <QTcpServer>
 #include <QTcpSocket>
