@@ -10,8 +10,12 @@ asynchronous WebDAV GETs plus Notes Settings lookup**, both bound to immutable
 account snapshots. Player HTTP disconnects detach only their own Nextcloud
 scheduler waiter. Last-waiter cancellation can now abort the active Nextcloud
 Notes Settings or WebDAV GET without freeing its budget slot before completion;
-late waiters are transparently retried. XMPP admission, true byte-rate pacing
-and adaptive bandwidth fairness remain future stages.
+late waiters are transparently retried. Physical Jingle/SCTP session activity
+now contributes to the scheduler's app-wide admission count; new WebDAV work
+is deferred while the budget is occupied. Existing Jingle transfers remain
+non-preemptible and can briefly oversubscribe during BUNDLE handover, rather
+than risking a protocol deadlock. Hard byte-rate pacing and adaptive fairness
+remain future stages.
 See [media storage architecture](media-storage-architecture.md) for the persistent data model, security constraints,
 and the current ranged playback design.
 
@@ -40,8 +44,8 @@ network traffic*, not just the number of queued range requests.
 | `MediaSyncService` | Publishes and observes *durably verified* byte counts and download states | Intentionally not a scheduler; keep it separate |
 | `LocalMediaStore` / `MediaPartialChunkCache` | Shared storage exposes `partialMediaCache()` for sealed Nextcloud plaintext records and (in PR #156) `opaqueMediaCache()` for verified XMPP ciphertext, both under `media/partial/`; reads authenticate individual records. | Shared cache lifecycle/quotas/eviction and a separate network scheduler; the cache itself must not schedule transfers |
 | `NextcloudStorage` + `NextcloudWorker` (PR #156) | Pinned-ETag WebDAV reads, shared cache, per-chunk single-flight scheduler, nonblocking range GET with immutable account snapshot, exact byte-range validation and account/shutdown guards | Non-media Notes REST still uses nested event loops, but remote media hydration is fully async; physical WebDAV concurrency is intentionally capped at one per account; a disconnected player detaches its waiter and aborts the unused active GET once the last waiter leaves; provider completion retains the physical budget slot until acknowledged |
-| `IrisMediaSync` | One XMPP media sync per source, verified opaque chunks, gap/seek priority, and overlapping old/new Jingle content during BUNDLE handover (old partial chunk drains while new content is negotiated); different media syncs can coexist | Wire Jingle synchronization admission into the common budget without breaking safe Jingle overlap and receipt ordering |
-| `MediaChunkScheduler` (PR #156) | Shared in-process queue with immutable chunk keys, coalesced waiters, per-lane and global active limits, prioritized admission, per-waiter cancellation and safe retirement after provider stop; currently used by Nextcloud media reads | Iris/Jingle is not yet routed through admission; cancelable WebDAV fetches are implemented, but byte-level traffic measurement, bandwidth pacing, fairness aging and prefetch remain pending |
+| `IrisMediaSync` (PR #156) | XMPP verified opaque chunks, gap/seek priority, and overlapping old/new Jingle BUNDLE handover; active physical Jingle sessions are now observed by the shared budget (one session counts once even with multiple BUNDLE contents) | External sessions are counted but *not gated or preempted*; a physical handover may temporarily exceed the target concurrency; throughput measurements and safe transport-level pacing are still missing |
+| `MediaChunkScheduler` (PR #156) | Shared in-process queue with immutable chunk keys, coalesced waiters, per-lane and global active limits, prioritized admission, per-waiter cancellation, provider-stop retirement, and physical-Jingle-session activity accounting | Non-preemptible SCTP sessions are intentionally observational (soft global cap); byte-level traffic measurement, bandwidth pacing, fairness aging and prefetch remain pending |
 | `MediaStream` / `MediaSource` | Seekable synchronous access to *already available* verified local bytes | Remain local-only; do not put network/blocking reads into `QIODevice::readData()` |
 
 The common HTTP bridge already stops writing to a disconnected client, but a
@@ -263,11 +267,16 @@ interoperability or portable published note formats.
    player disconnect callbacks remain separate work. Enable a tested small
    parallelism cap for *different* Nextcloud chunks only after lifecycle and
    backpressure checks.
-4. **Budget shared network traffic, preserve Iris parallelism.** Admit Jingle
-   and WebDAV work through the same global transfer budget while retaining
-   existing Iris overlapping BUNDLE content and its drain/receipt semantics.
-   Let the coordinator choose high-priority missing chunks, coalesce waiters,
-   and count physical transport work rather than Jingle content count.
+4. **Budget shared network traffic, preserve Iris parallelism.** Jingle active
+   physical sessions now count toward global admission, and the common scheduler
+   defers new WebDAV work while those sessions occupy the target budget
+   (**observational first slice implemented**). Multiple BUNDLE contents on one
+   session count once; independent overlapping sessions count separately.
+   Do not block a necessary SCTP handover behind a slot held by the older
+   session: the external count is a soft cap, not active transport gating.
+   Future work: shared adaptive byte budgets, bounded concurrency before
+   opening *new independent* XMPP transfers where provably deadlock-free,
+   and fair foreground-priority scheduling.
 5. **Adaptive scheduling and prefetch.** Add per-network/provider metrics,
    user-configurable bandwidth/parallelism policies and conservative lookahead.
    Use a real pacing mechanism only where byte-level flow control is safe.
