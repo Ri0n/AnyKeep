@@ -44,11 +44,10 @@ class RuntimeMinimumTest(unittest.TestCase):
         # The actual lock uses the upstream v1.2 release tag.
         lock = json.loads((ROOT / "dependencies.lock.json").read_text(encoding="utf-8"))
         self.assertEqual(lock["iris"]["tag"], "v1.2")
-        # The runtime floor remains independent of the new build pin:
-        # upstream debs are tagged/versioned 1.2, not 1.2.0, and we do not
-        # depend on new Iris 1.2-only runtime APIs.
-        self.assertEqual(lock["iris"]["minimum_version"], "1.1.4")
-        self.assertEqual(module.locked_minimums()["iris"], "1.1.4")
+        # New SCTP reliability fixes justify requiring the v1.2 runtime too.
+        # Upstream packages are versioned 1.2, which dpkg sorts below 1.2.0.
+        self.assertEqual(lock["iris"]["minimum_version"], "1.2")
+        self.assertEqual(module.locked_minimums()["iris"], "1.2")
 
     def test_independent_minimums_not_inferred_from_tags(self):
         with tempfile.TemporaryDirectory() as directory:
