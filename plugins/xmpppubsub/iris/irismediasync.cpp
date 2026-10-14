@@ -550,9 +550,15 @@ public:
         for (const auto &part : parts)
             if (part->session)
                 sessions.insert(part->session);
-        for (auto *session : sessions)
+        for (auto *session : sessions) {
             if (session->state() < J::State::Finishing)
                 session->terminate(J::Reason::FailedApplication, error);
+            // A lost XMPP connection need not deliver another terminated
+            // signal. Do not leave a phantom external transport consuming
+            // global download capacity after this synchronizer gives up.
+            if (auto *scheduler = MediaChunkScheduler::instance())
+                scheduler->releaseExternalTransfer(session);
+        }
         current.reset();
         pending.reset();
         parts.clear();
