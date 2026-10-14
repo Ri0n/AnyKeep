@@ -16,6 +16,7 @@ class NextcloudWorkerTest : public QObject {
 private slots:
     void categoryUpdateSendsOnlyCategoryAndEtag();
     void asyncWebDavRangeUsesPinnedAccountDuringConfigChange();
+    void asyncSettingsLookupIsPinnedAndNonBlocking();
 };
 
 namespace {
@@ -169,6 +170,53 @@ void NextcloudWorkerTest::asyncWebDavRangeUsesPinnedAccountDuringConfigChange()
     QCOMPARE(received.data, QByteArrayLiteral("abcdefgh"));
     QCOMPARE(received.totalSize, qint64(64));
     QCOMPARE(received.etag, QStringLiteral("\"revision-1\""));
+}
+
+void NextcloudWorkerTest::asyncSettingsLookupIsPinnedAndNonBlocking()
+{
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    const QUrl url(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()));
+    QByteArray request;
+    QPointer<QTcpSocket> peer;
+    connect(&server, &QTcpServer::newConnection, &server, [&] {
+        peer = server.nextPendingConnection();
+        connect(peer, &QTcpSocket::readyRead, &server, [&] {
+            request += peer->readAll();
+        });
+    });
+
+    NextcloudWorker worker;
+    NextcloudConfig alice;
+    alice.serverUrl = url;
+    alice.userName = QStringLiteral("alice");
+    alice.appPassword = QStringLiteral("alice-password");
+    alice.timeoutMs = 3000;
+    int completions = 0;
+    NextcloudSettingsResult received;
+    worker.getSettingsAsync(alice, [&](NextcloudSettingsResult result) {
+        received = std::move(result);
+        ++completions;
+    });
+    QTRY_VERIFY(request.contains("\r\n\r\n"));
+    QVERIFY(request.startsWith("GET /index.php/apps/notes/api/v1/settings HTTP/1.1\r\n"));
+    const QByteArray expectedAuthorization = "Authorization: Basic "
+        + QByteArray("alice:alice-password").toBase64() + "\r\n";
+    QVERIFY(request.contains(expectedAuthorization));
+    QCOMPARE(completions, 0);
+
+    NextcloudConfig bob = alice;
+    bob.userName = QStringLiteral("bob");
+    bob.appPassword = QStringLiteral("bob-password");
+    worker.setConfig(bob);
+    QVERIFY(peer);
+    const QByteArray body = QByteArrayLiteral("{\"notesPath\":\"Notes\"}");
+    peer->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+    peer->disconnectFromHost();
+    QTRY_COMPARE(completions, 1);
+    QVERIFY2(received.ok, qPrintable(received.error));
+    QCOMPARE(received.notesPath, QStringLiteral("Notes"));
 }
 
 QTEST_GUILESS_MAIN(NextcloudWorkerTest)
