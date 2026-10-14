@@ -142,6 +142,76 @@ private slots:
         QCOMPARE(failures, 3);
     }
 
+    void cancelLastWaiterAbortsPhysicalFetchButHoldsNetworkSlot()
+    {
+        MediaChunkScheduler scheduler;
+        scheduler.setMaxActive(1);
+        int starts = 0, aborts = 0, cancellations = 0;
+        QList<MediaChunkScheduler::Completion> completions;
+        const auto fetch = [&](MediaChunkScheduler::Completion done) -> MediaChunkScheduler::Abort {
+            ++starts;
+            completions.append(std::move(done));
+            return [&] { ++aborts; };
+        };
+        const quint64 ticket = scheduler.requestCancelable(
+            QStringLiteral("file"), 0, QStringLiteral("dav"), 100, fetch,
+            [&](QByteArray bytes, QString error) {
+                QVERIFY(bytes.isEmpty());
+                QVERIFY(!error.isEmpty());
+                ++cancellations;
+            });
+        QVERIFY(ticket);
+        QTRY_COMPARE(starts, 1);
+        const quint64 next = scheduler.requestCancelable(
+            QStringLiteral("another"), 0, QStringLiteral("dav"), 50, fetch,
+            [&](QByteArray, QString error) { QVERIFY(error.isEmpty()); });
+        QVERIFY(next);
+        QVERIFY(scheduler.cancel(ticket));
+        QCOMPARE(aborts, 1);
+        QCOMPARE(cancellations, 1);
+        QCOMPARE(scheduler.activeCount(), 1);
+        QCOMPARE(scheduler.pendingCount(), 1);
+        QCOMPARE(starts, 1); // Abort has NOT released physical admission.
+        completions.takeFirst()({}, QStringLiteral("Aborted"));
+        QTRY_COMPARE(starts, 2);
+        completions.takeFirst()({}, {});
+        QTRY_COMPARE(scheduler.activeCount(), 0);
+        QCOMPARE(aborts, 1);
+    }
+
+    void lateWaiterRetriesAfterOrphanAbort()
+    {
+        MediaChunkScheduler scheduler;
+        int starts = 0, aborts = 0, canceled = 0, delivered = 0;
+        QList<MediaChunkScheduler::Completion> completions;
+        auto fetch = [&](MediaChunkScheduler::Completion done) -> MediaChunkScheduler::Abort {
+            ++starts;
+            completions.append(std::move(done));
+            return [&] { ++aborts; };
+        };
+        const quint64 oldTicket = scheduler.requestCancelable(
+            QStringLiteral("rev"), 9, QStringLiteral("dav"), 10, fetch,
+            [&](QByteArray, QString error) { QVERIFY(!error.isEmpty()); ++canceled; });
+        QTRY_COMPARE(starts, 1);
+        QVERIFY(scheduler.cancel(oldTicket));
+        QCOMPARE(aborts, 1);
+        scheduler.requestCancelable(
+            QStringLiteral("rev"), 9, QStringLiteral("dav"), 100, fetch,
+            [&](QByteArray bytes, QString error) {
+                QVERIFY(error.isEmpty());
+                QCOMPARE(bytes, QByteArrayLiteral("authenticated"));
+                ++delivered;
+            });
+        QCOMPARE(starts, 1);
+        completions.takeFirst()({}, QStringLiteral("Aborted previous waiter"));
+        QTRY_COMPARE(starts, 2);
+        QCOMPARE(delivered, 0);
+        completions.takeFirst()(QByteArrayLiteral("authenticated"), {});
+        QTRY_COMPARE(delivered, 1);
+        QCOMPARE(canceled, 1);
+        QCOMPARE(scheduler.activeCount(), 0);
+    }
+
     void stoppedTransportCanReleaseAnOrphanedActiveSlot()
     {
         MediaChunkScheduler scheduler;
