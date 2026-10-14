@@ -12,6 +12,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <memory>
 #include <QRegularExpression>
 #include <limits>
 #include <QSet>
@@ -117,7 +118,12 @@ QUrl NextcloudWorker::apiUrl(const QString &relativePath) const
 
 QUrl NextcloudWorker::webDavFileUrl(const QString &relativeFilePath) const
 {
-    QUrl url = config_.serverUrl;
+    return webDavFileUrl(relativeFilePath, config_);
+}
+
+QUrl NextcloudWorker::webDavFileUrl(const QString &relativeFilePath, const NextcloudConfig &config) const
+{
+    QUrl url = config.serverUrl;
     url.setQuery(QString());
     url.setFragment(QString());
     QString base = url.path();
@@ -126,7 +132,7 @@ QUrl NextcloudWorker::webDavFileUrl(const QString &relativeFilePath) const
         base.truncate(indexPhp);
     while (base.endsWith(QLatin1Char('/')))
         base.chop(1);
-    url.setPath(base + QStringLiteral("/remote.php/dav/files/") + config_.userName
+    url.setPath(base + QStringLiteral("/remote.php/dav/files/") + config.userName
                 + QLatin1Char('/') + relativeFilePath);
     return url;
 }
@@ -142,11 +148,16 @@ QUrl NextcloudWorker::webDavUploadUrl(const QString &uploadId) const
 
 QNetworkRequest NextcloudWorker::makeRequest(const QUrl &url) const
 {
+    return makeRequest(url, config_);
+}
+
+QNetworkRequest NextcloudWorker::makeRequest(const QUrl &url, const NextcloudConfig &config) const
+{
     QNetworkRequest request(url);
     request.setRawHeader("Accept", "application/json");
     request.setRawHeader("User-Agent", "AnyKeep Nextcloud Notes/1.0");
 
-    const QByteArray credentials = (config_.userName + QLatin1Char(':') + config_.appPassword).toUtf8().toBase64();
+    const QByteArray credentials = (config.userName + QLatin1Char(':') + config.appPassword).toUtf8().toBase64();
     request.setRawHeader("Authorization", "Basic " + credentials);
 
     // Notes and WebDAV use stateless Basic/app-password authentication.
