@@ -3,7 +3,7 @@
         "tag": "v1.2",
         "commit": "70df1d3e989f7e0dfa6c7994b37312cf0bbd2869",
         "nightly_compatibility": "same-minor",
-        "minimum_version": "1.2.0"
+        "minimum_version": "1.1.4"
     },
     "qca": {
         "tag": "v3.0.11",
