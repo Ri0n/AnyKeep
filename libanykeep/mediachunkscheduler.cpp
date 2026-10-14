@@ -83,6 +83,30 @@ bool MediaChunkScheduler::cancel(quint64 ticket)
     return true;
 }
 
+bool MediaChunkScheduler::abandonStopped(quint64 ticket)
+{
+    const auto key = ticketKeys_.value(ticket);
+    if (key.isEmpty())
+        return false;
+    const auto job = jobs_.value(key);
+    if (!job)
+        return false;
+    // Remove this consumer and deliver its cancellation exactly once.
+    const bool removed = cancel(ticket);
+    if (!removed || !job->waiters.isEmpty() || !job->active)
+        return removed;
+    // The transport has already been destroyed, so no future completion
+    // will settle this orphaned job. Release the reserved network slot.
+    if (jobs_.value(key) != job)
+        return removed;
+    jobs_.remove(key);
+    --active_;
+    if (--laneActive_[job->lane] == 0)
+        laneActive_.remove(job->lane);
+    schedule();
+    return removed;
+}
+
 bool MediaChunkScheduler::reprioritize(quint64 ticket, int priority)
 {
     const auto job = jobs_.value(ticketKeys_.value(ticket));
