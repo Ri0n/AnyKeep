@@ -1,6 +1,7 @@
 #include "mediarangeservice.h"
 
 #include <QCoreApplication>
+#include <atomic>
 #include <QHash>
 #include <QPointer>
 #include <QRegularExpression>
@@ -17,12 +18,12 @@ namespace {
     struct Resolver {
         QPointer<QObject>                owner;
         MediaRangeService::Accepts       accepts;
-        MediaRangeService::RequestReader read;
+        MediaRangeService::CancelableRequestReader read;
     };
     struct Resource {
         QPointer<QObject>                owner;
         MediaReference                   reference;
-        MediaRangeService::RequestReader read;
+        MediaRangeService::CancelableRequestReader read;
     };
     class Server : public QObject {
     public:
@@ -144,6 +145,7 @@ namespace {
                 bool                 firstRead = true;
                 QByteArray           header;
                 Resource             resource;
+                MediaRangeService::Cancel cancel;
             };
             auto state      = std::make_shared<State>();
             state->socket   = socket;
@@ -152,6 +154,12 @@ namespace {
             state->header   = response;
             state->resource = resource;
             connect(resource.owner, &QObject::destroyed, socket, [socket] { socket->abort(); });
+            connect(socket, &QTcpSocket::disconnected, socket, [state] {
+                if (state->cancel) {
+                    auto cancel = std::move(state->cancel);
+                    cancel();
+                }
+            });
             auto                                       pump     = std::make_shared<std::function<void()>>();
             const std::weak_ptr<std::function<void()>> weakPump = pump;
             *pump                                               = [state, weakPump] {
@@ -171,9 +179,10 @@ namespace {
                 state->pending          = true;
                 const bool   prioritize = std::exchange(state->firstRead, false);
                 const qint64 requested  = qMin<qint64>(64 * 1024, state->end - state->pos + 1);
-                state->resource.read(
+                auto cancel = state->resource.read(
                     state->resource.reference, state->pos, requested, prioritize,
                     [state, pump, requested](QByteArray bytes, QString error) {
+                        state->cancel = {};
                         if (!state->socket || state->socket->state() != QAbstractSocket::ConnectedState)
                             return;
                         state->pending = false;
@@ -192,6 +201,9 @@ namespace {
                         state->pos += bytes.size();
                         QTimer::singleShot(0, state->socket, [pump] { (*pump)(); });
                     });
+                // A reader can complete before returning its cancel handle.
+                if (state->pending)
+                    state->cancel = std::move(cancel);
             };
             connect(socket, &QTcpSocket::bytesWritten, socket, [pump](qint64) { (*pump)(); });
             (*pump)();
@@ -216,6 +228,21 @@ void MediaRangeService::registerResolver(QObject *owner, Accepts accepts, Reader
 }
 void MediaRangeService::registerResolver(QObject *owner, Accepts accepts, RequestReader reader)
 {
+    registerResolver(owner, std::move(accepts),
+        CancelableRequestReader(
+            [reader = std::move(reader)](MediaReference ref, qint64 offset, qint64 length,
+                                         bool prioritize, Completion done) -> Cancel {
+                reader(std::move(ref), offset, length, prioritize, std::move(done));
+                return {};
+            }));
+}
+
+void MediaRangeService::registerResolver(QObject *owner, Accepts accepts, CancelableRequestReader reader)
+{
+    struct ReadCancellation {
+        std::atomic_bool cancelled { false };
+        Cancel cancel; // Only accessed in the provider owner's thread.
+    };
     auto *application = QCoreApplication::instance();
     if (!owner || !application)
         return;
@@ -234,29 +261,49 @@ void MediaRangeService::registerResolver(QObject *owner, Accepts accepts, Reques
         if (server->resolvers[i].owner == owner)
             server->resolvers.removeAt(i);
     }
-    RequestReader dispatched
-        = [guard = QPointer<QObject>(owner), target = QPointer<Server>(server), reader = std::move(reader)](
-              MediaReference reference, qint64 offset, qint64 length, bool prioritize, Completion done) {
+    CancelableRequestReader dispatched
+        = [guard = QPointer<QObject>(owner), target = QPointer<Server>(server),
+           reader = std::move(reader)](MediaReference reference, qint64 offset,
+                                       qint64 length, bool prioritize, Completion done) -> Cancel {
               if (!guard) {
                   done({}, QStringLiteral("Media provider is unavailable"));
-                  return;
+                  return {};
               }
+              auto state = std::make_shared<ReadCancellation>();
               QMetaObject::invokeMethod(
                   guard,
-                  [target, reader, reference = std::move(reference), offset, length, prioritize,
+                  [guard, state, target, reader, reference = std::move(reference), offset, length, prioritize,
                    done = std::move(done)]() mutable {
-                      reader(std::move(reference), offset, length, prioritize,
-                             [target, done = std::move(done)](QByteArray bytes, QString error) mutable {
-                                 if (!target)
-                                     return;
-                                 QMetaObject::invokeMethod(
-                                     target,
-                                     [done = std::move(done), bytes = std::move(bytes),
-                                      error = std::move(error)]() mutable { done(std::move(bytes), std::move(error)); },
-                                     Qt::QueuedConnection);
-                             });
+                      if (!guard || state->cancelled.load())
+                          return;
+                      state->cancel = reader(
+                          std::move(reference), offset, length, prioritize,
+                          [target, done = std::move(done)](QByteArray bytes, QString error) mutable {
+                              if (!target)
+                                  return;
+                              QMetaObject::invokeMethod(
+                                  target,
+                                  [done = std::move(done), bytes = std::move(bytes),
+                                   error = std::move(error)]() mutable { done(std::move(bytes), std::move(error)); },
+                                  Qt::QueuedConnection);
+                          });
+                      if (state->cancelled.load() && state->cancel) {
+                          auto cancel = std::move(state->cancel);
+                          cancel();
+                      }
                   },
                   Qt::QueuedConnection);
+              return [guard, state] {
+                  state->cancelled.store(true);
+                  if (guard) {
+                      QMetaObject::invokeMethod(guard, [state] {
+                          if (state->cancel) {
+                              auto cancel = std::move(state->cancel);
+                              cancel();
+                          }
+                      }, Qt::QueuedConnection);
+                  }
+              };
           };
     server->resolvers.append({ owner, std::move(accepts), std::move(dispatched) });
     QObject::connect(owner, &QObject::destroyed, server, [server] {
