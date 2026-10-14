@@ -35,6 +35,10 @@ def locked_minimums(lock_path: Path = DEFAULT_LOCK) -> dict[str, str]:
         dependency = lock[name]
         minimum = dependency["minimum_version"]
         pinned = dependency["tag"]
+        # Runtime package floors are always explicit three-part versions.
+        # Only upstream *tags* may omit the zero patch (e.g. Iris v1.2).
+        if not isinstance(minimum, str) or not re.fullmatch(r"\d+\.\d+\.\d+", minimum):
+            raise ValueError(f"{name}: invalid minimum_version {minimum!r}")
         floor_version = version_tuple(minimum)
         pinned_version = version_tuple(pinned)
         if pinned_version < floor_version:
