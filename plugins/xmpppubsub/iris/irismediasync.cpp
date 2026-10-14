@@ -1,6 +1,7 @@
 #include "irismediasync.h"
 #include "irisjinglepublicationprovider.h"
 #include "mediapartialchunkcache.h"
+#include "mediachunkscheduler.h"
 #include <QDir>
 #include <QFile>
 #include <QPointer>
@@ -420,6 +421,13 @@ public:
         });
         QObject::connect(app, &J::Application::stateChanged, q, [this, part](J::State state) {
             if (state == J::State::Active) {
+                // One physical session may carry multiple BUNDLE contents. A
+                // seek handover can temporarily open two physical sessions;
+                // observe both without blocking the existing SCTP sequence.
+                if (part->session) {
+                    if (auto *scheduler = MediaChunkScheduler::instance())
+                        scheduler->observeExternalTransfer(part->session);
+                }
                 // The queued check observes committed content-accept grouping, not
                 // the earlier Accepted state during description parsing.
                 QTimer::singleShot(0, q, [this, part] {
@@ -497,7 +505,12 @@ public:
             accepted.setRange(FT::Range(offset, length));
             app->setAcceptFile(accepted);
             configure(part, app);
-            QObject::connect(session, &J::Session::terminated, q, [this, weak = std::weak_ptr<Part>(part)] {
+            QObject::connect(session, &J::Session::terminated, q, [this, weak = std::weak_ptr<Part>(part),
+                                                                      observed = QPointer<J::Session>(session)] {
+                if (observed) {
+                    if (auto *scheduler = MediaChunkScheduler::instance())
+                        scheduler->releaseExternalTransfer(observed);
+                }
                 const auto part = weak.lock();
                 if (part && !part->closing && !stopped && error.isEmpty())
                     fail(QStringLiteral("Media session terminated"));
