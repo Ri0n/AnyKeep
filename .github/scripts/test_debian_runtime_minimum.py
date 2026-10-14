@@ -38,6 +38,15 @@ class RuntimeMinimumTest(unittest.TestCase):
             f"libiris-qt6-1 (>= {minimums['iris']})",
         )
 
+    def test_iris_minor_release_tag_is_supported(self):
+        self.assertEqual(module.version_tuple("v1.2"), (1, 2, 0))
+        self.assertEqual(module.version_tuple("1.2.0"), (1, 2, 0))
+        # The actual lock uses the upstream v1.2 release tag.
+        lock = json.loads((ROOT / "dependencies.lock.json").read_text(encoding="utf-8"))
+        self.assertEqual(lock["iris"]["tag"], "v1.2")
+        self.assertEqual(lock["iris"]["minimum_version"], "1.2.0")
+        self.assertEqual(module.locked_minimums()["iris"], "1.2.0")
+
     def test_independent_minimums_not_inferred_from_tags(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "lock.json"
