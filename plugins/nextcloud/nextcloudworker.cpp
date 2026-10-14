@@ -827,7 +827,7 @@ QNetworkReply *NextcloudWorker::readWebDavRangeAsync(
     QString ifMatchEtag, std::function<void(NextcloudWebDavRangeResult)> done)
 {
     if (!done)
-        return;
+        return nullptr;
     NextcloudWebDavRangeResult invalid;
     if (!NextcloudMediaLinks::isSafeNativePath(relativeFilePath) || offset < 0
         || count <= 0 || count > 1024 * 1024 || offset > std::numeric_limits<qint64>::max() - count
