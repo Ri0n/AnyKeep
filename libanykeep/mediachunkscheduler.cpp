@@ -32,7 +32,22 @@ QString MediaChunkScheduler::makeKey(const QString &source, quint64 index)
 quint64 MediaChunkScheduler::request(QString immutableSource, quint64 index, QString lane, int priority,
                                       Fetch fetch, Completion done, QObject *fetchOwner)
 {
-    if (stopped_ || immutableSource.isEmpty() || lane.isEmpty() || !fetch || !done) {
+    return addWaiter(std::move(immutableSource), index, std::move(lane), priority,
+                     std::move(fetch), {}, std::move(done), fetchOwner);
+}
+
+quint64 MediaChunkScheduler::requestCancelable(QString immutableSource, quint64 index, QString lane, int priority,
+                                                CancelableFetch fetch, Completion done, QObject *fetchOwner)
+{
+    return addWaiter(std::move(immutableSource), index, std::move(lane), priority,
+                     {}, std::move(fetch), std::move(done), fetchOwner);
+}
+
+quint64 MediaChunkScheduler::addWaiter(QString immutableSource, quint64 index, QString lane, int priority,
+                                        Fetch fetch, CancelableFetch cancelableFetch, Completion done,
+                                        QObject *fetchOwner)
+{
+    if (stopped_ || immutableSource.isEmpty() || lane.isEmpty() || (!fetch && !cancelableFetch) || !done) {
         if (done)
             done({}, QStringLiteral("Media chunk scheduler unavailable or invalid request"));
         return 0;
@@ -50,6 +65,7 @@ quint64 MediaChunkScheduler::request(QString immutableSource, quint64 index, QSt
         job->lane = std::move(lane);
         job->sequence = ++nextSequence_;
         job->fetch = std::move(fetch);
+        job->cancelableFetch = std::move(cancelableFetch);
         job->fetchOwner = fetchOwner;
         jobs_.insert(key, job);
     }
@@ -76,8 +92,17 @@ bool MediaChunkScheduler::cancel(quint64 ticket)
             break;
         }
     }
-    if (job->waiters.isEmpty() && !job->active)
-        jobs_.remove(key);
+    if (job->waiters.isEmpty()) {
+        if (!job->active)
+            jobs_.remove(key);
+        else if (job->abort && !job->aborting) {
+            // Keep the physical network slot occupied until the transport
+            // reports completion. A new waiter arriving during abort is
+            // rescheduled if the aborted transfer does not return valid data.
+            job->aborting = true;
+            job->abort();
+        }
+    }
     schedule();
     if (done)
         done({}, QStringLiteral("Media chunk request cancelled"));
@@ -218,7 +243,7 @@ void MediaChunkScheduler::pump()
         const QString key = candidate->key;
         const quint64 sequence = candidate->sequence;
         const QPointer<MediaChunkScheduler> guard(this);
-        candidate->fetch([guard, key, sequence](QByteArray bytes, QString error) mutable {
+        auto complete = [guard, key, sequence](QByteArray bytes, QString error) mutable {
             if (!guard)
                 return;
             QMetaObject::invokeMethod(
@@ -228,7 +253,16 @@ void MediaChunkScheduler::pump()
                         guard->finish(key, sequence, std::move(bytes), std::move(error));
                 },
                 Qt::QueuedConnection);
-        });
+        };
+        if (candidate->cancelableFetch) {
+            candidate->abort = candidate->cancelableFetch(std::move(complete));
+            if (candidate->waiters.isEmpty() && candidate->abort && !candidate->aborting) {
+                candidate->aborting = true;
+                candidate->abort();
+            }
+        } else {
+            candidate->fetch(std::move(complete));
+        }
     }
 }
 
@@ -237,10 +271,21 @@ void MediaChunkScheduler::finish(const QString &key, quint64 sequence, QByteArra
     auto job = jobs_.value(key);
     if (!job || job->sequence != sequence || !job->active)
         return; // Late or duplicated completion after shutdown/retry.
-    jobs_.remove(key);
     --active_;
     if (--laneActive_[job->lane] == 0)
         laneActive_.remove(job->lane);
+    if (job->aborting && !job->waiters.isEmpty() && (!error.isEmpty() || bytes.isEmpty())) {
+        // Consumers may have joined while a now-unneeded transfer was being
+        // aborted. Restart it as a new admitted job rather than reporting a
+        // cancellation that belonged to a previous consumer.
+        job->active = false;
+        job->aborting = false;
+        job->abort = {};
+        job->sequence = ++nextSequence_;
+        schedule();
+        return;
+    }
+    jobs_.remove(key);
     for (const auto &waiter : std::as_const(job->waiters))
         ticketKeys_.remove(waiter.ticket);
     auto waiters = std::move(job->waiters);
