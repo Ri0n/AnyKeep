@@ -7,6 +7,7 @@
 #include "irisomemostorage.h"
 #include "iristruststorage.h"
 #include "localmediastore.h"
+#include "mediachunkscheduler.h"
 #include "mediapartialchunkcache.h"
 #include "mediachunkwirestream.h"
 #include "mediasource.h"
@@ -2020,6 +2021,10 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
             state->timer->deleteLater();
         if (state->request)
             state->request->deleteLater();
+        if (state->session) {
+            if (auto *scheduler = MediaChunkScheduler::instance())
+                scheduler->releaseExternalTransfer(state->session);
+        }
         if (state->session && state->session->state() < XMPP::Jingle::State::Finishing)
             state->session->terminate(error.isEmpty() ? XMPP::Jingle::Reason::Success
                                                       : XMPP::Jingle::Reason::FailedApplication);
@@ -2061,7 +2066,7 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
             auto *buffer = new BoundedRangeBuffer(state->bytes, length, session);
             buffer->open(QIODevice::WriteOnly);
             connect(app, &XMPP::Jingle::FileTransfer::Application::deviceRequested, session,
-                    [app, buffer, publicationId, offset, length, complete](quint64                requestedOffset,
+                    [app, buffer, session, publicationId, offset, length, complete](quint64                requestedOffset,
                                                                            std::optional<quint64> requestedLength) {
                         qCDebug(lcIrisJingleMedia)
                             << "Incoming media device requested: publication=" << publicationId
@@ -2071,6 +2076,8 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
                             complete(QStringLiteral("Peer changed the requested range"));
                             return;
                         }
+                        if (auto *scheduler = MediaChunkScheduler::instance())
+                            scheduler->observeExternalTransfer(session);
                         app->setDevice(buffer, false);
                     });
             connect(app, &XMPP::Jingle::FileTransfer::Application::stateChanged, session,
