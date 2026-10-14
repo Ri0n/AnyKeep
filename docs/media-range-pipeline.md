@@ -8,8 +8,10 @@ priority updates, cancelable consumer waiters and bounded concurrent admissions.
 **Nextcloud playback range hydration now uses this scheduler and fully
 asynchronous WebDAV GETs plus Notes Settings lookup**, both bound to immutable
 account snapshots. Player HTTP disconnects detach only their own Nextcloud
-scheduler waiter. XMPP admission, actual transport abort/backpressure and
-bandwidth adaptation remain future stages.
+scheduler waiter. Last-waiter cancellation can now abort the active Nextcloud
+Notes Settings or WebDAV GET without freeing its budget slot before completion;
+late waiters are transparently retried. XMPP admission, true byte-rate pacing
+and adaptive bandwidth fairness remain future stages.
 See [media storage architecture](media-storage-architecture.md) for the persistent data model, security constraints,
 and the current ranged playback design.
 
@@ -37,9 +39,9 @@ network traffic*, not just the number of queued range requests.
 | `MediaRangeService` | Loopback HTTP server for `QMediaPlayer`: parses HTTP Range; asynchronously requests 64 KiB slices; throttles socket writes; only the first read of each GET may reprioritize retrieval | Cancellation propagated upstream on socket disconnect, explicit per-player demand/session tracking |
 | `MediaSyncService` | Publishes and observes *durably verified* byte counts and download states | Intentionally not a scheduler; keep it separate |
 | `LocalMediaStore` / `MediaPartialChunkCache` | Shared storage exposes `partialMediaCache()` for sealed Nextcloud plaintext records and (in PR #156) `opaqueMediaCache()` for verified XMPP ciphertext, both under `media/partial/`; reads authenticate individual records. | Shared cache lifecycle/quotas/eviction and a separate network scheduler; the cache itself must not schedule transfers |
-| `NextcloudStorage` + `NextcloudWorker` (PR #156) | Pinned-ETag WebDAV reads, shared cache, per-chunk single-flight scheduler, nonblocking range GET with immutable account snapshot, exact byte-range validation and account/shutdown guards | Non-media Notes REST still uses nested event loops, but remote media hydration is fully async; physical WebDAV concurrency is intentionally capped at one per account; a disconnected player detaches its waiter but cannot yet abort the unused active GET |
+| `NextcloudStorage` + `NextcloudWorker` (PR #156) | Pinned-ETag WebDAV reads, shared cache, per-chunk single-flight scheduler, nonblocking range GET with immutable account snapshot, exact byte-range validation and account/shutdown guards | Non-media Notes REST still uses nested event loops, but remote media hydration is fully async; physical WebDAV concurrency is intentionally capped at one per account; a disconnected player detaches its waiter and aborts the unused active GET once the last waiter leaves; provider completion retains the physical budget slot until acknowledged |
 | `IrisMediaSync` | One XMPP media sync per source, verified opaque chunks, gap/seek priority, and overlapping old/new Jingle content during BUNDLE handover (old partial chunk drains while new content is negotiated); different media syncs can coexist | Wire Jingle synchronization admission into the common budget without breaking safe Jingle overlap and receipt ordering |
-| `MediaChunkScheduler` (PR #156) | Shared in-process queue with immutable chunk keys, coalesced waiters, per-lane and global active limits, prioritized admission, per-waiter cancellation and safe retirement after provider stop; currently used by Nextcloud media reads | Iris/Jingle is not yet routed through admission; physical transport cancellation, traffic measurement, bandwidth pacing, fairness aging and prefetch remain pending |
+| `MediaChunkScheduler` (PR #156) | Shared in-process queue with immutable chunk keys, coalesced waiters, per-lane and global active limits, prioritized admission, per-waiter cancellation and safe retirement after provider stop; currently used by Nextcloud media reads | Iris/Jingle is not yet routed through admission; cancelable WebDAV fetches are implemented, but byte-level traffic measurement, bandwidth pacing, fairness aging and prefetch remain pending |
 | `MediaStream` / `MediaSource` | Seekable synchronous access to *already available* verified local bytes | Remain local-only; do not put network/blocking reads into `QIODevice::readData()` |
 
 The common HTTP bridge already stops writing to a disconnected client, but a
@@ -104,8 +106,9 @@ tests. Nextcloud range hydration now routes individual verified chunk fetches
 through it, with concurrency limited to one per Nextcloud account until
 real load/performance measurements justify safe parallelism. The loopback player adapter now propagates a per-read cancel handle to Nextcloud,
 which detaches only the disconnected client's waiter. An active chunk may still
-finish for cache reuse; physical GET abort and other plugins' cancellation remain
-to be integrated. A generalized verified-range coordinator is future work.
+finish for cache reuse; Nextcloud now physically aborts orphaned active
+GETs with proper slot accounting and retries any late new waiter. Cancellation
+for other plugins remains to be integrated. A generalized verified-range coordinator is future work.
 
 **Nightly-only cache compatibility policy:** no on-disk backwards compatibility
 or cache migration is required for partial XMPP media. When switching to the
@@ -254,9 +257,12 @@ interoperability or portable published note formats.
 3. **Asynchronous WebDAV source.** Both the per-chunk WebDAV GET and the
    separate Notes Settings lookup are async, validated and pinned to the same
    source/account (**implemented**). Complete this stage with safe
-   `QNetworkReply::abort()` handles for orphaned transfers and other plugins'
-   player disconnect callbacks. Enable a tested small parallelism cap for
-   *different* Nextcloud chunks only after lifecycle and backpressure checks.
+   `QNetworkReply::abort()` handles for orphaned Settings/WebDAV transfers
+   (**implemented**), preserving global active-slot accounting and automatically
+   retrying new subscribers which arrive during an abort. Other plugins'
+   player disconnect callbacks remain separate work. Enable a tested small
+   parallelism cap for *different* Nextcloud chunks only after lifecycle and
+   backpressure checks.
 4. **Budget shared network traffic, preserve Iris parallelism.** Admit Jingle
    and WebDAV work through the same global transfer budget while retaining
    existing Iris overlapping BUNDLE content and its drain/receipt semantics.
