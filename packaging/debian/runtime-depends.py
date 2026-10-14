@@ -12,7 +12,7 @@ import re
 
 
 DEFAULT_LOCK = Path(__file__).resolve().parents[2] / "dependencies.lock.json"
-VERSION_PATTERN = re.compile(r"v?(\d+)\.(\d+)\.(\d+)\Z")
+VERSION_PATTERN = re.compile(r"v?(\d+)\.(\d+)(?:\.(\d+))?\Z")
 RUNTIME_PACKAGES = {
     "qca": ("libqca3-qt6-3", "libqca3-qt6-plugins"),
     "iris": ("libiris-qt6-1",),
@@ -25,7 +25,7 @@ def version_tuple(value: str) -> tuple[int, int, int]:
     match = VERSION_PATTERN.fullmatch(value)
     if not match:
         raise ValueError(f"Invalid semantic version: {value!r}")
-    return tuple(map(int, match.groups()))
+    return int(match.group(1)), int(match.group(2)), int(match.group(3) or 0)
 
 
 def locked_minimums(lock_path: Path = DEFAULT_LOCK) -> dict[str, str]:
