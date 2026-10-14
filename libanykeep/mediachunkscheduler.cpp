@@ -179,6 +179,24 @@ bool MediaChunkScheduler::reprioritize(quint64 ticket, int priority)
     return false;
 }
 
+void MediaChunkScheduler::observeExternalTransfer(QObject *physicalTransport)
+{
+    if (!physicalTransport || stopped_ || externalTransfers_.contains(physicalTransport))
+        return;
+    externalTransfers_.insert(physicalTransport);
+    // Neither cancellation nor later scheduler destruction should ever
+    // delete or terminate a Jingle session. Merely track its real lifetime.
+    connect(physicalTransport, &QObject::destroyed, this, [this, physicalTransport] {
+        releaseExternalTransfer(physicalTransport);
+    });
+}
+
+void MediaChunkScheduler::releaseExternalTransfer(QObject *physicalTransport)
+{
+    if (externalTransfers_.remove(physicalTransport))
+        schedule();
+}
+
 void MediaChunkScheduler::setMaxActive(int count)
 {
     maxActive_ = std::max(1, count);
@@ -218,7 +236,7 @@ void MediaChunkScheduler::pump()
 {
     if (stopped_)
         return;
-    while (active_ < maxActive_) {
+    while (active_ + externalTransfers_.size() < maxActive_) {
         std::shared_ptr<Job> candidate;
         int bestPriority = std::numeric_limits<int>::min();
         for (const auto &job : jobs_) {
@@ -305,6 +323,7 @@ void MediaChunkScheduler::shutdown()
     jobs_.clear();
     ticketKeys_.clear();
     laneActive_.clear();
+    externalTransfers_.clear();
     active_ = 0;
     for (const auto &job : std::as_const(jobs)) {
         for (const auto &waiter : std::as_const(job->waiters)) {
