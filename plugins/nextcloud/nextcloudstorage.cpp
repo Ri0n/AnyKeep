@@ -663,50 +663,58 @@ void NextcloudStorage::startMediaReadChunk(
                 };
                 publish(MediaSyncSnapshot::Transferring);
 
-                // The Settings REST operation still uses collectReply() and
-                // may reenter the worker's event loop. Its request is pinned
-                // first; the actual WebDAV transfer below is truly async and
-                // is constructed from its own immutable account snapshot.
-                owner->worker_->setConfig(config);
-                const auto settings = owner->worker_->getSettings();
-                if (!settings.ok) {
-                    publish(MediaSyncSnapshot::Failed, settings.error);
-                    finish({}, settings.error);
-                    return;
-                }
-                const QString davPath = settings.notesPath + QLatin1Char('/')
-                    + (category.isEmpty() ? QString() : category + QLatin1Char('/')) + remotePath;
-                if (!NextcloudMediaLinks::isSafeNativePath(davPath)) {
-                    const QString failure = QStringLiteral("Unsafe Nextcloud media path");
-                    publish(MediaSyncSnapshot::Failed, failure);
-                    finish({}, failure);
-                    return;
-                }
-                owner->worker_->readWebDavRangeAsync(
-                    config, davPath, chunkOffset, expected, pinnedEtag,
-                    [owner, cache, reference, index, expected, publish, finish = std::move(finish)](
-                        NextcloudWebDavRangeResult remote) mutable {
+                // Resolve the native Notes path asynchronously with the
+                // same immutable account snapshot as the WebDAV GET. No
+                // nested event loop can reenter another media hydration.
+                owner->worker_->getSettingsAsync(
+                    config,
+                    [owner, config, cache, category, remotePath, pinnedEtag, reference,
+                     chunkOffset, expected, index, publish, finish = std::move(finish)](
+                        NextcloudSettingsResult settings) mutable {
                         if (!owner) {
                             finish({}, QStringLiteral("Nextcloud storage was destroyed"));
                             return;
                         }
-                        if (!remote.ok || remote.totalSize != reference.size || remote.data.size() != expected) {
-                            const QString failure = !remote.error.isEmpty() ? remote.error
-                                : QStringLiteral("WebDAV returned an inconsistent media chunk");
+                        if (!settings.ok) {
+                            publish(MediaSyncSnapshot::Failed, settings.error);
+                            finish({}, settings.error);
+                            return;
+                        }
+                        const QString davPath = settings.notesPath + QLatin1Char('/')
+                            + (category.isEmpty() ? QString() : category + QLatin1Char('/')) + remotePath;
+                        if (!NextcloudMediaLinks::isSafeNativePath(davPath)) {
+                            const QString failure = QStringLiteral("Unsafe Nextcloud media path");
                             publish(MediaSyncSnapshot::Failed, failure);
                             finish({}, failure);
                             return;
                         }
-                        QString error;
-                        if (!cache->write(index, remote.data, expected, {}, &error)) {
-                            const QString failure = error.isEmpty()
-                                ? QStringLiteral("Cannot durably encrypt downloaded media chunk") : error;
-                            publish(MediaSyncSnapshot::Failed, failure);
-                            finish({}, failure);
-                            return;
-                        }
-                        publish(MediaSyncSnapshot::Waiting);
-                        finish(std::move(remote.data), {});
+                        owner->worker_->readWebDavRangeAsync(
+                            config, davPath, chunkOffset, expected, pinnedEtag,
+                            [owner, cache, reference, index, expected, publish,
+                             finish = std::move(finish)](NextcloudWebDavRangeResult remote) mutable {
+                                if (!owner) {
+                                    finish({}, QStringLiteral("Nextcloud storage was destroyed"));
+                                    return;
+                                }
+                                if (!remote.ok || remote.totalSize != reference.size
+                                    || remote.data.size() != expected) {
+                                    const QString failure = !remote.error.isEmpty() ? remote.error
+                                        : QStringLiteral("WebDAV returned an inconsistent media chunk");
+                                    publish(MediaSyncSnapshot::Failed, failure);
+                                    finish({}, failure);
+                                    return;
+                                }
+                                QString error;
+                                if (!cache->write(index, remote.data, expected, {}, &error)) {
+                                    const QString failure = error.isEmpty()
+                                        ? QStringLiteral("Cannot durably encrypt downloaded media chunk") : error;
+                                    publish(MediaSyncSnapshot::Failed, failure);
+                                    finish({}, failure);
+                                    return;
+                                }
+                                publish(MediaSyncSnapshot::Waiting);
+                                finish(std::move(remote.data), {});
+                            });
                     });
             },
             Qt::QueuedConnection);
