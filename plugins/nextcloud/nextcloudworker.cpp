@@ -705,6 +705,77 @@ NextcloudSettingsResult NextcloudWorker::getSettings()
 }
 
 
+void NextcloudWorker::getSettingsAsync(
+    NextcloudConfig config, std::function<void(NextcloudSettingsResult)> done)
+{
+    if (!done)
+        return;
+    auto request = makeRequest(apiUrl(QStringLiteral("settings"), config), config);
+    auto *reply = manager()->get(request);
+    constexpr qint64 maxBody = 64 * 1024;
+    reply->setReadBufferSize(maxBody + 8192);
+    struct State {
+        QByteArray body;
+        bool timedOut = false;
+        bool tooLarge = false;
+    };
+    auto state = std::make_shared<State>();
+    auto *timeout = new QTimer(reply);
+    timeout->setSingleShot(true);
+    connect(timeout, &QTimer::timeout, reply, [reply, state] {
+        state->timedOut = true;
+        reply->abort();
+    });
+    auto drain = [reply, state] {
+        if (state->tooLarge)
+            return;
+        constexpr qint64 limit = 64 * 1024;
+        if (reply->bytesAvailable() > limit - state->body.size()) {
+            state->tooLarge = true;
+            reply->abort();
+            return;
+        }
+        state->body.append(reply->readAll());
+    };
+    connect(reply, &QNetworkReply::readyRead, reply, drain);
+    connect(reply, &QNetworkReply::finished, this,
+            [reply, timeout, state, drain, done = std::move(done)]() mutable {
+                timeout->stop();
+                drain();
+                NextcloudSettingsResult result;
+                result.httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                const auto networkError = reply->error();
+                const auto errorText = reply->errorString();
+                reply->deleteLater();
+                if (state->timedOut || state->tooLarge || networkError != QNetworkReply::NoError
+                    || result.httpStatus < 200 || result.httpStatus >= 300) {
+                    result.error = state->timedOut
+                        ? QStringLiteral("Nextcloud Notes settings request timed out")
+                        : state->tooLarge
+                        ? QStringLiteral("Nextcloud Notes settings response exceeds 64 KiB")
+                        : errorText;
+                    done(std::move(result));
+                    return;
+                }
+                QJsonParseError parseError;
+                const auto json = QJsonDocument::fromJson(state->body, &parseError);
+                if (parseError.error != QJsonParseError::NoError || !json.isObject()) {
+                    result.error = QStringLiteral("Invalid Nextcloud Notes settings response");
+                    done(std::move(result));
+                    return;
+                }
+                result.notesPath = json.object().value(QStringLiteral("notesPath")).toString();
+                if (!NextcloudMediaLinks::isSafeNativePath(result.notesPath)) {
+                    result.error = QStringLiteral("Notes folder path is missing or invalid");
+                    done(std::move(result));
+                    return;
+                }
+                result.ok = true;
+                done(std::move(result));
+            });
+    timeout->start(qMax(1000, config.timeoutMs));
+}
+
 NextcloudWebDavRangeResult NextcloudWorker::validateWebDavRange(
     const HttpResult &reply, qint64 offset, qint64 count, const QString &ifMatchEtag) const
 {
