@@ -33,6 +33,9 @@ public:
 
     // Native, non-encrypted Notes attachments: compatible with other clients.
     NextcloudSettingsResult getSettings();
+    // Non-blocking media-path settings lookup, pinned to the initiating
+    // account. Does not mutate the worker's mutable Notes REST config.
+    void getSettingsAsync(NextcloudConfig config, std::function<void(NextcloudSettingsResult)> done);
     // Create a Notes-native per-note attachment directory; 405 means it already exists.
     NextcloudStatusResult       ensureWebDavFolder(const QString &relativeFolderPath);
     NextcloudWebDavUploadResult uploadWebDavChunks(const QString &relativeFilePath, QIODevice *source, qint64 size);
@@ -60,6 +63,7 @@ private:
 
     QNetworkAccessManager *manager();
     QUrl                   apiUrl(const QString &relativePath) const;
+    QUrl                   apiUrl(const QString &relativePath, const NextcloudConfig &config) const;
     QUrl                   webDavFileUrl(const QString &relativeFilePath) const;
     QUrl                   webDavFileUrl(const QString &relativeFilePath, const NextcloudConfig &config) const;
     QUrl                   webDavUploadUrl(const QString &uploadId) const;
