@@ -3,6 +3,7 @@
 #include "foldercatalogmanager.h"
 #include "localmediastore.h"
 #include "mediachunkscheduler.h"
+#include <QNetworkReply>
 #include "mediarangeservice.h"
 #include "mediapartialchunkcache.h"
 #include "mediasyncservice.h"
@@ -630,18 +631,31 @@ void NextcloudStorage::startMediaReadChunk(
     const QString lane = QStringLiteral("nextcloud:") + mediaInstanceKey(config);
     QPointer<NextcloudStorage> owner(this);
     auto fetch = [owner, config, cache, category, remotePath, pinnedEtag,
-                  reference, chunkOffset, expected, index](MediaChunkScheduler::Completion finish) mutable {
+                  reference, chunkOffset, expected, index](MediaChunkScheduler::Completion finish) mutable
+        -> MediaChunkScheduler::Abort {
         if (!owner) {
             finish({}, QStringLiteral("Nextcloud storage owner has stopped"));
-            return;
+            return {};
         }
+        // This state is touched only on the Nextcloud worker thread. Abort
+        // requests cross threads using a queued invoke, including when the
+        // initial Notes Settings GET has not started yet.
+        struct TransferState {
+            QPointer<QNetworkReply> reply;
+            bool canceled = false;
+        };
+        auto transfer = std::make_shared<TransferState>();
         auto fallback = finish;
         const bool queued = QMetaObject::invokeMethod(
             owner->worker_,
-            [owner, config, cache, category, remotePath, pinnedEtag, reference,
+            [owner, transfer, config, cache, category, remotePath, pinnedEtag, reference,
              chunkOffset, expected, index, finish = std::move(finish)]() mutable {
                 if (!owner) {
                     finish({}, QStringLiteral("Nextcloud storage was destroyed"));
+                    return;
+                }
+                if (transfer->canceled) {
+                    finish({}, QStringLiteral("Media source was cancelled before start"));
                     return;
                 }
                 cache->restoreVerifiedBytes();
@@ -663,13 +677,17 @@ void NextcloudStorage::startMediaReadChunk(
                 // Resolve the native Notes path asynchronously with the
                 // same immutable account snapshot as the WebDAV GET. No
                 // nested event loop can reenter another media hydration.
-                owner->worker_->getSettingsAsync(
+                transfer->reply = owner->worker_->getSettingsAsync(
                     config,
-                    [owner, config, cache, category, remotePath, pinnedEtag, reference,
+                    [owner, transfer, config, cache, category, remotePath, pinnedEtag, reference,
                      chunkOffset, expected, index, publish, finish = std::move(finish)](
                         NextcloudSettingsResult settings) mutable {
                         if (!owner) {
                             finish({}, QStringLiteral("Nextcloud storage was destroyed"));
+                            return;
+                        }
+                        if (transfer->canceled) {
+                            finish({}, QStringLiteral("Media transfer canceled while resolving settings"));
                             return;
                         }
                         if (!settings.ok) {
@@ -685,7 +703,7 @@ void NextcloudStorage::startMediaReadChunk(
                             finish({}, failure);
                             return;
                         }
-                        owner->worker_->readWebDavRangeAsync(
+                        transfer->reply = owner->worker_->readWebDavRangeAsync(
                             config, davPath, chunkOffset, expected, pinnedEtag,
                             [owner, cache, reference, index, expected, publish,
                              finish = std::move(finish)](NextcloudWebDavRangeResult remote) mutable {
@@ -717,6 +735,15 @@ void NextcloudStorage::startMediaReadChunk(
             Qt::QueuedConnection);
         if (!queued)
             fallback({}, QStringLiteral("Nextcloud media worker is unavailable"));
+        return [owner, transfer] {
+            if (!owner || !owner->worker_)
+                return;
+            QMetaObject::invokeMethod(owner->worker_, [transfer] {
+                transfer->canceled = true;
+                if (transfer->reply)
+                    transfer->reply->abort();
+            }, Qt::QueuedConnection);
+        };
     };
 
     auto done = [owner, requestId, reference, config, cache, category, remotePath, pinnedEtag,
@@ -741,8 +768,8 @@ void NextcloudStorage::startMediaReadChunk(
         completeMediaRead(requestId, reference, {}, QStringLiteral("Media chunk scheduler unavailable"));
         return;
     }
-    mediaChunkTickets_.insert(requestId, scheduler->request(identity, index, lane, priority,
-                                                            std::move(fetch), std::move(done), this));
+    mediaChunkTickets_.insert(requestId, scheduler->requestCancelable(identity, index, lane, priority,
+                                                                      std::move(fetch), std::move(done), this));
 }
 
 void NextcloudStorage::cancelMediaRead(quint64 requestId)
