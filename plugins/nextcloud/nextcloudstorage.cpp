@@ -627,6 +627,7 @@ void NextcloudStorage::startMediaReadChunk(
     QPointer<NextcloudStorage> owner(this);
     auto fetch = [this, owner, config, cache, category, remotePath, pinnedEtag,
                   reference, chunkOffset, expected, index](MediaChunkScheduler::Completion finish) mutable {
+        auto fallback = finish;
         const bool queued = QMetaObject::invokeMethod(
             worker_,
             [this, owner, config, cache, category, remotePath, pinnedEtag, reference,
@@ -687,7 +688,7 @@ void NextcloudStorage::startMediaReadChunk(
             },
             Qt::QueuedConnection);
         if (!queued)
-            finish({}, QStringLiteral("Nextcloud media worker is unavailable"));
+            fallback({}, QStringLiteral("Nextcloud media worker is unavailable"));
     };
 
     auto done = [owner, requestId, reference, config, cache, category, remotePath, pinnedEtag,
