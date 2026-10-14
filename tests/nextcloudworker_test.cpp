@@ -17,6 +17,7 @@ private slots:
     void categoryUpdateSendsOnlyCategoryAndEtag();
     void asyncWebDavRangeUsesPinnedAccountDuringConfigChange();
     void asyncSettingsLookupIsPinnedAndNonBlocking();
+    void abortingAsyncWebDavReplyFailsClosedOnce();
 };
 
 namespace {
@@ -230,6 +231,44 @@ void NextcloudWorkerTest::asyncSettingsLookupIsPinnedAndNonBlocking()
         QVERIFY(!received.error.isEmpty());
         QVERIFY(received.notesPath.isEmpty());
     }
+}
+
+void NextcloudWorkerTest::abortingAsyncWebDavReplyFailsClosedOnce()
+{
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    QByteArray receivedRequest;
+    connect(&server, &QTcpServer::newConnection, &server, [&] {
+        auto *socket = server.nextPendingConnection();
+        connect(socket, &QTcpSocket::readyRead, &server, [socket, &receivedRequest] {
+            receivedRequest.append(socket->readAll());
+            // Hold the response open until the client cancels the transfer.
+        });
+    });
+    NextcloudConfig config;
+    config.serverUrl = QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()));
+    config.userName = QStringLiteral("alice");
+    config.appPassword = QStringLiteral("secret");
+    config.timeoutMs = 3000;
+    NextcloudWorker worker;
+    int completions = 0;
+    NextcloudWebDavRangeResult result;
+    auto *reply = worker.readWebDavRangeAsync(
+        config, QStringLiteral("Notes/media.bin"), 0, 16, QStringLiteral("\"rev\""),
+        [&](NextcloudWebDavRangeResult value) {
+            ++completions;
+            result = std::move(value);
+        });
+    QVERIFY(reply);
+    QTRY_VERIFY(receivedRequest.contains("\r\n\r\n"));
+    QCOMPARE(completions, 0);
+    reply->abort();
+    QTRY_COMPARE(completions, 1);
+    QVERIFY(!result.ok);
+    QVERIFY(!result.error.isEmpty());
+    QVERIFY(result.data.isEmpty());
+    QTest::qWait(10);
+    QCOMPARE(completions, 1);
 }
 
 QTEST_GUILESS_MAIN(NextcloudWorkerTest)
