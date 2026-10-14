@@ -30,7 +30,7 @@ QString MediaChunkScheduler::makeKey(const QString &source, quint64 index)
 }
 
 quint64 MediaChunkScheduler::request(QString immutableSource, quint64 index, QString lane, int priority,
-                                      Fetch fetch, Completion done)
+                                      Fetch fetch, Completion done, QObject *fetchOwner)
 {
     if (stopped_ || immutableSource.isEmpty() || lane.isEmpty() || !fetch || !done) {
         if (done)
@@ -50,6 +50,7 @@ quint64 MediaChunkScheduler::request(QString immutableSource, quint64 index, QSt
         job->lane = std::move(lane);
         job->sequence = ++nextSequence_;
         job->fetch = std::move(fetch);
+        job->fetchOwner = fetchOwner;
         jobs_.insert(key, job);
     }
     const quint64 ticket = ++nextTicket_;
@@ -105,6 +106,37 @@ bool MediaChunkScheduler::abandonStopped(quint64 ticket)
         laneActive_.remove(job->lane);
     schedule();
     return removed;
+}
+
+void MediaChunkScheduler::retireStoppedOwner(QObject *fetchOwner)
+{
+    if (!fetchOwner)
+        return;
+    QList<std::shared_ptr<Job>> retired;
+    for (auto it = jobs_.begin(); it != jobs_.end();) {
+        const auto &job = it.value();
+        if (job->fetchOwner != fetchOwner) {
+            ++it;
+            continue;
+        }
+        retired.append(job);
+        if (job->active) {
+            --active_;
+            if (--laneActive_[job->lane] == 0)
+                laneActive_.remove(job->lane);
+        }
+        for (const auto &waiter : std::as_const(job->waiters))
+            ticketKeys_.remove(waiter.ticket);
+        it = jobs_.erase(it);
+    }
+    schedule();
+    // Only settle after removing all jobs: a callback may reenter request().
+    for (const auto &job : std::as_const(retired)) {
+        for (auto &waiter : job->waiters) {
+            if (waiter.done)
+                waiter.done({}, QStringLiteral("Media transport stopped"));
+        }
+    }
 }
 
 bool MediaChunkScheduler::reprioritize(quint64 ticket, int priority)
