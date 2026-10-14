@@ -70,6 +70,7 @@ private:
                                         NextcloudConfig config, std::shared_ptr<MediaPartialChunkCache> cache,
                                         QString category, QString remotePath, QString pinnedEtag,
                                         qint64 cursor, qint64 end, QByteArray output, int priority);
+    void            cancelMediaRead(quint64 requestId);
     void            completeMediaRead(quint64 requestId, const MediaReference &reference,
                                       QByteArray bytes, QString failure);
     Note            fromRemote(const NextcloudRemoteNote &remote);
