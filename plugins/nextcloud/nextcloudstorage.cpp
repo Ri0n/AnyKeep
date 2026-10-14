@@ -502,10 +502,10 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
         this,
         [this](const MediaReference &ref) { return !shuttingDown_ && matchesRemoteMedia(ref, readConfig()); },
         [this](MediaReference ref, qint64 offset, qint64 count, bool prioritize,
-               MediaRangeService::Completion done) mutable {
+               MediaRangeService::Completion done) mutable -> MediaRangeService::Cancel {
             if (shuttingDown_ || !workerThread_.isRunning()) {
                 done({}, QStringLiteral("Nextcloud media storage has stopped"));
-                return;
+                return {};
             }
             const auto config = readConfig();
             QString error;
@@ -513,14 +513,14 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
                 || offset < 0 || count <= 0 || count > 1024 * 1024 || offset >= ref.size
                 || count > ref.size - offset) {
                 done({}, error.isEmpty() ? QStringLiteral("Invalid or stale Nextcloud remote media range") : error);
-                return;
+                return {};
             }
             // LocalMediaStore resolves the profile keychain key on this
             // application thread, before handing a cache to the worker.
             const auto cache = partialCacheFor(ref, config, &error);
             if (!cache) {
                 done({}, error.isEmpty() ? QStringLiteral("Cannot unlock encrypted media cache") : error);
-                return;
+                return {};
             }
             const QString category = ref.remoteData.value(QStringLiteral("nextcloud.category")).toString();
             const QString remotePath = ref.remoteData.value(QStringLiteral("nextcloud.path")).toString();
@@ -529,6 +529,10 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
             pendingMediaReads_.insert(requestId, std::move(done));
             startMediaReadChunk(requestId, ref, config, cache, category, remotePath, pinnedEtag,
                                 offset, offset + count, {}, prioritize ? 100 : 0);
+            return [owner = QPointer<NextcloudStorage>(this), requestId] {
+                if (owner)
+                    owner->cancelMediaRead(requestId);
+            };
         });
     if (auto *sync = MediaSyncService::instance()) {
         sync->registerObserver(
@@ -729,6 +733,21 @@ void NextcloudStorage::startMediaReadChunk(
     }
     mediaChunkTickets_.insert(requestId, scheduler->request(identity, index, lane, priority,
                                                             std::move(fetch), std::move(done)));
+}
+
+void NextcloudStorage::cancelMediaRead(quint64 requestId)
+{
+    auto it = pendingMediaReads_.find(requestId);
+    if (it == pendingMediaReads_.end())
+        return;
+    auto done = std::move(it.value());
+    pendingMediaReads_.erase(it);
+    const quint64 ticket = mediaChunkTickets_.take(requestId);
+    if (ticket) {
+        if (auto *scheduler = MediaChunkScheduler::instance())
+            scheduler->cancel(ticket);
+    }
+    done({}, QStringLiteral("Player media range request was cancelled"));
 }
 
 void NextcloudStorage::completeMediaRead(quint64 requestId, const MediaReference &reference,
