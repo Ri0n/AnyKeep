@@ -4,6 +4,7 @@
 #include "anykeep_export.h"
 #include <QByteArray>
 #include <QHash>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QtGlobal>
