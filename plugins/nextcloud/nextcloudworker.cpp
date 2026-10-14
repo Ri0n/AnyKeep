@@ -705,11 +705,11 @@ NextcloudSettingsResult NextcloudWorker::getSettings()
 }
 
 
-void NextcloudWorker::getSettingsAsync(
+QNetworkReply *NextcloudWorker::getSettingsAsync(
     NextcloudConfig config, std::function<void(NextcloudSettingsResult)> done)
 {
     if (!done)
-        return;
+        return nullptr;
     auto request = makeRequest(apiUrl(QStringLiteral("settings"), config), config);
     auto *reply = manager()->get(request);
     constexpr qint64 maxBody = 64 * 1024;
@@ -774,6 +774,7 @@ void NextcloudWorker::getSettingsAsync(
                 done(std::move(result));
             });
     timeout->start(qMax(1000, config.timeoutMs));
+    return reply;
 }
 
 NextcloudWebDavRangeResult NextcloudWorker::validateWebDavRange(
@@ -821,7 +822,7 @@ NextcloudWebDavRangeResult NextcloudWorker::validateWebDavRange(
     return result;
 }
 
-void NextcloudWorker::readWebDavRangeAsync(
+QNetworkReply *NextcloudWorker::readWebDavRangeAsync(
     NextcloudConfig config, QString relativeFilePath, qint64 offset, qint64 count,
     QString ifMatchEtag, std::function<void(NextcloudWebDavRangeResult)> done)
 {
@@ -834,7 +835,7 @@ void NextcloudWorker::readWebDavRangeAsync(
         || ifMatchEtag.contains(QLatin1Char('\n'))) {
         invalid.error = QStringLiteral("Invalid WebDAV range, path or conditional ETag");
         done(std::move(invalid));
-        return;
+        return nullptr;
     }
 
     // Construct a fully immutable request from this job's account snapshot.
@@ -894,6 +895,7 @@ void NextcloudWorker::readWebDavRangeAsync(
                 done(validateWebDavRange(state->response, offset, count, ifMatchEtag));
             });
     timeout->start(qMax(1000, config.timeoutMs));
+    return reply;
 }
 
 NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relativeFilePath, qint64 offset,
