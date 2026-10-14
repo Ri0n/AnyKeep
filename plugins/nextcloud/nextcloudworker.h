@@ -35,7 +35,7 @@ public:
     NextcloudSettingsResult getSettings();
     // Non-blocking media-path settings lookup, pinned to the initiating
     // account. Does not mutate the worker's mutable Notes REST config.
-    void getSettingsAsync(NextcloudConfig config, std::function<void(NextcloudSettingsResult)> done);
+    QNetworkReply *getSettingsAsync(NextcloudConfig config, std::function<void(NextcloudSettingsResult)> done);
     // Create a Notes-native per-note attachment directory; 405 means it already exists.
     NextcloudStatusResult       ensureWebDavFolder(const QString &relativeFolderPath);
     NextcloudWebDavUploadResult uploadWebDavChunks(const QString &relativeFilePath, QIODevice *source, qint64 size);
@@ -43,7 +43,7 @@ public:
                                                 const QString &ifMatchEtag = {});
     // Non-blocking, pinned-account WebDAV media fetch. Completion runs on the
     // worker thread; callers must forward results to their own thread.
-    void readWebDavRangeAsync(NextcloudConfig config, QString relativeFilePath, qint64 offset, qint64 count,
+    QNetworkReply *readWebDavRangeAsync(NextcloudConfig config, QString relativeFilePath, qint64 offset, qint64 count,
                               QString ifMatchEtag, std::function<void(NextcloudWebDavRangeResult)> done);
 
     NextcloudAttachmentResult uploadAttachment(const QString &noteId, const QString &fileName,
