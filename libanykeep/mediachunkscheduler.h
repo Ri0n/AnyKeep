@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QList>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QtGlobal>
 #include <functional>
@@ -31,7 +32,7 @@ public:
     // result to all registered waiters. Fetch MUST complete exactly once and
     // its Completion may be invoked from any thread.
     quint64 request(QString immutableSource, quint64 index, QString lane, int priority,
-                    Fetch fetch, Completion done);
+                    Fetch fetch, Completion done, QObject *fetchOwner = nullptr);
 
     // Cancels only this consumer. An already active network operation stays
     // accounted for until the provider completes it; never abort a shared
@@ -41,6 +42,10 @@ public:
     // orphaned in-flight request whose completion can no longer arrive.
     // Must not be used as ordinary player cancellation.
     bool abandonStopped(quint64 ticket);
+    // Called only AFTER a provider's network worker has stopped. Retires
+    // every queued/active fetch owned by it, including canceled jobs with no
+    // remaining waiters. Late network completions are safely ignored.
+    void retireStoppedOwner(QObject *fetchOwner);
     bool reprioritize(quint64 ticket, int priority);
 
     void setMaxActive(int count);
@@ -60,6 +65,7 @@ private:
         QString lane;
         quint64 sequence = 0;
         Fetch fetch;
+        QPointer<QObject> fetchOwner;
         QList<Waiter> waiters;
         bool active = false;
     };
