@@ -76,7 +76,8 @@ public:
     void setBandwidthLimitBytesPerSecond(qint64 bytesPerSecond);
     qint64 bandwidthLimitBytesPerSecond() const { return bandwidthLimitBytesPerSecond_; }
 
-    // Must run on the scheduler's owning thread. Report once per physical
+    // Safe to call from a provider thread (the scheduler queues accounting
+    // onto its own thread). Report once per physical
     // network response, never once per waiter or local cache hit. Set congested
     // only for transport congestion (timeouts, HTTP 429/5xx), not invalid
     // ETags, authentication failures, or an intentional player cancellation.
