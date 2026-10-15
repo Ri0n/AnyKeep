@@ -5,12 +5,18 @@
 #include <QThread>
 #include <QTimer>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <utility>
 
 namespace AnyKeep {
 
-MediaChunkScheduler::MediaChunkScheduler(QObject *parent) : QObject(parent) {}
+MediaChunkScheduler::MediaChunkScheduler(QObject *parent) : QObject(parent)
+{
+    monotonicClock_.start();
+    admissionTimer_.setSingleShot(true);
+    connect(&admissionTimer_, &QTimer::timeout, this, [this] { schedule(); });
+}
 MediaChunkScheduler::~MediaChunkScheduler() { shutdown(); }
 
 MediaChunkScheduler *MediaChunkScheduler::instance()
@@ -211,6 +217,59 @@ void MediaChunkScheduler::setLaneMaxActive(const QString &lane, int count)
     }
 }
 
+void MediaChunkScheduler::setBandwidthLimitBytesPerSecond(qint64 bytesPerSecond)
+{
+    replenishBandwidth();
+    const qint64 next = std::max<qint64>(0, bytesPerSecond);
+    if (next == bandwidthLimitBytesPerSecond_)
+        return;
+    if (!bandwidthLimitBytesPerSecond_)
+        bandwidthCredit_ = double(next); // One second of initial burst.
+    else
+        bandwidthCredit_ = std::min(bandwidthCredit_, double(next));
+    bandwidthLimitBytesPerSecond_ = next;
+    lastBudgetUpdateMs_ = monotonicClock_.elapsed();
+    admissionTimer_.stop();
+    schedule();
+}
+
+void MediaChunkScheduler::replenishBandwidth()
+{
+    const qint64 now = monotonicClock_.elapsed();
+    const qint64 elapsed = now - lastBudgetUpdateMs_;
+    if (elapsed > 0 && bandwidthLimitBytesPerSecond_ > 0) {
+        bandwidthCredit_ = std::min(double(bandwidthLimitBytesPerSecond_),
+                                     bandwidthCredit_ + double(elapsed) * double(bandwidthLimitBytesPerSecond_) / 1000.0);
+    }
+    lastBudgetUpdateMs_ = now;
+}
+
+void MediaChunkScheduler::reportTransferResult(const QString &lane, qint64 networkBytes, bool congested)
+{
+    if (stopped_)
+        return;
+    replenishBandwidth();
+    if (networkBytes > 0 && bandwidthLimitBytesPerSecond_ > 0)
+        bandwidthCredit_ -= double(networkBytes);
+
+    if (!lane.isEmpty()) {
+        if (congested) {
+            auto &state = congestion_[lane];
+            state.level = std::min(6, state.level + 1);
+            // Lane-scoped bounded exponential cooldown (0.5s .. 8s).
+            const qint64 delay = std::min<qint64>(8000, 500LL << (state.level - 1));
+            state.retryAfterMs = monotonicClock_.elapsed() + delay;
+        } else {
+            auto it = congestion_.find(lane);
+            if (it != congestion_.end()) {
+                if (--it->level <= 0)
+                    congestion_.erase(it);
+            }
+        }
+    }
+    schedule();
+}
+
 int MediaChunkScheduler::pendingCount() const
 {
     int result = 0;
@@ -232,18 +291,43 @@ void MediaChunkScheduler::schedule()
     });
 }
 
+void MediaChunkScheduler::scheduleWakeup(qint64 delayMs)
+{
+    // One timer for all lanes and bandwidth pacing. Never replace an earlier
+    // wakeup with a later one; a new urgent waiter can still call schedule().
+    const int waitMs = int(std::clamp<qint64>(delayMs, 1, std::numeric_limits<int>::max()));
+    if (!admissionTimer_.isActive() || admissionTimer_.remainingTime() > waitMs)
+        admissionTimer_.start(waitMs);
+}
+
 void MediaChunkScheduler::pump()
 {
     if (stopped_)
         return;
+    replenishBandwidth();
+    if (bandwidthLimitBytesPerSecond_ > 0 && bandwidthCredit_ < 0) {
+        if (pendingCount() > 0) {
+            const auto waitMs = qint64(std::ceil(-bandwidthCredit_ * 1000.0
+                                                / double(bandwidthLimitBytesPerSecond_)));
+            scheduleWakeup(waitMs);
+        }
+        return;
+    }
     while (active_ + externalTransfers_.size() < maxActive_) {
         std::shared_ptr<Job> candidate;
         std::shared_ptr<Job> oldest;
+        qint64 firstLaneWake = std::numeric_limits<qint64>::max();
+        const qint64 now = monotonicClock_.elapsed();
         int bestPriority = std::numeric_limits<int>::min();
         for (const auto &job : jobs_) {
             if (job->active || job->waiters.isEmpty()
                 || laneActive_.value(job->lane) >= laneLimits_.value(job->lane, 1))
                 continue;
+            const auto congestion = congestion_.constFind(job->lane);
+            if (congestion != congestion_.cend() && congestion->retryAfterMs > now) {
+                firstLaneWake = std::min(firstLaneWake, congestion->retryAfterMs - now);
+                continue;
+            }
             if (!oldest || job->sequence < oldest->sequence)
                 oldest = job;
             int priority = std::numeric_limits<int>::min();
@@ -255,8 +339,13 @@ void MediaChunkScheduler::pump()
                 bestPriority = priority;
             }
         }
-        if (!candidate)
+        if (!candidate) {
+            if (firstLaneWake != std::numeric_limits<qint64>::max())
+                scheduleWakeup(firstLaneWake);
             break;
+        }
+        if (firstLaneWake != std::numeric_limits<qint64>::max())
+            scheduleWakeup(firstLaneWake);
         // Bound starvation without interrupting active Jingle/SCTP transfers.
         constexpr int maxPriorityBypasses = 4;
         if (candidate != oldest && priorityBypasses_ >= maxPriorityBypasses)
@@ -330,6 +419,8 @@ void MediaChunkScheduler::shutdown()
     if (stopped_)
         return;
     stopped_ = true;
+    admissionTimer_.stop();
+    congestion_.clear();
     auto jobs = std::move(jobs_);
     jobs_.clear();
     ticketKeys_.clear();
