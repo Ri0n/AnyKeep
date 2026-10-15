@@ -3,12 +3,14 @@
 
 #include "anykeep_export.h"
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QList>
 #include <QObject>
 #include <QPointer>
 #include <QSet>
 #include <QString>
+#include <QTimer>
 #include <QtGlobal>
 #include <functional>
 #include <memory>
@@ -66,6 +68,20 @@ public:
     int externalActiveCount() const { return externalTransfers_.size(); }
     int activeCount() const { return active_ + externalTransfers_.size(); }
     int pendingCount() const;
+    // Optional aggregate *soft* byte-rate limit. A completed HTTP request or
+    // an authenticated Jingle record reports its actual network bytes through
+    // reportTransferResult(). The limit paces NEW managed fetches; it never
+    // suspends an active Jingle/SCTP stream or claims strict wire-rate shaping.
+    // Zero disables rate pacing, but keeps transfer/congestion accounting.
+    void setBandwidthLimitBytesPerSecond(qint64 bytesPerSecond);
+    qint64 bandwidthLimitBytesPerSecond() const { return bandwidthLimitBytesPerSecond_; }
+
+    // Must run on the scheduler's owning thread. Report once per physical
+    // network response, never once per waiter or local cache hit. Set congested
+    // only for transport congestion (timeouts, HTTP 429/5xx), not invalid
+    // ETags, authentication failures, or an intentional player cancellation.
+    // Congestion adaptively delays new work in the affected lane only.
+    void reportTransferResult(const QString &lane, qint64 networkBytes, bool congested);
     void shutdown();
 
 private:
@@ -91,6 +107,8 @@ private:
                       Fetch fetch, CancelableFetch cancelableFetch, Completion done,
                       QObject *fetchOwner);
     void schedule();
+    void scheduleWakeup(qint64 delayMs);
+    void replenishBandwidth();
     void pump();
     void finish(const QString &key, quint64 sequence, QByteArray bytes, QString error);
 
@@ -105,6 +123,16 @@ private:
     int active_ = 0;
     // Bound consecutive admissions that bypass the oldest eligible request.
     int priorityBypasses_ = 0;
+    struct LaneCongestion {
+        int level = 0;
+        qint64 retryAfterMs = 0;
+    };
+    QHash<QString, LaneCongestion> congestion_;
+    QElapsedTimer monotonicClock_;
+    QTimer admissionTimer_;
+    qint64 bandwidthLimitBytesPerSecond_ = 0;
+    qint64 lastBudgetUpdateMs_ = 0;
+    double bandwidthCredit_ = 0;
     bool scheduled_ = false;
     bool stopped_ = false;
 };
