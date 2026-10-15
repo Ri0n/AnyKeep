@@ -691,6 +691,14 @@ void NextcloudStorage::startMediaReadChunk(
                             return;
                         }
                         if (!settings.ok) {
+                            const bool congested = settings.httpStatus == 429
+                                || (settings.httpStatus >= 500 && settings.httpStatus < 600)
+                                || settings.error.contains(QStringLiteral("timed out"), Qt::CaseInsensitive);
+                            if (congested)
+                                QMetaObject::invokeMethod(owner.data(), [lane] {
+                                    if (auto *scheduler = MediaChunkScheduler::instance())
+                                        scheduler->reportTransferResult(lane, 0, true);
+                                }, Qt::QueuedConnection);
                             publish(MediaSyncSnapshot::Failed, settings.error);
                             finish({}, settings.error);
                             return;
