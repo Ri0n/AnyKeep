@@ -147,6 +147,91 @@ private slots:
         QTRY_COMPARE(scheduler.activeCount(), 0);
     }
 
+    void aggregateByteBudgetPacesNewAdmissionsWithoutInterruptingJingle()
+    {
+        MediaChunkScheduler scheduler;
+        scheduler.setMaxActive(2);
+        scheduler.setBandwidthLimitBytesPerSecond(4000);
+        QCOMPARE(scheduler.bandwidthLimitBytesPerSecond(), qint64(4000));
+        QObject liveJingle;
+        scheduler.observeExternalTransfer(&liveJingle);
+        QCOMPARE(scheduler.externalActiveCount(), 1);
+        // An authenticated SCTP record used more than one second's byte
+        // budget. Existing SCTP sessions are NEVER interrupted or slowed.
+        scheduler.reportTransferResult(QStringLiteral("jingle"), 4400, false);
+        QCOMPARE(scheduler.externalActiveCount(), 1);
+        int starts = 0;
+        MediaChunkScheduler::Completion completion;
+        scheduler.request(QStringLiteral("dav"), 0, QStringLiteral("webdav"), 100,
+                          [&](MediaChunkScheduler::Completion finish) {
+                              ++starts;
+                              completion = std::move(finish);
+                          },
+                          [](QByteArray, QString error) { QVERIFY(error.isEmpty()); });
+        QTest::qWait(25);
+        QCOMPARE(starts, 0);
+        QCOMPARE(scheduler.activeCount(), 1);
+        QTRY_COMPARE(starts, 1);
+        QCOMPARE(scheduler.activeCount(), 2);
+        completion({}, {});
+        QTRY_COMPARE(scheduler.activeCount(), 1);
+        scheduler.releaseExternalTransfer(&liveJingle);
+        QCOMPARE(scheduler.activeCount(), 0);
+        scheduler.setBandwidthLimitBytesPerSecond(0);
+        QCOMPARE(scheduler.bandwidthLimitBytesPerSecond(), qint64(0));
+    }
+
+    void congestionBackoffIsLaneScopedAndSelfReleasing()
+    {
+        MediaChunkScheduler scheduler;
+        scheduler.setMaxActive(2);
+        QStringList started;
+        QHash<QString, MediaChunkScheduler::Completion> completions;
+        const auto fetch = [&](const QString &name) {
+            return [&, name](MediaChunkScheduler::Completion done) {
+                started.append(name);
+                completions.insert(name, std::move(done));
+            };
+        };
+        const auto done = [](QByteArray, QString error) { QVERIFY(error.isEmpty()); };
+        scheduler.request(QStringLiteral("first"), 0, QStringLiteral("account-a"), 100,
+                          fetch(QStringLiteral("first")), done);
+        QTRY_COMPARE(started.size(), 1);
+        scheduler.request(QStringLiteral("second"), 0, QStringLiteral("account-a"), 100,
+                          fetch(QStringLiteral("second")), done);
+        scheduler.reportTransferResult(QStringLiteral("account-a"), 0, true);
+        completions.take(QStringLiteral("first"))({}, {});
+        scheduler.request(QStringLiteral("other"), 0, QStringLiteral("account-b"), 0,
+                          fetch(QStringLiteral("other")), done);
+        QTRY_COMPARE(started.size(), 2);
+        QCOMPARE(started.last(), QStringLiteral("other"));
+        QTest::qWait(50);
+        QCOMPARE(started.size(), 2); // A's retry cooldown must not block B.
+        completions.take(QStringLiteral("other"))({}, {});
+        QTRY_COMPARE(started.size(), 3);
+        QCOMPARE(started.last(), QStringLiteral("second"));
+        completions.take(QStringLiteral("second"))({}, {});
+        QTRY_COMPARE(scheduler.activeCount(), 0);
+    }
+
+    void zeroBandwidthLimitDoesNotDelayUncappedDownloads()
+    {
+        MediaChunkScheduler scheduler;
+        scheduler.setMaxActive(1);
+        scheduler.reportTransferResult(QStringLiteral("jingle"), 10000000, false);
+        int starts = 0;
+        MediaChunkScheduler::Completion completion;
+        scheduler.request(QStringLiteral("dav"), 0, QStringLiteral("dav"), 0,
+                          [&](MediaChunkScheduler::Completion finish) {
+                              ++starts;
+                              completion = std::move(finish);
+                          },
+                          [](QByteArray, QString error) { QVERIFY(error.isEmpty()); });
+        QTRY_COMPARE(starts, 1);
+        completion({}, {});
+        QTRY_COMPARE(scheduler.activeCount(), 0);
+    }
+
     void cancellationDetachesOnlyOneWaiter()
     {
         MediaChunkScheduler scheduler;
