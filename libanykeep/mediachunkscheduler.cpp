@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QPointer>
+#include <QSettings>
 #include <QThread>
 #include <QTimer>
 #include <algorithm>
@@ -22,8 +23,14 @@ MediaChunkScheduler::~MediaChunkScheduler() { shutdown(); }
 MediaChunkScheduler *MediaChunkScheduler::instance()
 {
     static QPointer<MediaChunkScheduler> scheduler;
-    if (!scheduler && QCoreApplication::instance())
-        scheduler = new MediaChunkScheduler(QCoreApplication::instance());
+    if (!scheduler && QCoreApplication::instance()) {
+        auto *created = new MediaChunkScheduler(QCoreApplication::instance());
+        // Settings apply to the shared application instance. Directly
+        // constructed test schedulers retain the reproducible unlimited default.
+        created->setBandwidthLimitBytesPerSecond(
+            QSettings().value(QStringLiteral("media/download-bytes-per-second"), 0).toLongLong());
+        scheduler = created;
+    }
     return scheduler;
 }
 
