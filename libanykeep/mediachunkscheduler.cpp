@@ -307,9 +307,13 @@ void MediaChunkScheduler::pump()
     replenishBandwidth();
     if (bandwidthLimitBytesPerSecond_ > 0 && bandwidthCredit_ < 0) {
         if (pendingCount() > 0) {
-            const auto waitMs = qint64(std::ceil(-bandwidthCredit_ * 1000.0
-                                                / double(bandwidthLimitBytesPerSecond_)));
-            scheduleWakeup(waitMs);
+            // A very low configured rate combined with a large external
+            // Jingle burst can exceed qint64 milliseconds. Clamp the wakeup;
+            // the next timer tick will re-check the remaining debt.
+            const double waitMs = std::ceil(-bandwidthCredit_ * 1000.0
+                                            / double(bandwidthLimitBytesPerSecond_));
+            scheduleWakeup(waitMs >= double(std::numeric_limits<int>::max())
+                               ? std::numeric_limits<int>::max() : qint64(waitMs));
         }
         return;
     }
