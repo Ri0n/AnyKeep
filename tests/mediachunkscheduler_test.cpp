@@ -1,5 +1,6 @@
 #include "mediachunkscheduler.h"
 #include <QtTest>
+#include <QThread>
 #include <functional>
 #include <utility>
 
@@ -179,6 +180,34 @@ private slots:
         QCOMPARE(scheduler.activeCount(), 0);
         scheduler.setBandwidthLimitBytesPerSecond(0);
         QCOMPARE(scheduler.bandwidthLimitBytesPerSecond(), qint64(0));
+    }
+
+    void workerThreadTrafficAccountingIsMarshaledBeforeAdmission()
+    {
+        MediaChunkScheduler scheduler;
+        scheduler.setMaxActive(1);
+        scheduler.setBandwidthLimitBytesPerSecond(1000);
+        auto *worker = QThread::create([&scheduler] {
+            scheduler.reportTransferResult(QStringLiteral("jingle"), 2000, false);
+        });
+        worker->start();
+        QVERIFY(worker->wait(5000));
+        delete worker;
+        // Drain the queued worker-thread accounting event on the owning thread.
+        QCoreApplication::processEvents();
+        int starts = 0;
+        MediaChunkScheduler::Completion completion;
+        scheduler.request(QStringLiteral("dav"), 0, QStringLiteral("webdav"), 10,
+                          [&](MediaChunkScheduler::Completion finish) {
+                              ++starts;
+                              completion = std::move(finish);
+                          },
+                          [](QByteArray, QString error) { QVERIFY(error.isEmpty()); });
+        QTest::qWait(40);
+        QCOMPARE(starts, 0);
+        QTRY_COMPARE(starts, 1);
+        completion({}, {});
+        QTRY_COMPARE(scheduler.activeCount(), 0);
     }
 
     void congestionBackoffIsLaneScopedAndSelfReleasing()
