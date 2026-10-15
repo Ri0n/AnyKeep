@@ -115,6 +115,38 @@ private slots:
         QTRY_COMPARE(scheduler.activeCount(), 0);
     }
 
+    void fairnessSkipsLaneBlockedOldestWithoutStalling()
+    {
+        MediaChunkScheduler scheduler;
+        scheduler.setMaxActive(2);
+        scheduler.setLaneMaxActive(QStringLiteral("dav"), 1);
+        QStringList started;
+        QHash<QString, MediaChunkScheduler::Completion> completions;
+        const auto fetch = [&](const QString &name) {
+            return [&, name](MediaChunkScheduler::Completion done) {
+                started.append(name);
+                completions.insert(name, std::move(done));
+            };
+        };
+        const auto done = [](QByteArray, QString error) { QVERIFY(error.isEmpty()); };
+        scheduler.request(QStringLiteral("active-dav"), 0, QStringLiteral("dav"), 100,
+                          fetch(QStringLiteral("active-dav")), done);
+        QTRY_COMPARE(started.size(), 1);
+        scheduler.request(QStringLiteral("blocked-dav"), 0, QStringLiteral("dav"), 0,
+                          fetch(QStringLiteral("blocked-dav")), done);
+        scheduler.request(QStringLiteral("jingle"), 0, QStringLiteral("jingle"), 10,
+                          fetch(QStringLiteral("jingle")), done);
+        QTRY_COMPARE(started.size(), 2);
+        QCOMPARE(started.last(), QStringLiteral("jingle"));
+        QCOMPARE(scheduler.pendingCount(), 1);
+        completions.take(QStringLiteral("active-dav"))({}, {});
+        QTRY_COMPARE(started.size(), 3);
+        QCOMPARE(started.last(), QStringLiteral("blocked-dav"));
+        completions.take(QStringLiteral("jingle"))({}, {});
+        completions.take(QStringLiteral("blocked-dav"))({}, {});
+        QTRY_COMPARE(scheduler.activeCount(), 0);
+    }
+
     void cancellationDetachesOnlyOneWaiter()
     {
         MediaChunkScheduler scheduler;
