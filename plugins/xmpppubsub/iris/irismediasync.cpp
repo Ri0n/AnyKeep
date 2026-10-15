@@ -378,6 +378,10 @@ public:
                             return bool(MediaChunkWire::decryptChunk(parameters, i, bytes));
                         }))
                     return IrisMediaChunkSink::Action::Error;
+                // SCTP streams are non-preemptible. Meter authenticated
+                // records and pace only subsequent managed HTTP admissions.
+                if (auto *scheduler = MediaChunkScheduler::instance())
+                    scheduler->reportTransferResult(QStringLiteral("jingle"), wire.size(), false);
                 markAvailable(index);
                 deliver(index, wire);
                 timer->start(timeout);
