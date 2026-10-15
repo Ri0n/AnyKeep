@@ -631,7 +631,7 @@ void NextcloudStorage::startMediaReadChunk(
     const QString lane = QStringLiteral("nextcloud:") + mediaInstanceKey(config);
     QPointer<NextcloudStorage> owner(this);
     auto fetch = [owner, config, cache, category, remotePath, pinnedEtag,
-                  reference, chunkOffset, expected, index](MediaChunkScheduler::Completion finish) mutable
+                  reference, chunkOffset, expected, index, lane](MediaChunkScheduler::Completion finish) mutable
         -> MediaChunkScheduler::Abort {
         if (!owner) {
             finish({}, QStringLiteral("Nextcloud storage owner has stopped"));
@@ -649,7 +649,7 @@ void NextcloudStorage::startMediaReadChunk(
         const bool queued = QMetaObject::invokeMethod(
             owner->worker_,
             [owner, transfer, config, cache, category, remotePath, pinnedEtag, reference,
-             chunkOffset, expected, index, finish = std::move(finish)]() mutable {
+             chunkOffset, expected, index, lane, finish = std::move(finish)]() mutable {
                 if (!owner) {
                     finish({}, QStringLiteral("Nextcloud storage was destroyed"));
                     return;
@@ -680,7 +680,7 @@ void NextcloudStorage::startMediaReadChunk(
                 transfer->reply = owner->worker_->getSettingsAsync(
                     config,
                     [owner, transfer, config, cache, category, remotePath, pinnedEtag, reference,
-                     chunkOffset, expected, index, publish, finish = std::move(finish)](
+                     chunkOffset, expected, index, lane, publish, finish = std::move(finish)](
                         NextcloudSettingsResult settings) mutable {
                         if (!owner) {
                             finish({}, QStringLiteral("Nextcloud storage was destroyed"));
@@ -705,12 +705,22 @@ void NextcloudStorage::startMediaReadChunk(
                         }
                         transfer->reply = owner->worker_->readWebDavRangeAsync(
                             config, davPath, chunkOffset, expected, pinnedEtag,
-                            [owner, cache, reference, index, expected, publish,
+                            [owner, cache, reference, index, expected, lane, publish,
                              finish = std::move(finish)](NextcloudWebDavRangeResult remote) mutable {
                                 if (!owner) {
                                     finish({}, QStringLiteral("Nextcloud storage was destroyed"));
                                     return;
                                 }
+                                // Count physical GETs once, not waiters or cache hits.
+                                // ETag/geometry errors are integrity failures, not congestion.
+                                const bool congested = remote.httpStatus == 429
+                                    || (remote.httpStatus >= 500 && remote.httpStatus < 600)
+                                    || remote.error.contains(QStringLiteral("timed out"), Qt::CaseInsensitive);
+                                const qint64 wireBytes = remote.ok ? remote.data.size() : 0;
+                                QMetaObject::invokeMethod(owner.data(), [lane, wireBytes, congested] {
+                                    if (auto *scheduler = MediaChunkScheduler::instance())
+                                        scheduler->reportTransferResult(lane, wireBytes, congested);
+                                }, Qt::QueuedConnection);
                                 if (!remote.ok || remote.totalSize != reference.size
                                     || remote.data.size() != expected) {
                                     const QString failure = !remote.error.isEmpty() ? remote.error
