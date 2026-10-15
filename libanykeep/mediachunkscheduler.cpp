@@ -238,11 +238,14 @@ void MediaChunkScheduler::pump()
         return;
     while (active_ + externalTransfers_.size() < maxActive_) {
         std::shared_ptr<Job> candidate;
+        std::shared_ptr<Job> oldest;
         int bestPriority = std::numeric_limits<int>::min();
         for (const auto &job : jobs_) {
             if (job->active || job->waiters.isEmpty()
                 || laneActive_.value(job->lane) >= laneLimits_.value(job->lane, 1))
                 continue;
+            if (!oldest || job->sequence < oldest->sequence)
+                oldest = job;
             int priority = std::numeric_limits<int>::min();
             for (const auto &waiter : job->waiters)
                 priority = std::max(priority, waiter.priority);
@@ -254,6 +257,14 @@ void MediaChunkScheduler::pump()
         }
         if (!candidate)
             break;
+        // Bound starvation without interrupting active Jingle/SCTP transfers.
+        constexpr int maxPriorityBypasses = 4;
+        if (candidate != oldest && priorityBypasses_ >= maxPriorityBypasses)
+            candidate = oldest;
+        if (candidate == oldest)
+            priorityBypasses_ = 0;
+        else
+            ++priorityBypasses_;
         candidate->active = true;
         ++active_;
         ++laneActive_[candidate->lane];
