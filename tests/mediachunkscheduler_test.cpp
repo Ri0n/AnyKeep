@@ -77,6 +77,44 @@ private slots:
         QTRY_COMPARE(scheduler.activeCount(), 0);
     }
 
+    void sustainedForegroundDemandDoesNotStarveBackground()
+    {
+        MediaChunkScheduler scheduler;
+        scheduler.setMaxActive(1);
+        QStringList started;
+        QHash<QString, MediaChunkScheduler::Completion> finishes;
+        const auto fetch = [&](const QString &name) {
+            return [&, name](MediaChunkScheduler::Completion done) {
+                started.append(name);
+                finishes.insert(name, std::move(done));
+            };
+        };
+        const auto done = [](QByteArray, QString error) { QVERIFY(error.isEmpty()); };
+        scheduler.request(QStringLiteral("active"), 0, QStringLiteral("dav"), 100,
+                          fetch(QStringLiteral("active")), done);
+        QTRY_COMPARE(started.size(), 1);
+        scheduler.request(QStringLiteral("background"), 0, QStringLiteral("dav"), 0,
+                          fetch(QStringLiteral("background")), done);
+        for (int i = 0; i < 12; ++i) {
+            const QString name = QStringLiteral("foreground-%1").arg(i);
+            scheduler.request(name, 0, QStringLiteral("dav"), 100, fetch(name), done);
+        }
+        finishes.take(QStringLiteral("active"))({}, {});
+        for (int i = 0; i < 4; ++i) {
+            QTRY_COMPARE(started.size(), i + 2);
+            QVERIFY(started.last().startsWith(QStringLiteral("foreground-")));
+            finishes.take(started.last())({}, {});
+        }
+        QTRY_COMPARE(started.size(), 6);
+        QCOMPARE(started.last(), QStringLiteral("background"));
+        finishes.take(QStringLiteral("background"))({}, {});
+        for (int i = 0; i < 8; ++i) {
+            QTRY_COMPARE(started.size(), i + 7);
+            finishes.take(started.last())({}, {});
+        }
+        QTRY_COMPARE(scheduler.activeCount(), 0);
+    }
+
     void cancellationDetachesOnlyOneWaiter()
     {
         MediaChunkScheduler scheduler;
