@@ -17,12 +17,17 @@ public:
     // Only the first read of a GET may change download priority. Later reads
     // can belong to an older connection still draining after a decoder seek.
     using RequestReader = std::function<void(MediaReference, qint64, qint64, bool, Completion)>;
+    using Cancel = std::function<void()>;
+    // Optional abort handle for HTTP player disconnect. Cancel detaches only
+    // this consumer; shared provider downloads may keep running.
+    using CancelableRequestReader = std::function<Cancel(MediaReference, qint64, qint64, bool, Completion)>;
     using Accepts       = std::function<bool(const MediaReference &)>;
     // Register from either thread; accepts captures immutable routing data.
     // Reader runs in owner's thread, completion returns to the adapter thread.
     // urlFor/releaseUrl are called from the application thread.
     static void registerResolver(QObject *owner, Accepts accepts, Reader reader);
     static void registerResolver(QObject *owner, Accepts accepts, RequestReader reader);
+    static void registerResolver(QObject *owner, Accepts accepts, CancelableRequestReader reader);
     static QUrl urlFor(const MediaReference &reference);
     static void releaseUrl(const QUrl &url);
 };

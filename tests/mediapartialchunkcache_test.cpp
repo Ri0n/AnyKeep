@@ -16,6 +16,7 @@ private slots:
     void sealedPartialSurvivesRestartAndRejectsTampering();
     void independentRemoteRevisionsCannotShareCachedBytes();
     void legacyOpaqueRecordsRemainInPlaceAndRequireVerification();
+    void sharedOpaqueCacheUsesProfileNamespaceAndIgnoresOldNightlyFiles();
 };
 
 void MediaPartialChunkCacheTest::sealedPartialSurvivesRestartAndRejectsTampering()
@@ -115,6 +116,42 @@ void MediaPartialChunkCacheTest::legacyOpaqueRecordsRemainInPlaceAndRequireVerif
     QCOMPARE(opaque.read(7, wire.size(), verify), wire);
     QVERIFY(opaque.read(7, wire.size(), [](quint64, const QByteArray &) { return false; }).isEmpty());
     QVERIFY(opaque.storedChunkNames().isEmpty());
+}
+
+void MediaPartialChunkCacheTest::sharedOpaqueCacheUsesProfileNamespaceAndIgnoresOldNightlyFiles()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore store(directory.path(), SecureEnvelope::generateMasterKey());
+    QString error;
+    auto first = store.opaqueMediaCache(QStringLiteral("xmpp"), QStringLiteral("media-revision-one"), &error);
+    QVERIFY2(first, qPrintable(error));
+    auto same = store.opaqueMediaCache(QStringLiteral("xmpp"), QStringLiteral("media-revision-one"));
+    auto newer = store.opaqueMediaCache(QStringLiteral("xmpp"), QStringLiteral("media-revision-two"));
+    auto other = store.opaqueMediaCache(QStringLiteral("nextcloud"), QStringLiteral("media-revision-one"));
+    QVERIFY(same && newer && other);
+    const QByteArray wire("authenticated-ciphertext-record");
+    auto verify = [wire](quint64 index, const QByteArray &data) {
+        return index == 4 && data == wire;
+    };
+    QVERIFY(first->write(4, wire, wire.size(), verify, &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(same->read(4, wire.size(), verify), wire);
+    QVERIFY(newer->read(4, wire.size(), verify).isEmpty());
+    QVERIFY(other->read(4, wire.size(), verify).isEmpty());
+
+    // No legacy import: obsolete nightly media-ranges data cannot be confused
+    // with a verified record from the shared media-store namespace.
+    QDir().mkpath(directory.filePath(QStringLiteral("media-ranges/old")));
+    QFile obsolete(directory.filePath(QStringLiteral("media-ranges/old/4")));
+    QVERIFY(obsolete.open(QIODevice::WriteOnly));
+    QCOMPARE(obsolete.write(wire), wire.size());
+    obsolete.close();
+    auto reopened = LocalMediaStore(directory.path(), SecureEnvelope::generateMasterKey())
+                        .opaqueMediaCache(QStringLiteral("xmpp"), QStringLiteral("media-revision-two"));
+    QVERIFY(reopened);
+    QVERIFY(reopened->read(4, wire.size(), verify).isEmpty());
+    QCOMPARE(same->read(4, wire.size(), verify), wire);
 }
 
 QTEST_GUILESS_MAIN(MediaPartialChunkCacheTest)

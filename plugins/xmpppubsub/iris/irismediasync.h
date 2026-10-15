@@ -18,6 +18,8 @@ namespace AnyKeep {
 
 // Chunk indices, never plaintext or transport byte offsets. Requested chunks
 // remain separate from verified chunks until their records have been committed.
+class MediaPartialChunkCache;
+
 class IrisMediaGapMap {
 public:
     struct Gap {
@@ -80,7 +82,8 @@ private:
 class IrisMediaSync final : public QObject {
 public:
     IrisMediaSync(XMPP::Client *client, XMPP::Jingle::JinglePub publication, MediaChunkWireParameters parameters,
-                  QString directory, int timeoutMs, QObject *parent = nullptr, MediaReference reference = {});
+                  std::shared_ptr<MediaPartialChunkCache> cache, int timeoutMs,
+                  QObject *parent = nullptr, MediaReference reference = {});
     ~IrisMediaSync() override;
     void readWireChunk(quint64 index, MediaRangeService::Completion callback, bool prioritize = true);
     void prioritize(quint64 index);

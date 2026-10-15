@@ -12,6 +12,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <memory>
 #include <QRegularExpression>
 #include <limits>
 #include <QSet>
@@ -100,7 +101,12 @@ QNetworkAccessManager *NextcloudWorker::manager()
 
 QUrl NextcloudWorker::apiUrl(const QString &relativePath) const
 {
-    QUrl url = config_.serverUrl;
+    return apiUrl(relativePath, config_);
+}
+
+QUrl NextcloudWorker::apiUrl(const QString &relativePath, const NextcloudConfig &config) const
+{
+    QUrl url = config.serverUrl;
     url.setQuery(QString());
     url.setFragment(QString());
 
@@ -117,7 +123,12 @@ QUrl NextcloudWorker::apiUrl(const QString &relativePath) const
 
 QUrl NextcloudWorker::webDavFileUrl(const QString &relativeFilePath) const
 {
-    QUrl url = config_.serverUrl;
+    return webDavFileUrl(relativeFilePath, config_);
+}
+
+QUrl NextcloudWorker::webDavFileUrl(const QString &relativeFilePath, const NextcloudConfig &config) const
+{
+    QUrl url = config.serverUrl;
     url.setQuery(QString());
     url.setFragment(QString());
     QString base = url.path();
@@ -126,7 +137,7 @@ QUrl NextcloudWorker::webDavFileUrl(const QString &relativeFilePath) const
         base.truncate(indexPhp);
     while (base.endsWith(QLatin1Char('/')))
         base.chop(1);
-    url.setPath(base + QStringLiteral("/remote.php/dav/files/") + config_.userName
+    url.setPath(base + QStringLiteral("/remote.php/dav/files/") + config.userName
                 + QLatin1Char('/') + relativeFilePath);
     return url;
 }
@@ -142,11 +153,16 @@ QUrl NextcloudWorker::webDavUploadUrl(const QString &uploadId) const
 
 QNetworkRequest NextcloudWorker::makeRequest(const QUrl &url) const
 {
+    return makeRequest(url, config_);
+}
+
+QNetworkRequest NextcloudWorker::makeRequest(const QUrl &url, const NextcloudConfig &config) const
+{
     QNetworkRequest request(url);
     request.setRawHeader("Accept", "application/json");
     request.setRawHeader("User-Agent", "AnyKeep Nextcloud Notes/1.0");
 
-    const QByteArray credentials = (config_.userName + QLatin1Char(':') + config_.appPassword).toUtf8().toBase64();
+    const QByteArray credentials = (config.userName + QLatin1Char(':') + config.appPassword).toUtf8().toBase64();
     request.setRawHeader("Authorization", "Basic " + credentials);
 
     // Notes and WebDAV use stateless Basic/app-password authentication.
@@ -688,6 +704,200 @@ NextcloudSettingsResult NextcloudWorker::getSettings()
     return result;
 }
 
+
+QNetworkReply *NextcloudWorker::getSettingsAsync(
+    NextcloudConfig config, std::function<void(NextcloudSettingsResult)> done)
+{
+    if (!done)
+        return nullptr;
+    auto request = makeRequest(apiUrl(QStringLiteral("settings"), config), config);
+    auto *reply = manager()->get(request);
+    constexpr qint64 maxBody = 64 * 1024;
+    reply->setReadBufferSize(maxBody + 8192);
+    struct State {
+        QByteArray body;
+        bool timedOut = false;
+        bool tooLarge = false;
+    };
+    auto state = std::make_shared<State>();
+    auto *timeout = new QTimer(reply);
+    timeout->setSingleShot(true);
+    connect(timeout, &QTimer::timeout, reply, [reply, state] {
+        state->timedOut = true;
+        reply->abort();
+    });
+    auto drain = [reply, state] {
+        if (state->tooLarge)
+            return;
+        constexpr qint64 limit = 64 * 1024;
+        if (reply->bytesAvailable() > limit - state->body.size()) {
+            state->tooLarge = true;
+            reply->abort();
+            return;
+        }
+        state->body.append(reply->readAll());
+    };
+    connect(reply, &QNetworkReply::readyRead, reply, drain);
+    connect(reply, &QNetworkReply::finished, this,
+            [reply, timeout, state, drain, done = std::move(done)]() mutable {
+                timeout->stop();
+                drain();
+                NextcloudSettingsResult result;
+                result.httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                const auto networkError = reply->error();
+                const auto errorText = reply->errorString();
+                reply->deleteLater();
+                if (state->timedOut || state->tooLarge || networkError != QNetworkReply::NoError
+                    || result.httpStatus < 200 || result.httpStatus >= 300) {
+                    result.error = state->timedOut
+                        ? QStringLiteral("Nextcloud Notes settings request timed out")
+                        : state->tooLarge
+                        ? QStringLiteral("Nextcloud Notes settings response exceeds 64 KiB")
+                        : errorText;
+                    done(std::move(result));
+                    return;
+                }
+                QJsonParseError parseError;
+                const auto json = QJsonDocument::fromJson(state->body, &parseError);
+                if (parseError.error != QJsonParseError::NoError || !json.isObject()) {
+                    result.error = QStringLiteral("Invalid Nextcloud Notes settings response");
+                    done(std::move(result));
+                    return;
+                }
+                result.notesPath = json.object().value(QStringLiteral("notesPath")).toString();
+                if (!NextcloudMediaLinks::isSafeNativePath(result.notesPath)) {
+                    result.error = QStringLiteral("Notes folder path is missing or invalid");
+                    done(std::move(result));
+                    return;
+                }
+                result.ok = true;
+                done(std::move(result));
+            });
+    timeout->start(qMax(1000, config.timeoutMs));
+    return reply;
+}
+
+NextcloudWebDavRangeResult NextcloudWorker::validateWebDavRange(
+    const HttpResult &reply, qint64 offset, qint64 count, const QString &ifMatchEtag) const
+{
+    NextcloudWebDavRangeResult result;
+    result.httpStatus = reply.status;
+    if (!reply.ok || reply.status != 206) {
+        result.error = reply.status == 200
+            ? QStringLiteral("WebDAV server ignored the byte-range request")
+            : errorText(reply);
+        return result;
+    }
+
+    static const QRegularExpression contentRangePattern(
+        QStringLiteral(R"(^bytes (\d+)-(\d+)/(\d+)$)"));
+    const QString header = QString::fromLatin1(headerValue(reply, QByteArrayLiteral("Content-Range")));
+    const auto match = contentRangePattern.match(header);
+    if (!match.hasMatch()) {
+        result.error = QStringLiteral("WebDAV response is missing a valid Content-Range");
+        return result;
+    }
+    bool fromOk = false;
+    bool toOk = false;
+    bool totalOk = false;
+    const qint64 from = match.captured(1).toLongLong(&fromOk);
+    const qint64 to = match.captured(2).toLongLong(&toOk);
+    const qint64 total = match.captured(3).toLongLong(&totalOk);
+    if (!fromOk || !toOk || !totalOk || from != offset || to < from
+        || to - from + 1 != reply.body.size() || reply.body.size() != count || total <= to) {
+        result.error = QStringLiteral("WebDAV returned an inconsistent byte range");
+        return result;
+    }
+    result.etag = QString::fromUtf8(headerValue(reply, QByteArrayLiteral("ETag"))).trimmed();
+    // If-Match must never silently degrade into an unverified cross-revision
+    // stream. Some misconfigured DAV proxies omit response ETags entirely;
+    // a pinned read then fails closed even if the server ignored If-Match.
+    if (!ifMatchEtag.isEmpty() && result.etag != ifMatchEtag) {
+        result.error = QStringLiteral("WebDAV media ETag is missing or changed between byte-range reads");
+        return result;
+    }
+    result.data = reply.body;
+    result.totalSize = total;
+    result.ok = true;
+    return result;
+}
+
+QNetworkReply *NextcloudWorker::readWebDavRangeAsync(
+    NextcloudConfig config, QString relativeFilePath, qint64 offset, qint64 count,
+    QString ifMatchEtag, std::function<void(NextcloudWebDavRangeResult)> done)
+{
+    if (!done)
+        return nullptr;
+    NextcloudWebDavRangeResult invalid;
+    if (!NextcloudMediaLinks::isSafeNativePath(relativeFilePath) || offset < 0
+        || count <= 0 || count > 1024 * 1024 || offset > std::numeric_limits<qint64>::max() - count
+        || ifMatchEtag.size() > 256 || ifMatchEtag.contains(QLatin1Char('\r'))
+        || ifMatchEtag.contains(QLatin1Char('\n'))) {
+        invalid.error = QStringLiteral("Invalid WebDAV range, path or conditional ETag");
+        done(std::move(invalid));
+        return nullptr;
+    }
+
+    // Construct a fully immutable request from this job's account snapshot.
+    // Other Notes operations may still reenter worker methods through their
+    // synchronous collectReply(); never consult config_ after this point.
+    auto request = makeRequest(webDavFileUrl(relativeFilePath, config), config);
+    request.setRawHeader("Range", "bytes=" + QByteArray::number(offset) + '-'
+                              + QByteArray::number(offset + count - 1));
+    request.setRawHeader("Accept", "application/octet-stream");
+    request.setRawHeader("Accept-Encoding", "identity");
+    if (!ifMatchEtag.isEmpty())
+        request.setRawHeader("If-Match", ifMatchEtag.toUtf8());
+
+    auto *reply = manager()->get(request);
+    reply->setReadBufferSize(count + 8192);
+    struct State {
+        HttpResult response;
+        bool timedOut = false;
+        bool tooLarge = false;
+    };
+    auto state = std::make_shared<State>();
+    auto *timeout = new QTimer(reply);
+    timeout->setSingleShot(true);
+    connect(timeout, &QTimer::timeout, reply, [reply, state] {
+        state->timedOut = true;
+        reply->abort();
+    });
+    auto drain = [reply, state, count] {
+        if (state->tooLarge)
+            return;
+        if (reply->bytesAvailable() > count - state->response.body.size()) {
+            state->tooLarge = true;
+            reply->abort();
+            return;
+        }
+        state->response.body.append(reply->readAll());
+    };
+    connect(reply, &QNetworkReply::readyRead, reply, drain);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, timeout, state, drain, offset, count, ifMatchEtag = std::move(ifMatchEtag),
+             done = std::move(done)]() mutable {
+                timeout->stop();
+                drain();
+                state->response.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                for (const auto &pair : reply->rawHeaderPairs())
+                    state->response.headers.insert(pair.first, pair.second);
+                state->response.ok = !state->timedOut && !state->tooLarge
+                    && reply->error() == QNetworkReply::NoError && state->response.status >= 200
+                    && state->response.status < 300;
+                if (state->timedOut)
+                    state->response.error = QStringLiteral("WebDAV media range request timed out");
+                else if (state->tooLarge)
+                    state->response.error = QStringLiteral("WebDAV media range exceeds requested length");
+                else if (!state->response.ok)
+                    state->response.error = reply->errorString();
+                reply->deleteLater();
+                done(validateWebDavRange(state->response, offset, count, ifMatchEtag));
+            });
+    timeout->start(qMax(1000, config.timeoutMs));
+    return reply;
+}
+
 NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relativeFilePath, qint64 offset,
                                                            qint64 count, const QString &ifMatchEtag)
 {
@@ -715,45 +925,7 @@ NextcloudWebDavRangeResult NextcloudWorker::readWebDavRange(const QString &relat
     if (!ifMatchEtag.isEmpty())
         headers.insert(QByteArrayLiteral("If-Match"), ifMatchEtag.toUtf8());
     const auto reply = perform(Method::Get, url, {}, headers, count + 8192);
-    result.httpStatus = reply.status;
-    if (!reply.ok || reply.status != 206) {
-        result.error = reply.status == 200
-            ? QStringLiteral("WebDAV server ignored the byte-range request")
-            : errorText(reply);
-        return result;
-    }
-
-    static const QRegularExpression contentRangePattern(
-        QStringLiteral(R"(^bytes (\d+)-(\d+)/(\d+)$)"));
-    const QString header = QString::fromLatin1(headerValue(reply, QByteArrayLiteral("Content-Range")));
-    const auto match = contentRangePattern.match(header);
-    if (!match.hasMatch()) {
-        result.error = QStringLiteral("WebDAV response is missing a valid Content-Range");
-        return result;
-    }
-    bool fromOk = false;
-    bool toOk = false;
-    bool totalOk = false;
-    const qint64 from = match.captured(1).toLongLong(&fromOk);
-    const qint64 to = match.captured(2).toLongLong(&toOk);
-    const qint64 total = match.captured(3).toLongLong(&totalOk);
-    if (!fromOk || !toOk || !totalOk || from != offset || to < from
-        || to - from + 1 != reply.body.size() || reply.body.size() > count || total <= to) {
-        result.error = QStringLiteral("WebDAV returned an inconsistent byte range");
-        return result;
-    }
-    result.etag = QString::fromUtf8(headerValue(reply, QByteArrayLiteral("ETag"))).trimmed();
-    // If-Match must never silently degrade into an unverified cross-revision
-    // stream. Some misconfigured DAV proxies omit response ETags entirely;
-    // a pinned read then fails closed even if the server ignored If-Match.
-    if (!ifMatchEtag.isEmpty() && result.etag != ifMatchEtag) {
-        result.error = QStringLiteral("WebDAV media ETag is missing or changed between byte-range reads");
-        return result;
-    }
-    result.data = reply.body;
-    result.totalSize = total;
-    result.ok = true;
-    return result;
+    return validateWebDavRange(reply, offset, count, ifMatchEtag);
 }
 
 NextcloudStatusResult NextcloudWorker::ensureWebDavFolder(const QString &relativeFolderPath)

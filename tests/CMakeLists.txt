@@ -158,6 +158,7 @@ add_anykeep_test(secureenvelope_test secureenvelope_test.cpp)
 
 add_anykeep_test(localmediastore_test localmediastore_test.cpp)
 add_anykeep_test(mediapartialchunkcache_test mediapartialchunkcache_test.cpp)
+add_anykeep_test(mediachunkscheduler_test mediachunkscheduler_test.cpp)
 add_anykeep_test(mediarangeservice_test mediarangeservice_test.cpp)
 add_anykeep_test(mediasynccontroller_test mediasynccontroller_test.cpp)
 add_anykeep_test(mediaplaybacksuspend_test mediaplaybacksuspend_test.cpp)
@@ -283,6 +284,7 @@ set_tests_properties(ptfstorage_test notesindex_test fileremotecachestore_test s
                      PROPERTIES LABELS storage)
 set_tests_properties(nextcloudcategory_test nextcloudworker_test nextcloudstorage_test nextcloudmediaguard_test PROPERTIES LABELS
                                                                                                   "nextcloud;storage")
+set_tests_properties(mediachunkscheduler_test PROPERTIES LABELS "storage;media")
 set_tests_properties(xmppnotecodec_test xmppchunkedmediafeature_test xmpppayloadxml_test PROPERTIES LABELS "storage;xmpp")
 if(TARGET xmppstorage_test)
   set_tests_properties(xmppstorage_test PROPERTIES LABELS "storage;xmpp")

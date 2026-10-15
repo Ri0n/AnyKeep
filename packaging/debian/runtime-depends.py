@@ -12,7 +12,7 @@ import re
 
 
 DEFAULT_LOCK = Path(__file__).resolve().parents[2] / "dependencies.lock.json"
-VERSION_PATTERN = re.compile(r"v?(\d+)\.(\d+)\.(\d+)\Z")
+VERSION_PATTERN = re.compile(r"v?(\d+)\.(\d+)(?:\.(\d+))?\Z")
 RUNTIME_PACKAGES = {
     "qca": ("libqca3-qt6-3", "libqca3-qt6-plugins"),
     "iris": ("libiris-qt6-1",),
@@ -25,7 +25,7 @@ def version_tuple(value: str) -> tuple[int, int, int]:
     match = VERSION_PATTERN.fullmatch(value)
     if not match:
         raise ValueError(f"Invalid semantic version: {value!r}")
-    return tuple(map(int, match.groups()))
+    return int(match.group(1)), int(match.group(2)), int(match.group(3) or 0)
 
 
 def locked_minimums(lock_path: Path = DEFAULT_LOCK) -> dict[str, str]:
@@ -35,13 +35,18 @@ def locked_minimums(lock_path: Path = DEFAULT_LOCK) -> dict[str, str]:
         dependency = lock[name]
         minimum = dependency["minimum_version"]
         pinned = dependency["tag"]
+        # Debian accepts both 1.2 and 1.2.0 but considers 1.2 < 1.2.0.
+        # Preserve the upstream Iris package version's actual precision.
+        # Runtime floors never include an upstream tag's leading "v".
+        if not isinstance(minimum, str) or not re.fullmatch(r"\d+\.\d+(?:\.\d+)?", minimum):
+            raise ValueError(f"{name}: invalid minimum_version {minimum!r}")
         floor_version = version_tuple(minimum)
         pinned_version = version_tuple(pinned)
         if pinned_version < floor_version:
             raise ValueError(
                 f"{name}: stable tag {pinned} is older than minimum_version {minimum}"
             )
-        result[name] = ".".join(map(str, floor_version))
+        result[name] = minimum
     return result
 
 

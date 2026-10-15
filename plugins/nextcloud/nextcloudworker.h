@@ -7,6 +7,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <functional>
 
 class QHttpMultiPart;
 class QIODevice;
@@ -32,11 +33,18 @@ public:
 
     // Native, non-encrypted Notes attachments: compatible with other clients.
     NextcloudSettingsResult getSettings();
+    // Non-blocking media-path settings lookup, pinned to the initiating
+    // account. Does not mutate the worker's mutable Notes REST config.
+    QNetworkReply *getSettingsAsync(NextcloudConfig config, std::function<void(NextcloudSettingsResult)> done);
     // Create a Notes-native per-note attachment directory; 405 means it already exists.
     NextcloudStatusResult       ensureWebDavFolder(const QString &relativeFolderPath);
     NextcloudWebDavUploadResult uploadWebDavChunks(const QString &relativeFilePath, QIODevice *source, qint64 size);
     NextcloudWebDavRangeResult readWebDavRange(const QString &relativeFilePath, qint64 offset, qint64 count,
                                                 const QString &ifMatchEtag = {});
+    // Non-blocking, pinned-account WebDAV media fetch. Completion runs on the
+    // worker thread; callers must forward results to their own thread.
+    QNetworkReply *readWebDavRangeAsync(NextcloudConfig config, QString relativeFilePath, qint64 offset, qint64 count,
+                              QString ifMatchEtag, std::function<void(NextcloudWebDavRangeResult)> done);
 
     NextcloudAttachmentResult uploadAttachment(const QString &noteId, const QString &fileName,
                                                const QByteArray &data);
@@ -55,10 +63,15 @@ private:
 
     QNetworkAccessManager *manager();
     QUrl                   apiUrl(const QString &relativePath) const;
+    QUrl                   apiUrl(const QString &relativePath, const NextcloudConfig &config) const;
     QUrl                   webDavFileUrl(const QString &relativeFilePath) const;
+    QUrl                   webDavFileUrl(const QString &relativeFilePath, const NextcloudConfig &config) const;
     QUrl                   webDavUploadUrl(const QString &uploadId) const;
     QNetworkRequest        makeRequest(const QUrl &url) const;
+    QNetworkRequest        makeRequest(const QUrl &url, const NextcloudConfig &config) const;
     HttpResult             collectReply(QNetworkReply *reply, qint64 maxBodyBytes = 32 * 1024 * 1024);
+    NextcloudWebDavRangeResult validateWebDavRange(const HttpResult &reply, qint64 offset, qint64 count,
+                                                    const QString &ifMatchEtag) const;
     HttpResult             performMultipart(const QUrl &url, QHttpMultiPart *multipart);
     HttpResult             perform(Method method, const QUrl &url, const QByteArray &body = {},
                                    const QHash<QByteArray, QByteArray> &extraHeaders = {},

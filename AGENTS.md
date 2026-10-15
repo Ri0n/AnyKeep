@@ -19,6 +19,7 @@ document relevant to the change):
 - structured clipboard and media transfer: `docs/editor-transfer-architecture.md`;
 - lifecycle summary/index: `docs/note-lifecycle-architecture.md`;
 - local/remote media: `docs/media-storage-architecture.md`;
+- proposed shared chunk scheduler/download pipeline: `docs/media-range-pipeline.md`;
 - manager and folders UI: `docs/notes-manager-architecture.md`.
 
 Use the existing `build/Desktop-Debug` tree. Prefer focused targets and CTest labels:

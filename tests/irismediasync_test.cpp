@@ -1,4 +1,5 @@
 #include "iris/irismediasync.h"
+#include "mediapartialchunkcache.h"
 #include <QCryptographicHash>
 #include <QFile>
 #include <QTemporaryDir>
@@ -151,7 +152,7 @@ private slots:
             QCOMPARE(file.write(wire), wire.size());
         }
         {
-            IrisMediaSync sync(nullptr, {}, p, directory.path(), 1000, nullptr, reference);
+            IrisMediaSync sync(nullptr, {}, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000, nullptr, reference);
             QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(13));
             QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
             // Reprioritization, offline/online changes and cached reads cannot
@@ -174,7 +175,7 @@ private slots:
                         if (key == MediaSyncService::key(reference))
                             restoredProgress.append(MediaSyncService::instance()->snapshot(reference).verifiedBytes);
                     });
-            IrisMediaSync restored(nullptr, {}, p, directory.path(), 1000, nullptr, reference);
+            IrisMediaSync restored(nullptr, {}, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000, nullptr, reference);
             QTest::qWait(25);
             QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(13));
             for (const auto bytes : restoredProgress)
@@ -204,7 +205,7 @@ private slots:
             QCOMPARE(file.write(wire), wire.size());
         }
         {
-            IrisMediaSync sync(nullptr, {}, p, directory.path(), 1000, nullptr, reference);
+            IrisMediaSync sync(nullptr, {}, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000, nullptr, reference);
             QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(5));
             QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
         }
@@ -214,7 +215,7 @@ private slots:
             const auto wire = records(p, i, 1);
             QCOMPARE(file.write(wire), wire.size());
         }
-        IrisMediaSync completed(nullptr, {}, p, directory.path(), 1000, nullptr, reference);
+        IrisMediaSync completed(nullptr, {}, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000, nullptr, reference);
         QTRY_COMPARE(MediaSyncService::instance()->snapshot(reference).verifiedBytes, qint64(plain.size()));
         QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Complete);
     }
@@ -235,7 +236,7 @@ private slots:
         publication.setFrom(XMPP::Jid(QStringLiteral("source@example.test/device")));
         publication.setId(QStringLiteral("offline-publication"));
         QSignalSpy    outgoing(&client, &XMPP::Client::xmlOutgoing);
-        IrisMediaSync sync(&client, publication, p, directory.path(), 1000, nullptr, reference);
+        IrisMediaSync sync(&client, publication, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000, nullptr, reference);
         sync.setConnected(false, &client);
         sync.prioritize(0);
         // Wait beyond the handover timeout: an accidentally started request
@@ -265,7 +266,7 @@ private slots:
         XMPP::Client client;
         int          stanzas = 0;
         connect(&client, &XMPP::Client::xmlOutgoing, this, [&] { ++stanzas; });
-        IrisMediaSync job(&client, {}, p, directory.path(), 1000);
+        IrisMediaSync job(&client, {}, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000);
         QByteArray    result;
         QString       error;
         int           completions = 0;
@@ -289,7 +290,7 @@ private slots:
         const auto record = records(p, 0, 1);
         QCOMPARE(file.write(record), record.size());
         file.close();
-        IrisMediaSync job(nullptr, {}, p, directory.path(), 1000);
+        IrisMediaSync job(nullptr, {}, p, std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()), 1000);
         int           completions = 0;
         QString       error;
         QByteArray    result;

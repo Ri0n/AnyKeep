@@ -7,6 +7,8 @@
 #include "irisomemostorage.h"
 #include "iristruststorage.h"
 #include "localmediastore.h"
+#include "mediachunkscheduler.h"
+#include "mediapartialchunkcache.h"
 #include "mediachunkwirestream.h"
 #include "mediasource.h"
 #include "mediastream.h"
@@ -70,12 +72,11 @@ Q_LOGGING_CATEGORY(lcIrisXmpp, "anykeep.xmpp.iris")
 namespace AnyKeep {
 namespace {
 
-    QString mediaChunkDirectory(const MediaChunkWireParameters &parameters)
+    QString mediaChunkIdentity(const MediaChunkWireParameters &parameters)
     {
         const QByteArray identity = parameters.rootKey + parameters.noncePrefix + parameters.plainChecksum
             + QByteArray::number(parameters.plainSize) + ':' + QByteArray::number(parameters.chunkSize);
-        return Utils::anykeepDataDir() + QStringLiteral("/media-ranges/")
-            + QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
+        return QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
     }
 
     class BoundedRangeBuffer final : public QBuffer {
@@ -1617,8 +1618,8 @@ void IrisXmppBackend::observeMedia(const MediaReference &reference)
     }
     if (!descriptor.isValid())
         return;
-    const QString directory = mediaChunkDirectory(descriptor.parameters);
-    auto         *job       = mediaSyncJobs_.value(directory).data();
+    const QString cacheId = mediaChunkIdentity(descriptor.parameters);
+    auto        *job      = mediaSyncJobs_.value(cacheId).data();
     if (!job) {
         XMPP::Jingle::JinglePub publication;
         for (const auto &source : descriptor.sources.items()) {
@@ -1631,9 +1632,12 @@ void IrisXmppBackend::observeMedia(const MediaReference &reference)
             return;
         // Opening a note starts a storage-owned background cache restoration
         // and missing-range synchronization. No player is required.
-        job = new IrisMediaSync(client_, publication, descriptor.parameters, directory, config_.timeoutMs, this,
-                                reference);
-        mediaSyncJobs_.insert(directory, job);
+        auto cache = LocalMediaStore::instance()->opaqueMediaCache(QStringLiteral("xmpp"), cacheId);
+        if (!cache)
+            return;
+        job = new IrisMediaSync(client_, publication, descriptor.parameters, std::move(cache),
+                                config_.timeoutMs, this, reference);
+        mediaSyncJobs_.insert(cacheId, job);
     }
     job->setConnected(connected_, client_);
 #else
@@ -1743,8 +1747,13 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
         ++windowCount;
     }
     const auto    wireLength = std::optional<quint64>(windowLength);
-    const QString directory  = mediaChunkDirectory(parameters);
-    const QString path       = directory + '/' + QString::number(index);
+    const QString cacheId = mediaChunkIdentity(parameters);
+    auto cache = LocalMediaStore::instance()->opaqueMediaCache(QStringLiteral("xmpp"), cacheId);
+    if (!cache) {
+        callback({}, QStringLiteral("Cannot open encrypted XMPP media cache"));
+        return;
+    }
+    const QString path = cacheId + QLatin1Char(':') + QString::number(index);
     auto          deliver
         = [parameters, index, offset, length, callback = std::move(callback)](QByteArray plain, QString error) {
               if (!error.isEmpty()) {
@@ -1759,10 +1768,10 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
               callback(plain.mid(qsizetype(within), qsizetype(qMin<qint64>(length, plain.size() - within))), {});
           };
 #ifdef IRIS_FT_DEFERRED_RECEIPTS
-    auto syncJob = [this, directory, descriptor, reference]() -> IrisMediaSync * {
+    auto syncJob = [this, cacheId, cache, descriptor, reference]() -> IrisMediaSync * {
         if (!connected_ || !client_)
             return nullptr;
-        auto job = mediaSyncJobs_.value(directory);
+        auto job = mediaSyncJobs_.value(cacheId);
         if (!job) {
             XMPP::Jingle::JinglePub publication;
             for (const auto &source : descriptor.sources.items()) {
@@ -1773,9 +1782,9 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
             }
             if (!publication.isValid() || !publication.from().compare(bareJid(config_), false))
                 return nullptr;
-            job = new IrisMediaSync(client_, publication, descriptor.parameters, directory, config_.timeoutMs, this,
+            job = new IrisMediaSync(client_, publication, descriptor.parameters, cache, config_.timeoutMs, this,
                                     reference);
-            mediaSyncJobs_.insert(directory, job);
+            mediaSyncJobs_.insert(cacheId, job);
         }
         return job;
     };
@@ -1793,20 +1802,19 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
         deliver(cachedMediaPlain_, {});
         return;
     }
-    QFile cached(path);
-    if (cached.open(QIODevice::ReadOnly)) {
-        if (quint64(cached.size()) == *firstWireLength) {
-            const auto opened = MediaChunkWire::decryptChunk(parameters, index, cached.readAll());
-            if (opened) {
-                cachedMediaChunk_ = path;
-                cachedMediaPlain_ = opened.value;
-                prioritizeSync();
-                deliver(opened.value, {});
-                return;
-            }
+    const auto cached = cache->read(index, qint64(*firstWireLength),
+                                    [parameters](quint64 i, const QByteArray &wire) {
+                                        return bool(MediaChunkWire::decryptChunk(parameters, i, wire));
+                                    });
+    if (!cached.isEmpty()) {
+        const auto opened = MediaChunkWire::decryptChunk(parameters, index, cached);
+        if (opened) {
+            cachedMediaChunk_ = path;
+            cachedMediaPlain_ = opened.value;
+            prioritizeSync();
+            deliver(opened.value, {});
+            return;
         }
-        cached.close();
-        cached.remove();
     }
     const bool pending = pendingMediaChunks_.contains(path);
     if (!pending && pendingMediaChunks_.size() >= 8) {
@@ -1819,7 +1827,7 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
         return;
     }
     const auto generation = generation_;
-    auto finish = [this, generation, path, directory, parameters, index, windowCount](QByteArray wire, QString error) {
+    auto finish = [this, generation, path, cache, parameters, index, windowCount](QByteArray wire, QString error) {
         if (generation != generation_)
             return;
         QByteArray plain;
@@ -1840,14 +1848,13 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
                 }
                 if (record == 0)
                     plain = opened.value;
-                if (QDir().mkpath(directory)) {
-                    QSaveFile file(directory + '/' + QString::number(index + record));
-                    file.setDirectWriteFallback(false);
-                    if (file.open(QIODevice::WriteOnly)) {
-                        file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-                        if (file.write(bytes) == bytes.size())
-                            file.commit();
-                    }
+                if (!cache->write(index + record, bytes, bytes.size(),
+                                  [parameters](quint64 i, const QByteArray &recordBytes) {
+                                      return bool(MediaChunkWire::decryptChunk(parameters, i, recordBytes));
+                                  }, &error)) {
+                    if (error.isEmpty())
+                        error = QStringLiteral("Cannot store authenticated XMPP media chunk");
+                    break;
                 }
             }
             if (error.isEmpty() && cursor != wire.size())
@@ -2014,6 +2021,10 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
             state->timer->deleteLater();
         if (state->request)
             state->request->deleteLater();
+        if (state->session) {
+            if (auto *scheduler = MediaChunkScheduler::instance())
+                scheduler->releaseExternalTransfer(state->session);
+        }
         if (state->session && state->session->state() < XMPP::Jingle::State::Finishing)
             state->session->terminate(error.isEmpty() ? XMPP::Jingle::Reason::Success
                                                       : XMPP::Jingle::Reason::FailedApplication);
@@ -2055,7 +2066,7 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
             auto *buffer = new BoundedRangeBuffer(state->bytes, length, session);
             buffer->open(QIODevice::WriteOnly);
             connect(app, &XMPP::Jingle::FileTransfer::Application::deviceRequested, session,
-                    [app, buffer, publicationId, offset, length, complete](quint64                requestedOffset,
+                    [app, buffer, session, publicationId, offset, length, complete](quint64                requestedOffset,
                                                                            std::optional<quint64> requestedLength) {
                         qCDebug(lcIrisJingleMedia)
                             << "Incoming media device requested: publication=" << publicationId
@@ -2065,6 +2076,8 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
                             complete(QStringLiteral("Peer changed the requested range"));
                             return;
                         }
+                        if (auto *scheduler = MediaChunkScheduler::instance())
+                            scheduler->observeExternalTransfer(session);
                         app->setDevice(buffer, false);
                     });
             connect(app, &XMPP::Jingle::FileTransfer::Application::stateChanged, session,

@@ -1,6 +1,7 @@
 #include "irismediasync.h"
 #include "irisjinglepublicationprovider.h"
 #include "mediapartialchunkcache.h"
+#include "mediachunkscheduler.h"
 #include <QDir>
 #include <QFile>
 #include <QPointer>
@@ -88,8 +89,7 @@ public:
     QPointer<XMPP::Client>                               client;
     J::JinglePub                                         publication;
     MediaChunkWireParameters                             parameters;
-    QString                                              directory;
-    std::unique_ptr<MediaPartialChunkCache>              partialCache;
+    std::shared_ptr<MediaPartialChunkCache>              partialCache;
     MediaReference                                       reference;
     quint64                                              verifiedPlain = 0;
     bool                                                 connected     = false;
@@ -107,11 +107,11 @@ public:
     QString error;
     int     timeout;
 
-    Impl(IrisMediaSync *owner, XMPP::Client *c, J::JinglePub pub, MediaChunkWireParameters p, QString dir,
-         int timeoutMs, MediaReference ref) :
-        q(owner), client(c), publication(std::move(pub)), parameters(std::move(p)), directory(std::move(dir)),
-        partialCache(std::make_unique<MediaPartialChunkCache>(
-            MediaPartialChunkCache::Format::VerifiedOpaque, directory)), reference(std::move(ref)), connected(c != nullptr), map(parameters.chunkCount()), timer(new QTimer(owner)),
+    Impl(IrisMediaSync *owner, XMPP::Client *c, J::JinglePub pub, MediaChunkWireParameters p,
+         std::shared_ptr<MediaPartialChunkCache> cache, int timeoutMs, MediaReference ref) :
+        q(owner), client(c), publication(std::move(pub)), parameters(std::move(p)),
+        partialCache(std::move(cache)), reference(std::move(ref)), connected(c != nullptr),
+        map(parameters.chunkCount()), timer(new QTimer(owner)),
         timeout(qBound(1000, timeoutMs, 25000))
     {
         timer->setSingleShot(true);
@@ -378,6 +378,10 @@ public:
                             return bool(MediaChunkWire::decryptChunk(parameters, i, bytes));
                         }))
                     return IrisMediaChunkSink::Action::Error;
+                // SCTP streams are non-preemptible. Meter authenticated
+                // records and pace only subsequent managed HTTP admissions.
+                if (auto *scheduler = MediaChunkScheduler::instance())
+                    scheduler->reportTransferResult(QStringLiteral("jingle"), wire.size(), false);
                 markAvailable(index);
                 deliver(index, wire);
                 timer->start(timeout);
@@ -421,6 +425,13 @@ public:
         });
         QObject::connect(app, &J::Application::stateChanged, q, [this, part](J::State state) {
             if (state == J::State::Active) {
+                // One physical session may carry multiple BUNDLE contents. A
+                // seek handover can temporarily open two physical sessions;
+                // observe both without blocking the existing SCTP sequence.
+                if (part->session) {
+                    if (auto *scheduler = MediaChunkScheduler::instance())
+                        scheduler->observeExternalTransfer(part->session);
+                }
                 // The queued check observes committed content-accept grouping, not
                 // the earlier Accepted state during description parsing.
                 QTimer::singleShot(0, q, [this, part] {
@@ -498,7 +509,12 @@ public:
             accepted.setRange(FT::Range(offset, length));
             app->setAcceptFile(accepted);
             configure(part, app);
-            QObject::connect(session, &J::Session::terminated, q, [this, weak = std::weak_ptr<Part>(part)] {
+            QObject::connect(session, &J::Session::terminated, q, [this, weak = std::weak_ptr<Part>(part),
+                                                                      observed = QPointer<J::Session>(session)] {
+                if (observed) {
+                    if (auto *scheduler = MediaChunkScheduler::instance())
+                        scheduler->releaseExternalTransfer(observed);
+                }
                 const auto part = weak.lock();
                 if (part && !part->closing && !stopped && error.isEmpty())
                     fail(QStringLiteral("Media session terminated"));
@@ -538,9 +554,15 @@ public:
         for (const auto &part : parts)
             if (part->session)
                 sessions.insert(part->session);
-        for (auto *session : sessions)
+        for (auto *session : sessions) {
             if (session->state() < J::State::Finishing)
                 session->terminate(J::Reason::FailedApplication, error);
+            // A lost XMPP connection need not deliver another terminated
+            // signal. Do not leave a phantom external transport consuming
+            // global download capacity after this synchronizer gives up.
+            if (auto *scheduler = MediaChunkScheduler::instance())
+                scheduler->releaseExternalTransfer(session);
+        }
         current.reset();
         pending.reset();
         parts.clear();
@@ -558,9 +580,10 @@ public:
 };
 
 IrisMediaSync::IrisMediaSync(XMPP::Client *client, J::JinglePub publication, MediaChunkWireParameters parameters,
-                             QString directory, int timeoutMs, QObject *parent, MediaReference reference) :
+                             std::shared_ptr<MediaPartialChunkCache> cache, int timeoutMs, QObject *parent,
+                             MediaReference reference) :
     QObject(parent), d(std::make_unique<Impl>(this, client, std::move(publication), std::move(parameters),
-                                              std::move(directory), timeoutMs, std::move(reference)))
+                                              std::move(cache), timeoutMs, std::move(reference)))
 {
 }
 IrisMediaSync::~IrisMediaSync() { cancel(); }

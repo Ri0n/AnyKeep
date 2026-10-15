@@ -614,6 +614,30 @@ std::shared_ptr<MediaPartialChunkCache> LocalMediaStore::partialMediaCache(
     return cache->isValid() ? cache : std::shared_ptr<MediaPartialChunkCache> {};
 }
 
+std::shared_ptr<MediaPartialChunkCache> LocalMediaStore::opaqueMediaCache(
+    const QString &provider, const QString &immutableSourceId, QString *error) const
+{
+    if (provider.isEmpty() || immutableSourceId.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("Invalid immutable opaque-media source");
+        return {};
+    }
+    // Domain-separate already authenticated remote wire records from locally
+    // sealed plaintext records, even if a provider reuses the same source ID.
+    const auto digest = QCryptographicHash::hash(
+        (QStringLiteral("opaque-wire-v1\n") + provider + QLatin1Char('\n') + immutableSourceId).toUtf8(),
+        QCryptographicHash::Sha256).toHex();
+    const auto root = rootPath_.isEmpty() ? Utils::anykeepDataDir() + QStringLiteral("/media") : rootPath_;
+    const QString directory = root + QStringLiteral("/partial/") + QString::fromLatin1(digest.left(2))
+        + QLatin1Char('/') + QString::fromLatin1(digest);
+    auto cache = std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory);
+    if (!cache->isValid() && error)
+        *error = QStringLiteral("Cannot initialize opaque partial-media cache");
+    else if (error)
+        error->clear();
+    return cache->isValid() ? cache : std::shared_ptr<MediaPartialChunkCache> {};
+}
+
 LocalMediaResult LocalMediaStore::importFile(const QString &fileName, const QUuid &attachmentId)
 {
     const QFileInfo before(fileName);

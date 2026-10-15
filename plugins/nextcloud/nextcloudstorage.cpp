@@ -2,6 +2,8 @@
 
 #include "foldercatalogmanager.h"
 #include "localmediastore.h"
+#include "mediachunkscheduler.h"
+#include <QNetworkReply>
 #include "mediarangeservice.h"
 #include "mediapartialchunkcache.h"
 #include "mediasyncservice.h"
@@ -500,11 +502,12 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
     MediaRangeService::registerResolver(
         this,
         [this](const MediaReference &ref) { return !shuttingDown_ && matchesRemoteMedia(ref, readConfig()); },
-        [this](MediaReference ref, qint64 offset, qint64 count, bool,
-               MediaRangeService::Completion done) mutable {
+        MediaRangeService::CancelableRequestReader(
+        [this](MediaReference ref, qint64 offset, qint64 count, bool prioritize,
+               MediaRangeService::Completion done) mutable -> MediaRangeService::Cancel {
             if (shuttingDown_ || !workerThread_.isRunning()) {
                 done({}, QStringLiteral("Nextcloud media storage has stopped"));
-                return;
+                return {};
             }
             const auto config = readConfig();
             QString error;
@@ -512,128 +515,27 @@ NextcloudStorage::NextcloudStorage(QObject *parent, FolderCatalogManager *folder
                 || offset < 0 || count <= 0 || count > 1024 * 1024 || offset >= ref.size
                 || count > ref.size - offset) {
                 done({}, error.isEmpty() ? QStringLiteral("Invalid or stale Nextcloud remote media range") : error);
-                return;
+                return {};
             }
             // LocalMediaStore resolves the profile keychain key on this
             // application thread, before handing a cache to the worker.
             const auto cache = partialCacheFor(ref, config, &error);
             if (!cache) {
                 done({}, error.isEmpty() ? QStringLiteral("Cannot unlock encrypted media cache") : error);
-                return;
+                return {};
             }
             const QString category = ref.remoteData.value(QStringLiteral("nextcloud.category")).toString();
             const QString remotePath = ref.remoteData.value(QStringLiteral("nextcloud.path")).toString();
             const QString pinnedEtag = ref.remoteData.value(QStringLiteral("nextcloud.etag")).toString();
             const quint64 requestId = ++nextMediaReadId_;
             pendingMediaReads_.insert(requestId, std::move(done));
-            QPointer<NextcloudStorage> owner(this);
-            // collectReply() processes a nested event loop on the worker, so
-            // two queued operations can re-enter one another while waiting
-            // for HTTP responses. Serialize media hydrations on the storage
-            // thread to preserve single-flight chunk downloads.
-            mediaReadTasks_.enqueue(
-                [this, owner, config, category, remotePath, pinnedEtag, cache, ref, offset, count, requestId] {
-                    const bool queued = QMetaObject::invokeMethod(
-                        worker_,
-                        [this, owner, config, category, remotePath, pinnedEtag, cache, ref, offset, count,
-                         requestId]() mutable {
-                            if (!owner)
-                                return;
-                            worker_->setConfig(config);
-                            cache->restoreVerifiedBytes();
-                            auto publish = [cache, &ref](MediaSyncSnapshot::State state, const QString &error = {}) {
-                                MediaSyncSnapshot snapshot;
-                                snapshot.totalBytes = ref.size;
-                                snapshot.verifiedBytes = cache->verifiedBytes();
-                                snapshot.state = state;
-                                snapshot.error = error;
-                                MediaSyncService::instance()->publish(ref, snapshot);
-                            };
-                            publish(MediaSyncSnapshot::Transferring);
-
-                            QByteArray output;
-                            output.reserve(qsizetype(count));
-                            qint64 cursor = offset;
-                            const qint64 end = offset + count;
-                            QString failure;
-                            QString davPath;
-                            bool haveDavPath = false;
-                            while (cursor < end) {
-                                const quint64 index = quint64(cursor / LocalMediaStore::ManagedChunkSize);
-                                const qint64 chunkOffset = qint64(index) * LocalMediaStore::ManagedChunkSize;
-                                const qint64 expected = cache->expectedPlainSize(index);
-                                if (expected <= 0) {
-                                    failure = QStringLiteral("Invalid Nextcloud cached media chunk geometry");
-                                    break;
-                                }
-                                QByteArray bytes = cache->read(index, expected);
-                                if (bytes.isEmpty()) {
-                                    if (!haveDavPath) {
-                                        const auto settings = worker_->getSettings();
-                                        if (!settings.ok) {
-                                            failure = settings.error;
-                                            break;
-                                        }
-                                        davPath = settings.notesPath + QLatin1Char('/')
-                                            + (category.isEmpty() ? QString() : category + QLatin1Char('/')) + remotePath;
-                                        if (!NextcloudMediaLinks::isSafeNativePath(davPath)) {
-                                            failure = QStringLiteral("Unsafe Nextcloud media path");
-                                            break;
-                                        }
-                                        haveDavPath = true;
-                                    }
-                                    // Another storage operation can re-enter the
-                                    // worker during getSettings() and replace its
-                                    // mutable account config. Restore this
-                                    // request's snapshot before constructing
-                                    // every WebDAV HTTP request.
-                                    worker_->setConfig(config);
-                                    const auto remote = worker_->readWebDavRange(
-                                        davPath, chunkOffset, expected, pinnedEtag);
-                                    if (!remote.ok || remote.totalSize != ref.size || remote.data.size() != expected) {
-                                        failure = !remote.error.isEmpty() ? remote.error
-                                            : QStringLiteral("WebDAV returned an inconsistent media chunk");
-                                        break;
-                                    }
-                                    QString cacheError;
-                                    if (!cache->write(index, remote.data, expected, {}, &cacheError)) {
-                                        failure = cacheError.isEmpty()
-                                            ? QStringLiteral("Cannot durably encrypt downloaded media chunk") : cacheError;
-                                        break;
-                                    }
-                                    bytes = remote.data;
-                                    publish(MediaSyncSnapshot::Transferring);
-                                }
-                                const qint64 inner = cursor - chunkOffset;
-                                const qint64 take = qMin(end - cursor, expected - inner);
-                                if (take <= 0) {
-                                    failure = QStringLiteral("Invalid offset inside cached media chunk");
-                                    break;
-                                }
-                                output.append(bytes.constData() + inner, qsizetype(take));
-                                cursor += take;
-                            }
-                            if (!failure.isEmpty())
-                                publish(MediaSyncSnapshot::Failed, failure);
-                            else
-                                publish(MediaSyncSnapshot::Waiting);
-
-                            QMetaObject::invokeMethod(
-                                owner,
-                                [owner, ref, requestId, output = std::move(output), failure]() mutable {
-                                    if (!owner)
-                                        return;
-                                    owner->completeMediaRead(requestId, ref, std::move(output), failure);
-                                },
-                                Qt::QueuedConnection);
-                        },
-                        Qt::QueuedConnection);
-                    if (!queued)
-                        completeMediaRead(requestId, ref, {},
-                                          QStringLiteral("Nextcloud media worker is unavailable"));
-                });
-            dispatchNextMediaRead();
-        });
+            startMediaReadChunk(requestId, ref, config, cache, category, remotePath, pinnedEtag,
+                                offset, offset + count, {}, prioritize ? 100 : 0);
+            return [owner = QPointer<NextcloudStorage>(this), requestId] {
+                if (owner)
+                    owner->cancelMediaRead(requestId);
+            };
+        }));
     if (auto *sync = MediaSyncService::instance()) {
         sync->registerObserver(
             this,
@@ -675,12 +577,12 @@ void NextcloudStorage::shutdown()
     if (shuttingDown_)
         return;
     shuttingDown_ = true;
-    mediaReadTasks_.clear();
     // Resolver URLs already handed to a decoder remain addressable until
     // releaseUrl(). Fail outstanding requests now, rather than leaving the
     // local HTTP response waiting for a worker whose event loop has stopped.
     QHash<quint64, MediaRangeService::Completion> pending;
     pending.swap(pendingMediaReads_);
+    mediaChunkTickets_.clear();
     for (auto it = pending.begin(); it != pending.end(); ++it) {
         if (it.value())
             it.value()({}, QStringLiteral("Nextcloud media storage has stopped"));
@@ -689,15 +591,218 @@ void NextcloudStorage::shutdown()
         workerThread_.quit();
         workerThread_.wait();
     }
+    // The transport is now stopped: orphaned async reads can no longer
+    // report completion, so release their global admission reservations.
+    if (auto *scheduler = MediaChunkScheduler::instance())
+        scheduler->retireStoppedOwner(this);
 }
 
-void NextcloudStorage::dispatchNextMediaRead()
+void NextcloudStorage::startMediaReadChunk(
+    quint64 requestId, const MediaReference &reference, NextcloudConfig config,
+    std::shared_ptr<MediaPartialChunkCache> cache, QString category, QString remotePath,
+    QString pinnedEtag, qint64 cursor, qint64 end, QByteArray output, int priority)
 {
-    if (shuttingDown_ || mediaReadActive_ || mediaReadTasks_.isEmpty())
+    if (!pendingMediaReads_.contains(requestId))
         return;
-    mediaReadActive_ = true;
-    auto task = mediaReadTasks_.dequeue();
-    task();
+    if (shuttingDown_ || !matchesRemoteMedia(reference, readConfig())) {
+        completeMediaRead(requestId, reference, {}, QStringLiteral("Nextcloud media account changed or stopped"));
+        return;
+    }
+    if (cursor >= end) {
+        completeMediaRead(requestId, reference, std::move(output), {});
+        return;
+    }
+
+    const qint64 chunkSize = LocalMediaStore::ManagedChunkSize;
+    const quint64 index = quint64(cursor / chunkSize);
+    const qint64 chunkOffset = qint64(index) * chunkSize;
+    const qint64 expected = cache->expectedPlainSize(index);
+    const qint64 inner = cursor - chunkOffset;
+    const qint64 take = qMin(end - cursor, expected - inner);
+    if (expected <= 0 || inner < 0 || take <= 0) {
+        completeMediaRead(requestId, reference, {}, QStringLiteral("Invalid cached-media chunk geometry"));
+        return;
+    }
+
+    // Shared immutable source identity includes the configured account,
+    // server, remote path, ETag and size. Only one missing record can be
+    // fetched for a given source/index; duplicate player GETs become waiters.
+    const QString identity = QStringLiteral("nextcloud:") + mediaCacheIdentity(reference, config);
+    const QString lane = QStringLiteral("nextcloud:") + mediaInstanceKey(config);
+    QPointer<NextcloudStorage> owner(this);
+    auto fetch = [owner, config, cache, category, remotePath, pinnedEtag,
+                  reference, chunkOffset, expected, index, lane](MediaChunkScheduler::Completion finish) mutable
+        -> MediaChunkScheduler::Abort {
+        if (!owner) {
+            finish({}, QStringLiteral("Nextcloud storage owner has stopped"));
+            return {};
+        }
+        // This state is touched only on the Nextcloud worker thread. Abort
+        // requests cross threads using a queued invoke, including when the
+        // initial Notes Settings GET has not started yet.
+        struct TransferState {
+            QPointer<QNetworkReply> reply;
+            bool canceled = false;
+        };
+        auto transfer = std::make_shared<TransferState>();
+        auto fallback = finish;
+        const bool queued = QMetaObject::invokeMethod(
+            owner->worker_,
+            [owner, transfer, config, cache, category, remotePath, pinnedEtag, reference,
+             chunkOffset, expected, index, lane, finish = std::move(finish)]() mutable {
+                if (!owner) {
+                    finish({}, QStringLiteral("Nextcloud storage was destroyed"));
+                    return;
+                }
+                if (transfer->canceled) {
+                    finish({}, QStringLiteral("Media source was cancelled before start"));
+                    return;
+                }
+                cache->restoreVerifiedBytes();
+                QByteArray cached = cache->read(index, expected);
+                if (!cached.isEmpty()) {
+                    finish(std::move(cached), {});
+                    return;
+                }
+                auto publish = [cache, reference](MediaSyncSnapshot::State state, QString error = {}) {
+                    MediaSyncSnapshot snapshot;
+                    snapshot.totalBytes = reference.size;
+                    snapshot.verifiedBytes = cache->verifiedBytes();
+                    snapshot.state = state;
+                    snapshot.error = std::move(error);
+                    MediaSyncService::instance()->publish(reference, snapshot);
+                };
+                publish(MediaSyncSnapshot::Transferring);
+
+                // Resolve the native Notes path asynchronously with the
+                // same immutable account snapshot as the WebDAV GET. No
+                // nested event loop can reenter another media hydration.
+                transfer->reply = owner->worker_->getSettingsAsync(
+                    config,
+                    [owner, transfer, config, cache, category, remotePath, pinnedEtag, reference,
+                     chunkOffset, expected, index, lane, publish, finish = std::move(finish)](
+                        NextcloudSettingsResult settings) mutable {
+                        if (!owner) {
+                            finish({}, QStringLiteral("Nextcloud storage was destroyed"));
+                            return;
+                        }
+                        if (transfer->canceled) {
+                            finish({}, QStringLiteral("Media transfer canceled while resolving settings"));
+                            return;
+                        }
+                        if (!settings.ok) {
+                            const bool congested = settings.httpStatus == 429
+                                || (settings.httpStatus >= 500 && settings.httpStatus < 600)
+                                || settings.error.contains(QStringLiteral("timed out"), Qt::CaseInsensitive);
+                            if (congested)
+                                QMetaObject::invokeMethod(owner.data(), [lane] {
+                                    if (auto *scheduler = MediaChunkScheduler::instance())
+                                        scheduler->reportTransferResult(lane, 0, true);
+                                }, Qt::QueuedConnection);
+                            publish(MediaSyncSnapshot::Failed, settings.error);
+                            finish({}, settings.error);
+                            return;
+                        }
+                        const QString davPath = settings.notesPath + QLatin1Char('/')
+                            + (category.isEmpty() ? QString() : category + QLatin1Char('/')) + remotePath;
+                        if (!NextcloudMediaLinks::isSafeNativePath(davPath)) {
+                            const QString failure = QStringLiteral("Unsafe Nextcloud media path");
+                            publish(MediaSyncSnapshot::Failed, failure);
+                            finish({}, failure);
+                            return;
+                        }
+                        transfer->reply = owner->worker_->readWebDavRangeAsync(
+                            config, davPath, chunkOffset, expected, pinnedEtag,
+                            [owner, cache, reference, index, expected, lane, publish,
+                             finish = std::move(finish)](NextcloudWebDavRangeResult remote) mutable {
+                                if (!owner) {
+                                    finish({}, QStringLiteral("Nextcloud storage was destroyed"));
+                                    return;
+                                }
+                                // Count physical GETs once, not waiters or cache hits.
+                                // ETag/geometry errors are integrity failures, not congestion.
+                                const bool congested = remote.httpStatus == 429
+                                    || (remote.httpStatus >= 500 && remote.httpStatus < 600)
+                                    || remote.error.contains(QStringLiteral("timed out"), Qt::CaseInsensitive);
+                                const qint64 wireBytes = remote.ok ? remote.data.size() : 0;
+                                QMetaObject::invokeMethod(owner.data(), [lane, wireBytes, congested] {
+                                    if (auto *scheduler = MediaChunkScheduler::instance())
+                                        scheduler->reportTransferResult(lane, wireBytes, congested);
+                                }, Qt::QueuedConnection);
+                                if (!remote.ok || remote.totalSize != reference.size
+                                    || remote.data.size() != expected) {
+                                    const QString failure = !remote.error.isEmpty() ? remote.error
+                                        : QStringLiteral("WebDAV returned an inconsistent media chunk");
+                                    publish(MediaSyncSnapshot::Failed, failure);
+                                    finish({}, failure);
+                                    return;
+                                }
+                                QString error;
+                                if (!cache->write(index, remote.data, expected, {}, &error)) {
+                                    const QString failure = error.isEmpty()
+                                        ? QStringLiteral("Cannot durably encrypt downloaded media chunk") : error;
+                                    publish(MediaSyncSnapshot::Failed, failure);
+                                    finish({}, failure);
+                                    return;
+                                }
+                                publish(MediaSyncSnapshot::Waiting);
+                                finish(std::move(remote.data), {});
+                            });
+                    });
+            },
+            Qt::QueuedConnection);
+        if (!queued)
+            fallback({}, QStringLiteral("Nextcloud media worker is unavailable"));
+        return [owner, transfer] {
+            if (!owner || !owner->worker_)
+                return;
+            QMetaObject::invokeMethod(owner->worker_, [transfer] {
+                transfer->canceled = true;
+                if (transfer->reply)
+                    transfer->reply->abort();
+            }, Qt::QueuedConnection);
+        };
+    };
+
+    auto done = [owner, requestId, reference, config, cache, category, remotePath, pinnedEtag,
+                 cursor, end, expected, inner, take, output = std::move(output),
+                 priority](QByteArray bytes, QString failure) mutable {
+        if (!owner)
+            return;
+        owner->mediaChunkTickets_.remove(requestId);
+        if (!owner->pendingMediaReads_.contains(requestId))
+            return;
+        if (!failure.isEmpty() || bytes.size() != expected) {
+            owner->completeMediaRead(requestId, reference, {},
+                                     failure.isEmpty() ? QStringLiteral("Media chunk size mismatch") : failure);
+            return;
+        }
+        output.append(bytes.constData() + inner, qsizetype(take));
+        owner->startMediaReadChunk(requestId, reference, config, cache, category, remotePath, pinnedEtag,
+                                   cursor + take, end, std::move(output), priority);
+    };
+    auto *scheduler = MediaChunkScheduler::instance();
+    if (!scheduler) {
+        completeMediaRead(requestId, reference, {}, QStringLiteral("Media chunk scheduler unavailable"));
+        return;
+    }
+    mediaChunkTickets_.insert(requestId, scheduler->requestCancelable(identity, index, lane, priority,
+                                                                      std::move(fetch), std::move(done), this));
+}
+
+void NextcloudStorage::cancelMediaRead(quint64 requestId)
+{
+    auto it = pendingMediaReads_.find(requestId);
+    if (it == pendingMediaReads_.end())
+        return;
+    auto done = std::move(it.value());
+    pendingMediaReads_.erase(it);
+    const quint64 ticket = mediaChunkTickets_.take(requestId);
+    if (ticket) {
+        if (auto *scheduler = MediaChunkScheduler::instance())
+            scheduler->cancel(ticket);
+    }
+    done({}, QStringLiteral("Player media range request was cancelled"));
 }
 
 void NextcloudStorage::completeMediaRead(quint64 requestId, const MediaReference &reference,
@@ -708,20 +813,14 @@ void NextcloudStorage::completeMediaRead(quint64 requestId, const MediaReference
         return; // Already cancelled by shutdown().
     auto done = std::move(it.value());
     pendingMediaReads_.erase(it);
+    mediaChunkTickets_.remove(requestId);
 
-    // Both checks run on the storage thread. WebDAV requests are made using
-    // the captured configuration, never by routing the old source to a new
-    // account whose settings were changed while fetching.
-    if (shuttingDown_) {
+    if (shuttingDown_)
         done({}, QStringLiteral("Nextcloud media storage has stopped"));
-    } else if (!matchesRemoteMedia(reference, readConfig())) {
+    else if (!matchesRemoteMedia(reference, readConfig()))
         done({}, QStringLiteral("Nextcloud media account changed during the read"));
-    } else {
+    else
         done(failure.isEmpty() ? std::move(bytes) : QByteArray(), failure);
-    }
-
-    mediaReadActive_ = false;
-    dispatchNextMediaRead();
 }
 
 std::shared_ptr<MediaPartialChunkCache> NextcloudStorage::partialCacheFor(
