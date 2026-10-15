@@ -14,8 +14,11 @@ late waiters are transparently retried. Physical Jingle/SCTP session activity
 now contributes to the scheduler's app-wide admission count; new WebDAV work
 is deferred while the budget is occupied. Existing Jingle transfers remain
 non-preemptible and can briefly oversubscribe during BUNDLE handover, rather
-than risking a protocol deadlock. Hard byte-rate pacing and adaptive fairness
-remain future stages.
+than risking a protocol deadlock. An optional global soft byte budget now paces NEW WebDAV admissions using
+reported Jingle authenticated records and successfully validated WebDAV bodies.
+Transport congestion triggers an adaptive lane-specific admission cooldown;
+existing SCTP/BUNDLE streams remain non-preemptible. True continuous wire-rate
+shaping is future work.
 See [media storage architecture](media-storage-architecture.md) for the persistent data model, security constraints,
 and the current ranged playback design.
 
@@ -45,7 +48,7 @@ network traffic*, not just the number of queued range requests.
 | `LocalMediaStore` / `MediaPartialChunkCache` | Shared storage exposes `partialMediaCache()` for sealed Nextcloud plaintext records and (in PR #156) `opaqueMediaCache()` for verified XMPP ciphertext, both under `media/partial/`; reads authenticate individual records. | Shared cache lifecycle/quotas/eviction and a separate network scheduler; the cache itself must not schedule transfers |
 | `NextcloudStorage` + `NextcloudWorker` (PR #156) | Pinned-ETag WebDAV reads, shared cache, per-chunk single-flight scheduler, nonblocking range GET with immutable account snapshot, exact byte-range validation and account/shutdown guards | Non-media Notes REST still uses nested event loops, but remote media hydration is fully async; physical WebDAV concurrency is intentionally capped at one per account; a disconnected player detaches its waiter and aborts the unused active GET once the last waiter leaves; provider completion retains the physical budget slot until acknowledged |
 | `IrisMediaSync` (PR #156) | XMPP verified opaque chunks, gap/seek priority, and overlapping old/new Jingle BUNDLE handover; active physical Jingle sessions are now observed by the shared budget (one session counts once even with multiple BUNDLE contents) | External sessions are counted but *not gated or preempted*; a physical handover may temporarily exceed the target concurrency; throughput measurements and safe transport-level pacing are still missing |
-| `MediaChunkScheduler` (PR #156) | Shared in-process queue with immutable chunk keys, coalesced waiters, per-lane and global active limits, prioritized admission, per-waiter cancellation, provider-stop retirement, and physical-Jingle-session activity accounting | Non-preemptible SCTP sessions are intentionally observational (soft global cap); byte-level traffic measurement, bandwidth pacing, fairness aging and prefetch remain pending |
+| `MediaChunkScheduler` (PR #156) | Shared in-process queue with immutable chunk keys, coalesced waiters, per-lane and global active limits, prioritized admission, per-waiter cancellation, provider-stop retirement, and physical-Jingle-session activity accounting | Non-preemptible SCTP sessions remain observational; authenticated Jingle records and validated WebDAV bodies feed optional global soft byte pacing. HTTP 429/5xx and timeouts apply a per-account cooldown; strict wire-rate shaping, UI policy and prefetch remain pending |
 | `MediaStream` / `MediaSource` | Seekable synchronous access to *already available* verified local bytes | Remain local-only; do not put network/blocking reads into `QIODevice::readData()` |
 
 The common HTTP bridge already stops writing to a disconnected client, but a
@@ -274,12 +277,23 @@ interoperability or portable published note formats.
    session count once; independent overlapping sessions count separately.
    Do not block a necessary SCTP handover behind a slot held by the older
    session: the external count is a soft cap, not active transport gating.
-   Future work: shared adaptive byte budgets, bounded concurrency before
-   opening *new independent* XMPP transfers where provably deadlock-free,
-   and fair foreground-priority scheduling.
+   Implemented: physical byte accounting, optional global soft-rate admission
+   pacing, per-WebDAV-lane congestion cooldown and bounded priority bypasses.
+   Future: user-configurable bandwidth policy, strict transport-level shaping,
+   and independently gated new XMPP sessions only where deadlock-free.
 5. **Adaptive scheduling and prefetch.** Add per-network/provider metrics,
    user-configurable bandwidth/parallelism policies and conservative lookahead.
-   Use a real pacing mechanism only where byte-level flow control is safe.
+   The current optional rate policy is set through
+   `MediaChunkScheduler::setBandwidthLimitBytesPerSecond()` (zero means
+   unlimited). `reportTransferResult()` accounts for physical network bytes,
+   never each coalesced waiter or a cache hit. Budget credit holds at most
+   one second of burst. An exhausted budget delays new managed requests,
+   but not active Jingle, which can exceed the requested instantaneous rate.
+   HTTP 429/5xx and timeouts cause 0.5–8s exponential backoff for only the
+   affected account lane, without treating stale ETags, account/auth failures,
+   or intentional cancellation as congestion. The byte limit is disabled
+   until configured. Neither it nor admission caps guarantee strict wire
+   bandwidth; precise shaping requires provider-level backpressure.
    Bound memory, sockets and disk growth; add cache eviction/orphan collection
    only as a separate, reference-aware lifecycle design.
 
