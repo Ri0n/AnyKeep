@@ -292,7 +292,10 @@ interoperability or portable published note formats.
    HTTP 429/5xx and timeouts cause 0.5–8s exponential backoff for only the
    affected account lane, without treating stale ETags, account/auth failures,
    or intentional cancellation as congestion. The byte limit is disabled
-   until configured. Neither it nor admission caps guarantee strict wire
+   until configured. The shared singleton reads the persistent
+   `media/download-bytes-per-second` QSettings key at startup (0 = disabled);
+   callers may also update the limit through the setter. There is no UI
+   for this policy yet. Neither it nor admission caps guarantee strict wire
    bandwidth; precise shaping requires provider-level backpressure.
    Bound memory, sockets and disk growth; add cache eviction/orphan collection
    only as a separate, reference-aware lifecycle design.
