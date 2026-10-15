@@ -253,6 +253,16 @@ void MediaChunkScheduler::replenishBandwidth()
 
 void MediaChunkScheduler::reportTransferResult(const QString &lane, qint64 networkBytes, bool congested)
 {
+    if (QThread::currentThread() != thread()) {
+        // Media backends may live on their own worker/event-loop threads.
+        // Preserve the scheduler's single-threaded accounting invariants.
+        const QPointer<MediaChunkScheduler> guard(this);
+        QMetaObject::invokeMethod(this, [guard, lane, networkBytes, congested] {
+            if (guard)
+                guard->reportTransferResult(lane, networkBytes, congested);
+        }, Qt::QueuedConnection);
+        return;
+    }
     if (stopped_)
         return;
     replenishBandwidth();
