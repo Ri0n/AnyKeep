@@ -103,6 +103,8 @@ private:
     quint64 nextSequence_ = 0;
     int maxActive_ = 3;
     int active_ = 0;
+    // Bound consecutive admissions that bypass the oldest eligible request.
+    int priorityBypasses_ = 0;
     bool scheduled_ = false;
     bool stopped_ = false;
 };
