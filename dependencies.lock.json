@@ -1,9 +1,9 @@
 {
     "iris": {
-        "tag": "v1.2",
-        "commit": "70df1d3e989f7e0dfa6c7994b37312cf0bbd2869",
+        "tag": "v1.3",
+        "commit": "52b51b3d9ce3496351e861a396bf406bda2f02f9",
         "nightly_compatibility": "same-minor",
-        "minimum_version": "1.2"
+        "minimum_version": "1.3"
     },
     "qca": {
         "tag": "v3.0.11",
