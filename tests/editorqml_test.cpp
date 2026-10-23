@@ -198,9 +198,9 @@ private slots:
         Note note(new NoteData(&storage));
         note.setTitle(QStringLiteral("Documents"));
         note.setText(QStringLiteral(
-                         "<a href=\\"anykeep-media:/22222222-2222-2222-2222-222222222222/spec.pdf\\" "
-                         "data-anykeep-attachment=\\"1\\" data-anykeep-media-type=\\"application/pdf\\" "
-                         "data-anykeep-size=\\"123456\\">Specification.pdf</a>\\n\\n"
+                         "<a href=\"anykeep-media:/22222222-2222-2222-2222-222222222222/spec.pdf\" "
+                         "data-anykeep-attachment=\"1\" data-anykeep-media-type=\"application/pdf\" "
+                         "data-anykeep-size=\"123456\">Specification.pdf</a>\n\n"
                          "Notes after the attachment"),
                      Note::Markdown);
         DraftManager drafts(std::make_unique<MemoryDraftStore>());
