@@ -1,4 +1,9 @@
 {
+    "qt": {
+        "toolchain_version": "6.12.*",
+        "minimum_mobile": "6.11",
+        "minimum_desktop": "6.4"
+    },
     "iris": {
         "tag": "v1.5.1",
         "commit": "6109ef98316aeb33b0cfefc00e349f661f9ae7a6",
