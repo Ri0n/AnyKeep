@@ -12,10 +12,17 @@ runs:
         import json
         import os
         from pathlib import Path
+        import sys
 
         lock_path = Path(os.environ["GITHUB_WORKSPACE"]) / "dependencies.lock.json"
         data = json.loads(lock_path.read_text(encoding="utf-8"))
+        sys.path.insert(0, str(lock_path.parent / ".github" / "scripts"))
+        from qt_versions import qt_configuration
+        qt = qt_configuration(data)
         values = {
+            "QT_VERSION": qt["version"],
+            "QT_SERIES": qt["series"],
+            "QT_SDK_SUFFIX": qt["sdk_suffix"],
             "IRIS_TAG": data["iris"]["tag"],
             "IRIS_COMMIT": data["iris"]["commit"],
             "QCA_TAG": data["qca"]["tag"],
