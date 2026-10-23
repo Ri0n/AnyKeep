@@ -19,6 +19,7 @@
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QMimeData>
+#include <QMimeDatabase>
 #include <QPixmap>
 #include <QPushButton>
 #include <QRunnable>
@@ -47,6 +48,32 @@ namespace {
                 return true;
         }
         return QUrl(sourceUri).scheme().compare(QStringLiteral("anykeep-media"), Qt::CaseInsensitive) != 0;
+    }
+
+    // A file-manager drop can contain several URLs. Never turn an invalid or
+    // remote URL into a text link or silently import only part of the drop.
+    QStringList localDroppedFiles(const QMimeData *mimeData)
+    {
+        if (!mimeData || !mimeData->hasUrls())
+            return {};
+        QStringList files;
+        for (const QUrl &url : mimeData->urls()) {
+            if (!url.isLocalFile())
+                return {};
+            const QString path = url.toLocalFile();
+            const QFileInfo info(path);
+            if (!info.isFile() || !info.isReadable())
+                return {};
+            files.append(path);
+        }
+        return files;
+    }
+
+    bool isInlineFileMedia(const QString &mediaType)
+    {
+        return mediaType.startsWith(QLatin1String("image/"))
+            || mediaType.startsWith(QLatin1String("audio/"))
+            || mediaType.startsWith(QLatin1String("video/"));
     }
 
     bool cursorIsOutsideWindow(QObject *source)
@@ -265,6 +292,79 @@ bool DesktopEditorPlatformBackend::insertAttachment(int row)
     if (!chooseFileImportMode(fileName, &mode))
         return false;
     return referenceFileAsync(fileName, row, true, mode);
+}
+
+bool DesktopEditorPlatformBackend::canAcceptFileMimeData(const QMimeData *mimeData) const
+{
+    if (!canInsertAttachments() || !mimeData)
+        return false;
+    // Preserve internal image-fragment transfers (metadata, dimensions,
+    // portable references) even when their MIME data also offers a file URL.
+    if (mimeData->hasFormat(QLatin1String(NoteTransferController::FragmentMimeType))
+        && canAcceptImageMimeData(mimeData))
+        return false;
+    return !localDroppedFiles(mimeData).isEmpty();
+}
+
+bool DesktopEditorPlatformBackend::insertFileMimeData(const QMimeData *mimeData, int row)
+{
+    if (!canAcceptFileMimeData(mimeData) || !editor())
+        return false;
+
+    const QStringList files = localDroppedFiles(mimeData);
+    auto *store = LocalMediaStore::instance();
+    QString initializeError;
+    if (!store->initialize(&initializeError)) {
+        emit operationFailed(initializeError);
+        return false;
+    }
+
+    // Dropping files imports independent encrypted copies, without opening a
+    // modal dialog during the drag. The picker still offers Keep in place.
+    const QPointer<DesktopEditorPlatformBackend> backend(this);
+    const QPointer<NoteEditor> targetEditor(editor());
+    QThreadPool::globalInstance()->start(QRunnable::create([backend, targetEditor, store, files, row] {
+        QList<QPair<MediaReference, bool>> imported;
+        QString error;
+        for (const QString &fileName : files) {
+            const auto result = store->importFile(fileName);
+            if (!result) {
+                error = result.error;
+                break;
+            }
+            imported.append(qMakePair(result.value, isInlineFileMedia(result.value.mediaType)));
+        }
+        if (!backend)
+            return;
+        QMetaObject::invokeMethod(
+            backend,
+            [backend, targetEditor, imported, error, row] {
+                if (!backend || !targetEditor)
+                    return;
+                if (!error.isEmpty()) {
+                    emit backend->operationFailed(error);
+                    return;
+                }
+                int insertionRow = row < 0 ? targetEditor->model()->rowCount()
+                                           : qBound(0, row, targetEditor->model()->rowCount());
+                targetEditor->beginHistoryTransaction(QStringLiteral("drop-files"));
+                QList<MediaReference> inserted;
+                for (const auto &file : imported) {
+                    const bool ok = file.second
+                        ? targetEditor->insertMedia(file.first, 0, 0, 0, insertionRow)
+                        : targetEditor->insertAttachment(file.first, insertionRow);
+                    if (ok) {
+                        ++insertionRow;
+                        inserted.append(file.first);
+                    }
+                }
+                targetEditor->endHistoryTransaction();
+                if (!inserted.isEmpty())
+                    emit backend->mediaInserted(inserted);
+            },
+            Qt::QueuedConnection);
+    }));
+    return true;
 }
 
 void DesktopEditorPlatformBackend::openAttachment(const QString &url)
