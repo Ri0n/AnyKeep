@@ -18,7 +18,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  QT_SERIES: "6.12.*"
   ANDROID_NDK_VERSION: "r27c"
   ANDROID_API: "28"
   # Pinned aqtinstall fork handles the Qt 6.11+ Windows repository layout.
@@ -49,7 +48,7 @@ jobs:
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
               --title "$TAG" \
-              --notes "Static QtKeychain ${QTKEYCHAIN_VERSION} dependency bundles for AnyKeep, built with Qt 6.12." \
+              --notes "Static QtKeychain ${QTKEYCHAIN_VERSION} dependency bundles for AnyKeep, built with Qt ${QT_SERIES}." \
               --prerelease
 
   build:
@@ -90,7 +89,7 @@ jobs:
 
       - name: Compute asset name
         id: asset
-        run: echo "name=qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.12-${{ matrix.platform }}.tar.gz" >> "$GITHUB_OUTPUT"
+        run: echo "name=qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-${QT_SDK_SUFFIX}-${{ matrix.platform }}.tar.gz" >> "$GITHUB_OUTPUT"
 
       - name: Check existing release asset
         id: existing
@@ -110,7 +109,7 @@ jobs:
         if: steps.existing.outputs.skip != 'true' && matrix.kind == 'windows'
         uses: jurplel/install-qt-action@v4
         with:
-          version: ${{ env.QT_SERIES }}
+          version: ${{ env.QT_VERSION }}
           arch: ${{ matrix.qt-arch }}
           aqtsource: ${{ env.AQT_QT6_SOURCE }}
           cache: true
@@ -119,14 +118,14 @@ jobs:
         if: steps.existing.outputs.skip != 'true' && matrix.kind == 'macos'
         uses: jurplel/install-qt-action@v4
         with:
-          version: ${{ env.QT_SERIES }}
+          version: ${{ env.QT_VERSION }}
           cache: true
 
       - name: Install Qt / Android
         if: steps.existing.outputs.skip != 'true' && matrix.kind == 'android'
         uses: jurplel/install-qt-action@v4
         with:
-          version: ${{ env.QT_SERIES }}
+          version: ${{ env.QT_VERSION }}
           host: all_os
           target: android
           arch: ${{ matrix.qt-arch }}
@@ -255,7 +254,7 @@ jobs:
           cat > bundle/anykeep-qtkeychain-bundle.txt <<META
           qtkeychain=${QTKEYCHAIN_VERSION}
           revision=${QTKEYCHAIN_REVISION}
-          qt-series=6.12
+          qt-series=${QT_SERIES}
           platform=${{ matrix.platform }}
           linkage=static
           source=https://github.com/frankosterfeld/qtkeychain/tree/${QTKEYCHAIN_VERSION}
