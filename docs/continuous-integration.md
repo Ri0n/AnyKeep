@@ -13,8 +13,14 @@ The ordinary CI workflow does not publish releases or sign artifacts.
 - Intel macOS 15 as a compile check;
 - Android arm64-v8a and x86_64 as real APK builds using the same setup as packaging.
 
-Windows, macOS and Android install the Qt 6.12 series, while Ubuntu and Debian
-continue using their distribution-provided Qt. Windows CI and Windows packaging
+Windows, macOS and Android install the Qt series selected by
+`dependencies.lock.json` (`qt.toolchain_version`). The loader exports
+`QT_VERSION`, `QT_SERIES` and `QT_SDK_SUFFIX` to CI, and the package planner
+propagates those values to each package job. QtKeychain assets and their release
+names derive from the same series; mismatched QtKeychain tags fail validation.
+Qt minimum API versions (`qt.minimum_mobile` and `qt.minimum_desktop`) are
+separate compatibility floors, also read from the lock by CMake.
+Ubuntu and Debian continue using their distribution-provided Qt. Windows CI and Windows packaging
 share `.github/actions/setup-windows-desktop`, which installs Qt, prepares the
 MSVC environment, installs Conan, downloads the prebuilt QCA/Iris SDKs, and
 sets the QCA runtime/plugin paths. Windows builds use Ninja with
@@ -58,8 +64,8 @@ source-controlled `nightly_compatibility` line. The current policy is
 `same-minor`: for example, an Iris 1.1.x pin may advance to a newer complete
 1.1.x release, but not to 1.2.x. A dependency release is eligible only after it
 publishes the full asset set required by the AnyKeep package matrix.
-QtKeychain static bundles for Windows, macOS and Android are built with Qt 6.12
-and resolved from AnyKeep's own packaged dependency releases using
+QtKeychain static bundles for Windows, macOS and Android are built against
+the lock-selected Qt series and resolved from AnyKeep's packaged releases using
 the same conservative same-minor rule; a newer bundle is eligible only when
 the complete Windows/macOS/Android asset set exists.
 
