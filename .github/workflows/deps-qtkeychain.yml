@@ -5,9 +5,6 @@ on:
   push:
     branches:
       - master
-      # Bootstrap the Qt 6.12 dependency release from PR #157.
-      # Drop this branch trigger after publishing all bundles.
-      - fix/iris-v1.5-qt611-compat
     paths:
       - dependencies.lock.json
       - .github/actions/load-dependencies/action.yml
