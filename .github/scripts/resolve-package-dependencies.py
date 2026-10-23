@@ -37,7 +37,7 @@ REPOSITORIES = {
 
 SEMVER_RE = re.compile(r"^v?(\d+)\.(\d+)(?:\.(\d+))?$")
 QTKEYCHAIN_TAG_RE = re.compile(
-    r"^deps-qtkeychain-(\d+)\.(\d+)\.(\d+)-r(\d+)-qt6\.11$"
+    r"^deps-qtkeychain-(\d+)\.(\d+)\.(\d+)-r(\d+)-qt6\.12$"
 )
 
 
@@ -127,7 +127,7 @@ def latest_compatible_qtkeychain(locked: dict) -> tuple[str, str, str]:
 
         version_text = ".".join(str(part) for part in version)
         revision_text = f"r{revision}"
-        prefix = f"qtkeychain-{version_text}-{revision_text}-qt6.11"
+        prefix = f"qtkeychain-{version_text}-{revision_text}-qt6.12"
         required_assets = {
             f"{prefix}-windows-x64.tar.gz",
             f"{prefix}-macos-arm64.tar.gz",
