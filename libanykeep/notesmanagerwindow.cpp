@@ -276,13 +276,14 @@ bool NotesManagerWindow::eventFilter(QObject *watched, QEvent *event)
 
     if (event->type() == QEvent::DragEnter) {
         auto *dragEvent    = static_cast<QDragEnterEvent *>(event);
-        imageDragAccepted_ = platformBackend_->canAcceptImageMimeData(dragEvent->mimeData());
-        if (imageDragAccepted_) {
+        fileDragAccepted_  = platformBackend_->canAcceptFileMimeData(dragEvent->mimeData());
+        imageDragAccepted_ = !fileDragAccepted_ && platformBackend_->canAcceptImageMimeData(dragEvent->mimeData());
+        if (fileDragAccepted_ || imageDragAccepted_) {
             dragEvent->setDropAction(Qt::CopyAction);
             dragEvent->accept();
             return true;
         }
-    } else if (event->type() == QEvent::DragMove && imageDragAccepted_) {
+    } else if (event->type() == QEvent::DragMove && (fileDragAccepted_ || imageDragAccepted_)) {
         auto *dragEvent = static_cast<QDragMoveEvent *>(event);
         if (insertionRowAt(dragEvent->position()) >= 0) {
             dragEvent->setDropAction(Qt::CopyAction);
@@ -310,13 +311,17 @@ bool NotesManagerWindow::eventFilter(QObject *watched, QEvent *event)
             emit operationFailed(workspace_->editor()->errorString());
         saveWindowState();
     } else if (event->type() == QEvent::DragLeave) {
+        fileDragAccepted_  = false;
         imageDragAccepted_ = false;
-    } else if (event->type() == QEvent::Drop && imageDragAccepted_) {
+    } else if (event->type() == QEvent::Drop && (fileDragAccepted_ || imageDragAccepted_)) {
         auto *dropEvent    = static_cast<QDropEvent *>(event);
-        imageDragAccepted_ = false;
+        const bool fileDrop = fileDragAccepted_;
+        fileDragAccepted_   = false;
+        imageDragAccepted_  = false;
         flushEditorChanges();
         const int row = insertionRowAt(dropEvent->position());
-        if (row >= 0 && platformBackend_->insertImageMimeData(dropEvent->mimeData(), row)) {
+        if (row >= 0 && (fileDrop ? platformBackend_->insertFileMimeData(dropEvent->mimeData(), row)
+                                  : platformBackend_->insertImageMimeData(dropEvent->mimeData(), row))) {
             dropEvent->setDropAction(Qt::CopyAction);
             dropEvent->accept();
         } else {
