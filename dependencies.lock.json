@@ -1,9 +1,14 @@
 {
+    "qt": {
+        "toolchain_version": "6.12.*",
+        "minimum_mobile": "6.11",
+        "minimum_desktop": "6.4"
+    },
     "iris": {
-        "tag": "v1.3",
-        "commit": "52b51b3d9ce3496351e861a396bf406bda2f02f9",
+        "tag": "v1.5.1",
+        "commit": "6109ef98316aeb33b0cfefc00e349f661f9ae7a6",
         "nightly_compatibility": "same-minor",
-        "minimum_version": "1.3"
+        "minimum_version": "1.5.1"
     },
     "qca": {
         "tag": "v3.0.11",
@@ -12,7 +17,7 @@
         "minimum_version": "3.0.10"
     },
     "qtkeychain": {
-        "tag": "deps-qtkeychain-0.14.3-r1-qt6.11",
+        "tag": "deps-qtkeychain-0.14.3-r1-qt6.12",
         "version": "0.14.3",
         "revision": "r1",
         "nightly_compatibility": "same-minor"

@@ -9,9 +9,9 @@ option(ANYKEEP_ANDROID_FORCE_XMPP_XML_LOG
        "Enable sanitized XMPP XML logging inside the Android debug process"
        OFF)
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Network Multimedia)
+find_package(Qt6 ${ANYKEEP_DEP_QT_MINIMUM_MOBILE} REQUIRED COMPONENTS Network Multimedia)
 if(ANDROID)
-  find_package(Qt6 6.11 REQUIRED COMPONENTS CorePrivate)
+  find_package(Qt6 ${ANYKEEP_DEP_QT_MINIMUM_MOBILE} REQUIRED COMPONENTS CorePrivate)
 endif()
 
 if(COMMAND qt_policy)

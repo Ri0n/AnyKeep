@@ -6,14 +6,14 @@ application and the shared Qt Quick editor.
 
 ## Supported baseline
 
-- Qt for Android: **Qt 6.11 or newer**;
+- Qt for Android: version declared by `qt.minimum_mobile` in `dependencies.lock.json` or newer;
 - minimum Android version: **Android 9 / API 28**;
 - primary release ABI: **arm64-v8a**;
-- desktop and shared sources that are also compiled by the desktop target remain
-  compatible with Qt 6.4 until the desktop baseline is changed separately.
+- desktop/shared sources retain the baseline declared by `qt.minimum_desktop` in the same lock file.
 
-The Android target is allowed to use Qt 6.11 APIs because Qt is deployed with the
-APK/AAB. `QT_ANDROID_MIN_SDK_VERSION` is set to 28 on `anykeep_mobile`.
+The mobile API floor comes from the dependency lock and may differ from the
+desktop floor because Qt is deployed with the APK/AAB. CI/packaging install the
+Qt toolchain selected by `qt.toolchain_version`; Linux uses its system Qt. `QT_ANDROID_MIN_SDK_VERSION` is set to 28 on `anykeep_mobile`.
 
 
 ## Release APK size
@@ -96,8 +96,9 @@ checks alone cannot prove every dynamically loaded QML component works.
 
 ## Qt Creator setup
 
-1. Install Qt 6.11 for Desktop and Android, including the `arm64-v8a` Android
-   architecture and Qt Quick Controls.
+1. Install the Qt version in `dependencies.lock.json` (`qt.toolchain_version`)
+   for Desktop and Android, including the `arm64-v8a` Android architecture
+   and Qt Quick Controls.
 2. In **Preferences > SDKs > Android**, configure a 64-bit JDK and let Qt
    Creator install the SDK, NDK and build tools required by that Qt version.
 3. Open the repository's root `CMakeLists.txt` and select the generated Android

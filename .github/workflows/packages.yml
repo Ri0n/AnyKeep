@@ -20,13 +20,12 @@ permissions:
   contents: read
 
 env:
-  QT_CURRENT_SERIES: "6.11.*"
   ANDROID_NDK_VERSION: r27c
   ANDROID_API: 28
   ANDROID_OPENSSL_REVISION: b71f1470962019bd89534a2919f5925f93bc5779
   WIX_VERSION: 6.0.2
-  # Temporary until aqtinstall releases Qt 6.11+ Windows repository support.
-  AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
+  # Pinned aqtinstall fork handles the Qt 6.11+ Windows repository layout.
+  AQT_QT6_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
 
 jobs:
   plan:
@@ -42,6 +41,8 @@ jobs:
       qtkeychain_tag: ${{ steps.dependencies.outputs.qtkeychain_tag }}
       qtkeychain_version: ${{ steps.dependencies.outputs.qtkeychain_version }}
       qtkeychain_revision: ${{ steps.dependencies.outputs.qtkeychain_revision }}
+      qt_version: ${{ steps.dependencies.outputs.qt_version }}
+      qt_sdk_suffix: ${{ steps.dependencies.outputs.qt_sdk_suffix }}
       dependency_summary: ${{ steps.dependencies.outputs.dependency_summary }}
       dependency_fingerprint: ${{ steps.dependencies.outputs.dependency_fingerprint }}
     steps:
@@ -238,6 +239,8 @@ jobs:
     if: ${{ needs.plan.outputs.should_build == 'true' }}
     runs-on: windows-2022
     env:
+      QT_VERSION: ${{ needs.plan.outputs.qt_version }}
+      QT_SDK_SUFFIX: ${{ needs.plan.outputs.qt_sdk_suffix }}
       ANYKEEP_WINDOWS_UPDATE_CHANNEL: ${{ needs.plan.outputs.update_channel }}
       ANYKEEP_RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
       IRIS_TAG: ${{ needs.plan.outputs.iris_tag }}
@@ -257,13 +260,14 @@ jobs:
       - name: Set up Windows desktop build
         uses: ./.github/actions/setup-windows-desktop
         with:
-          qt-version: ${{ env.QT_CURRENT_SERIES }}
+          qt-version: ${{ env.QT_VERSION }}
+          qt-sdk-suffix: ${{ env.QT_SDK_SUFFIX }}
           qca-tag: ${{ env.QCA_TAG }}
           iris-tag: ${{ env.IRIS_TAG }}
           qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
           qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
           qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
-          aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          aqt-source: ${{ env.AQT_QT6_SOURCE }}
           github-token: ${{ github.token }}
 
       - name: Set up WiX
@@ -342,6 +346,8 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.should_build == 'true' }}
     env:
+      QT_VERSION: ${{ needs.plan.outputs.qt_version }}
+      QT_SDK_SUFFIX: ${{ needs.plan.outputs.qt_sdk_suffix }}
       IRIS_TAG: ${{ needs.plan.outputs.iris_tag }}
       QCA_TAG: ${{ needs.plan.outputs.qca_tag }}
       QTKEYCHAIN_TAG: ${{ needs.plan.outputs.qtkeychain_tag }}
@@ -365,7 +371,7 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: ${{ env.QT_CURRENT_SERIES }}
+          version: ${{ env.QT_VERSION }}
           modules: qtmultimedia qttasktree
           cache: true
 
@@ -385,7 +391,7 @@ jobs:
             -p "qca3-qt6-macos-${{ matrix.arch }}.zip" -O qca.zip
           gh release download "$IRIS_TAG" --repo psi-im/iris \
             -p "iris-qt6-macos-${{ matrix.arch }}.zip" -O iris.zip
-          qtkeychain_asset="qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.11-macos-${{ matrix.arch }}.tar.gz"
+          qtkeychain_asset="qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-${QT_SDK_SUFFIX}-macos-${{ matrix.arch }}.tar.gz"
           gh release download "$QTKEYCHAIN_TAG" --repo "$GITHUB_REPOSITORY" \
             -p "$qtkeychain_asset" -O qtkeychain.tar.gz
           (cd qca-sdk && cmake -E tar xvf ../qca.zip)
@@ -507,6 +513,8 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.should_build == 'true' }}
     env:
+      QT_VERSION: ${{ needs.plan.outputs.qt_version }}
+      QT_SDK_SUFFIX: ${{ needs.plan.outputs.qt_sdk_suffix }}
       IRIS_TAG: ${{ needs.plan.outputs.iris_tag }}
       QCA_TAG: ${{ needs.plan.outputs.qca_tag }}
       QTKEYCHAIN_TAG: ${{ needs.plan.outputs.qtkeychain_tag }}
@@ -532,7 +540,8 @@ jobs:
         with:
           abi: ${{ matrix.abi }}
           qt-arch: ${{ matrix.qt-arch }}
-          qt-version: ${{ env.QT_CURRENT_SERIES }}
+          qt-version: ${{ env.QT_VERSION }}
+          qt-sdk-suffix: ${{ env.QT_SDK_SUFFIX }}
           ndk-version: ${{ env.ANDROID_NDK_VERSION }}
           android-api: ${{ env.ANDROID_API }}
           android-openssl-revision: ${{ env.ANDROID_OPENSSL_REVISION }}
@@ -541,7 +550,7 @@ jobs:
           qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
           qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
           qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
-          aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          aqt-source: ${{ env.AQT_QT6_SOURCE }}
           github-token: ${{ github.token }}
           signing-keystore-base64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
           signing-key-alias: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
