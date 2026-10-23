@@ -141,15 +141,18 @@ function handleKey(host, controller, event, cell, itemIndex) {
             // The model keeps Markdown paragraph separators while TextArea
             // renders them as one visual line break. Resolve the position in
             // that final visual projection instead of treating a source
-            // offset as a TextArea cursor position.
+            // offset as a TextArea cursor position. Only refine the cursor of
+            // the editor the request above focused: a newer focus request or
+            // a click elsewhere in the meantime wins.
+            const focusGeneration = controller.focusRequestGeneration
             Qt.callLater(function() {
                 Qt.callLater(function() {
+                    if (focusGeneration !== controller.focusRequestGeneration)
+                        return
                     const delegate = controller.itemAtIndex(textRow)
                     const editor = delegate ? delegate.item : null
-                    if (editor) {
+                    if (editor && editor.activeFocus && Number(editor.listItemIndex) < 0)
                         editor.cursorPosition = Math.max(0, editor.currentPlainText().lastIndexOf(itemPlainText))
-                        controller.activeEditor = editor
-                    }
                 })
             })
             return true
