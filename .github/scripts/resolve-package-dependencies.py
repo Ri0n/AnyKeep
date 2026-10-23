@@ -7,6 +7,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from qt_versions import qt_configuration
+
 REQUIRED_ASSETS = {
     "iris": {
         "iris-deb-ubuntu-24.04.zip",
@@ -36,9 +38,6 @@ REPOSITORIES = {
 }
 
 SEMVER_RE = re.compile(r"^v?(\d+)\.(\d+)(?:\.(\d+))?$")
-QTKEYCHAIN_TAG_RE = re.compile(
-    r"^deps-qtkeychain-(\d+)\.(\d+)\.(\d+)-r(\d+)-qt6\.12$"
-)
 
 
 def parse_version(tag: str) -> tuple[int, int, int]:
@@ -94,7 +93,7 @@ def latest_compatible_release(name: str, locked: dict) -> str:
     return max(candidates)[1]
 
 
-def latest_compatible_qtkeychain(locked: dict) -> tuple[str, str, str]:
+def latest_compatible_qtkeychain(locked: dict, qt_sdk_suffix: str) -> tuple[str, str, str]:
     locked_version = parse_version(locked["version"])
     locked_revision_match = re.fullmatch(r"r(\d+)", locked["revision"])
     if not locked_revision_match:
@@ -108,13 +107,16 @@ def latest_compatible_qtkeychain(locked: dict) -> tuple[str, str, str]:
         raise RuntimeError(f"Unsupported QtKeychain nightly compatibility policy: {policy}")
 
     releases = gh_json("/repos/Ri0n/AnyKeep/releases?per_page=100")
+    tag_pattern = re.compile(
+        rf"^deps-qtkeychain-(\d+)\.(\d+)\.(\d+)-r(\d+)-{re.escape(qt_sdk_suffix)}$"
+    )
     candidates: list[tuple[tuple[int, int, int], int, str, str, str]] = []
 
     for release in releases:
         if release.get("draft"):
             continue
         tag = release.get("tag_name", "")
-        match = QTKEYCHAIN_TAG_RE.fullmatch(tag)
+        match = tag_pattern.fullmatch(tag)
         if not match:
             continue
 
@@ -127,7 +129,7 @@ def latest_compatible_qtkeychain(locked: dict) -> tuple[str, str, str]:
 
         version_text = ".".join(str(part) for part in version)
         revision_text = f"r{revision}"
-        prefix = f"qtkeychain-{version_text}-{revision_text}-qt6.12"
+        prefix = f"qtkeychain-{version_text}-{revision_text}-{qt_sdk_suffix}"
         required_assets = {
             f"{prefix}-windows-x64.tar.gz",
             f"{prefix}-macos-arm64.tar.gz",
@@ -166,6 +168,7 @@ def main() -> None:
     args = parser.parse_args()
 
     lock = json.loads(Path(args.lock).read_text(encoding="utf-8"))
+    qt = qt_configuration(lock)
 
     # Minimum supported runtime versions are independent of the chosen
     # build tags. Reject a stable build that would use an older dependency.
@@ -189,17 +192,21 @@ def main() -> None:
     qtkeychain_version = qtkeychain["version"]
     qtkeychain_revision = qtkeychain["revision"]
     if args.mode == "nightly":
-        qtkeychain_tag, qtkeychain_version, qtkeychain_revision = latest_compatible_qtkeychain(qtkeychain)
+        qtkeychain_tag, qtkeychain_version, qtkeychain_revision = latest_compatible_qtkeychain(qtkeychain, qt["sdk_suffix"])
 
     summary = (
         f"iris={iris_tag};"
         f"qca={qca_tag};"
         f"minimum_iris={lock['iris']['minimum_version']};"
         f"minimum_qca={lock['qca']['minimum_version']};"
-        f"qtkeychain={qtkeychain_tag}"
+        f"qtkeychain={qtkeychain_tag};"
+        f"qt={qt['version']}"
     )
     fingerprint = hashlib.sha256(summary.encode("utf-8")).hexdigest()
 
+    write_output("qt_version", qt["version"])
+    write_output("qt_series", qt["series"])
+    write_output("qt_sdk_suffix", qt["sdk_suffix"])
     write_output("iris_tag", iris_tag)
     write_output("qca_tag", qca_tag)
     write_output("qtkeychain_tag", qtkeychain_tag)
