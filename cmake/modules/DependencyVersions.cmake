@@ -14,6 +14,9 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_anykeep_depen
 
 file(READ "${_anykeep_dependency_lock_file}" _anykeep_dependency_lock)
 
+string(JSON ANYKEEP_DEP_QT_TOOLCHAIN_VERSION GET "${_anykeep_dependency_lock}" qt toolchain_version)
+string(JSON ANYKEEP_DEP_QT_MINIMUM_MOBILE GET "${_anykeep_dependency_lock}" qt minimum_mobile)
+string(JSON ANYKEEP_DEP_QT_MINIMUM_DESKTOP GET "${_anykeep_dependency_lock}" qt minimum_desktop)
 string(JSON ANYKEEP_DEP_IRIS_TAG GET "${_anykeep_dependency_lock}" iris tag)
 string(JSON ANYKEEP_DEP_IRIS_COMMIT GET "${_anykeep_dependency_lock}" iris commit)
 string(JSON ANYKEEP_DEP_QCA_TAG GET "${_anykeep_dependency_lock}" qca tag)
