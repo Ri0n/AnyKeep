@@ -112,9 +112,9 @@ public:
     Q_INVOKABLE void appendTextBlock();
     Q_INVOKABLE void appendText(const QString &text);
     Q_INVOKABLE void appendMedia(const QString &url, const QString &title, const QString &mediaType,
-                                  qint64 durationMs = 0, int width = 0, int height = 0);
+                                 qint64 durationMs = 0, int width = 0, int height = 0);
     Q_INVOKABLE void insertMedia(int row, const QString &url, const QString &title, const QString &mediaType,
-                                  qint64 durationMs = 0, int width = 0, int height = 0);
+                                 qint64 durationMs = 0, int width = 0, int height = 0);
     Q_INVOKABLE bool setMediaTitle(int row, const QString &title);
     Q_INVOKABLE bool setMediaTranscript(int row, const QString &transcript);
     Q_INVOKABLE void appendAttachment(const QString &url, const QString &fileName, const QString &mediaType,
@@ -190,14 +190,14 @@ private:
         QString      url;
         QString      alt;
         int          mediaDisplayWidth = 0;
-        QString      mediaAlignment = QStringLiteral("center");
-        int          headingLevel   = 0;
+        QString      mediaAlignment    = QStringLiteral("center");
+        int          headingLevel      = 0;
         QString      language;
         QStringList  tags;
         QString      mediaType;
         qint64       mediaDurationMs = 0;
-        int          mediaWidth = 0;
-        int          mediaHeight = 0;
+        int          mediaWidth      = 0;
+        int          mediaHeight     = 0;
         QString      mediaTranscript;
         QString      attachmentMediaType;
         qint64       attachmentSize = 0;
@@ -245,6 +245,8 @@ private:
     static bool normalizeTagLinePositions(QList<Block> *blocks, bool markdown, bool promoteTextCandidate = false);
     void        notifyNormalizedTagLines(bool promoteTextCandidate = false);
     void        changed(int row, const QList<int> &roles);
+    void        replaceBlocks(QList<Block> blocks);
+    bool        replaceDocument(QList<Block> blocks, bool markdown);
 
     QList<Block>            blocks_;
     QHash<QString, QString> previewUrls_;

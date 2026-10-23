@@ -320,23 +320,29 @@ int NoteBlockModel::moveListRangeResolved(int sourceRow, int sourceFirstItem, in
     const QVariantList movedChecked   = source.checked.mid(sourceFirstItem, movedCount);
 
     const bool removeSourceBlock = source.items.size() == movedCount && sourceRow != targetRow;
-    if (removeSourceBlock)
-        beginResetModel();
-    for (int index = 0; index < movedCount; ++index) {
-        source.items.removeAt(sourceFirstItem);
-        source.indents.removeAt(sourceFirstItem);
-        source.itemTypes.removeAt(sourceFirstItem);
-        source.checked.removeAt(sourceFirstItem);
+    if (!removeSourceBlock) {
+        for (int index = 0; index < movedCount; ++index) {
+            source.items.removeAt(sourceFirstItem);
+            source.indents.removeAt(sourceFirstItem);
+            source.itemTypes.removeAt(sourceFirstItem);
+            source.checked.removeAt(sourceFirstItem);
+        }
     }
 
-    int adjustedTargetRow = targetRow;
+    // Emptying the source list removes its block and can coalesce neighbours:
+    // edit a copy and publish only the changed rows. Moves between surviving
+    // lists keep their delegates and report changed list data.
+    QList<Block> updated;
+    int          adjustedTargetRow = targetRow;
     if (removeSourceBlock) {
-        blocks_.removeAt(sourceRow);
+        updated = blocks_;
+        updated.removeAt(sourceRow);
         if (sourceRow < targetRow)
             --adjustedTargetRow;
     }
+    QList<Block> &blocks = removeSourceBlock ? updated : blocks_;
 
-    Block &target = blocks_[adjustedTargetRow];
+    Block &target = blocks[adjustedTargetRow];
     normalizeListStorage(&target);
     const int maximumIndent = targetItem == 0 ? 0 : target.indents.value(targetItem - 1).toInt() + 1;
     targetIndent            = qBound(0, targetIndent, maximumIndent);
@@ -355,17 +361,17 @@ int NoteBlockModel::moveListRangeResolved(int sourceRow, int sourceFirstItem, in
     if (removeSourceBlock) {
         int sourceGap         = sourceRow;
         int resolvedTargetRow = adjustedTargetRow;
-        if (normalizeTitleBlock(&blocks_, markdown_)) {
+        if (normalizeTitleBlock(&updated, markdown_)) {
             if (sourceGap >= 1)
                 ++sourceGap;
             if (resolvedTargetRow >= 1)
                 ++resolvedTargetRow;
         }
-        coalesceTextNear(&blocks_, sourceGap, markdown_, &resolvedTargetRow);
-        coalesceListAtBoundary(&blocks_, sourceGap, &resolvedTargetRow);
-        recomputeTaskParentChecks(&blocks_);
-        normalizeTagLinePositions(&blocks_, markdown_, true);
-        endResetModel();
+        coalesceTextNear(&updated, sourceGap, markdown_, &resolvedTargetRow);
+        coalesceListAtBoundary(&updated, sourceGap, &resolvedTargetRow);
+        recomputeTaskParentChecks(&updated);
+        normalizeTagLinePositions(&updated, markdown_, true);
+        replaceBlocks(std::move(updated));
         emit contentsChanged();
         return resolvedTargetRow;
     } else if (sourceRow == targetRow) {
@@ -407,10 +413,10 @@ int NoteBlockModel::moveListRangeToBlock(int sourceRow, int sourceFirstItem, int
     for (const QVariant &indent : source.indents.mid(sourceFirstItem, movedCount))
         detached.indents.append(qMax(0, indent.toInt() - sourceIndent));
 
-    beginResetModel();
-    int sourceGap = -1;
+    QList<Block> updated   = blocks_;
+    int          sourceGap = -1;
     if (removesWholeList) {
-        blocks_.removeAt(sourceRow);
+        updated.removeAt(sourceRow);
         sourceGap = sourceRow;
         if (targetRow > sourceRow)
             --targetRow;
@@ -421,29 +427,29 @@ int NoteBlockModel::moveListRangeToBlock(int sourceRow, int sourceFirstItem, int
             source.itemTypes.removeAt(index);
             source.checked.removeAt(index);
         }
-        blocks_[sourceRow] = source;
+        updated[sourceRow] = source;
     }
 
-    targetRow = qBound(0, targetRow, blocks_.size());
-    blocks_.insert(targetRow, detached);
+    targetRow = qBound(0, targetRow, updated.size());
+    updated.insert(targetRow, detached);
     if (sourceGap >= 0 && targetRow <= sourceGap)
         ++sourceGap;
     int resolvedRow = targetRow;
-    if (normalizeTitleBlock(&blocks_, markdown_)) {
+    if (normalizeTitleBlock(&updated, markdown_)) {
         if (sourceGap >= 1)
             ++sourceGap;
         if (resolvedRow >= 1)
             ++resolvedRow;
     }
-    normalizeTagLinePositions(&blocks_, markdown_, true);
+    normalizeTagLinePositions(&updated, markdown_, true);
     if (sourceGap >= 0) {
-        coalesceTextNear(&blocks_, sourceGap, markdown_, &resolvedRow);
-        coalesceListAtBoundary(&blocks_, sourceGap, &resolvedRow);
+        coalesceTextNear(&updated, sourceGap, markdown_, &resolvedRow);
+        coalesceListAtBoundary(&updated, sourceGap, &resolvedRow);
     }
-    coalesceMovedList(&blocks_, &resolvedRow);
-    recomputeTaskParentChecks(&blocks_);
-    normalizeTagLinePositions(&blocks_, markdown_, true);
-    endResetModel();
+    coalesceMovedList(&updated, &resolvedRow);
+    recomputeTaskParentChecks(&updated);
+    normalizeTagLinePositions(&updated, markdown_, true);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
     return resolvedRow;
 }
@@ -537,15 +543,15 @@ int NoteBlockModel::unlistListItem(int row, int item)
         replacement.append(after);
     }
 
-    beginResetModel();
-    blocks_.removeAt(row);
+    QList<Block> updated = blocks_;
+    updated.removeAt(row);
     for (int index = 0; index < replacement.size(); ++index)
-        blocks_.insert(row + index, replacement.at(index));
+        updated.insert(row + index, replacement.at(index));
     int resolvedParagraphRow = paragraphRow;
-    coalesceTextNear(&blocks_, paragraphRow, markdown_, &resolvedParagraphRow);
-    recomputeTaskParentChecks(&blocks_);
-    normalizeTagLinePositions(&blocks_, markdown_);
-    endResetModel();
+    coalesceTextNear(&updated, paragraphRow, markdown_, &resolvedParagraphRow);
+    recomputeTaskParentChecks(&updated);
+    normalizeTagLinePositions(&updated, markdown_);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
     return resolvedParagraphRow;
 }

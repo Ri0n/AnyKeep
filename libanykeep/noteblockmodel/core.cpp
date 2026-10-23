@@ -8,12 +8,12 @@ namespace AnyKeep {
 using namespace NoteBlockModelPrivate;
 
 namespace {
-// Register the enum as a real QML type. Context properties are unsuitable for
-// enum constants used by separately compiled QML components: those components
-// need a lexical type import, not a value injected into one root context.
-[[maybe_unused]] const int noteBlockTypeQmlId
-    = qmlRegisterUncreatableMetaObject(NoteBlockModel::staticMetaObject, "AnyKeep.Editor", 1, 0,
-                                       "NoteBlockType", "NoteBlockType exposes NoteBlockModel enums only");
+    // Register the enum as a real QML type. Context properties are unsuitable for
+    // enum constants used by separately compiled QML components: those components
+    // need a lexical type import, not a value injected into one root context.
+    [[maybe_unused]] const int noteBlockTypeQmlId
+        = qmlRegisterUncreatableMetaObject(NoteBlockModel::staticMetaObject, "AnyKeep.Editor", 1, 0, "NoteBlockType",
+                                           "NoteBlockType exposes NoteBlockModel enums only");
 } // namespace
 
 NoteBlockModel::NoteBlockModel(QObject *parent) : QAbstractListModel(parent) {}
@@ -138,10 +138,10 @@ bool NoteBlockModel::setData(const QModelIndex &index, const QVariant &value, in
         const int width = qBound(0, value.toInt(), MaxSerializedImageWidth);
         if (block.mediaDisplayWidth == width)
             return false;
-        before           = QString::number(block.mediaDisplayWidth);
+        before                  = QString::number(block.mediaDisplayWidth);
         block.mediaDisplayWidth = width;
-        after            = QString::number(block.mediaDisplayWidth);
-        scalar           = true;
+        after                   = QString::number(block.mediaDisplayWidth);
+        scalar                  = true;
         break;
     }
     case MediaAlignmentRole: {
@@ -379,13 +379,10 @@ bool NoteBlockModel::restoreState(const State &state)
 {
     if (this->state() == state)
         return false;
-    const bool formatChanged = markdown_ != state.markdown;
-    beginResetModel();
-    blocks_   = cloneBlocks(state.blocks);
-    markdown_ = state.markdown;
-    normalizeTitleBlock(&blocks_, markdown_);
-    normalizeTagLinePositions(&blocks_, markdown_);
-    endResetModel();
+    QList<Block> restored = cloneBlocks(state.blocks);
+    normalizeTitleBlock(&restored, state.markdown);
+    normalizeTagLinePositions(&restored, state.markdown);
+    const bool formatChanged = replaceDocument(std::move(restored), state.markdown);
     if (formatChanged)
         emit markdownChanged();
     emit contentsChanged();
@@ -394,14 +391,110 @@ bool NoteBlockModel::restoreState(const State &state)
 
 void NoteBlockModel::load(const QString &contents, bool markdown)
 {
-    beginResetModel();
-    markdown_ = markdown;
-    blocks_   = markdown ? parseMarkdown(contents) : QList<Block> { Block { Text, contents } };
-    normalizeTitleBlock(&blocks_, markdown_);
-    normalizeTagLinePositions(&blocks_, markdown_, true);
-    endResetModel();
+    QList<Block> loaded = markdown ? parseMarkdown(contents) : QList<Block> { Block { Text, contents } };
+    normalizeTitleBlock(&loaded, markdown);
+    normalizeTagLinePositions(&loaded, markdown, true);
+    replaceDocument(std::move(loaded), markdown);
     emit markdownChanged();
     emit contentsChanged();
+}
+
+bool NoteBlockModel::replaceDocument(QList<Block> blocks, bool markdown)
+{
+    // Every delegate renders differently after a format change, and an empty
+    // model has no view state worth keeping: only then reset the whole model.
+    if (markdown == markdown_ && !blocks_.isEmpty()) {
+        replaceBlocks(std::move(blocks));
+        return false;
+    }
+    const bool formatChanged = markdown != markdown_;
+    beginResetModel();
+    blocks_   = std::move(blocks);
+    markdown_ = markdown;
+    endResetModel();
+    return formatChanged;
+}
+
+void NoteBlockModel::replaceBlocks(QList<Block> updated)
+{
+    // Publish a structural edit as row removals and insertions around the
+    // blocks it actually changed. A model reset makes ListView destroy every
+    // delegate and regenerate the document from its top: the viewport jumps
+    // and unrelated editors and media players lose their state.
+    const int oldCount = int(blocks_.size());
+    const int newCount = int(updated.size());
+    int       prefix   = 0;
+    while (prefix < oldCount && prefix < newCount && blocks_.at(prefix) == updated.at(prefix))
+        ++prefix;
+    int suffix = 0;
+    while (suffix < oldCount - prefix && suffix < newCount - prefix
+           && blocks_.at(oldCount - 1 - suffix) == updated.at(newCount - 1 - suffix)) {
+        ++suffix;
+    }
+
+    // Inside the edited range keep the longest common subsequence of unchanged
+    // blocks, such as the rows a moved block jumps over. A range too large for
+    // the quadratic table is replaced as a whole.
+    constexpr int MaxCommonSubsequenceCells = 1 << 18;
+    const int     oldMiddle                 = oldCount - prefix - suffix;
+    const int     newMiddle                 = newCount - prefix - suffix;
+    QList<bool>   keptOld(oldMiddle, false);
+    QList<bool>   keptNew(newMiddle, false);
+    if (oldMiddle > 0 && newMiddle > 0 && qint64(oldMiddle + 1) * (newMiddle + 1) <= MaxCommonSubsequenceCells) {
+        const int      stride = newMiddle + 1;
+        QList<quint16> common((oldMiddle + 1) * stride, 0);
+        for (int oldRow = oldMiddle - 1; oldRow >= 0; --oldRow) {
+            for (int newRow = newMiddle - 1; newRow >= 0; --newRow) {
+                common[oldRow * stride + newRow] = blocks_.at(prefix + oldRow) == updated.at(prefix + newRow)
+                    ? common.at((oldRow + 1) * stride + newRow + 1) + 1
+                    : qMax(common.at((oldRow + 1) * stride + newRow), common.at(oldRow * stride + newRow + 1));
+            }
+        }
+        for (int oldRow = 0, newRow = 0; oldRow < oldMiddle && newRow < newMiddle;) {
+            if (blocks_.at(prefix + oldRow) == updated.at(prefix + newRow)) {
+                keptOld[oldRow++] = true;
+                keptNew[newRow++] = true;
+            } else if (common.at((oldRow + 1) * stride + newRow) >= common.at(oldRow * stride + newRow + 1)) {
+                ++oldRow;
+            } else {
+                ++newRow;
+            }
+        }
+    }
+
+    int row    = prefix;
+    int oldRow = 0;
+    int newRow = 0;
+    while (oldRow < oldMiddle || newRow < newMiddle) {
+        if (oldRow < oldMiddle && newRow < newMiddle && keptOld.at(oldRow) && keptNew.at(newRow)) {
+            ++oldRow;
+            ++newRow;
+            ++row;
+            continue;
+        }
+        int removedEnd = oldRow;
+        while (removedEnd < oldMiddle && !keptOld.at(removedEnd))
+            ++removedEnd;
+        if (removedEnd > oldRow) {
+            beginRemoveRows({}, row, row + removedEnd - oldRow - 1);
+            blocks_.remove(row, removedEnd - oldRow);
+            endRemoveRows();
+            oldRow = removedEnd;
+        }
+        int insertedEnd = newRow;
+        while (insertedEnd < newMiddle && !keptNew.at(insertedEnd))
+            ++insertedEnd;
+        if (insertedEnd > newRow) {
+            beginInsertRows({}, row, row + insertedEnd - newRow - 1);
+            for (int inserted = newRow; inserted < insertedEnd; ++inserted)
+                blocks_.insert(row + inserted - newRow, updated.at(prefix + inserted));
+            endInsertRows();
+            row += insertedEnd - newRow;
+            newRow = insertedEnd;
+        }
+    }
+    // Every remaining row is equal to its replacement; adopt the new storage.
+    blocks_ = std::move(updated);
 }
 
 int NoteBlockModel::blockTypeAt(int row) const

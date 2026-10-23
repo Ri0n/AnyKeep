@@ -197,7 +197,7 @@ private slots:
     void markdownEditorDoesNotCheckpointExtraTitleBlankLines()
     {
         auto         store = std::make_unique<MemoryDraftStore>();
-        auto        *data = store.get();
+        auto        *data  = store.get();
         DraftManager drafts(std::move(store));
         Note         note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("Moved note"));
@@ -491,6 +491,46 @@ private slots:
         QCOMPARE(editor.text(), QStringLiteral("Changed\nBody"));
     }
 
+    void structuralUndoPublishesRowChangesWithoutReset()
+    {
+        auto         store = std::make_unique<MemoryDraftStore>();
+        DraftManager drafts(std::move(store));
+        NoteEditor   editor(plainNote(), drafts);
+
+        editor.setMarkdown(true);
+        editor.model()->load(QStringLiteral("Title\n\n## A\n\nfirst\n\nsecond\n\n## B"), true);
+        editor.resetHistory();
+        QCOMPARE(editor.model()->rowCount(), 4);
+
+        editor.beginHistoryTransaction(QStringLiteral("convert-heading"), {});
+        QCOMPARE(editor.model()->convertTextBlockToHeading(2, 8, 2), 3);
+        editor.endHistoryTransaction({});
+        QCOMPARE(editor.model()->rowCount(), 5);
+
+        // History snapshots must not regenerate the whole document view.
+        QStringList changes;
+        connect(editor.model(), &NoteBlockModel::modelAboutToBeReset, this,
+                [&changes] { changes << QStringLiteral("reset"); });
+        connect(editor.model(), &NoteBlockModel::rowsRemoved, this,
+                [&changes](const QModelIndex &, int first, int last) {
+                    changes << QStringLiteral("-%1:%2").arg(first).arg(last);
+                });
+        connect(editor.model(), &NoteBlockModel::rowsInserted, this,
+                [&changes](const QModelIndex &, int first, int last) {
+                    changes << QStringLiteral("+%1:%2").arg(first).arg(last);
+                });
+
+        QVERIFY(editor.undo());
+        QCOMPARE(changes, QStringList({ QStringLiteral("-2:3"), QStringLiteral("+2:2") }));
+        QCOMPARE(editor.model()->contents(), QStringLiteral("Title\n\n## A\n\nfirst\n\nsecond\n\n## B"));
+
+        changes.clear();
+        QVERIFY(editor.redo());
+        QCOMPARE(changes, QStringList({ QStringLiteral("-2:2"), QStringLiteral("+2:3") }));
+        QCOMPARE(editor.model()->contents(), QStringLiteral("Title\n\n## A\n\nfirst\n\n## second\n\n## B"));
+        disconnect(editor.model(), nullptr, this, nullptr);
+    }
+
     void codeLanguageChangesParticipateInUndo()
     {
         auto         store = std::make_unique<MemoryDraftStore>();
@@ -594,7 +634,8 @@ private slots:
         NoteEditor   editor(plainNote(), drafts);
 
         editor.setMarkdown(true);
-        editor.model()->insertMedia(1, QStringLiteral("media://image"), QStringLiteral("Image"), QStringLiteral("image/*"));
+        editor.model()->insertMedia(1, QStringLiteral("media://image"), QStringLiteral("Image"),
+                                    QStringLiteral("image/*"));
         editor.resetHistory();
 
         editor.beginHistoryTransaction(QStringLiteral("image-presentation"), {});
@@ -628,7 +669,7 @@ private slots:
         // Simulate an Editing checkpoint that can already exist because of
         // manager/window lifecycle metadata without inventing document text.
         DraftRecord record;
-        record.id = editor.draftId();
+        record.id    = editor.draftId();
         record.state = DraftRecord::Editing;
         record.title.clear();
         record.body.clear();

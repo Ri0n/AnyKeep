@@ -75,21 +75,21 @@ void NoteBlockModel::setBlockText(int row, const QString &text)
             // structural title isolated and replace (rather than append to)
             // the first body text block. This also makes history restore
             // atomic and prevents "Body\nBody" duplication.
-            beginResetModel();
-            blocks_[0].text          = title;
-            blocks_[0].explicitEmpty = false;
+            QList<Block> updated     = blocks_;
+            updated[0].text          = title;
+            updated[0].explicitEmpty = false;
             if (hasBodyText) {
-                blocks_[1].text          = body;
-                blocks_[1].explicitEmpty = false;
+                updated[1].text          = body;
+                updated[1].explicitEmpty = false;
             } else {
                 Block following;
                 following.type          = Text;
                 following.text          = body;
                 following.explicitEmpty = false;
-                blocks_.insert(1, following);
+                updated.insert(1, following);
             }
-            normalizeTagLinePositions(&blocks_, markdown_);
-            endResetModel();
+            normalizeTagLinePositions(&updated, markdown_);
+            replaceBlocks(std::move(updated));
             emit contentsChanged();
             return;
         }
@@ -104,13 +104,13 @@ bool NoteBlockModel::mergeTextBlockWithNext(int row)
         return false;
 
     if (row == 0) {
-        beginResetModel();
-        blocks_[0].text          = coalesceAdjacentMarkdownLinks(blocks_[0].text + blocks_[1].text);
-        blocks_[0].explicitEmpty = blocks_[0].text.isEmpty() && (blocks_[0].explicitEmpty || blocks_[1].explicitEmpty);
-        blocks_.removeAt(1);
-        normalizeTitleBlock(&blocks_, markdown_);
-        normalizeTagLinePositions(&blocks_, markdown_);
-        endResetModel();
+        QList<Block> updated     = blocks_;
+        updated[0].text          = coalesceAdjacentMarkdownLinks(updated[0].text + updated[1].text);
+        updated[0].explicitEmpty = updated[0].text.isEmpty() && (updated[0].explicitEmpty || updated[1].explicitEmpty);
+        updated.removeAt(1);
+        normalizeTitleBlock(&updated, markdown_);
+        normalizeTagLinePositions(&updated, markdown_);
+        replaceBlocks(std::move(updated));
         emit contentsChanged();
         return true;
     }
@@ -269,12 +269,12 @@ QVariantMap NoteBlockModel::promoteTagLineFromText(int row, const QString &plain
             replacement.append(block);
     }
 
-    beginResetModel();
-    blocks_.removeAt(row);
+    QList<Block> updated = blocks_;
+    updated.removeAt(row);
     for (int index = 0; index < replacement.size(); ++index)
-        blocks_.insert(row + index, replacement.at(index));
-    normalizeTagLinePositions(&blocks_, markdown_);
-    endResetModel();
+        updated.insert(row + index, replacement.at(index));
+    normalizeTagLinePositions(&updated, markdown_);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
 
     const int tagRow = row + tagOffset;
@@ -302,15 +302,15 @@ QVariantMap NoteBlockModel::convertTagLineToText(int row, const QString &text, i
     if (row < 0 || row >= blocks_.size() || blocks_.at(row).type != TagLine)
         return result;
 
-    const QString value = text.isNull() ? NoteTagLine::serialize(blocks_.at(row).tags) : text;
-    beginResetModel();
-    Block &block = blocks_[row];
-    block.type   = Text;
-    block.text   = value;
+    const QString value   = text.isNull() ? NoteTagLine::serialize(blocks_.at(row).tags) : text;
+    QList<Block>  updated = blocks_;
+    Block        &block   = updated[row];
+    block.type            = Text;
+    block.text            = value;
     block.tags.clear();
     block.explicitEmpty = value.isEmpty();
-    normalizeTagLinePositions(&blocks_, markdown_);
-    endResetModel();
+    normalizeTagLinePositions(&updated, markdown_);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
     result.insert(QStringLiteral("handled"), true);
     result.insert(QStringLiteral("focusRow"), row);
@@ -448,13 +448,13 @@ int NoteBlockModel::convertStructuredBlockToText(int row)
     if (row < 0 || row >= blocks_.size() || (blocks_.at(row).type != Heading && blocks_.at(row).type != BlockQuote))
         return -1;
 
-    beginResetModel();
-    blocks_[row].type         = Text;
-    blocks_[row].headingLevel = 0;
+    QList<Block> updated      = blocks_;
+    updated[row].type         = Text;
+    updated[row].headingLevel = 0;
     int resolvedRow           = row;
-    coalesceTextNear(&blocks_, row, markdown_, &resolvedRow);
-    normalizeTagLinePositions(&blocks_, markdown_);
-    endResetModel();
+    coalesceTextNear(&updated, row, markdown_, &resolvedRow);
+    normalizeTagLinePositions(&updated, markdown_);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
     return resolvedRow;
 }
@@ -536,12 +536,12 @@ int NoteBlockModel::convertTextBlockToHeading(int row, int position, int level)
         replacement.append(after);
     }
 
-    beginResetModel();
-    blocks_.removeAt(row);
+    QList<Block> updated = blocks_;
+    updated.removeAt(row);
     for (int i = 0; i < replacement.size(); ++i)
-        blocks_.insert(row + i, replacement[i]);
-    normalizeTagLinePositions(&blocks_, markdown_);
-    endResetModel();
+        updated.insert(row + i, replacement[i]);
+    normalizeTagLinePositions(&updated, markdown_);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
     return row + headingOffset;
 }
@@ -588,12 +588,12 @@ int NoteBlockModel::convertTextBlockToQuote(int row, int position, bool quote)
         replacement.append(after);
     }
 
-    beginResetModel();
-    blocks_.removeAt(row);
+    QList<Block> updated = blocks_;
+    updated.removeAt(row);
     for (int index = 0; index < replacement.size(); ++index)
-        blocks_.insert(row + index, replacement.at(index));
-    normalizeTagLinePositions(&blocks_, markdown_);
-    endResetModel();
+        updated.insert(row + index, replacement.at(index));
+    normalizeTagLinePositions(&updated, markdown_);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
     return row + quoteOffset;
 }
@@ -649,12 +649,12 @@ QVariantMap NoteBlockModel::convertTextRangeToQuote(int row, int start, int end)
         replacement.append(after);
     }
 
-    beginResetModel();
-    blocks_.removeAt(row);
+    QList<Block> updated = blocks_;
+    updated.removeAt(row);
     for (int index = 0; index < replacement.size(); ++index)
-        blocks_.insert(row + index, replacement.at(index));
-    normalizeTagLinePositions(&blocks_, markdown_);
-    endResetModel();
+        updated.insert(row + index, replacement.at(index));
+    normalizeTagLinePositions(&updated, markdown_);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
     return { { QStringLiteral("handled"), true },
              { QStringLiteral("row"), row + quoteOffset },
@@ -677,9 +677,9 @@ QVariantMap NoteBlockModel::convertTextRangeToList(int row, int start, int end, 
     // paragraph, not append a new list after the whole text block.
     if (start == end) {
         const bool emptyAtStart = start == 0 && (text.isEmpty() || text.startsWith(QStringLiteral("\n\n")));
-        const bool emptyAtEnd = start == text.size() && text.endsWith(QStringLiteral("\n\n"));
-        const bool emptyBetween = start >= 2 && start + 2 <= text.size()
-            && text.mid(start - 2, 4) == QStringLiteral("\n\n\n\n");
+        const bool emptyAtEnd   = start == text.size() && text.endsWith(QStringLiteral("\n\n"));
+        const bool emptyBetween
+            = start >= 2 && start + 2 <= text.size() && text.mid(start - 2, 4) == QStringLiteral("\n\n\n\n");
         if (!(emptyAtStart || emptyAtEnd || emptyBetween))
             return {};
         if (emptyAtEnd)
@@ -738,15 +738,15 @@ QVariantMap NoteBlockModel::convertTextRangeToList(int row, int start, int end, 
         replacement.append(after);
     }
 
-    beginResetModel();
-    blocks_.removeAt(row);
+    QList<Block> updated = blocks_;
+    updated.removeAt(row);
     for (int index = 0; index < replacement.size(); ++index)
-        blocks_.insert(row + index, replacement.at(index));
+        updated.insert(row + index, replacement.at(index));
     int resolvedListRow = row + listOffset;
-    coalesceListAtBoundary(&blocks_, resolvedListRow, &resolvedListRow);
-    coalesceListAtBoundary(&blocks_, resolvedListRow + 1, &resolvedListRow);
-    normalizeTagLinePositions(&blocks_, markdown_);
-    endResetModel();
+    coalesceListAtBoundary(&updated, resolvedListRow, &resolvedListRow);
+    coalesceListAtBoundary(&updated, resolvedListRow + 1, &resolvedListRow);
+    normalizeTagLinePositions(&updated, markdown_);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
     return { { QStringLiteral("handled"), true },
              { QStringLiteral("row"), resolvedListRow },
@@ -782,32 +782,32 @@ int NoteBlockModel::moveBlockResolved(int row, int targetRow)
     if (row < 0 || row >= blocks_.size() || targetRow < 0 || targetRow >= blocks_.size() || row == targetRow)
         return -1;
 
-    int sourceGap = targetRow < row ? row + 1 : row;
-    int movedRow  = targetRow;
-    beginResetModel();
-    blocks_.move(row, targetRow);
-    if (normalizeTitleBlock(&blocks_, markdown_)) {
+    int          sourceGap = targetRow < row ? row + 1 : row;
+    int          movedRow  = targetRow;
+    QList<Block> updated   = blocks_;
+    updated.move(row, targetRow);
+    if (normalizeTitleBlock(&updated, markdown_)) {
         if (sourceGap >= 1)
             ++sourceGap;
         if (movedRow >= 1)
             ++movedRow;
     }
-    normalizeTagLinePositions(&blocks_, markdown_);
+    normalizeTagLinePositions(&updated, markdown_);
 
-    coalesceTextNear(&blocks_, sourceGap, markdown_, &movedRow);
-    coalesceListAtBoundary(&blocks_, sourceGap, &movedRow);
-    if (movedRow >= 0 && movedRow < blocks_.size() && blocks_.at(movedRow).type == Text)
-        coalesceTextNear(&blocks_, movedRow == 0 ? 1 : movedRow, markdown_, &movedRow);
+    coalesceTextNear(&updated, sourceGap, markdown_, &movedRow);
+    coalesceListAtBoundary(&updated, sourceGap, &movedRow);
+    if (movedRow >= 0 && movedRow < updated.size() && updated.at(movedRow).type == Text)
+        coalesceTextNear(&updated, movedRow == 0 ? 1 : movedRow, markdown_, &movedRow);
     else {
-        coalesceMovedList(&blocks_, &movedRow);
+        coalesceMovedList(&updated, &movedRow);
         // A structured block moved to the top removes the special title
         // position. Text that used to be split into title and body must then
         // become one ordinary text block again.
-        coalesceTextNear(&blocks_, movedRow + 1, markdown_, &movedRow);
+        coalesceTextNear(&updated, movedRow + 1, markdown_, &movedRow);
     }
 
-    normalizeTagLinePositions(&blocks_, markdown_);
-    endResetModel();
+    normalizeTagLinePositions(&updated, markdown_);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
     return movedRow;
 }
@@ -820,12 +820,21 @@ void NoteBlockModel::removeBlock(int row)
     // Removing a separator can expose two list blocks. Adjacent lists are not
     // a stable document state: keep the upper list as the resident block and
     // reuse the normal moved-item type normalization while coalescing them.
-    beginResetModel();
-    blocks_.removeAt(row);
-    int trackedRow = qMin(row, blocks_.size() - 1);
-    coalesceListAtBoundary(&blocks_, row, &trackedRow);
-    normalizeTagLinePositions(&blocks_, markdown_);
-    endResetModel();
+    // Publish that as removed rows plus a resident-list change, never as a
+    // reset: ListView regenerates a reset model from the top of the document,
+    // so a discarded gap paragraph would scroll the view away and destroy the
+    // editor the user just clicked into.
+    QList<Block> remaining = blocks_;
+    remaining.removeAt(row);
+    coalesceListAtBoundary(&remaining, row, nullptr);
+    const int removedRows = blocks_.size() - remaining.size();
+
+    beginRemoveRows({}, row, row + removedRows - 1);
+    blocks_ = std::move(remaining);
+    endRemoveRows();
+    if (removedRows > 1)
+        emit dataChanged(index(row - 1), index(row - 1), { ItemsRole, IndentsRole, ItemTypesRole, CheckedRole });
+    notifyNormalizedTagLines();
     emit contentsChanged();
 }
 

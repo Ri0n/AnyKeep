@@ -27,7 +27,7 @@ QtObject {
         prepareStructuralSelection()
         selectedAttachmentIndex = -1
         selectedMediaIndex = blockIndex
-        editorView.positionViewAtIndex(blockIndex, ListView.Contain)
+        focusCoordinator.revealBlock(blockIndex)
         return true
     }
 
@@ -55,7 +55,7 @@ QtObject {
         prepareStructuralSelection()
         selectedMediaIndex = -1
         selectedAttachmentIndex = blockIndex
-        editorView.positionViewAtIndex(blockIndex, ListView.Contain)
+        focusCoordinator.revealBlock(blockIndex)
         return true
     }
 

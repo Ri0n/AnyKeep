@@ -468,7 +468,10 @@ TextArea {
             editorView.activeTagLineIndex = -1
             editorView.activeEditor = this
             rememberPlainText()
-            editorView.scheduleCursorVisibility(this)
+            // Focus handed back by window activation or a closing popup keeps
+            // the document where the user left it, even away from the caret.
+            if (focusReason !== Qt.ActiveWindowFocusReason && focusReason !== Qt.PopupFocusReason)
+                editorView.scheduleCursorVisibility(this)
         } else {
             clearPendingInlineStyles()
             if (discardEmptyBlockOnFocusLoss && hasReceivedActiveFocus)

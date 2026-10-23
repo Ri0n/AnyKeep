@@ -43,6 +43,18 @@
   persistence path.
 - A focused text delegate may defer applying `sourceText`; history restoration
   must flush or apply that pending value before restoring cursor state.
+- Structural `NoteBlockModel` edits publish row removals/insertions through
+  `replaceBlocks()`, never a model reset: `ListView` regenerates a reset model
+  from the top of the document, which makes the viewport jump.
+- Never position the editor view (`positionViewAtIndex`, `contentY`) from code
+  that runs while `ListView` creates a delegate (`Component.onCompleted`,
+  `registerEditor`). Defer to the next event-loop turn; otherwise ListView
+  discards every delegate and rebuilds the viewport from an estimated offset.
+- Bring focus targets into view with `revealBlock()` / `revealEditorRange()`
+  (smallest scroll), never `ListView.Contain`, and never restore an absolute
+  `contentY` after undo/redo. Focus regained through window activation or a
+  closing popup must not scroll to the caret. The view has no current row:
+  keep `currentIndex: -1` and ListView key navigation disabled.
 - Root-level facade files remain intentionally tiny and preserve compatibility
   for desktop resource URLs and the mobile QML module.
 

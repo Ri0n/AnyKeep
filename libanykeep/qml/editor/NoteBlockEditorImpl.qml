@@ -85,6 +85,14 @@ ListView {
     readonly property int scrollBarInset: !touchMode && verticalScrollBar.visible
                                            ? Math.ceil(verticalScrollBar.width) : 0
     model: blockModel
+    // The editor has no current row. ListView's own current item would take
+    // delegate focus when rows change, and its key navigation scrolls to that
+    // row (for example on Down while an image is selected), jumping to the
+    // top of the note.
+    currentIndex: -1
+    keyNavigationEnabled: false
+    highlightFollowsCurrentItem: false
+    onModelChanged: currentIndex = -1
     // ListView estimates contentHeight from instantiated delegates. Editor
     // blocks vary from one-line paragraphs to very tall code blocks, so the
     // estimate otherwise changes while scrolling and makes the desktop
@@ -128,10 +136,10 @@ ListView {
             selectionEnd: Number(result.start) + Number(result.length),
             atEnd: false
         }
-        positionViewAtIndex(address.blockIndex, ListView.Contain)
         if (takeFocus)
             return focusEditorAddress(address)
 
+        focusController.revealBlock(address.blockIndex)
         function revealWithoutFocus() {
             const editor = editorForAddress(address)
             if (!editor)
@@ -139,6 +147,7 @@ ListView {
             if (editor.sourceTextPending && typeof editor.applyPendingSourceText === "function")
                 editor.applyPendingSourceText()
             setEditorSelection(editor, address.selectionStart, address.selectionEnd)
+            focusController.revealEditorRange(editor, address.selectionStart, address.selectionEnd)
             return true
         }
         if (!revealWithoutFocus())

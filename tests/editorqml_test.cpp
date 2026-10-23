@@ -90,6 +90,41 @@ QQuickItem *textEditorForBlock(QQuickItem *root, int blockIndex)
     return nullptr;
 }
 
+// Alternates headings and paragraphs so that every section boundary is a
+// real inter-block gap in a document much taller than the viewport.
+QString longSectionedMarkdown()
+{
+    QStringList sections;
+    for (int section = 1; section <= 40; ++section)
+        sections << QStringLiteral("## Section %1\n\nParagraph %1").arg(section);
+    return sections.join(QStringLiteral("\n\n"));
+}
+
+// Scrolls a freshly opened long note well below its title and returns a
+// paragraph editor whose top lies in the upper middle of the viewport.
+QQuickItem *scrollToMiddleParagraph(const NoteBlockModel *model, QQuickItem *root, QQuickItem *blockEditor)
+{
+    const qreal scrollRange = blockEditor->property("contentHeight").toReal() - blockEditor->height();
+    if (scrollRange <= blockEditor->height())
+        return nullptr;
+    blockEditor->setProperty("contentY", scrollRange * 0.6);
+    QQuickItem *paragraph = nullptr;
+    QTest::qWaitFor([&]() {
+        for (int row = 2; row + 1 < model->rowCount(); row += 2) {
+            QQuickItem *candidate = textEditorForBlock(root, row);
+            if (!candidate || !candidate->isVisible())
+                continue;
+            const qreal top = candidate->mapToItem(blockEditor, QPointF()).y();
+            if (top > blockEditor->height() / 3 && top < blockEditor->height() / 2) {
+                paragraph = candidate;
+                return true;
+            }
+        }
+        return false;
+    });
+    return paragraph;
+}
+
 QList<QQuickItem *> tableCellEditors(QQuickItem *root, int blockIndex)
 {
     QList<QQuickItem *> result;
@@ -104,6 +139,33 @@ QList<QQuickItem *> tableCellEditors(QQuickItem *root, int blockIndex)
 }
 
 } // namespace
+
+// Records every scroll position of the editor view, including intermediate
+// ones that a later event-loop turn corrects again.
+class ContentYRecorder final : public QObject {
+    Q_OBJECT
+public:
+    explicit ContentYRecorder(QQuickItem *view) : view_(view)
+    {
+        connect(view, SIGNAL(contentYChanged()), this, SLOT(record()));
+    }
+
+    QList<qreal> values;
+
+    QString trace() const
+    {
+        QStringList positions;
+        for (const qreal value : values)
+            positions << QString::number(value);
+        return positions.join(QLatin1Char(' '));
+    }
+
+private slots:
+    void record() { values << view_->property("contentY").toReal(); }
+
+private:
+    QQuickItem *view_;
+};
 
 class EditorQmlTest : public QObject {
     Q_OBJECT
@@ -662,6 +724,363 @@ private slots:
         editor.setMarkdown(false);
         QTRY_VERIFY(!layer->property("formatEnabled").toBool());
         QTRY_VERIFY(!copyMarkdown->property("formatEnabled").toBool());
+    }
+
+    void discardingGapParagraphKeepsScrolledViewportAndClickedLine()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(longSectionedMarkdown(), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QCOMPARE(editor.model()->rowCount(), 81);
+        QQuickItem *title = nullptr;
+        QTRY_VERIFY((title = textEditorForBlock(root, 0)));
+        auto *blockEditor = ancestorWithProperty(title, "currentFindText");
+        QVERIFY(blockEditor);
+
+        QQuickItem *previous = nullptr;
+        QVERIFY((previous = scrollToMiddleParagraph(editor.model(), root, blockEditor)));
+        const int previousRow      = previous->property("blockIndex").toInt();
+        auto     *previousDelegate = ancestorWithProperty(previous, "reorderSourceActive");
+        QVERIFY(previousDelegate);
+
+        const qreal  spacing = blockEditor->property("spacing").toReal();
+        const QPoint gapPoint
+            = previousDelegate
+                  ->mapToItem(root, QPointF(previousDelegate->width() / 2, previousDelegate->height() + spacing / 2))
+                  .toPoint();
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier, gapPoint);
+        QTRY_COMPARE(editor.model()->rowCount(), 82);
+        QVERIFY(editor.model()->isExplicitEmptyTextBlock(previousRow + 1));
+        QQuickItem *placeholder = nullptr;
+        QTRY_VERIFY((placeholder = textEditorForBlock(root, previousRow + 1)) && placeholder->hasActiveFocus());
+        QTest::qWait(50);
+
+        // Change of mind: click back into the preceding line. The temporary
+        // paragraph disappears, but the document must stay where it was and
+        // the clicked line must keep the caret it was just given.
+        const qreal          contentYBefore = blockEditor->property("contentY").toReal();
+        const qreal          previousTop    = previous->mapToItem(root, QPointF()).y();
+        const QPointF        localClick(qMin<qreal>(30, previous->width() / 2), previous->height() / 2);
+        QPointer<QQuickItem> clicked(previous);
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier,
+                          previous->mapToItem(root, localClick).toPoint());
+        QTRY_COMPARE(editor.model()->rowCount(), 81);
+        QTest::qWait(100);
+
+        QVERIFY2(qAbs(blockEditor->property("contentY").toReal() - contentYBefore) < 1,
+                 qPrintable(QStringLiteral("Viewport jumped from %1 to %2 after discarding the gap paragraph")
+                                .arg(contentYBefore)
+                                .arg(blockEditor->property("contentY").toReal())));
+        QVERIFY2(clicked, "Discarding the gap paragraph recreated the clicked line's editor");
+        QCOMPARE(clicked->property("blockIndex").toInt(), previousRow);
+        QVERIFY(clicked->hasActiveFocus());
+        QVERIFY(qAbs(clicked->mapToItem(root, QPointF()).y() - previousTop) < 1);
+        int expectedCursor = -1;
+        QVERIFY(QMetaObject::invokeMethod(clicked, "positionAt", Q_RETURN_ARG(int, expectedCursor),
+                                          Q_ARG(qreal, localClick.x()), Q_ARG(qreal, localClick.y())));
+        QVERIFY(expectedCursor > 0);
+        QCOMPARE(clicked->property("cursorPosition").toInt(), expectedCursor);
+    }
+
+    void structuralEditsAndHistoryKeepScrolledViewport()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(longSectionedMarkdown(), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *title = nullptr;
+        QTRY_VERIFY((title = textEditorForBlock(root, 0)));
+        auto *blockEditor = ancestorWithProperty(title, "currentFindText");
+        QVERIFY(blockEditor);
+        QQuickItem *paragraph = nullptr;
+        QVERIFY((paragraph = scrollToMiddleParagraph(editor.model(), root, blockEditor)));
+        const int            row = paragraph->property("blockIndex").toInt();
+        QPointer<QQuickItem> above(textEditorForBlock(root, row - 2));
+        QVERIFY(above);
+
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier,
+                          paragraph->mapToItem(root, QPointF(30, paragraph->height() / 2)).toPoint());
+        QTRY_VERIFY(paragraph->hasActiveFocus());
+        QTest::qWait(50);
+        const qreal contentY   = blockEditor->property("contentY").toReal();
+        const qreal top        = paragraph->mapToItem(blockEditor, QPointF()).y();
+        const qreal aboveTop   = above->mapToItem(blockEditor, QPointF()).y();
+        const auto  verifyKept = [&](const char *step, int expectedType) {
+            QQuickItem *current = nullptr;
+            QTRY_VERIFY2((current = textEditorForBlock(root, row)) && current->hasActiveFocus(), step);
+            QCOMPARE(editor.model()->blockTypeAt(row), expectedType);
+            QTest::qWait(100);
+            QVERIFY2(qAbs(blockEditor->property("contentY").toReal() - contentY) < 1,
+                     qPrintable(QStringLiteral("%1 moved the viewport from %2 to %3")
+                                    .arg(QLatin1String(step))
+                                    .arg(contentY)
+                                    .arg(blockEditor->property("contentY").toReal())));
+            QVERIFY2(qAbs(current->mapToItem(blockEditor, QPointF()).y() - top) < 1,
+                     qPrintable(QStringLiteral("%1 moved the edited block from %2 to %3")
+                                    .arg(QLatin1String(step))
+                                    .arg(top)
+                                    .arg(current->mapToItem(blockEditor, QPointF()).y())));
+            QVERIFY2(above, qPrintable(QStringLiteral("%1 recreated an unrelated block").arg(QLatin1String(step))));
+            QVERIFY(qAbs(above->mapToItem(blockEditor, QPointF()).y() - aboveTop) < 1);
+        };
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_2, Qt::ControlModifier);
+        QTRY_COMPARE(editor.model()->blockTypeAt(row), int(NoteBlockModel::Heading));
+        verifyKept("Heading conversion", int(NoteBlockModel::Heading));
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_Z, Qt::ControlModifier);
+        QTRY_COMPARE(editor.model()->blockTypeAt(row), int(NoteBlockModel::Text));
+        verifyKept("Undo", int(NoteBlockModel::Text));
+
+        QTest::keyClick(host.quickWidget(), Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+        QTRY_COMPARE(editor.model()->blockTypeAt(row), int(NoteBlockModel::Heading));
+        verifyKept("Redo", int(NoteBlockModel::Heading));
+    }
+
+    void tallBlockEditsAndFindDoNotSnapToBlockTop()
+    {
+        QStringList sentences;
+        for (int sentence = 1; sentence <= 80; ++sentence)
+            sentences << QStringLiteral("Sentence number %1 keeps this paragraph growing.").arg(sentence);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("## Intro\n\nshort\n\n## Long\n\n") + sentences.join(QLatin1Char(' '))
+                         + QStringLiteral(" needle end\n\n## After\n\ntail"),
+                     Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *title = nullptr;
+        QQuickItem *tall  = nullptr;
+        QTRY_VERIFY((title = textEditorForBlock(root, 0)));
+        QTRY_VERIFY((tall = textEditorForBlock(root, 4)));
+        auto *blockEditor = ancestorWithProperty(title, "currentFindText");
+        QVERIFY(blockEditor);
+        QTRY_VERIFY(tall->height() > 2 * blockEditor->height());
+
+        // Edit at the end of a paragraph much taller than the viewport.
+        const qreal tallBottom
+            = tall->mapToItem(blockEditor, QPointF(0, tall->height())).y() + blockEditor->property("contentY").toReal();
+        blockEditor->setProperty("contentY", tallBottom - blockEditor->height() + 60);
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier,
+                          tall->mapToItem(root, QPointF(tall->width() - 5, tall->height() - 5)).toPoint());
+        QTRY_VERIFY(tall->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_End, Qt::ControlModifier);
+        QTest::qWait(100);
+        {
+            ContentYRecorder recorder(blockEditor);
+            QTest::keyClicks(host.quickWidget(), QStringLiteral("x"));
+            QTRY_VERIFY(editor.model()->blockTextAt(4).endsWith(QLatin1Char('x')));
+            QTest::keyClick(host.quickWidget(), Qt::Key_Z, Qt::ControlModifier);
+            QTRY_VERIFY(!editor.model()->blockTextAt(4).endsWith(QLatin1Char('x')));
+            QTRY_VERIFY(tall->hasActiveFocus());
+            QTest::qWait(150);
+            QVERIFY2(
+                recorder.values.isEmpty(),
+                qPrintable(
+                    QStringLiteral("Typing and undo at the visible caret scrolled through %1").arg(recorder.trace())));
+        }
+
+        // Finding text near the end of the tall paragraph goes straight there
+        // instead of first snapping the paragraph's top into the viewport.
+        blockEditor->setProperty("contentY", 0);
+        QTest::qWait(50);
+        ContentYRecorder recorder(blockEditor);
+        QVariant         found;
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "findNext", Q_RETURN_ARG(QVariant, found),
+                                          Q_ARG(QVariant, QStringLiteral("needle")), Q_ARG(QVariant, false),
+                                          Q_ARG(QVariant, true)));
+        QVERIFY(found.toBool());
+        QTRY_VERIFY(tall->hasActiveFocus());
+        QTest::qWait(150);
+        const qreal finalY = blockEditor->property("contentY").toReal();
+        QVERIFY(!recorder.values.isEmpty());
+        for (const qreal value : std::as_const(recorder.values))
+            QVERIFY2(qAbs(value - finalY) < 1,
+                     qPrintable(QStringLiteral("Find scrolled through %1 before settling at %2")
+                                    .arg(recorder.trace())
+                                    .arg(finalY)));
+        QRectF caret;
+        QVERIFY(QMetaObject::invokeMethod(tall, "positionToRectangle", Q_RETURN_ARG(QRectF, caret),
+                                          Q_ARG(int, tall->property("cursorPosition").toInt())));
+        const qreal caretTop = tall->mapToItem(blockEditor, caret.topLeft()).y();
+        QVERIFY(caretTop >= 0 && caretTop + caret.height() <= blockEditor->height());
+    }
+
+    void windowActivationAndArrowKeysKeepViewport()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(longSectionedMarkdown(), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        editor.model()->insertMedia(50, QStringLiteral("media://image"), QStringLiteral("Image"),
+                                    QStringLiteral("image/png"), 0, 64, 48);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *title = nullptr;
+        QQuickItem *first = nullptr;
+        QTRY_VERIFY((title = textEditorForBlock(root, 0)));
+        QTRY_VERIFY((first = textEditorForBlock(root, 2)));
+        auto *blockEditor = ancestorWithProperty(title, "currentFindText");
+        QVERIFY(blockEditor);
+        const auto reactivateWindow = [&host]() {
+            QFocusEvent focusOut(QEvent::FocusOut, Qt::ActiveWindowFocusReason);
+            QCoreApplication::sendEvent(host.quickWidget(), &focusOut);
+            QTest::qWait(30);
+            QFocusEvent focusIn(QEvent::FocusIn, Qt::ActiveWindowFocusReason);
+            QCoreApplication::sendEvent(host.quickWidget(), &focusIn);
+            QTest::qWait(150);
+        };
+
+        // Scrolling away from the caret and switching windows must not bring
+        // the document back to the caret.
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier,
+                          first->mapToItem(root, QPointF(20, first->height() / 2)).toPoint());
+        QTRY_VERIFY(first->hasActiveFocus());
+        QTest::qWait(100);
+        blockEditor->setProperty("contentY", 1200.0);
+        QTest::qWait(50);
+        QCOMPARE(blockEditor->property("contentY").toReal(), 1200.0);
+        {
+            ContentYRecorder recorder(blockEditor);
+            reactivateWindow();
+            QTRY_VERIFY(first->hasActiveFocus());
+            QVERIFY2(recorder.values.isEmpty(), "Window activation scrolled back to the caret");
+        }
+
+        // A selected image keeps its selection and the viewport: neither
+        // window activation nor arrow keys may move focus to the title.
+        QVariant handled;
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "focusMediaBlock", Q_RETURN_ARG(QVariant, handled),
+                                          Q_ARG(QVariant, 50)));
+        QTRY_COMPARE(blockEditor->property("selectedMediaIndex").toInt(), 50);
+        QTRY_VERIFY(blockEditor->property("contentY").toReal() > 1000);
+        QTest::qWait(100);
+        ContentYRecorder recorder(blockEditor);
+        reactivateWindow();
+        QCOMPARE(blockEditor->property("selectedMediaIndex").toInt(), 50);
+        QVERIFY(!title->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+        QTest::keyClick(host.quickWidget(), Qt::Key_PageDown);
+        QTest::keyClick(host.quickWidget(), Qt::Key_Up);
+        QTest::qWait(100);
+        QVERIFY2(
+            recorder.values.isEmpty(),
+            qPrintable(QStringLiteral("The selected image scrolled the document through %1").arg(recorder.trace())));
+        QVERIFY(!title->hasActiveFocus());
+    }
+
+    void listEditsAtDocumentTopKeepViewport()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("- one\n    - two\n- three\n\nbody"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *title  = nullptr;
+        QQuickItem *nested = nullptr;
+        QTRY_VERIFY((title = textEditorForBlock(root, 0)));
+        QTRY_VERIFY(
+            (nested = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 1)));
+        auto *blockEditor = ancestorWithProperty(title, "currentFindText");
+        QVERIFY(blockEditor);
+        QTest::qWait(100);
+        const qreal top = blockEditor->property("contentY").toReal();
+
+        // Outdenting restores the viewport it captured; at the very top that
+        // position lies inside ListView's top margin and must not be clamped.
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier,
+                          nested->mapToItem(root, QPointF(2, nested->height() / 2)).toPoint());
+        QTRY_VERIFY(nested->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Home);
+        QTest::qWait(50);
+        ContentYRecorder recorder(blockEditor);
+        QTest::keyClick(host.quickWidget(), Qt::Key_Backspace);
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::IndentsRole).toList(),
+                     QVariantList({ 0, 0, 0 }));
+        QTest::qWait(100);
+        QVERIFY2(recorder.values.isEmpty() || qAbs(recorder.values.constLast() - top) < 1,
+                 qPrintable(QStringLiteral("Outdenting at the top scrolled through %1").arg(recorder.trace())));
+        QCOMPARE(blockEditor->property("contentY").toReal(), top);
+    }
+
+    void backspacingSeparatorMergesListsIntoResidentDelegate()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("- bullet\n\nx\n\n1. numbered"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QCOMPARE(editor.model()->rowCount(), 4);
+        const auto listItemEditor = [root](int item) -> QQuickItem * {
+            for (QQuickItem *candidate : textEditors(root))
+                if (candidate->property("blockIndex").toInt() == 1
+                    && candidate->property("listItemIndex").toInt() == item) {
+                    return candidate;
+                }
+            return nullptr;
+        };
+        QQuickItem *bullet    = nullptr;
+        QQuickItem *separator = nullptr;
+        QTRY_VERIFY((bullet = listItemEditor(0)));
+        QTRY_VERIFY((separator = textEditorForBlock(root, 2)));
+        QPointer<QQuickItem> residentList(ancestorWithProperty(bullet, "itemData"));
+        QVERIFY(residentList);
+
+        separator->forceActiveFocus(Qt::MouseFocusReason);
+        separator->setProperty("cursorPosition", 1);
+        QTRY_VERIFY(separator->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Backspace);
+        QTRY_COMPARE(editor.model()->blockTextAt(2), QString());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Backspace);
+
+        QTRY_COMPARE(editor.model()->rowCount(), 2);
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ QStringLiteral("bullet"), QStringLiteral("numbered") }));
+        QVERIFY2(residentList, "Merging adjacent lists recreated the resident list delegate");
+        QQuickItem *merged = nullptr;
+        QTRY_VERIFY((merged = listItemEditor(1)) && merged->hasActiveFocus());
+        QVariant mergedText;
+        QVERIFY(QMetaObject::invokeMethod(merged, "currentPlainText", Q_RETURN_ARG(QVariant, mergedText)));
+        QCOMPARE(mergedText.toString(), QStringLiteral("numbered"));
+        QTRY_COMPARE(merged->property("cursorPosition").toInt(), merged->property("length").toInt());
     }
 
     void tableBordersUseSinglePixelTextColorGrid()

@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include <algorithm>
+
 #include "noteblockmodel.h"
 #include "notedata.h"
 #include "notetagline.h"
@@ -353,6 +355,88 @@ void NoteBlockModelTest::movingBlockAwayMergesAdjacentListsAtSourceGap()
              QVariantList({ int(NoteBlockModel::BulletList), int(NoteBlockModel::BulletList) }));
     QCOMPARE(model.blockTypeAt(2), int(NoteBlockModel::Text));
     QCOMPARE(model.blockTypeAt(3), int(NoteBlockModel::Media));
+}
+
+void NoteBlockModelTest::removingBlockPublishesRowRemovalWithoutReset()
+{
+    // Views keep their scroll position and focused delegates across row
+    // removals, but regenerate everything from the top after a reset.
+    NoteBlockModel gap;
+    gap.load(QStringLiteral("Title\n\n## first\n\nbody\n\n## second"), true);
+    gap.insertTextBlock(3);
+    QVERIFY(gap.isExplicitEmptyTextBlock(3));
+    QSignalSpy gapReset(&gap, &NoteBlockModel::modelAboutToBeReset);
+    QSignalSpy gapRemoved(&gap, &NoteBlockModel::rowsRemoved);
+    gap.removeBlock(3);
+    QCOMPARE(gapReset.count(), 0);
+    QCOMPARE(gapRemoved.count(), 1);
+    QCOMPARE(gapRemoved.constFirst().at(1).toInt(), 3);
+    QCOMPARE(gapRemoved.constFirst().at(2).toInt(), 3);
+    QCOMPARE(gap.contents(), QStringLiteral("Title\n\n## first\n\nbody\n\n## second"));
+
+    NoteBlockModel lists;
+    lists.load(QStringLiteral("Title\n\n- bullet\n\n![image](media://image)\n\n1. numbered\n\nend"), true);
+    QCOMPARE(lists.rowCount(), 5);
+    QSignalSpy listsReset(&lists, &NoteBlockModel::modelAboutToBeReset);
+    QSignalSpy listsRemoved(&lists, &NoteBlockModel::rowsRemoved);
+    QSignalSpy listsChanged(&lists, &NoteBlockModel::dataChanged);
+    lists.removeBlock(2);
+    QCOMPARE(listsReset.count(), 0);
+    QCOMPARE(listsRemoved.count(), 1);
+    QCOMPARE(listsRemoved.constFirst().at(1).toInt(), 2);
+    QCOMPARE(listsRemoved.constFirst().at(2).toInt(), 3);
+    QVERIFY(std::any_of(listsChanged.cbegin(), listsChanged.cend(), [](const QList<QVariant> &arguments) {
+        return arguments.at(0).toModelIndex().row() <= 1 && arguments.at(1).toModelIndex().row() >= 1
+            && arguments.at(2).value<QList<int>>().contains(NoteBlockModel::ItemsRole);
+    }));
+    QCOMPARE(lists.rowCount(), 3);
+    QCOMPARE(lists.data(lists.index(1), NoteBlockModel::ItemsRole).toStringList(),
+             QStringList({ QStringLiteral("bullet"), QStringLiteral("numbered") }));
+    QCOMPARE(lists.data(lists.index(1), NoteBlockModel::ItemTypesRole).toList(),
+             QVariantList({ int(NoteBlockModel::BulletList), int(NoteBlockModel::BulletList) }));
+    QCOMPARE(lists.blockTypeAt(2), int(NoteBlockModel::Text));
+}
+
+void NoteBlockModelTest::structuralEditsPublishRowChangesWithoutReset()
+{
+    NoteBlockModel model;
+    const QString  document = QStringLiteral("Title\n\n## A\n\nfirst\n\nsecond\n\nthird\n\n## B\n\nbeta\n\n## C");
+    model.load(document, true);
+    QCOMPARE(model.rowCount(), 6);
+
+    QStringList changes;
+    connect(&model, &NoteBlockModel::modelAboutToBeReset, &model, [&changes] { changes << QStringLiteral("reset"); });
+    connect(&model, &NoteBlockModel::rowsRemoved, &model, [&changes](const QModelIndex &, int first, int last) {
+        changes << QStringLiteral("-%1:%2").arg(first).arg(last);
+    });
+    connect(&model, &NoteBlockModel::rowsInserted, &model, [&changes](const QModelIndex &, int first, int last) {
+        changes << QStringLiteral("+%1:%2").arg(first).arg(last);
+    });
+
+    // Only the split paragraph block is replaced; its neighbours keep their
+    // rows (and therefore their delegates and the view position).
+    QCOMPARE(model.convertTextBlockToHeading(2, 8, 2), 3);
+    QCOMPARE(changes, QStringList({ QStringLiteral("-2:2"), QStringLiteral("+2:4") }));
+    QCOMPARE(model.contents(), QStringLiteral("Title\n\n## A\n\nfirst\n\n## second\n\nthird\n\n## B\n\nbeta\n\n## C"));
+
+    // Reloading the same document format publishes only the changed rows.
+    changes.clear();
+    model.load(document, true);
+    QCOMPARE(changes, QStringList({ QStringLiteral("-2:4"), QStringLiteral("+2:2") }));
+    QCOMPARE(model.contents(), document);
+
+    // A moved block is the only row recreated; the rows it jumps over stay.
+    changes.clear();
+    QCOMPARE(model.moveBlockResolved(5, 1), 1);
+    QCOMPARE(changes, QStringList({ QStringLiteral("+1:1"), QStringLiteral("-6:6") }));
+    QCOMPARE(model.blockTextAt(1), QStringLiteral("C"));
+    QCOMPARE(model.blockTextAt(2), QStringLiteral("A"));
+    QCOMPARE(model.blockTextAt(5), QStringLiteral("beta"));
+
+    // A format change re-renders every block, so it remains a reset.
+    changes.clear();
+    model.load(QStringLiteral("plain"), false);
+    QCOMPARE(changes, QStringList({ QStringLiteral("reset") }));
 }
 
 void NoteBlockModelTest::movingListRangeIntoListAdoptsExistingTypeAtSameLevel()

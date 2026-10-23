@@ -22,7 +22,12 @@ QtObject {
             editors = editors.concat([editor])
             ++editorRegistrations
         }
-        tryPendingEditorFocus(editor)
+        // ListView creates delegates while it lays itself out. Completing a
+        // pending request synchronously can position the view from inside that
+        // layout, before the new row is a visible item: ListView then discards
+        // every delegate and rebuilds the viewport from an estimated offset.
+        if (pendingFocusAddress || pendingEditorState)
+            Qt.callLater(controller.tryPendingEditorFocus)
     }
 
     function unregisterEditor(editor) {
@@ -56,17 +61,62 @@ QtObject {
     function ensureEditorCursorVisible(editor) {
         if (!editor || editor !== activeEditor || !editor.activeFocus)
             return
-        const rectangle = editor.positionToRectangle(editor.cursorPosition)
-        const point = editor.mapToItem(editorView, rectangle.x, rectangle.y)
-        const margin = Math.max(4, Math.round(editorView.editorFontMetricsHeight / 2))
-        const top = point.y
-        const bottom = point.y + Math.max(1, rectangle.height)
-        if (top < margin) {
-            editorView.contentY = Math.max(editorView.originY, editorView.contentY + top - margin)
-        } else if (bottom > editorView.height - margin) {
-            const maximum = editorView.originY + Math.max(0, editorView.contentHeight - editorView.height)
-            editorView.contentY = Math.min(maximum, editorView.contentY + bottom - (editorView.height - margin))
+        revealEditorRange(editor, editor.cursorPosition, editor.cursorPosition)
+    }
+
+    // Scrolls by the smallest amount that shows a character range of an
+    // editor, keeping a small margin to the viewport edges.
+    function revealEditorRange(editor, start, end) {
+        const first = editor.positionToRectangle(Math.min(start, end))
+        const last = editor.positionToRectangle(Math.max(start, end))
+        const top = editor.mapToItem(editorView, 0, first.y).y
+        const bottom = editor.mapToItem(editorView, 0, last.y + Math.max(1, last.height)).y
+        revealViewportSpan(top, bottom - top, Math.max(4, Math.round(editorView.editorFontMetricsHeight / 2)))
+    }
+
+    // Brings a block into view by the smallest scroll. ListView.Contain snaps
+    // a block taller than the viewport to its top, which throws the caret out
+    // of view and makes the document jump there and back. Show a block that
+    // fits completely; of a taller one only bring the nearer edge in when it
+    // is entirely off screen and leave the rest to the caret or selection
+    // reveal. Only a row without a delegate is located through ListView.
+    function revealBlock(blockIndex) {
+        // Until ListView lays out pending model changes, itemAtIndex() still
+        // answers with the delegate that used to be at that row, and a newly
+        // inserted row has no editor to receive the pending focus request.
+        editorView.forceLayout()
+        const item = editorView.itemAtIndex(blockIndex)
+        if (!item) {
+            editorView.positionViewAtIndex(blockIndex, ListView.Contain)
+            return
         }
+        const top = item.mapToItem(editorView, 0, 0).y
+        if (item.height <= editorView.height)
+            revealViewportSpan(top, item.height, 0)
+        else if (top >= editorView.height)
+            revealViewportSpan(top, editorView.height, 0)
+        else if (top + item.height <= 0)
+            revealViewportSpan(top + item.height - editorView.height, editorView.height, 0)
+    }
+
+    function revealViewportSpan(top, height, margin) {
+        const bottom = top + Math.max(1, height)
+        let delta = 0
+        if (top < margin)
+            delta = top - margin
+        else if (bottom > editorView.height - margin)
+            delta = Math.min(top - margin, bottom - (editorView.height - margin))
+        if (delta !== 0)
+            editorView.contentY = clampedContentY(editorView.contentY + delta)
+    }
+
+    // The scrollable range includes ListView's top and bottom margins: at the
+    // very top of a note contentY is originY - topMargin, not originY.
+    function clampedContentY(value) {
+        const minimum = editorView.originY - editorView.topMargin
+        const maximum = Math.max(minimum, editorView.originY + editorView.contentHeight
+                                          + editorView.bottomMargin - editorView.height)
+        return Math.max(minimum, Math.min(maximum, value))
     }
 
     property Timer pendingFocusRetry: Timer {
@@ -116,8 +166,7 @@ QtObject {
             wholeDocumentSelected: editorView.wholeDocumentSelected,
             selectionSpansEditors: editorView.selectionSpansEditors,
             selectionStart: null,
-            selectionEnd: null,
-            contentY: editorView.contentY
+            selectionEnd: null
         }
         if (editorView.selectionSpansEditors && editorView.documentSelectionStartEditor && editorView.documentSelectionEndEditor) {
             state.selectionStart = editorAddress(editorView.documentSelectionStartEditor,
@@ -213,15 +262,17 @@ QtObject {
         pendingFocusAddress = null
         if (address.preserveViewport)
             return true
-        // A structural change (notably a table-cell edit) may settle its
-        // delegate's height after focus was restored. Re-check on the next
-        // two turns so ListView's scroll anchoring cannot leave the cursor
-        // outside the viewport.
+        // Reveal the caret in this turn: revealBlock() may only have brought
+        // the edge of a tall block into view. A structural change (notably a
+        // table-cell edit) may settle its delegate's height after focus was
+        // restored, so re-check on the next two turns as well; ListView's
+        // scroll anchoring must not leave the cursor outside the viewport.
+        ensureEditorCursorVisible(editor)
         scheduleCursorVisibility(editor)
         Qt.callLater(function() {
             if (editor !== editorView.activeEditor || !editor.activeFocus)
                 return
-            editorView.positionViewAtIndex(editor.blockIndex, ListView.Contain)
+            revealBlock(editor.blockIndex)
             editorView.scheduleCursorVisibility(editor)
             Qt.callLater(function() {
                 if (editor === editorView.activeEditor && editor.activeFocus)
@@ -238,9 +289,7 @@ QtObject {
         function restore(finalPass) {
             if (generation !== editorView.viewportRestoreGeneration)
                 return
-            editorView.contentY = Math.max(editorView.originY,
-                                     Math.min(editorView.originY + Math.max(0, editorView.contentHeight - editorView.height),
-                                              requestedY))
+            editorView.contentY = clampedContentY(requestedY)
             if (finalPass) {
                 editorView.suppressCursorVisibility = false
             } else {
@@ -317,12 +366,12 @@ QtObject {
         pendingFocusAddress = address
         if (address.preserveViewport) {
             const viewportY = address.viewportY === undefined
-                    ? contentY : Number(address.viewportY)
+                    ? editorView.contentY : Number(address.viewportY)
             preserveViewportAt(viewportY)
         } else {
             ++viewportRestoreGeneration
             suppressCursorVisibility = false
-            editorView.positionViewAtIndex(Number(address.blockIndex), ListView.Contain)
+            revealBlock(Number(address.blockIndex))
         }
         if (!tryPendingEditorFocus())
             pendingFocusRetry.restart()
@@ -355,19 +404,14 @@ QtObject {
         pendingEditorState = state || null
         if (!pendingEditorState)
             return false
+        // Undo/redo reveals the restored caret or selection with the smallest
+        // scroll. Restoring the absolute scroll offset recorded when the edit
+        // began would move a document the user has scrolled since.
         const target = state.active || state.selectionStart || state.selectionEnd
         if (target && Number(target.blockIndex) >= 0)
-            editorView.positionViewAtIndex(Number(target.blockIndex), ListView.Contain)
+            revealBlock(Number(target.blockIndex))
         if (!tryRestorePendingEditorState())
             pendingFocusRetry.restart()
-        if (state.contentY !== undefined) {
-            const requestedY = Number(state.contentY)
-            Qt.callLater(function() {
-                editorView.contentY = Math.max(editorView.originY,
-                                         Math.min(editorView.originY + Math.max(0, editorView.contentHeight - editorView.height),
-                                                  requestedY))
-            })
-        }
         return true
     }
 
@@ -540,19 +584,33 @@ QtObject {
     }
 
     function focusInitialEditor() {
+        // Window activation hands focus back to the block that owned it (text,
+        // image, tag line). Keep it: moving focus to the title would drop that
+        // selection and scroll the document to its beginning.
+        if (editorView.activeFocus && editorView.Window.activeFocusItem !== editorView)
+            return true
         // A ListView delegate may have been replaced since a focus request was
         // queued. QML `var` properties retain a wrapper for a destroyed item,
         // which is truthy but no longer has callable methods.
-        if (activeEditor && editors.indexOf(activeEditor) >= 0) {
-            activeEditor.forceActiveFocus()
-            return true
+        let editor = activeEditor && editors.indexOf(activeEditor) >= 0 ? activeEditor : null
+        if (!editor) {
+            activeEditor = null
+            editor = firstVisibleEditor()
         }
-        activeEditor = null
-        const loader = editorView.itemAtIndex(0)
-        if (!loader || !loader.item)
+        if (!editor)
             return false
-        loader.item.forceActiveFocus()
+        // Like window activation, restoring focus must not scroll to the caret.
+        editor.forceActiveFocus(Qt.ActiveWindowFocusReason)
         return true
+    }
+
+    function firstVisibleEditor() {
+        const ordered = orderedEditors()
+        for (const editor of ordered) {
+            if (editor.mapToItem(editorView, 0, editor.height).y > 0)
+                return editor
+        }
+        return ordered.length > 0 ? ordered[0] : null
     }
 
     function focusTagLineBlock(blockIndex, atEnd, focusDraft) {
@@ -567,7 +625,7 @@ QtObject {
         editorView.clearAttachmentSelection()
         activeEditor = null
         activeTagLineIndex = blockIndex
-        editorView.positionViewAtIndex(blockIndex, ListView.Contain)
+        revealBlock(blockIndex)
 
         function applyFocus(attempt) {
             if (generation !== editorView.focusRequestGeneration
@@ -577,7 +635,7 @@ QtObject {
             const editor = delegate && delegate.item ? delegate.item : null
             if (!editor) {
                 if (attempt < 3) {
-                    editorView.positionViewAtIndex(blockIndex, ListView.Contain)
+                    revealBlock(blockIndex)
                     Qt.callLater(function() { applyFocus(attempt + 1) })
                 } else {
                     editorView.forceActiveFocus()

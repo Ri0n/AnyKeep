@@ -110,11 +110,13 @@ EditorAddress
     selectionEnd
 ```
 
-`EditorViewState` adds the normalized cross-editor selection endpoints,
-whole-document selection state, and vertical scroll position. Index addresses
-are valid for undo because commands are applied in stack order: structural
-commands that changed an index are reverted before older scalar commands that
-refer to that index.
+`EditorViewState` adds the normalized cross-editor selection endpoints and
+whole-document selection state. It deliberately records no scroll position:
+restoring one would move a document the user has scrolled since the edit.
+Undo/redo reveals the restored caret or selection with the smallest scroll
+instead. Index addresses are valid for undo because commands are applied in
+stack order: structural commands that changed an index are reverted before
+older scalar commands that refer to that index.
 
 QML exposes a single focus boundary:
 
@@ -129,7 +131,11 @@ function documentHistoryOwnsFocus()
 ```
 
 Focus requests may outlive a delegate. The root editor stores one pending
-address, scrolls its block into view, and retries after delegates are created.
+address, reveals its block, and retries after delegates are created. Revealing
+scrolls minimally: a block that fits in the viewport is shown completely, a
+taller one only far enough for its caret or selection. Never use
+`ListView.Contain` for this; it snaps a tall block's top into view and the
+caret reveal then scrolls back.
 List- and table-specific pending-focus variables are not permitted. If an exact
 address cannot be restored, the fallback order is the closest editor in the
 same block, the preceding editor, and finally the first document editor.
@@ -280,11 +286,19 @@ sequenceDiagram
 ```
 
 During restore, normal history recording is disabled. QML selection is cleared
-and focus is moved away from delegates before a structural model reset. A
-snapshot restore emits one model reset plus one `contentsChanged()`; a scalar
-restore emits the relevant `dataChanged()` plus one `contentsChanged()`. This
-prevents a destroyed delegate from writing stale source back into the restored
-model while avoiding delegate recreation for ordinary typing undo.
+and focus is moved away from delegates before a structural model change. A
+snapshot restore removes and reinserts only the blocks that differ from the
+restored state, then emits one `contentsChanged()`; unchanged blocks keep their
+delegates, so the viewport stays where it was. Only a Markdown/plain-text mode
+change resets the model. A scalar restore emits the relevant `dataChanged()`
+plus one `contentsChanged()`. This prevents a destroyed delegate from writing
+stale source back into the restored model while avoiding delegate recreation
+for ordinary typing undo.
+
+Structural `NoteBlockModel` edits follow the same rule: they edit a copy of the
+block list and publish the difference as row removals and insertions. Never
+reintroduce `beginResetModel()` for an editing operation; `ListView`
+regenerates a reset model from the top of the document.
 
 ## Keyboard and context-menu routing
 

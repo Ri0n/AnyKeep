@@ -90,11 +90,11 @@ NoteFragment NoteBlockModel::extractBlockFragment(int firstRow, int lastRow) con
             destination.table.markdownCells = source.cells;
             break;
         case Media:
-            destination.type             = NoteFragmentBlockType::Media;
-            destination.media.sourceUri  = source.url;
-            destination.media.title      = source.alt;
-            destination.media.mediaType  = source.mediaType;
-            destination.media.durationMs = source.mediaDurationMs;
+            destination.type               = NoteFragmentBlockType::Media;
+            destination.media.sourceUri    = source.url;
+            destination.media.title        = source.alt;
+            destination.media.mediaType    = source.mediaType;
+            destination.media.durationMs   = source.mediaDurationMs;
             destination.media.pixelWidth   = source.mediaWidth;
             destination.media.pixelHeight  = source.mediaHeight;
             destination.media.displayWidth = source.mediaDisplayWidth;
@@ -205,8 +205,7 @@ NoteFragment NoteBlockModel::extractSelectionFragment(const QList<NoteBlockSelec
                 }
                 fragment.blocks.append(block);
             }
-        } else if (source.type == Media || source.type == Attachment
-                   || source.type == TagLine) {
+        } else if (source.type == Media || source.type == Attachment || source.type == TagLine) {
             const bool wholeBlock = std::all_of(ranges.cbegin() + first, ranges.cbegin() + last,
                                                 [](const auto &range) { return range.wholeEditor; });
             if (wholeBlock) {
@@ -324,13 +323,12 @@ int NoteBlockModel::removeSelectionRanges(const QList<NoteBlockSelectionRange> &
     if (replacement.isEmpty() && removesEntireDocument)
         replacement.append(Block {});
 
-    beginResetModel();
-    for (int row = lastRow; row >= firstRow; --row)
-        blocks_.removeAt(row);
+    QList<Block> updated = blocks_;
+    updated.remove(firstRow, lastRow - firstRow + 1);
     for (int index = 0; index < replacement.size(); ++index)
-        blocks_.insert(firstRow + index, replacement.at(index));
-    normalizeTagLinePositions(&blocks_, markdown_);
-    endResetModel();
+        updated.insert(firstRow + index, replacement.at(index));
+    normalizeTagLinePositions(&updated, markdown_);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
     return qMin(firstRow, blocks_.size() - 1);
 }
@@ -384,14 +382,13 @@ int NoteBlockModel::replaceTextSelectionWithCodeBlock(const QList<NoteBlockSelec
         replacement.append(suffix);
     }
 
-    beginResetModel();
-    for (int row = lastRow; row >= firstRow; --row)
-        blocks_.removeAt(row);
+    QList<Block> updated = blocks_;
+    updated.remove(firstRow, lastRow - firstRow + 1);
     for (int index = 0; index < replacement.size(); ++index)
-        blocks_.insert(firstRow + index, replacement.at(index));
-    normalizeTitleBlock(&blocks_, markdown_);
-    normalizeTagLinePositions(&blocks_, markdown_, true);
-    endResetModel();
+        updated.insert(firstRow + index, replacement.at(index));
+    normalizeTitleBlock(&updated, markdown_);
+    normalizeTagLinePositions(&updated, markdown_, true);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
     return codeRow;
 }
@@ -483,8 +480,8 @@ bool NoteBlockModel::blocksFromFragment(const NoteFragment &fragment, QList<Bloc
             if (source.media.sourceUri.isEmpty() || !supportedType || source.media.durationMs < 0
                 || source.media.durationMs > MaxMediaDurationMs || source.media.pixelWidth < 0
                 || source.media.pixelWidth > MaxMediaPixelDimension || source.media.pixelHeight < 0
-                || source.media.pixelHeight > MaxMediaPixelDimension
-                || source.media.displayWidth < 0 || source.media.displayWidth > MaxSerializedImageWidth
+                || source.media.pixelHeight > MaxMediaPixelDimension || source.media.displayWidth < 0
+                || source.media.displayWidth > MaxSerializedImageWidth
                 || (alignment != QLatin1String("left") && alignment != QLatin1String("center")
                     && alignment != QLatin1String("right"))) {
                 if (error)
@@ -575,13 +572,13 @@ int NoteBlockModel::replaceTextBlockRangeWithFragment(int row, const QString &be
         return -1;
     }
 
-    beginResetModel();
-    blocks_.removeAt(row);
+    QList<Block> updated = blocks_;
+    updated.removeAt(row);
     for (int index = 0; index < replacement.size(); ++index)
-        blocks_.insert(row + index, replacement.at(index));
-    normalizeTitleBlock(&blocks_, markdown_);
-    normalizeTagLinePositions(&blocks_, markdown_, true);
-    endResetModel();
+        updated.insert(row + index, replacement.at(index));
+    normalizeTitleBlock(&updated, markdown_);
+    normalizeTagLinePositions(&updated, markdown_, true);
+    replaceBlocks(std::move(updated));
     emit contentsChanged();
     return insertedRow;
 }

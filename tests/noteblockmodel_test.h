@@ -78,6 +78,8 @@ private slots:
     void movingStructuredBlockAwayRecombinesTextNeighbors();
     void movingListBlockNextToListMergesAndAdoptsResidentType();
     void movingBlockAwayMergesAdjacentListsAtSourceGap();
+    void removingBlockPublishesRowRemovalWithoutReset();
+    void structuralEditsPublishRowChangesWithoutReset();
     void movingListRangeIntoListAdoptsExistingTypeAtSameLevel();
     void indentingListSubtreePreservesItemTypes();
     void movesStyledImageBlocksWithoutChangingPresentation();
