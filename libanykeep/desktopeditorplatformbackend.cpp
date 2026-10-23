@@ -19,7 +19,7 @@
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QMimeData>
-#include <QMimeDatabase>
+#include <QPair>
 #include <QPixmap>
 #include <QPushButton>
 #include <QRunnable>
