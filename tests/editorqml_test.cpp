@@ -11,6 +11,7 @@
 #include <QQuickItem>
 #include <QQuickTextDocument>
 #include <QQuickWidget>
+#include <QQuickWindow>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QtTest>
@@ -1371,7 +1372,26 @@ private slots:
         QTRY_VERIFY((text = textEditorForBlock(root, 1)));
         QVariant plain;
         QVERIFY(QMetaObject::invokeMethod(text, "currentPlainText", Q_RETURN_ARG(QVariant, plain)));
-        QTRY_VERIFY(text->hasActiveFocus());
+        // A structural model reset can replace the delegate even after
+        // rowCount reaches its final value. Never keep testing the old pointer:
+        // inspect whichever TextArea currently belongs to the merged block.
+        const bool focused = QTest::qWaitFor([&] {
+            text = textEditorForBlock(root, 1);
+            return text && text->hasActiveFocus();
+        }, 3000);
+        if (!focused) {
+            auto *owner = host.quickWidget()->quickWindow()->activeFocusItem();
+            qWarning() << "Focus after unlisting:"
+                       << "text" << text
+                       << "textActive" << (text && text->hasActiveFocus())
+                       << "textIndex" << (text ? text->property("blockIndex") : QVariant())
+                       << "owner" << owner
+                       << "ownerName" << (owner ? owner->objectName() : QString())
+                       << "ownerIndex" << (owner ? owner->property("blockIndex") : QVariant())
+                       << "activeEditor" << root->property("activeEditor")
+                       << "pendingFocus" << root->property("pendingFocusAddress");
+        }
+        QVERIFY(focused);
         QTRY_COMPARE(text->property("cursorPosition").toInt(), plain.toString().indexOf(QStringLiteral("item")));
         // Restoring the activeEditor pointer alone is insufficient: the
         // surviving TextArea must own keyboard focus after the list delegate
