@@ -10,6 +10,9 @@ inputs:
   qt-version:
     description: Qt version or series
     required: true
+  qt-sdk-suffix:
+    description: Lock-derived Qt SDK suffix for QtKeychain release asset names
+    required: true
   ndk-version:
     description: Android NDK version
     required: true
@@ -90,7 +93,7 @@ runs:
         gh release download "${{ inputs.iris-tag }}" --repo psi-im/iris \
           -p "iris-qt6-android-${{ inputs.abi }}.zip" -O iris.zip
 
-        qtkeychain_asset="qtkeychain-${{ inputs.qtkeychain-version }}-${{ inputs.qtkeychain-revision }}-qt6.12-android-${{ inputs.abi }}.tar.gz"
+        qtkeychain_asset="qtkeychain-${{ inputs.qtkeychain-version }}-${{ inputs.qtkeychain-revision }}-${{ inputs.qt-sdk-suffix }}-android-${{ inputs.abi }}.tar.gz"
         gh release download "${{ inputs.qtkeychain-tag }}" --repo "$GITHUB_REPOSITORY" \
           -p "$qtkeychain_asset" -O qtkeychain.tar.gz
 
