@@ -225,6 +225,14 @@ private slots:
         QTRY_VERIFY((card = quickItemByName(root, QStringLiteral("attachmentBlockEditor-%1").arg(attachmentRow))));
         QVERIFY(card->isVisible());
         QVERIFY2(card->height() >= 40, "Non-media attachment must occupy visible space in the document");
+        QQuickItem *fileName = nullptr;
+        QTRY_VERIFY((fileName = quickItemByName(root, QStringLiteral("attachmentFileName-%1").arg(attachmentRow))));
+        QVERIFY(fileName->isVisible());
+        QCOMPARE(fileName->property("text").toString(), QStringLiteral("Specification.pdf"));
+        QQuickItem *glyph = nullptr;
+        QTRY_VERIFY((glyph = quickItemByName(root, QStringLiteral("attachmentFileGlyph-%1").arg(attachmentRow))));
+        QVERIFY(glyph->isVisible());
+        QTRY_COMPARE(glyph->childItems().first()->property("status").toInt(), 1);
         QCOMPARE(editor.model()->data(editor.model()->index(attachmentRow),
                                       NoteBlockModel::AttachmentMediaTypeRole).toString(),
                  QStringLiteral("application/pdf"));
