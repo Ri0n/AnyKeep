@@ -69,6 +69,7 @@ private:
     SpeechRecognitionController  *speechController_ { nullptr };
     UpdateController             *updates_ { nullptr };
     QPointer<QQuickWindow>        window_;
+    bool                          fileDragAccepted_ { false };
     bool                          imageDragAccepted_ { false };
     bool                          initialRevealPending_ { false };
     bool                          initialRevealDone_ { false };
