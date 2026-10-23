@@ -1373,6 +1373,12 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(text, "currentPlainText", Q_RETURN_ARG(QVariant, plain)));
         QTRY_VERIFY(text->hasActiveFocus());
         QTRY_COMPARE(text->property("cursorPosition").toInt(), plain.toString().indexOf(QStringLiteral("item")));
+        // Restoring the activeEditor pointer alone is insufficient: the
+        // surviving TextArea must own keyboard focus after the list delegate
+        // is destroyed, or the next typed character silently disappears.
+        QTest::keyClicks(host.quickWidget(), QStringLiteral("X"));
+        QTRY_VERIFY(editor.model()->blockTextAt(1).contains(QStringLiteral("Xitem")));
+        QVERIFY(text->hasActiveFocus());
     }
 
 private:
