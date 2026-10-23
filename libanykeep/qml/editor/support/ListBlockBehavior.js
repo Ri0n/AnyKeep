@@ -138,14 +138,12 @@ function handleKey(host, controller, event, cell, itemIndex) {
                 preserveViewport: true,
                 viewportY: viewportY
             })
-            // The ListView may replace the target TextArea after the first
-            // focusEditorAddress() while merging the unlisted paragraph with
-            // the preceding text block. Restore focus on the *surviving*
-            // delegate, not only its activeEditor bookkeeping. Without this,
-            // typing goes nowhere on Qt versions that discard focus with the
-            // old delegate (notably the system Qt on Ubuntu 24.04).
-            // Respect newer focus requests so a delayed callback cannot steal
-            // focus from another block.
+            // The model keeps Markdown paragraph separators while TextArea
+            // renders them as one visual line break. Resolve the position in
+            // that final visual projection instead of treating a source
+            // offset as a TextArea cursor position. Only refine the cursor of
+            // the editor the request above focused: a newer focus request or
+            // a click elsewhere in the meantime wins.
             const focusGeneration = controller.focusRequestGeneration
             Qt.callLater(function() {
                 Qt.callLater(function() {
@@ -153,15 +151,8 @@ function handleKey(host, controller, event, cell, itemIndex) {
                         return
                     const delegate = controller.itemAtIndex(textRow)
                     const editor = delegate ? delegate.item : null
-                    if (!editor || Number(editor.blockIndex) !== textRow
-                            || Number(editor.listItemIndex) >= 0)
-                        return
-                    // Markdown paragraph separators differ from the TextArea
-                    // plain-text projection. Find the original list item's
-                    // start in the final merged paragraph.
-                    editor.forceActiveFocus()
-                    editor.cursorPosition = Math.max(0, editor.currentPlainText().lastIndexOf(itemPlainText))
-                    controller.activeEditor = editor
+                    if (editor && editor.activeFocus && Number(editor.listItemIndex) < 0)
+                        editor.cursorPosition = Math.max(0, editor.currentPlainText().lastIndexOf(itemPlainText))
                 })
             })
             return true

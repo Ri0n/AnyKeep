@@ -11,7 +11,6 @@
 #include <QQuickItem>
 #include <QQuickTextDocument>
 #include <QQuickWidget>
-#include <QQuickWindow>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QtTest>
@@ -1365,37 +1364,28 @@ private slots:
         item->forceActiveFocus(Qt::MouseFocusReason);
         item->setProperty("cursorPosition", 0);
         QTRY_VERIFY(item->hasActiveFocus());
+        auto *blockEditor = ancestorWithProperty(item, "currentFindText");
+        QVERIFY(blockEditor);
         QTest::keyClick(host.quickWidget(), Qt::Key_Backspace);
 
-        QTRY_COMPARE(editor.model()->rowCount(), 2);
+        // Unlisting replaces both the preceding paragraph row and the list
+        // row with one merged paragraph. The focus request must resolve to the
+        // new row at once, not to a delegate ListView is still removing: focus
+        // would disappear together with that delegate.
+        QCOMPARE(editor.model()->rowCount(), 2);
+        auto *focused = qobject_cast<QQuickItem *>(blockEditor->property("activeEditor").value<QObject *>());
+        QVERIFY(focused);
+        QCOMPARE(focused->property("blockIndex").toInt(), 1);
+        QVERIFY(focused->hasActiveFocus());
+
         QQuickItem *text = nullptr;
         QTRY_VERIFY((text = textEditorForBlock(root, 1)));
+        QCOMPARE(text, focused);
         QVariant plain;
         QVERIFY(QMetaObject::invokeMethod(text, "currentPlainText", Q_RETURN_ARG(QVariant, plain)));
-        // A structural model reset can replace the delegate even after
-        // rowCount reaches its final value. Never keep testing the old pointer:
-        // inspect whichever TextArea currently belongs to the merged block.
-        const bool focused = QTest::qWaitFor([&] {
-            text = textEditorForBlock(root, 1);
-            return text && text->hasActiveFocus();
-        }, 3000);
-        if (!focused) {
-            auto *owner = host.quickWidget()->quickWindow()->activeFocusItem();
-            qWarning() << "Focus after unlisting:"
-                       << "text" << text
-                       << "textActive" << (text && text->hasActiveFocus())
-                       << "textIndex" << (text ? text->property("blockIndex") : QVariant())
-                       << "owner" << owner
-                       << "ownerName" << (owner ? owner->objectName() : QString())
-                       << "ownerIndex" << (owner ? owner->property("blockIndex") : QVariant())
-                       << "activeEditor" << root->property("activeEditor")
-                       << "pendingFocus" << root->property("pendingFocusAddress");
-        }
-        QVERIFY(focused);
         QTRY_COMPARE(text->property("cursorPosition").toInt(), plain.toString().indexOf(QStringLiteral("item")));
-        // Restoring the activeEditor pointer alone is insufficient: the
-        // surviving TextArea must own keyboard focus after the list delegate
-        // is destroyed, or the next typed character silently disappears.
+        QVERIFY(text->hasActiveFocus());
+        // Typing must reach the merged paragraph immediately.
         QTest::keyClicks(host.quickWidget(), QStringLiteral("X"));
         QTRY_VERIFY(editor.model()->blockTextAt(1).contains(QStringLiteral("Xitem")));
         QVERIFY(text->hasActiveFocus());

@@ -202,7 +202,10 @@ QtObject {
     function editorForAddress(address, candidate) {
         if (candidate && addressMatchesEditor(address, candidate, true))
             return candidate
-        const ordered = orderedEditors()
+        // A delegate that ListView is removing reports row -1 until it is
+        // destroyed. It must never take a restored cursor: focus would vanish
+        // together with it.
+        const ordered = orderedEditors().filter(editor => editor.blockIndex >= 0)
         for (const editor of ordered)
             if (addressMatchesEditor(address, editor, true))
                 return editor
@@ -364,6 +367,10 @@ QtObject {
             return false
         const generation = ++focusRequestGeneration
         pendingFocusAddress = address
+        // Resolve the address against the rows ListView is about to show.
+        // Until it lays out pending model changes, a replaced row still has
+        // its old delegate and the new row has no editor to receive focus.
+        editorView.forceLayout()
         if (address.preserveViewport) {
             const viewportY = address.viewportY === undefined
                     ? editorView.contentY : Number(address.viewportY)
