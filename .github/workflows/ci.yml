@@ -15,7 +15,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  QT_CURRENT_SERIES: "6.12.*"
   ANDROID_NDK_VERSION: r27c
   ANDROID_API: 28
   ANDROID_OPENSSL_REVISION: b71f1470962019bd89534a2919f5925f93bc5779
@@ -45,6 +44,9 @@ jobs:
 
       - name: Test QCA and Iris lock-derived Debian minimums
         run: python3 -m unittest discover -s .github/scripts -p 'test_debian_runtime_minimum.py'
+
+      - name: Test Qt lock-derived toolchain and SDK version alignment
+        run: python3 -m unittest discover -s .github/scripts -p 'test_qt_versions.py'
 
       - name: Resolve compatible nightly dependencies
         id: nightly
@@ -80,8 +82,10 @@ jobs:
       - name: Set up Windows desktop build
         uses: ./.github/actions/setup-windows-desktop
         with:
-          qt-version: ${{ env.QT_CURRENT_SERIES }}
+          qt-version: ${{ env.QT_VERSION }}
+          qt-sdk-suffix: ${{ env.QT_SDK_SUFFIX }}
           qca-tag: ${{ env.QCA_TAG }}
+          iris-tag: ${{ env.IRIS_TAG }}
           qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
           qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
           qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
@@ -382,7 +386,8 @@ jobs:
           allow-debug-signing: 'true'
           abi: ${{ matrix.abi }}
           qt-arch: ${{ matrix.qt-arch }}
-          qt-version: ${{ env.QT_CURRENT_SERIES }}
+          qt-version: ${{ env.QT_VERSION }}
+          qt-sdk-suffix: ${{ env.QT_SDK_SUFFIX }}
           ndk-version: ${{ env.ANDROID_NDK_VERSION }}
           android-api: ${{ env.ANDROID_API }}
           android-openssl-revision: ${{ env.ANDROID_OPENSSL_REVISION }}
@@ -411,7 +416,7 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: ${{ env.QT_CURRENT_SERIES }}
+          version: ${{ env.QT_VERSION }}
           # Qt 6.12's QmlAssetDownloaderPrivate plugin depends on the
           # TaskTree addon even though AnyKeep does not use TaskTree directly.
           modules: qtmultimedia qttasktree
@@ -439,7 +444,7 @@ jobs:
             -p "qca3-qt6-macos-x86_64.zip" \
             -O qca.zip
 
-          qtkeychain_asset="qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.12-macos-x86_64.tar.gz"
+          qtkeychain_asset="qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-${QT_SDK_SUFFIX}-macos-x86_64.tar.gz"
           gh release download "$QTKEYCHAIN_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             -p "$qtkeychain_asset" \
