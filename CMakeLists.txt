@@ -29,6 +29,8 @@ project(
 include(ConanDependencies)
 
 include(CTest)
+# All Qt build selectors and minimum API baselines come from dependencies.lock.json.
+include(DependencyVersions)
 
 option(ANYKEEP_DEVEL "Enable development mode (adjusts some paths and output)" OFF)
 option(ANYKEEP_ENABLE_X11 "Build AnyKeep components that use X11 directly" ON)
@@ -163,9 +165,9 @@ if(QT_SINGLE_APPLICATION_WIDGET)
   list(APPEND QT_COMPONENTS Widgets)
 endif()
 if(ANYKEEP_BUILD_MOBILE)
-  find_package(Qt6 6.11 REQUIRED ${QT_COMPONENTS} COMPONENTS Xml)
+  find_package(Qt6 ${ANYKEEP_DEP_QT_MINIMUM_MOBILE} REQUIRED ${QT_COMPONENTS} COMPONENTS Xml)
 else()
-  find_package(Qt6 6.4 REQUIRED COMPONENTS ${QT_COMPONENTS} Widgets PrintSupport QuickWidgets)
+  find_package(Qt6 ${ANYKEEP_DEP_QT_MINIMUM_DESKTOP} REQUIRED COMPONENTS ${QT_COMPONENTS} Widgets PrintSupport QuickWidgets)
 endif()
 include(GNUInstallDirs)
 
