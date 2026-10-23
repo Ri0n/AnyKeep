@@ -5,6 +5,9 @@ inputs:
   qt-version:
     description: Qt version spec passed to install-qt-action
     required: true
+  qt-sdk-suffix:
+    description: Lock-derived Qt SDK suffix for QtKeychain release asset names
+    required: true
   qca-tag:
     description: psi-im/qca release tag
     required: true
@@ -66,7 +69,7 @@ runs:
         gh release download $env:IRIS_TAG --repo psi-im/iris `
           -p iris-qt6-windows-x64.zip -O iris.zip
 
-        $qtkeychainAsset = "qtkeychain-$env:QTKEYCHAIN_VERSION-$env:QTKEYCHAIN_REVISION-qt6.12-windows-x64.tar.gz"
+        $qtkeychainAsset = "qtkeychain-$env:QTKEYCHAIN_VERSION-$env:QTKEYCHAIN_REVISION-${{ inputs.qt-sdk-suffix }}-windows-x64.tar.gz"
         gh release download $env:QTKEYCHAIN_TAG --repo $env:GITHUB_REPOSITORY `
           -p $qtkeychainAsset -O qtkeychain.tar.gz
 
