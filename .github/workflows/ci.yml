@@ -15,13 +15,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  QT_CURRENT_SERIES: "6.11.*"
+  QT_CURRENT_SERIES: "6.12.*"
   ANDROID_NDK_VERSION: r27c
   ANDROID_API: 28
   ANDROID_OPENSSL_REVISION: b71f1470962019bd89534a2919f5925f93bc5779
-  # aqtinstall 3.3.0 cannot read the new Windows Qt 6.11 repository layout.
+  # aqtinstall 3.3.0 cannot read the Qt 6.11+ Windows repository layout.
   # PR #1000 contains the upstream fix; remove this override after aqt releases it.
-  AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
+  AQT_QT6_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
 
 jobs:
   package-plan-check:
@@ -85,7 +85,7 @@ jobs:
           qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
           qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
           qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
-          aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          aqt-source: ${{ env.AQT_QT6_SOURCE }}
           github-token: ${{ github.token }}
 
       # ccache >= 4.13 officially supports cl.exe. Pin the Windows binary:
@@ -391,7 +391,7 @@ jobs:
           qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
           qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
           qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
-          aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          aqt-source: ${{ env.AQT_QT6_SOURCE }}
           github-token: ${{ github.token }}
 
   macos:
@@ -412,7 +412,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_CURRENT_SERIES }}
-          # Qt 6.11's QmlAssetDownloaderPrivate plugin depends on the new
+          # Qt 6.12's QmlAssetDownloaderPrivate plugin depends on the
           # TaskTree addon even though AnyKeep does not use TaskTree directly.
           modules: qtmultimedia qttasktree
           cache: true
@@ -439,7 +439,7 @@ jobs:
             -p "qca3-qt6-macos-x86_64.zip" \
             -O qca.zip
 
-          qtkeychain_asset="qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.11-macos-x86_64.tar.gz"
+          qtkeychain_asset="qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.12-macos-x86_64.tar.gz"
           gh release download "$QTKEYCHAIN_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             -p "$qtkeychain_asset" \
