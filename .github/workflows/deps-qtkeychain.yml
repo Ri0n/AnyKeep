@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - master
+      # Bootstrap the Qt 6.12 dependency release from PR #157.
+      # Drop this branch trigger after publishing all bundles.
+      - fix/iris-v1.5-qt611-compat
     paths:
       - dependencies.lock.json
       - .github/actions/load-dependencies/action.yml
@@ -18,11 +21,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  QT_SERIES: "6.11.*"
+  QT_SERIES: "6.12.*"
   ANDROID_NDK_VERSION: "r27c"
   ANDROID_API: "28"
-  # Temporary until aqtinstall releases Qt 6.11+ Windows repository support.
-  AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
+  # Pinned aqtinstall fork handles the Qt 6.11+ Windows repository layout.
+  AQT_QT6_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
 
 jobs:
   prepare:
@@ -49,7 +52,7 @@ jobs:
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
               --title "$TAG" \
-              --notes "Static QtKeychain ${QTKEYCHAIN_VERSION} dependency bundles for AnyKeep, built with Qt 6.11." \
+              --notes "Static QtKeychain ${QTKEYCHAIN_VERSION} dependency bundles for AnyKeep, built with Qt 6.12." \
               --prerelease
 
   build:
@@ -90,7 +93,7 @@ jobs:
 
       - name: Compute asset name
         id: asset
-        run: echo "name=qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.11-${{ matrix.platform }}.tar.gz" >> "$GITHUB_OUTPUT"
+        run: echo "name=qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.12-${{ matrix.platform }}.tar.gz" >> "$GITHUB_OUTPUT"
 
       - name: Check existing release asset
         id: existing
@@ -112,7 +115,7 @@ jobs:
         with:
           version: ${{ env.QT_SERIES }}
           arch: ${{ matrix.qt-arch }}
-          aqtsource: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          aqtsource: ${{ env.AQT_QT6_SOURCE }}
           cache: true
 
       - name: Install Qt / macOS
@@ -255,7 +258,7 @@ jobs:
           cat > bundle/anykeep-qtkeychain-bundle.txt <<META
           qtkeychain=${QTKEYCHAIN_VERSION}
           revision=${QTKEYCHAIN_REVISION}
-          qt-series=6.11
+          qt-series=6.12
           platform=${{ matrix.platform }}
           linkage=static
           source=https://github.com/frankosterfeld/qtkeychain/tree/${QTKEYCHAIN_VERSION}
