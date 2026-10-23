@@ -30,6 +30,10 @@ public:
     Q_INVOKABLE void openAttachment(const QString &url);
     Q_INVOKABLE void saveAttachmentAs(const QString &url);
 
+    // File-manager drops use the same local media store as picker imports.
+    bool canAcceptFileMimeData(const QMimeData *mimeData) const;
+    bool insertFileMimeData(const QMimeData *mimeData, int row = -1);
+
 private:
     bool    chooseFileImportMode(const QString &fileName, MediaFileImportMode *mode);
     bool    referenceFileAsync(const QString &fileName, int row, bool attachment, MediaFileImportMode mode);
