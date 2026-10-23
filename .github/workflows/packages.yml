@@ -20,13 +20,13 @@ permissions:
   contents: read
 
 env:
-  QT_CURRENT_SERIES: "6.11.*"
+  QT_CURRENT_SERIES: "6.12.*"
   ANDROID_NDK_VERSION: r27c
   ANDROID_API: 28
   ANDROID_OPENSSL_REVISION: b71f1470962019bd89534a2919f5925f93bc5779
   WIX_VERSION: 6.0.2
-  # Temporary until aqtinstall releases Qt 6.11+ Windows repository support.
-  AQT_WINDOWS_QT611_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
+  # Pinned aqtinstall fork handles the Qt 6.11+ Windows repository layout.
+  AQT_QT6_SOURCE: "git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head"
 
 jobs:
   plan:
@@ -263,7 +263,7 @@ jobs:
           qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
           qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
           qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
-          aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          aqt-source: ${{ env.AQT_QT6_SOURCE }}
           github-token: ${{ github.token }}
 
       - name: Set up WiX
@@ -385,7 +385,7 @@ jobs:
             -p "qca3-qt6-macos-${{ matrix.arch }}.zip" -O qca.zip
           gh release download "$IRIS_TAG" --repo psi-im/iris \
             -p "iris-qt6-macos-${{ matrix.arch }}.zip" -O iris.zip
-          qtkeychain_asset="qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.11-macos-${{ matrix.arch }}.tar.gz"
+          qtkeychain_asset="qtkeychain-${QTKEYCHAIN_VERSION}-${QTKEYCHAIN_REVISION}-qt6.12-macos-${{ matrix.arch }}.tar.gz"
           gh release download "$QTKEYCHAIN_TAG" --repo "$GITHUB_REPOSITORY" \
             -p "$qtkeychain_asset" -O qtkeychain.tar.gz
           (cd qca-sdk && cmake -E tar xvf ../qca.zip)
@@ -541,7 +541,7 @@ jobs:
           qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
           qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
           qtkeychain-revision: ${{ env.QTKEYCHAIN_REVISION }}
-          aqt-source: ${{ env.AQT_WINDOWS_QT611_SOURCE }}
+          aqt-source: ${{ env.AQT_QT6_SOURCE }}
           github-token: ${{ github.token }}
           signing-keystore-base64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
           signing-key-alias: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
