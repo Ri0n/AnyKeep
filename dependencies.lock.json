@@ -1,9 +1,9 @@
 {
     "iris": {
-        "tag": "v1.5",
-        "commit": "19d93ae978caae98dd31c3e65d07f2d2d29b61b0",
-        "nightly_compatibility": "locked",
-        "minimum_version": "1.5"
+        "tag": "v1.5.1",
+        "commit": "6109ef98316aeb33b0cfefc00e349f661f9ae7a6",
+        "nightly_compatibility": "same-minor",
+        "minimum_version": "1.5.1"
     },
     "qca": {
         "tag": "v3.0.11",
@@ -12,7 +12,7 @@
         "minimum_version": "3.0.10"
     },
     "qtkeychain": {
-        "tag": "deps-qtkeychain-0.14.3-r1-qt6.11",
+        "tag": "deps-qtkeychain-0.14.3-r1-qt6.12",
         "version": "0.14.3",
         "revision": "r1",
         "nightly_compatibility": "same-minor"
