@@ -56,6 +56,7 @@ private:
     DesktopEditorPlatformBackend *platformBackend_ { nullptr };
     QQuickWidget                 *quick_ { nullptr };
     QPointer<QWidget>             focusWindow_;
+    bool                          fileDragAccepted_ { false };
     bool                          imageDragAccepted_ { false };
     bool                          textDragAccepted_ { false };
     bool                          focusReported_ { false };

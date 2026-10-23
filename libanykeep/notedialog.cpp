@@ -484,33 +484,40 @@ bool NoteDialog::event(QEvent *event)
         editor_->reloadNewerDraft();
     } else if (event->type() == QEvent::DragEnter) {
         auto *drag         = static_cast<QDragEnterEvent *>(event);
-        imageDragAccepted_ = platformBackend_->canAcceptImageMimeData(drag->mimeData());
-        textDragAccepted_  = !imageDragAccepted_ && !TextDropUtils::plainText(drag->mimeData()).isEmpty();
-        if (imageDragAccepted_ || textDragAccepted_) {
+        fileDragAccepted_  = platformBackend_->canAcceptFileMimeData(drag->mimeData());
+        imageDragAccepted_ = !fileDragAccepted_ && platformBackend_->canAcceptImageMimeData(drag->mimeData());
+        textDragAccepted_  = !fileDragAccepted_ && !imageDragAccepted_
+            && !TextDropUtils::plainText(drag->mimeData()).isEmpty();
+        if (fileDragAccepted_ || imageDragAccepted_ || textDragAccepted_) {
             drag->setDropAction(Qt::CopyAction);
             drag->accept();
             return true;
         }
-    } else if (event->type() == QEvent::DragMove && (imageDragAccepted_ || textDragAccepted_)) {
+    } else if (event->type() == QEvent::DragMove && (fileDragAccepted_ || imageDragAccepted_ || textDragAccepted_)) {
         auto *drag = static_cast<QDragMoveEvent *>(event);
         drag->setDropAction(Qt::CopyAction);
         drag->accept();
         return true;
     } else if (event->type() == QEvent::DragLeave) {
+        fileDragAccepted_  = false;
         imageDragAccepted_ = false;
         textDragAccepted_  = false;
-    } else if (event->type() == QEvent::Drop && (imageDragAccepted_ || textDragAccepted_)) {
+    } else if (event->type() == QEvent::Drop && (fileDragAccepted_ || imageDragAccepted_ || textDragAccepted_)) {
         auto      *drop            = static_cast<QDropEvent *>(event);
+        const bool fileDrop        = fileDragAccepted_;
         const bool imageDrop       = imageDragAccepted_;
+        fileDragAccepted_          = false;
         imageDragAccepted_         = false;
         textDragAccepted_          = false;
         const QPointF dropPosition = drop->position();
-        if (imageDrop)
+        if (fileDrop || imageDrop)
             flushEditorChanges();
-        const bool handled = imageDrop
-            ? platformBackend_->insertImageMimeData(drop->mimeData(), insertionRowAt(dropPosition))
-            : invokeQmlTextDrop(rootObject(), TextDropUtils::plainText(drop->mimeData()), dropPosition,
-                                TextDropUtils::detectCode(drop->mimeData()));
+        const bool handled = fileDrop
+            ? platformBackend_->insertFileMimeData(drop->mimeData(), insertionRowAt(dropPosition))
+            : imageDrop
+                ? platformBackend_->insertImageMimeData(drop->mimeData(), insertionRowAt(dropPosition))
+                : invokeQmlTextDrop(rootObject(), TextDropUtils::plainText(drop->mimeData()), dropPosition,
+                                    TextDropUtils::detectCode(drop->mimeData()));
         if (handled) {
             drop->setDropAction(Qt::CopyAction);
             drop->accept();

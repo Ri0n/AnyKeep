@@ -86,6 +86,7 @@ private:
     bool                          initialRevealPending_ { false };
     bool                          initialRevealDone_ { false };
     QElapsedTimer                 initialFrameTimer_;
+    bool                          fileDragAccepted_ { false };
     bool                          imageDragAccepted_ { false };
     bool                          textDragAccepted_ { false };
     Mode                          mode_ { Mode::Normal };

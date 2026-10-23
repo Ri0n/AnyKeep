@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "../../shared" as Shared
 
 FocusScope {
     id: attachmentRoot
@@ -54,6 +55,7 @@ FocusScope {
         id: attachmentCard
         width: parent.width
         implicitHeight: attachmentRoot.editorView.touchMode ? 64 : 54
+        height: implicitHeight
         radius: 6
         color: attachmentName.palette.base
         border.width: attachmentRoot.selected ? 2 : 1
@@ -65,11 +67,18 @@ FocusScope {
             anchors.margins: attachmentRoot.editorView.touchMode ? 8 : 6
             spacing: 10
 
-            Label {
+            Item {
                 Layout.preferredWidth: attachmentRoot.editorView.touchMode ? 42 : 34
-                horizontalAlignment: Text.AlignHCenter
-                text: "📎"
-                font.pixelSize: attachmentRoot.editorView.touchMode ? 23 : 19
+                Layout.preferredHeight: Layout.preferredWidth
+                Shared.ThemedIconImpl {
+                    objectName: "attachmentFileGlyph-" + attachmentRoot.block.index
+                    anchors.centerIn: parent
+                    themeName: "__bundled__"
+                    fallbackName: "attachment-symbolic.svg"
+                    recolorFallback: true
+                    fallbackTintMode: String(attachmentName.palette.text)
+                    pixelSize: attachmentRoot.editorView.touchMode ? 24 : 20
+                }
             }
 
             ColumnLayout {
@@ -78,6 +87,7 @@ FocusScope {
 
                 Label {
                     id: attachmentName
+                    objectName: "attachmentFileName-" + attachmentRoot.block.index
                     Layout.fillWidth: true
                     text: attachmentRoot.block.alt.length > 0
                           ? attachmentRoot.block.alt : qsTr("Attached file")
