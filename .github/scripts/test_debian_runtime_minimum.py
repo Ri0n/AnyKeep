@@ -41,12 +41,14 @@ class RuntimeMinimumTest(unittest.TestCase):
     def test_iris_minor_release_tag_is_supported(self):
         self.assertEqual(module.version_tuple("v1.2"), (1, 2, 0))
         self.assertEqual(module.version_tuple("1.2.0"), (1, 2, 0))
-        # The lock now pins the upstream v1.3 release tag.
+        # Iris 1.5 has a desktop SDK built with Qt 6.10, compatible
+        # with the application's Qt 6.11 runtime. Iris 1.5.1 binaries
+        # require Qt 6.12, so temporarily forbid nightly auto-upgrade.
         lock = json.loads((ROOT / "dependencies.lock.json").read_text(encoding="utf-8"))
-        self.assertEqual(lock["iris"]["tag"], "v1.3")
-        # Iris 1.3 changes the Jingle::Connection ABI; do not permit 1.2 at runtime.
-        self.assertEqual(lock["iris"]["minimum_version"], "1.3")
-        self.assertEqual(module.locked_minimums()["iris"], "1.3")
+        self.assertEqual(lock["iris"]["tag"], "v1.5")
+        self.assertEqual(lock["iris"]["nightly_compatibility"], "locked")
+        self.assertEqual(lock["iris"]["minimum_version"], "1.5")
+        self.assertEqual(module.locked_minimums()["iris"], "1.5")
 
     def test_independent_minimums_not_inferred_from_tags(self):
         with tempfile.TemporaryDirectory() as directory:
