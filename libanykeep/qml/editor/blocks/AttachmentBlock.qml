@@ -87,6 +87,7 @@ FocusScope {
 
                 Label {
                     id: attachmentName
+                    objectName: "attachmentFileName-" + attachmentRoot.block.index
                     Layout.fillWidth: true
                     text: attachmentRoot.block.alt.length > 0
                           ? attachmentRoot.block.alt : qsTr("Attached file")
