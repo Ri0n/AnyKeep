@@ -109,7 +109,7 @@ QQuickItem *scrollToMiddleParagraph(const NoteBlockModel *model, QQuickItem *roo
         return nullptr;
     blockEditor->setProperty("contentY", scrollRange * 0.6);
     QQuickItem *paragraph = nullptr;
-    QTest::qWaitFor([&]() {
+    const bool  found     = QTest::qWaitFor([&]() {
         for (int row = 2; row + 1 < model->rowCount(); row += 2) {
             QQuickItem *candidate = textEditorForBlock(root, row);
             if (!candidate || !candidate->isVisible())
@@ -122,7 +122,7 @@ QQuickItem *scrollToMiddleParagraph(const NoteBlockModel *model, QQuickItem *roo
         }
         return false;
     });
-    return paragraph;
+    return found ? paragraph : nullptr;
 }
 
 QList<QQuickItem *> tableCellEditors(QQuickItem *root, int blockIndex)
