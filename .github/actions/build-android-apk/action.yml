@@ -35,7 +35,7 @@ inputs:
     description: QtKeychain package revision
     required: true
   aqt-source:
-    description: aqtinstall source used for Qt 6.11 Android repositories
+    description: aqtinstall source used for Qt 6.12 Android repositories
     required: true
   github-token:
     description: GitHub token used to download dependency release assets
@@ -90,7 +90,7 @@ runs:
         gh release download "${{ inputs.iris-tag }}" --repo psi-im/iris \
           -p "iris-qt6-android-${{ inputs.abi }}.zip" -O iris.zip
 
-        qtkeychain_asset="qtkeychain-${{ inputs.qtkeychain-version }}-${{ inputs.qtkeychain-revision }}-qt6.11-android-${{ inputs.abi }}.tar.gz"
+        qtkeychain_asset="qtkeychain-${{ inputs.qtkeychain-version }}-${{ inputs.qtkeychain-revision }}-qt6.12-android-${{ inputs.abi }}.tar.gz"
         gh release download "${{ inputs.qtkeychain-tag }}" --repo "$GITHUB_REPOSITORY" \
           -p "$qtkeychain_asset" -O qtkeychain.tar.gz
 
@@ -152,7 +152,7 @@ runs:
           -DANYKEEP_ANDROID_OPENSSL_ROOT="$PWD/android-openssl/ssl_3" \
           -DBUILD_TESTING=OFF
 
-        # Qt 6.11's default QML import scan pulls in every runtime-selectable
+        # Qt 6.12's default QML import scan pulls in every runtime-selectable
         # Quick Controls style. Preserve Qt's dependency resolution but filter
         # only the styles not used on Android, before androiddeployqt copies
         # native libraries and generates its startup metadata. Do not remove
