@@ -265,6 +265,26 @@ bool EditorPlatformBackend::canInsertMedia() const { return editor_ && editor_->
 
 bool EditorPlatformBackend::canInsertAttachments() const { return editor_ && editor_->canInsertAttachments(); }
 
+QVariantMap EditorPlatformBackend::attachmentMimePresentation(const QString &mimeType,
+                                                             const QString &fileName) const
+{
+    QMimeDatabase database;
+    QMimeType type = database.mimeTypeForName(mimeType.trimmed());
+    // A missing or generic content type can be resolved from the portable
+    // filename without requiring a local copy or reading the attachment.
+    if (!type.isValid() || type.name() == QLatin1String("application/octet-stream")) {
+        const QMimeType extensionType = database.mimeTypeForFile(fileName, QMimeDatabase::MatchExtension);
+        if (extensionType.isValid() && extensionType.name() != QLatin1String("application/octet-stream"))
+            type = extensionType;
+    }
+    if (!type.isValid())
+        type = database.mimeTypeForName(QStringLiteral("application/octet-stream"));
+
+    return { { QStringLiteral("description"), type.isValid() ? type.comment() : tr("File") },
+             { QStringLiteral("iconName"), type.isValid() ? type.iconName() : QString() },
+             { QStringLiteral("genericIconName"), type.isValid() ? type.genericIconName() : QString() } };
+}
+
 void EditorPlatformBackend::setEditorFont(const QFont &font)
 {
     if (editorFont_ == font)
