@@ -13,6 +13,7 @@
 #include <QStringList>
 #include <QSyntaxHighlighter>
 #include <QVariantList>
+#include <QVariantMap>
 #include <memory>
 
 class QImage;
