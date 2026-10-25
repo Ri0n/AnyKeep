@@ -5,6 +5,7 @@
 
 #include "draftmanager.h"
 #include "mediaplaybackcontroller.h"
+#include "mediapreviewcontroller.h"
 #include "mediasynccontroller.h"
 #include "noteblockmodel.h"
 #include "notedata.h"
@@ -94,7 +95,8 @@ NoteEditor::NoteEditor(const Note &note, DraftManager &drafts, const QUuid &draf
     QObject(parent), note_(note), drafts_(&drafts), model_(new NoteBlockModel(this)),
     mediaPlayback_(new MediaPlaybackController(this, this)), history_(std::make_unique<NoteDocumentHistory>())
 {
-    draftId_ = drafts_->acquireEditingSession(note_, draftId);
+    mediaPreviews_ = new MediaPreviewController(this, this);
+    draftId_       = drafts_->acquireEditingSession(note_, draftId);
     connect(drafts_, &DraftManager::discardEditorsForNoteRequested, this,
             [this](const QString &storageId, const QString &noteId) {
                 if (viewLeases_ == 0 || note_.storageId() != storageId || note_.id() != noteId)
@@ -659,6 +661,7 @@ void NoteEditor::markFolderPersisted(const QUuid &folderId)
 QObject *NoteEditor::blockModel() const { return model_; }
 
 QObject *NoteEditor::mediaPlayback() const { return mediaPlayback_; }
+QObject *NoteEditor::mediaPreviews() const { return mediaPreviews_; }
 QObject *NoteEditor::mediaSync() const { return mediaSync_; }
 
 void NoteEditor::resetContent(const QString &text, Note::Format format)

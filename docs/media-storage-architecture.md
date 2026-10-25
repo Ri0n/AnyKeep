@@ -851,6 +851,16 @@ future design, not part of PR #155.
 
 Implementation note: timed media shares one playback controller. Video presentation lazily attaches an inline Qt Multimedia output to that player and switches the same player to a dedicated OS-fullscreen output while fullscreen is active; playback position and state remain unchanged. Probing/poster extraction is a separate derived-cache concern and must not write frame-by-frame playback state into storage.
 
+`NoteEditor.mediaPreviews` owns session-only video posters. A visible video
+requests its first decodable frame through one silent, time-limited probe at a
+time, reading the same authenticated local source or range adapter as playback.
+The bounded cache keeps small PNGs in memory; it does not change the document,
+manifest, history, or the shared player's source/position. Removing or replacing media
+invalidates its poster and pending probe. A successful synchronization can retry
+a previously unavailable preview. Before a poster arrives, the video has a
+themed background, border and bundled video glyph. Timed titles are edited in
+the player strip; selection does not insert an extra field above the player.
+
 The mobile shell keeps the screen awake while foreground video is playing and
 clears this request on pause or navigation. When the application becomes hidden
 or suspended, local playback pauses; remote playback releases the decoder's
@@ -894,10 +904,10 @@ and divides these **byte totals**, not per-file percentages. Repeated
 references are counted once. The four states — waiting/paused, actively
 transferring, error and complete — drive the same themed circular QML
 indicator in the desktop toolbar, Android header, image/video alignment
-controls and audio player strip. Progress is the arc fraction; only actual
-transfer animates its rotation. No quantities are displayed. Distinct
-pause/transfer/error/check center glyphs and accessibility text distinguish
-states without relying on color.
+controls, audio player strip and file attachment card. Progress is the arc
+fraction; only actual transfer animates its rotation. No quantities are
+displayed. Distinct pause/transfer/error/check center glyphs and accessibility
+text distinguish states without relying on color.
 
 The local HTTP Range adapter distinguishes the first read of a GET from its
 64 KiB continuation reads. Only the first read may reprioritize Jingle

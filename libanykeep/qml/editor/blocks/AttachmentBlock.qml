@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../../shared" as Shared
+import ".." as EditorComponents
 
 FocusScope {
     id: attachmentRoot
@@ -10,6 +11,12 @@ FocusScope {
     required property var block
     property bool selected: attachmentRoot.editorView.selectedAttachmentIndex === block.index
     readonly property var backend: attachmentRoot.editorView.platformBackend
+    readonly property var mediaSync: attachmentRoot.editorView.editorBackend
+                                    ? attachmentRoot.editorView.editorBackend.mediaSync : null
+    readonly property var syncStatus: {
+        const revision = mediaSync ? mediaSync.revision : 0
+        return mediaSync ? mediaSync.statusForUri(block.url) : ({ valid: false })
+    }
     readonly property var mimePresentation:
         backend && typeof backend.attachmentMimePresentation === "function"
         ? backend.attachmentMimePresentation(block.attachmentMediaType, block.alt)
@@ -76,11 +83,12 @@ FocusScope {
 
     Rectangle {
         id: attachmentCard
+        objectName: "attachmentCard-" + attachmentRoot.block.index
         width: parent.width
         implicitHeight: attachmentRoot.editorView.touchMode ? 64 : 54
         height: implicitHeight
         radius: 6
-        color: attachmentName.palette.base
+        color: attachmentRoot.editorView.documentCardColor
         border.width: attachmentRoot.selected ? 2 : 1
         border.color: attachmentRoot.selected
                       ? attachmentName.palette.highlight : attachmentName.palette.mid
@@ -133,6 +141,16 @@ FocusScope {
                     elide: Text.ElideRight
                     font.pixelSize: Math.max(10, attachmentRoot.editorView.editorFontMetricsHeight * 0.65)
                 }
+            }
+
+            EditorComponents.MediaSyncIndicator {
+                objectName: "attachmentMediaSync-" + attachmentRoot.block.index
+                visible: Boolean(attachmentRoot.syncStatus.valid)
+                Layout.preferredWidth: visible ? attachmentRoot.actionButtonSize : 0
+                Layout.preferredHeight: Layout.preferredWidth
+                progress: attachmentRoot.syncStatus.progress || 0
+                syncState: attachmentRoot.syncStatus.state || 0
+                errorString: attachmentRoot.syncStatus.error || ""
             }
 
             ToolButton {

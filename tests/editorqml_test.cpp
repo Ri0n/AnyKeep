@@ -27,6 +27,7 @@
 #include "desktopeditorplatformbackend.h"
 #include "desktopnoteeditorhost.h"
 #include "draftmanager.h"
+#include "mediasyncservice.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
 #include "notehighlighter.h"
@@ -461,27 +462,33 @@ private slots:
         QVERIFY(item->property("statusText").toString().contains(QStringLiteral("Note")));
     }
 
-    void mediaSyncIsPlacedInVisualAudioAndNoteToolbar()
+    void mediaSyncIsPlacedInVisualAudioAttachmentAndNoteToolbar()
     {
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("Media sync"));
         note.setText(QStringLiteral("Body"), Note::Markdown);
         DraftManager   drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor     editor(note, drafts);
-        MediaReference picture, recording;
-        picture.id             = QUuid::createUuid();
-        picture.portableName   = QStringLiteral("image.png");
-        picture.mediaType      = QStringLiteral("image/png");
-        picture.size           = 100;
-        recording.id           = QUuid::createUuid();
-        recording.portableName = QStringLiteral("audio.m4a");
-        recording.mediaType    = QStringLiteral("audio/mp4");
-        recording.size         = 1000;
-        editor.setMedia({ picture, recording });
+        MediaReference picture, recording, attachment;
+        picture.id              = QUuid::createUuid();
+        picture.portableName    = QStringLiteral("image.png");
+        picture.mediaType       = QStringLiteral("image/png");
+        picture.size            = 100;
+        recording.id            = QUuid::createUuid();
+        recording.portableName  = QStringLiteral("audio.m4a");
+        recording.mediaType     = QStringLiteral("audio/mp4");
+        recording.size          = 1000;
+        attachment.id           = QUuid::createUuid();
+        attachment.portableName = QStringLiteral("report.pdf");
+        attachment.mediaType    = QStringLiteral("application/pdf");
+        attachment.size         = 4000;
+        editor.setMedia({ picture, recording, attachment });
         editor.model()->insertMedia(editor.model()->rowCount(), picture.uri(), QStringLiteral("Image"),
                                     picture.mediaType);
         editor.model()->insertMedia(editor.model()->rowCount(), recording.uri(), QStringLiteral("Audio"),
                                     recording.mediaType, 4000);
+        editor.model()->insertAttachment(editor.model()->rowCount(), attachment.uri(), QStringLiteral("Report.pdf"),
+                                         attachment.mediaType, attachment.size);
 
         DesktopNoteEditorHost host(&editor);
         host.resize(700, 700);
@@ -491,9 +498,141 @@ private slots:
         QTRY_VERIFY(quickItemByName(root, QStringLiteral("noteMediaSyncDesktop")));
         QTRY_VERIFY(quickItemByName(root, QStringLiteral("mediaVisualSync-2")));
         QTRY_VERIFY(quickItemByName(root, QStringLiteral("mediaAudioSync-3")));
+        QQuickItem *fileSync = nullptr;
+        QTRY_VERIFY((fileSync = quickItemByName(root, QStringLiteral("attachmentMediaSync-4"))));
+        QVERIFY(fileSync->isVisible());
+        auto *audioCard = quickItemByName(root, QStringLiteral("mediaCard-3"));
+        auto *fileCard  = quickItemByName(root, QStringLiteral("attachmentCard-4"));
+        QVERIFY(audioCard);
+        QVERIFY(fileCard);
+        QCOMPARE(fileCard->property("color"), audioCard->property("color"));
+        MediaSyncSnapshot transfer;
+        transfer.totalBytes    = attachment.size;
+        transfer.verifiedBytes = 2500;
+        transfer.state         = MediaSyncSnapshot::Transferring;
+        MediaSyncService::instance()->publish(attachment, transfer);
+        QTRY_COMPARE(fileSync->property("progress").toDouble(), 0.625);
+        QTRY_COMPARE(fileSync->property("syncState").toInt(), int(MediaSyncSnapshot::Transferring));
         const auto *noteSync = quickItemByName(root, QStringLiteral("noteMediaSyncDesktop"));
         QVERIFY(noteSync->isVisible());
         QVERIFY(noteSync->property("progress").toDouble() < 1.0);
+    }
+
+    void playerClicksFocusWithoutMovingAndTitleEditsStayInsidePlayer_data()
+    {
+        QTest::addColumn<bool>("video");
+        QTest::newRow("audio") << false;
+        QTest::newRow("video") << true;
+    }
+
+    void playerClicksFocusWithoutMovingAndTitleEditsStayInsidePlayer()
+    {
+        QFETCH(bool, video);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Players"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        editor.model()->insertMedia(2, QStringLiteral("test-media"), QStringLiteral("Original title"),
+                                    video ? QStringLiteral("video/mp4") : QStringLiteral("audio/mp4"), 4000);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(700, 600);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *media = nullptr;
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        auto *card    = quickItemByName(root, QStringLiteral("mediaCard-2"));
+        auto *title   = quickItemByName(root, QStringLiteral("mediaLabel-2"));
+        auto *alt     = quickItemByName(root, QStringLiteral("mediaTitleEditor-2"));
+        auto *outline = quickItemByName(root, QStringLiteral("mediaSelectionOutline-2"));
+        QVERIFY(card);
+        QVERIFY(title);
+        QVERIFY(alt);
+        QVERIFY(outline);
+        QVERIFY(!alt->isVisible());
+        QCOMPARE(outline->isVisible(), video);
+        if (video) {
+            QVERIFY(QQmlProperty(outline, QStringLiteral("border.width")).read().toInt() > 0);
+            auto *placeholder = quickItemByName(root, QStringLiteral("videoPreviewPlaceholder-2"));
+            QVERIFY(placeholder && placeholder->isVisible());
+        }
+
+        // Exercise a live video output without opening a decoder or keychain.
+        QQmlComponent playbackComponent(host.quickWidget()->engine());
+        playbackComponent.setData(R"(
+            import QtQml
+            QtObject {
+                property bool available: true
+                property string currentSourceUri: "test-media"
+                property bool playing: false
+                property bool loading: false
+                property bool seeking: false
+                property real duration: 4000
+                property real position: 0
+                function toggle(uri) { playing = !playing }
+                function seek(uri, value) { position = value }
+                function attachVideoOutput(output) {}
+                function detachVideoOutput(output) {}
+            }
+        )",
+                                  QUrl());
+        std::unique_ptr<QObject> playback(playbackComponent.create());
+        QVERIFY2(playback, qPrintable(playbackComponent.errorString()));
+        QVERIFY(media->setProperty("playback", QVariant::fromValue(playback.get())));
+        QTest::qWait(50);
+        auto *body = textEditorForBlock(root, 1);
+        QVERIFY(body);
+        body->forceActiveFocus();
+        const qreal  cardY  = card->mapToScene(QPointF()).y();
+        const QPoint target = video
+            ? media->mapToScene(QPointF(media->width() / 2, media->property("displayHeight").toReal() / 3)).toPoint()
+            : card->mapToScene(QPointF(card->width() / 2, card->height() - 2)).toPoint();
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier, target);
+        QTRY_VERIFY(media->property("individuallySelected").toBool());
+        QTRY_VERIFY(media->hasActiveFocus());
+        QVERIFY(!alt->isVisible());
+        QCOMPARE(card->mapToScene(QPointF()).y(), cardY);
+
+        body->forceActiveFocus();
+        QTRY_VERIFY(!media->property("individuallySelected").toBool());
+        auto *slider = quickItemByName(root, QStringLiteral("mediaSeekSlider-2"));
+        QVERIFY(slider);
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier,
+                          slider->mapToScene(QPointF(slider->width() * 0.75, slider->height() / 2)).toPoint());
+        QTRY_VERIFY(media->property("individuallySelected").toBool());
+        QVERIFY(playback->property("position").toReal() > 0);
+        QCOMPARE(card->mapToScene(QPointF()).y(), cardY);
+
+        auto *play = quickItemByName(root, QStringLiteral("mediaPlayButton-2"));
+        QVERIFY(play);
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier,
+                          play->mapToScene(QPointF(play->width() / 2, play->height() / 2)).toPoint());
+        QVERIFY(playback->property("playing").toBool());
+
+        auto *actions = quickItemByName(root, QStringLiteral("mediaActionsButton-2"));
+        QVERIFY(actions);
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier,
+                          actions->mapToScene(QPointF(actions->width() / 2, actions->height() / 2)).toPoint());
+        QCOMPARE(card->mapToScene(QPointF()).y(), cardY);
+        auto *menu = media->findChild<QObject *>(QStringLiteral("mediaContextMenu-2"));
+        QVERIFY(menu);
+        QVERIFY(QMetaObject::invokeMethod(menu, "close"));
+
+        body->forceActiveFocus();
+        QTRY_VERIFY(!media->property("individuallySelected").toBool());
+        QTest::mouseClick(host.quickWidget(), Qt::LeftButton, Qt::NoModifier,
+                          title->mapToScene(QPointF(title->width() / 2, title->height() / 2)).toPoint());
+        QTRY_VERIFY(title->hasActiveFocus());
+        QVERIFY(media->property("individuallySelected").toBool());
+        QTest::keyClick(host.quickWidget(), Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClicks(host.quickWidget(), QStringLiteral("Renamed clipX"));
+        QTest::keyClick(host.quickWidget(), Qt::Key_Backspace);
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AltRole).toString(),
+                     QStringLiteral("Renamed clip"));
+        QCOMPARE(editor.model()->rowCount(), 3);
+        QCOMPARE(card->mapToScene(QPointF()).y(), cardY);
+        QVERIFY(media->setProperty("playback", QVariant::fromValue<QObject *>(nullptr)));
     }
 
     void favoriteButtonTracksBackendAcrossRepeatedClicks()

@@ -93,6 +93,13 @@ add_custom_target(editor_tests DEPENDS noteblockmodel_test noteeditor_test deskt
                                        inlineelementsqml_test)
 set_tests_properties(noteblockmodel_test noteeditor_test PROPERTIES LABELS editor)
 set_tests_properties(desktopnoteeditorhost_test editorqml_test inlineelementsqml_test PROPERTIES LABELS "editor;qml")
+find_package(Qt6 COMPONENTS Multimedia QUIET)
+if(TARGET Qt6::Multimedia)
+  add_anykeep_test(mediapreviewcontroller_test mediapreviewcontroller_test.cpp)
+  target_link_libraries(mediapreviewcontroller_test PRIVATE Qt6::Multimedia)
+  set_tests_properties(mediapreviewcontroller_test PROPERTIES LABELS "editor;media" TIMEOUT 30)
+  add_dependencies(editor_tests mediapreviewcontroller_test)
+endif()
 set_tests_properties(notesmanagerqml_test PROPERTIES LABELS "notesmanager;qml")
 set_tests_properties(settingsqml_test PROPERTIES LABELS "settings;qml")
 

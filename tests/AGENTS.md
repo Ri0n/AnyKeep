@@ -3,6 +3,7 @@
 - `noteblockmodel_test`: Markdown codec and structural model operations.
 - `noteeditor_test`: editor operations, history, clipboard, and controller API.
 - `editorqml_test`: structured editor QML behavior and reorder interactions.
+- `mediapreviewcontroller_test`: silent video posters and preview cancellation.
 - `desktopnoteeditorhost_test`: the thin desktop host/model bridge.
 - `notesmanagerqml_test`: notes manager, folders, collections, and drag/drop.
 - `settingsqml_test`: settings QML, icons, spelling, and palette behavior.

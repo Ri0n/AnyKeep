@@ -82,6 +82,7 @@ endif()
 set(anykeep_CORE_SRCS
     audioattachmentrecorder.cpp
     mediaplaybackcontroller.cpp
+    mediapreviewcontroller.cpp
     mediarangeservice.cpp
     mediasyncservice.cpp
     mediasynccontroller.cpp
@@ -174,6 +175,7 @@ set(anykeep_CORE_SRCS
 set(anykeep_CORE_HDRS
     audioattachmentrecorder.h
     mediaplaybackcontroller.h
+    mediapreviewcontroller.h
     mediarangeservice.h
     mediasyncservice.h
     mediasynccontroller.h

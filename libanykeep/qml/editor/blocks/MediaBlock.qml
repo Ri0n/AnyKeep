@@ -13,6 +13,12 @@ FocusScope {
     required property var block
     property var playback: mediaRoot.editorView.editorBackend ? mediaRoot.editorView.editorBackend.mediaPlayback : null
     property var mediaSync: mediaRoot.editorView.editorBackend ? mediaRoot.editorView.editorBackend.mediaSync : null
+    readonly property var previews: mediaRoot.editorView.editorBackend
+                                    ? mediaRoot.editorView.editorBackend.mediaPreviews : null
+    readonly property url posterUrl: {
+        const revision = previews ? previews.revision : 0
+        return video && previews ? previews.posterForUri(block.url) : ""
+    }
     readonly property var syncStatus: {
         const generation = mediaRoot.mediaSync ? mediaRoot.mediaSync.revision : 0
         return mediaRoot.mediaSync ? mediaRoot.mediaSync.statusForUri(mediaRoot.block.url)
@@ -20,6 +26,7 @@ FocusScope {
     }
     property var transcription: mediaRoot.editorView.audioTranscriptionController
     property bool transcriptExpanded: false
+    property int previewSyncState: -1
     readonly property bool timed: block.mediaType.startsWith("audio/") || block.mediaType.startsWith("video/")
     readonly property bool video: block.mediaType.startsWith("video/")
     readonly property bool audio: block.mediaType.startsWith("audio/")
@@ -43,18 +50,20 @@ FocusScope {
         block.mediaAlignment === "left" || block.mediaAlignment === "right"
         ? block.mediaAlignment : "center"
     readonly property real naturalWidth:
-        sourceImage.implicitWidth > 0 ? sourceImage.implicitWidth : Math.min(width, 480)
+        !video && sourceImage.implicitWidth > 0 ? sourceImage.implicitWidth : Math.min(width, 480)
     readonly property real requestedWidth:
         transientWidth >= 0 ? transientWidth
                             : (block.mediaDisplayWidth > 0 ? block.mediaDisplayWidth : naturalWidth)
     readonly property real displayWidth: Math.max(1, Math.min(width, requestedWidth))
     readonly property real visualAspect:
-        sourceImage.implicitWidth > 0 && sourceImage.implicitHeight > 0
+        video && block.mediaWidth > 0 && block.mediaHeight > 0
+        ? block.mediaHeight / block.mediaWidth
+        : sourceImage.implicitWidth > 0 && sourceImage.implicitHeight > 0
         ? sourceImage.implicitHeight / sourceImage.implicitWidth
         : (block.mediaWidth > 0 && block.mediaHeight > 0
-           ? block.mediaHeight / block.mediaWidth : 0.75)
+           ? block.mediaHeight / block.mediaWidth : (video ? 9 / 16 : 0.75))
     readonly property real displayHeight: visual ? Math.max(40, displayWidth * visualAspect) : 58
-    readonly property real imageY: individuallySelected ? altEditor.implicitHeight + 6 : 0
+    readonly property real imageY: altEditor.visible ? altEditor.implicitHeight + 6 : 0
     readonly property real actionGap: mediaRoot.editorView.touchMode ? 12 : 8
     readonly property real alignedX:
         normalizedAlignment === "left" ? 0
@@ -70,10 +79,63 @@ FocusScope {
     implicitHeight: baseContentHeight
                     + (transcriptPanel.visible ? 6 + transcriptPanel.implicitHeight : 0)
     activeFocusOnTab: true
+    onActiveFocusChanged: {
+        if (activeFocus && timed && !individuallySelected)
+            editorView.selectMediaBlock(block.index)
+    }
+
+    function requestPreview(retry) {
+        if (video && previews)
+            previews.requestPreview(block.url, Boolean(retry))
+    }
+
+    Component.onCompleted: requestPreview(false)
+    onPreviewsChanged: requestPreview(false)
+    onSyncStatusChanged: Qt.callLater(retrySynchronizedPreview)
+
+    function retrySynchronizedPreview() {
+        if (!video)
+            return
+        const state = syncStatus.valid ? syncStatus.state : -1
+        if (state === 3 && previewSyncState !== 3)
+            requestPreview(true)
+        previewSyncState = state
+    }
 
     function selectAndFocus() {
-        mediaRoot.editorView.selectMediaBlock(block.index)
+        if (!individuallySelected)
+            mediaRoot.editorView.selectMediaBlock(block.index)
         mediaRoot.forceActiveFocus()
+    }
+
+    function updateTitleFocus() {
+        editorView.mediaTitleEditorFocused = altEditor.activeFocus || playerTitle.activeFocus
+    }
+
+    TapHandler {
+        enabled: mediaRoot.timed
+        acceptedButtons: Qt.LeftButton
+        gesturePolicy: TapHandler.DragThreshold
+        onPressedChanged: {
+            if (!pressed)
+                return
+            const titlePoint = mediaRoot.mapToItem(playerTitle, point.position.x, point.position.y)
+            if (playerTitle.contains(titlePoint)) {
+                if (!mediaRoot.individuallySelected)
+                    mediaRoot.editorView.selectMediaBlock(mediaRoot.block.index)
+            } else {
+                mediaRoot.selectAndFocus()
+            }
+        }
+    }
+
+    TapHandler {
+        enabled: mediaRoot.timed
+        acceptedButtons: Qt.RightButton
+        onTapped: {
+            mediaRoot.selectAndFocus()
+            mediaContextMenu.popup()
+        }
     }
 
     function setAlignment(value) {
@@ -161,7 +223,7 @@ FocusScope {
     }
 
     Keys.onPressed: function(event) {
-        if (altEditor.activeFocus)
+        if (altEditor.activeFocus || playerTitle.activeFocus)
             return
         if (timed && !event.modifiers && (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
             if (playback)
@@ -194,7 +256,7 @@ FocusScope {
     TextField {
         id: altEditor
         objectName: "mediaTitleEditor-" + mediaRoot.block.index
-        visible: mediaRoot.individuallySelected
+        visible: !mediaRoot.timed && mediaRoot.individuallySelected
         opacity: visible ? 1 : 0
         width: Math.min(mediaRoot.width, Math.max(180, sourceImage.width))
         x: Math.max(0, Math.min(mediaRoot.width - width,
@@ -203,12 +265,23 @@ FocusScope {
         text: mediaRoot.block.alt
         selectByMouse: true
         onTextEdited: mediaRoot.editorView.blockModel.setMediaTitle(mediaRoot.block.index, text)
-        onActiveFocusChanged: mediaRoot.editorView.mediaTitleEditorFocused = activeFocus
+        onActiveFocusChanged: mediaRoot.updateTitleFocus()
         Component.onDestruction: {
-            if (mediaRoot.editorView.mediaTitleEditorFocused)
+            if (activeFocus)
                 mediaRoot.editorView.mediaTitleEditorFocused = false
         }
         Behavior on opacity { NumberAnimation { duration: 120 } }
+    }
+
+    Rectangle {
+        visible: mediaRoot.video
+        x: sourceImage.x
+        y: sourceImage.y
+        width: sourceImage.width
+        height: sourceImage.height
+        radius: 5
+        color: mediaRoot.editorView.documentCardColor
+        z: -1
     }
 
     Image {
@@ -218,7 +291,8 @@ FocusScope {
         y: mediaRoot.imageY
         width: mediaRoot.displayWidth
         height: mediaRoot.displayHeight
-        source: mediaRoot.block.mediaType.startsWith("image/") ? mediaRoot.block.previewUrl : ""
+        source: mediaRoot.video ? mediaRoot.posterUrl
+                               : (mediaRoot.block.mediaType.startsWith("image/") ? mediaRoot.block.previewUrl : "")
         visible: mediaRoot.visual && !(mediaRoot.video && mediaRoot.current && videoSurface.status === Loader.Ready)
         fillMode: Image.PreserveAspectFit
         smooth: true
@@ -251,6 +325,7 @@ FocusScope {
             onDragFinished: mediaRoot.reorderController.finishBlockDrag()
         }
         TapHandler {
+            enabled: !mediaRoot.timed
             acceptedButtons: Qt.RightButton
             gesturePolicy: TapHandler.DragThreshold
             onTapped: {
@@ -267,6 +342,20 @@ FocusScope {
                 mediaContextMenu.popup()
             }
         }
+    }
+
+    Shared.ThemedIconImpl {
+        objectName: "videoPreviewPlaceholder-" + mediaRoot.block.index
+        visible: mediaRoot.video && sourceImage.status !== Image.Ready
+                 && !(mediaRoot.current && videoSurface.status === Loader.Ready)
+        x: sourceImage.x + (sourceImage.width - width) / 2
+        y: sourceImage.y + (sourceImage.height - timedControls.height - height) / 2
+        themeName: "__bundled__"
+        fallbackName: "video-symbolic.svg"
+        recolorFallback: true
+        fallbackTintMode: String(mediaRoot.editorView.documentSecondaryTextColor)
+        pixelSize: 48
+        Accessible.name: qsTr("Video")
     }
 
     Loader {
@@ -337,17 +426,29 @@ FocusScope {
         x: mediaRoot.visual ? sourceImage.x : 0
         y: mediaRoot.visual ? sourceImage.y + sourceImage.height - height : mediaRoot.imageY
         width: mediaRoot.visual ? sourceImage.width : mediaRoot.width
-        height: mediaRoot.visual ? (mediaRoot.editorView.touchMode ? 48 : 40) : mediaRoot.displayHeight
+        height: mediaRoot.displayHeight < 58 ? mediaRoot.displayHeight : 58
         color: mediaRoot.editorView.documentCardColor
         opacity: 0.94
         radius: 5
         z: 4
+
+        MouseArea {
+            objectName: "mediaControlBackground-" + mediaRoot.block.index
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onPressed: mediaRoot.selectAndFocus()
+            onClicked: function(mouse) {
+                if (mouse.button === Qt.RightButton)
+                    mediaContextMenu.popup()
+            }
+        }
 
         RowLayout {
             anchors.fill: parent
             anchors.margins: 4
             spacing: 6
             ToolButton {
+                objectName: "mediaPlayButton-" + mediaRoot.block.index
                 Layout.preferredWidth: parent.height - 2
                 Layout.preferredHeight: Layout.preferredWidth
                 enabled: mediaRoot.playback && mediaRoot.playback.available
@@ -361,17 +462,29 @@ FocusScope {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 1
-                Label {
+                TextField {
+                    id: playerTitle
                     objectName: "mediaLabel-" + mediaRoot.block.index
                     Layout.fillWidth: true
-                    visible: !mediaRoot.visual
-                    text: mediaRoot.block.alt.length > 0 ? mediaRoot.block.alt : qsTr("Audio recording")
-                    elide: Text.ElideMiddle
+                    text: mediaRoot.block.alt
+                    placeholderText: mediaRoot.video ? qsTr("Video") : qsTr("Audio recording")
+                    selectByMouse: true
+                    padding: 0
+                    background: null
                     font.bold: mediaRoot.selected
                     color: mediaRoot.editorView.documentTextColor
+                    onTextEdited: mediaRoot.editorView.blockModel.setMediaTitle(mediaRoot.block.index, text)
+                    onActiveFocusChanged: mediaRoot.updateTitleFocus()
+                    onAccepted: mediaRoot.selectAndFocus()
+                    Component.onDestruction: {
+                        if (activeFocus)
+                            mediaRoot.editorView.mediaTitleEditorFocused = false
+                    }
                 }
                 Slider {
+                    objectName: "mediaSeekSlider-" + mediaRoot.block.index
                     Layout.fillWidth: true
+                    Layout.preferredHeight: 28
                     from: 0
                     to: Math.max(1, mediaRoot.knownDuration)
                     value: mediaRoot.current ? mediaRoot.playback.position : 0
@@ -471,12 +584,13 @@ FocusScope {
         y: (mediaRoot.visual ? sourceImage.y : timedControls.y) - 2
         width: (mediaRoot.visual ? sourceImage.width : timedControls.width) + 4
         height: (mediaRoot.visual ? sourceImage.height : timedControls.height) + 4
-        visible: mediaRoot.selected
+        visible: mediaRoot.selected || mediaRoot.video
         color: "transparent"
-        border.width: 2
-        border.color: altEditor.palette.highlight
+        border.width: mediaRoot.selected ? 2 : 1
+        border.color: mediaRoot.selected ? altEditor.palette.highlight
+                                        : mediaRoot.editorView.documentCardBorderColor
         radius: 2
-        z: 3
+        z: 5
     }
 
     ImageResizeHandle {
@@ -593,6 +707,8 @@ FocusScope {
 
     Connections {
         target: mediaRoot.block
+        function onUrlChanged() { mediaRoot.requestPreview(false) }
+        function onMediaTypeChanged() { mediaRoot.requestPreview(false) }
         function onMediaTranscriptChanged() {
             if (mediaRoot.block.mediaTranscript.length > 0)
                 mediaRoot.transcriptExpanded = true
@@ -601,6 +717,7 @@ FocusScope {
 
     Menu {
         id: mediaContextMenu
+        objectName: "mediaContextMenu-" + mediaRoot.block.index
         MenuItem {
             text: qsTr("Save Image As…")
             visible: mediaRoot.block.mediaType.startsWith("image/")

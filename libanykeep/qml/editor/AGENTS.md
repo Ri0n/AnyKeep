@@ -97,11 +97,19 @@ Android and desktop builds both need to retain the shared core resource pack.
 ## Media synchronization presentation
 
 The editor exposes `NoteEditor.mediaSync`, backed by a provider-independent
-per-editor `MediaSyncController`. Use `MediaSyncIndicator.qml` for visual and
-audio blocks and the note toolbar. The mobile `MobileNoteTopBar` uses the
-same component. Never infer offline media completion from playback position,
-network bytes or individual range completion. The controller deduplicates
-identical content and aggregates verified plaintext bytes without affecting
-the document, manifest or undo history. Keep the four state glyphs,
+per-editor `MediaSyncController`. Use `MediaSyncIndicator.qml` for visual,
+audio and file attachment blocks and the note toolbar. The mobile
+`MobileNoteTopBar` uses the same component. Never infer offline media completion
+from playback position, network bytes or individual range completion. The
+controller deduplicates identical content and aggregates verified plaintext
+bytes without affecting the document, manifest or undo history. Keep the four state glyphs,
 rotation-only-while-transferring behavior, tooltips and accessible names.
 Do not import plugin-specific QML types into editor blocks.
+
+Timed media titles are edited inside the player strip. Only static images show
+an extra alt-text field above the visual. Selecting an audio/video block must
+not shift the player down. Pointer handlers on the media scope must observe
+clicks over video outputs and controls without stealing text editing or seeking.
+Video posters come from `NoteEditor.mediaPreviews`; keep them out of the model,
+manifest and undo history. The preview controller probes one authenticated
+source at a time without audible playback or changing the shared player.
