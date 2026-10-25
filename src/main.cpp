@@ -50,6 +50,7 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #endif
 
 #include "anykeep.h"
+#include "medialogging.h"
 #include "qcainitializer.h"
 #ifdef Q_OS_WIN
 #include "win/windowstaskbarintegration.h"
@@ -142,6 +143,7 @@ void applyNeutralWindowsPalette()
 
 int main(int argc, char *argv[])
 {
+    AnyKeep::installMediaLogFilter();
     AnyKeep::QcaInitializer qca;
 
 #ifdef Q_OS_WIN

@@ -169,6 +169,8 @@ add_anykeep_test(mediachunkscheduler_test mediachunkscheduler_test.cpp)
 add_anykeep_test(mediarangeservice_test mediarangeservice_test.cpp)
 add_anykeep_test(mediasynccontroller_test mediasynccontroller_test.cpp)
 add_anykeep_test(mediaplaybacksuspend_test mediaplaybacksuspend_test.cpp)
+add_anykeep_test(medialogging_test medialogging_test.cpp)
+set_tests_properties(medialogging_test PROPERTIES LABELS media)
 target_link_libraries(mediarangeservice_test PRIVATE Qt6::Network)
 
 add_anykeep_test(xmppnotecodec_test xmppnotecodec_test.cpp ../plugins/xmpppubsub/xmppnotecodec.cpp)

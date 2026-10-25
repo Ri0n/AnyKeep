@@ -851,6 +851,13 @@ future design, not part of PR #155.
 
 Implementation note: timed media shares one playback controller. Video presentation lazily attaches an inline Qt Multimedia output to that player and switches the same player to a dedicated OS-fullscreen output while fullscreen is active; playback position and state remain unchanged. Probing/poster extraction is a separate derived-cache concern and must not write frame-by-frame playback state into storage.
 
+Both application entry points install `installMediaLogFilter()` before starting
+worker threads. Qt's uncategorized `AV_NOPTS_VALUE` warning is retained once per
+process, with a note that identical repetitions are suppressed. Every other
+message, severity and context is forwarded to the previous Qt handler, preserving
+platform log output and application message formatting. This affects logging
+only; it does not alter demuxing, media timestamps or playback error handling.
+
 The fullscreen output has a bottom control strip for play/pause,
 seeking, elapsed/total time and returning inline. Space toggles playback,
 Left/Right seek by five seconds, and Escape/F11 return inline. The strip uses

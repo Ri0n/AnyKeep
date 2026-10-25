@@ -4,6 +4,7 @@
 
 #include "editorcursorcontroller.h"
 #include "localmediaimageprovider.h"
+#include "medialogging.h"
 #include "mobileapplication.h"
 #include "pluginiconimageprovider.h"
 #include "qcainitializer.h"
@@ -12,6 +13,7 @@
 
 int main(int argc, char *argv[])
 {
+    AnyKeep::installMediaLogFilter();
 #ifdef ANYKEEP_ANDROID_FORCE_XMPP_XML_LOG
     // Android cannot conveniently inject an environment variable into an app
     // spawned by Zygote. Keep the existing sanitizer and enable this only for
