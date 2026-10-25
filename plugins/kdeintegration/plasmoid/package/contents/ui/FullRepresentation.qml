@@ -127,6 +127,22 @@ PlasmaExtras.Representation {
                 }
             }
 
+            PlasmaExtras.SearchField {
+                id: filterField
+                Layout.fillWidth: true
+                placeholderText: qsTr("Search notes")
+                onTextChanged: {
+                    notesView.currentIndex = 0;
+                    root.notesModel.query = text;
+                }
+                // PlasmaExtras.SearchField also emits accepted when its
+                // built-in clear action is triggered. Only a non-empty search
+                // represents an explicit request to open the current result.
+                onAccepted: if (text.trim().length > 0 && notesView.currentIndex >= 0) {
+                    root.notesModel.openNote(notesView.currentIndex, root.Window.window);
+                }
+            }
+
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: filterField.text.length > 0
@@ -149,22 +165,6 @@ PlasmaExtras.Representation {
                     focusPolicy: Qt.NoFocus
                     checked: root.notesModel.searchInBody
                     onToggled: root.notesModel.searchInBody = checked
-                }
-            }
-
-            PlasmaExtras.SearchField {
-                id: filterField
-                Layout.fillWidth: true
-                placeholderText: qsTr("Search notes")
-                onTextChanged: {
-                    notesView.currentIndex = 0;
-                    root.notesModel.query = text;
-                }
-                // PlasmaExtras.SearchField also emits accepted when its
-                // built-in clear action is triggered. Only a non-empty search
-                // represents an explicit request to open the current result.
-                onAccepted: if (text.trim().length > 0 && notesView.currentIndex >= 0) {
-                    root.notesModel.openNote(notesView.currentIndex, root.Window.window);
                 }
             }
         }

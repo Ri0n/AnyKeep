@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QDBusConnection>
+#include <QDBusConnectionInterface>
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
@@ -159,7 +160,8 @@ private slots:
         QCOMPARE(storage_->loads, loads);
         QCOMPARE(noteIds(bridge.notesJson(0, 50, QStringLiteral("needle"))).size(), 2);
         const auto bus = QDBusConnection::sessionBus();
-        if (bus.isConnected()) {
+        if (bus.isConnected()
+            && bus.interface()->serviceOwner(QStringLiteral("com.github.ri0n.AnyKeep")).value() == bus.baseService()) {
             auto call = QDBusMessage::createMethodCall(
                 QStringLiteral("com.github.ri0n.AnyKeep"), QStringLiteral("/AnyKeep"),
                 QStringLiteral("com.github.ri0n.AnyKeep"), QStringLiteral("notesWithBodyJson"));
@@ -227,7 +229,7 @@ private slots:
         filter->setFocus();
         QTest::keyClicks(filter, QStringLiteral("needle"));
         QTRY_VERIFY(check->parentWidget()->height() >= check->height());
-        QVERIFY(check->mapTo(popup, QPoint()).y() < filter->mapTo(popup, QPoint()).y());
+        QVERIFY(check->mapTo(popup, QPoint()).y() >= filter->mapTo(popup, QPoint()).y() + filter->height());
         QTRY_COMPARE(list->count(), 2);
         QCOMPARE(storage_->loads, 0);
         QTest::mouseClick(check, Qt::LeftButton);

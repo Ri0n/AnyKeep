@@ -295,15 +295,16 @@ void BaseIntegrationTray::showNoteList(QSystemTrayIcon::ActivationReason reason)
     searchInText->setFocusPolicy(Qt::NoFocus);
     searchInText->setEnabled(false);
     searchInText->adjustSize();
+    searchInText->move(0, layout->spacing());
     searchOptions->setMinimumWidth(searchInText->sizeHint().width());
     searchOptions->setFixedHeight(0);
-    searchLayout->addWidget(searchOptions);
 
     auto *filter = new QLineEdit(search);
     filter->setObjectName(QStringLiteral("trayNotesSearchField"));
     filter->setPlaceholderText(tr("Search notes"));
     filter->setClearButtonEnabled(true);
     searchLayout->addWidget(filter);
+    searchLayout->addWidget(searchOptions);
     layout->addWidget(search);
 
     auto *list = new QListWidget(popup);

@@ -51,7 +51,7 @@ use. Android keeps the compact search button and uses the same filtering model.
 the shared asynchronous body finder. `RecentNotesModel` is a projection of the
 filtered hierarchical model, so search does not create a second refresh path.
 
-The desktop tray also offers **Search in text** above its nonempty filter,
+The desktop tray also offers **Search in text** below its nonempty filter,
 with an animated reveal. Both the fallback popup and the Plasma applet use
 `GlobalNoteFinder` for asynchronous body matches and prefer pending draft bodies
 over stored versions. Plasma calls `AnyKeepDBus::notesWithBodyJson`; the
