@@ -10,6 +10,10 @@ FocusScope {
     required property var block
     property bool selected: attachmentRoot.editorView.selectedAttachmentIndex === block.index
     readonly property var backend: attachmentRoot.editorView.platformBackend
+    readonly property var mimePresentation:
+        backend && typeof backend.attachmentMimePresentation === "function"
+        ? backend.attachmentMimePresentation(block.attachmentMediaType, block.alt)
+        : ({ description: qsTr("File"), iconName: "", genericIconName: "application-x-generic" })
     readonly property bool canOpen: !!backend && typeof backend.openAttachment === "function"
     readonly property bool canSave: !!backend && typeof backend.saveAttachmentAs === "function"
     // A file kept in place already exists unencrypted, so it is shown in its
@@ -92,8 +96,9 @@ FocusScope {
                 Shared.ThemedIconImpl {
                     objectName: "attachmentFileGlyph-" + attachmentRoot.block.index
                     anchors.centerIn: parent
-                    themeName: "__bundled__"
-                    fallbackName: "attachment-symbolic.svg"
+                    themeName: attachmentRoot.mimePresentation.iconName || "application-x-generic"
+                    genericThemeName: attachmentRoot.mimePresentation.genericIconName || "application-x-generic"
+                    fallbackName: "file-generic-symbolic.svg"
                     recolorFallback: true
                     fallbackTintMode: String(attachmentName.palette.text)
                     pixelSize: attachmentRoot.editorView.touchMode ? 24 : 20
@@ -114,11 +119,12 @@ FocusScope {
                     font.bold: attachmentRoot.selected
                 }
                 Label {
+                    objectName: "attachmentFileDetails-" + attachmentRoot.block.index
                     Layout.fillWidth: true
                     text: {
                         const details = []
-                        if (attachmentRoot.block.attachmentMediaType.length > 0)
-                            details.push(attachmentRoot.block.attachmentMediaType)
+                        if (attachmentRoot.mimePresentation.description)
+                            details.push(attachmentRoot.mimePresentation.description)
                         if (attachmentRoot.block.attachmentSize > 0)
                             details.push(attachmentRoot.formatSize(attachmentRoot.block.attachmentSize))
                         return details.join("  ·  ")
