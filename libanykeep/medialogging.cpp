@@ -1,7 +1,7 @@
 #include "medialogging.h"
 
 #include <QString>
-#include <QtLogging>
+#include <QtCore/qlogging.h>
 
 #include <atomic>
 #include <mutex>
