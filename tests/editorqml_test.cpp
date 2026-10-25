@@ -5,6 +5,8 @@
 #include <QFont>
 #include <QImage>
 #include <QMimeData>
+#include <QMimeDatabase>
+#include <QMimeType>
 #include <QPalette>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -228,6 +230,14 @@ private slots:
         QTRY_VERIFY((fileName = quickItemByName(root, QStringLiteral("attachmentFileName-%1").arg(attachmentRow))));
         QVERIFY(fileName->isVisible());
         QCOMPARE(fileName->property("text").toString(), QStringLiteral("Specification.pdf"));
+        const QString expectedDescription
+            = QMimeDatabase().mimeTypeForName(QStringLiteral("application/pdf")).comment();
+        QQuickItem *details = nullptr;
+        QTRY_VERIFY((details = quickItemByName(root, QStringLiteral("attachmentFileDetails-%1").arg(attachmentRow))));
+        QVERIFY(details->isVisible());
+        QCOMPARE(details->property("text").toString(),
+                 expectedDescription + QStringLiteral("  ·  121 KB"));
+        QVERIFY(!details->property("text").toString().contains(QStringLiteral("application/pdf")));
         QQuickItem *glyph = nullptr;
         QTRY_VERIFY((glyph = quickItemByName(root, QStringLiteral("attachmentFileGlyph-%1").arg(attachmentRow))));
         QVERIFY(glyph->isVisible());
@@ -249,6 +259,32 @@ private slots:
                      ->data(editor.model()->index(attachmentRow), NoteBlockModel::AttachmentMediaTypeRole)
                      .toString(),
                  QStringLiteral("application/pdf"));
+    }
+
+    void attachmentMimePresentationUsesQtDatabaseAndExtensionFallback()
+    {
+        DesktopEditorPlatformBackend backend;
+        QMimeDatabase database;
+        const QMimeType pdf = database.mimeTypeForName(QStringLiteral("application/pdf"));
+        QVERIFY(pdf.isValid());
+
+        const auto pdfInfo = backend.attachmentMimePresentation(QStringLiteral("application/pdf"),
+                                                                QStringLiteral("specification.pdf"));
+        QCOMPARE(pdfInfo.value(QStringLiteral("description")).toString(), pdf.comment());
+        QCOMPARE(pdfInfo.value(QStringLiteral("iconName")).toString(), pdf.iconName());
+        QCOMPARE(pdfInfo.value(QStringLiteral("genericIconName")).toString(), pdf.genericIconName());
+
+        // Old or remote attachments can have no reliable stored type. Qt
+        // resolves the extension without opening or downloading the file.
+        const auto guessed = backend.attachmentMimePresentation(QStringLiteral("application/octet-stream"),
+                                                                 QStringLiteral("specification.pdf"));
+        QCOMPARE(guessed.value(QStringLiteral("description")).toString(), pdf.comment());
+        QCOMPARE(guessed.value(QStringLiteral("iconName")).toString(), pdf.iconName());
+
+        const auto invalid = backend.attachmentMimePresentation(QStringLiteral("not/a-registered-mime-type"),
+                                                                 QStringLiteral("unknown.zzzx"));
+        QVERIFY(!invalid.value(QStringLiteral("description")).toString().isEmpty());
+        QVERIFY(!invalid.value(QStringLiteral("genericIconName")).toString().isEmpty());
     }
 
     void desktopAcceptsMixedFilesAndRejectsNonFiles()
