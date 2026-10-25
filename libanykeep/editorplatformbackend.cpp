@@ -270,7 +270,7 @@ QVariantMap EditorPlatformBackend::attachmentMimePresentation(const QString &mim
                                                              const QString &fileName) const
 {
     QMimeDatabase database;
-    QMimeType type = database.mimeTypeForName(mimeType.trimmed());
+    QMimeType type = database.mimeTypeForName(mimeType.section(QLatin1Char(';'), 0, 0).trimmed());
     // A missing or generic content type can be resolved from the portable
     // filename without requiring a local copy or reading the attachment.
     if (!type.isValid() || type.name() == QLatin1String("application/octet-stream")) {
@@ -281,9 +281,12 @@ QVariantMap EditorPlatformBackend::attachmentMimePresentation(const QString &mim
     if (!type.isValid())
         type = database.mimeTypeForName(QStringLiteral("application/octet-stream"));
 
-    return { { QStringLiteral("description"), type.isValid() ? type.comment() : tr("File") },
+    const QString description = type.isValid() ? type.comment() : QString();
+    const QString genericIcon = type.isValid() ? type.genericIconName() : QString();
+    return { { QStringLiteral("description"), description.isEmpty() ? tr("File") : description },
              { QStringLiteral("iconName"), type.isValid() ? type.iconName() : QString() },
-             { QStringLiteral("genericIconName"), type.isValid() ? type.genericIconName() : QString() } };
+             { QStringLiteral("genericIconName"),
+               genericIcon.isEmpty() ? QStringLiteral("application-x-generic") : genericIcon } };
 }
 
 void EditorPlatformBackend::setEditorFont(const QFont &font)
