@@ -257,6 +257,14 @@ endif()
 
 add_anykeep_test(pluginmetadata_test pluginmetadata_test.cpp)
 
+if(TARGET Qt6::DBus)
+  add_anykeep_test(traynotes_test traynotes_test.cpp ../plugins/baseintegration/baseintegrationtray.cpp
+                   ../plugins/trayimpl.h)
+  target_include_directories(traynotes_test PRIVATE ../plugins ../plugins/baseintegration)
+  target_link_libraries(traynotes_test PRIVATE Qt6::DBus Qt6::Widgets)
+  set_tests_properties(traynotes_test PROPERTIES LABELS tray)
+endif()
+
 if(TARGET Qt6::Multimedia)
   add_executable(yandexspeechutils_test yandexspeechutils_test.cpp ../plugins/yandex/yandexspeechutils.cpp)
   target_include_directories(yandexspeechutils_test PRIVATE ../plugins/yandex)

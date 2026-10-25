@@ -16,16 +16,17 @@
 #include <QtGlobal>
 
 #include <algorithm>
+#include <utility>
 
 #include "anykeep.h"
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
 #include "notemanager.h"
-#include "trayiconutils.h"
 #include "notepresentationorder.h"
 #include "notetitleresolver.h"
 #include "shortcutsmanager.h"
 #include "stickynotesmanager.h"
+#include "trayiconutils.h"
 #include "windowgeometryutils.h"
 
 namespace AnyKeep {
@@ -123,9 +124,13 @@ AnyKeepDBus::AnyKeepDBus(Main *anykeep, QObject *parent) : QObject(parent), m_an
     // They live in the catalog rather than NoteManager, so notify D-Bus
     // clients explicitly when a folder is favorited, archived, moved, etc.
     connect(FolderCatalogManager::instance(), &FolderCatalogManager::catalogChanged, this, &AnyKeepDBus::notesChanged);
-    connect(anykeep, &Main::settingsUpdated, this, &AnyKeepDBus::notesChanged);
-    connect(anykeep, &Main::settingsUpdated, this, &AnyKeepDBus::globalShortcutsChanged);
-    connect(anykeep->stickyNotesManager(), &StickyNotesManager::notesChanged, this, &AnyKeepDBus::stickyNotesChanged);
+    connect(this, &AnyKeepDBus::notesChanged, this, &AnyKeepDBus::clearBodySearches);
+    if (anykeep) {
+        connect(anykeep, &Main::settingsUpdated, this, &AnyKeepDBus::notesChanged);
+        connect(anykeep, &Main::settingsUpdated, this, &AnyKeepDBus::globalShortcutsChanged);
+        connect(anykeep->stickyNotesManager(), &StickyNotesManager::notesChanged, this,
+                &AnyKeepDBus::stickyNotesChanged);
+    }
 
     auto bus = QDBusConnection::sessionBus();
     if (!bus.registerObject(QLatin1String(ObjectPath), this,
@@ -143,6 +148,7 @@ AnyKeepDBus::AnyKeepDBus(Main *anykeep, QObject *parent) : QObject(parent), m_an
 
 AnyKeepDBus::~AnyKeepDBus()
 {
+    clearBodySearches();
     if (!m_registeredService)
         return;
 
@@ -153,15 +159,20 @@ AnyKeepDBus::~AnyKeepDBus()
 
 QString AnyKeepDBus::storageConnectivityJson() const
 {
-    int severity = 0;
-    int state    = int(NoteStorage::ConnectivityState::NotApplicable);
+    int        severity = 0;
+    int        state    = int(NoteStorage::ConnectivityState::NotApplicable);
     const auto priority = [](NoteStorage::ConnectivityState status) {
         switch (status) {
-        case NoteStorage::ConnectivityState::Error: return 4;
-        case NoteStorage::ConnectivityState::Connecting: return 3;
-        case NoteStorage::ConnectivityState::Offline: return 2;
-        case NoteStorage::ConnectivityState::Online: return 1;
-        case NoteStorage::ConnectivityState::NotApplicable: return 0;
+        case NoteStorage::ConnectivityState::Error:
+            return 4;
+        case NoteStorage::ConnectivityState::Connecting:
+            return 3;
+        case NoteStorage::ConnectivityState::Offline:
+            return 2;
+        case NoteStorage::ConnectivityState::Online:
+            return 1;
+        case NoteStorage::ConnectivityState::NotApplicable:
+            return 0;
         }
         return 0;
     };
@@ -171,7 +182,7 @@ QString AnyKeepDBus::storageConnectivityJson() const
         const auto current = storage->connectivityState();
         if (priority(current) > severity) {
             severity = priority(current);
-            state = int(current);
+            state    = int(current);
         }
     }
     const QJsonObject response {
@@ -182,6 +193,72 @@ QString AnyKeepDBus::storageConnectivityJson() const
 }
 
 QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) const
+{
+    return menuNotesJson(offset, limit, query, false, {}, false);
+}
+
+void AnyKeepDBus::clearBodySearches()
+{
+    const auto searches = std::exchange(m_bodySearches, {});
+    for (const auto &search : searches) {
+        if (search.finder) {
+            search.finder->abort();
+            search.finder->deleteLater();
+        }
+    }
+}
+
+QString AnyKeepDBus::notesWithBodyJson(int offset, int limit, const QString &query)
+{
+    const QString filter = query.trimmed();
+    if (filter.isEmpty())
+        return notesJson(offset, limit, filter);
+
+    // Keep independent queries for multiple tray widgets and reuse completed
+    // matches when a client requests another page. Never load bodies in the
+    // D-Bus call or retain them in this cache.
+    auto search = m_bodySearches.find(filter);
+    if (search == m_bodySearches.end()) {
+        constexpr int MaxCachedSearches = 8;
+        if (m_bodySearches.size() >= MaxCachedSearches) {
+            auto oldest = m_bodySearches.begin();
+            for (auto it = m_bodySearches.begin(); it != m_bodySearches.end(); ++it)
+                if (it->lastUsed < oldest->lastUsed)
+                    oldest = it;
+            if (oldest->finder) {
+                oldest->finder->abort();
+                oldest->finder->deleteLater();
+            }
+            m_bodySearches.erase(oldest);
+        }
+        search = m_bodySearches.insert(filter, {});
+        if (!NoteManager::instance()->storages().isEmpty()) {
+            auto *finder = NoteManager::search();
+            finder->setParent(this);
+            search->finder = finder;
+            connect(finder, &GlobalNoteFinder::found, this,
+                    [this, finder, filter](const QString &storageId, const QString &noteId) {
+                        auto current = m_bodySearches.find(filter);
+                        if (current != m_bodySearches.end() && current->finder == finder)
+                            current->matches.insert(storageId + QChar(0x1f) + noteId);
+                    });
+            connect(finder, &GlobalNoteFinder::completed, this, [this, finder, filter]() {
+                auto current = m_bodySearches.find(filter);
+                if (current == m_bodySearches.end() || current->finder != finder)
+                    return;
+                current->finder.clear();
+                finder->deleteLater();
+                emit bodySearchFinished(filter);
+            });
+            finder->start(filter);
+        }
+    }
+    search->lastUsed = ++m_bodySearchSerial;
+    return menuNotesJson(offset, limit, filter, true, search->matches, !search->finder.isNull());
+}
+
+QString AnyKeepDBus::menuNotesJson(int offset, int limit, const QString &query, bool searchInBody,
+                                   const QSet<QString> &bodyMatches, bool searching) const
 {
     offset = qMax(0, offset);
     limit  = limit > 0 ? qMin(limit, MaxNotesPageSize) : DefaultNotesPageSize;
@@ -239,7 +316,7 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
             continue;
 
         const auto it = pendingByNote.constFind(key);
-        MenuNote      entry;
+        MenuNote   entry;
         entry.storageId = note.storageId();
         entry.noteId    = note.id();
         entry.favorite  = note.isFavorite() || (folder && catalog->isEffectivelyFavorite(folder->id));
@@ -258,7 +335,10 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
             entry.modified = note.lastChangeUTC();
         }
         presented.insert(key);
-        if (matchesMenuQuery(entry.title, entry.tags, filter))
+        const bool bodyMatch = searchInBody && !filter.isEmpty()
+            && (it != pendingByNote.cend() ? it->body.contains(filter, Qt::CaseInsensitive)
+                                           : bodyMatches.contains(key));
+        if (matchesMenuQuery(entry.title, entry.tags, filter) || bodyMatch)
             notes.append(std::move(entry));
     }
 
@@ -267,20 +347,23 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
             continue;
         const auto &draft = it.value();
         const auto  title = draftDisplayTitle(draft);
-        if (matchesMenuQuery(title, draft.tags, filter))
+        if (matchesMenuQuery(title, draft.tags, filter)
+            || (searchInBody && !filter.isEmpty() && draft.body.contains(filter, Qt::CaseInsensitive)))
             notes.append({ draft.storageId, draft.remoteNoteId, title, draft.tags, draft.updatedAt,
                            draft.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool(), true });
     }
     for (const auto &draft : pendingTransfers) {
         const auto title = draftDisplayTitle(draft);
-        if (matchesMenuQuery(title, draft.tags, filter)) {
+        if (matchesMenuQuery(title, draft.tags, filter)
+            || (searchInBody && !filter.isEmpty() && draft.body.contains(filter, Qt::CaseInsensitive))) {
             notes.append({ draft.storageId, draft.id.toString(QUuid::WithoutBraces), title, draft.tags, draft.updatedAt,
                            draft.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool(), true });
         }
     }
     for (const auto &draft : localDrafts) {
         const auto title = draftDisplayTitle(draft);
-        if (matchesMenuQuery(title, draft.tags, filter)) {
+        if (matchesMenuQuery(title, draft.tags, filter)
+            || (searchInBody && !filter.isEmpty() && draft.body.contains(filter, Qt::CaseInsensitive))) {
             notes.append({ DraftManager::draftsStorageId(), draft.id.toString(QUuid::WithoutBraces), title, draft.tags,
                            draft.updatedAt, draft.backendData.value(QString::fromLatin1(FavoriteBackendKey)).toBool(),
                            true });
@@ -311,6 +394,7 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
     return QString::fromUtf8(QJsonDocument(QJsonObject {
                                                { "notes", result },
                                                { "hasMore", last < notes.size() },
+                                               { "searching", searching },
                                            })
                                  .toJson(QJsonDocument::Compact));
 }

@@ -341,6 +341,11 @@ QtObject {
         const transactionKind = emptyBlockQuote ? "remove-empty-blockquote"
                               : emptyCodeBlock ? "remove-empty-code-block"
                                                : "remove-empty-text-block"
+        // Removing the separator coalesces adjacent lists into the upper
+        // resident block. Remember the join before the model grows that list;
+        // focusing its end afterwards would jump past the entire lower list.
+        const precedingItems = blockModel.listItemCountAt(row - 1)
+        const joinsLists = precedingItems > 0 && blockModel.listItemCountAt(row + 1) > 0
         return runEditTransaction(transactionKind, function() {
             prepareForStructuralMutation()
             if (editorView.count <= 1) {
@@ -356,6 +361,15 @@ QtObject {
                 return true
             }
             blockModel.removeBlock(row)
+            if (joinsLists) {
+                editorView.focusEditorAddress({
+                    blockIndex: row - 1,
+                    listItemIndex: backwards ? precedingItems - 1 : precedingItems,
+                    tableCellIndex: -1,
+                    atEnd: backwards
+                })
+                return true
+            }
             const hasPreceding = row > 0
             const hasFollowing = row < editorView.count
             const focusPrevious = backwards ? hasPreceding : !hasFollowing

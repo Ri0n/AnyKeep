@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QFont>
 #include <QImage>
+#include <QJSValue>
 #include <QMimeData>
 #include <QMimeDatabase>
 #include <QMimeType>
@@ -235,8 +236,7 @@ private slots:
         QQuickItem *details = nullptr;
         QTRY_VERIFY((details = quickItemByName(root, QStringLiteral("attachmentFileDetails-%1").arg(attachmentRow))));
         QVERIFY(details->isVisible());
-        QCOMPARE(details->property("text").toString(),
-                 expectedDescription + QStringLiteral("  ·  121 KB"));
+        QCOMPARE(details->property("text").toString(), expectedDescription + QStringLiteral("  ·  121 KB"));
         QVERIFY(!details->property("text").toString().contains(QStringLiteral("application/pdf")));
         QQuickItem *glyph = nullptr;
         QTRY_VERIFY((glyph = quickItemByName(root, QStringLiteral("attachmentFileGlyph-%1").arg(attachmentRow))));
@@ -264,8 +264,8 @@ private slots:
     void attachmentMimePresentationUsesQtDatabaseAndExtensionFallback()
     {
         DesktopEditorPlatformBackend backend;
-        QMimeDatabase database;
-        const QMimeType pdf = database.mimeTypeForName(QStringLiteral("application/pdf"));
+        QMimeDatabase                database;
+        const QMimeType              pdf = database.mimeTypeForName(QStringLiteral("application/pdf"));
         QVERIFY(pdf.isValid());
 
         const auto pdfInfo = backend.attachmentMimePresentation(QStringLiteral("application/pdf"),
@@ -277,12 +277,12 @@ private slots:
         // Old or remote attachments can have no reliable stored type. Qt
         // resolves the extension without opening or downloading the file.
         const auto guessed = backend.attachmentMimePresentation(QStringLiteral("application/octet-stream"),
-                                                                 QStringLiteral("specification.pdf"));
+                                                                QStringLiteral("specification.pdf"));
         QCOMPARE(guessed.value(QStringLiteral("description")).toString(), pdf.comment());
         QCOMPARE(guessed.value(QStringLiteral("iconName")).toString(), pdf.iconName());
 
         const auto invalid = backend.attachmentMimePresentation(QStringLiteral("not/a-registered-mime-type"),
-                                                                 QStringLiteral("unknown.zzzx"));
+                                                                QStringLiteral("unknown.zzzx"));
         QVERIFY(!invalid.value(QStringLiteral("description")).toString().isEmpty());
         QVERIFY(!invalid.value(QStringLiteral("genericIconName")).toString().isEmpty());
     }
@@ -1181,11 +1181,25 @@ private slots:
         QCOMPARE(blockEditor->property("contentY").toReal(), top);
     }
 
-    void backspacingSeparatorMergesListsIntoResidentDelegate()
+    void deletingSeparatorMergesListsIntoResidentDelegate_data()
     {
+        QTest::addColumn<int>("key");
+        QTest::newRow("backspace") << int(Qt::Key_Backspace);
+        QTest::newRow("delete") << int(Qt::Key_Delete);
+    }
+
+    void deletingSeparatorMergesListsIntoResidentDelegate()
+    {
+        QFETCH(int, key);
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("title"));
-        note.setText(QStringLiteral("- bullet\n\nx\n\n1. numbered"), Note::Markdown);
+        QStringList items { QStringLiteral("bullet"), QStringLiteral("last **upper** item") };
+        QString     body = QStringLiteral("- bullet\n- last **upper** item\n\nx\n\n");
+        for (int item = 0; item < 16; ++item) {
+            items.append(QStringLiteral("numbered %1").arg(item));
+            body += QStringLiteral("%1. %2\n").arg(item + 1).arg(items.last());
+        }
+        note.setText(body, Note::Markdown);
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor            editor(note, drafts);
         DesktopNoteEditorHost host(&editor);
@@ -1209,24 +1223,105 @@ private slots:
         QTRY_VERIFY((separator = textEditorForBlock(root, 2)));
         QPointer<QQuickItem> residentList(ancestorWithProperty(bullet, "itemData"));
         QVERIFY(residentList);
+        QPointer<QQuickItem> residentItem(bullet);
+        auto                *blockEditor = ancestorWithProperty(bullet, "currentFindText");
+        QVERIFY(blockEditor);
+        QSignalSpy resets(editor.model(), &QAbstractItemModel::modelReset);
+        QSignalSpy insertions(editor.model(), &QAbstractItemModel::rowsInserted);
 
         separator->forceActiveFocus(Qt::MouseFocusReason);
         separator->setProperty("cursorPosition", 1);
         QTRY_VERIFY(separator->hasActiveFocus());
         QTest::keyClick(host.quickWidget(), Qt::Key_Backspace);
         QTRY_COMPARE(editor.model()->blockTextAt(2), QString());
-        QTest::keyClick(host.quickWidget(), Qt::Key_Backspace);
+        QTest::qWait(100);
+        const qreal      viewport = blockEditor->property("contentY").toReal();
+        ContentYRecorder recorder(blockEditor);
+        QTest::keyClick(host.quickWidget(), Qt::Key(key));
 
         QTRY_COMPARE(editor.model()->rowCount(), 2);
-        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
-                 QStringList({ QStringLiteral("bullet"), QStringLiteral("numbered") }));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(), items);
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(insertions.count(), 0);
         QVERIFY2(residentList, "Merging adjacent lists recreated the resident list delegate");
-        QQuickItem *merged = nullptr;
-        QTRY_VERIFY((merged = listItemEditor(1)) && merged->hasActiveFocus());
+        QVERIFY2(residentItem, "Merging adjacent lists recreated an existing item editor");
+        QQuickItem *merged     = nullptr;
+        const int   targetItem = key == Qt::Key_Backspace ? 1 : 2;
+        QTRY_VERIFY((merged = listItemEditor(targetItem)) && merged->hasActiveFocus());
         QVariant mergedText;
         QVERIFY(QMetaObject::invokeMethod(merged, "currentPlainText", Q_RETURN_ARG(QVariant, mergedText)));
-        QCOMPARE(mergedText.toString(), QStringLiteral("numbered"));
-        QTRY_COMPARE(merged->property("cursorPosition").toInt(), merged->property("length").toInt());
+        QCOMPARE(mergedText.toString(),
+                 key == Qt::Key_Backspace ? QStringLiteral("last upper item") : QStringLiteral("numbered 0"));
+        QTRY_COMPARE(merged->property("cursorPosition").toInt(),
+                     key == Qt::Key_Backspace ? merged->property("length").toInt() : 0);
+        QTest::qWait(100);
+        for (qreal position : std::as_const(recorder.values))
+            QVERIFY2(qAbs(position - viewport) < 1, qPrintable(recorder.trace()));
+        QTest::keyClicks(host.quickWidget(), QStringLiteral("X"));
+        QTRY_VERIFY(editor.model()
+                        ->data(editor.model()->index(1), NoteBlockModel::ItemsRole)
+                        .toStringList()
+                        .at(targetItem)
+                        .contains(QLatin1Char('X')));
+    }
+
+    void hoverLinkEditorUpdatesWholeLinkWithoutSerializationMarkers_data()
+    {
+        QTest::addColumn<int>("prefixLength");
+        for (int length : { 0, 25, 45, 60, 75, 100 })
+            QTest::newRow(qPrintable(QString::number(length))) << length;
+    }
+
+    void hoverLinkEditorUpdatesWholeLinkWithoutSerializationMarkers()
+    {
+        QFETCH(int, prefixLength);
+        const QString prefix = prefixLength ? QString(prefixLength, QLatin1Char('x')) + QLatin1Char(' ') : QString();
+        const QString suffix = QStringLiteral(" after [other](https://other.example) `code` end");
+        const QString oldUrl = QStringLiteral("https://old.example");
+        const QString newUrl = QStringLiteral("https://new.example/path");
+        Note          note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(prefix + QStringLiteral("[example link](") + oldUrl + QLatin1Char(')') + suffix, Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(620, 420);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        auto *blockEditor = ancestorWithProperty(body, "currentFindText");
+        QVERIFY(blockEditor);
+        QObject *popup = blockEditor->property("linkEditorPopup").value<QObject *>();
+        QVERIFY(popup);
+        QRectF linkRect;
+        QVERIFY(QMetaObject::invokeMethod(body, "positionToRectangle", Q_RETURN_ARG(QRectF, linkRect),
+                                          Q_ARG(int, prefix.size() + 3)));
+        QVariant info;
+        QVERIFY(QMetaObject::invokeMethod(body, "renderedLinkInfoAt", Q_RETURN_ARG(QVariant, info),
+                                          Q_ARG(QVariant, linkRect.x() + 1), Q_ARG(QVariant, linkRect.center().y())));
+        const auto link = info.metaType() == QMetaType::fromType<QJSValue>()
+            ? info.value<QJSValue>().toVariant().toMap()
+            : info.toMap();
+        QVERIFY(!link.isEmpty());
+        QCOMPARE(link.value(QStringLiteral("start")).toInt(), prefix.size());
+        QCOMPARE(link.value(QStringLiteral("end")).toInt(), prefix.size() + 12);
+        QVERIFY(QMetaObject::invokeMethod(popup, "openFor", Q_ARG(QVariant, QVariant::fromValue(body)),
+                                          Q_ARG(QVariant, link.value(QStringLiteral("start"))),
+                                          Q_ARG(QVariant, link.value(QStringLiteral("end"))), Q_ARG(QVariant, oldUrl),
+                                          Q_ARG(QVariant, false)));
+        QVERIFY(QMetaObject::invokeMethod(popup, "applyLink", Q_ARG(QVariant, newUrl)));
+        const QString expected = prefix + QStringLiteral("[example link](") + newUrl + QLatin1Char(')') + suffix;
+        QTRY_COMPARE(editor.model()->blockTextAt(1).trimmed(), expected);
+        QVERIFY(!editor.text().contains(QStringLiteral("ANYKEEP")));
+
+        // A source refresh must render exactly the original visible text.
+        QVERIFY(QMetaObject::invokeMethod(body, "applySourceText", Q_ARG(QVariant, true)));
+        QVariant plain;
+        QVERIFY(QMetaObject::invokeMethod(body, "currentPlainText", Q_RETURN_ARG(QVariant, plain)));
+        QCOMPARE(plain.toString().trimmed(), prefix + QStringLiteral("example link after other code end"));
     }
 
     void tableBordersUseSinglePixelTextColorGrid()

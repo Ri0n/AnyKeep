@@ -22,6 +22,7 @@ class NotesModel : public QAbstractListModel {
     Q_PROPERTY(bool loadingMore READ loadingMore NOTIFY loadingMoreChanged)
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY hasMoreChanged)
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
+    Q_PROPERTY(bool searchInBody READ searchInBody WRITE setSearchInBody NOTIFY searchInBodyChanged)
     Q_PROPERTY(bool inSystemTray READ inSystemTray WRITE setInSystemTray NOTIFY inSystemTrayChanged)
 
 public:
@@ -48,6 +49,8 @@ public:
     bool    hasMore() const;
     QString query() const;
     void    setQuery(const QString &query);
+    bool    searchInBody() const { return m_searchInBody; }
+    void    setSearchInBody(bool enabled);
 
     bool inSystemTray() const { return m_inSystemTray; }
 
@@ -63,7 +66,7 @@ public:
 
     Q_INVOKABLE void refresh();
     // Invoked by the application's D-Bus storageConnectivityChanged signal.
-    Q_SLOT void refreshConnectivity();
+    Q_SLOT void      refreshConnectivity();
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void activate();
     Q_INVOKABLE void openNote(int row, QWindow *activationWindow = nullptr);
@@ -81,11 +84,13 @@ signals:
     void loadingMoreChanged();
     void hasMoreChanged();
     void queryChanged();
+    void searchInBodyChanged();
     void inSystemTrayChanged();
 
 private slots:
     void serviceRegistered();
     void serviceUnregistered();
+    void bodySearchFinished(const QString &query);
 
 private:
     struct Item {
@@ -101,7 +106,7 @@ private:
     void setLoading(bool loading);
     void setLoadingMore(bool loadingMore);
     void setHasMore(bool hasMore);
-    bool parseNotesResponse(const QString &response, QList<Item> *items, bool *hasMore) const;
+    bool parseNotesResponse(const QString &response, QList<Item> *items, bool *hasMore, bool *searching) const;
     void requestPage(int offset, bool append);
     void call(const QString &method);
     void callWithActivationToken(const QString &method, const QVariantList &arguments, QWindow *activationWindow);
@@ -116,16 +121,17 @@ private:
     QTimer              *m_queryRefreshTimer = nullptr;
     QString              m_pendingCall;
     QString              m_query;
-    bool                 m_available     = false;
-    bool                 m_loading       = false;
-    bool                 m_loadingMore   = false;
-    bool                 m_hasMore       = false;
-    bool                 m_starting      = false;
-    quint64              m_requestSerial = 0;
+    bool                 m_searchInBody { false };
+    bool                 m_available          = false;
+    bool                 m_loading            = false;
+    bool                 m_loadingMore        = false;
+    bool                 m_hasMore            = false;
+    bool                 m_starting           = false;
+    quint64              m_requestSerial      = 0;
     quint64              m_connectivitySerial = 0;
-    int                  m_connectivityState = 0;
+    int                  m_connectivityState  = 0;
     QString              m_connectivityText;
-    int                  m_pageSize      = 50;
+    int                  m_pageSize = 50;
 
     bool m_inSystemTray = false;
 };

@@ -28,6 +28,7 @@ class BaseIntegrationTray : public TrayImpl {
     QMenu                *contextMenu;
     QAction              *actQuit, *actNew, *actAbout, *actOptions, *actManager, *actNetworkStatus;
     QPointer<QWidget>     currentPopup;
+    bool                  searchInBody { false };
     std::function<void()> notificationAction;
 
 public:

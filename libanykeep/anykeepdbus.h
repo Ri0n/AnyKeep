@@ -7,12 +7,16 @@
 
 #include "anykeep_export.h"
 
+#include <QHash>
 #include <QObject>
+#include <QPointer>
+#include <QSet>
 #include <QString>
 
 namespace AnyKeep {
 
 class Main;
+class GlobalNoteFinder;
 
 class ANYKEEP_EXPORT AnyKeepDBus : public QObject {
     Q_OBJECT
@@ -24,6 +28,7 @@ public:
 
 signals:
     Q_SCRIPTABLE void notesChanged();
+    Q_SCRIPTABLE void bodySearchFinished(const QString &query);
     Q_SCRIPTABLE void storageConnectivityChanged();
     Q_SCRIPTABLE void stickyNotesChanged();
     Q_SCRIPTABLE void globalShortcutsChanged();
@@ -38,6 +43,7 @@ signals:
 
 public slots:
     Q_SCRIPTABLE QString notesJson(int offset, int limit, const QString &query) const;
+    Q_SCRIPTABLE QString notesWithBodyJson(int offset, int limit, const QString &query);
     Q_SCRIPTABLE QString storageConnectivityJson() const;
     Q_SCRIPTABLE QString globalShortcutsJson() const;
     Q_SCRIPTABLE QString stickyNotesJson() const;
@@ -59,8 +65,20 @@ public slots:
     Q_SCRIPTABLE void    quit();
 
 private:
-    Main *m_anykeep;
-    bool  m_registeredService = false;
+    struct BodySearch {
+        QSet<QString>              matches;
+        QPointer<GlobalNoteFinder> finder;
+        quint64                    lastUsed { 0 };
+    };
+
+    QString menuNotesJson(int offset, int limit, const QString &query, bool searchInBody,
+                          const QSet<QString> &bodyMatches, bool searching) const;
+    void    clearBodySearches();
+
+    QHash<QString, BodySearch> m_bodySearches;
+    quint64                    m_bodySearchSerial { 0 };
+    Main                      *m_anykeep;
+    bool                       m_registeredService = false;
 };
 
 } // namespace AnyKeep

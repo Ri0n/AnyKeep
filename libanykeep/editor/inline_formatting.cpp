@@ -33,9 +33,8 @@ namespace {
     QString unwrapMarkdownWriterLines(const QString &markdown);
     QString markdownWithSerializedInlineFormats(QTextDocument *document);
 
-    QString unusedPrivateMarker(const QTextDocument *document, ushort firstCandidate)
+    QString unusedPrivateMarker(const QString &contents, ushort firstCandidate)
     {
-        const QString contents = document ? document->toPlainText() : QString();
         for (uint value = firstCandidate; value <= 0xf8ff; ++value) {
             const QChar candidate(static_cast<ushort>(value));
             if (!contents.contains(candidate))
@@ -46,7 +45,17 @@ namespace {
             if (!contents.contains(candidate))
                 return QString(1, candidate);
         }
+        for (char32_t value = 0xf0000; value <= 0xffffd; ++value) {
+            const QString candidate = QString::fromUcs4(&value, 1);
+            if (!contents.contains(candidate))
+                return candidate;
+        }
         return QString(1, QChar(0xfffe));
+    }
+
+    QString unusedPrivateMarker(const QTextDocument *document, ushort firstCandidate)
+    {
+        return unusedPrivateMarker(document ? document->toPlainText() : QString(), firstCandidate);
     }
 
     QString markdownRangeImpl(QTextDocument *document, int start, int end)
@@ -545,20 +554,31 @@ namespace {
             all.mergeCharFormat(clearUnderline);
         }
 
+        // Qt wraps Markdown output even inside a long ASCII word. A marker
+        // split by that wrapping no longer matches and leaks into the note.
+        // Reserve indivisible Unicode markers, excluding both visible text
+        // and link destinations that will be restored below.
+        QString markerContents = document->toPlainText();
+        for (const LinkGroup &group : links)
+            markerContents += group.href;
+        auto nextMarker = [&markerContents]() {
+            const QString marker = unusedPrivateMarker(markerContents, 0xe300);
+            markerContents += marker;
+            return marker;
+        };
+
         QVector<QString> linkMarkers;
         linkMarkers.reserve(links.size());
-        for (int index = 0; index < links.size(); ++index) {
-            linkMarkers.append(QStringLiteral("ANYKEEPSERIALIZEDLINK7F3A%1END7F3A").arg(index));
-        }
+        for (int index = 0; index < links.size(); ++index)
+            linkMarkers.append(nextMarker());
         QVector<QString> codeMarkers;
         codeMarkers.reserve(codes.size());
         for (int index = 0; index < codes.size(); ++index)
-            codeMarkers.append(QStringLiteral("ANYKEEPSERIALIZEDCODE8C53%1END8C53").arg(index));
+            codeMarkers.append(nextMarker());
         QVector<QPair<QString, QString>> underlineMarkers;
         underlineMarkers.reserve(underlines.size());
         for (int index = 0; index < underlines.size(); ++index) {
-            underlineMarkers.append({ QStringLiteral("ANYKEEPINSOPEN8C53%1END8C53").arg(index),
-                                      QStringLiteral("ANYKEEPINSCLOSE8C53%1END8C53").arg(index) });
+            underlineMarkers.append({ nextMarker(), nextMarker() });
         }
 
         struct Replacement {

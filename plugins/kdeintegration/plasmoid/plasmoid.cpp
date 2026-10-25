@@ -111,6 +111,8 @@ NotesModel::NotesModel(QObject *parent) : QAbstractListModel(parent)
     bus.connect(QLatin1String(ServiceName), QLatin1String(ObjectPath), QLatin1String(InterfaceName),
                 QStringLiteral("notesChanged"), this, SLOT(refresh()));
     bus.connect(QLatin1String(ServiceName), QLatin1String(ObjectPath), QLatin1String(InterfaceName),
+                QStringLiteral("bodySearchFinished"), this, SLOT(bodySearchFinished(QString)));
+    bus.connect(QLatin1String(ServiceName), QLatin1String(ObjectPath), QLatin1String(InterfaceName),
                 QStringLiteral("storageConnectivityChanged"), this, SLOT(refreshConnectivity()));
 
     const auto reply = bus.interface()->isServiceRegistered(QLatin1String(ServiceName));
@@ -185,6 +187,22 @@ void NotesModel::refresh()
     requestPage(0, false);
 }
 
+void NotesModel::setSearchInBody(bool enabled)
+{
+    if (m_searchInBody == enabled)
+        return;
+    m_searchInBody = enabled;
+    emit searchInBodyChanged();
+    ++m_requestSerial;
+    refresh();
+}
+
+void NotesModel::bodySearchFinished(const QString &query)
+{
+    if (m_searchInBody && query == m_query)
+        refresh();
+}
+
 void NotesModel::loadMore()
 {
     if (!m_available || !m_interface)
@@ -195,7 +213,7 @@ void NotesModel::loadMore()
     requestPage(m_items.size(), true);
 }
 
-bool NotesModel::parseNotesResponse(const QString &response, QList<Item> *items, bool *hasMore) const
+bool NotesModel::parseNotesResponse(const QString &response, QList<Item> *items, bool *hasMore, bool *searching) const
 {
     QJsonParseError error;
     const auto      document = QJsonDocument::fromJson(response.toUtf8(), &error);
@@ -226,7 +244,8 @@ bool NotesModel::parseNotesResponse(const QString &response, QList<Item> *items,
         if (!item.id.isEmpty() && !item.storageId.isEmpty())
             items->append(std::move(item));
     }
-    *hasMore = object.value(QStringLiteral("hasMore")).toBool(false);
+    *hasMore   = object.value(QStringLiteral("hasMore")).toBool(false);
+    *searching = object.value(QStringLiteral("searching")).toBool(false);
     return true;
 }
 
@@ -240,8 +259,10 @@ void NotesModel::requestPage(int offset, bool append)
     }
 
     const quint64 requestSerial = ++m_requestSerial;
-    auto         *watcher       = new QDBusPendingCallWatcher(
-        callBackendWithoutActivation(QStringLiteral("notesJson"), { offset, m_pageSize, m_query }), this);
+    const QString method
+        = m_searchInBody && !m_query.isEmpty() ? QStringLiteral("notesWithBodyJson") : QStringLiteral("notesJson");
+    auto *watcher
+        = new QDBusPendingCallWatcher(callBackendWithoutActivation(method, { offset, m_pageSize, m_query }), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher, requestSerial, append]() {
         const QDBusPendingReply<QString> reply = *watcher;
         watcher->deleteLater();
@@ -260,8 +281,9 @@ void NotesModel::requestPage(int offset, bool append)
         }
 
         QList<Item> items;
-        bool        hasMore = false;
-        if (!parseNotesResponse(reply.value(), &items, &hasMore)) {
+        bool        hasMore   = false;
+        bool        searching = false;
+        if (!parseNotesResponse(reply.value(), &items, &hasMore, &searching)) {
             setHasMore(false);
             return;
         }
@@ -283,6 +305,7 @@ void NotesModel::requestPage(int offset, bool append)
         }
 
         setHasMore(hasMore);
+        setLoading(searching);
     });
 }
 
@@ -331,8 +354,8 @@ void NotesModel::refreshConnectivity()
         return;
 
     const quint64 serial = ++m_connectivitySerial;
-    auto *watcher = new QDBusPendingCallWatcher(
-        callBackendWithoutActivation(QStringLiteral("storageConnectivityJson")), this);
+    auto         *watcher
+        = new QDBusPendingCallWatcher(callBackendWithoutActivation(QStringLiteral("storageConnectivityJson")), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher, serial] {
         const QDBusPendingReply<QString> reply = *watcher;
         watcher->deleteLater();
@@ -344,8 +367,7 @@ void NotesModel::refreshConnectivity()
         if (!result.isObject())
             return;
         const auto data = result.object();
-        setConnectivity(data.value(QStringLiteral("state")).toInt(),
-                        data.value(QStringLiteral("summary")).toString());
+        setConnectivity(data.value(QStringLiteral("state")).toInt(), data.value(QStringLiteral("summary")).toString());
     });
 }
 

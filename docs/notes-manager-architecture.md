@@ -51,6 +51,15 @@ use. Android keeps the compact search button and uses the same filtering model.
 the shared asynchronous body finder. `RecentNotesModel` is a projection of the
 filtered hierarchical model, so search does not create a second refresh path.
 
+The desktop tray also offers **Search in text** above its nonempty filter,
+with an animated reveal. Both the fallback popup and the Plasma applet use
+`GlobalNoteFinder` for asynchronous body matches and prefer pending draft bodies
+over stored versions. Plasma calls `AnyKeepDBus::notesWithBodyJson`; the
+`bodySearchFinished(query)` signal refreshes only clients using that query.
+The bridge keeps a bounded cache of match identities for independent widgets
+and pagination, and invalidates it when notes change. The existing `notesJson`
+method retains title/tag filtering for other consumers.
+
 ## Ownership
 
 `NoteManager` owns one `NotesIndex`. The index keeps the current per-storage

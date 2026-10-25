@@ -6,6 +6,7 @@
 - `desktopnoteeditorhost_test`: the thin desktop host/model bridge.
 - `notesmanagerqml_test`: notes manager, folders, collections, and drag/drop.
 - `settingsqml_test`: settings QML, icons, spelling, and palette behavior.
+- `traynotes_test`: fallback tray search and asynchronous D-Bus body matching.
 - Other `*_test` targets cover the correspondingly named C++ subsystem.
 
 `noteblockmodel_test` remains one executable; implementations are split into

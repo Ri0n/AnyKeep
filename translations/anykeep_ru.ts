@@ -84,6 +84,10 @@ and to other contributors whose names have been lost or not yet added.
 <context>
     <name>FullRepresentation</name>
     <message>
+        <source>Search in text</source>
+        <translation>Искать в тексте</translation>
+    </message>
+    <message>
         <source>Notes</source>
         <translation type="vanished">Заметки</translation>
     </message>
@@ -304,6 +308,10 @@ and to other contributors whose names have been lost or not yet added.
 </context>
 <context>
     <name>AnyKeep::BaseIntegrationTray</name>
+    <message>
+        <source>Search in text</source>
+        <translation>Искать в тексте</translation>
+    </message>
     <message>
         <location filename="../plugins/baseintegration/baseintegrationtray.cpp" line="55"/>
         <source>&amp;Quit</source>

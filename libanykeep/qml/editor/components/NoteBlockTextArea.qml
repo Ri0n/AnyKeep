@@ -713,8 +713,10 @@ TextArea {
         const position = positionAt(x, y)
         if (position < 0 || position >= length)
             return null
-        const info = editorView.editorBackend.linkInfo(textDocument, position, position + 1)
-        return info && info.valid && info.href ? info : null
+        const hit = editorView.editorBackend.linkInfo(textDocument, position, position + 1)
+        if (!hit || !hit.valid || !hit.href)
+            return null
+        return editorView.editorBackend.linkInfo(textDocument, position, position)
     }
 
     InlineElementLayer {

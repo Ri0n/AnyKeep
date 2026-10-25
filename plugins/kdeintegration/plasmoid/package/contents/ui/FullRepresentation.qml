@@ -127,6 +127,31 @@ PlasmaExtras.Representation {
                 }
             }
 
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: filterField.text.length > 0
+                                        ? searchInText.implicitHeight : 0
+                clip: true
+                opacity: filterField.text.length > 0 ? 1 : 0
+                enabled: filterField.text.length > 0
+
+                Behavior on Layout.preferredHeight {
+                    NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+                }
+                Behavior on opacity { NumberAnimation { duration: 110 } }
+
+                PlasmaComponents3.CheckBox {
+                    id: searchInText
+                    objectName: "traySearchInText"
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom
+                    text: qsTr("Search in text")
+                    focusPolicy: Qt.NoFocus
+                    checked: root.notesModel.searchInBody
+                    onToggled: root.notesModel.searchInBody = checked
+                }
+            }
+
             PlasmaExtras.SearchField {
                 id: filterField
                 Layout.fillWidth: true
