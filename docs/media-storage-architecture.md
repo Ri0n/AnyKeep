@@ -143,11 +143,17 @@ policies:
   encrypted local source locator and fingerprints the selected file. The note
   depends on that file remaining available and unchanged.
 
-The external locator is local-only state. It is keyed by the opaque `blobId`,
-encrypted with the profile-local media key, and never appears in
-`MediaReference`, Markdown, remote note metadata, XMPP descriptors, or clipboard
-payloads. Consequently synchronizing a note to another installation does not leak
-or pretend to synchronize a local filesystem path.
+External locators are local-only state, encrypted with the profile-local media
+key. They never appear in `MediaReference`, Markdown, remote note metadata, XMPP
+descriptors, or clipboard payloads. Consequently synchronizing a note to another
+installation does not leak or pretend to synchronize a local filesystem path.
+There are two kinds:
+
+- an **attachment locator**, keyed by the attachment id, for a file linked with
+  **Keep file in place** before its content has been fingerprinted;
+- a **content locator**, keyed by the opaque `blobId`, for content whose plain
+  file is its local home, for example after it was moved out of encrypted
+  storage. Every reference to that content resolves through it.
 
 Linking an external file computes the same keyed whole-object `blobId` as a
 managed import, the normal plaintext SHA-256 checksum, and fixed-size local chunk
@@ -158,10 +164,22 @@ Changing a byte without changing the file size is therefore detected when the
 affected range is read. Whole-object materialization also verifies every chunk
 and the complete checksum.
 
-The local source registry is a location hint/cache, not document identity. If a
-managed blob for the same `blobId` exists, the managed copy wins. An external
-source can therefore later be promoted into managed storage without rewriting
-the note or changing its media URI.
+Where content lives is store state, never note state: notes reference content,
+and only `LocalMediaStore` knows whether it is an encrypted blob or a plain file.
+The store looks for the managed blob first, then the attachment locator, then
+the content locator, so a managed copy of the same `blobId` always wins. An
+external source can therefore be promoted into managed storage without
+rewriting the note or changing its media URI.
+
+The reverse is `LocalMediaStore::moveToFile()`, offered by **Save To…** for
+content in encrypted storage ("Keep only the saved file"). It writes the plain
+file, fingerprints it to confirm the same keyed `blobId` and checksum, records a
+content locator with chunk hashes, and only then deletes the managed blob. Every
+note that references the content, including other notes and cached remote
+copies, then uses the saved file; none of them changes. An interruption before
+the blob is deleted leaves the managed copy in place, and it still wins. Once
+content lives in a plain file, the desktop editor offers **Show in Folder**
+instead of **Save To…**.
 
 Mobile document pickers currently deliver copied bytes rather than a durable
 platform document locator, so mobile insertion remains managed-copy-only until a

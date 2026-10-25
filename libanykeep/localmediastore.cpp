@@ -89,7 +89,8 @@ namespace {
                      .arg(expected) };
     }
 
-    AeadContext legacyExternalSourceContext(const QByteArray &blobId)
+    // Where content lives outside encrypted storage, keyed by the content.
+    AeadContext contentSourceContext(const QByteArray &blobId)
     {
         return { KeyDomain::LocalMedia, QStringLiteral("anykeep-local-media-source"),
                  QString::fromLatin1(blobId.toHex()), AeadContextSchema, QStringLiteral("external-file") };
@@ -526,7 +527,7 @@ QString LocalMediaStore::externalSourcePath(const QUuid &attachmentId) const
         + id + QStringLiteral(".source");
 }
 
-QString LocalMediaStore::legacyExternalSourcePath(const QByteArray &blobId) const
+QString LocalMediaStore::contentSourcePath(const QByteArray &blobId) const
 {
     const auto hex  = blobId.toHex();
     const auto root = rootPath_.isEmpty() ? Utils::anykeepDataDir() + QStringLiteral("/media") : rootPath_;
@@ -590,8 +591,9 @@ QByteArray LocalMediaStore::masterKey(QString *error) const
     return masterKey_;
 }
 
-std::shared_ptr<MediaPartialChunkCache> LocalMediaStore::partialMediaCache(
-    const QString &provider, const QString &immutableSourceId, qint64 plainSize, QString *error) const
+std::shared_ptr<MediaPartialChunkCache> LocalMediaStore::partialMediaCache(const QString &provider,
+                                                                           const QString &immutableSourceId,
+                                                                           qint64 plainSize, QString *error) const
 {
     if (provider.isEmpty() || immutableSourceId.isEmpty() || plainSize <= 0) {
         if (error)
@@ -600,22 +602,23 @@ std::shared_ptr<MediaPartialChunkCache> LocalMediaStore::partialMediaCache(
     }
     // Do not use source paths or ETags as directory names. The digest also
     // binds the cache to the remote revision, without exposing note names.
-    const auto sourceHash = QCryptographicHash::hash(
-        (provider + QLatin1Char('\n') + immutableSourceId).toUtf8(), QCryptographicHash::Sha256).toHex();
-    const auto root = rootPath_.isEmpty() ? Utils::anykeepDataDir() + QStringLiteral("/media") : rootPath_;
-    const QString directory = root + QStringLiteral("/partial/") + QString::fromLatin1(sourceHash.left(2))
+    const auto    sourceHash = QCryptographicHash::hash((provider + QLatin1Char('\n') + immutableSourceId).toUtf8(),
+                                                        QCryptographicHash::Sha256)
+                                   .toHex();
+    const auto    root       = rootPath_.isEmpty() ? Utils::anykeepDataDir() + QStringLiteral("/media") : rootPath_;
+    const QString directory  = root + QStringLiteral("/partial/") + QString::fromLatin1(sourceHash.left(2))
         + QLatin1Char('/') + QString::fromLatin1(sourceHash);
     const auto key = masterKey(error);
     if (key.size() != SecureEnvelope::MasterKeySize)
         return {};
-    auto cache = std::make_shared<MediaPartialChunkCache>(
-        MediaPartialChunkCache::Format::LocallySealed, directory, QString::fromLatin1(sourceHash),
-        plainSize, ManagedChunkSize, key);
+    auto cache
+        = std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::LocallySealed, directory,
+                                                   QString::fromLatin1(sourceHash), plainSize, ManagedChunkSize, key);
     return cache->isValid() ? cache : std::shared_ptr<MediaPartialChunkCache> {};
 }
 
-std::shared_ptr<MediaPartialChunkCache> LocalMediaStore::opaqueMediaCache(
-    const QString &provider, const QString &immutableSourceId, QString *error) const
+std::shared_ptr<MediaPartialChunkCache>
+LocalMediaStore::opaqueMediaCache(const QString &provider, const QString &immutableSourceId, QString *error) const
 {
     if (provider.isEmpty() || immutableSourceId.isEmpty()) {
         if (error)
@@ -624,10 +627,12 @@ std::shared_ptr<MediaPartialChunkCache> LocalMediaStore::opaqueMediaCache(
     }
     // Domain-separate already authenticated remote wire records from locally
     // sealed plaintext records, even if a provider reuses the same source ID.
-    const auto digest = QCryptographicHash::hash(
-        (QStringLiteral("opaque-wire-v1\n") + provider + QLatin1Char('\n') + immutableSourceId).toUtf8(),
-        QCryptographicHash::Sha256).toHex();
-    const auto root = rootPath_.isEmpty() ? Utils::anykeepDataDir() + QStringLiteral("/media") : rootPath_;
+    const auto digest
+        = QCryptographicHash::hash(
+              (QStringLiteral("opaque-wire-v1\n") + provider + QLatin1Char('\n') + immutableSourceId).toUtf8(),
+              QCryptographicHash::Sha256)
+              .toHex();
+    const auto    root      = rootPath_.isEmpty() ? Utils::anykeepDataDir() + QStringLiteral("/media") : rootPath_;
     const QString directory = root + QStringLiteral("/partial/") + QString::fromLatin1(digest.left(2))
         + QLatin1Char('/') + QString::fromLatin1(digest);
     auto cache = std::make_shared<MediaPartialChunkCache>(MediaPartialChunkCache::Format::VerifiedOpaque, directory);
@@ -819,6 +824,26 @@ LocalMediaResult LocalMediaStore::importData(const QByteArray &plain, const QStr
     return { reference, {} };
 }
 
+namespace {
+    QString writeSealedSource(const QString &path, const QByteArray &key, const AeadContext &context,
+                              const LocalMediaExternalSource &source)
+    {
+        const auto sealed = SecureEnvelope::seal(serializeExternalSource(source), key, context);
+        if (!sealed)
+            return sealed.error.message;
+        if (!QDir().mkpath(QFileInfo(path).absolutePath()))
+            return QStringLiteral("Failed to create local media source directory");
+        QSaveFile file(path);
+        file.setDirectWriteFallback(false);
+        if (!file.open(QIODevice::WriteOnly))
+            return file.errorString();
+        file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        if (file.write(sealed.value) != sealed.value.size() || !file.commit())
+            return file.errorString();
+        return {};
+    }
+} // namespace
+
 QString LocalMediaStore::writeExternalSource(const QUuid &attachmentId, const LocalMediaExternalSource &source) const
 {
     if (attachmentId.isNull())
@@ -827,21 +852,77 @@ QString LocalMediaStore::writeExternalSource(const QUuid &attachmentId, const Lo
     const auto key = masterKey(&keyError);
     if (key.isEmpty())
         return keyError;
-    const auto sealed = SecureEnvelope::seal(serializeExternalSource(source), key, externalSourceContext(attachmentId));
-    if (!sealed)
-        return sealed.error.message;
+    return writeSealedSource(externalSourcePath(attachmentId), key, externalSourceContext(attachmentId), source);
+}
 
-    const QString path = externalSourcePath(attachmentId);
-    if (!QDir().mkpath(QFileInfo(path).absolutePath()))
-        return QStringLiteral("Failed to create local media source directory");
-    QSaveFile file(path);
-    file.setDirectWriteFallback(false);
-    if (!file.open(QIODevice::WriteOnly))
-        return file.errorString();
-    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-    if (file.write(sealed.value) != sealed.value.size() || !file.commit())
-        return file.errorString();
-    return {};
+QString LocalMediaStore::writeContentSource(const QByteArray &blobId, const LocalMediaExternalSource &source) const
+{
+    if (blobId.isEmpty())
+        return QStringLiteral("Invalid media content id");
+    QString    keyError;
+    const auto key = masterKey(&keyError);
+    if (key.isEmpty())
+        return keyError;
+    return writeSealedSource(contentSourcePath(blobId), key, contentSourceContext(blobId), source);
+}
+
+LocalMediaResult LocalMediaStore::moveToFile(const MediaReference &reference, const QString &fileName)
+{
+    if (!reference.isValid() || !containsManagedBlob(reference.blobId))
+        return { {}, QStringLiteral("The media is not in encrypted storage") };
+    QString    keyError;
+    const auto key = masterKey(&keyError);
+    if (key.isEmpty())
+        return { {}, keyError };
+
+    QSaveFile output(fileName);
+    output.setDirectWriteFallback(false);
+    if (!output.open(QIODevice::WriteOnly))
+        return { {}, output.errorString() };
+    qint64 totalSize = -1;
+    for (qint64 offset = 0; totalSize < 0 || offset < totalSize;) {
+        const auto range = readManagedRange(reference.blobId, offset, ManagedChunkSize);
+        if (!range)
+            return { {}, range.error };
+        totalSize = range.totalSize;
+        if (range.value.isEmpty() && offset < totalSize)
+            return { {}, QStringLiteral("The encrypted media ended unexpectedly") };
+        if (output.write(range.value) != range.value.size())
+            return { {}, output.errorString() };
+        offset += range.value.size();
+    }
+    if (!output.commit())
+        return { {}, output.errorString() };
+
+    // Fingerprint what is on disk: it must be the same content, and the
+    // chunk hashes let later reads verify the file.
+    QFile written(fileName);
+    if (!written.open(QIODevice::ReadOnly))
+        return { {}, written.errorString() };
+    Fingerprint fingerprint;
+    QString     fingerprintError;
+    if (!fingerprintDevice(written, SecureEnvelope::deriveKey(key, KeyDomain::LocalMedia), &fingerprint,
+                           &fingerprintError, true))
+        return { {}, fingerprintError };
+    if (fingerprint.blobId != reference.blobId
+        || (!reference.checksum.isEmpty() && fingerprint.checksum != reference.checksum))
+        return { {}, QStringLiteral("The saved file does not match the encrypted media") };
+
+    const QFileInfo          info(fileName);
+    LocalMediaExternalSource source;
+    source.fileName = info.canonicalFilePath().isEmpty() ? info.absoluteFilePath() : info.canonicalFilePath();
+    source.size     = fingerprint.size;
+    source.modifiedMsecsSinceEpoch = info.lastModified().toMSecsSinceEpoch();
+    source.blobId                  = fingerprint.blobId;
+    source.checksum                = fingerprint.checksum;
+    source.chunkSize               = quint32(ExternalChunkSize);
+    source.chunkHashes             = std::move(fingerprint.chunkHashes);
+    if (const QString sourceError = writeContentSource(reference.blobId, source); !sourceError.isEmpty())
+        return { {}, sourceError };
+
+    if (!QFile::remove(blobPath(reference.blobId)))
+        return { {}, QStringLiteral("The file was saved, but its encrypted copy could not be removed") };
+    return { reference, {} };
 }
 
 LocalMediaExternalSourceResult LocalMediaStore::loadExternalSource(const MediaReference &reference) const
@@ -864,14 +945,14 @@ LocalMediaExternalSourceResult LocalMediaStore::loadExternalSource(const MediaRe
         }
     }
 
-    // Compatibility with the pre-lazy external-source format, which keyed the
-    // encrypted locator by the already-computed content blob id.
+    // Otherwise the content itself may live outside encrypted storage, e.g.
+    // after moveToFile(), for every reference to it.
     if (reference.blobId.isEmpty())
         return { {}, QStringLiteral("External media source metadata is unavailable") };
-    QFile legacy(legacyExternalSourcePath(reference.blobId));
-    if (!legacy.open(QIODevice::ReadOnly))
-        return { {}, legacy.errorString() };
-    const auto opened = SecureEnvelope::open(legacy.readAll(), key, legacyExternalSourceContext(reference.blobId));
+    QFile content(contentSourcePath(reference.blobId));
+    if (!content.open(QIODevice::ReadOnly))
+        return { {}, content.errorString() };
+    const auto opened = SecureEnvelope::open(content.readAll(), key, contentSourceContext(reference.blobId));
     if (!opened)
         return { {}, opened.error.message };
     LocalMediaExternalSource source;
@@ -981,6 +1062,13 @@ LocalMediaRangeResult LocalMediaStore::readManagedRange(const QByteArray &blobId
         remaining -= copySize;
     }
     return { result, totalSize, {} };
+}
+
+bool LocalMediaStore::hasExternalSource(const MediaReference &reference) const
+{
+    if (!reference.id.isNull() && QFileInfo::exists(externalSourcePath(reference.id)))
+        return true;
+    return !reference.blobId.isEmpty() && QFileInfo::exists(contentSourcePath(reference.blobId));
 }
 
 LocalMediaDataResult LocalMediaStore::data(const MediaReference &reference) const

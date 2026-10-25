@@ -21,6 +21,7 @@
 #include <QMimeData>
 #include <QPair>
 #include <QPixmap>
+#include <QProcess>
 #include <QPushButton>
 #include <QRunnable>
 #include <QSaveFile>
@@ -32,6 +33,13 @@
 #include <QWindow>
 
 #include <algorithm>
+
+#ifdef ANYKEEP_DBUS_AVAILABLE
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
+#endif
 
 namespace AnyKeep {
 namespace {
@@ -60,7 +68,7 @@ namespace {
         for (const QUrl &url : mimeData->urls()) {
             if (!url.isLocalFile())
                 return {};
-            const QString path = url.toLocalFile();
+            const QString   path = url.toLocalFile();
             const QFileInfo info(path);
             if (!info.isFile() || !info.isReadable())
                 return {};
@@ -71,9 +79,41 @@ namespace {
 
     bool isInlineFileMedia(const QString &mediaType)
     {
-        return mediaType.startsWith(QLatin1String("image/"))
-            || mediaType.startsWith(QLatin1String("audio/"))
+        return mediaType.startsWith(QLatin1String("image/")) || mediaType.startsWith(QLatin1String("audio/"))
             || mediaType.startsWith(QLatin1String("video/"));
+    }
+
+    // Selects the file in the system file manager where possible, otherwise
+    // opens the folder that contains it.
+    void showInFileManager(const QString &path)
+    {
+#if defined(Q_OS_WIN)
+        QProcess::startDetached(QStringLiteral("explorer.exe"),
+                                { QStringLiteral("/select,"), QDir::toNativeSeparators(path) });
+#elif defined(Q_OS_MACOS)
+        QProcess::startDetached(QStringLiteral("/usr/bin/open"), { QStringLiteral("-R"), path });
+#else
+        const QUrl folder = QUrl::fromLocalFile(QFileInfo(path).absolutePath());
+#ifdef ANYKEEP_DBUS_AVAILABLE
+        // Common file managers (Nautilus, Dolphin, Thunar, ...) implement
+        // org.freedesktop.FileManager1, which selects the file in its folder.
+        auto bus = QDBusConnection::sessionBus();
+        if (bus.isConnected()) {
+            auto message = QDBusMessage::createMethodCall(
+                QStringLiteral("org.freedesktop.FileManager1"), QStringLiteral("/org/freedesktop/FileManager1"),
+                QStringLiteral("org.freedesktop.FileManager1"), QStringLiteral("ShowItems"));
+            message << QStringList { QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded) } << QString();
+            auto *watcher = new QDBusPendingCallWatcher(bus.asyncCall(message));
+            QObject::connect(watcher, &QDBusPendingCallWatcher::finished, watcher, [watcher, folder] {
+                if (QDBusPendingReply<>(*watcher).isError())
+                    QDesktopServices::openUrl(folder);
+                watcher->deleteLater();
+            });
+            return;
+        }
+#endif
+        QDesktopServices::openUrl(folder);
+#endif
     }
 
     bool cursorIsOutsideWindow(QObject *source)
@@ -126,6 +166,62 @@ bool DesktopEditorPlatformBackend::chooseFileImportMode(const QString &fileName,
         return true;
     }
     return false;
+}
+
+// The reverse of chooseFileImportMode(): after saving, the encrypted copy can
+// stay, or the saved file becomes where AnyKeep keeps the content.
+bool DesktopEditorPlatformBackend::chooseSaveMode(const QString &fileName, bool *keepOnlySavedFile)
+{
+    if (!keepOnlySavedFile)
+        return false;
+
+    QMessageBox dialog(QMessageBox::Question, tr("Save file"),
+                       tr("Keep %1 only at the new location?").arg(QFileInfo(fileName).fileName()),
+                       QMessageBox::NoButton, dialogParent_);
+    dialog.setInformativeText(tr("AnyKeep can keep its encrypted copy as well. Without it, notes use the saved file, "
+                                 "which then has to remain available and unchanged."));
+    auto *copyButton = dialog.addButton(tr("Keep encrypted copy too"), QMessageBox::AcceptRole);
+    auto *moveButton = dialog.addButton(tr("Keep only the saved file"), QMessageBox::ActionRole);
+    dialog.addButton(QMessageBox::Cancel);
+    dialog.exec();
+
+    if (dialog.clickedButton() == copyButton) {
+        *keepOnlySavedFile = false;
+        return true;
+    }
+    if (dialog.clickedButton() == moveButton) {
+        *keepOnlySavedFile = true;
+        return true;
+    }
+    return false;
+}
+
+void DesktopEditorPlatformBackend::moveAttachmentToFileAsync(const MediaReference &reference, const QString &fileName,
+                                                             const QString &url)
+{
+    auto   *store = LocalMediaStore::instance();
+    QString initializeError;
+    if (!store->initialize(&initializeError)) {
+        emit operationFailed(initializeError);
+        return;
+    }
+    const QPointer<DesktopEditorPlatformBackend> backend(this);
+    QThreadPool::globalInstance()->start(QRunnable::create([backend, store, reference, fileName, url] {
+        const auto moved = store->moveToFile(reference, fileName);
+        if (!backend)
+            return;
+        QMetaObject::invokeMethod(
+            backend,
+            [backend, moved, url] {
+                if (!backend)
+                    return;
+                if (!moved)
+                    emit backend->operationFailed(tr("Could not move the attached file: %1").arg(moved.error));
+                else
+                    emit backend->attachmentStorageChanged(url);
+            },
+            Qt::QueuedConnection);
+    }));
 }
 
 bool DesktopEditorPlatformBackend::referenceFileAsync(const QString &fileName, int row, bool attachment,
@@ -312,8 +408,8 @@ bool DesktopEditorPlatformBackend::insertFileMimeData(const QMimeData *mimeData,
         return false;
 
     const QStringList files = localDroppedFiles(mimeData);
-    auto *store = LocalMediaStore::instance();
-    QString initializeError;
+    auto             *store = LocalMediaStore::instance();
+    QString           initializeError;
     if (!store->initialize(&initializeError)) {
         emit operationFailed(initializeError);
         return false;
@@ -322,10 +418,10 @@ bool DesktopEditorPlatformBackend::insertFileMimeData(const QMimeData *mimeData,
     // Dropping files imports independent encrypted copies, without opening a
     // modal dialog during the drag. The picker still offers Keep in place.
     const QPointer<DesktopEditorPlatformBackend> backend(this);
-    const QPointer<NoteEditor> targetEditor(editor());
+    const QPointer<NoteEditor>                   targetEditor(editor());
     QThreadPool::globalInstance()->start(QRunnable::create([backend, targetEditor, store, files, row] {
         QList<QPair<MediaReference, bool>> imported;
-        QString error;
+        QString                            error;
         for (const QString &fileName : files) {
             const auto result = store->importFile(fileName);
             if (!result) {
@@ -345,14 +441,13 @@ bool DesktopEditorPlatformBackend::insertFileMimeData(const QMimeData *mimeData,
                     emit backend->operationFailed(error);
                     return;
                 }
-                int insertionRow = row < 0 ? targetEditor->model()->rowCount()
-                                           : qBound(0, row, targetEditor->model()->rowCount());
+                int insertionRow
+                    = row < 0 ? targetEditor->model()->rowCount() : qBound(0, row, targetEditor->model()->rowCount());
                 targetEditor->beginHistoryTransaction(QStringLiteral("drop-files"));
                 QList<MediaReference> inserted;
                 for (const auto &file : imported) {
-                    const bool ok = file.second
-                        ? targetEditor->insertMedia(file.first, 0, 0, 0, insertionRow)
-                        : targetEditor->insertAttachment(file.first, insertionRow);
+                    const bool ok = file.second ? targetEditor->insertMedia(file.first, 0, 0, 0, insertionRow)
+                                                : targetEditor->insertAttachment(file.first, insertionRow);
                     if (ok) {
                         ++insertionRow;
                         inserted.append(file.first);
@@ -369,16 +464,12 @@ bool DesktopEditorPlatformBackend::insertFileMimeData(const QMimeData *mimeData,
 
 void DesktopEditorPlatformBackend::openAttachment(const QString &url)
 {
-    if (!editor())
-        return;
-    const auto media     = editor()->media();
-    const auto reference = std::find_if(media.cbegin(), media.cend(), [&url](const MediaReference &item) {
-        return item.isValid() && item.uri() == url;
-    });
-    if (reference == media.cend()) {
+    MediaReference found;
+    if (!findAttachment(url, &found)) {
         emit operationFailed(tr("The attached file is not available locally."));
         return;
     }
+    const MediaReference *reference = &found;
     if (!attachmentOpenDirectory_)
         attachmentOpenDirectory_
             = std::make_unique<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/anykeep-attachment-open-XXXXXX"));
@@ -418,17 +509,13 @@ void DesktopEditorPlatformBackend::openAttachment(const QString &url)
 
 void DesktopEditorPlatformBackend::saveAttachmentAs(const QString &url)
 {
-    if (!editor())
-        return;
-    const auto media     = editor()->media();
-    const auto reference = std::find_if(media.cbegin(), media.cend(), [&url](const MediaReference &item) {
-        return item.isValid() && item.uri() == url;
-    });
-    if (reference == media.cend()) {
+    MediaReference found;
+    if (!findAttachment(url, &found)) {
         emit operationFailed(tr("The attached file is not available locally."));
         return;
     }
-    QString name
+    const MediaReference *reference = &found;
+    QString               name
         = QFileInfo(reference->originalName.isEmpty() ? reference->portableName : reference->originalName).fileName();
     if (name.isEmpty())
         name = QStringLiteral("attachment");
@@ -441,6 +528,15 @@ void DesktopEditorPlatformBackend::saveAttachmentAs(const QString &url)
         exportRemoteAttachment(*reference, fileName, false);
         return;
     }
+    if (LocalMediaStore::instance()->containsManagedBlob(reference->blobId)) {
+        bool keepOnlySavedFile = false;
+        if (!chooseSaveMode(fileName, &keepOnlySavedFile))
+            return;
+        if (keepOnlySavedFile) {
+            moveAttachmentToFileAsync(*reference, fileName, url);
+            return;
+        }
+    }
     const auto loaded = LocalMediaStore::instance()->data(*reference);
     if (!loaded) {
         emit operationFailed(loaded.error);
@@ -449,6 +545,56 @@ void DesktopEditorPlatformBackend::saveAttachmentAs(const QString &url)
     QSaveFile file(fileName);
     if (!file.open(QIODevice::WriteOnly) || file.write(loaded.value) != loaded.value.size() || !file.commit())
         emit operationFailed(tr("Could not save the attached file: %1").arg(file.errorString()));
+}
+
+bool DesktopEditorPlatformBackend::findAttachment(const QString &url, MediaReference *reference) const
+{
+    if (!editor())
+        return false;
+    const auto media = editor()->media();
+    const auto found = std::find_if(media.cbegin(), media.cend(),
+                                    [&url](const MediaReference &item) { return item.isValid() && item.uri() == url; });
+    if (found == media.cend())
+        return false;
+    *reference = *found;
+    return true;
+}
+
+bool DesktopEditorPlatformBackend::isAttachmentKeptInPlace(const QString &url) const
+{
+    MediaReference reference;
+    if (!findAttachment(url, &reference))
+        return false;
+    // An encrypted copy of the same content takes precedence over the file.
+    auto *store = LocalMediaStore::instance();
+    return !store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference);
+}
+
+void DesktopEditorPlatformBackend::showAttachmentInFolder(const QString &url)
+{
+    MediaReference reference;
+    if (!findAttachment(url, &reference)) {
+        emit operationFailed(tr("The attached file is not available locally."));
+        return;
+    }
+    auto   *store = LocalMediaStore::instance();
+    QString initializeError;
+    if (!store->initialize(&initializeError)) {
+        emit operationFailed(initializeError);
+        return;
+    }
+    const auto source = store->externalSource(reference);
+    if (!source) {
+        emit operationFailed(source.error);
+        return;
+    }
+    const QFileInfo file(source.value.fileName);
+    if (!file.exists()) {
+        emit operationFailed(
+            tr("The attached file is no longer at %1.").arg(QDir::toNativeSeparators(file.absoluteFilePath())));
+        return;
+    }
+    showInFileManager(file.absoluteFilePath());
 }
 
 void DesktopEditorPlatformBackend::exportRemoteAttachment(const MediaReference &reference, const QString &path,

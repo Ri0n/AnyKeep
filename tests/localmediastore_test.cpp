@@ -30,6 +30,8 @@ private slots:
     void managedChunkedMediaStreamsVerifiedRanges();
     void legacyManagedEnvelopeRemainsReadable();
     void externalFileReferenceStreamsBeforeFingerprinting();
+    void externalSourceIsDetectedWithoutTheKey();
+    void movingToAFileRelocatesEveryReference();
     void externalFileFingerprintCachesContentIdentity();
     void externalFileFingerprintInvalidatesOnSourceRevision();
     void externalFileReferenceRejectsChangedChunks();
@@ -271,6 +273,76 @@ void LocalMediaStoreTest::externalFileReferenceStreamsBeforeFingerprinting()
     const auto materialized = store.data(referenced.value);
     QVERIFY2(materialized, qPrintable(materialized.error));
     QCOMPARE(materialized.value, plain);
+}
+
+void LocalMediaStoreTest::externalSourceIsDetectedWithoutTheKey()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = QDir(directory.path()).filePath(QStringLiteral("store"));
+    QVERIFY(QDir().mkpath(root));
+    const QString sourcePath = QDir(directory.path()).filePath(QStringLiteral("report.pdf"));
+    QFile         source(sourcePath);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write(QByteArrayLiteral("kept in place")), qint64(13));
+    source.close();
+
+    LocalMediaStore store(root, SecureEnvelope::generateMasterKey());
+    const auto      kept = store.referenceFile(sourcePath);
+    QVERIFY2(kept, qPrintable(kept.error));
+    QVERIFY(store.hasExternalSource(kept.value));
+    const auto copied
+        = store.importData(QByteArrayLiteral("copied"), QStringLiteral("copy.txt"), QStringLiteral("text/plain"));
+    QVERIFY2(copied, qPrintable(copied.error));
+    QVERIFY(!store.hasExternalSource(copied.value));
+
+    // Only the locator's presence matters: another key cannot open it.
+    LocalMediaStore otherKey(root, SecureEnvelope::generateMasterKey());
+    QVERIFY(otherKey.hasExternalSource(kept.value));
+    QVERIFY(!otherKey.externalSource(kept.value));
+}
+
+void LocalMediaStoreTest::movingToAFileRelocatesEveryReference()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = QDir(directory.path()).filePath(QStringLiteral("store"));
+    QVERIFY(QDir().mkpath(root));
+    LocalMediaStore store(root, SecureEnvelope::generateMasterKey());
+
+    // Several managed chunks, so the move streams the encrypted blob.
+    QByteArray plain(int(2 * LocalMediaStore::ManagedChunkSize + 4321), '\0');
+    for (int i = 0; i < plain.size(); ++i)
+        plain[i] = char((i * 31) % 251);
+    const auto imported
+        = store.importData(plain, QStringLiteral("report.bin"), QStringLiteral("application/octet-stream"));
+    QVERIFY2(imported, qPrintable(imported.error));
+    // Another note referring to the same content.
+    MediaReference other = imported.value;
+    other.id             = QUuid::createUuid();
+
+    const QString target = QDir(directory.path()).filePath(QStringLiteral("Documents/report.bin"));
+    QVERIFY(QDir().mkpath(QFileInfo(target).absolutePath()));
+    const auto moved = store.moveToFile(imported.value, target);
+    QVERIFY2(moved, qPrintable(moved.error));
+
+    QFile saved(target);
+    QVERIFY(saved.open(QIODevice::ReadOnly));
+    QCOMPARE(saved.readAll(), plain);
+    QVERIFY(!store.containsManagedBlob(imported.value.blobId));
+    for (const MediaReference &reference : { imported.value, other }) {
+        QVERIFY(store.hasExternalSource(reference));
+        QVERIFY(store.contains(reference));
+        const auto source = store.externalSource(reference);
+        QVERIFY2(source, qPrintable(source.error));
+        QCOMPARE(source.value.fileName, QFileInfo(target).canonicalFilePath());
+        const auto data = store.data(reference);
+        QVERIFY2(data, qPrintable(data.error));
+        QCOMPARE(data.value, plain);
+    }
+
+    // Nothing is left in encrypted storage to move.
+    QVERIFY(!store.moveToFile(imported.value, QDir(directory.path()).filePath(QStringLiteral("again.bin"))));
 }
 
 void LocalMediaStoreTest::externalFileFingerprintCachesContentIdentity()

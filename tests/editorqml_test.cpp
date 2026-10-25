@@ -2,11 +2,9 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFile>
-#include <QImage>
 #include <QFont>
+#include <QImage>
 #include <QMimeData>
-#include <QTemporaryDir>
-#include <QUrl>
 #include <QPalette>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -14,8 +12,10 @@
 #include <QQuickItem>
 #include <QQuickTextDocument>
 #include <QQuickWidget>
+#include <QTemporaryDir>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QUrl>
 #include <QtTest>
 
 #include <algorithm>
@@ -195,16 +195,15 @@ private slots:
     void existingFileAttachmentsRenderInDesktopNote()
     {
         FavoriteEditorStorage storage;
-        Note note(new NoteData(&storage));
+        Note                  note(new NoteData(&storage));
         note.setTitle(QStringLiteral("Documents"));
-        note.setText(QStringLiteral(
-                         "<a href=\"anykeep-media:/22222222-2222-2222-2222-222222222222/spec.pdf\" "
-                         "data-anykeep-attachment=\"1\" data-anykeep-media-type=\"application/pdf\" "
-                         "data-anykeep-size=\"123456\">Specification.pdf</a>\n\n"
-                         "Notes after the attachment"),
+        note.setText(QStringLiteral("<a href=\"anykeep-media:/22222222-2222-2222-2222-222222222222/spec.pdf\" "
+                                    "data-anykeep-attachment=\"1\" data-anykeep-media-type=\"application/pdf\" "
+                                    "data-anykeep-size=\"123456\">Specification.pdf</a>\n\n"
+                                    "Notes after the attachment"),
                      Note::Markdown);
-        DraftManager drafts(std::make_unique<MemoryDraftStore>());
-        NoteEditor editor(note, drafts);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
         DesktopNoteEditorHost host(&editor);
         host.resize(700, 480);
         host.show();
@@ -233,19 +232,33 @@ private slots:
         QTRY_VERIFY((glyph = quickItemByName(root, QStringLiteral("attachmentFileGlyph-%1").arg(attachmentRow))));
         QVERIFY(glyph->isVisible());
         QTRY_COMPARE(glyph->childItems().first()->property("status").toInt(), 1);
-        QCOMPARE(editor.model()->data(editor.model()->index(attachmentRow),
-                                      NoteBlockModel::AttachmentMediaTypeRole).toString(),
+        // Not kept in place on this device: it can be opened and saved, but
+        // there is no plain file to show in a folder.
+        for (const QString &name :
+             { QStringLiteral("attachmentOpenGlyph-%1"), QStringLiteral("attachmentSaveGlyph-%1") }) {
+            QQuickItem *action = nullptr;
+            QTRY_VERIFY((action = quickItemByName(root, name.arg(attachmentRow))));
+            QVERIFY2(action->isVisible(), qPrintable(name));
+            QTRY_COMPARE(action->childItems().first()->property("status").toInt(), 1);
+        }
+        QQuickItem *showInFolder
+            = quickItemByName(root, QStringLiteral("attachmentShowInFolderButton-%1").arg(attachmentRow));
+        QVERIFY(showInFolder);
+        QVERIFY(!showInFolder->isVisible());
+        QCOMPARE(editor.model()
+                     ->data(editor.model()->index(attachmentRow), NoteBlockModel::AttachmentMediaTypeRole)
+                     .toString(),
                  QStringLiteral("application/pdf"));
     }
 
     void desktopAcceptsMixedFilesAndRejectsNonFiles()
     {
         FavoriteEditorStorage storage;
-        Note note(new NoteData(&storage));
+        Note                  note(new NoteData(&storage));
         note.setTitle(QStringLiteral("File drops"));
         note.setText(QStringLiteral("Body"), Note::Markdown);
-        DraftManager drafts(std::make_unique<MemoryDraftStore>());
-        NoteEditor editor(note, drafts);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
         DesktopNoteEditorHost host(&editor);
         host.resize(620, 420);
         host.show();
@@ -253,8 +266,8 @@ private slots:
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         const QString document = directory.filePath(QStringLiteral("notes.txt"));
-        const QString binary = directory.filePath(QStringLiteral("archive.bin"));
-        const QString picture = directory.filePath(QStringLiteral("image.png"));
+        const QString binary   = directory.filePath(QStringLiteral("archive.bin"));
+        const QString picture  = directory.filePath(QStringLiteral("image.png"));
         for (const QString &path : { document, binary }) {
             QFile file(path);
             QVERIFY(file.open(QIODevice::WriteOnly));
@@ -265,11 +278,10 @@ private slots:
         QVERIFY(image.save(picture));
 
         QMimeData mimeData;
-        mimeData.setUrls({ QUrl::fromLocalFile(document), QUrl::fromLocalFile(picture),
-                           QUrl::fromLocalFile(binary) });
+        mimeData.setUrls({ QUrl::fromLocalFile(document), QUrl::fromLocalFile(picture), QUrl::fromLocalFile(binary) });
         mimeData.setText(QStringLiteral("file:// presentation text should not become document text"));
         QVERIFY(host.platformBackend()->canAcceptFileMimeData(&mimeData));
-        const QPoint point(200, 180);
+        const QPoint    point(200, 180);
         QDragEnterEvent enterEvent(point, Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
         QCoreApplication::sendEvent(host.quickWidget(), &enterEvent);
         QVERIFY(enterEvent.isAccepted());
