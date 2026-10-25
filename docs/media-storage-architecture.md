@@ -862,6 +862,11 @@ The fullscreen output has a bottom control strip for play/pause,
 seeking, elapsed/total time and returning inline. Space toggles playback,
 Left/Right seek by five seconds, and Escape/F11 return inline. The strip uses
 the same controller and source URI; switching outputs preserves playback state.
+Before each fullscreen entry, the platform backend resolves the editor's native
+host window (including embedded Quick scenes), sets it as the transient parent,
+and places the video window at that screen's geometry. Selecting a screen alone
+does not move a window between monitors on the same virtual desktop. Reopening
+fullscreen after moving the editor uses its current screen.
 Inline and fullscreen video controls fade out after 2.5 seconds of pointer
 inactivity during playback. Pointer movement, presses and keyboard activity
 reveal them. Pausing, buffering, dragging a control, keyboard focus in controls,

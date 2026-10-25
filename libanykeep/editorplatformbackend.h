@@ -18,8 +18,10 @@
 
 class QImage;
 class QMimeData;
+class QQuickItem;
 class QQuickTextDocument;
 class QTextDocument;
+class QWindow;
 
 namespace AnyKeep {
 
@@ -58,7 +60,7 @@ public:
     Q_INVOKABLE QString      canonicalCodeLanguage(const QString &language) const;
     Q_INVOKABLE QVariantList codeLanguages() const;
     // Localized MIME description and freedesktop icon names for file cards.
-    Q_INVOKABLE QVariantMap attachmentMimePresentation(const QString &mimeType, const QString &fileName) const;
+    Q_INVOKABLE QVariantMap  attachmentMimePresentation(const QString &mimeType, const QString &fileName) const;
     Q_INVOKABLE QVariantList spellCheckRanges(QQuickTextDocument *document);
     Q_INVOKABLE void         setActiveSpellCheckDocument(QQuickTextDocument *document);
     Q_INVOKABLE void         checkSpellingInAllDocuments();
@@ -75,6 +77,9 @@ public:
     Q_INVOKABLE virtual bool insertAttachment(int row = -1);
     Q_INVOKABLE virtual void saveImageAs(const QString &url);
     Q_INVOKABLE virtual bool startImageDrag(int row);
+    // Resolve the native host (including QQuickWidget render windows) afresh
+    // so fullscreen follows the editor when it moves to another screen.
+    Q_INVOKABLE void prepareFullScreenWindow(QWindow *window, QQuickItem *source) const;
 
     bool insertRasterImage(const QImage &image, const QString &name, int row = -1);
     bool insertMediaFiles(const QStringList &fileNames, int row = -1, QString *error = nullptr,

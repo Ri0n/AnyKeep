@@ -9,6 +9,7 @@ Item {
     id: root
     objectName: "mediaVideoSurface"
     property var playback: null
+    property var platformBackend: null
     property var attachedPlayback: null
     readonly property bool fullScreen: fullScreenWindow.visible
     readonly property bool waitingForVideo: playback && (playback.loading || playback.seeking)
@@ -73,9 +74,19 @@ Item {
     function openFullScreen() {
         if (!attachedPlayback || fullScreen)
             return
-        const sourceWindow = root.Window.window
-        if (sourceWindow && sourceWindow.screen)
-            fullScreenWindow.screen = sourceWindow.screen
+        if (platformBackend) {
+            platformBackend.prepareFullScreenWindow(fullScreenWindow, root)
+        } else {
+            const sourceWindow = root.Window.window
+            if (sourceWindow && sourceWindow.screen) {
+                fullScreenWindow.transientParent = sourceWindow
+                fullScreenWindow.screen = sourceWindow.screen
+                fullScreenWindow.x = sourceWindow.screen.virtualX
+                fullScreenWindow.y = sourceWindow.screen.virtualY
+                fullScreenWindow.width = sourceWindow.screen.width
+                fullScreenWindow.height = sourceWindow.screen.height
+            }
+        }
         attachedPlayback.attachVideoOutput(fullScreenVideo)
         fullScreenWindow.showFullScreen()
         fullScreenContent.forceActiveFocus()

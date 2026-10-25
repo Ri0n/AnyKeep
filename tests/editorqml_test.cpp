@@ -16,6 +16,7 @@
 #include <QQuickTextDocument>
 #include <QQuickWidget>
 #include <QQuickWindow>
+#include <QScreen>
 #include <QTemporaryDir>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -336,18 +337,40 @@ private slots:
         QVERIFY(!host.platformBackend()->canAcceptFileMimeData(&missingMime));
     }
 
+    void loadsMediaVideoSurface_data()
+    {
+        QTest::addColumn<bool>("embedded");
+        QTest::newRow("widget") << true;
+        QTest::newRow("window") << false;
+    }
+
     void loadsMediaVideoSurface()
     {
+        QFETCH(bool, embedded);
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor            editor(plainNote(), drafts);
         DesktopNoteEditorHost host(&editor);
         auto                 *quick = host.quickWidget();
         QVERIFY(quick);
+        QQuickWindow sourceWindow;
+        host.resize(640, 480);
+        sourceWindow.resize(640, 480);
+        if (embedded)
+            host.show();
+        else
+            sourceWindow.show();
+        auto *nativeWindow = embedded ? host.windowHandle() : &sourceWindow;
+        QVERIFY(nativeWindow);
+        QVERIFY(QTest::qWaitForWindowExposed(nativeWindow));
 
         QQmlComponent component(quick->engine(), QUrl(QStringLiteral("qrc:/qml/editor/blocks/MediaVideoSurface.qml")));
         QTRY_COMPARE(component.status(), QQmlComponent::Ready);
         std::unique_ptr<QObject> surface(component.create());
         QVERIFY2(surface, qPrintable(component.errorString()));
+        auto *surfaceItem = qobject_cast<QQuickItem *>(surface.get());
+        QVERIFY(surfaceItem);
+        surfaceItem->setParentItem(embedded ? quick->rootObject() : sourceWindow.contentItem());
+        QVERIFY(surface->setProperty("platformBackend", QVariant::fromValue(host.platformBackend())));
 
         QQmlComponent playbackComponent(quick->engine());
         playbackComponent.setData(R"(
@@ -386,6 +409,32 @@ private slots:
         QTRY_VERIFY(inlineBusy->property("running").toBool());
         QVERIFY(playback->setProperty("loading", false));
         QTRY_VERIFY(!inlineBusy->property("running").toBool());
+
+        auto *fullScreenWindow = surface->findChild<QQuickWindow *>(QStringLiteral("fullScreenVideoWindow"));
+        QVERIFY(fullScreenWindow);
+        // Reuse the same fullscreen window after moving the editor. This also
+        // exercises non-primary and negative-coordinate screens when provided
+        // by the offscreen platform configuration or a multi-monitor desktop.
+        const auto screens = QGuiApplication::screens();
+        for (auto it = screens.crbegin(); it != screens.crend(); ++it) {
+            auto       *screen = *it;
+            const QRect editorGeometry(screen->geometry().topLeft() + QPoint(10, 10), QSize(300, 200));
+            if (embedded) {
+                host.setScreen(screen);
+                host.setGeometry(editorGeometry);
+            } else {
+                sourceWindow.setScreen(screen);
+                sourceWindow.setGeometry(editorGeometry);
+            }
+            QTRY_COMPARE(nativeWindow->screen(), screen);
+            QVERIFY(QMetaObject::invokeMethod(surface.get(), "openFullScreen"));
+            QVERIFY(QTest::qWaitForWindowExposed(fullScreenWindow));
+            QCOMPARE(fullScreenWindow->transientParent(), nativeWindow);
+            QCOMPARE(fullScreenWindow->screen(), screen);
+            QTRY_COMPARE(fullScreenWindow->geometry(), screen->geometry());
+            QVERIFY(QMetaObject::invokeMethod(surface.get(), "closeFullScreen"));
+            QTRY_VERIFY(!fullScreenWindow->isVisible());
+        }
         QVERIFY(surface->setProperty("playback", QVariant::fromValue<QObject *>(nullptr)));
     }
 

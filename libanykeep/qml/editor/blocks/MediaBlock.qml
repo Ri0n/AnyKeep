@@ -373,6 +373,7 @@ FocusScope {
 
         onLoaded: {
             item.playback = mediaRoot.playback
+            item.platformBackend = mediaRoot.editorView.platformBackend
             if (fullScreenWhenReady) {
                 fullScreenWhenReady = false
                 item.openFullScreen()

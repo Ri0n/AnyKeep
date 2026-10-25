@@ -24,7 +24,11 @@
 #include <QMimeDatabase>
 #include <QMimeType>
 #include <QPalette>
+#include <QQuickItem>
+#include <QQuickRenderControl>
 #include <QQuickTextDocument>
+#include <QQuickWindow>
+#include <QScreen>
 #include <QSettings>
 #include <QTextBlock>
 #include <QTextCharFormat>
@@ -266,11 +270,10 @@ bool EditorPlatformBackend::canInsertMedia() const { return editor_ && editor_->
 
 bool EditorPlatformBackend::canInsertAttachments() const { return editor_ && editor_->canInsertAttachments(); }
 
-QVariantMap EditorPlatformBackend::attachmentMimePresentation(const QString &mimeType,
-                                                             const QString &fileName) const
+QVariantMap EditorPlatformBackend::attachmentMimePresentation(const QString &mimeType, const QString &fileName) const
 {
     QMimeDatabase database;
-    QMimeType type = database.mimeTypeForName(mimeType.section(QLatin1Char(';'), 0, 0).trimmed());
+    QMimeType     type = database.mimeTypeForName(mimeType.section(QLatin1Char(';'), 0, 0).trimmed());
     // A missing or generic content type can be resolved from the portable
     // filename without requiring a local copy or reading the attachment.
     if (!type.isValid() || type.name() == QLatin1String("application/octet-stream")) {
@@ -607,7 +610,7 @@ bool EditorPlatformBackend::insertMediaData(const QByteArray &data, const QStrin
     if (!canInsertMedia() || data.isEmpty())
         return false;
     QMimeDatabase database;
-    QString validatedType = database.mimeTypeForData(data).name();
+    QString       validatedType = database.mimeTypeForData(data).name();
     if (validatedType == QLatin1String("application/octet-stream"))
         validatedType = mediaType;
     if (!isInlineMediaType(validatedType)) {
@@ -655,6 +658,22 @@ bool EditorPlatformBackend::insertAttachment(int row)
 }
 
 void EditorPlatformBackend::saveImageAs(const QString &) {}
+
+void EditorPlatformBackend::prepareFullScreenWindow(QWindow *window, QQuickItem *source) const
+{
+    if (!window || !source || !source->window())
+        return;
+
+    QWindow *sourceWindow = QQuickRenderControl::renderWindowFor(source->window());
+    if (!sourceWindow)
+        sourceWindow = source->window();
+    window->setTransientParent(sourceWindow);
+    if (auto *screen = sourceWindow->screen()) {
+        window->setScreen(screen);
+        // setScreen() alone does not move a window within a virtual desktop.
+        window->setGeometry(screen->geometry());
+    }
+}
 bool EditorPlatformBackend::startImageDrag(int) { return false; }
 
 bool EditorPlatformBackend::insertRasterImage(const QImage &image, const QString &name, int row)
@@ -671,7 +690,7 @@ bool EditorPlatformBackend::insertRasterImage(const QImage &image, const QString
 }
 
 bool EditorPlatformBackend::insertMediaFiles(const QStringList &fileNames, int row, QString *error,
-                                                   MediaFileImportMode mode)
+                                             MediaFileImportMode mode)
 {
     if (!canInsertMedia() || fileNames.isEmpty())
         return false;
@@ -847,13 +866,13 @@ void EditorPlatformBackend::reloadVisualSettings()
 }
 
 bool EditorPlatformBackend::insertImportedMedia(const QList<MediaReference> &references, int row,
-                                                 const QString &historyKind)
+                                                const QString &historyKind)
 {
     if (!editor_ || references.isEmpty() || !canInsertMedia())
         return false;
     editor_->beginHistoryTransaction(historyKind);
-    int insertionRow = row < 0 ? editor_->model()->rowCount() : qBound(0, row, editor_->model()->rowCount());
-    bool inserted = true;
+    int  insertionRow = row < 0 ? editor_->model()->rowCount() : qBound(0, row, editor_->model()->rowCount());
+    bool inserted     = true;
     for (const auto &reference : references)
         inserted = editor_->insertMedia(reference, 0, 0, 0, insertionRow++) && inserted;
     editor_->endHistoryTransaction();
