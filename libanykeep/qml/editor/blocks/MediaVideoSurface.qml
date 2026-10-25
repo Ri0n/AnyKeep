@@ -7,6 +7,7 @@ import "../../shared" as Shared
 
 Item {
     id: root
+    objectName: "mediaVideoSurface"
     property var playback: null
     property var attachedPlayback: null
     readonly property bool fullScreen: fullScreenWindow.visible
@@ -141,6 +142,7 @@ Item {
             focus: true
             Keys.onEscapePressed: root.closeFullScreen()
             Keys.onPressed: function(event) {
+                fullScreenControlsVisibility.reveal()
                 if (event.modifiers)
                     return
                 if (event.key === Qt.Key_Space) {
@@ -191,6 +193,15 @@ Item {
                 radius: 8
                 color: "#d0202020"
                 z: 2
+                opacity: fullScreenControlsVisibility.controlsVisible ? 1 : 0
+                enabled: fullScreenControlsVisibility.controlsVisible || opacity > 0
+                onEnabledChanged: {
+                    if (!enabled && root.fullScreen)
+                        fullScreenContent.forceActiveFocus()
+                }
+                Behavior on opacity {
+                    NumberAnimation { duration: 180; easing.type: Easing.InOutQuad }
+                }
 
                 RowLayout {
                     id: controls
@@ -199,6 +210,7 @@ Item {
                     spacing: 12
 
                     FullScreenButton {
+                        id: fullScreenPlayPause
                         objectName: "fullScreenVideoPlayPause"
                         enabled: root.canControlPlayback
                         glyphName: root.playback && root.playback.playing
@@ -208,6 +220,7 @@ Item {
                     }
 
                     Slider {
+                        id: fullScreenSeek
                         objectName: "fullScreenVideoSeek"
                         Layout.fillWidth: true
                         Layout.preferredHeight: 44
@@ -231,12 +244,25 @@ Item {
                     }
 
                     FullScreenButton {
+                        id: fullScreenExit
                         objectName: "fullScreenVideoExit"
                         glyphName: "view-restore-symbolic.svg"
                         Accessible.name: qsTr("Exit full screen video")
                         onClicked: root.closeFullScreen()
                     }
                 }
+            }
+
+            VideoControlsVisibility {
+                id: fullScreenControlsVisibility
+                objectName: "fullScreenVideoControlsVisibility"
+                anchors.fill: parent
+                z: 3
+                enabled: root.fullScreen
+                playing: Boolean(root.playback && root.playback.playing) && !root.waitingForVideo
+                interacting: fullScreenSeek.pressed || fullScreenSeek.visualFocus
+                             || fullScreenPlayPause.down || fullScreenPlayPause.visualFocus
+                             || fullScreenExit.down || fullScreenExit.visualFocus
             }
         }
     }

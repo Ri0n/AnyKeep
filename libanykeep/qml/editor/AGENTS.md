@@ -96,6 +96,11 @@ Android and desktop builds both need to retain the shared core resource pack.
 `blocks/MediaVideoSurface.qml` owns the fullscreen transport controls and uses
 bundled SVGs for play/pause and returning inline. Keep these controls on the
 shared playback controller; moving its output must preserve position and state.
+Inline and fullscreen controls share `blocks/VideoControlsVisibility.qml`.
+Keep inactivity fades independent of layout and preserve visibility while
+editing titles, dragging, using controls from the keyboard, or showing a menu.
+Return keyboard focus to the video surface when disabling hidden fullscreen
+controls so playback shortcuts and Escape still work.
 
 
 ## Media synchronization presentation

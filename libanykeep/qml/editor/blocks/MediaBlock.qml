@@ -223,6 +223,7 @@ FocusScope {
     }
 
     Keys.onPressed: function(event) {
+        videoControlsVisibility.reveal()
         if (altEditor.activeFocus || playerTitle.activeFocus)
             return
         if (timed && !event.modifiers && (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
@@ -379,6 +380,23 @@ FocusScope {
         }
     }
 
+    VideoControlsVisibility {
+        id: videoControlsVisibility
+        objectName: "videoControlsVisibility-" + mediaRoot.block.index
+        x: sourceImage.x
+        y: sourceImage.y
+        width: sourceImage.width
+        height: sourceImage.height
+        z: 6
+        enabled: mediaRoot.video && (!videoSurface.item || !videoSurface.item.fullScreen)
+        playing: mediaRoot.playing && !mediaRoot.loading
+                 && !(mediaRoot.current && mediaRoot.playback.seeking)
+        interacting: playerTitle.activeFocus || mediaContextMenu.opened || mediaSeekSlider.pressed
+                     || mediaSeekSlider.visualFocus || playMediaButton.down || playMediaButton.visualFocus
+                     || fullScreenMediaButton.down || fullScreenMediaButton.visualFocus
+                     || mediaActionsButton.down || mediaActionsButton.visualFocus
+    }
+
     // The image itself owns the reorder gesture, but the unused row
     // width is still part of the document. Let an upward drag from
     // either horizontal margin start selection at the boundary after
@@ -428,9 +446,14 @@ FocusScope {
         width: mediaRoot.visual ? sourceImage.width : mediaRoot.width
         height: mediaRoot.displayHeight < 58 ? mediaRoot.displayHeight : 58
         color: mediaRoot.editorView.documentCardColor
-        opacity: 0.94
+        opacity: !mediaRoot.video || videoControlsVisibility.controlsVisible ? 0.94 : 0
+        enabled: videoControlsVisibility.controlsVisible || opacity > 0
         radius: 5
         z: 4
+        Behavior on opacity {
+            enabled: mediaRoot.video
+            NumberAnimation { duration: 180; easing.type: Easing.InOutQuad }
+        }
 
         MouseArea {
             objectName: "mediaControlBackground-" + mediaRoot.block.index
@@ -448,6 +471,7 @@ FocusScope {
             anchors.margins: 4
             spacing: 6
             ToolButton {
+                id: playMediaButton
                 objectName: "mediaPlayButton-" + mediaRoot.block.index
                 Layout.preferredWidth: parent.height - 2
                 Layout.preferredHeight: Layout.preferredWidth
@@ -482,6 +506,7 @@ FocusScope {
                     }
                 }
                 Slider {
+                    id: mediaSeekSlider
                     objectName: "mediaSeekSlider-" + mediaRoot.block.index
                     Layout.fillWidth: true
                     Layout.preferredHeight: 28

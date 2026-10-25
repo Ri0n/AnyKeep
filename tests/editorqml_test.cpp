@@ -503,6 +503,150 @@ private slots:
         QVERIFY(surface->setProperty("playback", QVariant::fromValue<QObject *>(nullptr)));
     }
 
+    void videoControlsFadeAfterPointerInactivity_data()
+    {
+        QTest::addColumn<bool>("fullScreen");
+        QTest::newRow("inline") << false;
+        QTest::newRow("fullscreen") << true;
+    }
+
+    void videoControlsFadeAfterPointerInactivity()
+    {
+        QFETCH(bool, fullScreen);
+        Note note = plainNote();
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        editor.model()->insertMedia(2, QStringLiteral("test-media"), QStringLiteral("Video"),
+                                    QStringLiteral("video/mp4"), 120000);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(700, 600);
+        host.show();
+        auto *quick = host.quickWidget();
+        auto *root  = qobject_cast<QQuickItem *>(quick->rootObject());
+        QVERIFY(root);
+        QQuickItem *media = nullptr;
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        QQmlComponent playbackComponent(quick->engine());
+        playbackComponent.setData(R"(
+            import QtQml
+            QtObject {
+                property bool available: true
+                property string currentSourceUri: "test-media"
+                property bool playing: false
+                property bool loading: false
+                property bool seeking: false
+                property real duration: 120000
+                property real position: 0
+                function toggle(uri) { playing = !playing }
+                function seek(uri, value) { position = value }
+                function attachVideoOutput(output) {}
+                function detachVideoOutput(output) {}
+            }
+        )",
+                                  QUrl());
+        std::unique_ptr<QObject> playback(playbackComponent.create());
+        QVERIFY2(playback, qPrintable(playbackComponent.errorString()));
+        QVERIFY(media->setProperty("playback", QVariant::fromValue(playback.get())));
+        QObject *surface = nullptr;
+        QTRY_VERIFY((surface = media->findChild<QObject *>(QStringLiteral("mediaVideoSurface"))));
+        QQuickWindow *window = nullptr;
+        if (fullScreen) {
+            QVERIFY(QMetaObject::invokeMethod(surface, "openFullScreen"));
+            window = surface->findChild<QQuickWindow *>(QStringLiteral("fullScreenVideoWindow"));
+            QVERIFY(window);
+            QVERIFY(QTest::qWaitForWindowExposed(window));
+        }
+        auto *scope      = fullScreen ? window->contentItem() : root;
+        auto *visibility = quickItemByName(scope,
+                                           fullScreen ? QStringLiteral("fullScreenVideoControlsVisibility")
+                                                      : QStringLiteral("videoControlsVisibility-2"));
+        auto *panel      = quickItemByName(
+            scope, fullScreen ? QStringLiteral("fullScreenVideoControls") : QStringLiteral("mediaCard-2"));
+        auto *slider = quickItemByName(
+            scope, fullScreen ? QStringLiteral("fullScreenVideoSeek") : QStringLiteral("mediaSeekSlider-2"));
+        auto *area = quickItemByName(
+            scope, fullScreen ? QStringLiteral("fullScreenVideoContent") : QStringLiteral("imageBlockPreview-2"));
+        QVERIFY(visibility && panel && slider && area);
+        QVERIFY(visibility->setProperty("idleDelay", 400));
+        auto movePointer = [&](const QPoint &position) {
+            if (window)
+                QTest::mouseMove(window, position);
+            else
+                QTest::mouseMove(quick, position);
+        };
+        movePointer(QPoint(1, 1));
+        QVERIFY(playback->setProperty("playing", true));
+        QTRY_VERIFY_WITH_TIMEOUT(panel->opacity() < 0.01, 3000);
+        QVERIFY(!panel->isEnabled());
+
+        // Moving over the video or over child controls reveals the panel.
+        movePointer(area->mapToScene(QPointF(area->width() / 2, area->height() / 3)).toPoint());
+        QTRY_VERIFY(panel->opacity() > 0.9);
+        QTRY_VERIFY_WITH_TIMEOUT(panel->opacity() < 0.01, 3000);
+        const auto sliderPoint = slider->mapToScene(QPointF(slider->width() / 2, slider->height() / 2)).toPoint();
+        movePointer(sliderPoint);
+        QTRY_VERIFY(panel->opacity() > 0.9);
+        if (window)
+            QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, sliderPoint);
+        else
+            QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, sliderPoint);
+        QTRY_VERIFY(slider->property("pressed").toBool());
+        QTest::qWait(700);
+        QVERIFY(panel->opacity() > 0.9);
+        if (window)
+            QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, sliderPoint);
+        else
+            QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, sliderPoint);
+        QTRY_VERIFY_WITH_TIMEOUT(panel->opacity() < 0.01, 3000);
+
+        // Disabling invisible controls must leave keyboard playback working.
+        if (window) {
+            QTest::keyClick(window, Qt::Key_Space);
+            QTRY_VERIFY(!playback->property("playing").toBool());
+            QTRY_VERIFY(panel->opacity() > 0.9);
+            QTest::keyClick(window, Qt::Key_Space);
+            QTRY_VERIFY(playback->property("playing").toBool());
+            QTRY_VERIFY_WITH_TIMEOUT(panel->opacity() < 0.01, 3000);
+        }
+
+        // Pausing keeps controls visible even with a stationary pointer.
+        QVERIFY(playback->setProperty("playing", false));
+        QTRY_VERIFY(panel->opacity() > 0.9);
+        QTest::qWait(700);
+        QVERIFY(panel->opacity() > 0.9);
+        QVERIFY(playback->setProperty("playing", true));
+        QTRY_VERIFY_WITH_TIMEOUT(panel->opacity() < 0.01, 3000);
+
+        movePointer(area->mapToScene(QPointF(area->width() / 3, area->height() / 3)).toPoint());
+        QTRY_VERIFY(panel->opacity() > 0.9);
+        if (fullScreen) {
+            area->forceActiveFocus();
+            slider->forceActiveFocus(Qt::TabFocusReason);
+            QTRY_VERIFY(slider->property("visualFocus").toBool());
+        } else {
+            auto *title = quickItemByName(root, QStringLiteral("mediaLabel-2"));
+            QVERIFY(title);
+            title->forceActiveFocus();
+        }
+        QTest::qWait(700);
+        QVERIFY(panel->opacity() > 0.9);
+        if (fullScreen)
+            area->forceActiveFocus();
+        else {
+            auto *body = textEditorForBlock(root, 1);
+            QVERIFY(body);
+            body->forceActiveFocus();
+        }
+        QTRY_VERIFY_WITH_TIMEOUT(panel->opacity() < 0.01, 3000);
+
+        if (fullScreen) {
+            QTest::keyClick(window, Qt::Key_Escape);
+            QTRY_VERIFY(!surface->property("fullScreen").toBool());
+        }
+        QVERIFY(media->setProperty("playback", QVariant::fromValue<QObject *>(nullptr)));
+    }
+
     void mediaControlIconsAreBundledAndRenderWithoutUnicodeGlyphs()
     {
         // Regression: some Android system fonts lack the fullscreen, vertical
