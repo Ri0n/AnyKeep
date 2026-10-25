@@ -22,6 +22,7 @@
 #include <QImage>
 #include <QMimeData>
 #include <QMimeDatabase>
+#include <QMimeType>
 #include <QPalette>
 #include <QQuickTextDocument>
 #include <QSettings>
