@@ -56,6 +56,8 @@ public:
     Q_INVOKABLE void         registerCodeDocument(QQuickTextDocument *document, const QString &language);
     Q_INVOKABLE QString      canonicalCodeLanguage(const QString &language) const;
     Q_INVOKABLE QVariantList codeLanguages() const;
+    // Localized MIME description and freedesktop icon names for file cards.
+    Q_INVOKABLE QVariantMap attachmentMimePresentation(const QString &mimeType, const QString &fileName) const;
     Q_INVOKABLE QVariantList spellCheckRanges(QQuickTextDocument *document);
     Q_INVOKABLE void         setActiveSpellCheckDocument(QQuickTextDocument *document);
     Q_INVOKABLE void         checkSpellingInAllDocuments();
