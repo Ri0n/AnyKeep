@@ -7,6 +7,8 @@ Item {
 
     required property string themeName
     required property string fallbackName
+    // Optional second freedesktop name (e.g. QMimeType::genericIconName()).
+    property string genericThemeName: ""
     property bool recolorFallback: false
     property string fallbackTintMode: "auto"
     property int pixelSize: 20
@@ -34,6 +36,7 @@ Item {
         + "/" + encodeURIComponent(fallbackName)
         + "/" + encodeURIComponent(fallbackMode)
         + "/" + encodeURIComponent(paletteCacheKey + "-" + rasterSize)
+        + "/" + encodeURIComponent(genericThemeName)
 
     implicitWidth: pixelSize
     implicitHeight: pixelSize
