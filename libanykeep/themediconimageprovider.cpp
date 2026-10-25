@@ -43,6 +43,8 @@ namespace {
             const QString fallbackName = QUrl::fromPercentEncoding(parts.at(1).toUtf8());
             const QString fallbackMode
                 = parts.size() >= 3 ? QUrl::fromPercentEncoding(parts.at(2).toUtf8()) : QStringLiteral("original");
+            const QString genericThemeName
+                = parts.size() >= 5 ? QUrl::fromPercentEncoding(parts.at(4).toUtf8()) : QString();
             const auto fallbackPath    = QStringLiteral(":/svg/%1").arg(fallbackName);
             const bool recolorFallback = fallbackMode != QStringLiteral("original");
             const auto tint            = requestedTint(fallbackMode);
@@ -51,26 +53,22 @@ namespace {
             target.setWidth(qMax(1, target.width()));
             target.setHeight(qMax(1, target.height()));
 
-            QIcon icon;
-            if (themeName != QStringLiteral("__bundled__"))
-                icon = QIcon::fromTheme(themeName);
-
-            bool usingFallback = icon.isNull();
-            if (usingFallback)
-                icon = QIcon(fallbackPath);
-            if (icon.isNull())
-                return {};
-
-            // Render the SVG fallback directly at the final requested size.
-            // Building a tinted QIcon first would turn it into a small set of
-            // raster pixmaps; fractional display scaling could then select a
-            // neighbouring size and resample it a second time.
-            QImage image = icon.pixmap(target, QIcon::Normal, QIcon::Off).toImage();
-            if (image.isNull() && !usingFallback) {
-                icon          = QIcon(fallbackPath);
-                usingFallback = true;
-                image         = icon.pixmap(target, QIcon::Normal, QIcon::Off).toImage();
+            // Keep theme colors: only bundled symbolic fallbacks need tinting.
+            // Check the actual pixmap, as a theme engine can return an icon
+            // object for which the requested size is unavailable.
+            QImage image;
+            for (const QString &name : { themeName, genericThemeName }) {
+                if (name.isEmpty() || name == QStringLiteral("__bundled__"))
+                    continue;
+                const QIcon icon = QIcon::fromTheme(name);
+                if (!icon.isNull())
+                    image = icon.pixmap(target, QIcon::Normal, QIcon::Off).toImage();
+                if (!image.isNull())
+                    break;
             }
+            const bool usingFallback = image.isNull();
+            if (usingFallback)
+                image = QIcon(fallbackPath).pixmap(target, QIcon::Normal, QIcon::Off).toImage();
             if (image.isNull())
                 return {};
             if (usingFallback && recolorFallback) {

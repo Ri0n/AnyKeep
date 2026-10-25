@@ -3,7 +3,10 @@
 #include <QDropEvent>
 #include <QFile>
 #include <QFont>
+#include <QImage>
 #include <QMimeData>
+#include <QMimeDatabase>
+#include <QMimeType>
 #include <QPalette>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -11,8 +14,10 @@
 #include <QQuickItem>
 #include <QQuickTextDocument>
 #include <QQuickWidget>
+#include <QTemporaryDir>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QUrl>
 #include <QtTest>
 
 #include <algorithm>
@@ -48,6 +53,7 @@ public:
     bool                isAccessible() const override { return true; }
     QList<Note::Format> availableFormats() const override { return { Note::Markdown, Note::PlainText }; }
     bool                supportsFavorite() const override { return true; }
+    bool                supportsMedia() const override { return true; }
     QList<Note>         noteList(int = 0) override { return {}; }
     Note                note(const QString &) override { return {}; }
     Note                createNote() override { return Note(new NoteData(this)); }
@@ -186,6 +192,146 @@ private slots:
             QMetaObject::invokeMethod(quick->rootObject(), "captureEditorState", Q_RETURN_ARG(QVariant, viewState)));
         QVERIFY(viewState.canConvert<QVariantMap>());
         QCOMPARE(host.model(), editor.model());
+    }
+
+    void existingFileAttachmentsRenderInDesktopNote()
+    {
+        FavoriteEditorStorage storage;
+        Note                  note(new NoteData(&storage));
+        note.setTitle(QStringLiteral("Documents"));
+        note.setText(QStringLiteral("<a href=\"anykeep-media:/22222222-2222-2222-2222-222222222222/spec.pdf\" "
+                                    "data-anykeep-attachment=\"1\" data-anykeep-media-type=\"application/pdf\" "
+                                    "data-anykeep-size=\"123456\">Specification.pdf</a>\n\n"
+                                    "Notes after the attachment"),
+                     Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(700, 480);
+        host.show();
+
+        int attachmentRow = -1;
+        for (int row = 0; row < editor.model()->rowCount(); ++row) {
+            if (editor.model()->blockTypeAt(row) == int(NoteBlockModel::Attachment)) {
+                attachmentRow = row;
+                break;
+            }
+        }
+        QVERIFY(attachmentRow >= 0);
+        QCOMPARE(editor.model()->data(editor.model()->index(attachmentRow), NoteBlockModel::AltRole).toString(),
+                 QStringLiteral("Specification.pdf"));
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *card = nullptr;
+        QTRY_VERIFY((card = quickItemByName(root, QStringLiteral("attachmentBlockEditor-%1").arg(attachmentRow))));
+        QVERIFY(card->isVisible());
+        QVERIFY2(card->height() >= 40, "Non-media attachment must occupy visible space in the document");
+        QQuickItem *fileName = nullptr;
+        QTRY_VERIFY((fileName = quickItemByName(root, QStringLiteral("attachmentFileName-%1").arg(attachmentRow))));
+        QVERIFY(fileName->isVisible());
+        QCOMPARE(fileName->property("text").toString(), QStringLiteral("Specification.pdf"));
+        const QString expectedDescription
+            = QMimeDatabase().mimeTypeForName(QStringLiteral("application/pdf")).comment();
+        QQuickItem *details = nullptr;
+        QTRY_VERIFY((details = quickItemByName(root, QStringLiteral("attachmentFileDetails-%1").arg(attachmentRow))));
+        QVERIFY(details->isVisible());
+        QCOMPARE(details->property("text").toString(),
+                 expectedDescription + QStringLiteral("  ·  121 KB"));
+        QVERIFY(!details->property("text").toString().contains(QStringLiteral("application/pdf")));
+        QQuickItem *glyph = nullptr;
+        QTRY_VERIFY((glyph = quickItemByName(root, QStringLiteral("attachmentFileGlyph-%1").arg(attachmentRow))));
+        QVERIFY(glyph->isVisible());
+        QTRY_COMPARE(glyph->childItems().first()->property("status").toInt(), 1);
+        // Not kept in place on this device: it can be opened and saved, but
+        // there is no plain file to show in a folder.
+        for (const QString &name :
+             { QStringLiteral("attachmentOpenGlyph-%1"), QStringLiteral("attachmentSaveGlyph-%1") }) {
+            QQuickItem *action = nullptr;
+            QTRY_VERIFY((action = quickItemByName(root, name.arg(attachmentRow))));
+            QVERIFY2(action->isVisible(), qPrintable(name));
+            QTRY_COMPARE(action->childItems().first()->property("status").toInt(), 1);
+        }
+        QQuickItem *showInFolder
+            = quickItemByName(root, QStringLiteral("attachmentShowInFolderButton-%1").arg(attachmentRow));
+        QVERIFY(showInFolder);
+        QVERIFY(!showInFolder->isVisible());
+        QCOMPARE(editor.model()
+                     ->data(editor.model()->index(attachmentRow), NoteBlockModel::AttachmentMediaTypeRole)
+                     .toString(),
+                 QStringLiteral("application/pdf"));
+    }
+
+    void attachmentMimePresentationUsesQtDatabaseAndExtensionFallback()
+    {
+        DesktopEditorPlatformBackend backend;
+        QMimeDatabase database;
+        const QMimeType pdf = database.mimeTypeForName(QStringLiteral("application/pdf"));
+        QVERIFY(pdf.isValid());
+
+        const auto pdfInfo = backend.attachmentMimePresentation(QStringLiteral("application/pdf"),
+                                                                QStringLiteral("specification.pdf"));
+        QCOMPARE(pdfInfo.value(QStringLiteral("description")).toString(), pdf.comment());
+        QCOMPARE(pdfInfo.value(QStringLiteral("iconName")).toString(), pdf.iconName());
+        QCOMPARE(pdfInfo.value(QStringLiteral("genericIconName")).toString(), pdf.genericIconName());
+
+        // Old or remote attachments can have no reliable stored type. Qt
+        // resolves the extension without opening or downloading the file.
+        const auto guessed = backend.attachmentMimePresentation(QStringLiteral("application/octet-stream"),
+                                                                 QStringLiteral("specification.pdf"));
+        QCOMPARE(guessed.value(QStringLiteral("description")).toString(), pdf.comment());
+        QCOMPARE(guessed.value(QStringLiteral("iconName")).toString(), pdf.iconName());
+
+        const auto invalid = backend.attachmentMimePresentation(QStringLiteral("not/a-registered-mime-type"),
+                                                                 QStringLiteral("unknown.zzzx"));
+        QVERIFY(!invalid.value(QStringLiteral("description")).toString().isEmpty());
+        QVERIFY(!invalid.value(QStringLiteral("genericIconName")).toString().isEmpty());
+    }
+
+    void desktopAcceptsMixedFilesAndRejectsNonFiles()
+    {
+        FavoriteEditorStorage storage;
+        Note                  note(new NoteData(&storage));
+        note.setTitle(QStringLiteral("File drops"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(620, 420);
+        host.show();
+
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString document = directory.filePath(QStringLiteral("notes.txt"));
+        const QString binary   = directory.filePath(QStringLiteral("archive.bin"));
+        const QString picture  = directory.filePath(QStringLiteral("image.png"));
+        for (const QString &path : { document, binary }) {
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            QCOMPARE(file.write(QByteArrayLiteral("sample data")), qint64(11));
+        }
+        QImage image(8, 8, QImage::Format_ARGB32);
+        image.fill(Qt::blue);
+        QVERIFY(image.save(picture));
+
+        QMimeData mimeData;
+        mimeData.setUrls({ QUrl::fromLocalFile(document), QUrl::fromLocalFile(picture), QUrl::fromLocalFile(binary) });
+        mimeData.setText(QStringLiteral("file:// presentation text should not become document text"));
+        QVERIFY(host.platformBackend()->canAcceptFileMimeData(&mimeData));
+        const QPoint    point(200, 180);
+        QDragEnterEvent enterEvent(point, Qt::CopyAction, &mimeData, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(host.quickWidget(), &enterEvent);
+        QVERIFY(enterEvent.isAccepted());
+        QCOMPARE(enterEvent.dropAction(), Qt::CopyAction);
+
+        QMimeData directoryMime;
+        directoryMime.setUrls({ QUrl::fromLocalFile(directory.path()) });
+        QVERIFY(!host.platformBackend()->canAcceptFileMimeData(&directoryMime));
+        QMimeData remoteMime;
+        remoteMime.setUrls({ QUrl(QStringLiteral("https://example.org/file.zip")) });
+        QVERIFY(!host.platformBackend()->canAcceptFileMimeData(&remoteMime));
+        QMimeData missingMime;
+        missingMime.setUrls({ QUrl::fromLocalFile(directory.filePath(QStringLiteral("absent.pdf"))) });
+        QVERIFY(!host.platformBackend()->canAcceptFileMimeData(&missingMime));
     }
 
     void loadsMediaVideoSurface()

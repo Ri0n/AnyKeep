@@ -5,9 +5,9 @@
 
 #include <QByteArray>
 #include <QList>
-#include <memory>
 #include <QMutex>
 #include <QString>
+#include <memory>
 
 namespace AnyKeep {
 
@@ -76,6 +76,11 @@ public:
     LocalMediaResult fingerprintExternalFile(const MediaReference &reference);
     LocalMediaResult importData(const QByteArray &data, const QString &originalName, const QString &mediaType,
                                 const QUuid &attachmentId = {});
+    // Move content out of encrypted storage into a plain file. The store then
+    // locates the content at fileName for every reference to it; notes do not
+    // change. The file is written and verified before the encrypted copy is
+    // removed, which keeps precedence until then.
+    LocalMediaResult moveToFile(const MediaReference &reference, const QString &fileName);
 
     LocalMediaDataResult           data(const QByteArray &blobId) const;
     LocalMediaDataResult           data(const MediaReference &reference) const;
@@ -86,29 +91,33 @@ public:
     bool                           containsManagedBlob(const QByteArray &blobId) const;
     bool                           isChunkedManagedBlob(const QByteArray &blobId) const;
 
+    // Whether a file kept in place is registered for the reference on this
+    // device. Only checks that its encrypted locator exists, so it needs no
+    // media key; externalSource() reads it.
+    bool hasExternalSource(const MediaReference &reference) const;
+
     // Cache *incomplete* media without making it appear as a complete managed
     // blob. Resolve the same profile master key as AKMC, on the calling
     // application thread, before the returned cache is used by a worker.
-    std::shared_ptr<MediaPartialChunkCache> partialMediaCache(
-        const QString &provider, const QString &immutableSourceId,
-        qint64 plainSize, QString *error = nullptr) const;
+    std::shared_ptr<MediaPartialChunkCache> partialMediaCache(const QString &provider, const QString &immutableSourceId,
+                                                              qint64 plainSize, QString *error = nullptr) const;
 
     // XMPP records already contain authenticated remote ciphertext. Store
     // their verified wire representation in the same profile-wide partial
     // cache namespace, without encrypting it again or depending on plugin
     // paths. Obsolete nightly media-ranges/ entries are not imported.
-    std::shared_ptr<MediaPartialChunkCache> opaqueMediaCache(
-        const QString &provider, const QString &immutableSourceId,
-        QString *error = nullptr) const;
+    std::shared_ptr<MediaPartialChunkCache> opaqueMediaCache(const QString &provider, const QString &immutableSourceId,
+                                                             QString *error = nullptr) const;
 
 private:
     friend class IrisProgressiveMediaLiveTest;
     QByteArray                     masterKey(QString *error) const;
     QString                        blobPath(const QByteArray &blobId) const;
     QString                        externalSourcePath(const QUuid &attachmentId) const;
-    QString                        legacyExternalSourcePath(const QByteArray &blobId) const;
+    QString                        contentSourcePath(const QByteArray &blobId) const;
     LocalMediaExternalSourceResult loadExternalSource(const MediaReference &reference) const;
     QString writeExternalSource(const QUuid &attachmentId, const LocalMediaExternalSource &source) const;
+    QString writeContentSource(const QByteArray &blobId, const LocalMediaExternalSource &source) const;
 
     QString            rootPath_;
     mutable QMutex     masterKeyMutex_;

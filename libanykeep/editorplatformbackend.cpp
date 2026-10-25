@@ -22,6 +22,7 @@
 #include <QImage>
 #include <QMimeData>
 #include <QMimeDatabase>
+#include <QMimeType>
 #include <QPalette>
 #include <QQuickTextDocument>
 #include <QSettings>
@@ -264,6 +265,29 @@ void EditorPlatformBackend::setEditor(NoteEditor *editor)
 bool EditorPlatformBackend::canInsertMedia() const { return editor_ && editor_->canInsertMedia(); }
 
 bool EditorPlatformBackend::canInsertAttachments() const { return editor_ && editor_->canInsertAttachments(); }
+
+QVariantMap EditorPlatformBackend::attachmentMimePresentation(const QString &mimeType,
+                                                             const QString &fileName) const
+{
+    QMimeDatabase database;
+    QMimeType type = database.mimeTypeForName(mimeType.section(QLatin1Char(';'), 0, 0).trimmed());
+    // A missing or generic content type can be resolved from the portable
+    // filename without requiring a local copy or reading the attachment.
+    if (!type.isValid() || type.name() == QLatin1String("application/octet-stream")) {
+        const QMimeType extensionType = database.mimeTypeForFile(fileName, QMimeDatabase::MatchExtension);
+        if (extensionType.isValid() && extensionType.name() != QLatin1String("application/octet-stream"))
+            type = extensionType;
+    }
+    if (!type.isValid())
+        type = database.mimeTypeForName(QStringLiteral("application/octet-stream"));
+
+    const QString description = type.isValid() ? type.comment() : QString();
+    const QString genericIcon = type.isValid() ? type.genericIconName() : QString();
+    return { { QStringLiteral("description"), description.isEmpty() ? tr("File") : description },
+             { QStringLiteral("iconName"), type.isValid() ? type.iconName() : QString() },
+             { QStringLiteral("genericIconName"),
+               genericIcon.isEmpty() ? QStringLiteral("application-x-generic") : genericIcon } };
+}
 
 void EditorPlatformBackend::setEditorFont(const QFont &font)
 {

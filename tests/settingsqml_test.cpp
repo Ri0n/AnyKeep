@@ -95,6 +95,17 @@ private slots:
         // handler, whereas extensionless aliases can yield a null pixmap.
         QVERIFY(!request(missingTheme + QStringLiteral("pin.svg/auto")).isNull());
         QVERIFY(!request(missingTheme + QStringLiteral("anykeep-symbolic.svg/auto")).isNull());
+        // The MIME icon can fall back to another icon *in the system theme*
+        // before the generic bundled document SVG is used.
+        const QImage genericFileFallback = request(
+            QStringLiteral("__missing_theme_icon__/file-generic-symbolic.svg/original/cache/__missing_generic__"));
+        QVERIFY(!genericFileFallback.isNull());
+        const QIcon systemGeneric = QIcon::fromTheme(QStringLiteral("preferences-system-symbolic"));
+        if (!systemGeneric.isNull()) {
+            const QImage genericThemeImage = request(
+                QStringLiteral("__missing_theme_icon__/file-generic-symbolic.svg/original/cache/preferences-system-symbolic"));
+            QCOMPARE(genericThemeImage, systemGeneric.pixmap(QSize(20, 20)).toImage());
+        }
 
         QImage expectedAtFractionalScale
             = QIcon(QStringLiteral(":/svg/preferences-system-symbolic.svg")).pixmap(QSize(25, 25)).toImage();
