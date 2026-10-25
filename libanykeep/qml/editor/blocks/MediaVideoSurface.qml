@@ -1,7 +1,9 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import QtQuick.Window
 import QtMultimedia
+import "../../shared" as Shared
 
 Item {
     id: root
@@ -9,6 +11,51 @@ Item {
     property var attachedPlayback: null
     readonly property bool fullScreen: fullScreenWindow.visible
     readonly property bool waitingForVideo: playback && (playback.loading || playback.seeking)
+    readonly property bool canControlPlayback: playback && playback.available
+                                                && playback.currentSourceUri.length > 0
+
+    function togglePlayback() {
+        if (canControlPlayback)
+            playback.toggle(playback.currentSourceUri)
+    }
+
+    function seekTo(position) {
+        if (canControlPlayback && playback.duration > 0)
+            playback.seek(playback.currentSourceUri,
+                          Math.round(Math.max(0, Math.min(playback.duration, position))))
+    }
+
+    function seekBy(offset) {
+        seekTo(playback ? playback.position + offset : 0)
+    }
+
+    function formatTime(milliseconds) {
+        const seconds = Math.max(0, Math.floor(Number(milliseconds || 0) / 1000))
+        const remainder = seconds % 60
+        return Math.floor(seconds / 60) + ":" + (remainder < 10 ? "0" : "") + remainder
+    }
+
+    component FullScreenButton: ToolButton {
+        id: control
+        required property string glyphName
+        Layout.preferredWidth: 44
+        Layout.preferredHeight: 44
+        padding: 10
+        display: AbstractButton.IconOnly
+        contentItem: Shared.ThemedIconImpl {
+            themeName: "__bundled__"
+            fallbackName: control.glyphName
+            recolorFallback: true
+            fallbackTintMode: "white"
+            pixelSize: 24
+        }
+        background: Rectangle {
+            radius: 4
+            color: control.down ? "#707070" : (control.hovered || control.visualFocus ? "#505050" : "transparent")
+        }
+        ToolTip.visible: hovered
+        ToolTip.text: Accessible.name
+    }
 
     function attach() {
         if (attachedPlayback === playback)
@@ -52,6 +99,7 @@ Item {
 
     VideoOutput {
         id: inlineVideo
+        objectName: "inlineVideoOutput"
         anchors.fill: parent
         fillMode: VideoOutput.PreserveAspectFit
     }
@@ -75,6 +123,7 @@ Item {
 
     Window {
         id: fullScreenWindow
+        objectName: "fullScreenVideoWindow"
         visible: false
         color: "black"
         flags: Qt.Window | Qt.FramelessWindowHint
@@ -87,12 +136,30 @@ Item {
 
         Item {
             id: fullScreenContent
+            objectName: "fullScreenVideoContent"
             anchors.fill: parent
             focus: true
             Keys.onEscapePressed: root.closeFullScreen()
+            Keys.onPressed: function(event) {
+                if (event.modifiers)
+                    return
+                if (event.key === Qt.Key_Space) {
+                    root.togglePlayback()
+                } else if (event.key === Qt.Key_Left) {
+                    root.seekBy(-5000)
+                } else if (event.key === Qt.Key_Right) {
+                    root.seekBy(5000)
+                } else if (event.key === Qt.Key_F11) {
+                    root.closeFullScreen()
+                } else {
+                    return
+                }
+                event.accepted = true
+            }
 
             VideoOutput {
                 id: fullScreenVideo
+                objectName: "fullScreenVideoOutput"
                 anchors.fill: parent
                 fillMode: VideoOutput.PreserveAspectFit
             }
@@ -114,16 +181,62 @@ Item {
                 }
             }
 
-            ToolButton {
-                anchors.top: parent.top
+            Rectangle {
+                objectName: "fullScreenVideoControls"
+                anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.margins: 16
-                text: "×"
+                anchors.bottom: parent.bottom
+                anchors.margins: 12
+                height: controls.implicitHeight + 16
+                radius: 8
+                color: "#d0202020"
                 z: 2
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Exit full screen")
-                Accessible.name: qsTr("Exit full screen video")
-                onClicked: root.closeFullScreen()
+
+                RowLayout {
+                    id: controls
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 12
+
+                    FullScreenButton {
+                        objectName: "fullScreenVideoPlayPause"
+                        enabled: root.canControlPlayback
+                        glyphName: root.playback && root.playback.playing
+                                   ? "media-playback-pause-symbolic.svg" : "media-playback-start-symbolic.svg"
+                        Accessible.name: root.playback && root.playback.playing ? qsTr("Pause media") : qsTr("Play media")
+                        onClicked: root.togglePlayback()
+                    }
+
+                    Slider {
+                        objectName: "fullScreenVideoSeek"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 44
+                        from: 0
+                        to: root.playback ? Math.max(1, root.playback.duration || 0) : 1
+                        value: root.playback ? root.playback.position || 0 : 0
+                        enabled: root.canControlPlayback && root.playback.duration > 0
+                        palette.highlight: "white"
+                        palette.mid: "#909090"
+                        Accessible.name: qsTr("Playback position")
+                        onMoved: root.seekTo(value)
+                        Keys.onLeftPressed: root.seekBy(-5000)
+                        Keys.onRightPressed: root.seekBy(5000)
+                    }
+
+                    Label {
+                        objectName: "fullScreenVideoTime"
+                        text: root.formatTime(root.playback ? root.playback.position : 0)
+                              + " / " + root.formatTime(root.playback ? root.playback.duration : 0)
+                        color: "white"
+                    }
+
+                    FullScreenButton {
+                        objectName: "fullScreenVideoExit"
+                        glyphName: "view-restore-symbolic.svg"
+                        Accessible.name: qsTr("Exit full screen video")
+                        onClicked: root.closeFullScreen()
+                    }
+                }
             }
         }
     }

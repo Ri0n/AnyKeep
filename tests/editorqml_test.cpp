@@ -15,6 +15,7 @@
 #include <QQuickItem>
 #include <QQuickTextDocument>
 #include <QQuickWidget>
+#include <QQuickWindow>
 #include <QTemporaryDir>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -352,6 +353,11 @@ private slots:
         playbackComponent.setData(R"(
             import QtQml
             QtObject {
+                property bool available: true
+                property string currentSourceUri: "test-media"
+                property bool playing: false
+                property real duration: 4000
+                property real position: 0
                 property bool loading: false
                 property bool seeking: false
                 function attachVideoOutput(output) {}
@@ -380,6 +386,120 @@ private slots:
         QTRY_VERIFY(inlineBusy->property("running").toBool());
         QVERIFY(playback->setProperty("loading", false));
         QTRY_VERIFY(!inlineBusy->property("running").toBool());
+        QVERIFY(surface->setProperty("playback", QVariant::fromValue<QObject *>(nullptr)));
+    }
+
+    void fullScreenVideoControlsUseSharedPlayback()
+    {
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(plainNote(), drafts);
+        DesktopNoteEditorHost host(&editor);
+        auto                 *engine = host.quickWidget()->engine();
+        QQmlComponent         component(engine, QUrl(QStringLiteral("qrc:/qml/editor/blocks/MediaVideoSurface.qml")));
+        QTRY_COMPARE(component.status(), QQmlComponent::Ready);
+        std::unique_ptr<QObject> surface(component.create());
+        QVERIFY2(surface, qPrintable(component.errorString()));
+
+        QQmlComponent playbackComponent(engine);
+        playbackComponent.setData(R"(
+            import QtQml
+            QtObject {
+                property bool available: true
+                property string currentSourceUri: "test-media"
+                property bool playing: true
+                property bool loading: false
+                property bool seeking: false
+                property real duration: 120000
+                property real position: 10000
+                property string lastSourceUri: ""
+                property var output: null
+                property int attachments: 0
+                function toggle(uri) { lastSourceUri = uri; playing = !playing }
+                function seek(uri, value) { lastSourceUri = uri; position = value }
+                function attachVideoOutput(value) { output = value; ++attachments }
+                function detachVideoOutput(value) { if (output === value) output = null }
+            }
+        )",
+                                  QUrl());
+        std::unique_ptr<QObject> playback(playbackComponent.create());
+        QVERIFY2(playback, qPrintable(playbackComponent.errorString()));
+        QVERIFY(surface->setProperty("playback", QVariant::fromValue(playback.get())));
+        QObject *inlineOutput = qvariant_cast<QObject *>(playback->property("output"));
+        QVERIFY(inlineOutput);
+        QCOMPARE(inlineOutput->objectName(), QStringLiteral("inlineVideoOutput"));
+
+        QVERIFY(QMetaObject::invokeMethod(surface.get(), "openFullScreen"));
+        auto *window = surface->findChild<QQuickWindow *>(QStringLiteral("fullScreenVideoWindow"));
+        QVERIFY(window);
+        QTRY_VERIFY(window->isVisible());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(playback->property("playing").toBool());
+        QCOMPARE(playback->property("position").toReal(), 10000.0);
+        QCOMPARE(qvariant_cast<QObject *>(playback->property("output"))->objectName(),
+                 QStringLiteral("fullScreenVideoOutput"));
+
+        auto *panel     = quickItemByName(window->contentItem(), QStringLiteral("fullScreenVideoControls"));
+        auto *playPause = quickItemByName(window->contentItem(), QStringLiteral("fullScreenVideoPlayPause"));
+        auto *slider    = quickItemByName(window->contentItem(), QStringLiteral("fullScreenVideoSeek"));
+        auto *time      = quickItemByName(window->contentItem(), QStringLiteral("fullScreenVideoTime"));
+        auto *exit      = quickItemByName(window->contentItem(), QStringLiteral("fullScreenVideoExit"));
+        auto *content   = quickItemByName(window->contentItem(), QStringLiteral("fullScreenVideoContent"));
+        QVERIFY(panel && playPause && slider && time && exit && content);
+        QTRY_VERIFY(panel->isVisible() && panel->height() > 0);
+        QTRY_VERIFY(slider->width() > 0);
+        QCOMPARE(time->property("text").toString(), QStringLiteral("0:10 / 2:00"));
+        auto *glyph = qvariant_cast<QQuickItem *>(playPause->property("contentItem"));
+        QVERIFY(glyph && !glyph->childItems().isEmpty());
+        QTRY_COMPARE(glyph->childItems().first()->property("status").toInt(), 1);
+        QVERIFY(glyph->property("iconSource").toString().contains(QStringLiteral("media-playback-pause-symbolic.svg")));
+
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          playPause->mapToScene(QPointF(playPause->width() / 2, playPause->height() / 2)).toPoint());
+        QTRY_VERIFY(!playback->property("playing").toBool());
+        QCOMPARE(playback->property("lastSourceUri").toString(), QStringLiteral("test-media"));
+        QVERIFY(glyph->property("iconSource").toString().contains(QStringLiteral("media-playback-start-symbolic.svg")));
+        QTRY_COMPARE(glyph->childItems().first()->property("status").toInt(), 1);
+
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          slider->mapToScene(QPointF(slider->width() * 0.75, slider->height() / 2)).toPoint());
+        QTRY_VERIFY(playback->property("position").toReal() > 60000);
+        QVERIFY(playback->property("position").toReal() < 120000);
+        QCOMPARE(playback->property("lastSourceUri").toString(), QStringLiteral("test-media"));
+        const auto seekPosition = playback->property("position").toReal();
+        slider->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_Right);
+        QCOMPARE(playback->property("position").toReal(), seekPosition + 5000);
+
+        content->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_Space);
+        QTRY_VERIFY(playback->property("playing").toBool());
+        QVERIFY(playback->setProperty("position", 1000));
+        QTest::keyClick(window, Qt::Key_Left);
+        QCOMPARE(playback->property("position").toReal(), 0.0);
+        QTest::keyClick(window, Qt::Key_Right);
+        QCOMPARE(playback->property("position").toReal(), 5000.0);
+        QVERIFY(playback->setProperty("position", 119000));
+        QTest::keyClick(window, Qt::Key_Right);
+        QCOMPARE(playback->property("position").toReal(), 120000.0);
+        QCOMPARE(time->property("text").toString(), QStringLiteral("2:00 / 2:00"));
+        QCOMPARE(playback->property("attachments").toInt(), 2);
+
+        auto *exitGlyph = qvariant_cast<QQuickItem *>(exit->property("contentItem"));
+        QVERIFY(exitGlyph && !exitGlyph->childItems().isEmpty());
+        QTRY_COMPARE(exitGlyph->childItems().first()->property("status").toInt(), 1);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          exit->mapToScene(QPointF(exit->width() / 2, exit->height() / 2)).toPoint());
+        QTRY_VERIFY(!surface->property("fullScreen").toBool());
+        QCOMPARE(qvariant_cast<QObject *>(playback->property("output")), inlineOutput);
+        QCOMPARE(playback->property("attachments").toInt(), 3);
+        QCOMPARE(playback->property("position").toReal(), 120000.0);
+        QVERIFY(playback->property("playing").toBool());
+
+        QVERIFY(QMetaObject::invokeMethod(surface.get(), "openFullScreen"));
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!surface->property("fullScreen").toBool());
+        QCOMPARE(qvariant_cast<QObject *>(playback->property("output")), inlineOutput);
         QVERIFY(surface->setProperty("playback", QVariant::fromValue<QObject *>(nullptr)));
     }
 

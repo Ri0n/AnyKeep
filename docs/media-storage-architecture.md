@@ -851,6 +851,11 @@ future design, not part of PR #155.
 
 Implementation note: timed media shares one playback controller. Video presentation lazily attaches an inline Qt Multimedia output to that player and switches the same player to a dedicated OS-fullscreen output while fullscreen is active; playback position and state remain unchanged. Probing/poster extraction is a separate derived-cache concern and must not write frame-by-frame playback state into storage.
 
+The fullscreen output has a persistent bottom control strip for play/pause,
+seeking, elapsed/total time and returning inline. Space toggles playback,
+Left/Right seek by five seconds, and Escape/F11 return inline. The strip uses
+the same controller and source URI; switching outputs preserves playback state.
+
 `NoteEditor.mediaPreviews` owns session-only video posters. A visible video
 requests its first decodable frame through one silent, time-limited probe at a
 time, reading the same authenticated local source or range adapter as playback.

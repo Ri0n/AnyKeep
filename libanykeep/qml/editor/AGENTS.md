@@ -93,6 +93,10 @@ The editor QML regression test verifies the vector files are embedded under
 `:/svg/` and that the actual image-provider-backed control glyphs load. The
 Android and desktop builds both need to retain the shared core resource pack.
 
+`blocks/MediaVideoSurface.qml` owns the fullscreen transport controls and uses
+bundled SVGs for play/pause and returning inline. Keep these controls on the
+shared playback controller; moving its output must preserve position and state.
+
 
 ## Media synchronization presentation
 
