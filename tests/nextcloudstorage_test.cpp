@@ -1397,16 +1397,37 @@ void NextcloudStorageTest::encryptedNextcloudPartialCacheSurvivesRestartAndTampe
         offline->deleteLater();
         QCOMPARE(server.requests().size(), 5);
 
+        // The only downloaded chunk is index 0. Select it explicitly:
+        // directory traversal order is platform-dependent.
         QDirIterator files(directory.filePath(QStringLiteral("media/partial")), QDir::Files,
                            QDirIterator::Subdirectories);
-        QVERIFY(files.hasNext());
-        const QString recordPath = files.next();
+        QString recordPath;
+        while (files.hasNext()) {
+            const QString candidate = files.next();
+            if (QFileInfo(candidate).fileName() == QStringLiteral("0")) {
+                recordPath = candidate;
+                break;
+            }
+        }
+        QVERIFY2(!recordPath.isEmpty(), "Missing encrypted record for chunk 0");
         QFile encrypted(recordPath);
         QVERIFY(encrypted.open(QIODevice::ReadWrite));
-        QVERIFY(!encrypted.readAll().contains(QByteArray(64, 'R')));
-        QVERIFY(encrypted.seek(encrypted.size() / 2));
-        const char corrupt = '\x5e';
+        const QByteArray ciphertext = encrypted.readAll();
+        QVERIFY(!ciphertext.contains(QByteArray(64, 'R')));
+        QVERIFY(!ciphertext.isEmpty());
+        const qint64 offset = ciphertext.size() / 2;
+        // Writing a constant can be a no-op when ciphertext already contains
+        // that byte (probability 1/256). Always flip bits instead.
+        const char corrupt = char(quint8(ciphertext.at(offset)) ^ 0x5e);
+        QVERIFY(corrupt != ciphertext.at(offset));
+        QVERIFY(encrypted.seek(offset));
         QCOMPARE(encrypted.write(&corrupt, 1), qint64(1));
+        encrypted.close();
+
+        // Confirm the on-disk record was actually modified before retrying.
+        QVERIFY(encrypted.open(QIODevice::ReadOnly));
+        QVERIFY(encrypted.seek(offset));
+        QCOMPARE(encrypted.read(1), QByteArray(1, corrupt));
         encrypted.close();
 
         auto *repaired = requestBytes(client, url);
