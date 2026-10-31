@@ -11,8 +11,8 @@
         "minimum_version": "1.5.1"
     },
     "qca": {
-        "tag": "v3.0.11",
-        "commit": "0adfcc757974ca865f6d1de0955df68e7a304676",
+        "tag": "v3.1.2",
+        "commit": "ebfa4f04f47741334653028ea087bb4d1ecf1385",
         "nightly_compatibility": "same-minor",
         "minimum_version": "3.0.10"
     },
