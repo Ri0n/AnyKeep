@@ -166,15 +166,17 @@ namespace {
         if (!saved.isEmpty() && QFileInfo(saved).isFile())
             return saved;
 
+        const QString downloaded = attachmentDownloadPath(reference);
+        if (!downloaded.isEmpty() && QFileInfo(downloaded).isFile())
+            return downloaded;
+
         auto *store = LocalMediaStore::instance();
         if (!store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference)) {
             const auto source = store->externalSource(reference);
             if (source && QFileInfo(source.value.fileName).isFile())
                 return source.value.fileName;
         }
-
-        const QString downloaded = attachmentDownloadPath(reference);
-        return !downloaded.isEmpty() && QFileInfo(downloaded).isFile() ? downloaded : QString {};
+        return {};
     }
 
     bool cursorIsOutsideWindow(QObject *source)
@@ -654,12 +656,16 @@ void DesktopEditorPlatformBackend::showAttachmentInFolder(const QString &url)
         emit operationFailed(tr("The attached file is not available locally."));
         return;
     }
-    // Only the external-file branch needs access to its encrypted locator.
-    // A saved export can still be revealed if the keychain is temporarily unavailable.
+    // A user-saved file or materialized download is usable independently
+    // of the keychain. Retain detailed diagnostics for keep-in-place sources.
     auto *store = LocalMediaStore::instance();
     const QString saved = QSettings().value(attachmentSavedPathKey(reference)).toString();
-    if ((saved.isEmpty() || !QFileInfo(saved).isFile())
-        && !store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference)) {
+    const QString downloaded = attachmentDownloadPath(reference);
+    const bool hasSaved = !saved.isEmpty() && QFileInfo(saved).isFile();
+    const bool hasDownload = !downloaded.isEmpty() && QFileInfo(downloaded).isFile();
+    const bool needsExternal = !hasSaved && !hasDownload
+        && !store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference);
+    if (needsExternal) {
         QString initializeError;
         if (!store->initialize(&initializeError)) {
             emit operationFailed(initializeError);
@@ -668,6 +674,13 @@ void DesktopEditorPlatformBackend::showAttachmentInFolder(const QString &url)
     }
     const QString path = existingAttachmentFile(reference);
     if (path.isEmpty()) {
+        if (needsExternal) {
+            const auto source = store->externalSource(reference);
+            if (!source) {
+                emit operationFailed(source.error);
+                return;
+            }
+        }
         emit operationFailed(tr("Open or save the attached file before showing it in the file manager."));
         return;
     }
