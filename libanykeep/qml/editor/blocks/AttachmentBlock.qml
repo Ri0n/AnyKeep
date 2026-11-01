@@ -23,6 +23,10 @@ FocusScope {
                                         && typeof backend.isAttachmentKeptInPlace === "function"
                                         && typeof backend.showAttachmentInFolder === "function"
                                         && backend.isAttachmentKeptInPlace(block.url)
+    readonly property bool hasLocalFile: storageRevision >= 0 && !!backend
+                                         && typeof backend.hasAttachmentLocalFile === "function"
+                                         && typeof backend.showAttachmentInFolder === "function"
+                                         && backend.hasAttachmentLocalFile(block.url)
     readonly property int actionButtonSize: attachmentRoot.editorView.touchMode ? 42 : 32
     width: block.width
     implicitHeight: attachmentCard.implicitHeight
@@ -190,7 +194,7 @@ FocusScope {
                 objectName: "attachmentShowInFolderButton-" + attachmentRoot.block.index
                 Layout.preferredWidth: attachmentRoot.actionButtonSize
                 Layout.preferredHeight: Layout.preferredWidth
-                visible: attachmentRoot.keptInPlace
+                visible: attachmentRoot.hasLocalFile
                 padding: 6
                 display: AbstractButton.IconOnly
                 contentItem: Shared.ThemedIconImpl {
@@ -249,7 +253,7 @@ FocusScope {
         }
         MenuItem {
             text: qsTr("Show in Folder")
-            visible: attachmentRoot.keptInPlace
+            visible: attachmentRoot.hasLocalFile
             onTriggered: attachmentRoot.backend.showAttachmentInFolder(attachmentRoot.block.url)
         }
         MenuSeparator { }
