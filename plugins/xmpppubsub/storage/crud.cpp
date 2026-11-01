@@ -153,6 +153,10 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
 {
     auto *job = new NoteListJob(owner ? owner : this);
     job->start();
+    if (shuttingDown_) {
+        job->cancel();
+        return job;
+    }
     if (cacheValid_ || (cacheAvailable_ && !accessible_)) {
         auto notes = cache_.values();
         std::sort(notes.begin(), notes.end(), noteListItemModifyComparer);
@@ -169,28 +173,25 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
     }
 
     if (refreshAttempt_ && refreshAttempt_->epoch == configEpoch_) {
-        refreshAttempt_->waiters.append(RefreshWaiter { job, limit });
+        addRefreshWaiter(refreshAttempt_, job, limit);
         return job;
     }
 
     const auto attempt = std::make_shared<RefreshAttempt>();
     attempt->epoch     = configEpoch_;
-    attempt->waiters.append(RefreshWaiter { job, limit });
-    refreshAttempt_ = attempt;
-    recordSyncStep(tr("Retrieving the XMPP note index…"), true, true);
+    refreshAttempt_    = attempt;
+    addRefreshWaiter(attempt, job, limit);
+    recordSyncStep(tr("Retrieving the XMPP note index…"), true);
 
     const auto config = config_;
     const auto epoch  = attempt->epoch;
     QMetaObject::invokeMethod(
         backend_,
         [this, attempt, config, epoch]() {
+            if (refreshAttempt_ != attempt)
+                return;
             if (shuttingDown_ || epoch != configEpoch_) {
-                for (const auto &waiter : attempt->waiters) {
-                    if (waiter.job && !waiter.job->isFinished())
-                        waiter.job->cancel();
-                }
-                if (refreshAttempt_ == attempt)
-                    refreshAttempt_.reset();
+                cancelRefreshAttempt();
                 return;
             }
             backend_->setConfig(config);
@@ -200,14 +201,11 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                     [this, attempt, result = std::move(result), epoch]() {
                         if (refreshAttempt_ != attempt)
                             return;
-                        refreshAttempt_.reset();
                         if (shuttingDown_ || epoch != configEpoch_) {
-                            for (const auto &waiter : attempt->waiters) {
-                                if (waiter.job && !waiter.job->isFinished())
-                                    waiter.job->cancel();
-                            }
+                            cancelRefreshAttempt();
                             return;
                         }
+                        refreshAttempt_.reset();
                         if (!result.ok) {
                             recordSyncStep(tr("Could not synchronize the note index"), false);
                             qWarning().noquote() << "XMPP index refresh failed:" << result.error;
@@ -294,6 +292,23 @@ void XmppStorage::cancelRefreshAttempt()
         if (waiter.job && !waiter.job->isFinished())
             waiter.job->cancel();
     }
+}
+
+void XmppStorage::addRefreshWaiter(const std::shared_ptr<RefreshAttempt> &attempt, NoteListJob *job, int limit)
+{
+    attempt->waiters.append(RefreshWaiter { job, limit });
+    const auto abandonIfIdle = [this, weak = std::weak_ptr<RefreshAttempt>(attempt)] {
+        const auto pending = weak.lock();
+        if (!pending || refreshAttempt_ != pending)
+            return;
+        for (const auto &waiter : pending->waiters) {
+            if (waiter.job && !waiter.job->isFinished())
+                return;
+        }
+        cancelRefreshAttempt();
+    };
+    connect(job, &StorageJob::finished, this, abandonIfIdle);
+    connect(job, &QObject::destroyed, this, abandonIfIdle);
 }
 
 Note XmppStorage::note(const QString &id) { return cache_.value(id); }

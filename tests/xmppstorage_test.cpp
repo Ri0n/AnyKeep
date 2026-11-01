@@ -1,7 +1,9 @@
 #include "xmppbackend.h"
+#include "xmppsettingscontroller.h"
 #include "xmppstorage.h"
 
 #include <QHash>
+#include <QSettings>
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -27,6 +29,11 @@ public:
     void probeAsync(StatusCallback callback) override { callback({ true }); }
     void listNotesAsync(ListCallback callback) override
     {
+        ++listCalls;
+        if (deferLists) {
+            pendingLists.append(std::move(callback));
+            return;
+        }
         XmppListResult result;
         result.ok    = true;
         result.notes = remote_.values();
@@ -108,6 +115,9 @@ public:
     QList<XmppRemoteNote>          indexRequests;
     QHash<QString, XmppRemoteNote> remote_;
     XmppConfig                     config_;
+    bool                           deferLists { false };
+    int                            listCalls { 0 };
+    QList<ListCallback>            pendingLists;
 };
 
 XmppRemoteNote remoteNote(const QString &id, const QDateTime &modified)
@@ -130,9 +140,24 @@ class XmppStorageTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void init();
     void reorderPublishesOnlyTheIndex();
     void syncActivityReportsIndexStages();
+    void sharedRefreshStaysBusyUntilTheLastCallerCancels();
+    void destroyedRefreshCallerClearsActivity();
+    void cancelledRefreshIgnoresLateResult();
+    void failedRefreshReportsTerminalActivity();
+    void syncHistoryIsBoundedAndAvailableToNewSettings();
+    void shutdownCancelsRefreshAndRejectsNewJobs();
 };
+
+void XmppStorageTest::init()
+{
+    // A Windows keychain enables persistent caching. Each scenario must have
+    // its own cache, regardless of whether the previous scenario wrote notes.
+    QSettings().setValue(QStringLiteral("storage.xmpppubsub.instanceId"),
+                         QUuid::createUuid().toString(QUuid::WithoutBraces));
+}
 
 void XmppStorageTest::reorderPublishesOnlyTheIndex()
 {
@@ -161,17 +186,21 @@ void XmppStorageTest::reorderPublishesOnlyTheIndex()
 
 void XmppStorageTest::syncActivityReportsIndexStages()
 {
-    auto *backend = new FakeXmppBackend;
+    auto       *backend = new FakeXmppBackend;
     XmppStorage storage(nullptr, backend);
-    const auto now = QDateTime::currentDateTimeUtc();
+    const auto  now = QDateTime::currentDateTimeUtc();
     backend->remote_.insert(QStringLiteral("one"), remoteNote(QStringLiteral("one"), now));
     backend->remote_.insert(QStringLiteral("two"), remoteNote(QStringLiteral("two"), now));
 
     QSignalSpy progress(&storage, &XmppStorage::syncProgressChanged);
-    auto *job = storage.refreshNotesAsync();
+    auto      *job          = storage.refreshNotesAsync();
+    bool       busyAtFinish = true;
+    connect(job, &StorageJob::finished, &storage, [&] { busyAtFinish = progress.last().at(2).toBool(); });
     QTRY_VERIFY(job->isFinished());
     QCOMPARE(job->state(), StorageJob::Succeeded);
     QVERIFY(progress.count() >= 3);
+    QVERIFY(!busyAtFinish);
+    QCOMPARE(backend->listCalls, 1);
 
     const auto first = progress.first();
     QCOMPARE(first.at(2).toBool(), true);
@@ -183,6 +212,127 @@ void XmppStorageTest::syncActivityReportsIndexStages()
     QVERIFY(joined.contains(QStringLiteral("encrypted local cache")));
     QVERIFY(!joined.contains(QStringLiteral("one body")));
     QVERIFY(!joined.contains(QStringLiteral("two body")));
+}
+
+void XmppStorageTest::sharedRefreshStaysBusyUntilTheLastCallerCancels()
+{
+    auto *backend       = new FakeXmppBackend;
+    backend->deferLists = true;
+    XmppStorage storage(nullptr, backend);
+    QSignalSpy  progress(&storage, &XmppStorage::syncProgressChanged);
+    auto       *first  = storage.refreshNotesAsync();
+    auto       *second = storage.refreshNotesAsync(1);
+    QTRY_COMPARE(backend->pendingLists.size(), 1);
+    QCOMPARE(backend->listCalls, 1);
+    first->cancel();
+    QVERIFY(progress.last().at(2).toBool());
+    second->cancel();
+    QVERIFY(!progress.last().at(2).toBool());
+    QVERIFY(progress.last().at(0).toString().contains(QStringLiteral("cancelled")));
+}
+
+void XmppStorageTest::destroyedRefreshCallerClearsActivity()
+{
+    auto *backend       = new FakeXmppBackend;
+    backend->deferLists = true;
+    XmppStorage storage(nullptr, backend);
+    QSignalSpy  progress(&storage, &XmppStorage::syncProgressChanged);
+    auto       *job = storage.refreshNotesAsync();
+    delete job;
+    QVERIFY(!progress.last().at(2).toBool());
+    QCoreApplication::processEvents();
+    QCOMPARE(backend->listCalls, 0);
+}
+
+void XmppStorageTest::cancelledRefreshIgnoresLateResult()
+{
+    auto *backend       = new FakeXmppBackend;
+    backend->deferLists = true;
+    XmppStorage storage(nullptr, backend);
+    QSignalSpy  progress(&storage, &XmppStorage::syncProgressChanged);
+    auto       *old = storage.refreshNotesAsync();
+    QTRY_COMPARE(backend->pendingLists.size(), 1);
+    old->cancel();
+    auto *current = storage.refreshNotesAsync();
+    QTRY_COMPARE(backend->pendingLists.size(), 2);
+    XmppListResult stale;
+    stale.ok = true;
+    stale.notes.append(remoteNote(QStringLiteral("stale"), QDateTime::currentDateTimeUtc()));
+    backend->pendingLists.takeFirst()(std::move(stale));
+    QCoreApplication::processEvents();
+    QVERIFY(storage.note(QStringLiteral("stale")).isNull());
+    QVERIFY(!current->isFinished());
+    QVERIFY(progress.last().at(2).toBool());
+    XmppListResult fresh;
+    fresh.ok = true;
+    fresh.notes.append(remoteNote(QStringLiteral("fresh"), QDateTime::currentDateTimeUtc()));
+    backend->pendingLists.takeFirst()(std::move(fresh));
+    QTRY_VERIFY(current->isFinished());
+    QCOMPARE(current->state(), StorageJob::Succeeded);
+    QVERIFY(!storage.note(QStringLiteral("fresh")).isNull());
+    QVERIFY(!progress.last().at(2).toBool());
+}
+
+void XmppStorageTest::failedRefreshReportsTerminalActivity()
+{
+    auto *backend       = new FakeXmppBackend;
+    backend->deferLists = true;
+    XmppStorage storage(nullptr, backend);
+    QSignalSpy  progress(&storage, &XmppStorage::syncProgressChanged);
+    auto       *job = storage.refreshNotesAsync();
+    QTRY_COMPARE(backend->pendingLists.size(), 1);
+    XmppListResult failed;
+    failed.errorKind = XmppErrorKind::Transient;
+    failed.error     = QStringLiteral("private remote diagnostic");
+    backend->pendingLists.takeFirst()(std::move(failed));
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->state(), StorageJob::Failed);
+    QVERIFY(!progress.last().at(2).toBool());
+    QVERIFY(!progress.last()
+                 .at(1)
+                 .toStringList()
+                 .join(QLatin1Char('\n'))
+                 .contains(QStringLiteral("private remote diagnostic")));
+}
+
+void XmppStorageTest::syncHistoryIsBoundedAndAvailableToNewSettings()
+{
+    auto       *backend = new FakeXmppBackend;
+    XmppStorage storage(nullptr, backend);
+    QSignalSpy  progress(&storage, &XmppStorage::syncProgressChanged);
+    for (int i = 0; i < 15; ++i) {
+        emit  backend->remoteNodeInvalidated();
+        auto *job = storage.refreshNotesAsync();
+        QTRY_VERIFY(job->isFinished());
+        QCOMPARE(job->state(), StorageJob::Succeeded);
+    }
+    const auto last = progress.last();
+    QCOMPARE(last.at(1).toStringList().size(), 40);
+    auto *settings = qobject_cast<XmppSettingsController *>(storage.createSettingsController(&storage));
+    QVERIFY(settings);
+    QCOMPARE(settings->syncSummary(), last.at(0).toString());
+    QCOMPARE(settings->syncEvents(), last.at(1).toStringList());
+    QVERIFY(!settings->syncBusy());
+    emit  backend->remoteNodeInvalidated();
+    auto *job = storage.refreshNotesAsync();
+    QVERIFY(settings->syncBusy());
+    QTRY_VERIFY(job->isFinished());
+    QVERIFY(!settings->syncBusy());
+}
+
+void XmppStorageTest::shutdownCancelsRefreshAndRejectsNewJobs()
+{
+    auto *backend       = new FakeXmppBackend;
+    backend->deferLists = true;
+    XmppStorage storage(nullptr, backend);
+    QSignalSpy  progress(&storage, &XmppStorage::syncProgressChanged);
+    auto       *job = storage.refreshNotesAsync();
+    QTRY_COMPARE(backend->pendingLists.size(), 1);
+    storage.shutdown();
+    QCOMPARE(job->state(), StorageJob::Cancelled);
+    QVERIFY(!progress.last().at(2).toBool());
+    QCOMPARE(storage.refreshNotesAsync()->state(), StorageJob::Cancelled);
+    QCOMPARE(storage.initAsync()->state(), StorageJob::Cancelled);
 }
 
 QTEST_MAIN(XmppStorageTest)

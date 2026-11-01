@@ -133,14 +133,11 @@ void XmppStorage::onConnectionChanged(bool connected)
         scheduleFolderPathSynchronization();
 }
 
-void XmppStorage::recordSyncStep(const QString &summary, bool busy, bool newSession)
+void XmppStorage::recordSyncStep(const QString &summary, bool busy)
 {
-    if (newSession)
-        syncEvents_.clear();
     syncSummary_ = summary;
-    syncBusy_    = busy;
-    syncEvents_.append(QTime::currentTime().toString(QStringLiteral("HH:mm:ss"))
-                       + QStringLiteral("  ") + summary);
+    syncBusy_    = busy || !activeInitJobs_.isEmpty() || bool(refreshAttempt_);
+    syncEvents_.append(QTime::currentTime().toString(QStringLiteral("HH:mm:ss")) + QStringLiteral("  ") + summary);
     // Keep only bounded, non-sensitive user-facing stage descriptions.
     constexpr int MaximumSyncEvents = 40;
     while (syncEvents_.size() > MaximumSyncEvents)
@@ -267,6 +264,7 @@ void XmppStorage::applyConfig(const XmppConfig &config)
     folderPathUpdateRunning_   = false;
     folderPathUpdateScheduled_ = false;
     ++configEpoch_;
+    cancelInitJobs();
     shuttingDown_ = false;
     QSettings  settings;
     const bool endpointChanged = config_.jid != config.jid || config_.nodeName != config.nodeName;
@@ -581,11 +579,16 @@ QString XmppStorage::tooltip()
     }
     const QString status = [this]() {
         switch (connectivityState()) {
-        case ConnectivityState::Online: return tr("Online");
-        case ConnectivityState::Connecting: return activeInitJobs_.isEmpty() ? tr("Reconnecting") : tr("Connecting");
-        case ConnectivityState::Error: return tr("Needs attention");
-        case ConnectivityState::Offline: return tr("Offline");
-        case ConnectivityState::NotApplicable: return tr("Not applicable");
+        case ConnectivityState::Online:
+            return tr("Online");
+        case ConnectivityState::Connecting:
+            return activeInitJobs_.isEmpty() ? tr("Reconnecting") : tr("Connecting");
+        case ConnectivityState::Error:
+            return tr("Needs attention");
+        case ConnectivityState::Offline:
+            return tr("Offline");
+        case ConnectivityState::NotApplicable:
+            return tr("Not applicable");
         }
         return tr("Unknown");
     }();

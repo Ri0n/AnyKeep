@@ -44,18 +44,18 @@ public:
     ~XmppStorage() override;
     void shutdown() override;
 
-    bool            init() override;
-    StorageInitJob *initAsync(QObject *owner = nullptr) override;
-    const QString   systemName() const override;
-    const QString   name() const override;
-    QIcon           storageIcon() const override;
-    QIcon           noteIcon() const override;
-    bool            isAccessible() const override;
+    bool              init() override;
+    StorageInitJob   *initAsync(QObject *owner = nullptr) override;
+    const QString     systemName() const override;
+    const QString     name() const override;
+    QIcon             storageIcon() const override;
+    QIcon             noteIcon() const override;
+    bool              isAccessible() const override;
     ConnectivityState connectivityState() const override;
-    bool            canAcceptWrites() const override;
-    bool            supportsDraftSnapshotSave() const override { return true; }
-    bool            supportsMedia() const override;
-    bool            supportsFavorite() const override { return true; }
+    bool              canAcceptWrites() const override;
+    bool              supportsDraftSnapshotSave() const override { return true; }
+    bool              supportsMedia() const override;
+    bool              supportsFavorite() const override { return true; }
 
     QList<Note::Format> availableFormats() const override;
     qint64              requestedModificationTimeResolutionMs() const override { return 1; }
@@ -135,7 +135,9 @@ private:
     void       startBodyPrefetch(const QStringList &ids);
     void       prefetchNextBody();
     void       cancelRefreshAttempt();
-    void       recordSyncStep(const QString &summary, bool busy, bool newSession = false);
+    void       addRefreshWaiter(const std::shared_ptr<RefreshAttempt> &attempt, NoteListJob *job, int limit);
+    void       cancelInitJobs();
+    void       recordSyncStep(const QString &summary, bool busy);
 
     /// Stable configuration snapshot used by operations until applyConfig().
     XmppConfig config_;
@@ -158,9 +160,9 @@ private:
     bool          folderPathUpdateRunning_ { false };
     /// One network index refresh shared by simultaneous model/UI callers.
     std::shared_ptr<RefreshAttempt> refreshAttempt_;
-    QString     syncSummary_;
-    QStringList syncEvents_;
-    bool        syncBusy_ { false };
+    QString                         syncSummary_;
+    QStringList                     syncEvents_;
+    bool                            syncBusy_ { false };
     /// Whether cache_ is a complete representation of the current remote index.
     bool cacheValid_ { false };
     /// Storage/note icon resolved while the storage is constructed on the GUI thread.
