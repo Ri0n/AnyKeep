@@ -10,6 +10,8 @@ Flickable {
     required property var controller
     readonly property bool scrollBarAtWindowEdge: true
     property int nonScrollableRightPadding: 12
+    // Empty means all fields. Custom plugin forms can reuse the generic editors for subsets.
+    property var includedIndices: []
     readonly property int verticalScrollBarInset:
         contentHeight > height
         ? Math.ceil(Math.max(verticalScrollBar.width, verticalScrollBar.implicitWidth)) : 0
@@ -48,6 +50,8 @@ Flickable {
                 required property bool restartRequired
 
                 Layout.fillWidth: true
+                visible: root.includedIndices.length === 0
+                         || root.includedIndices.indexOf(fieldDelegate.index) !== -1
                 spacing: 4
 
                 Label {
