@@ -44,7 +44,7 @@ XmppSettingsController::XmppSettingsController(XmppStorage *storage, const XmppC
 
     Field resource;
     resource.key         = QStringLiteral("resource");
-    resource.label       = tr("Resource");
+    resource.label       = tr("Device name");
     resource.value       = config.resource;
     resource.placeholder = QStringLiteral("private-notes-device");
     fields.append(resource);
