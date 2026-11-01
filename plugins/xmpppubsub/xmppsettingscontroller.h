@@ -15,6 +15,9 @@ class XmppStorage;
 class XmppSettingsController final : public SettingsController {
     Q_OBJECT
     Q_PROPERTY(QString keyState READ keyState NOTIFY keyStateChanged)
+    Q_PROPERTY(QString syncSummary READ syncSummary NOTIFY syncProgressChanged)
+    Q_PROPERTY(QStringList syncEvents READ syncEvents NOTIFY syncProgressChanged)
+    Q_PROPERTY(bool syncBusy READ syncBusy NOTIFY syncProgressChanged)
     Q_PROPERTY(QString recoveryKey READ recoveryKey WRITE setRecoveryKey NOTIFY recoveryKeyChanged)
     Q_PROPERTY(QString ownOmemoDevice READ ownOmemoDevice NOTIFY omemoDevicesChanged)
     Q_PROPERTY(QString omemoStatus READ omemoStatus NOTIFY omemoStatusChanged)
@@ -31,6 +34,9 @@ public:
     XmppConfig  config() const;
     QString     jid() const;
     QString     keyState() const { return keyState_; }
+    QString     syncSummary() const { return syncSummary_; }
+    QStringList syncEvents() const { return syncEvents_; }
+    bool        syncBusy() const { return syncBusy_; }
     QString     recoveryKey() const { return recoveryKey_; }
     QString     ownOmemoDevice() const { return ownOmemoDevice_; }
     QString     omemoStatus() const { return omemoStatus_; }
@@ -42,6 +48,7 @@ public:
     int         protectedUnreadableItems() const { return pendingCleanup_.protectedUnreadableItems; }
 
     void setKeyState(const QByteArray &keyId, const QString &message = {});
+    void setSyncProgress(const QString &summary, const QStringList &events, bool busy);
     void setRecoveryKey(const QString &key);
     void setOmemoStatus(const QString &message);
     void setOmemoDevices(const XmppDeviceInfo &ownDevice, bool ownBundleValid, const QList<XmppDeviceInfo> &devices,
@@ -62,6 +69,7 @@ public:
 
 signals:
     void keyStateChanged();
+    void syncProgressChanged();
     void recoveryKeyChanged();
     void omemoDevicesChanged();
     void omemoStatusChanged();
@@ -87,6 +95,9 @@ private:
     QString               originId_;
     QString               instanceId_;
     QString               keyState_;
+    QString               syncSummary_;
+    QStringList           syncEvents_;
+    bool                  syncBusy_ { false };
     QString               recoveryKey_;
     QString               ownOmemoDevice_;
     QString               omemoStatus_;

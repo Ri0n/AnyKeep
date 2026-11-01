@@ -12,6 +12,7 @@
 #include "xmppsettingscontroller.h"
 
 #include <QSettings>
+#include <QTime>
 #include <QTimer>
 
 #include <algorithm>
@@ -130,6 +131,18 @@ void XmppStorage::onConnectionChanged(bool connected)
     }
     if (connected)
         scheduleFolderPathSynchronization();
+}
+
+void XmppStorage::recordSyncStep(const QString &summary, bool busy)
+{
+    syncSummary_ = summary;
+    syncBusy_    = busy || !activeInitJobs_.isEmpty() || bool(refreshAttempt_);
+    syncEvents_.append(QTime::currentTime().toString(QStringLiteral("HH:mm:ss")) + QStringLiteral("  ") + summary);
+    // Keep only bounded, non-sensitive user-facing stage descriptions.
+    constexpr int MaximumSyncEvents = 40;
+    while (syncEvents_.size() > MaximumSyncEvents)
+        syncEvents_.removeFirst();
+    emit syncProgressChanged(syncSummary_, syncEvents_, syncBusy_);
 }
 
 void XmppStorage::reportError(const QString &error, bool invalidate)
@@ -251,6 +264,7 @@ void XmppStorage::applyConfig(const XmppConfig &config)
     folderPathUpdateRunning_   = false;
     folderPathUpdateScheduled_ = false;
     ++configEpoch_;
+    cancelInitJobs();
     shuttingDown_ = false;
     QSettings  settings;
     const bool endpointChanged = config_.jid != config.jid || config_.nodeName != config.nodeName;
@@ -294,6 +308,8 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
     const auto current = readConfig();
     auto      *widget  = new XmppSettingsController(this, current, parent);
     widget->setKeyState(SecureEnvelope::keyId(current.masterKey, KeyDerivationProfile::PrivateNotes));
+    widget->setSyncProgress(syncSummary_, syncEvents_, syncBusy_);
+    connect(this, &XmppStorage::syncProgressChanged, widget, &XmppSettingsController::setSyncProgress);
     connect(this, &XmppStorage::encryptionKeyChanged, widget, &XmppSettingsController::setKeyState);
     connect(widget, &XmppSettingsController::applyConfigRequested, this, &XmppStorage::applyConfig);
     connect(widget, &XmppSettingsController::createKeyRequested, this, [this, widget](const QString &jid) {
@@ -563,11 +579,16 @@ QString XmppStorage::tooltip()
     }
     const QString status = [this]() {
         switch (connectivityState()) {
-        case ConnectivityState::Online: return tr("Online");
-        case ConnectivityState::Connecting: return activeInitJobs_.isEmpty() ? tr("Reconnecting") : tr("Connecting");
-        case ConnectivityState::Error: return tr("Needs attention");
-        case ConnectivityState::Offline: return tr("Offline");
-        case ConnectivityState::NotApplicable: return tr("Not applicable");
+        case ConnectivityState::Online:
+            return tr("Online");
+        case ConnectivityState::Connecting:
+            return activeInitJobs_.isEmpty() ? tr("Reconnecting") : tr("Connecting");
+        case ConnectivityState::Error:
+            return tr("Needs attention");
+        case ConnectivityState::Offline:
+            return tr("Offline");
+        case ConnectivityState::NotApplicable:
+            return tr("Not applicable");
         }
         return tr("Unknown");
     }();

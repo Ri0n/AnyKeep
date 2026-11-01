@@ -140,12 +140,15 @@ void XmppStorage::installReceivedStorageKey(const QString &jid, const QByteArray
     // operation started with the previous (keyless) snapshot before reconnecting.
     cancelRefreshAttempt();
     ++configEpoch_;
+    cancelInitJobs();
     config_ = readConfig();
     clearErrorState();
-    qInfo().noquote() << (freshStart ? "XMPP fresh storage key installed: key=" : "XMPP recovered storage key installed: key=")
+    qInfo().noquote() << (freshStart ? "XMPP fresh storage key installed: key="
+                                     : "XMPP recovered storage key installed: key=")
                       << QString::fromLatin1(keyId.left(8).toHex());
-    emit encryptionKeyChanged(keyId, freshStart ? tr("New XMPP storage key created on this device")
-                                                : tr("Storage key received from a trusted device"));
+    emit encryptionKeyChanged(keyId,
+                              freshStart ? tr("New XMPP storage key created on this device")
+                                         : tr("Storage key received from a trusted device"));
 
     backend_->start();
 
@@ -356,6 +359,7 @@ void XmppStorage::shutdown()
     folderPathUpdateRunning_   = false;
     folderPathUpdateScheduled_ = false;
     ++configEpoch_;
+    cancelInitJobs();
     if (retryTimer_)
         retryTimer_->stop();
     if (backend_)
@@ -419,9 +423,8 @@ XmppConfig XmppStorage::readConfig() const
         if (key)
             config.masterKey = key.value;
         if (config.masterKey.size() == SecureEnvelope::MasterKeySize) {
-            const auto currentKeyId = SecureEnvelope::keyId(config.masterKey, KeyDerivationProfile::PrivateNotes);
-            config.allowForeignKeyIndices
-                = settings.value(freshStorageKeySetting(config.jid)).toString()
+            const auto currentKeyId       = SecureEnvelope::keyId(config.masterKey, KeyDerivationProfile::PrivateNotes);
+            config.allowForeignKeyIndices = settings.value(freshStorageKeySetting(config.jid)).toString()
                 == QString::fromLatin1(currentKeyId.toHex());
         }
         const auto omemoKey
@@ -509,6 +512,10 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
 {
     auto *job = new StorageInitJob(owner ? owner : this);
     job->start();
+    if (shuttingDown_) {
+        job->cancel();
+        return job;
+    }
     if (errorState_) {
         job->fail({ StorageError::Unavailable, errorStateMessage_, false });
         return job;
@@ -528,14 +535,31 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
     activeInitJobs_.insert(job);
     // Connection bootstrap is asynchronous. Expose it to the storage status
     // UI immediately instead of appearing idle until the first network signal.
-    if (activeInitJobs_.size() == 1)
-        emit invalidated();
-    const auto clearPending = [this, job] {
-        if (activeInitJobs_.remove(job) && activeInitJobs_.isEmpty())
+    const auto clearPending = [this, job](const QString &summary) {
+        if (!activeInitJobs_.remove(job))
+            return;
+        recordSyncStep(summary, false);
+        if (activeInitJobs_.isEmpty())
             emit invalidated();
     };
-    connect(job, &StorageJob::finished, this, clearPending);
-    connect(job, &QObject::destroyed, this, clearPending);
+    connect(job, &StorageJob::finished, this, [this, job, clearPending] {
+        disconnect(job, &QObject::destroyed, this, nullptr);
+        switch (job->state()) {
+        case StorageJob::Succeeded:
+            clearPending(tr("XMPP connected; ready to synchronize notes"));
+            break;
+        case StorageJob::Failed:
+            clearPending(tr("XMPP connection failed"));
+            break;
+        default:
+            clearPending(tr("XMPP connection cancelled"));
+            break;
+        }
+    });
+    connect(job, &QObject::destroyed, this, [this, clearPending] { clearPending(tr("XMPP connection cancelled")); });
+    recordSyncStep(tr("Connecting to the XMPP server…"), true);
+    if (activeInitJobs_.size() == 1)
+        emit invalidated();
     openPersistentCache(config_);
     if (cacheAvailable_)
         emit invalidated();
@@ -545,6 +569,8 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
     QMetaObject::invokeMethod(
         backend_,
         [this, guard, config, epoch]() {
+            if (!guard || guard->isFinished())
+                return;
             if (shuttingDown_ || epoch != configEpoch_) {
                 if (guard)
                     guard->cancel();
@@ -580,6 +606,17 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
         },
         Qt::QueuedConnection);
     return job;
+}
+
+void XmppStorage::cancelInitJobs()
+{
+    QList<QPointer<StorageInitJob>> jobs;
+    for (auto *job : std::as_const(activeInitJobs_))
+        jobs.append(job);
+    for (const auto &job : jobs) {
+        if (job)
+            job->cancel();
+    }
 }
 
 const QString XmppStorage::systemName() const { return storageId; }
