@@ -528,9 +528,10 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
     activeInitJobs_.insert(job);
     // Connection bootstrap is asynchronous. Expose it to the storage status
     // UI immediately instead of appearing idle until the first network signal.
-    emit invalidated();
+    if (activeInitJobs_.size() == 1)
+        emit invalidated();
     const auto clearPending = [this, job] {
-        if (activeInitJobs_.remove(job))
+        if (activeInitJobs_.remove(job) && activeInitJobs_.isEmpty())
             emit invalidated();
     };
     connect(job, &StorageJob::finished, this, clearPending);
