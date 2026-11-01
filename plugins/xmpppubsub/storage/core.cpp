@@ -525,6 +525,16 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
         job->fail({ StorageError::NotConfigured, validationError, false });
         return job;
     }
+    activeInitJobs_.insert(job);
+    // Connection bootstrap is asynchronous. Expose it to the storage status
+    // UI immediately instead of appearing idle until the first network signal.
+    emit invalidated();
+    const auto clearPending = [this, job] {
+        if (activeInitJobs_.remove(job))
+            emit invalidated();
+    };
+    connect(job, &StorageJob::finished, this, clearPending);
+    connect(job, &QObject::destroyed, this, clearPending);
     openPersistentCache(config_);
     if (cacheAvailable_)
         emit invalidated();
@@ -587,10 +597,10 @@ NoteStorage::ConnectivityState XmppStorage::connectivityState() const
         return ConnectivityState::Error;
     if (!configIsValid(config_, nullptr))
         return ConnectivityState::Error;
+    if (!activeInitJobs_.isEmpty() || retryInProgress_ || (retryTimer_ && retryTimer_->isActive()))
+        return ConnectivityState::Connecting;
     if (accessible_)
         return ConnectivityState::Online;
-    if (retryInProgress_ || (retryTimer_ && retryTimer_->isActive()))
-        return ConnectivityState::Connecting;
     return ConnectivityState::Offline;
 }
 
