@@ -119,9 +119,13 @@ namespace {
 
     QString attachmentName(const MediaReference &reference)
     {
-        const QString fileName = QFileInfo(reference.originalName.isEmpty() ? reference.portableName
-                                                                           : reference.originalName).fileName();
-        return fileName.isEmpty() ? QStringLiteral("attachment") : fileName;
+        QString name = reference.originalName.isEmpty() ? reference.portableName : reference.originalName;
+        // Remote names are untrusted. Treat either platform's separators as path components.
+        name.replace(QLatin1Char('\\'), QLatin1Char('/'));
+        const QString fileName = QFileInfo(name).fileName();
+        return fileName.isEmpty() || fileName == QLatin1String(".") || fileName == QLatin1String("..")
+            ? QStringLiteral("attachment")
+            : fileName;
     }
 
     QString attachmentSavedPathKey(const MediaReference &reference)
@@ -560,10 +564,7 @@ void DesktopEditorPlatformBackend::saveAttachmentAs(const QString &url)
         return;
     }
     const MediaReference *reference = &found;
-    QString               name
-        = QFileInfo(reference->originalName.isEmpty() ? reference->portableName : reference->originalName).fileName();
-    if (name.isEmpty())
-        name = QStringLiteral("attachment");
+    const QString name = attachmentName(*reference);
     const QString initialPath
         = QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)).filePath(name);
     const QString fileName = QFileDialog::getSaveFileName(dialogParent_, tr("Save Attached File As"), initialPath);
