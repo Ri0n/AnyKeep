@@ -253,14 +253,17 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                         qInfo() << "XMPP index refresh loaded" << notes.size() << "note(s) for"
                                 << attempt->waiters.size() << "caller(s)"
                                 << (result.partial ? "from a partial remote result" : "from a complete remote result");
+                        // Finish reporting the index refresh before completing the jobs.
+                        // Observers of StorageJob::finished must see the terminal
+                        // progress state, regardless of event-loop timing.
+                        recordSyncStep(tr("Synchronized index for %1 notes; content loads when opened")
+                                           .arg(cache_.size()), false);
                         for (const auto &waiter : attempt->waiters) {
                             if (!waiter.job || waiter.job->isFinished())
                                 continue;
                             waiter.job->complete(waiter.limit > 0 ? notes.mid(0, waiter.limit) : notes);
                         }
                         startBodyPrefetch(missingBodies);
-                        recordSyncStep(tr("Synchronized index for %1 notes; content loads when opened")
-                                           .arg(cache_.size()), false);
                     },
                     Qt::QueuedConnection);
             });
