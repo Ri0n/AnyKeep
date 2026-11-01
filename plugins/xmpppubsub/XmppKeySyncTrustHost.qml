@@ -73,7 +73,7 @@ Item {
             }
         }
 
-        onClosed: root.destroy()
+        onClosed: root.controller.reject()
     }
 
     Connections {

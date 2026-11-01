@@ -181,6 +181,11 @@ if(TARGET xmpppubsub_test_support)
   target_include_directories(xmppstorage_test PRIVATE ../plugins/xmpppubsub)
   target_link_libraries(xmppstorage_test PRIVATE xmpppubsub_test_support)
 
+  add_anykeep_test(xmppdialogpresenter_test xmppdialogpresenter_test.cpp)
+  target_include_directories(xmppdialogpresenter_test PRIVATE ../plugins/xmpppubsub)
+  target_link_libraries(xmppdialogpresenter_test PRIVATE xmpppubsub_test_support Qt6::Quick)
+  set_tests_properties(xmppdialogpresenter_test PROPERTIES LABELS "xmpp;qml")
+
   if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
     add_anykeep_test(irisjinglepublicationprovider_test irisjinglepublicationprovider_test.cpp)
     target_include_directories(irisjinglepublicationprovider_test PRIVATE ../plugins/xmpppubsub)
