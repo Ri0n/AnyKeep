@@ -11,6 +11,7 @@
 #include "xmppbackend.h"
 
 #include <QCryptographicHash>
+#include <QElapsedTimer>
 #include <QTimer>
 
 #include <algorithm>
@@ -416,7 +417,15 @@ void XmppStorage::persistCache()
         record.cachedAt    = now;
         records.append(std::move(record));
     }
-    if (const auto error = persistentCache_->replaceRecords(records)) {
+    QElapsedTimer timer;
+    timer.start();
+    const auto error = persistentCache_->replaceRecords(records);
+    const auto durationMs = timer.elapsed();
+    // Avoid filenames, note titles, content and key material in diagnostics.
+    if (durationMs >= 500)
+        qWarning() << "XMPP UI thread blocked in encrypted cache write:" << durationMs << "ms for"
+                   << records.size() << "notes";
+    if (error) {
         reportError(tr("The local note cache could not be written: %1").arg(error.message));
         return;
     }

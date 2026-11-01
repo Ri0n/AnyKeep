@@ -7,6 +7,7 @@
 #include "notedata.h"
 #include "xmppbackend.h"
 
+#include <QElapsedTimer>
 #include <QPointer>
 #include <QTimer>
 #include <QUuid>
@@ -222,7 +223,10 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                             return;
                         }
                         recordSyncStep(tr("Received %1 notes; updating local index…").arg(result.notes.size()), true);
+                        QElapsedTimer stageTimer;
+                        stageTimer.start();
                         reconcileRemoteFolders(result.notes);
+                        const qint64         foldersMs = stageTimer.restart();
                         QHash<QString, Note> refreshed = result.partial ? cache_ : QHash<QString, Note> {};
                         QStringList          missingBodies;
                         for (const auto &remote : result.notes) {
@@ -246,8 +250,16 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                         cacheValid_ = accessible_ = true;
                         resetRetryBackoff();
                         recordSyncStep(tr("Saving %1 notes in the encrypted local cache…").arg(cache_.size()), true);
+                        const qint64 modelMs = stageTimer.restart();
                         persistCache();
+                        const qint64 cacheMs = stageTimer.restart();
                         scheduleFolderPathSynchronization();
+                        if (foldersMs >= 500 || modelMs >= 500 || cacheMs >= 500) {
+                            qWarning() << "XMPP index refresh blocked UI thread; notes:" << result.notes.size()
+                                       << "folders:" << foldersMs << "ms"
+                                       << "model:" << modelMs << "ms"
+                                       << "encrypted-cache:" << cacheMs << "ms";
+                        }
                         auto notes = cache_.values();
                         std::sort(notes.begin(), notes.end(), noteListItemModifyComparer);
                         qInfo() << "XMPP index refresh loaded" << notes.size() << "note(s) for"
@@ -256,8 +268,8 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                         // Finish reporting the index refresh before completing the jobs.
                         // Observers of StorageJob::finished must see the terminal
                         // progress state, regardless of event-loop timing.
-                        recordSyncStep(tr("Synchronized index for %1 notes; content loads when opened")
-                                           .arg(cache_.size()), false);
+                        recordSyncStep(
+                            tr("Synchronized index for %1 notes; content loads when opened").arg(cache_.size()), false);
                         for (const auto &waiter : attempt->waiters) {
                             if (!waiter.job || waiter.job->isFinished())
                                 continue;
