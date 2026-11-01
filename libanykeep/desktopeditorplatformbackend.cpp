@@ -5,6 +5,7 @@
 #include "noteblockmodel.h"
 #include "noteeditor.h"
 #include "notetransfercontroller.h"
+#include "utils.h"
 #include <QCryptographicHash>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -123,9 +124,7 @@ namespace {
         // Remote names are untrusted. Treat either platform's separators as path components.
         name.replace(QLatin1Char('\\'), QLatin1Char('/'));
         const QString fileName = QFileInfo(name).fileName();
-        return fileName.isEmpty() || fileName == QLatin1String(".") || fileName == QLatin1String("..")
-            ? QStringLiteral("attachment")
-            : fileName;
+        return Utils::portableFileName(fileName, QStringLiteral("attachment"));
     }
 
     QString attachmentContentIdentity(const MediaReference &reference)
@@ -155,8 +154,8 @@ namespace {
         // Keep different revisions/files with identical names separate and
         // stable across restarts; exported content must never live in QTemporaryDir.
         const QString folder = QDir(documents).filePath(QStringLiteral("AnyKeep Downloads"));
-        const QString versionedId = reference.id.toString(QUuid::WithoutBraces)
-            + QLatin1Char('-') + attachmentContentIdentity(reference);
+        const QString versionedId
+            = reference.id.toString(QUuid::WithoutBraces) + QLatin1Char('-') + attachmentContentIdentity(reference);
         return QDir(QDir(folder).filePath(versionedId)).filePath(attachmentName(reference));
     }
 
@@ -576,8 +575,8 @@ void DesktopEditorPlatformBackend::saveAttachmentAs(const QString &url)
         return;
     }
     const MediaReference *reference = &found;
-    const QString name = attachmentName(*reference);
-    const QString initialPath
+    const QString         name      = attachmentName(*reference);
+    const QString         initialPath
         = QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)).filePath(name);
     const QString fileName = QFileDialog::getSaveFileName(dialogParent_, tr("Save Attached File As"), initialPath);
     if (fileName.isEmpty())
@@ -658,13 +657,13 @@ void DesktopEditorPlatformBackend::showAttachmentInFolder(const QString &url)
     }
     // A user-saved file or materialized download is usable independently
     // of the keychain. Retain detailed diagnostics for keep-in-place sources.
-    auto *store = LocalMediaStore::instance();
-    const QString saved = QSettings().value(attachmentSavedPathKey(reference)).toString();
-    const QString downloaded = attachmentDownloadPath(reference);
-    const bool hasSaved = !saved.isEmpty() && QFileInfo(saved).isFile();
-    const bool hasDownload = !downloaded.isEmpty() && QFileInfo(downloaded).isFile();
-    const bool needsExternal = !hasSaved && !hasDownload
-        && !store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference);
+    auto         *store         = LocalMediaStore::instance();
+    const QString saved         = QSettings().value(attachmentSavedPathKey(reference)).toString();
+    const QString downloaded    = attachmentDownloadPath(reference);
+    const bool    hasSaved      = !saved.isEmpty() && QFileInfo(saved).isFile();
+    const bool    hasDownload   = !downloaded.isEmpty() && QFileInfo(downloaded).isFile();
+    const bool    needsExternal = !hasSaved && !hasDownload && !store->containsManagedBlob(reference.blobId)
+        && store->hasExternalSource(reference);
     if (needsExternal) {
         QString initializeError;
         if (!store->initialize(&initializeError)) {

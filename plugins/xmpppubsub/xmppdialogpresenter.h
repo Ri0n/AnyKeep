@@ -46,9 +46,9 @@ private:
 /**
  * @brief Presents XMPP-specific workflows through shared Qt Quick components.
  *
- * Android uses the application's active Qt Quick window. Desktop uses an
- * active Qt Quick window when available and creates a small standalone Quick
- * host when AnyKeep is currently represented only by its tray or QWidget shell.
+ * Android uses the application's active Qt Quick window. Desktop presents
+ * recovery and trust requests in a standalone Quick window, including when
+ * AnyKeep is currently represented only by its tray or QWidget shell.
  */
 class XmppDialogPresenter final : public QObject {
     Q_OBJECT

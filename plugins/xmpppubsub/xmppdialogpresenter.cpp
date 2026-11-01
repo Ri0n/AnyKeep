@@ -179,6 +179,8 @@ void XmppDialogPresenter::tryPresent()
         } else if (request.reject) {
             request.reject();
         }
+        if (trustHost_)
+            trustHost_->deleteLater();
         if (trustPrompt_)
             trustPrompt_->deleteLater();
         trustPrompt_.clear();
@@ -195,8 +197,9 @@ void XmppDialogPresenter::tryPresent()
 QObject *XmppDialogPresenter::createHost(const QUrl &componentUrl, QObject *controller)
 {
     hostCreationDeferred_       = false;
-    const bool trustRequest = componentUrl.fileName() == QStringLiteral("XmppKeySyncTrustHost.qml");
-    const bool preferStandalone = trustRequest || componentUrl.fileName() == QStringLiteral("XmppKeyResolutionHost.qml");
+    const bool trustRequest     = componentUrl.fileName() == QStringLiteral("XmppKeySyncTrustHost.qml");
+    const bool keyResolution    = componentUrl.fileName() == QStringLiteral("XmppKeyResolutionHost.qml");
+    const bool preferStandalone = trustRequest || keyResolution;
     auto      *window           = presentationWindow(preferStandalone);
     auto      *engine           = presentationEngine(window);
     if (!window || !engine || !window->contentItem()) {
@@ -204,8 +207,10 @@ QObject *XmppDialogPresenter::createHost(const QUrl &componentUrl, QObject *cont
         return nullptr;
     }
 
-    if (preferStandalone && window == standaloneWindow_)
-        window->setTitle(trustRequest ? tr("Approve AnyKeep device — AnyKeep") : tr("Repair XMPP note synchronization — AnyKeep"));
+    if (preferStandalone && window == standaloneWindow_) {
+        window->setTitle(trustRequest ? tr("Approve AnyKeep device — AnyKeep")
+                                      : tr("Repair XMPP note synchronization — AnyKeep"));
+    }
 
     QQmlComponent component(engine, componentUrl, this);
     if (component.status() != QQmlComponent::Ready) {
@@ -216,7 +221,7 @@ QObject *XmppDialogPresenter::createHost(const QUrl &componentUrl, QObject *cont
     QVariantMap initialProperties;
     initialProperties.insert(QStringLiteral("controller"), QVariant::fromValue(controller));
     initialProperties.insert(QStringLiteral("hostItem"), QVariant::fromValue(window->contentItem()));
-    if (preferStandalone)
+    if (keyResolution)
         initialProperties.insert(QStringLiteral("standalone"), window == standaloneWindow_);
     auto *host = component.createWithInitialProperties(initialProperties, engine->rootContext());
     if (!host) {
