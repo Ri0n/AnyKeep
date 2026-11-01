@@ -25,6 +25,7 @@
 #include <QPushButton>
 #include <QRunnable>
 #include <QSaveFile>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QThreadPool>
@@ -114,6 +115,52 @@ namespace {
 #endif
         QDesktopServices::openUrl(folder);
 #endif
+    }
+
+    QString attachmentName(const MediaReference &reference)
+    {
+        const QString fileName = QFileInfo(reference.originalName.isEmpty() ? reference.portableName
+                                                                           : reference.originalName).fileName();
+        return fileName.isEmpty() ? QStringLiteral("attachment") : fileName;
+    }
+
+    QString attachmentSavedPathKey(const MediaReference &reference)
+    {
+        return QStringLiteral("attachments/savedPaths/%1").arg(reference.id.toString(QUuid::WithoutBraces));
+    }
+
+    void rememberAttachmentPath(const MediaReference &reference, const QString &path)
+    {
+        QSettings().setValue(attachmentSavedPathKey(reference), QFileInfo(path).absoluteFilePath());
+    }
+
+    QString attachmentDownloadPath(const MediaReference &reference)
+    {
+        const QString documents = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+        if (documents.isEmpty())
+            return {};
+        // Keep different revisions/files with identical names separate and
+        // stable across restarts; exported content must never live in QTemporaryDir.
+        const QString folder = QDir(documents).filePath(QStringLiteral("AnyKeep Downloads"));
+        return QDir(QDir(folder).filePath(reference.id.toString(QUuid::WithoutBraces)))
+            .filePath(attachmentName(reference));
+    }
+
+    QString existingAttachmentFile(const MediaReference &reference)
+    {
+        auto *store = LocalMediaStore::instance();
+        if (!store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference)) {
+            const auto source = store->externalSource(reference);
+            if (source && QFileInfo(source.value.fileName).isFile())
+                return source.value.fileName;
+        }
+
+        const QString saved = QSettings().value(attachmentSavedPathKey(reference)).toString();
+        if (!saved.isEmpty() && QFileInfo(saved).isFile())
+            return saved;
+
+        const QString downloaded = attachmentDownloadPath(reference);
+        return !downloaded.isEmpty() && QFileInfo(downloaded).isFile() ? downloaded : QString {};
     }
 
     bool cursorIsOutsideWindow(QObject *source)
@@ -212,13 +259,15 @@ void DesktopEditorPlatformBackend::moveAttachmentToFileAsync(const MediaReferenc
             return;
         QMetaObject::invokeMethod(
             backend,
-            [backend, moved, url] {
+            [backend, moved, reference, fileName, url] {
                 if (!backend)
                     return;
                 if (!moved)
                     emit backend->operationFailed(tr("Could not move the attached file: %1").arg(moved.error));
-                else
+                else {
+                    rememberAttachmentPath(reference, fileName);
                     emit backend->attachmentStorageChanged(url);
+                }
             },
             Qt::QueuedConnection);
     }));
@@ -464,45 +513,41 @@ bool DesktopEditorPlatformBackend::insertFileMimeData(const QMimeData *mimeData,
 
 void DesktopEditorPlatformBackend::openAttachment(const QString &url)
 {
-    MediaReference found;
-    if (!findAttachment(url, &found)) {
+    MediaReference reference;
+    if (!findAttachment(url, &reference)) {
         emit operationFailed(tr("The attached file is not available locally."));
         return;
     }
-    const MediaReference *reference = &found;
-    if (!attachmentOpenDirectory_)
-        attachmentOpenDirectory_
-            = std::make_unique<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/anykeep-attachment-open-XXXXXX"));
-    if (!attachmentOpenDirectory_->isValid()) {
-        emit operationFailed(tr("Could not create a temporary directory for the attached file."));
+
+    const QString existing = existingAttachmentFile(reference);
+    if (!existing.isEmpty()) {
+        if (!QDesktopServices::openUrl(QUrl::fromLocalFile(existing)))
+            emit operationFailed(tr("No application could open the attached file."));
         return;
     }
-    QString name
-        = QFileInfo(reference->originalName.isEmpty() ? reference->portableName : reference->originalName).fileName();
-    if (name.isEmpty())
-        name = QStringLiteral("attachment");
-    const QString directory
-        = QDir(attachmentOpenDirectory_->path()).filePath(reference->id.toString(QUuid::WithoutBraces));
-    if (!QDir().mkpath(directory)) {
-        emit operationFailed(tr("Could not prepare the attached file for opening."));
+
+    const QString path = attachmentDownloadPath(reference);
+    if (path.isEmpty() || !QDir().mkpath(QFileInfo(path).absolutePath())) {
+        emit operationFailed(tr("Could not create the AnyKeep Downloads directory in Documents."));
         return;
     }
-    const QString path = QDir(directory).filePath(name);
-    if (!LocalMediaStore::instance()->contains(*reference)) {
-        exportRemoteAttachment(*reference, path, true);
+
+    if (!LocalMediaStore::instance()->contains(reference)) {
+        exportRemoteAttachment(reference, path, true);
         return;
     }
-    const auto loaded = LocalMediaStore::instance()->data(*reference);
+    const auto loaded = LocalMediaStore::instance()->data(reference);
     if (!loaded) {
         emit operationFailed(loaded.error);
         return;
     }
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly) || file.write(loaded.value) != loaded.value.size() || !file.commit()) {
-        emit operationFailed(tr("Could not prepare the attached file: %1").arg(file.errorString()));
+        emit operationFailed(tr("Could not save the attached file: %1").arg(file.errorString()));
         return;
     }
     QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    emit attachmentStorageChanged(url);
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
         emit operationFailed(tr("No application could open the attached file."));
 }
@@ -543,8 +588,12 @@ void DesktopEditorPlatformBackend::saveAttachmentAs(const QString &url)
         return;
     }
     QSaveFile file(fileName);
-    if (!file.open(QIODevice::WriteOnly) || file.write(loaded.value) != loaded.value.size() || !file.commit())
+    if (!file.open(QIODevice::WriteOnly) || file.write(loaded.value) != loaded.value.size() || !file.commit()) {
         emit operationFailed(tr("Could not save the attached file: %1").arg(file.errorString()));
+        return;
+    }
+    rememberAttachmentPath(*reference, fileName);
+    emit attachmentStorageChanged(url);
 }
 
 bool DesktopEditorPlatformBackend::findAttachment(const QString &url, MediaReference *reference) const
@@ -570,6 +619,12 @@ bool DesktopEditorPlatformBackend::isAttachmentKeptInPlace(const QString &url) c
     return !store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference);
 }
 
+bool DesktopEditorPlatformBackend::hasAttachmentLocalFile(const QString &url) const
+{
+    MediaReference reference;
+    return findAttachment(url, &reference) && !existingAttachmentFile(reference).isEmpty();
+}
+
 void DesktopEditorPlatformBackend::showAttachmentInFolder(const QString &url)
 {
     MediaReference reference;
@@ -577,24 +632,12 @@ void DesktopEditorPlatformBackend::showAttachmentInFolder(const QString &url)
         emit operationFailed(tr("The attached file is not available locally."));
         return;
     }
-    auto   *store = LocalMediaStore::instance();
-    QString initializeError;
-    if (!store->initialize(&initializeError)) {
-        emit operationFailed(initializeError);
+    const QString path = existingAttachmentFile(reference);
+    if (path.isEmpty()) {
+        emit operationFailed(tr("Open or save the attached file before showing it in the file manager."));
         return;
     }
-    const auto source = store->externalSource(reference);
-    if (!source) {
-        emit operationFailed(source.error);
-        return;
-    }
-    const QFileInfo file(source.value.fileName);
-    if (!file.exists()) {
-        emit operationFailed(
-            tr("The attached file is no longer at %1.").arg(QDir::toNativeSeparators(file.absoluteFilePath())));
-        return;
-    }
-    showInFileManager(file.absoluteFilePath());
+    showInFileManager(QFileInfo(path).absoluteFilePath());
 }
 
 void DesktopEditorPlatformBackend::exportRemoteAttachment(const MediaReference &reference, const QString &path,
@@ -641,8 +684,12 @@ void DesktopEditorPlatformBackend::exportRemoteAttachment(const MediaReference &
                 if (!verified || !file->commit()) {
                     file->cancelWriting();
                     emit operationFailed(tr("Could not verify or save the attached file."));
-                } else if (openAfter && !QDesktopServices::openUrl(QUrl::fromLocalFile(path))) {
-                    emit operationFailed(tr("No application could open the attached file."));
+                } else {
+                    if (!openAfter)
+                        rememberAttachmentPath(reference, path);
+                    emit attachmentStorageChanged(reference.uri());
+                    if (openAfter && !QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
+                        emit operationFailed(tr("No application could open the attached file."));
                 }
                 manager->deleteLater();
             });
