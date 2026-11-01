@@ -317,6 +317,13 @@ Item {
 
                 Label {
                     Layout.fillWidth: true
+                    text: qsTr("When you request the storage key, check another AnyKeep device logged into the same XMPP account. Approve the device-trust prompt there to allow key synchronization.")
+                    wrapMode: Text.WordWrap
+                    color: palette.placeholderText
+                }
+
+                Label {
+                    Layout.fillWidth: true
                     text: qsTr("Compare fingerprints on the other device. The client label is shown separately from the OMEMO ID; AnyKeep normally publishes its XMPP resource as that label, but XMPP does not guarantee this mapping or provide a last-used time.")
                     wrapMode: Text.WordWrap
                     color: palette.placeholderText
