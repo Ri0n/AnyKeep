@@ -7,6 +7,7 @@
 #include "notedata.h"
 #include "xmppbackend.h"
 
+#include <QElapsedTimer>
 #include <QPointer>
 #include <QTimer>
 #include <QUuid>
@@ -219,7 +220,10 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                             }
                             return;
                         }
+                        QElapsedTimer stageTimer;
+                        stageTimer.start();
                         reconcileRemoteFolders(result.notes);
+                        const qint64 foldersMs = stageTimer.restart();
                         QHash<QString, Note> refreshed = result.partial ? cache_ : QHash<QString, Note> {};
                         QStringList          missingBodies;
                         for (const auto &remote : result.notes) {
@@ -242,8 +246,16 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                         cache_      = std::move(refreshed);
                         cacheValid_ = accessible_ = true;
                         resetRetryBackoff();
+                        const qint64 modelMs = stageTimer.restart();
                         persistCache();
+                        const qint64 cacheMs = stageTimer.restart();
                         scheduleFolderPathSynchronization();
+                        if (foldersMs >= 500 || modelMs >= 500 || cacheMs >= 500) {
+                            qWarning() << "XMPP index refresh blocked UI thread; notes:" << result.notes.size()
+                                       << "folders:" << foldersMs << "ms"
+                                       << "model:" << modelMs << "ms"
+                                       << "encrypted-cache:" << cacheMs << "ms";
+                        }
                         auto notes = cache_.values();
                         std::sort(notes.begin(), notes.end(), noteListItemModifyComparer);
                         qInfo() << "XMPP index refresh loaded" << notes.size() << "note(s) for"
