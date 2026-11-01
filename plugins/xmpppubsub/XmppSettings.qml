@@ -35,6 +35,59 @@ Flickable {
             })
         }
 
+        GroupBox {
+            title: qsTr("Synchronization")
+            Layout.fillWidth: true
+            visible: root.controller.syncBusy || root.controller.syncEvents.length > 0
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 6
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    BusyIndicator {
+                        running: root.controller.syncBusy
+                        visible: running
+                        Layout.preferredWidth: 22
+                        Layout.preferredHeight: 22
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: root.controller.syncSummary
+                        wrapMode: Text.WordWrap
+                    }
+
+                    ToolButton {
+                        id: syncDetailsToggle
+                        checkable: true
+                        text: checked ? qsTr("Hide log") : qsTr("Show log")
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: syncDetailsToggle.checked
+                    spacing: 4
+
+                    Repeater {
+                        model: root.controller.syncEvents
+                        delegate: Label {
+                            required property string modelData
+                            Layout.fillWidth: true
+                            text: modelData
+                            color: palette.placeholderText
+                            font.pixelSize: 12
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+            }
+        }
+
         ToolButton {
             id: advancedToggle
             Layout.fillWidth: true

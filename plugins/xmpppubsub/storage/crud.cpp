@@ -176,6 +176,7 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
     attempt->epoch     = configEpoch_;
     attempt->waiters.append(RefreshWaiter { job, limit });
     refreshAttempt_ = attempt;
+    recordSyncStep(tr("Retrieving the XMPP note index…"), true, true);
 
     const auto config = config_;
     const auto epoch  = attempt->epoch;
@@ -207,6 +208,7 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                             return;
                         }
                         if (!result.ok) {
+                            recordSyncStep(tr("Could not synchronize the note index"), false);
                             qWarning().noquote() << "XMPP index refresh failed:" << result.error;
                             if (result.retryable())
                                 handleTransientFailure(result.error);
@@ -219,6 +221,7 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                             }
                             return;
                         }
+                        recordSyncStep(tr("Received %1 notes; updating local index…").arg(result.notes.size()), true);
                         reconcileRemoteFolders(result.notes);
                         QHash<QString, Note> refreshed = result.partial ? cache_ : QHash<QString, Note> {};
                         QStringList          missingBodies;
@@ -242,6 +245,7 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                         cache_      = std::move(refreshed);
                         cacheValid_ = accessible_ = true;
                         resetRetryBackoff();
+                        recordSyncStep(tr("Saving %1 notes in the encrypted local cache…").arg(cache_.size()), true);
                         persistCache();
                         scheduleFolderPathSynchronization();
                         auto notes = cache_.values();
@@ -255,6 +259,8 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
                             waiter.job->complete(waiter.limit > 0 ? notes.mid(0, waiter.limit) : notes);
                         }
                         startBodyPrefetch(missingBodies);
+                        recordSyncStep(tr("Synchronized index for %1 notes; content loads when opened")
+                                           .arg(cache_.size()), false);
                     },
                     Qt::QueuedConnection);
             });
@@ -268,6 +274,7 @@ void XmppStorage::cancelRefreshAttempt()
     const auto attempt = std::exchange(refreshAttempt_, std::shared_ptr<RefreshAttempt> {});
     if (!attempt)
         return;
+    recordSyncStep(tr("XMPP note index synchronization cancelled"), false);
     for (const auto &waiter : attempt->waiters) {
         if (waiter.job && !waiter.job->isFinished())
             waiter.job->cancel();

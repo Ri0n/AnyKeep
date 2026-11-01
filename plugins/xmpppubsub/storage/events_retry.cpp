@@ -12,6 +12,7 @@
 #include "xmppsettingscontroller.h"
 
 #include <QSettings>
+#include <QTime>
 #include <QTimer>
 
 #include <algorithm>
@@ -130,6 +131,21 @@ void XmppStorage::onConnectionChanged(bool connected)
     }
     if (connected)
         scheduleFolderPathSynchronization();
+}
+
+void XmppStorage::recordSyncStep(const QString &summary, bool busy, bool newSession)
+{
+    if (newSession)
+        syncEvents_.clear();
+    syncSummary_ = summary;
+    syncBusy_    = busy;
+    syncEvents_.append(QTime::currentTime().toString(QStringLiteral("HH:mm:ss"))
+                       + QStringLiteral("  ") + summary);
+    // Keep only bounded, non-sensitive user-facing stage descriptions.
+    constexpr int MaximumSyncEvents = 40;
+    while (syncEvents_.size() > MaximumSyncEvents)
+        syncEvents_.removeFirst();
+    emit syncProgressChanged(syncSummary_, syncEvents_, syncBusy_);
 }
 
 void XmppStorage::reportError(const QString &error, bool invalidate)
@@ -294,6 +310,8 @@ SettingsController *XmppStorage::createSettingsController(QObject *parent)
     const auto current = readConfig();
     auto      *widget  = new XmppSettingsController(this, current, parent);
     widget->setKeyState(SecureEnvelope::keyId(current.masterKey, KeyDerivationProfile::PrivateNotes));
+    widget->setSyncProgress(syncSummary_, syncEvents_, syncBusy_);
+    connect(this, &XmppStorage::syncProgressChanged, widget, &XmppSettingsController::setSyncProgress);
     connect(this, &XmppStorage::encryptionKeyChanged, widget, &XmppSettingsController::setKeyState);
     connect(widget, &XmppSettingsController::applyConfigRequested, this, &XmppStorage::applyConfig);
     connect(widget, &XmppSettingsController::createKeyRequested, this, [this, widget](const QString &jid) {

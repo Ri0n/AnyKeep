@@ -131,6 +131,7 @@ class XmppStorageTest : public QObject {
 
 private slots:
     void reorderPublishesOnlyTheIndex();
+    void syncActivityReportsIndexStages();
 };
 
 void XmppStorageTest::reorderPublishesOnlyTheIndex()
@@ -156,6 +157,32 @@ void XmppStorageTest::reorderPublishesOnlyTheIndex()
     QCOMPARE(reordered.contentRevision, QStringLiteral("older-content-1"));
     QCOMPARE(reordered.modified, backend->indexRequests.constFirst().modified);
     QVERIFY(!reordered.contentPresent);
+}
+
+void XmppStorageTest::syncActivityReportsIndexStages()
+{
+    auto *backend = new FakeXmppBackend;
+    XmppStorage storage(nullptr, backend);
+    const auto now = QDateTime::currentDateTimeUtc();
+    backend->remote_.insert(QStringLiteral("one"), remoteNote(QStringLiteral("one"), now));
+    backend->remote_.insert(QStringLiteral("two"), remoteNote(QStringLiteral("two"), now));
+
+    QSignalSpy progress(&storage, &XmppStorage::syncProgressChanged);
+    auto *job = storage.refreshNotesAsync();
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->state(), StorageJob::Succeeded);
+    QVERIFY(progress.count() >= 3);
+
+    const auto first = progress.first();
+    QCOMPARE(first.at(2).toBool(), true);
+    QVERIFY(first.at(0).toString().contains(QStringLiteral("note index")));
+    const auto last = progress.last();
+    QCOMPARE(last.at(2).toBool(), false);
+    QVERIFY(last.at(0).toString().contains(QStringLiteral("2 notes")));
+    const QString joined = last.at(1).toStringList().join(QLatin1Char('\n'));
+    QVERIFY(joined.contains(QStringLiteral("encrypted local cache")));
+    QVERIFY(!joined.contains(QStringLiteral("one body")));
+    QVERIFY(!joined.contains(QStringLiteral("two body")));
 }
 
 QTEST_MAIN(XmppStorageTest)

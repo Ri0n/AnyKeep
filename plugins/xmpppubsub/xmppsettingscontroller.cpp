@@ -97,6 +97,16 @@ void XmppSettingsController::setKeyState(const QByteArray &keyId, const QString 
     emit keyStateChanged();
 }
 
+void XmppSettingsController::setSyncProgress(const QString &summary, const QStringList &events, bool busy)
+{
+    if (syncSummary_ == summary && syncEvents_ == events && syncBusy_ == busy)
+        return;
+    syncSummary_ = summary;
+    syncEvents_  = events;
+    syncBusy_    = busy;
+    emit syncProgressChanged();
+}
+
 void XmppSettingsController::setRecoveryKey(const QString &key)
 {
     if (recoveryKey_ == key)

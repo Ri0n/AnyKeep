@@ -7,6 +7,7 @@
 #include <QHash>
 #include <QPointer>
 #include <QSet>
+#include <QStringList>
 #include <QTimer>
 
 #include <memory>
@@ -83,6 +84,7 @@ public:
 
 signals:
     void encryptionKeyChanged(const QByteArray &keyId, const QString &message);
+    void syncProgressChanged(const QString &summary, const QStringList &events, bool busy);
 
 private slots:
     void onRemoteNotePublished(const AnyKeep::XmppRemoteNote &remote);
@@ -133,6 +135,7 @@ private:
     void       startBodyPrefetch(const QStringList &ids);
     void       prefetchNextBody();
     void       cancelRefreshAttempt();
+    void       recordSyncStep(const QString &summary, bool busy, bool newSession = false);
 
     /// Stable configuration snapshot used by operations until applyConfig().
     XmppConfig config_;
@@ -155,6 +158,9 @@ private:
     bool          folderPathUpdateRunning_ { false };
     /// One network index refresh shared by simultaneous model/UI callers.
     std::shared_ptr<RefreshAttempt> refreshAttempt_;
+    QString     syncSummary_;
+    QStringList syncEvents_;
+    bool        syncBusy_ { false };
     /// Whether cache_ is a complete representation of the current remote index.
     bool cacheValid_ { false };
     /// Storage/note icon resolved while the storage is constructed on the GUI thread.

@@ -525,6 +525,7 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
         job->fail({ StorageError::NotConfigured, validationError, false });
         return job;
     }
+    recordSyncStep(tr("Connecting to the XMPP server…"), true, true);
     openPersistentCache(config_);
     if (cacheAvailable_)
         emit invalidated();
@@ -555,8 +556,10 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
                         if (result.ok) {
                             resetRetryBackoff();
                             scheduleFolderPathSynchronization();
+                            recordSyncStep(tr("XMPP connected; ready to synchronize notes"), false);
                             guard->complete();
                         } else {
+                            recordSyncStep(tr("XMPP connection failed"), false);
                             if (result.retryable())
                                 handleTransientFailure(result.error);
                             else
