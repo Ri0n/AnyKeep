@@ -160,7 +160,7 @@ namespace {
         return QDir(QDir(folder).filePath(versionedId)).filePath(attachmentName(reference));
     }
 
-    QString existingAttachmentFile(const MediaReference &reference, bool verifyExternalSource = true)
+    QString existingAttachmentFile(const MediaReference &reference)
     {
         const QString saved = QSettings().value(attachmentSavedPathKey(reference)).toString();
         if (!saved.isEmpty() && QFileInfo(saved).isFile())
@@ -168,8 +168,6 @@ namespace {
 
         auto *store = LocalMediaStore::instance();
         if (!store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference)) {
-            if (!verifyExternalSource)
-                return QStringLiteral("external"); // A cheap existence hint only for QML visibility.
             const auto source = store->externalSource(reference);
             if (source && QFileInfo(source.value.fileName).isFile())
                 return source.value.fileName;
@@ -635,9 +633,18 @@ bool DesktopEditorPlatformBackend::isAttachmentKeptInPlace(const QString &url) c
 bool DesktopEditorPlatformBackend::hasAttachmentLocalFile(const QString &url) const
 {
     MediaReference reference;
-    // This is evaluated by QML bindings. Do not decrypt external-source
-    // locators or query the keychain merely to decide whether to show an icon.
-    return findAttachment(url, &reference) && !existingAttachmentFile(reference, false).isEmpty();
+    if (!findAttachment(url, &reference))
+        return false;
+    const QString saved = QSettings().value(attachmentSavedPathKey(reference)).toString();
+    if (!saved.isEmpty() && QFileInfo(saved).isFile())
+        return true;
+    // This is evaluated by QML bindings. Never decrypt a source locator or
+    // query the keychain just to determine whether to display an icon.
+    auto *store = LocalMediaStore::instance();
+    if (!store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference))
+        return true;
+    const QString downloaded = attachmentDownloadPath(reference);
+    return !downloaded.isEmpty() && QFileInfo(downloaded).isFile();
 }
 
 void DesktopEditorPlatformBackend::showAttachmentInFolder(const QString &url)
