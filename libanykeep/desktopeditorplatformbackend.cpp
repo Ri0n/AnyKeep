@@ -128,9 +128,18 @@ namespace {
             : fileName;
     }
 
+    QString attachmentContentIdentity(const MediaReference &reference)
+    {
+        const QByteArray &hash = reference.checksum.isEmpty() ? reference.blobId : reference.checksum;
+        // The UUID alone is not sufficient: the same attachment can have new
+        // content after synchronization while retaining its logical identity.
+        return hash.isEmpty() ? QStringLiteral("unknown") : QString::fromLatin1(hash.toHex());
+    }
+
     QString attachmentSavedPathKey(const MediaReference &reference)
     {
-        return QStringLiteral("attachments/savedPaths/%1").arg(reference.id.toString(QUuid::WithoutBraces));
+        return QStringLiteral("attachments/savedPaths/%1/%2")
+            .arg(reference.id.toString(QUuid::WithoutBraces), attachmentContentIdentity(reference));
     }
 
     void rememberAttachmentPath(const MediaReference &reference, const QString &path)
@@ -146,22 +155,25 @@ namespace {
         // Keep different revisions/files with identical names separate and
         // stable across restarts; exported content must never live in QTemporaryDir.
         const QString folder = QDir(documents).filePath(QStringLiteral("AnyKeep Downloads"));
-        return QDir(QDir(folder).filePath(reference.id.toString(QUuid::WithoutBraces)))
-            .filePath(attachmentName(reference));
+        const QString versionedId = reference.id.toString(QUuid::WithoutBraces)
+            + QLatin1Char('-') + attachmentContentIdentity(reference);
+        return QDir(QDir(folder).filePath(versionedId)).filePath(attachmentName(reference));
     }
 
-    QString existingAttachmentFile(const MediaReference &reference)
+    QString existingAttachmentFile(const MediaReference &reference, bool verifyExternalSource = true)
     {
+        const QString saved = QSettings().value(attachmentSavedPathKey(reference)).toString();
+        if (!saved.isEmpty() && QFileInfo(saved).isFile())
+            return saved;
+
         auto *store = LocalMediaStore::instance();
         if (!store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference)) {
+            if (!verifyExternalSource)
+                return QStringLiteral("external"); // A cheap existence hint only for QML visibility.
             const auto source = store->externalSource(reference);
             if (source && QFileInfo(source.value.fileName).isFile())
                 return source.value.fileName;
         }
-
-        const QString saved = QSettings().value(attachmentSavedPathKey(reference)).toString();
-        if (!saved.isEmpty() && QFileInfo(saved).isFile())
-            return saved;
 
         const QString downloaded = attachmentDownloadPath(reference);
         return !downloaded.isEmpty() && QFileInfo(downloaded).isFile() ? downloaded : QString {};
@@ -623,7 +635,9 @@ bool DesktopEditorPlatformBackend::isAttachmentKeptInPlace(const QString &url) c
 bool DesktopEditorPlatformBackend::hasAttachmentLocalFile(const QString &url) const
 {
     MediaReference reference;
-    return findAttachment(url, &reference) && !existingAttachmentFile(reference).isEmpty();
+    // This is evaluated by QML bindings. Do not decrypt external-source
+    // locators or query the keychain merely to decide whether to show an icon.
+    return findAttachment(url, &reference) && !existingAttachmentFile(reference, false).isEmpty();
 }
 
 void DesktopEditorPlatformBackend::showAttachmentInFolder(const QString &url)
@@ -632,6 +646,18 @@ void DesktopEditorPlatformBackend::showAttachmentInFolder(const QString &url)
     if (!findAttachment(url, &reference)) {
         emit operationFailed(tr("The attached file is not available locally."));
         return;
+    }
+    // Only the external-file branch needs access to its encrypted locator.
+    // A saved export can still be revealed if the keychain is temporarily unavailable.
+    auto *store = LocalMediaStore::instance();
+    const QString saved = QSettings().value(attachmentSavedPathKey(reference)).toString();
+    if ((saved.isEmpty() || !QFileInfo(saved).isFile())
+        && !store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference)) {
+        QString initializeError;
+        if (!store->initialize(&initializeError)) {
+            emit operationFailed(initializeError);
+            return;
+        }
     }
     const QString path = existingAttachmentFile(reference);
     if (path.isEmpty()) {
