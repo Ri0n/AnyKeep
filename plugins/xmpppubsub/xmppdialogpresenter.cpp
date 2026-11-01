@@ -163,6 +163,15 @@ void XmppDialogPresenter::tryPresent()
     trustPrompt_ = prompt;
     trustHost_   = host;
 
+#ifndef Q_OS_ANDROID
+    // Request attention even if the window manager refuses to give focus to
+    // a dialog opened in response to an incoming XMPP event.
+    if (auto *item = qobject_cast<QQuickItem *>(host)) {
+        if (auto *window = item->window())
+            window->alert(0);
+    }
+#endif
+
     connect(prompt, &XmppKeySyncPrompt::finished, this, [this, request](bool accepted) mutable {
         if (accepted) {
             if (request.approve)
@@ -186,13 +195,17 @@ void XmppDialogPresenter::tryPresent()
 QObject *XmppDialogPresenter::createHost(const QUrl &componentUrl, QObject *controller)
 {
     hostCreationDeferred_       = false;
-    const bool preferStandalone = componentUrl.fileName() == QStringLiteral("XmppKeyResolutionHost.qml");
+    const bool trustRequest = componentUrl.fileName() == QStringLiteral("XmppKeySyncTrustHost.qml");
+    const bool preferStandalone = trustRequest || componentUrl.fileName() == QStringLiteral("XmppKeyResolutionHost.qml");
     auto      *window           = presentationWindow(preferStandalone);
     auto      *engine           = presentationEngine(window);
     if (!window || !engine || !window->contentItem()) {
         hostCreationDeferred_ = true;
         return nullptr;
     }
+
+    if (preferStandalone && window == standaloneWindow_)
+        window->setTitle(trustRequest ? tr("Approve AnyKeep device — AnyKeep") : tr("Repair XMPP note synchronization — AnyKeep"));
 
     QQmlComponent component(engine, componentUrl, this);
     if (component.status() != QQmlComponent::Ready) {

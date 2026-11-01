@@ -582,7 +582,7 @@ QString XmppStorage::tooltip()
     const QString status = [this]() {
         switch (connectivityState()) {
         case ConnectivityState::Online: return tr("Online");
-        case ConnectivityState::Connecting: return tr("Reconnecting");
+        case ConnectivityState::Connecting: return activeInitJobs_.isEmpty() ? tr("Reconnecting") : tr("Connecting");
         case ConnectivityState::Error: return tr("Needs attention");
         case ConnectivityState::Offline: return tr("Offline");
         case ConnectivityState::NotApplicable: return tr("Not applicable");

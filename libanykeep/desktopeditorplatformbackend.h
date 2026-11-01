@@ -32,7 +32,8 @@ public:
     // Whether the attachment is a file kept in place on this device, rather
     // than a copy in encrypted storage or a file only another device has.
     Q_INVOKABLE bool isAttachmentKeptInPlace(const QString &url) const;
-    // Shows the file kept in place in the system file manager.
+    // Includes files previously saved or opened in the persistent downloads folder.
+    Q_INVOKABLE bool hasAttachmentLocalFile(const QString &url) const;
     Q_INVOKABLE void showAttachmentInFolder(const QString &url);
 
     // File-manager drops use the same local media store as picker imports.
@@ -55,7 +56,6 @@ private:
     QPointer<QWidget>              dialogParent_;
     QPointer<QObject>              dragSource_;
     std::unique_ptr<QTemporaryDir> dragExportDirectory_;
-    std::unique_ptr<QTemporaryDir> attachmentOpenDirectory_;
 };
 
 } // namespace AnyKeep

@@ -1,9 +1,13 @@
+#include <QCryptographicHash>
+#include <QFile>
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QQmlContext>
 #include <QQuickView>
 #include <QQuickWidget>
+#include <QSettings>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QtTest>
 
 #include "desktopeditorplatformbackend.h"
@@ -24,6 +28,45 @@ class DesktopNoteEditorHostTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void savedAttachmentPathIsScopedToTheContentFingerprint()
+    {
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        const QString savedPath = temporary.filePath(QStringLiteral("attachment.bin"));
+        QFile saved(savedPath);
+        QVERIFY(saved.open(QIODevice::WriteOnly));
+        QCOMPARE(saved.write("one", 3), qint64(3));
+        saved.close();
+
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(plainNote(), drafts);
+        DesktopEditorPlatformBackend backend(&editor);
+
+        MediaReference reference;
+        reference.id           = QUuid::createUuid();
+        reference.originalName = QStringLiteral("attachment.bin");
+        reference.portableName = reference.originalName;
+        reference.mediaType    = QStringLiteral("application/octet-stream");
+        reference.size         = 3;
+        reference.blobId       = QByteArray(32, 'a');
+        reference.checksum     = QCryptographicHash::hash(QByteArrayLiteral("one"), QCryptographicHash::Sha256);
+        editor.setMedia({ reference });
+
+        const QString key = QStringLiteral("attachments/savedPaths/%1/%2")
+                                .arg(reference.id.toString(QUuid::WithoutBraces),
+                                     QString::fromLatin1(reference.checksum.toHex()));
+        QSettings settings;
+        settings.setValue(key, savedPath);
+        QVERIFY(backend.hasAttachmentLocalFile(reference.uri()));
+
+        MediaReference revised = reference;
+        revised.checksum = QCryptographicHash::hash(QByteArrayLiteral("two"), QCryptographicHash::Sha256);
+        editor.setMedia({ revised });
+        // The same URI must not open a saved copy belonging to an older revision.
+        QVERIFY(!backend.hasAttachmentLocalFile(revised.uri()));
+        settings.remove(key);
+    }
+
     void listKeysReachFocusedDocument_data()
     {
         QTest::addColumn<bool>("embedded");

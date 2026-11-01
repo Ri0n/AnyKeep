@@ -167,6 +167,9 @@ private:
     QIcon icon_;
     /// Whether normal storage operations may currently be attempted.
     bool accessible_ { false };
+    /// Active asynchronous connection/probe jobs, including the first login.
+    /// Kept separate from retryInProgress_ to avoid changing retry ownership.
+    QSet<StorageInitJob *> activeInitJobs_;
     /// Set for a terminal error that automatic reconnects cannot repair.
     bool    errorState_ { false };
     QString errorStateMessage_;
