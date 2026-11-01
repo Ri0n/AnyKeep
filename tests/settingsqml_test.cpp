@@ -182,6 +182,26 @@ private slots:
         QVERIFY(usage->property("textFormat").toInt() != 0);
     }
 
+    void genericSettingsFormCanShowOnlySelectedFields()
+    {
+        SettingsFormTestController controller;
+        QQmlEngine                 engine;
+        QQmlComponent              component(&engine, QUrl(QStringLiteral("qrc:/qml/SettingsForm.qml")));
+        QCOMPARE(component.status(), QQmlComponent::Ready);
+
+        QVariantMap properties;
+        properties.insert(QStringLiteral("controller"), QVariant::fromValue(static_cast<QObject *>(&controller)));
+        properties.insert(QStringLiteral("includedIndices"), QVariantList { 0, 2 });
+        std::unique_ptr<QObject> form(component.createWithInitialProperties(properties));
+        QVERIFY2(form, qPrintable(component.errorString()));
+        auto *formItem = qobject_cast<QQuickItem *>(form.get());
+        QVERIFY(formItem);
+        QTRY_VERIFY(quickItemByName(formItem, QStringLiteral("settingsFieldEditor-0")));
+        QTRY_VERIFY(quickItemByName(formItem, QStringLiteral("settingsFieldEditor-2")));
+        QVERIFY(!quickItemByName(formItem, QStringLiteral("settingsFieldEditor-1")));
+        QVERIFY(!quickItemByName(formItem, QStringLiteral("settingsFieldEditor-3")));
+    }
+
     void settingsListsUseAnimatedReordering()
     {
         const auto exercise = [](bool pluginMode) {
