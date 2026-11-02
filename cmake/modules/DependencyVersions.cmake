@@ -19,6 +19,7 @@ string(JSON ANYKEEP_DEP_QT_MINIMUM_MOBILE GET "${_anykeep_dependency_lock}" qt m
 string(JSON ANYKEEP_DEP_QT_MINIMUM_DESKTOP GET "${_anykeep_dependency_lock}" qt minimum_desktop)
 string(JSON ANYKEEP_DEP_IRIS_TAG GET "${_anykeep_dependency_lock}" iris tag)
 string(JSON ANYKEEP_DEP_IRIS_COMMIT GET "${_anykeep_dependency_lock}" iris commit)
+string(JSON ANYKEEP_DEP_IRIS_MINIMUM_VERSION GET "${_anykeep_dependency_lock}" iris minimum_version)
 string(JSON ANYKEEP_DEP_QCA_TAG GET "${_anykeep_dependency_lock}" qca tag)
 string(JSON ANYKEEP_DEP_QCA_COMMIT GET "${_anykeep_dependency_lock}" qca commit)
 string(JSON ANYKEEP_DEP_QTKEYCHAIN_TAG GET "${_anykeep_dependency_lock}" qtkeychain tag)

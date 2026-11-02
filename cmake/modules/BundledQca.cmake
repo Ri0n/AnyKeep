@@ -48,7 +48,15 @@ if(Qt6Core_DIR AND NOT Qt6Test_DIR)
   endif()
 endif()
 
-if(ANDROID)
+set(_qca_providers ossl)
+set(_qca_dependencies)
+if(WIN32)
+  set(_qca_providers wincrypto wingss cyrus-sasl)
+  include(BundledCyrusSasl)
+  if(TARGET anykeep_bundled_cyrus_sasl)
+    list(APPEND _qca_dependencies anykeep_bundled_cyrus_sasl)
+  endif()
+elseif(ANDROID)
   include(AndroidOpenSSL)
 else()
   if(NOT TARGET OpenSSL::Crypto OR NOT TARGET OpenSSL::SSL)
@@ -77,8 +85,6 @@ if(_qca_build_shared)
         "${_qca_runtime_dir}/qca3-qt6${_qca_debug_postfix}${CMAKE_SHARED_LIBRARY_SUFFIX}")
     set(_qca_library
         "${_qca_library_dir}/${CMAKE_IMPORT_LIBRARY_PREFIX}qca3-qt6${_qca_debug_postfix}${CMAKE_IMPORT_LIBRARY_SUFFIX}")
-    set(_qca_ossl_plugin
-        "${_qca_library_dir}/qca3-qt6/crypto/qca-ossl${_qca_debug_postfix}${CMAKE_SHARED_MODULE_SUFFIX}")
   else()
     set(_qca_library
         "${_qca_library_dir}/${CMAKE_SHARED_LIBRARY_PREFIX}qca3-qt6${CMAKE_SHARED_LIBRARY_SUFFIX}")
@@ -97,7 +103,19 @@ else()
                 "${_qca_debug_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}")
 endif()
 
-set(ANYKEEP_QCA_OSSL_PLUGIN "${_qca_ossl_plugin}")
+set(_qca_plugins)
+if(WIN32)
+  foreach(_qca_provider IN LISTS _qca_providers)
+    if(_qca_build_shared)
+      list(APPEND _qca_plugins "${_qca_library_dir}/qca3-qt6/crypto/qca-${_qca_provider}${_qca_debug_postfix}${CMAKE_SHARED_MODULE_SUFFIX}")
+    else()
+      list(APPEND _qca_plugins "${_qca_library_dir}/qca3-qt6/crypto/qca-${_qca_provider}${_qca_debug_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    endif()
+  endforeach()
+else()
+  set(_qca_plugins "${_qca_ossl_plugin}")
+  set(ANYKEEP_QCA_OSSL_PLUGIN "${_qca_ossl_plugin}")
+endif()
 
 if(ANYKEEP_QCA_SOURCE_DIR)
   if(NOT EXISTS "${ANYKEEP_QCA_SOURCE_DIR}/CMakeLists.txt")
@@ -110,10 +128,11 @@ else()
 endif()
 
 string(REPLACE ";" "|" _qca_prefix_path_arg "${CMAKE_PREFIX_PATH}")
+string(JOIN "|" _qca_provider_arg ${_qca_providers})
 set(_qca_cmake_args
     "-DBUILD_SHARED_LIBS=${_qca_build_shared}"
     "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-    "-DBUILD_PLUGINS=ossl"
+    "-DBUILD_PLUGINS=${_qca_provider_arg}"
     "-DLOAD_SHARED_PLUGINS=${_qca_build_shared}"
     "-DBUILD_TESTS=OFF"
     "-DBUILD_TOOLS=OFF"
@@ -156,32 +175,18 @@ if(UNIX AND NOT APPLE AND _qca_build_shared AND NOT ANYKEEP_QCA_SOURCE_DIR)
       "${CMAKE_CURRENT_LIST_DIR}/PatchQcaPluginPath.cmake")
 endif()
 
-foreach(_openssl_var IN ITEMS OPENSSL_ROOT_DIR OPENSSL_INCLUDE_DIR OPENSSL_SSL_LIBRARY OPENSSL_CRYPTO_LIBRARY
-                              OPENSSL_USE_STATIC_LIBS)
-  if(DEFINED ${_openssl_var}
-     AND NOT "${${_openssl_var}}" STREQUAL ""
-     AND NOT TARGET "${${_openssl_var}}")
-    list(APPEND _qca_cmake_args "-D${_openssl_var}=${${_openssl_var}}")
-  endif()
-endforeach()
-
-# Conan's config package represents these variables as target names. QCA's configure performs try_compile() checks using
-# CMake's FindOpenSSL module, so give that separate project concrete library files instead.
-if(WIN32
-   AND OPENSSL_INCLUDE_DIR
-   AND (TARGET "${OPENSSL_SSL_LIBRARY}" OR TARGET "${OPENSSL_CRYPTO_LIBRARY}"))
-  get_filename_component(_qca_openssl_root "${OPENSSL_INCLUDE_DIR}" DIRECTORY)
-  find_library(
-    _qca_openssl_ssl_library
-    NAMES libssl ssl
-    PATHS "${_qca_openssl_root}/lib"
-    NO_DEFAULT_PATH REQUIRED)
-  find_library(
-    _qca_openssl_crypto_library
-    NAMES libcrypto crypto
-    PATHS "${_qca_openssl_root}/lib" NO_DEFAULT_PATH REQUIRED)
-  list(APPEND _qca_cmake_args "-DOPENSSL_ROOT_DIR=${_qca_openssl_root}"
-       "-DOPENSSL_SSL_LIBRARY=${_qca_openssl_ssl_library}" "-DOPENSSL_CRYPTO_LIBRARY=${_qca_openssl_crypto_library}")
+if(WIN32)
+  list(APPEND _qca_cmake_args "-DSasl2_ROOT=${ANYKEEP_CYRUS_SASL_ROOT}" "-DSASL2_USE_STATIC_LIBS=ON"
+       "-DWITH_cyrus-sasl_PLUGIN=yes" "-DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE")
+else()
+  foreach(_openssl_var IN ITEMS OPENSSL_ROOT_DIR OPENSSL_INCLUDE_DIR OPENSSL_SSL_LIBRARY OPENSSL_CRYPTO_LIBRARY
+                                OPENSSL_USE_STATIC_LIBS)
+    if(DEFINED ${_openssl_var}
+       AND NOT "${${_openssl_var}}" STREQUAL ""
+       AND NOT TARGET "${${_openssl_var}}")
+      list(APPEND _qca_cmake_args "-D${_openssl_var}=${${_openssl_var}}")
+    endif()
+  endforeach()
 endif()
 
 anykeep_external_project_config_args(_qca_build_config_args)
@@ -200,7 +205,8 @@ ExternalProject_Add(
   # install's DESTDIR redirect QCA there as debian/tmp/<absolute-build-path>.
   INSTALL_COMMAND "${CMAKE_COMMAND}" -E env "DESTDIR=" "${CMAKE_COMMAND}" --install <BINARY_DIR>
                   ${_qca_build_config_args}
-  BUILD_BYPRODUCTS "${_qca_library}" "${_qca_ossl_plugin}" ${_qca_runtime})
+  DEPENDS ${_qca_dependencies}
+  BUILD_BYPRODUCTS "${_qca_library}" ${_qca_plugins} ${_qca_runtime})
 
 file(MAKE_DIRECTORY "${_qca_include_dir}")
 
@@ -215,13 +221,12 @@ if(_qca_build_shared)
     Qca3::Qca
     PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${_qca_include_dir}" INTERFACE_LINK_LIBRARIES "Qt6::Core")
 
-  # The bundled shared QCA3 is a runtime dependency. qca-ossl remains a
-  # dynamically loaded provider. QCA installs it under qca3-qt6/crypto in the
-  # private ExternalProject prefix; Windows packaging also copies it to the
-  # application's crypto/ directory, which QCA scans at runtime.
+  # Providers remain dynamically loaded under qca3-qt6/crypto in the private
+  # prefix. Windows packaging stages the three native/SASL providers in the
+  # application's crypto/ directory, which QCA also scans at runtime.
   if(WIN32)
     install(FILES "${_qca_runtime}" DESTINATION "." COMPONENT Libraries)
-    install(FILES "${_qca_ossl_plugin}" DESTINATION "crypto" COMPONENT Libraries)
+    install(FILES ${_qca_plugins} DESTINATION "crypto" COMPONENT Libraries)
   elseif(UNIX)
     # The imported target has no install rule of its own. Keep the bundled
     # runtime private: installing its system-wide SONAME beside libanykeep
@@ -236,11 +241,16 @@ if(_qca_build_shared)
             COMPONENT Libraries)
   endif()
 else()
+  if(WIN32)
+    set(_qca_static_deps "${ANYKEEP_CYRUS_SASL_LIBRARY}" bcrypt crypt32 secur32 ncrypt ws2_32 advapi32)
+  else()
+    set(_qca_static_deps OpenSSL::SSL OpenSSL::Crypto)
+  endif()
   add_library(Qca3::Qca STATIC IMPORTED GLOBAL)
   set_target_properties(
     Qca3::Qca
     PROPERTIES IMPORTED_LOCATION "${_qca_library}" INTERFACE_INCLUDE_DIRECTORIES "${_qca_include_dir}"
-               INTERFACE_LINK_LIBRARIES "${_qca_ossl_plugin};OpenSSL::SSL;OpenSSL::Crypto;Qt6::Core"
+               INTERFACE_LINK_LIBRARIES "${_qca_plugins};${_qca_static_deps};Qt6::Core"
                INTERFACE_COMPILE_DEFINITIONS QCA_STATIC)
   if(APPLE)
     # QCA's static macOS system-store implementation calls Security.framework. Keep this on the imported QCA target so

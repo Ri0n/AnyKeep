@@ -152,6 +152,20 @@ jobs:
       - name: Test
         run: ctest --test-dir build/windows --output-on-failure --timeout 180
 
+      - name: Verify bundled Windows crypto providers
+        run: |
+          cmake -S . -B build/windows `
+            -DANYKEEP_QCA_SDK_ROOT= `
+            -DANYKEEP_BUILD_BUNDLED_QCA=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build/windows --target cryptoproviders_test --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $qcaPrefix = "$pwd/build/windows/_deps/qca/install"
+          $env:QCA_PLUGIN_PATH = "$qcaPrefix/lib/qca3-qt6"
+          $env:PATH = "$qcaPrefix/bin;$env:PATH"
+          ctest --test-dir build/windows -R '^cryptoproviders_test$' --output-on-failure --timeout 180
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Print failed or incomplete QtTest reports
         if: failure()
         run: |

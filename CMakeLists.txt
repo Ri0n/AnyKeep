@@ -307,7 +307,7 @@ else()
     if(NOT EXISTS "${_anykeep_iris_package_dir}/IrisConfig.cmake")
       message(FATAL_ERROR "Iris SDK CMake package missing: ${_anykeep_iris_package_dir}")
     endif()
-    find_package(Iris CONFIG REQUIRED
+    find_package(Iris ${ANYKEEP_DEP_IRIS_MINIMUM_VERSION} CONFIG REQUIRED
                  PATHS "${_anykeep_iris_package_dir}"
                  NO_DEFAULT_PATH
                  NO_CMAKE_FIND_ROOT_PATH)
@@ -325,7 +325,7 @@ else()
     include(BundledIris)
   else()
     if(NOT ANYKEEP_QCA_IS_BUNDLED)
-      find_package(Iris CONFIG QUIET)
+      find_package(Iris ${ANYKEEP_DEP_IRIS_MINIMUM_VERSION} CONFIG QUIET)
     endif()
 
     if(TARGET Iris::Iris)

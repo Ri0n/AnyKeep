@@ -262,6 +262,13 @@ endif()
 
 add_anykeep_test(pluginmetadata_test pluginmetadata_test.cpp)
 
+add_anykeep_test(cryptoproviders_test cryptoproviders_test.cpp)
+set_tests_properties(cryptoproviders_test PROPERTIES LABELS "storage;xmpp")
+if(TARGET Iris::Iris)
+  target_link_libraries(cryptoproviders_test PRIVATE Iris::Iris Qt6::Network)
+  target_compile_definitions(cryptoproviders_test PRIVATE ANYKEEP_TEST_IRIS_JDNS)
+endif()
+
 if(TARGET Qt6::Multimedia)
   add_executable(yandexspeechutils_test yandexspeechutils_test.cpp ../plugins/yandex/yandexspeechutils.cpp)
   target_include_directories(yandexspeechutils_test PRIVATE ../plugins/yandex)

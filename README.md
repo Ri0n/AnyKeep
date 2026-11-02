@@ -106,6 +106,13 @@ Conan support in Qt Creator plugins. You need cmake and ninja in PATH too becaus
 Qt Creator doesn't pass their locations to Conan (just add those installed by
 Qt Maintenance tool). The remaining magic should work automatically.
 
+Windows QCA uses WinCrypto (CNG/Schannel), WinGSS and Cyrus SASL. The source
+fallback builds Cyrus SASL with the matching MSVC runtime and embedded
+PLAIN/SCRAM mechanisms; `ANYKEEP_CYRUS_SASL_ROOT` can select an existing SDK.
+WinCrypto is preferred even when a prebuilt QCA SDK also ships OpenSSL.
+Iris requires version 1.6.1 or newer and JDNS support. Bundled Iris enables
+JDNS explicitly, including in build trees that previously cached it off.
+
 ### Creating Windows packages
 
 To build the MSI/interactive EXE installer, `wix.exe` from WiX Toolset must be
