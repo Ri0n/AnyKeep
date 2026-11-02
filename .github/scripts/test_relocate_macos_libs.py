@@ -3,7 +3,6 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 SCRIPT = Path(__file__).with_name("relocate-macos-libs.py")
