@@ -348,8 +348,7 @@ foreach(anykeep_test_target IN LISTS anykeep_test_targets)
   if(anykeep_test_target_type STREQUAL "EXECUTABLE")
     target_sources(${anykeep_test_target} PRIVATE $<TARGET_OBJECTS:anykeep_headless_test_init>)
     get_target_property(anykeep_test_link_libraries ${anykeep_test_target} LINK_LIBRARIES)
-    # The startup test owns initialization after QCoreApplication, without this
-    # early fixture that relies on development/CTest provider paths.
+    # The startup test owns both initialization phases explicitly.
     if(anykeep IN_LIST anykeep_test_link_libraries AND NOT anykeep_test_target STREQUAL "qcastartup_test")
       target_sources(${anykeep_test_target} PRIVATE $<TARGET_OBJECTS:anykeep_qca_test_init>)
     endif()

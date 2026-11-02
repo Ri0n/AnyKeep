@@ -3,7 +3,6 @@
 
 #include <QCoreApplication>
 #include <QtTest>
-#include <optional>
 
 class QcaStartupTest : public QObject {
     Q_OBJECT
@@ -30,9 +29,9 @@ private slots:
 
 int main(int argc, char **argv)
 {
-    std::optional<AnyKeep::QcaInitializer> qca;
-    QCoreApplication                       app(argc, argv);
-    qca.emplace();
+    AnyKeep::QcaInitializer qca;
+    QCoreApplication        app(argc, argv);
+    qca.configureProviders();
     QcaStartupTest test;
     return QTest::qExec(&test, argc, argv);
 }

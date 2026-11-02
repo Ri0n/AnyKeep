@@ -35,7 +35,6 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include <csignal>
 #include <cstring>
 #include <iostream>
-#include <optional>
 
 // clang-format off
 #ifdef Q_OS_WIN
@@ -143,9 +142,7 @@ void applyNeutralWindowsPalette()
 
 int main(int argc, char *argv[])
 {
-    // Outlive QApplication, but defer provider discovery until Qt knows the
-    // executable directory (required by relocatable application bundles).
-    std::optional<AnyKeep::QcaInitializer> qca;
+    AnyKeep::QcaInitializer qca;
 
 #ifdef Q_OS_WIN
     // FluentWinUI3 follows Windows' light/dark appearance. Its unsupported
@@ -208,7 +205,7 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName("AnyKeep");
     QGuiApplication::setApplicationDisplayName("AnyKeep");
     QGuiApplication::setDesktopFileName("anykeep");
-    qca.emplace();
+    qca.configureProviders();
 
     QApplication::setQuitOnLastWindowClosed(false);
     a.setProperty("anykeepSafeMode", safeMode);
