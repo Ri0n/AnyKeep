@@ -5,16 +5,28 @@
         "minimum_desktop": "6.4"
     },
     "iris": {
-        "tag": "v1.6.0",
-        "commit": "65155e42a766beeae33a330bc3b9eb73a6f99ad4",
+        "tag": "v1.6.1",
+        "commit": "c1faba41ee67413d523a2a87ade25e301ee75499",
         "nightly_compatibility": "same-minor",
-        "minimum_version": "1.6.0"
+        "minimum_version": "1.6.1"
     },
     "qca": {
         "tag": "v3.1.2",
         "commit": "c9c56c2c131c897e807cb417f986c071a9c53ac7",
         "nightly_compatibility": "same-minor",
         "minimum_version": "3.0.10"
+    },
+    "cyrus_sasl": {
+        "version": "2.1.28",
+        "revision": "r7",
+        "commit": "590be2c5bd2ae9824631061dddc50526a2ab2038",
+        "sha256": {
+            "android-arm64-v8a": "a361002855757032eb8edcab7e8cd7a61f056977c136349c5cf6bc38b279a8b0",
+            "android-x86": "bebea1489fad8eb508691a5357e9ae663791c766e078d919545126e8826531fe",
+            "android-x86_64": "1b01344680d662d2c7123d90f07bcb132a3c47228f189c778c9d6c0ef83678fb",
+            "macos-arm64": "69db0bde47772ebd44904a17efedf2f74e64bccd2ee5230b434f00f7b52a399b",
+            "macos-x86_64": "bebc5c7dd883e5f3bf09a6b71b5ea4e48af876f95e6769cc0a77ce692f7712c8"
+        }
     },
     "qtkeychain": {
         "tag": "deps-qtkeychain-0.14.3-r1-qt6.12",

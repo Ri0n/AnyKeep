@@ -53,6 +53,8 @@ runs:
 
         run_apt update
         run_apt install -y ./qca-release/*.deb
+        # Mechanisms are loaded by the system Cyrus library used by qca-cyrus-sasl.
+        run_apt install -y libsasl2-modules
 
         if [[ -n "$iris_tag" ]]; then
           run_apt install -y ./iris-release/*.deb

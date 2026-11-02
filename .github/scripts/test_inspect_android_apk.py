@@ -26,6 +26,8 @@ class ApkInventoryTests(unittest.TestCase):
             f"lib/{self.ABI}/libplugins_platforms_qtforandroid_{self.ABI}.so",
             f"lib/{self.ABI}/libplugins_tls_qopensslbackend_{self.ABI}.so",
             f"lib/{self.ABI}/libplugins_multimedia_androidmediaplugin_{self.ABI}.so",
+            f"lib/{self.ABI}/libplugins_crypto_qca_ossl_{self.ABI}.so",
+            f"lib/{self.ABI}/libplugins_crypto_qca_cyrus_sasl_{self.ABI}.so",
             f"lib/{self.ABI}/libqml_QtQuick_Controls_Material_qtquickcontrols2materialstyleplugin_{self.ABI}.so",
             f"lib/{self.ABI}/libqml_QtQuick_Controls_Basic_qtquickcontrols2basicstyleplugin_{self.ABI}.so",
         ]
@@ -61,7 +63,12 @@ class ApkInventoryTests(unittest.TestCase):
 
     def test_missing_runtime_plugin_rejected(self):
         self.make_apk(excluded=(self.plugins[2],))
-        with self.assertRaisesRegex(ValueError, "Essential Qt plugins missing"):
+        with self.assertRaisesRegex(ValueError, "Essential runtime plugins missing"):
+            self.verify()
+
+    def test_missing_sasl_provider_rejected(self):
+        self.make_apk(excluded=(f"lib/{self.ABI}/libplugins_crypto_qca_cyrus_sasl_{self.ABI}.so",))
+        with self.assertRaisesRegex(ValueError, "qca_cyrus_sasl"):
             self.verify()
 
     def test_unused_controls_style_rejected(self):

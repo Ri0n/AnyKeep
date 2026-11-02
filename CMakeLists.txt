@@ -116,6 +116,9 @@ option(ANYKEEP_BUILD_BUNDLED_OMEMO_C "Build bundled libomemo-c and protobuf-c fo
        ${_anykeep_bundled_omemo_c_default})
 option(ANYKEEP_BUILD_BUNDLED_QCA "Build and use bundled QCA 3 instead of a system QCA"
        ${_anykeep_bundled_qca_default})
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ANDROID AND ANYKEEP_BUILD_BUNDLED_QCA)
+  message(FATAL_ERROR "Desktop Linux requires installed QCA and Cyrus SASL; bundled QCA is disabled to avoid runtime conflicts. Set ANYKEEP_BUILD_BUNDLED_QCA=OFF and install the QCA development/provider packages.")
+endif()
 option(ANYKEEP_BUILD_BUNDLED_IRIS "Build bundled Iris when a suitable system Iris is unavailable"
        ${_anykeep_bundled_iris_default})
 set(ANYKEEP_IRIS_SOURCE_DIR
@@ -141,11 +144,12 @@ unset(_anykeep_bundled_qtkeychain_default)
 unset(_anykeep_bundled_qxmpp_default)
 unset(_anykeep_bundled_omemo_c_default)
 
-# Iris unconditionally calls find_package(ZLIB).  Windows does not provide a
-# suitable system zlib in the supported toolchain, so make it available through
-# the same Conan setup used for OpenSSL.  Keep the requirement scoped to the
-# bundled fallback: prebuilt Iris SDKs own their dependency closure.
 set(ANYKEEP_CONAN_EXTRA_REQUIRES)
+# Windows Iris uses native QCA providers. QXmpp and other platforms still need OpenSSL.
+if(NOT WIN32 OR ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP")
+  list(APPEND ANYKEEP_CONAN_EXTRA_REQUIRES "openssl/4.0.1")
+endif()
+# Bundled Iris needs zlib on Windows; prebuilt SDKs own their dependency closure.
 if(WIN32 AND ANYKEEP_XMPP_BACKEND STREQUAL "IRIS" AND ANYKEEP_BUILD_BUNDLED_IRIS
    AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS AND NOT ANYKEEP_IRIS_SDK_ROOT)
   list(APPEND ANYKEEP_CONAN_EXTRA_REQUIRES "zlib/1.3.1")
@@ -251,9 +255,13 @@ else()
 endif()
 
 if(NOT ANYKEEP_QCA_TARGET)
-  message(FATAL_ERROR
-          "No usable QCA found. Provide ANYKEEP_QCA_SDK_ROOT, install QCA 3 (Qca3-qt6, preferred), "
-          "provide QCA 2, or enable the bundled QCA source fallback")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ANDROID)
+    message(FATAL_ERROR "No usable system QCA found. Install QCA development/provider packages and Cyrus SASL mechanisms; desktop Linux does not build a private QCA copy.")
+  else()
+    message(FATAL_ERROR
+            "No usable QCA found. Provide ANYKEEP_QCA_SDK_ROOT, install QCA 3 (Qca3-qt6, preferred), "
+            "provide QCA 2, or enable the bundled QCA source fallback")
+  endif()
 endif()
 if(NOT TARGET ${ANYKEEP_QCA_TARGET})
   message(FATAL_ERROR "Selected QCA target does not exist: ${ANYKEEP_QCA_TARGET}")
@@ -307,7 +315,7 @@ else()
     if(NOT EXISTS "${_anykeep_iris_package_dir}/IrisConfig.cmake")
       message(FATAL_ERROR "Iris SDK CMake package missing: ${_anykeep_iris_package_dir}")
     endif()
-    find_package(Iris CONFIG REQUIRED
+    find_package(Iris ${ANYKEEP_DEP_IRIS_MINIMUM_VERSION} CONFIG REQUIRED
                  PATHS "${_anykeep_iris_package_dir}"
                  NO_DEFAULT_PATH
                  NO_CMAKE_FIND_ROOT_PATH)
@@ -325,7 +333,7 @@ else()
     include(BundledIris)
   else()
     if(NOT ANYKEEP_QCA_IS_BUNDLED)
-      find_package(Iris CONFIG QUIET)
+      find_package(Iris ${ANYKEEP_DEP_IRIS_MINIMUM_VERSION} CONFIG QUIET)
     endif()
 
     if(TARGET Iris::Iris)

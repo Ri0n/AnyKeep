@@ -19,13 +19,18 @@ string(JSON ANYKEEP_DEP_QT_MINIMUM_MOBILE GET "${_anykeep_dependency_lock}" qt m
 string(JSON ANYKEEP_DEP_QT_MINIMUM_DESKTOP GET "${_anykeep_dependency_lock}" qt minimum_desktop)
 string(JSON ANYKEEP_DEP_IRIS_TAG GET "${_anykeep_dependency_lock}" iris tag)
 string(JSON ANYKEEP_DEP_IRIS_COMMIT GET "${_anykeep_dependency_lock}" iris commit)
+string(JSON ANYKEEP_DEP_IRIS_MINIMUM_VERSION GET "${_anykeep_dependency_lock}" iris minimum_version)
 string(JSON ANYKEEP_DEP_QCA_TAG GET "${_anykeep_dependency_lock}" qca tag)
 string(JSON ANYKEEP_DEP_QCA_COMMIT GET "${_anykeep_dependency_lock}" qca commit)
+string(JSON ANYKEEP_DEP_CYRUS_SASL_VERSION GET "${_anykeep_dependency_lock}" cyrus_sasl version)
+string(JSON ANYKEEP_DEP_CYRUS_SASL_REVISION GET "${_anykeep_dependency_lock}" cyrus_sasl revision)
+string(JSON ANYKEEP_DEP_CYRUS_SASL_COMMIT GET "${_anykeep_dependency_lock}" cyrus_sasl commit)
+string(JSON ANYKEEP_DEP_CYRUS_SASL_HASHES GET "${_anykeep_dependency_lock}" cyrus_sasl sha256)
 string(JSON ANYKEEP_DEP_QTKEYCHAIN_TAG GET "${_anykeep_dependency_lock}" qtkeychain tag)
 string(JSON ANYKEEP_DEP_QTKEYCHAIN_VERSION GET "${_anykeep_dependency_lock}" qtkeychain version)
 string(JSON ANYKEEP_DEP_QTKEYCHAIN_REVISION GET "${_anykeep_dependency_lock}" qtkeychain revision)
 
-foreach(_anykeep_commit IN ITEMS ANYKEEP_DEP_IRIS_COMMIT ANYKEEP_DEP_QCA_COMMIT)
+foreach(_anykeep_commit IN ITEMS ANYKEEP_DEP_IRIS_COMMIT ANYKEEP_DEP_QCA_COMMIT ANYKEEP_DEP_CYRUS_SASL_COMMIT)
   string(LENGTH "${${_anykeep_commit}}" _anykeep_commit_length)
   if(NOT _anykeep_commit_length EQUAL 40 OR NOT "${${_anykeep_commit}}" MATCHES "^[0-9a-f]+$")
     message(FATAL_ERROR "${_anykeep_commit} must be a 40-character lowercase Git commit SHA")
@@ -82,6 +87,11 @@ _anykeep_reset_locked_dependency(
   "${_anykeep_qca_lock_fingerprint}"
   PATHS "${CMAKE_BINARY_DIR}/_deps/qca" "${CMAKE_BINARY_DIR}/_deps/qca-android-plugins")
 
+string(SHA256 _anykeep_cyrus_lock_fingerprint
+       "${ANYKEEP_DEP_CYRUS_SASL_COMMIT}\n${ANYKEEP_DEP_CYRUS_SASL_REVISION}\n${ANYKEEP_DEP_CYRUS_SASL_HASHES}")
+_anykeep_reset_locked_dependency(cyrus_sasl "${_anykeep_cyrus_lock_fingerprint}"
+                                PATHS "${CMAKE_BINARY_DIR}/_deps/cyrus-sasl")
+
 string(SHA256 _anykeep_iris_lock_fingerprint "${ANYKEEP_DEP_IRIS_TAG}\n${ANYKEEP_DEP_IRIS_COMMIT}")
 _anykeep_reset_locked_dependency(
   iris
@@ -102,5 +112,6 @@ unset(_anykeep_dependency_lock)
 unset(_anykeep_dependency_lock_file)
 unset(_anykeep_dependency_root)
 unset(_anykeep_qca_lock_fingerprint)
+unset(_anykeep_cyrus_lock_fingerprint)
 unset(_anykeep_iris_lock_fingerprint)
 unset(_anykeep_qtkeychain_lock_fingerprint)

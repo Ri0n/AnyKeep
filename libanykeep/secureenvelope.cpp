@@ -7,7 +7,13 @@
 #include <QtPlugin>
 
 #ifdef QCA_STATIC
+#ifdef Q_OS_WIN
+Q_IMPORT_PLUGIN(qca_wincrypto)
+Q_IMPORT_PLUGIN(qca_wingss)
+#else
 Q_IMPORT_PLUGIN(qca_ossl)
+#endif
+Q_IMPORT_PLUGIN(qca_cyrus_sasl)
 #endif
 
 namespace AnyKeep {

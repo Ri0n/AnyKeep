@@ -11,7 +11,7 @@ QcaInitializer::QcaInitializer()
 {
 #ifdef ANYKEEP_QCA_PLUGIN_PATH
     // A bundled QCA is deliberately private to AnyKeep. Preserve an explicit
-    // user override, otherwise let QCA discover its OpenSSL provider there.
+    // user override, otherwise let QCA discover its providers there.
     if (qEnvironmentVariableIsEmpty("QCA_PLUGIN_PATH"))
         qputenv("QCA_PLUGIN_PATH", QByteArray(ANYKEEP_QCA_PLUGIN_PATH));
 #elif defined(Q_OS_MACOS)
@@ -26,6 +26,14 @@ QcaInitializer::QcaInitializer()
     }
 #endif
     initializer_ = std::make_unique<QCA::Initializer>();
+#ifdef Q_OS_WIN
+    // Prebuilt SDKs may also contain qca-ossl. Prefer the native Windows
+    // provider independently of filesystem/plugin discovery order.
+    QCA::setProviderPriority(QStringLiteral("qca-wincrypto"), 0);
+    QCA::setProviderPriority(QStringLiteral("qca-wingss"), 1);
+    QCA::setProviderPriority(QStringLiteral("qca-cyrus-sasl"), 2);
+    QCA::setProviderPriority(QStringLiteral("qca-ossl"), 100);
+#endif
 }
 
 QcaInitializer::~QcaInitializer() = default;

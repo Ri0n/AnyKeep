@@ -52,6 +52,9 @@ set(IRIS_BUNDLED_OMEMO_C
 set(IRIS_BUNDLED_QCA
     OFF
     CACHE BOOL "Use AnyKeep's QCA instance" FORCE)
+set(IRIS_ENABLE_JDNS
+    ON
+    CACHE BOOL "Always enable JDNS for Iris DNS and proxy SRV lookups" FORCE)
 # SCTP data channels are required by AnyKeep's Iris backend for media/file transfer. Prefer a system UsrSCTP on Unix
 # desktops, while platforms that do not normally provide a target UsrSCTP package build Iris's bundled copy.
 set(IRIS_ENABLE_JINGLE_SCTP

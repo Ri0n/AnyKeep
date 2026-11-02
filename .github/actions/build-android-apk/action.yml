@@ -25,6 +25,10 @@ inputs:
   qca-tag:
     description: QCA release tag
     required: true
+  source-qca:
+    description: Build QCA providers from source instead of using the QCA SDK
+    required: false
+    default: 'false'
   iris-tag:
     description: Iris release tag
     required: true
@@ -137,21 +141,29 @@ runs:
         python3 -m unittest discover -s .github/scripts -p 'test_inspect_android_apk.py'
         qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
         test -x "$qt_cmake"
+        qca_root="$PWD/qca-sdk"
+        bundled_qca=OFF
+        sdk_runtime=ON
+        if [[ '${{ inputs.source-qca }}' == true ]]; then
+          qca_root=
+          bundled_qca=ON
+          sdk_runtime=OFF
+        fi
 
         "$qt_cmake" -S . -B build/android-${{ inputs.abi }} -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \
           -DANDROID_PLATFORM="android-${{ inputs.android-api }}" \
           -DANYKEEP_BUILD_MOBILE=ON \
           -DANYKEEP_XMPP_BACKEND=IRIS \
-          -DANYKEEP_QCA_SDK_ROOT="$PWD/qca-sdk" \
+          -DANYKEEP_QCA_SDK_ROOT="$qca_root" \
           -DANYKEEP_IRIS_SDK_ROOT="$PWD/iris-sdk" \
           -DANYKEEP_QTKEYCHAIN_SDK_ROOT="$PWD/qtkeychain-sdk" \
-          -DANYKEEP_BUILD_BUNDLED_QCA=OFF \
+          -DANYKEEP_BUILD_BUNDLED_QCA="$bundled_qca" \
           -DANYKEEP_BUILD_BUNDLED_IRIS=OFF \
           -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
           -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
           -DANYKEEP_BUILD_BUNDLED_QTKEYCHAIN=OFF \
-          -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON \
+          -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME="$sdk_runtime" \
           -DANYKEEP_ANDROID_OPENSSL_ROOT="$PWD/android-openssl/ssl_3" \
           -DBUILD_TESTING=OFF
 

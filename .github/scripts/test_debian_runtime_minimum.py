@@ -35,19 +35,19 @@ class RuntimeMinimumTest(unittest.TestCase):
             module.runtime_depends(),
             f"libqca3-qt6-3 (>= {minimums['qca']}), "
             f"libqca3-qt6-plugins (>= {minimums['qca']}), "
-            f"libiris-qt6-1 (>= {minimums['iris']})",
+            f"libiris-qt6-1 (>= {minimums['iris']}), libsasl2-modules",
         )
 
     def test_iris_minor_release_tag_is_supported(self):
         self.assertEqual(module.version_tuple("v1.2"), (1, 2, 0))
         self.assertEqual(module.version_tuple("1.2.0"), (1, 2, 0))
-        # Desktop and Android now use Qt 6.12 with Iris 1.6.0;
+        # Desktop and Android use Qt 6.12 with Iris 1.6.1 and JDNS enabled;
         # Linux continues using the distribution's Qt.
         lock = json.loads((ROOT / "dependencies.lock.json").read_text(encoding="utf-8"))
-        self.assertEqual(lock["iris"]["tag"], "v1.6.0")
+        self.assertEqual(lock["iris"]["tag"], "v1.6.1")
         self.assertEqual(lock["iris"]["nightly_compatibility"], "same-minor")
-        self.assertEqual(lock["iris"]["minimum_version"], "1.6.0")
-        self.assertEqual(module.locked_minimums()["iris"], "1.6.0")
+        self.assertEqual(lock["iris"]["minimum_version"], "1.6.1")
+        self.assertEqual(module.locked_minimums()["iris"], "1.6.1")
 
     def test_independent_minimums_not_inferred_from_tags(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -61,7 +61,7 @@ class RuntimeMinimumTest(unittest.TestCase):
                 module.runtime_depends(path),
                 "libqca3-qt6-3 (>= 3.0.2), "
                 "libqca3-qt6-plugins (>= 3.0.2), "
-                "libiris-qt6-1 (>= 1.1.0)",
+                "libiris-qt6-1 (>= 1.1.0), libsasl2-modules",
             )
             lock["iris"]["minimum_version"] = "1.4.0"
             path.write_text(json.dumps(lock), encoding="utf-8")
