@@ -450,6 +450,8 @@ jobs:
           test -f "$ssl"
           cp -a "$crypto" "$ssl" "$app/Contents/Frameworks/"
 
+          python3 -m unittest discover -s .github/scripts -p 'test_relocate_macos_libs.py'
+
           # First make our non-Qt libraries relocatable, so macdeployqt does
           # not attempt to resolve them in the Qt SDK. Let macdeployqt use its
           # default Qt framework search path: -libpath points it away from Qt.
