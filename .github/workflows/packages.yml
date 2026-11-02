@@ -450,7 +450,18 @@ jobs:
           test -f "$ssl"
           cp -a "$crypto" "$ssl" "$app/Contents/Frameworks/"
 
-          "$QT_ROOT_DIR/bin/macdeployqt" "$app" "-qmldir=$PWD/libanykeep/qml" -always-overwrite
+          # macdeployqt searches Qt's library directory by default, not the
+          # non-Qt dylibs we have already staged in Contents/Frameworks.
+          # Without -libpath it reports unresolved @rpath references for
+          # libanykeep, QCA and Iris, yet still returns exit code zero.
+          deploy_log="$(mktemp)"
+          "$QT_ROOT_DIR/bin/macdeployqt" "$app" "-qmldir=$PWD/libanykeep/qml" \
+            "-libpath=$app/Contents/Frameworks" -always-overwrite 2>&1 | tee "$deploy_log"
+          if grep -E 'ERROR: Cannot resolve rpath "@rpath/(libanykeep|libqca3-qt6|libiris-qt6)' "$deploy_log"; then
+            echo 'macdeployqt did not resolve the staged AnyKeep/QCA/Iris libraries' >&2
+            exit 1
+          fi
+          rm -f "$deploy_log"
 
           crypto_name="$(basename "$crypto")"
           ssl_name="$(basename "$ssl")"
