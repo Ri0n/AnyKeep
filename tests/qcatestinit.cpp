@@ -2,8 +2,9 @@
 
 namespace {
 
-// Keep test process lifetime identical to the application: QCA is initialized
-// before QTEST_*_MAIN creates its Q(Core|Gui)Application.
+// Most tests use explicit provider paths and keep QCA alive across QTEST_*_MAIN.
+// Application-relative provider discovery is checked separately by qcastartup_test,
+// which constructs its initializer only after QCoreApplication exists.
 const AnyKeep::QcaInitializer qcaInitializer;
 
 } // namespace

@@ -164,6 +164,15 @@ jobs:
           $opensslFiles = Get-ChildItem $runtimePrefix -Recurse -File |
             Where-Object { $_.Name -match '^(qca-ossl|libcrypto|libssl)' }
           if ($opensslFiles) { throw "Unexpected OpenSSL runtime: $($opensslFiles.Name -join ', ')" }
+          $startupTest = @(Get-ChildItem build/windows -Recurse -Filter qcastartup_test.exe)
+          if ($startupTest.Count -ne 1) { throw "Expected one crypto startup test executable" }
+          Copy-Item -LiteralPath $startupTest[0].FullName -Destination $runtimePrefix
+          # Exercise application-relative discovery, without the SDK path override
+          # that hides early provider scanning in development builds.
+          Remove-Item Env:QCA_PLUGIN_PATH -ErrorAction SilentlyContinue
+          $env:PATH = "$runtimePrefix;$env:PATH"
+          & "$runtimePrefix/qcastartup_test.exe" -o -,txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:QCA_PLUGIN_PATH = $runtimePrefix
           $env:PATH = "$runtimePrefix;$env:PATH"
           ctest --test-dir build/windows -R '^cryptoproviders_test$' --output-on-failure --timeout 180

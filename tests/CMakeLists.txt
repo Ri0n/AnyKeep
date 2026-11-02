@@ -155,6 +155,8 @@ target_include_directories(nextcloudmediaguard_test PRIVATE ../plugins/nextcloud
 target_link_libraries(nextcloudmediaguard_test PRIVATE Qt6::Network)
 
 add_anykeep_test(secureenvelope_test secureenvelope_test.cpp)
+add_anykeep_test(qcastartup_test qcastartup_test.cpp)
+set_tests_properties(qcastartup_test PROPERTIES LABELS "storage;xmpp")
 
 add_anykeep_test(localmediastore_test localmediastore_test.cpp)
 add_anykeep_test(mediapartialchunkcache_test mediapartialchunkcache_test.cpp)
@@ -346,7 +348,9 @@ foreach(anykeep_test_target IN LISTS anykeep_test_targets)
   if(anykeep_test_target_type STREQUAL "EXECUTABLE")
     target_sources(${anykeep_test_target} PRIVATE $<TARGET_OBJECTS:anykeep_headless_test_init>)
     get_target_property(anykeep_test_link_libraries ${anykeep_test_target} LINK_LIBRARIES)
-    if(anykeep IN_LIST anykeep_test_link_libraries)
+    # The startup test owns initialization after QCoreApplication, without this
+    # early fixture that relies on development/CTest provider paths.
+    if(anykeep IN_LIST anykeep_test_link_libraries AND NOT anykeep_test_target STREQUAL "qcastartup_test")
       target_sources(${anykeep_test_target} PRIVATE $<TARGET_OBJECTS:anykeep_qca_test_init>)
     endif()
     list(APPEND anykeep_test_executable_targets ${anykeep_test_target})
