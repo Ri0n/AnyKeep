@@ -7,6 +7,12 @@
 
 namespace AnyKeep {
 
+/** Encrypted records which still need publication during canonical-key recovery. */
+struct XmppNoteKeyMigration {
+    std::optional<XmppEncryptedPayload> index;
+    std::optional<XmppEncryptedPayload> content;
+};
+
 /**
  * @brief Stateless portable authenticated codec for note index and content payloads.
  *
@@ -38,6 +44,15 @@ public:
                                                     const QString &nodeName);
     static CryptoResult<XmppRemoteNote> decodeContent(const XmppEncryptedPayload &payload, const QByteArray &masterKey,
                                                       const QString &nodeName, const XmppRemoteNote &index);
+
+    /**
+     * Prepare only records encrypted with a different key. The caller must first
+     * authenticate/decode both records and validate their ID/revision binding.
+     * Empty optionals mean that the original ciphertext must remain untouched.
+     */
+    static CryptoResult<XmppNoteKeyMigration>
+    encodeKeyMigration(const XmppRemoteNote &note, const QByteArray &indexKeyId, const QByteArray &contentKeyId,
+                       const QByteArray &canonicalKey, const QString &indexNode, const QString &contentNode);
 
     /** Validates one payload for the expected PubSub node kind. */
     static CryptoError validatePayload(const XmppEncryptedPayload &payload, XmppEncryptedPayload::Kind expectedKind,

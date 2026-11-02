@@ -141,7 +141,8 @@ private slots:
     void rejectsMultipleCoreRecords();
     void rejectsContentRevisionMismatch();
     void acceptsEmptyContent();
-    void rekeysMixedIndexAndContentKeys();
+    void rekeysOnlyOtherKeyRecords_data();
+    void rekeysOnlyOtherKeyRecords();
 };
 
 void XmppNoteCodecTest::roundTrip()
@@ -631,25 +632,85 @@ void XmppNoteCodecTest::acceptsEmptyContent()
     QVERIFY(decoded.value.content.isEmpty());
 }
 
-void XmppNoteCodecTest::rekeysMixedIndexAndContentKeys()
+void XmppNoteCodecTest::rekeysOnlyOtherKeyRecords_data()
 {
-    const auto indexKey     = SecureEnvelope::generateMasterKey();
-    const auto contentKey   = SecureEnvelope::generateMasterKey();
+    QTest::addColumn<bool>("migrateIndex");
+    QTest::addColumn<bool>("migrateContent");
+    QTest::addColumn<bool>("metadataOnlyRevision");
+    for (bool metadataOnly : { false, true }) {
+        const auto suffix = metadataOnly ? "-metadata-revision" : "";
+        QTest::newRow(qPrintable(QStringLiteral("same-key%1").arg(suffix))) << false << false << metadataOnly;
+        QTest::newRow(qPrintable(QStringLiteral("both-old-keys%1").arg(suffix))) << true << true << metadataOnly;
+        QTest::newRow(qPrintable(QStringLiteral("resume-index-only%1").arg(suffix))) << true << false << metadataOnly;
+        QTest::newRow(qPrintable(QStringLiteral("content-only%1").arg(suffix))) << false << true << metadataOnly;
+    }
+}
+
+void XmppNoteCodecTest::rekeysOnlyOtherKeyRecords()
+{
+    QFETCH(bool, migrateIndex);
+    QFETCH(bool, migrateContent);
+    QFETCH(bool, metadataOnlyRevision);
     const auto canonicalKey = SecureEnvelope::generateMasterKey();
-    const auto source       = note();
-    const auto oldIndex     = XmppNoteCodec::encodeIndex(source, indexKey, QStringLiteral("index"));
-    const auto oldContent   = XmppNoteCodec::encodeContent(source, contentKey, QStringLiteral("content"));
+    const auto indexKey     = migrateIndex ? SecureEnvelope::generateMasterKey() : canonicalKey;
+    const auto contentKey   = migrateContent ? SecureEnvelope::generateMasterKey() : canonicalKey;
+    auto       source       = note();
+    source.media            = { media() };
+    if (metadataOnlyRevision)
+        source.contentRevision = QStringLiteral("body-before-metadata-change");
+    auto oldIndex   = XmppNoteCodec::encodeIndex(source, indexKey, QStringLiteral("index"));
+    auto oldContent = XmppNoteCodec::encodeContent(source, contentKey, QStringLiteral("content"));
+    QVERIFY(oldIndex);
+    QVERIFY(oldContent);
+    auto addExtension = [](QDomDocument &document, const QString &recordName) {
+        const auto container = directChild(document.documentElement(), QStringLiteral("content"));
+        auto       record    = directChild(container, recordName);
+        QVERIFY(!record.isNull());
+        auto extension = document.createElementNS(QStringLiteral("urn:test:migration"), QStringLiteral("extra"));
+        extension.appendChild(document.createTextNode(QStringLiteral("preserved")));
+        record.appendChild(extension);
+    };
+    oldIndex.value = mutatePlaintext(oldIndex.value, indexKey, XmppEncryptedPayload::Index,
+                                     [&](QDomDocument &document) { addExtension(document, QStringLiteral("index")); });
+    oldContent.value = mutatePlaintext(oldContent.value, contentKey, XmppEncryptedPayload::Content,
+                                       [&](QDomDocument &document) { addExtension(document, QStringLiteral("note")); });
     const auto decodedIndex = XmppNoteCodec::decodeIndex(oldIndex.value, indexKey, QStringLiteral("index"));
+    QVERIFY(decodedIndex);
     const auto decodedContent
         = XmppNoteCodec::decodeContent(oldContent.value, contentKey, QStringLiteral("content"), decodedIndex.value);
-    const auto newContent = XmppNoteCodec::encodeContent(decodedContent.value, canonicalKey, QStringLiteral("content"));
-    const auto newIndex   = XmppNoteCodec::encodeIndex(decodedContent.value, canonicalKey, QStringLiteral("index"));
-    QCOMPARE(newContent.value.keyId, newIndex.value.keyId);
-    const auto canonicalIndex = XmppNoteCodec::decodeIndex(newIndex.value, canonicalKey, QStringLiteral("index"));
+    QVERIFY(decodedContent);
+    const auto migration
+        = XmppNoteCodec::encodeKeyMigration(decodedContent.value, oldIndex.value.keyId, oldContent.value.keyId,
+                                            canonicalKey, QStringLiteral("index"), QStringLiteral("content"));
+    QVERIFY2(migration, qPrintable(migration.error.message));
+    QCOMPARE(migration.value.index.has_value(), migrateIndex);
+    QCOMPARE(migration.value.content.has_value(), migrateContent);
+    const auto newIndex   = migration.value.index.value_or(oldIndex.value);
+    const auto newContent = migration.value.content.value_or(oldContent.value);
+    QCOMPARE(newContent.keyId, newIndex.keyId);
+    const auto canonicalIndex = XmppNoteCodec::decodeIndex(newIndex, canonicalKey, QStringLiteral("index"));
+    QVERIFY(canonicalIndex);
     const auto canonicalContent
-        = XmppNoteCodec::decodeContent(newContent.value, canonicalKey, QStringLiteral("content"), canonicalIndex.value);
+        = XmppNoteCodec::decodeContent(newContent, canonicalKey, QStringLiteral("content"), canonicalIndex.value);
     QVERIFY(canonicalContent);
     QCOMPARE(canonicalContent.value.content, source.content);
+    QCOMPARE(canonicalContent.value.id, source.id);
+    QCOMPARE(canonicalContent.value.revision, source.revision);
+    QCOMPARE(canonicalContent.value.contentRevision, metadataOnlyRevision ? source.contentRevision : source.revision);
+    QCOMPARE(canonicalContent.value.parentRevision, source.parentRevision);
+    QCOMPARE(canonicalContent.value.originId, source.originId);
+    QCOMPARE(canonicalContent.value.modified, source.modified);
+    QCOMPARE(canonicalContent.value.folderPath, source.folderPath);
+    QCOMPARE(canonicalContent.value.media.size(), source.media.size());
+    for (const auto &xml : { canonicalContent.value.indexRecordTemplate, canonicalContent.value.contentRecordTemplate })
+        QVERIFY(xml.contains(QByteArrayLiteral("urn:test:migration")) && xml.contains(QByteArrayLiteral("preserved")));
+
+    const auto retry
+        = XmppNoteCodec::encodeKeyMigration(canonicalContent.value, newIndex.keyId, newContent.keyId, canonicalKey,
+                                            QStringLiteral("index"), QStringLiteral("content"));
+    QVERIFY(retry);
+    QVERIFY(!retry.value.index);
+    QVERIFY(!retry.value.content);
 }
 
 QTEST_GUILESS_MAIN(XmppNoteCodecTest)

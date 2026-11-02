@@ -50,6 +50,8 @@ bool XmppKeySyncExtension::handleStanza(const QDomElement &stanza, const std::op
     const auto payload   = parsePayload(element);
     const auto requestId = payload.value(QStringLiteral("requestId")).toString();
     const auto type      = payload.value(QStringLiteral("type")).toString();
+    if (pendingRequests_.contains(requestId))
+        return true;
     if (type == QStringLiteral("trust-request") && !requestId.isEmpty() && !metadata) {
         const auto senderKey = QByteArray::fromBase64(payload.value(QStringLiteral("senderKey")).toString().toLatin1());
         if (senderKey.isEmpty()) {
@@ -63,7 +65,7 @@ bool XmppKeySyncExtension::handleStanza(const QDomElement &stanza, const std::op
         emit trustRequestReceived(requestId, stanza.attribute(QStringLiteral("from")), senderKey);
         return true;
     }
-    if (type != QStringLiteral("request") || requestId.isEmpty() || !metadata) {
+    if (type != QStringLiteral("request") || requestId.isEmpty() || !metadata || metadata->senderKey().isEmpty()) {
         qWarning() << "Ignoring malformed or unencrypted key-sync request: id=" << requestId
                    << "has-e2ee-metadata=" << metadata.has_value();
         return true;
@@ -135,6 +137,9 @@ void XmppKeySyncExtension::reject(const QString &requestId) { pendingRequests_.r
 
 QString XmppKeySyncExtension::responseRecoveryKey(const QDomElement &iq, const QString &requestId)
 {
+    if (requestId.isEmpty() || iq.attribute(QStringLiteral("type")) != QStringLiteral("result")
+        || iq.attribute(QStringLiteral("id")) != requestId)
+        return {};
     const auto payload = parsePayload(keySyncElement(iq));
     if (payload.value(QStringLiteral("type")).toString() != QStringLiteral("response")
         || payload.value(QStringLiteral("requestId")).toString() != requestId) {
@@ -145,6 +150,9 @@ QString XmppKeySyncExtension::responseRecoveryKey(const QDomElement &iq, const Q
 
 bool XmppKeySyncExtension::isTrustApproved(const QDomElement &iq, const QString &requestId)
 {
+    if (requestId.isEmpty() || iq.attribute(QStringLiteral("type")) != QStringLiteral("result")
+        || iq.attribute(QStringLiteral("id")) != requestId)
+        return false;
     const auto payload = parsePayload(keySyncElement(iq));
     return payload.value(QStringLiteral("type")).toString() == QStringLiteral("trust-approved")
         && payload.value(QStringLiteral("requestId")).toString() == requestId;

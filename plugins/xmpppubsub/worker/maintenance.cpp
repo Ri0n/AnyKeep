@@ -167,10 +167,13 @@ QCoro::Task<XmppCleanupResult> XmppWorker::deleteObsoleteItemsTask(QStringList i
     co_return output;
 }
 
-QCoro::Task<XmppRekeyResult> XmppWorker::rekeyStorageTask(QList<QByteArray> keys, QByteArray canonicalKey)
+QCoro::Task<XmppRekeyResult> XmppWorker::rekeyStorageTask(QList<QByteArray> keys, QByteArray canonicalKey,
+                                                          XmppProgressCallback progress)
 {
     XmppRekeyResult output;
-    const auto      ready = co_await ensureReadyTask();
+    if (progress)
+        progress({ tr("Connecting and preparing note synchronization…") });
+    const auto ready = co_await ensureReadyTask();
     if (!ready.ok) {
         output.error     = ready.error;
         output.errorKind = ready.errorKind;
@@ -187,17 +190,28 @@ QCoro::Task<XmppRekeyResult> XmppWorker::rekeyStorageTask(QList<QByteArray> keys
     }
     keyring.insert(SecureEnvelope::keyId(canonicalKey, KeyDerivationProfile::PrivateNotes), canonicalKey);
 
+    if (progress)
+        progress({ tr("Retrieving the note index…") });
     auto idsResult = co_await pubSub_->requestOwnPepItemIds(config_.indexNodeName()).toFuture(this);
     if (const auto *error = std::get_if<QXmppError>(&idsResult)) {
         setXmppFailure(output, *error, errorText(*error));
         co_return output;
     }
-    const auto ids     = std::get<QVector<QString>>(idsResult);
-    output.total       = ids.size();
-    const auto bareJid = QXmppUtils::jidToBareJid(config_.jid);
+    const auto ids = std::get<QVector<QString>>(idsResult);
+    output.total   = ids.size();
+    if (progress)
+        progress({ tr("Found %1 notes to synchronize").arg(ids.size()), 0, int(ids.size()) });
+    const auto bareJid    = QXmppUtils::jidToBareJid(config_.jid);
+    int        noteNumber = 0;
     for (const auto &id : ids) {
+        ++noteNumber;
+        if (progress)
+            progress({ tr("Reading note %1 of %2…").arg(noteNumber).arg(output.total), noteNumber - 1, output.total });
         auto indexResult = co_await pubSub_->requestItem<PrivateNotesPubSubItem>(bareJid, config_.indexNodeName(), id)
                                .toFuture(this);
+        if (progress)
+            progress(
+                { tr("Downloading note %1 of %2…").arg(noteNumber).arg(output.total), noteNumber - 1, output.total });
         auto contentResult
             = co_await pubSub_->requestItem<PrivateNotesPubSubItem>(bareJid, config_.contentNodeName(), id)
                   .toFuture(this);
@@ -235,30 +249,49 @@ QCoro::Task<XmppRekeyResult> XmppWorker::rekeyStorageTask(QList<QByteArray> keys
             output.inaccessibleNoteIds.append(id);
             continue;
         }
-        note.value      = std::move(content.value);
-        auto newContent = XmppNoteCodec::encodeContent(note.value, canonicalKey, config_.contentNodeName());
-        auto newIndex   = XmppNoteCodec::encodeIndex(note.value, canonicalKey, config_.indexNodeName());
-        if (!newContent || !newIndex) {
-            output.error = !newContent ? newContent.error.message : newIndex.error.message;
+        note.value = std::move(content.value);
+        auto migration
+            = XmppNoteCodec::encodeKeyMigration(note.value, indexItem.payload().keyId, contentItem.payload().keyId,
+                                                canonicalKey, config_.indexNodeName(), config_.contentNodeName());
+        if (!migration) {
+            output.error = migration.error.message;
             co_return output;
         }
-        auto published = co_await pubSub_
-                             ->publishOwnPepItem(config_.contentNodeName(), PrivateNotesPubSubItem(newContent.value),
-                                                 privatePublishOptions())
-                             .toFuture(this);
-        if (const auto *error = std::get_if<QXmppError>(&published)) {
-            setXmppFailure(output, *error, errorText(*error));
-            co_return output;
+        if (!migration.value.content && !migration.value.index) {
+            ++output.unchanged;
+            if (progress)
+                progress({ tr("Verified note %1 of %2 (selected key already in use)").arg(noteNumber).arg(output.total),
+                           noteNumber, output.total });
+            continue;
         }
-        published = co_await pubSub_
-                        ->publishOwnPepItem(config_.indexNodeName(), PrivateNotesPubSubItem(newIndex.value),
-                                            privatePublishOptions())
-                        .toFuture(this);
-        if (const auto *error = std::get_if<QXmppError>(&published)) {
-            setXmppFailure(output, *error, errorText(*error));
-            co_return output;
+        if (progress)
+            progress({ tr("Publishing re-encrypted note %1 of %2…").arg(noteNumber).arg(output.total), noteNumber - 1,
+                       output.total });
+        if (migration.value.content) {
+            auto published
+                = co_await pubSub_
+                      ->publishOwnPepItem(config_.contentNodeName(), PrivateNotesPubSubItem(*migration.value.content),
+                                          privatePublishOptions())
+                      .toFuture(this);
+            if (const auto *error = std::get_if<QXmppError>(&published)) {
+                setXmppFailure(output, *error, errorText(*error));
+                co_return output;
+            }
+        }
+        if (migration.value.index) {
+            auto published
+                = co_await pubSub_
+                      ->publishOwnPepItem(config_.indexNodeName(), PrivateNotesPubSubItem(*migration.value.index),
+                                          privatePublishOptions())
+                      .toFuture(this);
+            if (const auto *error = std::get_if<QXmppError>(&published)) {
+                setXmppFailure(output, *error, errorText(*error));
+                co_return output;
+            }
         }
         ++output.migrated;
+        if (progress)
+            progress({ tr("Re-encrypted note %1 of %2").arg(noteNumber).arg(output.total), noteNumber, output.total });
     }
     output.ok = output.inaccessibleNoteIds.isEmpty();
     if (!output.ok)

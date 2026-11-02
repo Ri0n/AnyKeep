@@ -1,6 +1,7 @@
 <RCC>
     <qresource prefix="/qml">
         <file alias="XmppSettings.qml">XmppSettings.qml</file>
+        <file alias="XmppSyncProgress.qml">XmppSyncProgress.qml</file>
         <file alias="XmppKeyResolutionHost.qml">XmppKeyResolutionHost.qml</file>
         <file alias="XmppKeySyncTrustHost.qml">XmppKeySyncTrustHost.qml</file>
     </qresource>

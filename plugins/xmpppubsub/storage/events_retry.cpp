@@ -159,7 +159,7 @@ void XmppStorage::reportError(const QString &error, bool invalidate)
 
 void XmppStorage::enterErrorState(const QString &error, bool invalidate)
 {
-    const bool keyMismatch = error.contains(QStringLiteral("storage key mismatch"), Qt::CaseInsensitive);
+    const bool keyMismatch = isStorageKeyMismatch(error);
     if (errorState_ && error == errorStateMessage_) {
         if (keyMismatch)
             QTimer::singleShot(0, this, [this]() { resolveStorageKeys(config_.jid); });

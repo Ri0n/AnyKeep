@@ -15,6 +15,7 @@ private slots:
     void serializesTrustBootstrapWithoutRecoveryKey();
     void parsesMatchingResponseOnly();
     void parsesTrustBootstrapAcknowledgement();
+    void duplicateRequestKeepsOriginalApproval();
 };
 
 void XmppKeySyncExtensionTest::advertisesProtocol()
@@ -70,6 +71,33 @@ void XmppKeySyncExtensionTest::parsesMatchingResponseOnly()
     QCOMPARE(XmppKeySyncExtension::responseRecoveryKey(document.documentElement(), QStringLiteral("request-1")),
              QStringLiteral("private-notes-key-v1:test"));
     QVERIFY(XmppKeySyncExtension::responseRecoveryKey(document.documentElement(), QStringLiteral("other")).isEmpty());
+    document.documentElement().setAttribute(QStringLiteral("id"), QStringLiteral("different-iq"));
+    QVERIFY(
+        XmppKeySyncExtension::responseRecoveryKey(document.documentElement(), QStringLiteral("request-1")).isEmpty());
+    document.documentElement().setAttribute(QStringLiteral("id"), QStringLiteral("request-1"));
+    document.documentElement().setAttribute(QStringLiteral("type"), QStringLiteral("set"));
+    QVERIFY(
+        XmppKeySyncExtension::responseRecoveryKey(document.documentElement(), QStringLiteral("request-1")).isEmpty());
+}
+
+void XmppKeySyncExtensionTest::duplicateRequestKeepsOriginalApproval()
+{
+    XmppKeySyncExtension extension;
+    QSignalSpy           prompts(&extension, &XmppKeySyncExtension::trustRequestReceived);
+    QDomDocument         document;
+    QVERIFY(document.setContent(
+        QStringLiteral("<iq type='set' from='me@example.test/first' id='request-1'>"
+                       "<key-sync xmlns='urn:xmpp:private-notes:key-sync:0'>"
+                       "{&quot;type&quot;:&quot;trust-request&quot;,&quot;requestId&quot;:&quot;request-1&quot;,"
+                       "&quot;senderKey&quot;:&quot;Zmlyc3Q=&quot;}</key-sync></iq>")));
+    QVERIFY(extension.handleStanza(document.documentElement(), {}));
+    document.documentElement().setAttribute(QStringLiteral("from"), QStringLiteral("me@example.test/second"));
+    QVERIFY(extension.handleStanza(document.documentElement(), {}));
+    QCOMPARE(prompts.size(), 1);
+    QCOMPARE(prompts.first().at(1).toString(), QStringLiteral("me@example.test/first"));
+    extension.reject(QStringLiteral("request-1"));
+    QVERIFY(extension.handleStanza(document.documentElement(), {}));
+    QCOMPARE(prompts.size(), 2);
 }
 
 QTEST_GUILESS_MAIN(XmppKeySyncExtensionTest)

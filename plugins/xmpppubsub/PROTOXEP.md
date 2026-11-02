@@ -858,10 +858,72 @@ after independently initialized installations were used. A client MAY audit
 index records by `key-id`, request candidate keys from trusted online
 installations, and ask the user to select one canonical key.
 
-Migration MUST decrypt both index and content with the record's old key,
-validate their IDs and revisions, re-encrypt both with the canonical key, then
-publish content before index. Records for which no matching key is available
-MUST remain untouched and MUST be reported as inaccessible.
+A normal index load MUST report a storage-key mismatch when it finds any
+foreign-key records, including a mixed index with otherwise readable notes.
+The same mismatch encountered while loading a note body or saving a note MUST
+also enter recovery; an interrupted migration can leave a readable index and
+a content record under another key.
+Silently skipping those records prevents both conflict recovery and convergence
+after another installation migrates the account. An explicit user-selected
+fresh-storage mode MAY ignore other-key notes instead, without
+changing or deleting them; joining those notes requires a later recovery or key
+import. Malformed or unauthenticatable same-key records are distinct from a
+foreign-key conflict and MUST NOT cause the client to replace its key silently.
+
+Recovering a storage key or downloading notes does not itself require
+publication. The client MUST decrypt and authenticate both index and content
+with their respective keys and validate their IDs and content-revision binding
+before treating a note as successfully recovered. A matching outer `key-id`
+alone is not sufficient validation.
+
+When both records already use the selected canonical key, recovery MUST leave
+their ciphertext unchanged and MUST NOT republish them. The client SHOULD
+report these notes as verified without changes, separately from migrated notes.
+
+For a note using a different key, migration MUST re-encrypt only the records
+whose `key-id` differs from the canonical key ID. If both records need updating,
+the client MUST publish content before index. The records MAY have different
+keys after an interrupted migration; retrying MUST validate both records using
+their respective keys and publish only the remaining old-key records.
+
+A key-only migration MUST preserve note IDs, index and content revisions,
+parent revision, timestamps, origin, and supported/preserved extensions. It is
+not a note edit and MUST NOT generate a new note revision. Records for which no
+matching key is available, or whose authentication or ID/revision validation
+fails, MUST remain untouched and MUST be reported as inaccessible.
+
+### Installing and obtaining the selected key
+
+The current key-sync protocol is pull-based: it does not broadcast a canonical
+key, a key-change command, or a server-side canonical-key marker. Migration
+does not change the OMEMO identity or trust state of any installation.
+
+After successful migration, the initiating installation MUST durably save the
+selected key and apply it to its backend configuration before reporting the
+recovery flow as accepted. If saving fails, it MUST keep the recovery result
+available for retry and MUST NOT report successful acceptance. A partial or
+failed migration MUST NOT replace the installed key.
+
+Other online installations observe PEP index events and refresh the index.
+An installation still using a previous key enters the same explicit recovery
+flow and requests keys from trusted online own resources. A reconnecting
+installation follows the same path from its initial index load. The recovery
+UI SHOULD prefer the available key associated with the largest index `key-id` group;
+after a complete migration this is the selected canonical key. Receiving and
+verifying that key does not require republishing canonical-key records.
+
+The selected key becomes available to peers only after its holder finishes
+installing it. If all holders are offline, unavailable, or decline trust, the
+requester MUST retain its current key and report the inaccessible notes. It
+must wait for a holder to return or for an explicit recovery-key import; neither
+the outer `key-id` nor a plaintext IQ response authorizes key replacement.
+
+Implementations MUST require authenticated OMEMO decryption for a storage-key
+response, even when their XMPP library's generic sensitive-IQ API also accepts
+plaintext results. A matching IQ ID is insufficient. The response MUST come
+from the requested full JID and match the application request ID. A duplicate
+pending application request ID MUST NOT replace the identity or reply route
+associated with an already pending trust approval.
 
 ## Explicit maintenance of obsolete development records
 

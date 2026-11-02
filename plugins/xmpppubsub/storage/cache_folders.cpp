@@ -317,7 +317,9 @@ void XmppStorage::publishNextFolderPathUpdate()
                                     cache_.insert(result.remoteOnConflict->id, fromRemote(*result.remoteOnConflict));
                                     persistCache();
                                 }
-                                if (result.retryable())
+                                if (isStorageKeyMismatch(result.error))
+                                    enterErrorState(result.error, true);
+                                else if (result.retryable())
                                     handleTransientFailure(result.error, false);
                                 else
                                     reportError(
@@ -419,12 +421,12 @@ void XmppStorage::persistCache()
     }
     QElapsedTimer timer;
     timer.start();
-    const auto error = persistentCache_->replaceRecords(records);
+    const auto error      = persistentCache_->replaceRecords(records);
     const auto durationMs = timer.elapsed();
     // Avoid filenames, note titles, content and key material in diagnostics.
     if (durationMs >= 500)
-        qWarning() << "XMPP UI thread blocked in encrypted cache write:" << durationMs << "ms for"
-                   << records.size() << "notes";
+        qWarning() << "XMPP UI thread blocked in encrypted cache write:" << durationMs << "ms for" << records.size()
+                   << "notes";
     if (error) {
         reportError(tr("The local note cache could not be written: %1").arg(error.message));
         return;

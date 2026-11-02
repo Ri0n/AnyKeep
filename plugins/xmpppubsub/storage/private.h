@@ -16,6 +16,11 @@ inline const QString ContentRecordTemplateKey  = QStringLiteral("xmpp.xml.v1.con
 inline const QString ContentRevisionBackendKey = QStringLiteral("xmpp.xml.v1.content-revision");
 inline const QString FolderPathBackendKey      = QStringLiteral("xmpp.xml.v1.folder-path");
 
+inline bool isStorageKeyMismatch(const QString &error)
+{
+    return error.contains(QStringLiteral("storage key mismatch"), Qt::CaseInsensitive);
+}
+
 inline QString passwordKeyName(const QString &jid)
 {
     return QStringLiteral("xmpp-password-v1:%1").arg(jid.trimmed().section(QLatin1Char('/'), 0, 0));

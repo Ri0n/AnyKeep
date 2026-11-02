@@ -74,6 +74,11 @@ bool IrisKeySyncTask::take(const QDomElement &stanza)
     const auto type      = payload.value(QStringLiteral("type")).toString();
     const auto metadata  = encryptionMetadata();
 
+    // A later stanza must not replace the identity/route shown by an already
+    // pending approval prompt, even if it reuses the application request ID.
+    if (pendingRequests_.contains(requestId))
+        return true;
+
     if (type == QStringLiteral("trust-request") && !requestId.isEmpty() && !metadata) {
         const auto senderKey = QByteArray::fromBase64(payload.value(QStringLiteral("senderKey")).toString().toLatin1());
         if (senderKey.isEmpty())
@@ -84,7 +89,9 @@ bool IrisKeySyncTask::take(const QDomElement &stanza)
         return true;
     }
 
-    if (type != QStringLiteral("request") || requestId.isEmpty() || !metadata)
+    if (type != QStringLiteral("request") || requestId.isEmpty() || !metadata
+        || metadata->methodId != XMPP::OmemoEncryption::methodId() || metadata->senderKey.isEmpty()
+        || !metadata->sender.compare(XMPP::Jid(stanza.attribute(QStringLiteral("from"))), false))
         return true;
 
     pendingRequests_.insert(
@@ -136,6 +143,7 @@ void IrisKeySyncRequestTask::request(const XMPP::Jid &to, RequestType type, cons
     requestId_ = requestId;
     senderKey_ = senderKey;
     recoveryKey_.clear();
+    responseSenderKey_.clear();
     trustApproved_ = false;
 }
 
@@ -183,6 +191,10 @@ bool IrisKeySyncRequestTask::take(const QDomElement &stanza)
         setError(stanza);
         return true;
     }
+    if (!XMPP::Jid(stanza.attribute(QStringLiteral("from"))).compare(to_)) {
+        setError(1, QStringLiteral("Key-sync response is not from the requested full JID"));
+        return true;
+    }
 
     const auto payload = parsePayload(keySyncElement(stanza));
     if (payload.value(QStringLiteral("requestId")).toString() != requestId_) {
@@ -197,11 +209,18 @@ bool IrisKeySyncRequestTask::take(const QDomElement &stanza)
             return true;
         }
     } else {
+        const auto metadata = encryptionMetadata();
+        if (!metadata || metadata->methodId != XMPP::OmemoEncryption::methodId()
+            || !metadata->sender.compare(to_, false) || metadata->senderKey.isEmpty() || metadata->protocolOnly) {
+            setError(1, QStringLiteral("The storage-key response is not authenticated with OMEMO"));
+            return true;
+        }
         if (type != QStringLiteral("response")) {
             setError(1, QStringLiteral("Invalid key-sync response"));
             return true;
         }
-        recoveryKey_ = payload.value(QStringLiteral("recoveryKey")).toString();
+        recoveryKey_       = payload.value(QStringLiteral("recoveryKey")).toString();
+        responseSenderKey_ = metadata->senderKey;
     }
     setSuccess();
     return true;

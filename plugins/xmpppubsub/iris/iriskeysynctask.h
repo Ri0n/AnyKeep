@@ -54,8 +54,9 @@ public:
 
     void request(const XMPP::Jid &to, RequestType type, const QString &requestId, const QByteArray &senderKey = {});
 
-    QString recoveryKey() const { return recoveryKey_; }
-    bool    trustApproved() const { return trustApproved_; }
+    QString    recoveryKey() const { return recoveryKey_; }
+    QByteArray responseSenderKey() const { return responseSenderKey_; }
+    bool       trustApproved() const { return trustApproved_; }
 
 protected:
     void onGo() override;
@@ -67,6 +68,7 @@ private:
     QString     requestId_;
     QByteArray  senderKey_;
     QString     recoveryKey_;
+    QByteArray  responseSenderKey_;
     bool        trustApproved_ { false };
 };
 
