@@ -450,18 +450,14 @@ jobs:
           test -f "$ssl"
           cp -a "$crypto" "$ssl" "$app/Contents/Frameworks/"
 
-          # macdeployqt searches Qt's library directory by default, not the
-          # non-Qt dylibs we have already staged in Contents/Frameworks.
-          # Without -libpath it reports unresolved @rpath references for
-          # libanykeep, QCA and Iris, yet still returns exit code zero.
-          deploy_log="$(mktemp)"
+          # First make our non-Qt libraries relocatable, so macdeployqt does
+          # not attempt to resolve them in the Qt SDK. Let macdeployqt use its
+          # default Qt framework search path: -libpath points it away from Qt.
+          python3 .github/scripts/relocate-macos-libs.py patch "$app"
           "$QT_ROOT_DIR/bin/macdeployqt" "$app" "-qmldir=$PWD/libanykeep/qml" \
-            "-libpath=$app/Contents/Frameworks" -always-overwrite 2>&1 | tee "$deploy_log"
-          if grep -E 'ERROR: Cannot resolve rpath "@rpath/(libanykeep|libqca3-qt6|libiris-qt6)' "$deploy_log"; then
-            echo 'macdeployqt did not resolve the staged AnyKeep/QCA/Iris libraries' >&2
-            exit 1
-          fi
-          rm -f "$deploy_log"
+            -always-overwrite -no-codesign
+          # macdeployqt may copy new Qt plugins or overwrite staged binaries.
+          python3 .github/scripts/relocate-macos-libs.py patch "$app"
 
           crypto_name="$(basename "$crypto")"
           ssl_name="$(basename "$ssl")"
@@ -509,6 +505,12 @@ jobs:
             printf '%s\n' "$bad_dependencies" >&2
             exit 1
           fi
+          python3 .github/scripts/relocate-macos-libs.py verify "$app"
+
+          # macdeployqt signs before our OpenSSL/install_name_tool rewrites;
+          # sign the complete final bundle instead and verify nested frameworks.
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
           ditto -c -k --sequesterRsrc --keepParent "$app" "anykeep-macos-${{ matrix.arch }}.zip"
 
       - uses: actions/upload-artifact@v7
