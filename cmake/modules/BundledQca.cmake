@@ -1,3 +1,6 @@
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ANDROID)
+  message(FATAL_ERROR "Desktop Linux requires installed QCA and Cyrus SASL; bundled QCA is disabled to avoid runtime conflicts")
+endif()
 if(DEFINED ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS AND NOT ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
   message(FATAL_ERROR "BundledQca.cmake was included while ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS=OFF")
 endif()
@@ -48,14 +51,10 @@ if(Qt6Core_DIR AND NOT Qt6Test_DIR)
   endif()
 endif()
 
-set(_qca_providers ossl)
+set(_qca_providers ossl cyrus-sasl)
 set(_qca_dependencies)
 if(WIN32)
   set(_qca_providers wincrypto wingss cyrus-sasl)
-  include(BundledCyrusSasl)
-  if(TARGET anykeep_bundled_cyrus_sasl)
-    list(APPEND _qca_dependencies anykeep_bundled_cyrus_sasl)
-  endif()
 elseif(ANDROID)
   include(AndroidOpenSSL)
 else()
@@ -64,6 +63,12 @@ else()
   endif()
   if(NOT TARGET OpenSSL::Crypto OR NOT TARGET OpenSSL::SSL)
     find_package(OpenSSL REQUIRED)
+  endif()
+endif()
+if(WIN32 OR ANDROID OR APPLE)
+  include(BundledCyrusSasl)
+  if(TARGET anykeep_bundled_cyrus_sasl)
+    list(APPEND _qca_dependencies anykeep_bundled_cyrus_sasl)
   endif()
 endif()
 
@@ -88,34 +93,26 @@ if(_qca_build_shared)
   else()
     set(_qca_library
         "${_qca_library_dir}/${CMAKE_SHARED_LIBRARY_PREFIX}qca3-qt6${CMAKE_SHARED_LIBRARY_SUFFIX}")
-    if(APPLE)
-      set(_qca_ossl_suffix ".dylib")
-    else()
-      set(_qca_ossl_suffix "${CMAKE_SHARED_MODULE_SUFFIX}")
-    endif()
-    set(_qca_ossl_plugin
-        "${_qca_library_dir}/qca3-qt6/crypto/${CMAKE_SHARED_MODULE_PREFIX}qca-ossl${_qca_ossl_suffix}")
   endif()
 else()
   set(_qca_library
       "${_qca_library_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}qca3-qt6${_qca_debug_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}")
-  string(CONCAT _qca_ossl_plugin "${_qca_library_dir}/qca3-qt6/crypto/${CMAKE_STATIC_LIBRARY_PREFIX}qca-ossl"
-                "${_qca_debug_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}")
 endif()
 
-set(_qca_plugins)
-if(WIN32)
-  foreach(_qca_provider IN LISTS _qca_providers)
-    if(_qca_build_shared)
-      list(APPEND _qca_plugins "${_qca_library_dir}/qca3-qt6/crypto/qca-${_qca_provider}${_qca_debug_postfix}${CMAKE_SHARED_MODULE_SUFFIX}")
-    else()
-      list(APPEND _qca_plugins "${_qca_library_dir}/qca3-qt6/crypto/qca-${_qca_provider}${_qca_debug_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}")
-    endif()
-  endforeach()
-else()
-  set(_qca_plugins "${_qca_ossl_plugin}")
-  set(ANYKEEP_QCA_OSSL_PLUGIN "${_qca_ossl_plugin}")
+set(_qca_plugin_prefix "${CMAKE_STATIC_LIBRARY_PREFIX}")
+set(_qca_plugin_suffix "${CMAKE_STATIC_LIBRARY_SUFFIX}")
+if(_qca_build_shared)
+  set(_qca_plugin_prefix "${CMAKE_SHARED_MODULE_PREFIX}")
+  set(_qca_plugin_suffix "${CMAKE_SHARED_MODULE_SUFFIX}")
+  if(APPLE)
+    set(_qca_plugin_suffix ".dylib")
+  endif()
 endif()
+set(_qca_plugins)
+foreach(_qca_provider IN LISTS _qca_providers)
+  list(APPEND _qca_plugins "${_qca_library_dir}/qca3-qt6/crypto/${_qca_plugin_prefix}qca-${_qca_provider}${_qca_debug_postfix}${_qca_plugin_suffix}")
+endforeach()
+set(ANYKEEP_QCA_BUNDLED_PLUGINS "${_qca_plugins}")
 
 if(ANYKEEP_QCA_SOURCE_DIR)
   if(NOT EXISTS "${ANYKEEP_QCA_SOURCE_DIR}/CMakeLists.txt")
@@ -133,6 +130,7 @@ set(_qca_cmake_args
     "-DBUILD_SHARED_LIBS=${_qca_build_shared}"
     "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
     "-DBUILD_PLUGINS=${_qca_provider_arg}"
+    "-DWITH_cyrus-sasl_PLUGIN=yes"
     "-DLOAD_SHARED_PLUGINS=${_qca_build_shared}"
     "-DBUILD_TESTS=OFF"
     "-DBUILD_TOOLS=OFF"
@@ -175,9 +173,12 @@ if(UNIX AND NOT APPLE AND _qca_build_shared AND NOT ANYKEEP_QCA_SOURCE_DIR)
       "${CMAKE_CURRENT_LIST_DIR}/PatchQcaPluginPath.cmake")
 endif()
 
-if(WIN32)
+if(ANYKEEP_CYRUS_SASL_ROOT)
   list(APPEND _qca_cmake_args "-DSasl2_ROOT=${ANYKEEP_CYRUS_SASL_ROOT}" "-DSASL2_USE_STATIC_LIBS=ON"
-       "-DWITH_cyrus-sasl_PLUGIN=yes" "-DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE")
+       "-DSASL2_LIBRARIES=${ANYKEEP_CYRUS_SASL_LIBRARY}")
+endif()
+if(WIN32)
+  list(APPEND _qca_cmake_args "-DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE")
 else()
   foreach(_openssl_var IN ITEMS OPENSSL_ROOT_DIR OPENSSL_INCLUDE_DIR OPENSSL_SSL_LIBRARY OPENSSL_CRYPTO_LIBRARY
                                 OPENSSL_USE_STATIC_LIBS)
@@ -237,14 +238,15 @@ if(_qca_build_shared)
             PATTERN "cmake" EXCLUDE
             PATTERN "qca3-qt6" EXCLUDE
             PATTERN "libqca3-qt6${CMAKE_SHARED_LIBRARY_SUFFIX}*")
-    install(FILES "${_qca_ossl_plugin}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${APP_NAME}/qca3-qt6/crypto"
+    install(FILES ${_qca_plugins} DESTINATION "${CMAKE_INSTALL_LIBDIR}/${APP_NAME}/qca3-qt6/crypto"
             COMPONENT Libraries)
   endif()
 else()
   if(WIN32)
     set(_qca_static_deps "${ANYKEEP_CYRUS_SASL_LIBRARY}" bcrypt crypt32 secur32 ncrypt ws2_32 advapi32)
   else()
-    set(_qca_static_deps OpenSSL::SSL OpenSSL::Crypto)
+    find_package(Threads REQUIRED)
+    set(_qca_static_deps "${ANYKEEP_CYRUS_SASL_LIBRARY}" OpenSSL::SSL OpenSSL::Crypto Threads::Threads ${CMAKE_DL_LIBS})
   endif()
   add_library(Qca3::Qca STATIC IMPORTED GLOBAL)
   set_target_properties(
@@ -276,15 +278,21 @@ function(anykeep_configure_bundled_qca_android_plugins target)
   # androiddeployqt then copies it to the ABI directory, where QCA's Android
   # plugin scan can identify the "crypto" prefix.
   set(_qca_android_plugin_root "${CMAKE_BINARY_DIR}/_deps/qca-android-plugins/plugins/qca")
-  set(_qca_android_plugin
-      "${_qca_android_plugin_root}/libplugins_crypto_qcaossl_${CMAKE_ANDROID_ARCH_ABI}.so")
   file(MAKE_DIRECTORY "${_qca_android_plugin_root}")
-  add_custom_command(
-    OUTPUT "${_qca_android_plugin}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${ANYKEEP_QCA_OSSL_PLUGIN}" "${_qca_android_plugin}"
-    DEPENDS anykeep_bundled_qca "${ANYKEEP_QCA_OSSL_PLUGIN}"
-    VERBATIM)
-  add_custom_target(${target}_bundled_qca_android_plugins DEPENDS "${_qca_android_plugin}")
+  set(_qca_android_plugins)
+  foreach(_qca_source_plugin IN LISTS ANYKEEP_QCA_BUNDLED_PLUGINS)
+    get_filename_component(_qca_plugin_name "${_qca_source_plugin}" NAME_WE)
+    string(REGEX REPLACE "^lib" "" _qca_plugin_name "${_qca_plugin_name}")
+    string(REPLACE "-" "_" _qca_plugin_name "${_qca_plugin_name}")
+    set(_qca_android_plugin "${_qca_android_plugin_root}/libplugins_crypto_${_qca_plugin_name}_${CMAKE_ANDROID_ARCH_ABI}.so")
+    add_custom_command(
+      OUTPUT "${_qca_android_plugin}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${_qca_source_plugin}" "${_qca_android_plugin}"
+      DEPENDS anykeep_bundled_qca "${_qca_source_plugin}"
+      VERBATIM)
+    list(APPEND _qca_android_plugins "${_qca_android_plugin}")
+  endforeach()
+  add_custom_target(${target}_bundled_qca_android_plugins DEPENDS ${_qca_android_plugins})
   add_dependencies(${target} ${target}_bundled_qca_android_plugins)
 
   get_target_property(_qca_android_extra_plugins ${target} QT_ANDROID_EXTRA_PLUGINS)

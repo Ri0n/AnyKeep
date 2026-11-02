@@ -72,12 +72,14 @@ def inspect_apk(apk_path: Path, abi: str, linked_size: int) -> str:
             f"libplugins_platforms_qtforandroid_{abi}.so",
             f"libplugins_tls_qopensslbackend_{abi}.so",
             f"libplugins_multimedia_androidmediaplugin_{abi}.so",
+            f"libplugins_crypto_qca_ossl_{abi}.so",
+            f"libplugins_crypto_qca_cyrus_sasl_{abi}.so",
             f"libqml_QtQuick_Controls_Material_qtquickcontrols2materialstyleplugin_{abi}.so",
             f"libqml_QtQuick_Controls_Basic_qtquickcontrols2basicstyleplugin_{abi}.so",
         )
         missing = [name for name in required if f"{lib_prefix}{name}" not in lib_map]
         if missing:
-            raise ValueError(f"Essential Qt plugins missing from Android APK: {missing}")
+            raise ValueError(f"Essential runtime plugins missing from Android APK: {missing}")
 
         apk_size = apk_path.stat().st_size
         if apk_size > 140 * 1024 * 1024:

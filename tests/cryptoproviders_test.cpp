@@ -26,18 +26,20 @@ private slots:
 #endif
     }
 
-    void windowsSaslStartsScram_data()
+    void saslStartsScram_data()
     {
         QTest::addColumn<QString>("provider");
         QTest::newRow("default") << QString();
+#ifdef Q_OS_WIN
         QTest::newRow("wingss") << QStringLiteral("qca-wingss");
+#endif
         QTest::newRow("cyrus-sasl") << QStringLiteral("qca-cyrus-sasl");
     }
 
-    void windowsSaslStartsScram()
+    void saslStartsScram()
     {
-#ifdef Q_OS_WIN
         QFETCH(QString, provider);
+        QVERIFY(QCA::isSupported("sasl", provider));
         QCA::SASL client(nullptr, provider);
         client.setUsername(QStringLiteral("user"));
         client.setPassword(QCA::SecureArray("pencil"));
@@ -46,13 +48,10 @@ private slots:
         client.startClient(QStringLiteral("xmpp"), QStringLiteral("example.test"),
                            QStringList { QStringLiteral("SCRAM-SHA-256") }, QCA::SASL::AllowClientSendFirst);
         QTRY_VERIFY_WITH_TIMEOUT(!started.isEmpty() || !errors.isEmpty(), 5000);
-        QVERIFY2(errors.isEmpty(), "Unable to start SCRAM through the Windows SASL provider");
+        QVERIFY2(errors.isEmpty(), "Unable to start SCRAM through the Cyrus SASL provider");
         QCOMPARE(client.mechanism(), QStringLiteral("SCRAM-SHA-256"));
         QVERIFY(started.first().at(0).toBool());
         QVERIFY(started.first().at(1).toByteArray().startsWith("n,,n=user,r="));
-#else
-        QSKIP("Native Windows providers are platform-specific");
-#endif
     }
 
     void irisHasJdns()

@@ -52,11 +52,14 @@ def locked_minimums(lock_path: Path = DEFAULT_LOCK) -> dict[str, str]:
 
 def runtime_depends(lock_path: Path = DEFAULT_LOCK) -> str:
     minima = locked_minimums(lock_path)
-    return ", ".join(
+    dependencies = [
         f"{package} (>= {minima[name]})"
         for name, packages in RUNTIME_PACKAGES.items()
         for package in packages
-    )
+    ]
+    # Cyrus loads SCRAM/PLAIN mechanisms at runtime through the system plugin directory.
+    dependencies.append("libsasl2-modules")
+    return ", ".join(dependencies)
 
 
 def main() -> None:

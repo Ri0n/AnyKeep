@@ -112,6 +112,12 @@ PLAIN/SCRAM mechanisms; `ANYKEEP_CYRUS_SASL_ROOT` can select an existing SDK.
 WinCrypto is preferred even when a prebuilt QCA SDK also ships OpenSSL.
 Windows builds with Iris do not request OpenSSL from Conan, and their SDK
 runtime packaging includes only QCA and the three native/SASL providers.
+Android and macOS build and package `qca-ossl` and `qca-cyrus-sasl`. Their QCA
+source builds use the same pinned static Cyrus SASL bundles as upstream QCA;
+the version and archive checksums are recorded in `dependencies.lock.json`.
+`ANYKEEP_CYRUS_SASL_ROOT` can select a matching static SDK on these platforms.
+Desktop Linux requires installed QCA with its Cyrus SASL provider and system
+SASL mechanisms (`libsasl2-modules` on Debian/Ubuntu); bundled QCA is rejected.
 Iris requires version 1.6.1 or newer and JDNS support. Bundled Iris enables
 JDNS explicitly, including in build trees that previously cached it off.
 

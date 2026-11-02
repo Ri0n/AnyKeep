@@ -116,6 +116,9 @@ option(ANYKEEP_BUILD_BUNDLED_OMEMO_C "Build bundled libomemo-c and protobuf-c fo
        ${_anykeep_bundled_omemo_c_default})
 option(ANYKEEP_BUILD_BUNDLED_QCA "Build and use bundled QCA 3 instead of a system QCA"
        ${_anykeep_bundled_qca_default})
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ANDROID AND ANYKEEP_BUILD_BUNDLED_QCA)
+  message(FATAL_ERROR "Desktop Linux requires installed QCA and Cyrus SASL; bundled QCA is disabled to avoid runtime conflicts. Set ANYKEEP_BUILD_BUNDLED_QCA=OFF and install the QCA development/provider packages.")
+endif()
 option(ANYKEEP_BUILD_BUNDLED_IRIS "Build bundled Iris when a suitable system Iris is unavailable"
        ${_anykeep_bundled_iris_default})
 set(ANYKEEP_IRIS_SOURCE_DIR
@@ -252,9 +255,13 @@ else()
 endif()
 
 if(NOT ANYKEEP_QCA_TARGET)
-  message(FATAL_ERROR
-          "No usable QCA found. Provide ANYKEEP_QCA_SDK_ROOT, install QCA 3 (Qca3-qt6, preferred), "
-          "provide QCA 2, or enable the bundled QCA source fallback")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ANDROID)
+    message(FATAL_ERROR "No usable system QCA found. Install QCA development/provider packages and Cyrus SASL mechanisms; desktop Linux does not build a private QCA copy.")
+  else()
+    message(FATAL_ERROR
+            "No usable QCA found. Provide ANYKEEP_QCA_SDK_ROOT, install QCA 3 (Qca3-qt6, preferred), "
+            "provide QCA 2, or enable the bundled QCA source fallback")
+  endif()
 endif()
 if(NOT TARGET ${ANYKEEP_QCA_TARGET})
   message(FATAL_ERROR "Selected QCA target does not exist: ${ANYKEEP_QCA_TARGET}")

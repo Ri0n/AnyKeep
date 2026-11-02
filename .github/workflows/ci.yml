@@ -316,6 +316,14 @@ jobs:
           c++ --version
           cmake --version
 
+      - name: Verify desktop Linux rejects bundled QCA
+        run: |
+          if cmake -S . -B build/reject-bundled-qca -DANYKEEP_BUILD_BUNDLED_QCA=ON > build-reject-qca.log 2>&1; then
+            echo 'Desktop Linux unexpectedly accepted a private QCA build' >&2
+            exit 1
+          fi
+          grep -F 'Desktop Linux requires installed QCA' build-reject-qca.log
+
       - name: Configure
         run: |
           cmake -S . -B "${{ matrix.build_dir }}" -G Ninja \
@@ -388,7 +396,7 @@ jobs:
           github-token: ${{ github.token }}
 
   android:
-    name: Android / ${{ matrix.abi }} APK
+    name: Android / ${{ matrix.abi }} / ${{ matrix.qca }} QCA APK
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -397,8 +405,13 @@ jobs:
         include:
           - abi: arm64-v8a
             qt-arch: android_arm64_v8a
+            qca: sdk
           - abi: x86_64
             qt-arch: android_x86_64
+            qca: sdk
+          - abi: arm64-v8a
+            qt-arch: android_arm64_v8a
+            qca: bundled
 
     steps:
       - name: Checkout
@@ -421,6 +434,7 @@ jobs:
           android-api: ${{ env.ANDROID_API }}
           android-openssl-revision: ${{ env.ANDROID_OPENSSL_REVISION }}
           qca-tag: ${{ env.QCA_TAG }}
+          source-qca: ${{ matrix.qca == 'bundled' }}
           iris-tag: ${{ env.IRIS_TAG }}
           qtkeychain-tag: ${{ env.QTKEYCHAIN_TAG }}
           qtkeychain-version: ${{ env.QTKEYCHAIN_VERSION }}
@@ -429,7 +443,7 @@ jobs:
           github-token: ${{ github.token }}
 
   macos:
-    name: macOS / Intel / current Qt compile check
+    name: macOS / Intel / current Qt + crypto providers
     runs-on: macos-15-intel
     timeout-minutes: 75
 
@@ -501,7 +515,22 @@ jobs:
             -DANYKEEP_QTKEYCHAIN_SDK_ROOT="$PWD/qtkeychain-sdk" \
             -DANYKEEP_BUILD_BUNDLED_QXMPP=OFF \
             -DANYKEEP_BUILD_BUNDLED_QCORO=OFF \
-            -DBUILD_TESTING=OFF
+            -DBUILD_TESTING=ON
 
       - name: Build
         run: cmake --build build/macos --parallel 4
+
+      - name: Verify SDK Cyrus SASL and JDNS
+        run: |
+          export QCA_PLUGIN_PATH="$PWD/qca-sdk/lib/qca3-qt6"
+          export DYLD_LIBRARY_PATH="$PWD/qca-sdk/lib:$PWD/iris-sdk/lib:${DYLD_LIBRARY_PATH:-}"
+          ctest --test-dir build/macos -R '^cryptoproviders_test$' --output-on-failure --timeout 180
+
+      - name: Verify bundled macOS crypto providers
+        run: |
+          cmake -S . -B build/macos -DANYKEEP_QCA_SDK_ROOT= -DANYKEEP_BUILD_BUNDLED_QCA=ON
+          cmake --build build/macos --target cryptoproviders_test --parallel 4
+          qca_prefix="$PWD/build/macos/_deps/qca/install"
+          export QCA_PLUGIN_PATH="$qca_prefix/lib/qca3-qt6"
+          export DYLD_LIBRARY_PATH="$qca_prefix/lib:$PWD/iris-sdk/lib:${DYLD_LIBRARY_PATH:-}"
+          ctest --test-dir build/macos -R '^cryptoproviders_test$' --output-on-failure --timeout 180

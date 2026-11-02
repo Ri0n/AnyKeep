@@ -35,7 +35,7 @@ class RuntimeMinimumTest(unittest.TestCase):
             module.runtime_depends(),
             f"libqca3-qt6-3 (>= {minimums['qca']}), "
             f"libqca3-qt6-plugins (>= {minimums['qca']}), "
-            f"libiris-qt6-1 (>= {minimums['iris']})",
+            f"libiris-qt6-1 (>= {minimums['iris']}), libsasl2-modules",
         )
 
     def test_iris_minor_release_tag_is_supported(self):
@@ -61,7 +61,7 @@ class RuntimeMinimumTest(unittest.TestCase):
                 module.runtime_depends(path),
                 "libqca3-qt6-3 (>= 3.0.2), "
                 "libqca3-qt6-plugins (>= 3.0.2), "
-                "libiris-qt6-1 (>= 1.1.0)",
+                "libiris-qt6-1 (>= 1.1.0), libsasl2-modules",
             )
             lock["iris"]["minimum_version"] = "1.4.0"
             path.write_text(json.dumps(lock), encoding="utf-8")

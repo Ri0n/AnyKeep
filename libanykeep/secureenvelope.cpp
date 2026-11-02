@@ -10,10 +10,10 @@
 #ifdef Q_OS_WIN
 Q_IMPORT_PLUGIN(qca_wincrypto)
 Q_IMPORT_PLUGIN(qca_wingss)
-Q_IMPORT_PLUGIN(qca_cyrus_sasl)
 #else
 Q_IMPORT_PLUGIN(qca_ossl)
 #endif
+Q_IMPORT_PLUGIN(qca_cyrus_sasl)
 #endif
 
 namespace AnyKeep {
