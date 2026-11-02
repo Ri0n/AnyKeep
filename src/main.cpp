@@ -205,6 +205,7 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName("AnyKeep");
     QGuiApplication::setApplicationDisplayName("AnyKeep");
     QGuiApplication::setDesktopFileName("anykeep");
+    qca.configureProviders();
 
     QApplication::setQuitOnLastWindowClosed(false);
     a.setProperty("anykeepSafeMode", safeMode);

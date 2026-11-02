@@ -1,9 +1,13 @@
 #include "qcainitializer.h"
+#include <QCoreApplication>
 
 namespace {
 
-// Keep test process lifetime identical to the application: QCA is initialized
-// before QTEST_*_MAIN creates its Q(Core|Gui)Application.
-const AnyKeep::QcaInitializer qcaInitializer;
+// Initialize QCA's core before QTEST_*_MAIN, but discover providers only once
+// QCoreApplication has established the executable's library paths.
+AnyKeep::QcaInitializer qcaInitializer;
+
+void configureQcaProviders() { qcaInitializer.configureProviders(); }
+Q_COREAPP_STARTUP_FUNCTION(configureQcaProviders)
 
 } // namespace

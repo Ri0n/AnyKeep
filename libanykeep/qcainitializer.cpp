@@ -9,6 +9,16 @@ namespace AnyKeep {
 
 QcaInitializer::QcaInitializer()
 {
+    initializer_ = std::make_unique<QCA::Initializer>();
+    if (QCoreApplication::instance())
+        configureProviders();
+}
+
+void QcaInitializer::configureProviders()
+{
+    Q_ASSERT(QCoreApplication::instance());
+    if (!QCoreApplication::instance())
+        return;
 #ifdef ANYKEEP_QCA_PLUGIN_PATH
     // A bundled QCA is deliberately private to AnyKeep. Preserve an explicit
     // user override, otherwise let QCA discover its providers there.
@@ -25,7 +35,6 @@ QcaInitializer::QcaInitializer()
             qputenv("QCA_PLUGIN_PATH", pluginRoot.toUtf8());
     }
 #endif
-    initializer_ = std::make_unique<QCA::Initializer>();
 #ifdef Q_OS_WIN
     // Prebuilt SDKs may also contain qca-ossl. Prefer the native Windows
     // provider independently of filesystem/plugin discovery order.

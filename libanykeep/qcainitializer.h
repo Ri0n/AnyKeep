@@ -23,6 +23,12 @@ public:
     QcaInitializer();
     ~QcaInitializer();
 
+    // Core QCA initialization is safe before QCoreApplication. Provider paths
+    // and priority changes require an application instance. Call this after
+    // constructing the application if this owner was created earlier; otherwise
+    // the constructor configures providers automatically.
+    void configureProviders();
+
     QcaInitializer(const QcaInitializer &)            = delete;
     QcaInitializer &operator=(const QcaInitializer &) = delete;
     QcaInitializer(QcaInitializer &&)                 = delete;
