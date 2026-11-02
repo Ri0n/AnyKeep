@@ -103,11 +103,15 @@ void XmppWorker::trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallb
     trustOwnOmemoDevicesTask(std::move(keyIds)).then(std::move(callback));
 }
 
-void XmppWorker::auditStorageKeysAsync(AuditCallback callback) { auditStorageKeysTask().then(std::move(callback)); }
-
-void XmppWorker::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback)
+void XmppWorker::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress)
 {
-    rekeyStorageTask(std::move(keys), std::move(canonicalKey)).then(std::move(callback));
+    auditStorageKeysTask(std::move(progress)).then(std::move(callback));
+}
+
+void XmppWorker::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback,
+                                   XmppProgressCallback progress)
+{
+    rekeyStorageTask(std::move(keys), std::move(canonicalKey), std::move(progress)).then(std::move(callback));
 }
 
 void XmppWorker::scanObsoleteItemsAsync(CleanupCallback callback) { scanObsoleteItemsTask().then(std::move(callback)); }
@@ -224,12 +228,11 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
     }
 
     struct DecodeSummary {
-        int     obsoleteItems { 0 };
-        int     malformedItems { 0 };
-        int     unsupportedItems { 0 };
-        int     protectedUnreadableItems { 0 };
-        int     keyMismatchItems { 0 };
-        QString firstKeyMismatch;
+        int obsoleteItems { 0 };
+        int malformedItems { 0 };
+        int unsupportedItems { 0 };
+        int protectedUnreadableItems { 0 };
+        int keyMismatchItems { 0 };
 
         int skippedItems() const
         {
@@ -240,10 +243,8 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
     // that already contains older encrypted notes. Keep mismatched items
     // untouched and readable again with their old key; do not turn the
     // intentional fresh-storage choice into another forced recovery loop.
-    // For all other configurations, an index containing only foreign keys
-    // remains a security error and triggers normal key recovery.
-    const auto configuredKeyId = SecureEnvelope::keyId(config_.masterKey, KeyDerivationProfile::PrivateNotes);
-    const auto decodeItems     = [this, &decodeSummary, &configuredKeyId](const auto &items, XmppListResult &result) {
+    // Any foreign-key record otherwise triggers recovery, including mixed indices.
+    const auto decodeItems = [this, &decodeSummary](const auto &items, XmppListResult &result) {
         for (const auto &item : items) {
             if (!item.isValid()) {
                 switch (item.parseFailure()) {
@@ -263,27 +264,16 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
                 qWarning().noquote() << "Skipping unreadable XMPP index item" << item.id() << ':' << item.parseError();
                 continue;
             }
-            if (item.payload().keyId != configuredKeyId) {
-                ++decodeSummary.keyMismatchItems;
-                if (decodeSummary.firstKeyMismatch.isEmpty()) {
-                    decodeSummary.firstKeyMismatch
-                        = QStringLiteral("Encrypted private-note storage key mismatch (item %1, configured %2)")
-                              .arg(QString::fromLatin1(item.payload().keyId.left(8).toHex()),
-                                   QString::fromLatin1(configuredKeyId.left(8).toHex()));
-                }
-                qWarning().noquote() << "Skipping XMPP index item encrypted with another storage key" << item.id();
-                continue;
-            }
-            auto note = XmppNoteCodec::decodeIndex(item.payload(), config_.masterKey, config_.indexNodeName());
-            if (!note) {
-                if (note.error.code == CryptoError::Unsupported)
+            const auto previousForeignCount = result.foreignKeyNotes;
+            const auto error                = appendIndexPayload(config_, item.payload(), result);
+            decodeSummary.keyMismatchItems += result.foreignKeyNotes - previousForeignCount;
+            if (error) {
+                if (error.code == CryptoError::Unsupported)
                     ++decodeSummary.unsupportedItems;
                 else
                     ++decodeSummary.protectedUnreadableItems;
-                qWarning().noquote() << "Skipping unreadable XMPP index item" << item.id() << ':' << note.error.message;
-                continue;
+                qWarning().noquote() << "Skipping unreadable XMPP index item" << item.id() << ':' << error.message;
             }
-            result.notes.append(std::move(note.value));
         }
     };
 
@@ -311,9 +301,8 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
             }
             decodeItems(std::get<QXmppPubSubManager::Items<PrivateNotesPubSubItem>>(result).items, output);
         }
-        if (config_.foreignKeyOnlyIsError(output.notes.size(), decodeSummary.keyMismatchItems)) {
-            output.error     = decodeSummary.firstKeyMismatch;
-            output.errorKind = XmppErrorKind::Security;
+        completeIndexList(config_, output);
+        if (!output.ok) {
             co_return output;
         }
         if (decodeSummary.skippedItems() > 0) {
@@ -343,9 +332,8 @@ QCoro::Task<XmppListResult> XmppWorker::listNotesTask()
     const auto &items = std::get<QXmppPubSubManager::Items<PrivateNotesPubSubItem>>(result);
     output.partial    = items.continuation.has_value();
     decodeItems(items.items, output);
-    if (config_.foreignKeyOnlyIsError(output.notes.size(), decodeSummary.keyMismatchItems)) {
-        output.error     = decodeSummary.firstKeyMismatch;
-        output.errorKind = XmppErrorKind::Security;
+    completeIndexList(config_, output);
+    if (!output.ok) {
         co_return output;
     }
     if (decodeSummary.skippedItems() > 0) {
@@ -537,11 +525,11 @@ QCoro::Task<XmppNoteResult> XmppWorker::saveNoteTask(XmppRemoteNote note)
             // revision, and carries this installation's origin ID. Rebase the
             // pending full save over exactly that case; every other revision
             // mismatch remains a real optimistic-concurrency conflict.
-            const auto localContentRevision = note.contentRevision.isEmpty() ? note.revision : note.contentRevision;
+            const auto localContentRevision  = note.contentRevision.isEmpty() ? note.revision : note.contentRevision;
             const auto serverContentRevision = serverIndex.note.contentRevision.isEmpty()
                 ? serverIndex.note.revision
                 : serverIndex.note.contentRevision;
-            const bool ownIndexOnlyUpdate = serverIndex.note.originId == config_.originId
+            const bool ownIndexOnlyUpdate    = serverIndex.note.originId == config_.originId
                 && serverIndex.note.parentRevision == note.revision && serverContentRevision == localContentRevision;
             if (!ownIndexOnlyUpdate) {
                 // A complete body is needed only for the conflict resolver. If

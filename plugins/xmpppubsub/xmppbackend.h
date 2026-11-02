@@ -8,6 +8,8 @@
 
 namespace AnyKeep {
 
+struct CryptoError;
+
 /**
  * @brief Backend-neutral asynchronous XMPP/PubSub service used by XmppStorage.
  *
@@ -53,22 +55,23 @@ public:
      * content.  A request with preserveModified set keeps its supplied
      * timestamp; otherwise the update receives the current time.
      */
-    virtual void           updateNoteIndexAsync(XmppRemoteNote note, NoteCallback callback)                 = 0;
-    virtual void           deleteNoteAsync(QString id, StatusCallback callback)                             = 0;
-    virtual XmppDeviceInfo ownOmemoDevice() const                                                           = 0;
-    virtual void           ownOmemoDevicesAsync(DevicesCallback callback)                                   = 0;
-    virtual void           ownOmemoBundleValidAsync(StatusCallback callback)                                = 0;
-    virtual void           repairOwnOmemoDeviceAsync(StatusCallback callback)                               = 0;
-    virtual void           removeOwnOmemoDeviceAsync(quint32 deviceId, StatusCallback callback)             = 0;
-    virtual void           trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback callback)              = 0;
-    virtual void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback)     = 0;
-    virtual void           auditStorageKeysAsync(AuditCallback callback)                                    = 0;
-    virtual void rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback) = 0;
-    virtual void scanObsoleteItemsAsync(CleanupCallback callback)                                           = 0;
-    virtual void deleteObsoleteItemsAsync(QStringList indexItemIds, QStringList contentItemIds,
-                                          CleanupCallback callback)                                         = 0;
-    virtual void approveKeySyncRequest(QString requestId)                                                   = 0;
-    virtual void rejectKeySyncRequest(QString requestId)                                                    = 0;
+    virtual void           updateNoteIndexAsync(XmppRemoteNote note, NoteCallback callback)                  = 0;
+    virtual void           deleteNoteAsync(QString id, StatusCallback callback)                              = 0;
+    virtual XmppDeviceInfo ownOmemoDevice() const                                                            = 0;
+    virtual void           ownOmemoDevicesAsync(DevicesCallback callback)                                    = 0;
+    virtual void           ownOmemoBundleValidAsync(StatusCallback callback)                                 = 0;
+    virtual void           repairOwnOmemoDeviceAsync(StatusCallback callback)                                = 0;
+    virtual void           removeOwnOmemoDeviceAsync(quint32 deviceId, StatusCallback callback)              = 0;
+    virtual void           trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback callback)               = 0;
+    virtual void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback)      = 0;
+    virtual void           auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress = {}) = 0;
+    virtual void           rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback,
+                                             XmppProgressCallback progress = {})                             = 0;
+    virtual void           scanObsoleteItemsAsync(CleanupCallback callback)                                  = 0;
+    virtual void           deleteObsoleteItemsAsync(QStringList indexItemIds, QStringList contentItemIds,
+                                                    CleanupCallback callback)                                = 0;
+    virtual void           approveKeySyncRequest(QString requestId)                                          = 0;
+    virtual void           rejectKeySyncRequest(QString requestId)                                           = 0;
 
 signals:
     /// A complete remote note was published or changed.
@@ -85,6 +88,11 @@ signals:
     void keySyncTrustRequested(const QString &requestId, const QByteArray &keyId);
 
 protected:
+    /** Shared index decoding and recovery policy for both protocol backends. */
+    static CryptoError appendIndexPayload(const XmppConfig &config, const XmppEncryptedPayload &payload,
+                                          XmppListResult &result);
+    static void        completeIndexList(const XmppConfig &config, XmppListResult &result);
+
     /** Applies the backend-independent revision semantics of an index-only update. */
     static XmppRemoteNote makeIndexUpdate(XmppRemoteNote current, const XmppRemoteNote &requested, QString newRevision,
                                           QString originId);

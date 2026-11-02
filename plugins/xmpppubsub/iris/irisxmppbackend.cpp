@@ -8,8 +8,8 @@
 #include "iristruststorage.h"
 #include "localmediastore.h"
 #include "mediachunkscheduler.h"
-#include "mediapartialchunkcache.h"
 #include "mediachunkwirestream.h"
+#include "mediapartialchunkcache.h"
 #include "mediasource.h"
 #include "mediastream.h"
 #include "mediasyncservice.h"
@@ -1234,7 +1234,6 @@ void IrisXmppBackend::listNotesAsync(ListCallback callback)
         }
 
         const auto decode = [this](const QList<XMPP::PubSubItem> &items, XmppListResult &output) {
-            const auto configuredKeyId = SecureEnvelope::keyId(config_.masterKey, KeyDerivationProfile::PrivateNotes);
             for (const auto &item : items) {
                 const auto parsed = parsePubSubItem(item);
                 if (!parsed.valid) {
@@ -1243,16 +1242,9 @@ void IrisXmppBackend::listNotesAsync(ListCallback callback)
                         << "Skipping unreadable XMPP index item" << item.id() << ':' << parsed.error;
                     continue;
                 }
-                if (parsed.payload.keyId != configuredKeyId) {
-                    output.partial = true;
-                    continue;
-                }
-                auto note = XmppNoteCodec::decodeIndex(parsed.payload, config_.masterKey, config_.indexNodeName());
-                if (!note) {
-                    output.partial = true;
-                    continue;
-                }
-                output.notes.append(std::move(note.value));
+                if (const auto error = appendIndexPayload(config_, parsed.payload, output); error)
+                    qCWarning(lcIrisXmpp).noquote()
+                        << "Skipping unreadable XMPP index item" << item.id() << ':' << error.message;
             }
         };
 
@@ -1278,7 +1270,7 @@ void IrisXmppBackend::listNotesAsync(ListCallback callback)
                                         return;
                                     }
                                     decode(task->items(), output);
-                                    output.ok = true;
+                                    completeIndexList(config_, output);
                                     callback(std::move(output));
                                 });
                     return;
@@ -1296,7 +1288,7 @@ void IrisXmppBackend::listNotesAsync(ListCallback callback)
                         return;
                     }
                     if (*offset >= ids.size()) {
-                        output->ok = true;
+                        completeIndexList(config_, *output);
                         callback(std::move(*output));
                         return;
                     }
@@ -1619,7 +1611,7 @@ void IrisXmppBackend::observeMedia(const MediaReference &reference)
     if (!descriptor.isValid())
         return;
     const QString cacheId = mediaChunkIdentity(descriptor.parameters);
-    auto        *job      = mediaSyncJobs_.value(cacheId).data();
+    auto         *job     = mediaSyncJobs_.value(cacheId).data();
     if (!job) {
         XMPP::Jingle::JinglePub publication;
         for (const auto &source : descriptor.sources.items()) {
@@ -1635,8 +1627,8 @@ void IrisXmppBackend::observeMedia(const MediaReference &reference)
         auto cache = LocalMediaStore::instance()->opaqueMediaCache(QStringLiteral("xmpp"), cacheId);
         if (!cache)
             return;
-        job = new IrisMediaSync(client_, publication, descriptor.parameters, std::move(cache),
-                                config_.timeoutMs, this, reference);
+        job = new IrisMediaSync(client_, publication, descriptor.parameters, std::move(cache), config_.timeoutMs, this,
+                                reference);
         mediaSyncJobs_.insert(cacheId, job);
     }
     job->setConnected(connected_, client_);
@@ -1747,8 +1739,8 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
         ++windowCount;
     }
     const auto    wireLength = std::optional<quint64>(windowLength);
-    const QString cacheId = mediaChunkIdentity(parameters);
-    auto cache = LocalMediaStore::instance()->opaqueMediaCache(QStringLiteral("xmpp"), cacheId);
+    const QString cacheId    = mediaChunkIdentity(parameters);
+    auto          cache      = LocalMediaStore::instance()->opaqueMediaCache(QStringLiteral("xmpp"), cacheId);
     if (!cache) {
         callback({}, QStringLiteral("Cannot open encrypted XMPP media cache"));
         return;
@@ -1802,10 +1794,9 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
         deliver(cachedMediaPlain_, {});
         return;
     }
-    const auto cached = cache->read(index, qint64(*firstWireLength),
-                                    [parameters](quint64 i, const QByteArray &wire) {
-                                        return bool(MediaChunkWire::decryptChunk(parameters, i, wire));
-                                    });
+    const auto cached = cache->read(index, qint64(*firstWireLength), [parameters](quint64 i, const QByteArray &wire) {
+        return bool(MediaChunkWire::decryptChunk(parameters, i, wire));
+    });
     if (!cached.isEmpty()) {
         const auto opened = MediaChunkWire::decryptChunk(parameters, index, cached);
         if (opened) {
@@ -1848,10 +1839,12 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
                 }
                 if (record == 0)
                     plain = opened.value;
-                if (!cache->write(index + record, bytes, bytes.size(),
-                                  [parameters](quint64 i, const QByteArray &recordBytes) {
-                                      return bool(MediaChunkWire::decryptChunk(parameters, i, recordBytes));
-                                  }, &error)) {
+                if (!cache->write(
+                        index + record, bytes, bytes.size(),
+                        [parameters](quint64 i, const QByteArray &recordBytes) {
+                            return bool(MediaChunkWire::decryptChunk(parameters, i, recordBytes));
+                        },
+                        &error)) {
                     if (error.isEmpty())
                         error = QStringLiteral("Cannot store authenticated XMPP media chunk");
                     break;
@@ -2066,8 +2059,8 @@ void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publ
             auto *buffer = new BoundedRangeBuffer(state->bytes, length, session);
             buffer->open(QIODevice::WriteOnly);
             connect(app, &XMPP::Jingle::FileTransfer::Application::deviceRequested, session,
-                    [app, buffer, session, publicationId, offset, length, complete](quint64                requestedOffset,
-                                                                           std::optional<quint64> requestedLength) {
+                    [app, buffer, session, publicationId, offset, length,
+                     complete](quint64 requestedOffset, std::optional<quint64> requestedLength) {
                         qCDebug(lcIrisJingleMedia)
                             << "Incoming media device requested: publication=" << publicationId
                             << "offset=" << requestedOffset << "length="
@@ -3197,50 +3190,61 @@ void IrisXmppBackend::requestStorageKeyFromResourceAsync(QString fullJid, AuditC
     const auto trustId   = newUuid();
     auto      *trustTask = new IrisKeySyncRequestTask(client_->rootTask());
     trustTask->request(target, IrisKeySyncRequestTask::RequestType::TrustBootstrap, trustId, omemo_->ownIdentityKey());
-    runIrisTask(trustTask, this, config_.timeoutMs,
-                [this, target, callback = std::move(callback)](IrisKeySyncRequestTask *trustTask) mutable {
-                    if (!trustTask || !trustTask->success() || !trustTask->trustApproved()) {
-                        XmppKeyAuditResult output;
-                        output.error     = QStringLiteral("%1: OMEMO trust bootstrap failed: %2")
-                                               .arg(target.full(), firstTaskError(trustTask));
+    runIrisTask(
+        trustTask, this, config_.timeoutMs,
+        [this, target, callback = std::move(callback)](IrisKeySyncRequestTask *trustTask) mutable {
+            if (!trustTask || !trustTask->success() || !trustTask->trustApproved()) {
+                XmppKeyAuditResult output;
+                output.error     = QStringLiteral("%1: OMEMO trust bootstrap failed: %2")
+                                       .arg(target.full(), firstTaskError(trustTask));
+                output.errorKind = XmppErrorKind::Security;
+                callback(std::move(output));
+                return;
+            }
+
+            const auto requestId = newUuid();
+            auto      *request   = new IrisKeySyncRequestTask(client_->rootTask());
+            request->request(target, IrisKeySyncRequestTask::RequestType::StorageKey, requestId);
+            runIrisTask(
+                request, this, config_.timeoutMs,
+                [this, target, callback = std::move(callback)](IrisKeySyncRequestTask *request) mutable {
+                    XmppKeyAuditResult output;
+                    if (!request || !request->success()) {
+                        output.error     = QStringLiteral("%1: %2").arg(target.full(), firstTaskError(request));
                         output.errorKind = XmppErrorKind::Security;
                         callback(std::move(output));
                         return;
                     }
-
-                    const auto requestId = newUuid();
-                    auto      *request   = new IrisKeySyncRequestTask(client_->rootTask());
-                    request->request(target, IrisKeySyncRequestTask::RequestType::StorageKey, requestId);
-                    runIrisTask(
-                        request, this, config_.timeoutMs,
-                        [target, callback = std::move(callback)](IrisKeySyncRequestTask *request) mutable {
-                            XmppKeyAuditResult output;
-                            if (!request || !request->success()) {
-                                output.error     = QStringLiteral("%1: %2").arg(target.full(), firstTaskError(request));
-                                output.errorKind = XmppErrorKind::Security;
-                                callback(std::move(output));
-                                return;
-                            }
-                            auto key = SecureEnvelope::decodeRecoveryKey(request->recoveryKey(),
-                                                                         KeyDerivationProfile::PrivateNotes);
-                            if (!key) {
-                                output.error = QStringLiteral("%1: invalid storage key response").arg(target.full());
-                                output.errorKind = XmppErrorKind::Security;
-                                callback(std::move(output));
-                                return;
-                            }
-                            output.candidates.append(
-                                { target.full(), key.value,
-                                  SecureEnvelope::keyId(key.value, KeyDerivationProfile::PrivateNotes), 0, false });
-                            output.ok = true;
-                            callback(std::move(output));
-                        });
+                    if (!omemo_
+                        || !trustedForRecovery(omemo_->trustLevel(bareJid(config_), request->responseSenderKey()))) {
+                        output.error = QStringLiteral("%1: the storage-key response has an untrusted OMEMO identity")
+                                           .arg(target.full());
+                        output.errorKind = XmppErrorKind::Security;
+                        callback(std::move(output));
+                        return;
+                    }
+                    auto key
+                        = SecureEnvelope::decodeRecoveryKey(request->recoveryKey(), KeyDerivationProfile::PrivateNotes);
+                    if (!key) {
+                        output.error     = QStringLiteral("%1: invalid storage key response").arg(target.full());
+                        output.errorKind = XmppErrorKind::Security;
+                        callback(std::move(output));
+                        return;
+                    }
+                    output.candidates.append({ target.full(), key.value,
+                                               SecureEnvelope::keyId(key.value, KeyDerivationProfile::PrivateNotes), 0,
+                                               false });
+                    output.ok = true;
+                    callback(std::move(output));
                 });
+        });
 }
 
-void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback)
+void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress)
 {
-    ensureOmemoReadyAsync([this, callback = std::move(callback)](XmppStatusResult ready) mutable {
+    if (progress)
+        progress({ tr("Preparing OMEMO key discovery…") });
+    ensureOmemoReadyAsync([this, callback = std::move(callback), progress](XmppStatusResult ready) mutable {
         if (!ready.ok) {
             XmppKeyAuditResult output;
             static_cast<XmppStatusResult &>(output) = std::move(ready);
@@ -3257,8 +3261,10 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback)
         if (omemoStorage_)
             omemoStorage_->resetSessions();
 
-        onlinePrivateNotesResourcesAsync([this, output, callback = std::move(callback)](
-                                             QStringList resources, QString discoveryError) mutable {
+        if (progress)
+            progress({ tr("Discovering online AnyKeep devices…") });
+        onlinePrivateNotesResourcesAsync([this, output, callback = std::move(callback),
+                                          progress](QStringList resources, QString discoveryError) mutable {
             auto errors = std::make_shared<QStringList>();
             if (!discoveryError.isEmpty())
                 errors->append(discoveryError);
@@ -3266,23 +3272,27 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback)
             auto                                       nextResource     = std::make_shared<std::function<void()>>();
             const std::weak_ptr<std::function<void()>> weakNextResource = nextResource;
             *nextResource = [this, resources = std::move(resources), output, errors, index, weakNextResource,
-                             callback = std::move(callback)]() mutable {
+                             callback = std::move(callback), progress]() mutable {
                 if (*index >= resources.size()) {
+                    if (progress)
+                        progress({ tr("Retrieving the note index for key verification…") });
                     listNodeItemIdsAsync(
                         config_.indexNodeName(),
-                        [this, output, errors, callback = std::move(callback)](QStringList      ids,
-                                                                               XmppStatusResult status) mutable {
+                        [this, output, errors, callback = std::move(callback),
+                         progress](QStringList ids, XmppStatusResult status) mutable {
                             if (!status.ok) {
                                 static_cast<XmppStatusResult &>(*output) = std::move(status);
                                 callback(std::move(*output));
                                 return;
                             }
                             output->totalIndexItems = ids.size();
-                            auto offset             = std::make_shared<int>(0);
-                            auto countNext          = std::make_shared<std::function<void()>>();
+                            if (progress)
+                                progress({ tr("Verifying keys for %1 notes…").arg(ids.size()), 0, int(ids.size()) });
+                            auto offset    = std::make_shared<int>(0);
+                            auto countNext = std::make_shared<std::function<void()>>();
                             const std::weak_ptr<std::function<void()>> weakCountNext = countNext;
                             *countNext = [this, ids = std::move(ids), output, errors, offset, weakCountNext,
-                                          callback = std::move(callback)]() mutable {
+                                          callback = std::move(callback), progress]() mutable {
                                 if (*offset >= ids.size()) {
                                     output->ok = true;
                                     if (!errors->isEmpty())
@@ -3300,37 +3310,45 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback)
                                     callback(std::move(*output));
                                     return;
                                 }
-                                runIrisTask(
-                                    items, this, config_.timeoutMs,
-                                    [this, output, errors, countNext, callback](XMPP::PubSubItemsTask *task) mutable {
-                                        if (!task || !task->success()) {
-                                            static_cast<XmppStatusResult &>(*output) = taskFailure(
-                                                task, QStringLiteral("Could not audit the private-note index"));
-                                            callback(std::move(*output));
-                                            return;
-                                        }
-                                        for (const auto &item : task->items()) {
-                                            const auto parsed = parsePubSubItem(item);
-                                            if (!parsed.valid)
-                                                continue;
-                                            const auto keyId     = parsed.payload.keyId;
-                                            auto       candidate = std::find_if(
-                                                output->candidates.begin(), output->candidates.end(),
-                                                [&keyId](const auto &entry) { return entry.keyId == keyId; });
-                                            if (candidate == output->candidates.end())
-                                                output->candidates.append({ {}, {}, keyId, 1, false });
-                                            else
-                                                ++candidate->indexItemCount;
-                                        }
-                                        (*countNext)();
-                                    });
+                                runIrisTask(items, this, config_.timeoutMs,
+                                            [this, output, errors, countNext, callback, progress,
+                                             offset](XMPP::PubSubItemsTask *task) mutable {
+                                                if (!task || !task->success()) {
+                                                    static_cast<XmppStatusResult &>(*output) = taskFailure(
+                                                        task, QStringLiteral("Could not audit the private-note index"));
+                                                    callback(std::move(*output));
+                                                    return;
+                                                }
+                                                for (const auto &item : task->items()) {
+                                                    const auto parsed = parsePubSubItem(item);
+                                                    if (!parsed.valid)
+                                                        continue;
+                                                    const auto keyId     = parsed.payload.keyId;
+                                                    auto       candidate = std::find_if(
+                                                        output->candidates.begin(), output->candidates.end(),
+                                                        [&keyId](const auto &entry) { return entry.keyId == keyId; });
+                                                    if (candidate == output->candidates.end())
+                                                        output->candidates.append({ {}, {}, keyId, 1, false });
+                                                    else
+                                                        ++candidate->indexItemCount;
+                                                }
+                                                if (progress)
+                                                    progress({ tr("Verified note keys: %1 of %2")
+                                                                   .arg(*offset)
+                                                                   .arg(output->totalIndexItems),
+                                                               *offset, output->totalIndexItems });
+                                                (*countNext)();
+                                            });
                             };
                             (*countNext)();
                         });
                     return;
                 }
 
-                const auto resource     = resources.at((*index)++);
+                const auto resource = resources.at((*index)++);
+                if (progress)
+                    progress(
+                        { tr("Requesting a storage key from device %1 of %2…").arg(*index).arg(resources.size()) });
                 const auto full         = bareJid(config_).withResource(resource).full();
                 const auto nextResource = weakNextResource.lock();
                 if (!nextResource) {
@@ -3339,7 +3357,9 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback)
                     return;
                 }
                 requestStorageKeyFromResourceAsync(
-                    full, [output, errors, nextResource, full](XmppKeyAuditResult remote) mutable {
+                    full,
+                    [this, output, errors, nextResource, full, progress, resourceNumber = *index,
+                     resourceCount = resources.size()](XmppKeyAuditResult remote) mutable {
                         if (remote.ok && !remote.candidates.isEmpty()) {
                             const auto candidate = remote.candidates.constFirst();
                             auto       existing  = std::find_if(
@@ -3355,6 +3375,12 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback)
                         } else if (!remote.error.isEmpty()) {
                             errors->append(remote.error);
                         }
+                        if (progress)
+                            progress({ (remote.ok && !remote.candidates.isEmpty()
+                                            ? tr("Received a key from device %1 of %2")
+                                            : tr("Device %1 of %2 did not provide a key"))
+                                           .arg(resourceNumber)
+                                           .arg(resourceCount) });
                         (*nextResource)();
                     });
             };
@@ -3559,10 +3585,13 @@ void IrisXmppBackend::deleteObsoleteItemsAsync(QStringList indexItemIds, QString
     });
 }
 
-void IrisXmppBackend::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback)
+void IrisXmppBackend::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback,
+                                        XmppProgressCallback progress)
 {
+    if (progress)
+        progress({ tr("Connecting and preparing note synchronization…") });
     ensureReadyAsync([this, keys = std::move(keys), canonicalKey = std::move(canonicalKey),
-                      callback = std::move(callback)](XmppStatusResult ready) mutable {
+                      callback = std::move(callback), progress](XmppStatusResult ready) mutable {
         if (!ready.ok) {
             XmppRekeyResult output;
             static_cast<XmppStatusResult &>(output) = std::move(ready);
@@ -3582,22 +3611,26 @@ void IrisXmppBackend::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canon
         }
         keyring->insert(SecureEnvelope::keyId(canonicalKey, KeyDerivationProfile::PrivateNotes), canonicalKey);
 
+        if (progress)
+            progress({ tr("Retrieving the note index…") });
         listNodeItemIdsAsync(
             config_.indexNodeName(),
-            [this, canonicalKey = std::move(canonicalKey), keyring,
-             callback = std::move(callback)](QStringList ids, XmppStatusResult status) mutable {
+            [this, canonicalKey = std::move(canonicalKey), keyring, callback = std::move(callback),
+             progress](QStringList ids, XmppStatusResult status) mutable {
                 auto output = std::make_shared<XmppRekeyResult>();
                 if (!status.ok) {
                     static_cast<XmppStatusResult &>(*output) = std::move(status);
                     callback(std::move(*output));
                     return;
                 }
-                output->total                                       = ids.size();
+                output->total = ids.size();
+                if (progress)
+                    progress({ tr("Found %1 notes to synchronize").arg(ids.size()), 0, int(ids.size()) });
                 auto                                       offset   = std::make_shared<int>(0);
                 auto                                       next     = std::make_shared<std::function<void()>>();
                 const std::weak_ptr<std::function<void()>> weakNext = next;
                 *next = [this, ids = std::move(ids), canonicalKey, keyring, output, offset, weakNext,
-                         callback = std::move(callback)]() mutable {
+                         callback = std::move(callback), progress]() mutable {
                     if (*offset >= ids.size()) {
                         output->ok = output->inaccessibleNoteIds.isEmpty();
                         if (!output->ok)
@@ -3605,7 +3638,11 @@ void IrisXmppBackend::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canon
                         callback(std::move(*output));
                         return;
                     }
-                    const auto id   = ids.at((*offset)++);
+                    const auto id         = ids.at((*offset)++);
+                    const int  noteNumber = *offset;
+                    if (progress)
+                        progress({ tr("Reading note %1 of %2…").arg(noteNumber).arg(output->total), noteNumber - 1,
+                                   output->total });
                     const auto next = weakNext.lock();
                     if (!next) {
                         static_cast<XmppStatusResult &>(*output) = cancelledResult();
@@ -3614,7 +3651,7 @@ void IrisXmppBackend::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canon
                     }
                     fetchPayloadAsync(
                         config_.indexNodeName(), id,
-                        [this, id, canonicalKey, keyring, output, next, callback](
+                        [this, id, canonicalKey, keyring, output, next, callback, progress, noteNumber](
                             std::optional<XmppEncryptedPayload> indexPayload, XmppStatusResult indexStatus) mutable {
                             if (!indexStatus.ok || !indexPayload) {
                                 if (indexStatus.notFound) {
@@ -3626,9 +3663,12 @@ void IrisXmppBackend::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canon
                                 callback(std::move(*output));
                                 return;
                             }
+                            if (progress)
+                                progress({ tr("Downloading note %1 of %2…").arg(noteNumber).arg(output->total),
+                                           noteNumber - 1, output->total });
                             fetchPayloadAsync(
                                 config_.contentNodeName(), id,
-                                [this, id, canonicalKey, keyring, output, next, callback,
+                                [this, id, canonicalKey, keyring, output, next, callback, progress, noteNumber,
                                  indexPayload
                                  = std::move(indexPayload)](std::optional<XmppEncryptedPayload> contentPayload,
                                                             XmppStatusResult                    contentStatus) mutable {
@@ -3663,36 +3703,62 @@ void IrisXmppBackend::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canon
                                         (*next)();
                                         return;
                                     }
-                                    auto newContent = XmppNoteCodec::encodeContent(note.value, canonicalKey,
-                                                                                   config_.contentNodeName());
-                                    auto newIndex
-                                        = XmppNoteCodec::encodeIndex(note.value, canonicalKey, config_.indexNodeName());
-                                    if (!newContent || !newIndex) {
-                                        output->error = !newContent ? newContent.error.message : newIndex.error.message;
+                                    auto migration = XmppNoteCodec::encodeKeyMigration(
+                                        note.value, indexPayload->keyId, contentPayload->keyId, canonicalKey,
+                                        config_.indexNodeName(), config_.contentNodeName());
+                                    if (!migration) {
+                                        output->error = migration.error.message;
                                         callback(std::move(*output));
                                         return;
                                     }
-                                    publishPayloadAsync(
-                                        config_.contentNodeName(), std::move(newContent.value),
-                                        [this, output, next, callback,
-                                         newIndex = std::move(newIndex.value)](XmppStatusResult status) mutable {
-                                            if (!status.ok) {
-                                                static_cast<XmppStatusResult &>(*output) = std::move(status);
-                                                callback(std::move(*output));
-                                                return;
-                                            }
-                                            publishPayloadAsync(
-                                                config_.indexNodeName(), std::move(newIndex),
-                                                [output, next, callback](XmppStatusResult status) mutable {
-                                                    if (!status.ok) {
-                                                        static_cast<XmppStatusResult &>(*output) = std::move(status);
-                                                        callback(std::move(*output));
-                                                        return;
-                                                    }
-                                                    ++output->migrated;
-                                                    (*next)();
-                                                });
-                                        });
+                                    if (!migration.value.content && !migration.value.index) {
+                                        ++output->unchanged;
+                                        if (progress)
+                                            progress({ tr("Verified note %1 of %2 (selected key already in use)")
+                                                           .arg(noteNumber)
+                                                           .arg(output->total),
+                                                       noteNumber, output->total });
+                                        (*next)();
+                                        return;
+                                    }
+                                    if (progress)
+                                        progress({ tr("Publishing re-encrypted note %1 of %2…")
+                                                       .arg(noteNumber)
+                                                       .arg(output->total),
+                                                   noteNumber - 1, output->total });
+                                    auto finishNote = [output, next, callback, progress,
+                                                       noteNumber](XmppStatusResult status) mutable {
+                                        if (!status.ok) {
+                                            static_cast<XmppStatusResult &>(*output) = std::move(status);
+                                            callback(std::move(*output));
+                                            return;
+                                        }
+                                        ++output->migrated;
+                                        if (progress)
+                                            progress(
+                                                { tr("Re-encrypted note %1 of %2").arg(noteNumber).arg(output->total),
+                                                  noteNumber, output->total });
+                                        (*next)();
+                                    };
+                                    auto publishIndex
+                                        = [this, index = std::move(migration.value.index),
+                                           finishNote = std::move(finishNote)](XmppStatusResult status) mutable {
+                                              if (!status.ok || !index) {
+                                                  finishNote(std::move(status));
+                                                  return;
+                                              }
+                                              publishPayloadAsync(config_.indexNodeName(), std::move(*index),
+                                                                  std::move(finishNote));
+                                          };
+                                    if (migration.value.content) {
+                                        publishPayloadAsync(config_.contentNodeName(),
+                                                            std::move(*migration.value.content),
+                                                            std::move(publishIndex));
+                                    } else {
+                                        XmppStatusResult unchanged;
+                                        unchanged.ok = true;
+                                        publishIndex(std::move(unchanged));
+                                    }
                                 });
                         });
                 };

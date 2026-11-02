@@ -20,7 +20,7 @@ const QString XmppNoteCodec::chunkedMediaFeature      = QStringLiteral("urn:xmpp
 
 namespace {
     const QString StatelessFileSharingNamespace = QStringLiteral("urn:xmpp:sfs:0");
-    const QString ChunkedMediaSourceName         = QStringLiteral("encrypted-chunks");
+    const QString ChunkedMediaSourceName        = QStringLiteral("encrypted-chunks");
 
     constexpr int MaxXmlDepth      = 32;
     constexpr int MaxXmlElements   = 8192;
@@ -471,7 +471,7 @@ namespace {
 
     CryptoResult<bool> hasChunkedMediaSource(const QDomElement &fileSharing)
     {
-        bool found = false;
+        bool       found = false;
         const auto sourceContainers
             = directChildren(fileSharing, StatelessFileSharingNamespace, QStringLiteral("sources"));
         for (const auto &sources : sourceContainers) {
@@ -482,7 +482,8 @@ namespace {
                 if (localName(source) != ChunkedMediaSourceName)
                     return { false, corrupt(QStringLiteral("Unknown AnyKeep chunked media source element")) };
                 if (found)
-                    return { false, corrupt(QStringLiteral("XMPP media descriptor contains multiple chunked sources")) };
+                    return { false,
+                             corrupt(QStringLiteral("XMPP media descriptor contains multiple chunked sources")) };
                 found = true;
             }
         }
@@ -545,7 +546,8 @@ namespace {
             result.append(parsed.value);
         }
         if (hasChunked && !chunkedRequired)
-            return { {}, corrupt(QStringLiteral("XMPP chunked media sources must be declared as a required extension")) };
+            return { {},
+                     corrupt(QStringLiteral("XMPP chunked media sources must be declared as a required extension")) };
         if (chunkedRequired && !hasChunked)
             return { {}, corrupt(QStringLiteral("Required XMPP chunked-media extension has no chunked source")) };
         return { result, {} };
@@ -963,6 +965,30 @@ CryptoResult<XmppRemoteNote> XmppNoteCodec::decodeContent(const XmppEncryptedPay
     note.contentPresent        = true;
     note.contentRecordTemplate = preservationTemplate(opened.value, XmppEncryptedPayload::Content);
     return { note, {} };
+}
+
+CryptoResult<XmppNoteKeyMigration>
+XmppNoteCodec::encodeKeyMigration(const XmppRemoteNote &note, const QByteArray &indexKeyId,
+                                  const QByteArray &contentKeyId, const QByteArray &canonicalKey,
+                                  const QString &indexNode, const QString &contentNode)
+{
+    if (canonicalKey.size() != SecureEnvelope::MasterKeySize)
+        return { {}, cryptoError(CryptoError::InvalidArgument, QStringLiteral("Invalid canonical storage key")) };
+    const auto           canonicalId = SecureEnvelope::keyId(canonicalKey, KeyDerivationProfile::PrivateNotes);
+    XmppNoteKeyMigration migration;
+    if (contentKeyId != canonicalId) {
+        auto encoded = encodeContent(note, canonicalKey, contentNode);
+        if (!encoded)
+            return { {}, encoded.error };
+        migration.content = std::move(encoded.value);
+    }
+    if (indexKeyId != canonicalId) {
+        auto encoded = encodeIndex(note, canonicalKey, indexNode);
+        if (!encoded)
+            return { {}, encoded.error };
+        migration.index = std::move(encoded.value);
+    }
+    return { std::move(migration), {} };
 }
 
 CryptoError XmppNoteCodec::validatePayload(const XmppEncryptedPayload &payload, XmppEncryptedPayload::Kind expectedKind,

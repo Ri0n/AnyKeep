@@ -39,8 +39,8 @@ the storage key during device onboarding.
 - repairs incomplete own-device OMEMO bundles produced after pre-key use;
 - establishes trust between two own AnyKeep devices and transfers the storage
   key over an OMEMO-protected IQ;
-- audits notes encrypted with different storage keys and can re-encrypt them
-  with a selected canonical key;
+- verifies recovered notes without rewriting records already using the selected
+  key, and can migrate other-key records to that canonical key;
 - requires TLS and does not ignore certificate errors.
 
 ## Building
@@ -251,6 +251,7 @@ graph TD;
 | `XmppPersistentTrustStorage` | persistent OMEMO trust decisions |
 | `XmppKeyResolutionController` | UI-neutral device trust, key audit, canonical-key choice, and recovery state |
 | `XmppDialogPresenter` | presents the shared QML recovery and trust flows in an active or standalone Qt Quick window |
+| `XmppSyncProgress.qml` | shared progress, elapsed-time display, and bounded live log in recovery and settings |
 | `DraftManager` | durable publish/delete intent, retry scheduling, and recovery after restart |
 
 Both backends run in Qt's normal event loop. There is no dedicated XMPP thread
@@ -258,6 +259,38 @@ and no nested `QEventLoop`; the QXmpp implementation uses QCoro while the Iris
 implementation composes Iris tasks and encryption jobs with queued callbacks.
 XMPP is primarily I/O-bound, so a second thread is not useful here. Expensive
 CPU work can be isolated later without changing the backend contract.
+
+The recovery wizard displays progress during device trust, storage-key discovery,
+index auditing, and note synchronization. Both backends report explicit stages
+and processed-note counts through per-operation callbacks; unknown totals stay
+indeterminate. The live log is collapsed by default, retains the last 40 events,
+and supports selecting/copying its text. Its viewport is capped at 150 pixels;
+the recovery content scrolls separately from the always-visible navigation
+buttons on smaller windows. An elapsed-time display keeps
+updating while a request is pending. Progress delivery uses the same configuration
+epoch checks as completions, and controller operation generations discard late
+updates after timeout, retry, completion, or closing the wizard. Progress messages
+contain stages/counts, never note bodies, recovery keys, or decrypted payloads.
+
+Recovery authenticates the index and content of every accessible note before
+accepting it. Records already using the selected key are not rewritten. Only
+other-key records are re-encrypted and published, content before index when both
+need migration. A retry after a partial migration updates only the remaining
+old-key record. Note IDs, revisions, timestamps, and preserved extensions remain
+unchanged. The result and log distinguish verification without changes from
+actual re-encryption.
+
+Both backends stop normal synchronization for mixed-key and entirely foreign-key
+indices and start recovery instead of hiding another client's notes. Explicit
+fresh-storage mode remains an opt-out for intentionally ignored old notes.
+Canonical keys are not pushed: after a completed migration, online peers refresh
+on PEP events, and offline peers check the index on reconnect. Each peer obtains
+the selected key through its recovery wizard from an online trusted holder;
+the key owning the largest index group is preselected. Without a holder or a
+recovery-key import, its installed key remains unchanged. Finish commits the key
+to the keychain and backend configuration before accepting the workflow; a
+failed commit stays available for retry. Both request paths explicitly reject
+plaintext storage-key replies.
 
 Concurrent storage requests share a single backend preparation attempt. Login,
 OMEMO loading, PEP discovery, and node verification therefore run once even
@@ -464,11 +497,18 @@ sequenceDiagram
                     N-->>U: key not received
                 else valid key available
                     E-->>N: OMEMO-encrypted recovery-key response
-                    N->>N: decode, validate, and install key in keychain
+                    N->>N: decode and validate candidate key
                     N->>P: audit encrypted note indexes
                     P-->>N: note envelopes and key IDs
                     N-->>U: choose canonical key if multiple keys exist
-                    N->>P: re-encrypt accessible notes with canonical key
+                    N->>P: fetch index and content for accessible notes
+                    N->>N: authenticate and validate ID/revision binding
+                    opt records use a different storage key
+                        N->>P: re-encrypt and publish only old-key records
+                    end
+                    U->>N: Finish recovery
+                    N->>N: save selected key and apply backend configuration
+                    N-->>U: accepted only after successful installation
                 end
             end
         end

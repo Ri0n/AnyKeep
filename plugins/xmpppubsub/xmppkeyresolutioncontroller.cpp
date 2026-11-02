@@ -3,6 +3,7 @@
 #include <QAbstractListModel>
 #include <QPointer>
 #include <QStringList>
+#include <QTime>
 
 #include <utility>
 
@@ -485,8 +486,7 @@ void XmppKeyResolutionController::next()
             rekeyResult_.ok       = true;
             rekeyResult_.total    = audit_.totalIndexItems;
             rekeyResult_.migrated = 0;
-            resultText_
-                = freshStartFromWelcome_
+            resultText_           = freshStartFromWelcome_
                 ? tr("A new local storage key is ready. Existing XMPP notes, if any, remain encrypted with "
                      "their original key and have not been changed. Save your new recovery key from settings.")
                 : tr("A new empty storage was created. %1 existing encrypted note(s) were left unchanged "
@@ -510,6 +510,7 @@ void XmppKeyResolutionController::next()
             return;
         }
         setBusy(true);
+        recordSyncProgress({ tr("Preparing note synchronization…") });
         const auto                            keys      = availableKeys();
         const auto                            canonical = canonicalKey();
         QPointer<XmppKeyResolutionController> guard(this);
@@ -518,26 +519,38 @@ void XmppKeyResolutionController::next()
                 return;
             guard->rekeyResult_ = std::move(result);
             if (guard->rekeyResult_.ok) {
-                guard->resultText_ = tr("Synchronization completed. %1 of %2 note(s) now use the selected "
-                                        "key.\n\nThe local storage key will be updated when you finish this flow.")
-                                         .arg(guard->rekeyResult_.migrated)
-                                         .arg(guard->rekeyResult_.total);
+                guard->resultText_ = tr("Synchronization completed. %1 of %2 note(s) use the selected key.\n"
+                                        "Verified without changes: %3\nRe-encrypted: %4\n\n"
+                                        "The local storage key will be updated when you finish this flow.")
+                                         .arg(guard->rekeyResult_.migrated + guard->rekeyResult_.unchanged)
+                                         .arg(guard->rekeyResult_.total)
+                                         .arg(guard->rekeyResult_.unchanged)
+                                         .arg(guard->rekeyResult_.migrated);
             } else {
-                guard->resultText_ = tr("Recovery is incomplete: %1\n\nMigrated %2 of %3 note(s). The local storage "
-                                        "key has not been changed. You can safely run this recovery flow again.")
+                guard->resultText_ = tr("Recovery is incomplete: %1\n\nVerified without changes: %2\n"
+                                        "Re-encrypted: %3\nNotes found: %4\n\nThe local storage key has not been "
+                                        "changed. You can safely run this recovery flow again.")
                                          .arg(guard->rekeyResult_.error)
+                                         .arg(guard->rekeyResult_.unchanged)
                                          .arg(guard->rekeyResult_.migrated)
                                          .arg(guard->rekeyResult_.total);
             }
             emit guard->resultTextChanged();
             guard->rekeyComplete_ = true;
             guard->setBusy(false);
+            const auto &finished   = guard->rekeyResult_;
+            const bool  totalKnown = finished.ok || finished.total > 0;
+            guard->recordSyncProgress(
+                { finished.ok ? guard->tr("Note synchronization completed")
+                              : guard->tr("Note synchronization stopped: %1").arg(finished.error),
+                  totalKnown ? finished.migrated + finished.unchanged + int(finished.inaccessibleNoteIds.size()) : -1,
+                  totalKnown ? finished.total : -1 });
             guard->setCurrentPage(ResultPage);
         });
         return;
     }
     case ResultPage:
-        finish(true);
+        finish(rekeyResult_.ok);
         return;
     }
 }
@@ -586,6 +599,11 @@ void XmppKeyResolutionController::setBusy(bool busy)
     if (busy_ == busy)
         return;
     busy_ = busy;
+    ++progressGeneration_;
+    if (busy) {
+        syncCompleted_ = syncTotal_ = -1;
+        emit syncProgressChanged();
+    }
     emit busyChanged();
     emit navigationChanged();
 }
@@ -616,6 +634,8 @@ void XmppKeyResolutionController::setDeviceStatus(const QString &status)
     if (deviceStatus_ == status)
         return;
     deviceStatus_ = status;
+    if (!status.isEmpty())
+        recordSyncProgress({ status });
     emit deviceStatusChanged();
 }
 
@@ -624,7 +644,35 @@ void XmppKeyResolutionController::setKeyStatus(const QString &status)
     if (keyStatus_ == status)
         return;
     keyStatus_ = status;
+    if (!status.isEmpty())
+        recordSyncProgress({ status });
     emit keyStatusChanged();
+}
+
+XmppProgressCallback XmppKeyResolutionController::progressCallback()
+{
+    QPointer<XmppKeyResolutionController> guard(this);
+    const auto                            generation = progressGeneration_;
+    return [guard, generation](XmppSyncProgress progress) {
+        if (!guard || guard->completed_ || !guard->busy_ || guard->progressGeneration_ != generation)
+            return;
+        guard->recordSyncProgress(progress);
+    };
+}
+
+void XmppKeyResolutionController::recordSyncProgress(const XmppSyncProgress &progress)
+{
+    if (progress.message.isEmpty())
+        return;
+    syncSummary_   = progress.message;
+    syncTotal_     = progress.total < 0 ? -1 : progress.total;
+    syncCompleted_ = syncTotal_ < 0 ? -1 : qBound(0, progress.completed, syncTotal_);
+    syncEvents_.append(QTime::currentTime().toString(QStringLiteral("HH:mm:ss")) + QStringLiteral("  ")
+                       + progress.message);
+    constexpr int MaximumSyncEvents = 40;
+    while (syncEvents_.size() > MaximumSyncEvents)
+        syncEvents_.removeFirst();
+    emit syncProgressChanged();
 }
 
 void XmppKeyResolutionController::populateKeys(const XmppKeyAuditResult &audit)
@@ -685,7 +733,9 @@ void XmppKeyResolutionController::updateSummary()
         }
         nextSummary
             = tr("Canonical key: %1\nNotes found: %2\nNotes whose key is unavailable: %3\n\n"
-                 "For each accessible note the client will publish encrypted content first and its index second. "
+                 "AnyKeep will download and verify accessible notes. Records already encrypted with the selected "
+                 "key will remain unchanged. Only records using another key will be re-encrypted and published, "
+                 "content before index when both need updating. "
                  "Inaccessible notes are never overwritten or deleted. The operation can be safely resumed "
                  "after interruption.")
                   .arg(QString::fromLatin1(canonical->keyId.left(8).toHex()))
@@ -702,6 +752,29 @@ void XmppKeyResolutionController::finish(bool accepted)
 {
     if (completed_)
         return;
+    if (accepted && installKey_ && !keyInstalled_) {
+        setBusy(true);
+        recordSyncProgress({ tr("Saving the selected storage key…"), syncCompleted_, syncTotal_ });
+        QPointer<XmppKeyResolutionController> guard(this);
+        installKey_(canonicalKey(), freshStart_, [guard](XmppStatusResult status) {
+            if (!guard || guard->completed_)
+                return;
+            guard->setBusy(false);
+            if (!status.ok) {
+                guard->resultText_ = guard
+                                         ->tr("Could not install the selected local storage key: %1\n\n"
+                                              "Retry Finish to save the selected key.")
+                                         .arg(status.error);
+                emit guard->resultTextChanged();
+                guard->recordSyncProgress(
+                    { guard->tr("Could not save the selected storage key"), guard->syncCompleted_, guard->syncTotal_ });
+                return;
+            }
+            guard->keyInstalled_ = true;
+            guard->finish(true);
+        });
+        return;
+    }
     completed_ = true;
     operationTimer_.stop();
     ++operationToken_;

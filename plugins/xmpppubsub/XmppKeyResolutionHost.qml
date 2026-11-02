@@ -44,9 +44,7 @@ Item {
         case 2:
             return qsTr("AnyKeep grouped existing notes and online devices by their storage-key fingerprint.");
         case 3:
-            return controller.freshStart
-                ? qsTr("AnyKeep will start with a new empty storage without changing the old encrypted notes.")
-                : qsTr("AnyKeep is ready to republish accessible notes with the selected key.");
+            return controller.freshStart ? qsTr("AnyKeep will start with a new empty storage without changing the old encrypted notes.") : qsTr("AnyKeep will verify accessible notes and re-encrypt only records using another key.");
         case 4:
             return "";
         default:
@@ -88,449 +86,484 @@ Item {
     }
 
     ColumnLayout {
-        id: body
+        id: surface
 
         parent: root.standalone ? standaloneContentHost : dialogContentHost
         anchors.fill: parent
         spacing: 10
 
-        RowLayout {
-            Layout.fillWidth: true
-
-            Label {
-                Layout.fillWidth: true
-                text: root.pageTitle()
-                font.pixelSize: 18
-                font.bold: true
-                wrapMode: Text.WordWrap
-            }
-
-            Label {
-                text: qsTr("%1 / %2").arg(root.controller.currentPage + 1).arg(root.controller.pageCount)
-                color: palette.placeholderText
-            }
-        }
-
-        Label {
-            Layout.fillWidth: true
-            visible: text.length > 0
-            text: root.pageSubtitle()
-            wrapMode: Text.WordWrap
-            color: palette.placeholderText
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            implicitHeight: 1
-            color: palette.mid
-            opacity: 0.35
-        }
-
-            StackLayout {
-                id: pages
-
+        ScrollView {
+            id: recoveryScroll
+            objectName: "xmppRecoveryScroll"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            currentIndex: root.controller.currentPage
+            Layout.minimumHeight: 0
+            Layout.preferredHeight: 0
+            contentWidth: availableWidth
+            contentHeight: body.height
+            clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-                ScrollView {
-                    id: introductionScroll
+            Column {
+                id: body
+                width: recoveryScroll.availableWidth
+                spacing: 10
 
-                    clip: true
+                ColumnLayout {
+                    id: heading
+                    width: body.width
+                    spacing: 10
 
-                    ScrollBar.horizontal: ScrollBar {
-                        policy: ScrollBar.AlwaysOff
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: root.pageTitle()
+                            font.pixelSize: 18
+                            font.bold: true
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Label {
+                            text: qsTr("%1 / %2").arg(root.controller.currentPage + 1).arg(root.controller.pageCount)
+                            color: palette.placeholderText
+                        }
                     }
-
-                    ColumnLayout {
-                        width: introductionScroll.availableWidth
-                    spacing: 14
 
                     Label {
                         Layout.fillWidth: true
-                        text: root.controller.localKeyMissing
-                            ? qsTr("Is this your first AnyKeep device? Start with a new key. If you already used AnyKeep with this XMPP account, you can recover your existing notes instead.")
-                            : qsTr("This recovery flow locates other AnyKeep devices, collects their keys, and safely moves accessible notes to one key you choose.")
+                        visible: text.length > 0
+                        text: root.pageSubtitle()
                         wrapMode: Text.WordWrap
+                        color: palette.placeholderText
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: 1
+                        color: palette.mid
+                        opacity: 0.35
+                    }
+                }
+
+                StackLayout {
+                    id: pages
+
+                    width: body.width
+                    height: Math.max(180, currentIndex === 1 ? devicePage.implicitHeight : currentIndex === 2 ? keysPage.implicitHeight : 0, recoveryScroll.availableHeight - heading.implicitHeight - body.spacing - (syncProgress.visible ? syncProgress.implicitHeight + body.spacing : 0))
+                    clip: true
+                    currentIndex: root.controller.currentPage
+
+                    ScrollView {
+                        id: introductionScroll
+
+                        clip: true
+
+                        ScrollBar.horizontal: ScrollBar {
+                            policy: ScrollBar.AlwaysOff
+                        }
+
+                        ColumnLayout {
+                            width: introductionScroll.availableWidth
+                            spacing: 14
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: root.controller.localKeyMissing ? qsTr("Is this your first AnyKeep device? Start with a new key. If you already used AnyKeep with this XMPP account, you can recover your existing notes instead.") : qsTr("This recovery flow locates other AnyKeep devices, collects their keys, and safely moves accessible notes to one key you choose.")
+                                wrapMode: Text.WordWrap
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                visible: root.controller.localKeyMissing
+
+                                Button {
+                                    objectName: "xmppRecoverExistingNotesButton"
+                                    Layout.fillWidth: true
+                                    text: qsTr("Use existing notes")
+                                    highlighted: true
+                                    enabled: root.controller.canGoNext
+                                    onClicked: root.controller.next()
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Find a key from another device where AnyKeep is already set up.")
+                                    wrapMode: Text.WordWrap
+                                    color: palette.placeholderText
+                                }
+
+                                Button {
+                                    objectName: "xmppStartNewStorageButton"
+                                    Layout.fillWidth: true
+                                    text: qsTr("Start with a new key")
+                                    enabled: root.controller.canStartFresh
+                                    onClicked: startFreshDialog.open()
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Use a new empty storage on this device. Existing encrypted notes, if any, cannot be read without their original key.")
+                                    wrapMode: Text.WordWrap
+                                    color: palette.placeholderText
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    visible: text.length > 0
+                                    text: root.controller.keyStatus
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("No existing notes are deleted or overwritten while you choose. You can cancel and return to setup later.")
+                                wrapMode: Text.WordWrap
+                                color: palette.placeholderText
+                            }
+                        }
                     }
 
                     ColumnLayout {
-                        Layout.fillWidth: true
+                        id: devicePage
                         spacing: 8
-                        visible: root.controller.localKeyMissing
 
-                        Button {
-                            objectName: "xmppRecoverExistingNotesButton"
+                        ListView {
+                            id: devicesView
+
                             Layout.fillWidth: true
-                            text: qsTr("Use existing notes")
-                            highlighted: true
-                            enabled: root.controller.canGoNext
-                            onClicked: root.controller.next()
+                            Layout.fillHeight: true
+                            Layout.minimumHeight: 180
+                            clip: true
+                            spacing: 4
+                            model: root.controller.devicesModel
+                            boundsBehavior: Flickable.StopAtBounds
+                            reuseItems: true
+
+                            ScrollBar.vertical: ScrollBar {
+                                id: devicesScrollBar
+                                policy: ScrollBar.AsNeeded
+                            }
+
+                            delegate: Frame {
+                                id: deviceDelegate
+
+                                required property int index
+                                required property string label
+                                required property string fingerprint
+                                required property string trustText
+                                required property bool selected
+                                required property bool selectable
+                                required property bool trusted
+                                required property var deviceId
+
+                                width: Math.max(0, ListView.view.width - devicesScrollBar.width - 6)
+                                padding: 6
+
+                                contentItem: RowLayout {
+                                    id: deviceRow
+                                    spacing: 8
+
+                                    CheckBox {
+                                        Layout.alignment: Qt.AlignTop
+                                        checked: deviceDelegate.selected
+                                        enabled: deviceDelegate.selectable && !root.controller.busy
+                                        onClicked: root.controller.setDeviceSelected(deviceDelegate.index, checked)
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 1
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: qsTr("%1 — OMEMO ID %2").arg(deviceDelegate.label).arg(deviceDelegate.deviceId)
+                                            font.bold: true
+                                            elide: Text.ElideRight
+                                            maximumLineCount: 1
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: deviceDelegate.fingerprint
+                                            wrapMode: Text.WordWrap
+                                            color: palette.placeholderText
+                                            font.family: "monospace"
+                                            font.pixelSize: 11
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: deviceDelegate.trustText
+                                            color: deviceDelegate.trusted ? palette.text : palette.placeholderText
+                                            font.pixelSize: 12
+                                            elide: Text.ElideRight
+                                            maximumLineCount: 1
+                                        }
+                                    }
+
+                                    ToolButton {
+                                        Layout.alignment: Qt.AlignTop
+                                        text: qsTr("Remove")
+                                        enabled: !root.controller.busy
+                                        onClicked: {
+                                            root.pendingRemoveRow = deviceDelegate.index;
+                                            root.pendingRemoveDeviceId = deviceDelegate.deviceId;
+                                            root.pendingRemoveLabel = deviceDelegate.label;
+                                            removeDeviceDialog.open();
+                                        }
+                                    }
+                                }
+                            }
+
+                            Label {
+                                anchors.centerIn: parent
+                                visible: devicesView.count === 0
+                                width: Math.min(parent.width - 24, 420)
+                                horizontalAlignment: Text.AlignHCenter
+                                text: qsTr("No OMEMO devices are currently available. Start AnyKeep on another device and retry.")
+                                wrapMode: Text.WordWrap
+                                color: palette.placeholderText
+                            }
                         }
 
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("Find a key from another device where AnyKeep is already set up.")
+                            text: root.controller.deviceStatus
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("When you request the storage key, check another AnyKeep device logged into the same XMPP account. Approve the device-trust prompt there to allow key synchronization.")
                             wrapMode: Text.WordWrap
                             color: palette.placeholderText
                         }
 
-                        Button {
-                            objectName: "xmppStartNewStorageButton"
-                            Layout.fillWidth: true
-                            text: qsTr("Start with a new key")
-                            enabled: root.controller.canStartFresh
-                            onClicked: startFreshDialog.open()
-                        }
-
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("Use a new empty storage on this device. Existing encrypted notes, if any, cannot be read without their original key.")
+                            text: qsTr("Compare fingerprints on the other device. The client label is shown separately from the OMEMO ID; AnyKeep normally publishes its XMPP resource as that label, but XMPP does not guarantee this mapping or provide a last-used time.")
                             wrapMode: Text.WordWrap
                             color: palette.placeholderText
+                            font.pixelSize: 12
+                        }
+                    }
+
+                    ColumnLayout {
+                        id: keysPage
+                        spacing: 8
+
+                        ListView {
+                            id: keysView
+
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            Layout.minimumHeight: 180
+                            visible: count > 0
+                            clip: true
+                            spacing: 4
+                            model: root.controller.keysModel
+                            boundsBehavior: Flickable.StopAtBounds
+                            reuseItems: true
+
+                            ScrollBar.vertical: ScrollBar {
+                                id: keysScrollBar
+                                policy: ScrollBar.AsNeeded
+                            }
+
+                            delegate: Frame {
+                                id: keyDelegate
+
+                                required property int index
+                                required property string fingerprint
+                                required property string source
+                                required property int noteCount
+                                required property string status
+                                required property bool available
+
+                                width: Math.max(0, ListView.view.width - keysScrollBar.width - 6)
+                                // Keep descriptions legible for unavailable keys. The
+                                // disabled radio control already conveys that a key
+                                // cannot be selected; dimming the whole Frame also
+                                // fades its explanatory text below readable contrast.
+                                padding: 6
+
+                                contentItem: RowLayout {
+                                    spacing: 8
+
+                                    RadioButton {
+                                        checked: root.controller.selectedKeyIndex === keyDelegate.index
+                                        enabled: keyDelegate.available && !root.controller.busy
+                                        onClicked: root.controller.selectKey(keyDelegate.index)
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: keyDelegate.fingerprint
+                                            color: keyDelegate.available ? palette.text : palette.placeholderText
+                                            font.bold: true
+                                            font.family: "monospace"
+                                            font.pixelSize: 12
+                                            elide: Text.ElideRight
+                                            maximumLineCount: 1
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: qsTr("Available from: %1").arg(keyDelegate.source)
+                                            color: keyDelegate.available ? palette.text : palette.placeholderText
+                                            wrapMode: Text.WordWrap
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: qsTr("Notes: %1 — %2").arg(keyDelegate.noteCount).arg(keyDelegate.status)
+                                            color: palette.placeholderText
+                                            wrapMode: Text.WordWrap
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            Layout.minimumHeight: 180
+                            visible: keysView.count === 0
+                            spacing: 10
+
+                            Item {
+                                Layout.fillHeight: true
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("No storage key was found")
+                                horizontalAlignment: Text.AlignHCenter
+                                font.bold: true
+                                font.pixelSize: 16
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: root.controller.canCreateNewKey ? qsTr("No notes are published in XMPP yet, so it is safe to create a new key for this account.") : qsTr("Start AnyKeep on a device that still has access to your notes, then try again. If you saved a recovery key, return to XMPP settings and import it on this device. If the old key is permanently lost, you can start with an empty storage instead.")
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
+                                color: palette.placeholderText
+                            }
+
+                            RowLayout {
+                                Layout.alignment: Qt.AlignHCenter
+                                spacing: 8
+
+                                Button {
+                                    text: qsTr("Try again")
+                                    enabled: !root.controller.busy
+                                    onClicked: root.controller.retryKeySearch()
+                                }
+
+                                Button {
+                                    visible: root.controller.canCreateNewKey
+                                    text: qsTr("Create a new storage key")
+                                    highlighted: true
+                                    enabled: !root.controller.busy
+                                    onClicked: root.controller.createNewKey()
+                                }
+                            }
+
+                            Button {
+                                Layout.alignment: Qt.AlignHCenter
+                                visible: root.controller.canStartFresh && !root.controller.canCreateNewKey
+                                text: qsTr("I no longer have the old key")
+                                enabled: !root.controller.busy
+                                onClicked: startFreshDialog.open()
+                            }
+
+                            Item {
+                                Layout.fillHeight: true
+                            }
                         }
 
                         Label {
                             Layout.fillWidth: true
-                            visible: text.length > 0
                             text: root.controller.keyStatus
                             wrapMode: Text.WordWrap
                         }
-                    }
 
-                    Label {
-                        Layout.fillWidth: true
-                        text: qsTr("No existing notes are deleted or overwritten while you choose. You can cancel and return to setup later.")
-                        wrapMode: Text.WordWrap
-                        color: palette.placeholderText
-                    }
-                }
-            }
-
-            ColumnLayout {
-                spacing: 8
-
-                ListView {
-                    id: devicesView
-
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.minimumHeight: 180
-                    clip: true
-                    spacing: 4
-                    model: root.controller.devicesModel
-                    boundsBehavior: Flickable.StopAtBounds
-                    reuseItems: true
-
-                    ScrollBar.vertical: ScrollBar {
-                        id: devicesScrollBar
-                        policy: ScrollBar.AsNeeded
-                    }
-
-                    delegate: Frame {
-                        id: deviceDelegate
-
-                        required property int index
-                        required property string label
-                        required property string fingerprint
-                        required property string trustText
-                        required property bool selected
-                        required property bool selectable
-                        required property bool trusted
-                        required property var deviceId
-
-                        width: Math.max(0, ListView.view.width - devicesScrollBar.width - 6)
-                        padding: 6
-
-                        contentItem: RowLayout {
-                            id: deviceRow
-                            spacing: 8
-
-                            CheckBox {
-                                Layout.alignment: Qt.AlignTop
-                                checked: deviceDelegate.selected
-                                enabled: deviceDelegate.selectable && !root.controller.busy
-                                onClicked: root.controller.setDeviceSelected(deviceDelegate.index, checked)
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 1
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: qsTr("%1 — OMEMO ID %2").arg(deviceDelegate.label).arg(deviceDelegate.deviceId)
-                                    font.bold: true
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 1
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: deviceDelegate.fingerprint
-                                    wrapMode: Text.WordWrap
-                                    color: palette.placeholderText
-                                    font.family: "monospace"
-                                    font.pixelSize: 11
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: deviceDelegate.trustText
-                                    color: deviceDelegate.trusted ? palette.text : palette.placeholderText
-                                    font.pixelSize: 12
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 1
-                                }
-                            }
-
-                            ToolButton {
-                                Layout.alignment: Qt.AlignTop
-                                text: qsTr("Remove")
-                                enabled: !root.controller.busy
-                                onClicked: {
-                                    root.pendingRemoveRow = deviceDelegate.index;
-                                    root.pendingRemoveDeviceId = deviceDelegate.deviceId;
-                                    root.pendingRemoveLabel = deviceDelegate.label;
-                                    removeDeviceDialog.open();
-                                }
-                            }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: keysView.count > 0
+                            text: qsTr("Usually you should keep the key that owns the most notes. A key marked unavailable cannot be selected; bring one of its devices online or import its recovery key first.")
+                            wrapMode: Text.WordWrap
+                            color: palette.placeholderText
                         }
                     }
 
-                    Label {
-                        anchors.centerIn: parent
-                        visible: devicesView.count === 0
-                        width: Math.min(parent.width - 24, 420)
-                        horizontalAlignment: Text.AlignHCenter
-                        text: qsTr("No OMEMO devices are currently available. Start AnyKeep on another device and retry.")
-                        wrapMode: Text.WordWrap
-                        color: palette.placeholderText
-                    }
-                }
+                    ScrollView {
+                        id: summaryScroll
 
-                Label {
-                    Layout.fillWidth: true
-                    text: root.controller.deviceStatus
-                    wrapMode: Text.WordWrap
-                }
+                        clip: true
 
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("When you request the storage key, check another AnyKeep device logged into the same XMPP account. Approve the device-trust prompt there to allow key synchronization.")
-                    wrapMode: Text.WordWrap
-                    color: palette.placeholderText
-                }
+                        ScrollBar.horizontal: ScrollBar {
+                            policy: ScrollBar.AlwaysOff
+                        }
 
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Compare fingerprints on the other device. The client label is shown separately from the OMEMO ID; AnyKeep normally publishes its XMPP resource as that label, but XMPP does not guarantee this mapping or provide a last-used time.")
-                    wrapMode: Text.WordWrap
-                    color: palette.placeholderText
-                    font.pixelSize: 12
-                }
-            }
-
-            ColumnLayout {
-                spacing: 8
-
-                ListView {
-                    id: keysView
-
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.minimumHeight: 180
-                    visible: count > 0
-                    clip: true
-                    spacing: 4
-                    model: root.controller.keysModel
-                    boundsBehavior: Flickable.StopAtBounds
-                    reuseItems: true
-
-                    ScrollBar.vertical: ScrollBar {
-                        id: keysScrollBar
-                        policy: ScrollBar.AsNeeded
+                        Label {
+                            width: summaryScroll.availableWidth
+                            text: root.controller.summary
+                            wrapMode: Text.WordWrap
+                        }
                     }
 
-                    delegate: Frame {
-                        id: keyDelegate
+                    ScrollView {
+                        id: resultScroll
 
-                        required property int index
-                        required property string fingerprint
-                        required property string source
-                        required property int noteCount
-                        required property string status
-                        required property bool available
+                        clip: true
 
-                        width: Math.max(0, ListView.view.width - keysScrollBar.width - 6)
-                        // Keep descriptions legible for unavailable keys. The
-                        // disabled radio control already conveys that a key
-                        // cannot be selected; dimming the whole Frame also
-                        // fades its explanatory text below readable contrast.
-                        padding: 6
+                        ScrollBar.horizontal: ScrollBar {
+                            policy: ScrollBar.AlwaysOff
+                        }
 
-                        contentItem: RowLayout {
-                            spacing: 8
-
-                            RadioButton {
-                                checked: root.controller.selectedKeyIndex === keyDelegate.index
-                                enabled: keyDelegate.available && !root.controller.busy
-                                onClicked: root.controller.selectKey(keyDelegate.index)
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: keyDelegate.fingerprint
-                                    color: keyDelegate.available ? palette.text : palette.placeholderText
-                                    font.bold: true
-                                    font.family: "monospace"
-                                    font.pixelSize: 12
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 1
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: qsTr("Available from: %1").arg(keyDelegate.source)
-                                    color: keyDelegate.available ? palette.text : palette.placeholderText
-                                    wrapMode: Text.WordWrap
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: qsTr("Notes: %1 — %2").arg(keyDelegate.noteCount).arg(keyDelegate.status)
-                                    color: palette.placeholderText
-                                    wrapMode: Text.WordWrap
-                                }
-                            }
+                        Label {
+                            width: resultScroll.availableWidth
+                            text: root.controller.resultText
+                            wrapMode: Text.WordWrap
                         }
                     }
                 }
 
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.minimumHeight: 180
-                    visible: keysView.count === 0
-                    spacing: 10
-
-                    Item { Layout.fillHeight: true }
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: qsTr("No storage key was found")
-                        horizontalAlignment: Text.AlignHCenter
-                        font.bold: true
-                        font.pixelSize: 16
-                    }
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: root.controller.canCreateNewKey
-                            ? qsTr("No notes are published in XMPP yet, so it is safe to create a new key for this account.")
-                            : qsTr("Start AnyKeep on a device that still has access to your notes, then try again. If you saved a recovery key, return to XMPP settings and import it on this device. If the old key is permanently lost, you can start with an empty storage instead.")
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.WordWrap
-                        color: palette.placeholderText
-                    }
-
-                    RowLayout {
-                        Layout.alignment: Qt.AlignHCenter
-                        spacing: 8
-
-                        Button {
-                            text: qsTr("Try again")
-                            enabled: !root.controller.busy
-                            onClicked: root.controller.retryKeySearch()
-                        }
-
-                        Button {
-                            visible: root.controller.canCreateNewKey
-                            text: qsTr("Create a new storage key")
-                            highlighted: true
-                            enabled: !root.controller.busy
-                            onClicked: root.controller.createNewKey()
-                        }
-                    }
-
-                    Button {
-                        Layout.alignment: Qt.AlignHCenter
-                        visible: root.controller.canStartFresh && !root.controller.canCreateNewKey
-                        text: qsTr("I no longer have the old key")
-                        enabled: !root.controller.busy
-                        onClicked: startFreshDialog.open()
-                    }
-
-                    Item { Layout.fillHeight: true }
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    text: root.controller.keyStatus
-                    wrapMode: Text.WordWrap
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    visible: keysView.count > 0
-                    text: qsTr("Usually you should keep the key that owns the most notes. A key marked unavailable cannot be selected; bring one of its devices online or import its recovery key first.")
-                    wrapMode: Text.WordWrap
-                    color: palette.placeholderText
+                XmppSyncProgress {
+                    id: syncProgress
+                    objectName: "xmppRecoveryProgress"
+                    width: body.width
+                    summary: root.controller.syncSummary
+                    events: root.controller.syncEvents
+                    busy: root.controller.busy
+                    completed: root.controller.syncCompleted
+                    total: root.controller.syncTotal
+                    logHeight: Math.max(64, Math.min(150, surface.height * 0.22))
                 }
             }
-
-                ScrollView {
-                    id: summaryScroll
-
-                    clip: true
-
-                    ScrollBar.horizontal: ScrollBar {
-                        policy: ScrollBar.AlwaysOff
-                    }
-
-                    Label {
-                        width: summaryScroll.availableWidth
-                    text: root.controller.summary
-                    wrapMode: Text.WordWrap
-                }
-            }
-
-                ScrollView {
-                    id: resultScroll
-
-                    clip: true
-
-                    ScrollBar.horizontal: ScrollBar {
-                        policy: ScrollBar.AlwaysOff
-                    }
-
-                    Label {
-                        width: resultScroll.availableWidth
-                    text: root.controller.resultText
-                    wrapMode: Text.WordWrap
-                }
-            }
-        }
-
-        BusyIndicator {
-            Layout.alignment: Qt.AlignHCenter
-            running: root.controller.busy
-            visible: running
-            implicitWidth: 28
-            implicitHeight: 28
         }
 
         GridLayout {
+            objectName: "xmppRecoveryControls"
             Layout.fillWidth: true
-            columns: body.width < 420 ? 2 : 3
+            Layout.minimumHeight: implicitHeight
+            columns: surface.width < 420 ? 2 : 3
             columnSpacing: 8
             rowSpacing: 8
 
             Button {
+                objectName: "xmppRecoveryCancelButton"
                 Layout.fillWidth: true
                 text: qsTr("Cancel")
                 enabled: root.controller.canCancel
@@ -538,6 +571,7 @@ Item {
             }
 
             Button {
+                objectName: "xmppRecoveryBackButton"
                 Layout.fillWidth: true
                 text: qsTr("Back")
                 enabled: root.controller.canGoBack
@@ -545,8 +579,9 @@ Item {
             }
 
             Button {
+                objectName: "xmppRecoveryNextButton"
                 Layout.fillWidth: true
-                Layout.columnSpan: body.width < 420 ? 2 : 1
+                Layout.columnSpan: surface.width < 420 ? 2 : 1
                 text: root.controller.nextText
                 highlighted: true
                 visible: !root.controller.localKeyMissing || root.controller.currentPage !== 0
@@ -568,9 +603,9 @@ Item {
             // standalone hosts have no such action and are left unchanged.
             // Cancelled/incomplete recovery must preserve the current page.
             if (accepted && !root.standalone && root.hostItem && root.hostItem.window) {
-                const window = root.hostItem.window
+                const window = root.hostItem.window;
                 if (typeof window.showNotesAfterXmppKeyResolution === "function")
-                    window.showNotesAfterXmppKeyResolution()
+                    window.showNotesAfterXmppKeyResolution();
             }
         }
     }

@@ -271,7 +271,16 @@ QQuickWindow *XmppDialogPresenter::presentationWindow(bool preferStandalone)
             }
             if (trustPrompt_ && !trustPrompt_->completed())
                 trustPrompt_->reject();
-            QTimer::singleShot(0, this, [this]() { releaseStandaloneWindowIfIdle(); });
+            QTimer::singleShot(0, this, [this]() {
+                // Finish can now wait for the keychain commit. If it fails,
+                // keep the result/retry UI reachable after a window close.
+                if (resolutionController_ && !resolutionController_->completed()
+                    && resolutionController_->currentPage() == XmppKeyResolutionController::ResultPage
+                    && standaloneWindow_ && !standaloneWindow_->isVisible()) {
+                    standaloneWindow_->show();
+                }
+                releaseStandaloneWindowIfIdle();
+            });
         });
         connect(window, &QObject::destroyed, this, [this]() { standaloneWindow_.clear(); });
     }

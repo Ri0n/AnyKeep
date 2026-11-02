@@ -187,6 +187,11 @@ if(TARGET xmpppubsub_test_support)
   set_tests_properties(xmppdialogpresenter_test PROPERTIES LABELS "xmpp;qml")
 
   if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
+    add_anykeep_test(iriskeysync_test iriskeysync_test.cpp)
+    target_include_directories(iriskeysync_test PRIVATE ../plugins/xmpppubsub)
+    target_link_libraries(iriskeysync_test PRIVATE xmpppubsub_test_support Qt6::Xml)
+    set_tests_properties(iriskeysync_test PROPERTIES LABELS "storage;xmpp")
+
     add_anykeep_test(irisjinglepublicationprovider_test irisjinglepublicationprovider_test.cpp)
     target_include_directories(irisjinglepublicationprovider_test PRIVATE ../plugins/xmpppubsub)
     target_link_libraries(irisjinglepublicationprovider_test PRIVATE xmpppubsub_test_support Qt6::Xml)

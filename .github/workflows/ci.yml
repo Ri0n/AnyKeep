@@ -79,6 +79,9 @@ jobs:
       - name: Load dependency versions
         uses: ./.github/actions/load-dependencies
 
+      - name: Test local XMPP reset script
+        run: powershell -NoProfile -File tests/reset_local_xmpp_test.ps1
+
       - name: Set up Windows desktop build
         uses: ./.github/actions/setup-windows-desktop
         with:

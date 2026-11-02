@@ -291,10 +291,79 @@ QCoro::Task<std::pair<QStringList, QString>> XmppWorker::onlinePrivateNotesResou
     co_return std::make_pair(std::move(resources), failures.join(QLatin1Char('\n')));
 }
 
-QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
+QCoro::Task<XmppKeyAuditResult> XmppWorker::requestStorageKeyTask(QString resource)
 {
     XmppKeyAuditResult output;
-    auto               ready = co_await ensureOmemoReadyTask();
+    const auto         generation = clientGeneration_;
+    const auto         requestId  = newUuid();
+    // QXmpp 1.11's QFuture bridge requires a copyable result. Keep the dynamic
+    // encrypted IQ type intact while transferring ownership through the bridge.
+    using EncryptedRequest = std::variant<std::shared_ptr<QXmppIq>, QXmppError>;
+    QXmppPromise<EncryptedRequest> promise;
+    auto                           encryptedFuture = promise.task().toFuture(this);
+    omemoManager_->encryptIq(keySyncExtension_->makeRequest(resource, requestId), {})
+        .then(this, [promise = std::move(promise)](QXmppE2eeExtension::IqEncryptResult result) mutable {
+            if (auto *error = std::get_if<QXmppError>(&result))
+                promise.finish(EncryptedRequest { std::move(*error) });
+            else
+                promise.finish(EncryptedRequest {
+                    std::shared_ptr<QXmppIq>(std::move(std::get<std::unique_ptr<QXmppIq>>(result))) });
+        });
+    auto encrypted = co_await encryptedFuture;
+    if (generation != clientGeneration_)
+        co_return configurationChangedResult<XmppKeyAuditResult>();
+    if (const auto *error = std::get_if<QXmppError>(&encrypted)) {
+        setXmppFailure(output, *error, errorText(*error));
+        co_return output;
+    }
+    auto reply = co_await client_->sendIq(std::move(*std::get<std::shared_ptr<QXmppIq>>(encrypted)), {}).toFuture(this);
+    if (generation != clientGeneration_)
+        co_return configurationChangedResult<XmppKeyAuditResult>();
+    if (const auto *error = std::get_if<QXmppError>(&reply)) {
+        setXmppFailure(output, *error, errorText(*error));
+        co_return output;
+    }
+    const auto stanza = std::get<QDomElement>(reply);
+    if (stanza.attribute(QStringLiteral("from")) != resource || stanza.attribute(QStringLiteral("id")) != requestId
+        || stanza.attribute(QStringLiteral("type")) != QStringLiteral("result")) {
+        output.error     = QStringLiteral("The storage-key response does not match the requested full JID and IQ");
+        output.errorKind = XmppErrorKind::Security;
+        co_return output;
+    }
+    // sendSensitiveIq() also accepts plaintext responses in supported QXmpp
+    // versions. Require a successful OMEMO decryption explicitly for keys.
+    auto decrypted = co_await omemoManager_->decryptIq(stanza).toFuture(this);
+    if (generation != clientGeneration_)
+        co_return configurationChangedResult<XmppKeyAuditResult>();
+    if (const auto *error = std::get_if<QXmppError>(&decrypted)) {
+        setXmppFailure(output, *error, errorText(*error));
+        co_return output;
+    }
+    const auto *plain = std::get_if<QDomElement>(&decrypted);
+    if (!plain) {
+        output.error     = QStringLiteral("The storage-key response is not authenticated with OMEMO");
+        output.errorKind = XmppErrorKind::Security;
+        co_return output;
+    }
+    auto key = SecureEnvelope::decodeRecoveryKey(XmppKeySyncExtension::responseRecoveryKey(*plain, requestId),
+                                                 KeyDerivationProfile::PrivateNotes);
+    if (!key) {
+        output.error     = QStringLiteral("Invalid storage key response");
+        output.errorKind = XmppErrorKind::Security;
+        co_return output;
+    }
+    output.candidates.append(
+        { resource, key.value, SecureEnvelope::keyId(key.value, KeyDerivationProfile::PrivateNotes), 0, false });
+    output.ok = true;
+    co_return output;
+}
+
+QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(XmppProgressCallback progress)
+{
+    XmppKeyAuditResult output;
+    if (progress)
+        progress({ tr("Preparing OMEMO key discovery…") });
+    auto ready = co_await ensureOmemoReadyTask();
     if (!ready.ok) {
         output.error     = ready.error;
         output.errorKind = ready.errorKind;
@@ -309,14 +378,21 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
                                    SecureEnvelope::keyId(config_.masterKey, KeyDerivationProfile::PrivateNotes), 0,
                                    true });
 
-    const auto bareJid               = QXmppUtils::jidToBareJid(config_.jid);
+    const auto bareJid = QXmppUtils::jidToBareJid(config_.jid);
+    if (progress)
+        progress({ tr("Discovering online AnyKeep devices…") });
     auto [resources, discoveryError] = co_await onlinePrivateNotesResourcesTask();
     QStringList errors;
     if (!discoveryError.isEmpty())
         errors.append(discoveryError);
     co_await omemoStorage_->resetAllSessions().toFuture(this);
 
+    int resourceNumber = 0;
     for (const auto &name : resources) {
+        ++resourceNumber;
+        if (progress)
+            progress(
+                { tr("Requesting a storage key from device %1 of %2…").arg(resourceNumber).arg(resources.size()) });
         const auto resource = bareJid + QLatin1Char('/') + name;
         const auto trustId  = newUuid();
         auto       trustResult
@@ -332,40 +408,37 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
             continue;
         }
 
-        auto requestId = newUuid();
-        auto result
-            = co_await client_->sendSensitiveIq(keySyncExtension_->makeRequest(resource, requestId), {}).toFuture(this);
-        if (std::holds_alternative<QXmppError>(result)) {
-            requestId = newUuid();
-            result    = co_await client_->sendSensitiveIq(keySyncExtension_->makeRequest(resource, requestId), {})
-                            .toFuture(this);
-        }
-        if (const auto *error = std::get_if<QXmppError>(&result)) {
-            errors.append(QStringLiteral("%1: %2").arg(resource, errorText(*error)));
+        if (progress)
+            progress(
+                { tr("Waiting for device %1 of %2 to return its key…").arg(resourceNumber).arg(resources.size()) });
+        auto result = co_await requestStorageKeyTask(resource);
+        if (!result.ok && result.retryable())
+            result = co_await requestStorageKeyTask(resource);
+        if (!result.ok || result.candidates.isEmpty()) {
+            errors.append(QStringLiteral("%1: %2").arg(resource, result.error));
             continue;
         }
-        const auto encoded = XmppKeySyncExtension::responseRecoveryKey(std::get<QDomElement>(result), requestId);
-        auto       key     = SecureEnvelope::decodeRecoveryKey(encoded, KeyDerivationProfile::PrivateNotes);
-        if (!key) {
-            errors.append(QStringLiteral("%1: invalid storage key response").arg(resource));
-            continue;
-        }
-        const auto keyId    = SecureEnvelope::keyId(key.value, KeyDerivationProfile::PrivateNotes);
-        auto       existing = std::find_if(output.candidates.begin(), output.candidates.end(),
-                                           [&keyId](const auto &candidate) { return candidate.keyId == keyId; });
+        const auto candidate = result.candidates.constFirst();
+        const auto keyId     = candidate.keyId;
+        auto       existing  = std::find_if(output.candidates.begin(), output.candidates.end(),
+                                            [&keyId](const auto &candidate) { return candidate.keyId == keyId; });
         if (existing == output.candidates.end())
-            output.candidates.append({ resource, key.value, keyId, 0, false });
+            output.candidates.append(candidate);
         else if (!existing->resource.split(QStringLiteral(", ")).contains(resource))
             existing->resource += QStringLiteral(", ") + resource;
     }
 
+    if (progress)
+        progress({ tr("Retrieving the note index for key verification…") });
     auto idsResult = co_await pubSub_->requestOwnPepItemIds(config_.indexNodeName()).toFuture(this);
     if (const auto *error = std::get_if<QXmppError>(&idsResult)) {
         setXmppFailure(output, *error, errorText(*error));
         co_return output;
     }
-    const auto ids          = std::get<QVector<QString>>(idsResult);
-    output.totalIndexItems  = ids.size();
+    const auto ids         = std::get<QVector<QString>>(idsResult);
+    output.totalIndexItems = ids.size();
+    if (progress)
+        progress({ tr("Verifying keys for %1 notes…").arg(ids.size()), 0, int(ids.size()) });
     constexpr int BatchSize = 50;
     for (int offset = 0; offset < ids.size(); offset += BatchSize) {
         QStringList batch;
@@ -390,6 +463,10 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask()
                 output.candidates.append({ {}, {}, keyId, 1, false });
             else
                 ++candidate->indexItemCount;
+        }
+        if (progress) {
+            const int completed = qMin(offset + BatchSize, int(ids.size()));
+            progress({ tr("Verified note keys: %1 of %2").arg(completed).arg(ids.size()), completed, int(ids.size()) });
         }
     }
     output.ok = true;

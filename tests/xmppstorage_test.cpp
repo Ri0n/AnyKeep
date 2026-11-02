@@ -1,4 +1,5 @@
 #include "xmppbackend.h"
+#include "xmppnotecodec.h"
 #include "xmppsettingscontroller.h"
 #include "xmppstorage.h"
 
@@ -15,6 +16,8 @@ namespace {
 
 class FakeXmppBackend final : public XmppBackend {
 public:
+    using XmppBackend::appendIndexPayload;
+    using XmppBackend::completeIndexList;
     using XmppBackend::XmppBackend;
 
     void seed(XmppRemoteNote note)
@@ -25,7 +28,7 @@ public:
 
     void start() override {}
     void setConfig(const XmppConfig &config) override { config_ = config; }
-    void shutdown() override {}
+    void shutdown() override { ++shutdownCalls; }
     void probeAsync(StatusCallback callback) override { callback({ true }); }
     void listNotesAsync(ListCallback callback) override
     {
@@ -41,6 +44,11 @@ public:
     }
     void getNoteAsync(QString id, NoteCallback callback) override
     {
+        ++getNoteCalls;
+        if (loadFailure) {
+            callback(*loadFailure);
+            return;
+        }
         XmppNoteResult result;
         result.ok   = remote_.contains(id);
         result.note = remote_.value(id);
@@ -49,6 +57,10 @@ public:
     void saveNoteAsync(XmppRemoteNote, NoteCallback callback) override
     {
         ++fullSaveCount;
+        if (saveFailure) {
+            callback(*saveFailure);
+            return;
+        }
         XmppNoteResult result;
         result.error = QStringLiteral("Unexpected full save");
         callback(std::move(result));
@@ -83,13 +95,13 @@ public:
     void           removeOwnOmemoDeviceAsync(quint32, StatusCallback callback) override { callback({ true }); }
     void           trustOwnOmemoDeviceAsync(QByteArray, StatusCallback callback) override { callback({ true }); }
     void trustOwnOmemoDevicesAsync(QList<QByteArray>, StatusCallback callback) override { callback({ true }); }
-    void auditStorageKeysAsync(AuditCallback callback) override
+    void auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback = {}) override
     {
         XmppKeyAuditResult result;
         result.ok = true;
         callback(std::move(result));
     }
-    void rekeyStorageAsync(QList<QByteArray>, QByteArray, RekeyCallback callback) override
+    void rekeyStorageAsync(QList<QByteArray>, QByteArray, RekeyCallback callback, XmppProgressCallback = {}) override
     {
         XmppRekeyResult result;
         result.ok = true;
@@ -111,6 +123,7 @@ public:
     void rejectKeySyncRequest(QString) override {}
 
     int                            fullSaveCount { 0 };
+    int                            shutdownCalls { 0 };
     int                            indexUpdateCount { 0 };
     QList<XmppRemoteNote>          indexRequests;
     QHash<QString, XmppRemoteNote> remote_;
@@ -118,6 +131,9 @@ public:
     bool                           deferLists { false };
     int                            listCalls { 0 };
     QList<ListCallback>            pendingLists;
+    std::optional<XmppNoteResult>  loadFailure;
+    std::optional<XmppNoteResult>  saveFailure;
+    int                            getNoteCalls { 0 };
 };
 
 XmppRemoteNote remoteNote(const QString &id, const QDateTime &modified)
@@ -149,6 +165,12 @@ private slots:
     void failedRefreshReportsTerminalActivity();
     void syncHistoryIsBoundedAndAvailableToNewSettings();
     void shutdownCancelsRefreshAndRejectsNewJobs();
+    void mixedKeyIndexRequiresRecovery_data();
+    void mixedKeyIndexRequiresRecovery();
+    void sameKeyAuthenticationFailureIsNotForeignKeyRecovery();
+    void noteBodyKeyMismatchRequiresRecovery_data();
+    void noteBodyKeyMismatchRequiresRecovery();
+    void saveWithForeignKeyRequiresRecovery();
 };
 
 void XmppStorageTest::init()
@@ -157,6 +179,129 @@ void XmppStorageTest::init()
     // its own cache, regardless of whether the previous scenario wrote notes.
     QSettings().setValue(QStringLiteral("storage.xmpppubsub.instanceId"),
                          QUuid::createUuid().toString(QUuid::WithoutBraces));
+}
+
+void XmppStorageTest::mixedKeyIndexRequiresRecovery_data()
+{
+    QTest::addColumn<int>("readableCount");
+    QTest::addColumn<int>("foreignCount");
+    QTest::addColumn<bool>("freshStart");
+    QTest::addColumn<bool>("needsRecovery");
+    QTest::newRow("mixed-keys") << 2 << 1 << false << true;
+    QTest::newRow("after-peer-migration") << 0 << 3 << false << true;
+    QTest::newRow("canonical-key-installed") << 3 << 0 << false << false;
+    QTest::newRow("empty-storage") << 0 << 0 << false << false;
+    QTest::newRow("explicit-fresh-start") << 0 << 3 << true << false;
+    QTest::newRow("fresh-start-with-new-notes") << 2 << 3 << true << false;
+}
+
+void XmppStorageTest::mixedKeyIndexRequiresRecovery()
+{
+    QFETCH(int, readableCount);
+    QFETCH(int, foreignCount);
+    QFETCH(bool, freshStart);
+    QFETCH(bool, needsRecovery);
+    XmppConfig config;
+    config.masterKey              = SecureEnvelope::generateMasterKey();
+    config.allowForeignKeyIndices = freshStart;
+    const auto     foreignKey     = SecureEnvelope::generateMasterKey();
+    XmppListResult result;
+    for (int i = 0; i < readableCount + foreignCount; ++i) {
+        const auto source  = remoteNote(QStringLiteral("note-%1").arg(i), QDateTime::currentDateTimeUtc());
+        const auto encoded = XmppNoteCodec::encodeIndex(source, i < readableCount ? config.masterKey : foreignKey,
+                                                        config.indexNodeName());
+        QVERIFY(encoded);
+        QVERIFY(!FakeXmppBackend::appendIndexPayload(config, encoded.value, result));
+    }
+    FakeXmppBackend::completeIndexList(config, result);
+    QCOMPARE(result.notes.size(), readableCount);
+    QCOMPARE(result.foreignKeyNotes, foreignCount);
+    QCOMPARE(result.ok, !needsRecovery);
+    if (needsRecovery) {
+        QCOMPARE(result.errorKind, XmppErrorKind::Security);
+        QVERIFY(result.error.contains(QStringLiteral("storage key mismatch")));
+        // The actual storage adapter must stop normal operations for this
+        // result; it must keep the backend alive for OMEMO recovery requests.
+        auto *backend       = new FakeXmppBackend;
+        backend->deferLists = true;
+        XmppStorage storage(nullptr, backend);
+        auto       *job = storage.refreshNotesAsync();
+        QTRY_COMPARE(backend->pendingLists.size(), 1);
+        backend->pendingLists.takeFirst()(result);
+        QTRY_VERIFY(job->isFinished());
+        QCOMPARE(job->state(), StorageJob::Failed);
+        QCOMPARE(storage.connectivityState(), NoteStorage::ConnectivityState::Error);
+        QCOMPARE(backend->shutdownCalls, 0);
+    }
+}
+
+void XmppStorageTest::sameKeyAuthenticationFailureIsNotForeignKeyRecovery()
+{
+    XmppConfig config;
+    config.masterKey   = SecureEnvelope::generateMasterKey();
+    const auto source  = remoteNote(QStringLiteral("damaged"), QDateTime::currentDateTimeUtc());
+    auto       encoded = XmppNoteCodec::encodeIndex(source, config.masterKey, config.indexNodeName());
+    QVERIFY(encoded);
+    encoded.value.cipherText[0] = char(encoded.value.cipherText.at(0) ^ 1);
+    XmppListResult result;
+    QVERIFY(FakeXmppBackend::appendIndexPayload(config, encoded.value, result));
+    FakeXmppBackend::completeIndexList(config, result);
+    QVERIFY(result.ok);
+    QVERIFY(result.partial);
+    QCOMPARE(result.foreignKeyNotes, 0);
+    QVERIFY(result.notes.isEmpty());
+}
+
+void XmppStorageTest::noteBodyKeyMismatchRequiresRecovery_data()
+{
+    QTest::addColumn<QString>("error");
+    QTest::addColumn<bool>("needsRecovery");
+    QTest::newRow("foreign-body-key") << QStringLiteral("Encrypted private-note storage key mismatch") << true;
+    QTest::newRow("damaged-same-key-ciphertext") << QStringLiteral("Encrypted data authentication failed") << false;
+}
+
+void XmppStorageTest::noteBodyKeyMismatchRequiresRecovery()
+{
+    QFETCH(QString, error);
+    QFETCH(bool, needsRecovery);
+    auto          *backend = new FakeXmppBackend;
+    XmppNoteResult failed;
+    failed.error         = error;
+    backend->loadFailure = failed;
+    XmppStorage storage(nullptr, backend);
+    emit        backend->connectionChanged(true);
+    auto       *job = storage.loadNoteAsync(QStringLiteral("note-with-unreadable-body"));
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->state(), StorageJob::Failed);
+    // A key mismatch blocks further ordinary loads until recovery; isolated
+    // same-key authentication damage leaves other note loads available.
+    auto *second = storage.loadNoteAsync(QStringLiteral("another-note"));
+    QTRY_VERIFY(second->isFinished());
+    QCOMPARE(backend->getNoteCalls, needsRecovery ? 1 : 2);
+    QCOMPARE(backend->shutdownCalls, 0);
+}
+
+void XmppStorageTest::saveWithForeignKeyRequiresRecovery()
+{
+    auto          *backend = new FakeXmppBackend;
+    XmppNoteResult failed;
+    failed.error         = QStringLiteral("Encrypted private-note storage key mismatch");
+    backend->saveFailure = failed;
+    XmppStorage storage(nullptr, backend);
+    emit        backend->connectionChanged(true);
+    const auto  remote = remoteNote(QStringLiteral("editable"), QDateTime::currentDateTimeUtc());
+    backend->seed(remote);
+    const auto local = storage.note(remote.id);
+    QVERIFY(local.isLoaded());
+    auto *job = storage.saveNoteAsync(local);
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(backend->fullSaveCount, 1);
+    QCOMPARE(job->state(), StorageJob::Failed);
+    auto *blocked = storage.loadNoteAsync(QStringLiteral("different-remote-note"));
+    QTRY_VERIFY(blocked->isFinished());
+    QCOMPARE(backend->getNoteCalls, 0);
+    QCOMPARE(storage.connectivityState(), NoteStorage::ConnectivityState::Error);
+    QCOMPARE(backend->shutdownCalls, 0);
 }
 
 void XmppStorageTest::reorderPublishesOnlyTheIndex()

@@ -10,9 +10,18 @@
 #include <QString>
 #include <QStringList>
 
+#include <functional>
 #include <optional>
 
 namespace AnyKeep {
+
+/// Human-readable recovery stages; counts refer to processed notes, or -1 when not known yet.
+struct XmppSyncProgress {
+    QString message;
+    int     completed { -1 };
+    int     total { -1 };
+};
+using XmppProgressCallback = std::function<void(XmppSyncProgress)>;
 
 /// Broad failure category used to decide whether automatic retry is useful.
 enum class XmppErrorKind {
@@ -42,19 +51,19 @@ struct XmppConfig {
     int        port { 0 }; ///< Optional port override; zero selects the library default.
     QString    resource { QStringLiteral("private-notes") };            ///< Requested XMPP resource.
     QString    nodeName { QStringLiteral("urn:xmpp:private-notes:0") }; ///< Versioned base AnyKeep node.
-    QString    originId;            ///< Stable installation ID used in note revision metadata.
-    int        timeoutMs { 15000 }; ///< Upper bound for an individual protocol operation.
-    QByteArray masterKey;           ///< Content-encryption key for notes (not an OMEMO key).
+    QString    originId;                         ///< Stable installation ID used in note revision metadata.
+    int        timeoutMs { 15000 };              ///< Upper bound for an individual protocol operation.
+    QByteArray masterKey;                        ///< Content-encryption key for notes (not an OMEMO key).
     bool       allowForeignKeyIndices { false }; ///< Opt-in fresh-storage mode: preserve old-key XMPP items.
-    QByteArray omemoStateKey;       ///< Key encrypting local OMEMO/trust state at rest.
-    QString    omemoStatePath;      ///< Directory containing encrypted OMEMO state files.
+    QByteArray omemoStateKey;                    ///< Key encrypting local OMEMO/trust state at rest.
+    QString    omemoStatePath;                   ///< Directory containing encrypted OMEMO state files.
 
-    // A fresh storage is an explicit user choice. Its old-key notes are
-    // protected but invisible, so a foreign-key-only index is expected.
-    // Outside this mode it is a security mismatch requiring key recovery.
-    bool foreignKeyOnlyIsError(int readableNotes, int foreignKeyNotes) const
+    // A fresh storage is an explicit user choice. Otherwise even a mixed
+    // readable/foreign-key index requires recovery, rather than silently
+    // hiding a second client's notes.
+    bool foreignKeysRequireRecovery(int foreignKeyNotes) const
     {
-        return !allowForeignKeyIndices && readableNotes == 0 && foreignKeyNotes > 0;
+        return !allowForeignKeyIndices && foreignKeyNotes > 0;
     }
 
     QString indexNodeName() const { return nodeName + QStringLiteral(":index"); }
@@ -141,6 +150,7 @@ struct XmppStatusResult {
 struct XmppListResult : XmppStatusResult {
     QList<XmppRemoteNote> notes;
     bool                  partial { false };
+    int                   foreignKeyNotes { 0 };
 };
 
 /// Result of loading or saving one complete note.
@@ -154,9 +164,10 @@ struct XmppKeyAuditResult : XmppStatusResult {
     int                            totalIndexItems { 0 };
 };
 
-/// Result of re-encrypting remote notes under a chosen canonical key.
+/// Result of verifying remote notes and migrating records which use another key.
 struct XmppRekeyResult : XmppStatusResult {
-    int         migrated { 0 };
+    int         migrated { 0 };  ///< Notes with at least one successfully re-encrypted record.
+    int         unchanged { 0 }; ///< Authenticated notes already using the chosen key for both records.
     int         total { 0 };
     QStringList inaccessibleNoteIds;
 };

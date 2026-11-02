@@ -13,7 +13,7 @@ namespace AnyKeep {
 /**
  * @brief Implements AnyKeep's private key-sync IQ protocol.
  *
- * Requests and responses are addressed to full JIDs. Recovery-key replies may
+ * Requests and responses are addressed to full JIDs. Recovery-key replies must
  * be OMEMO encrypted; QXmppE2eeMetadata retained in PendingRequest lets the
  * response follow the encryption context of the incoming request.
  */

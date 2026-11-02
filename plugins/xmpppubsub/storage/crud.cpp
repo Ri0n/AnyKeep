@@ -362,8 +362,11 @@ NoteLoadJob *XmppStorage::loadNoteAsync(const QString &id, QObject *owner)
                                 cache_.remove(id);
                                 persistCache();
                             }
-                            guard->fail(
-                                storageError(result, result.notFound ? StorageError::NotFound : StorageError::Network));
+                            if (isStorageKeyMismatch(result.error))
+                                enterErrorState(result.error, true);
+                            if (guard && !guard->isFinished())
+                                guard->fail(storageError(
+                                    result, result.notFound ? StorageError::NotFound : StorageError::Network));
                             return;
                         }
                         reconcileRemoteFolders({ result.note });
@@ -452,11 +455,14 @@ NoteSaveJob *XmppStorage::saveNoteAsync(const Note &note, QObject *owner)
                         if (!result.ok) {
                             auto error = storageError(result,
                                                       result.conflict ? StorageError::Conflict : StorageError::Network);
+                            if (isStorageKeyMismatch(result.error))
+                                enterErrorState(result.error, true);
                             if (result.remoteOnConflict) {
                                 reconcileRemoteFolders({ *result.remoteOnConflict });
                                 cache_.insert(result.remoteOnConflict->id, fromRemote(*result.remoteOnConflict));
                             }
-                            guard->fail(error);
+                            if (guard && !guard->isFinished())
+                                guard->fail(error);
                             return;
                         }
                         reconcileRemoteFolders({ result.note });
@@ -576,8 +582,11 @@ NoteFolderChangeJob *XmppStorage::changeNoteFolderAsync(const Note &note, QObjec
                                 cache_.insert(result.remoteOnConflict->id, fromRemote(*result.remoteOnConflict));
                                 persistCache();
                             }
-                            guard->fail(
-                                storageError(result, result.conflict ? StorageError::Conflict : StorageError::Network));
+                            if (isStorageKeyMismatch(result.error))
+                                enterErrorState(result.error, true);
+                            if (guard && !guard->isFinished())
+                                guard->fail(storageError(
+                                    result, result.conflict ? StorageError::Conflict : StorageError::Network));
                             return;
                         }
 
