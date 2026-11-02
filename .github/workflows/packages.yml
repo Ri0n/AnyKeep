@@ -458,6 +458,23 @@ jobs:
           python3 .github/scripts/relocate-macos-libs.py patch "$app"
           "$QT_ROOT_DIR/bin/macdeployqt" "$app" "-qmldir=$PWD/libanykeep/qml" \
             -always-overwrite -no-codesign
+
+          # macdeployqt deploys every available SQL driver when QtSql is used.
+          # AnyKeep needs SQLite only; other drivers depend on external DB
+          # client libraries that are not shipped with the standalone bundle.
+          sql_plugins="$app/Contents/PlugIns/sqldrivers"
+          if [ ! -f "$sql_plugins/libqsqlite.dylib" ]; then
+            echo 'Qt SQLite driver is missing from the macOS app bundle' >&2
+            exit 1
+          fi
+          find "$sql_plugins" -mindepth 1 -maxdepth 1 \
+            ! -name 'libqsqlite.dylib' -print -exec rm -rf {} +
+          if [ "$(find "$sql_plugins" -mindepth 1 -maxdepth 1 | wc -l | tr -d '[:space:]')" != 1 ]; then
+            echo 'Unexpected SQL drivers remain in the macOS app bundle' >&2
+            exit 1
+          fi
+          echo 'Bundled Qt SQL driver: libqsqlite.dylib'
+
           # macdeployqt may copy new Qt plugins or overwrite staged binaries.
           python3 .github/scripts/relocate-macos-libs.py patch "$app"
 
