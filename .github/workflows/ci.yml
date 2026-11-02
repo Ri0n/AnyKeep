@@ -137,6 +137,7 @@ jobs:
             -DANYKEEP_QCA_SDK_ROOT="$pwd/qca-sdk" `
             -DANYKEEP_IRIS_SDK_ROOT="$pwd/iris-sdk" `
             -DANYKEEP_QTKEYCHAIN_SDK_ROOT="$pwd/qtkeychain-sdk" `
+            -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=ON `
             -DCMAKE_C_COMPILER_LAUNCHER=ccache `
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
             -DBUILD_TESTING=ON
@@ -152,10 +153,24 @@ jobs:
       - name: Test
         run: ctest --test-dir build/windows --output-on-failure --timeout 180
 
+      - name: Verify packaged Windows crypto providers
+        run: |
+          $runtimePrefix = "$pwd/build/windows-runtime-check"
+          cmake --install build/windows --prefix $runtimePrefix --component Libraries
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $opensslFiles = Get-ChildItem $runtimePrefix -Recurse -File |
+            Where-Object { $_.Name -match '^(qca-ossl|libcrypto|libssl)' }
+          if ($opensslFiles) { throw "Unexpected OpenSSL runtime: $($opensslFiles.Name -join ', ')" }
+          $env:QCA_PLUGIN_PATH = $runtimePrefix
+          $env:PATH = "$runtimePrefix;$env:PATH"
+          ctest --test-dir build/windows -R '^cryptoproviders_test$' --output-on-failure --timeout 180
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Verify bundled Windows crypto providers
         run: |
           cmake -S . -B build/windows `
             -DANYKEEP_QCA_SDK_ROOT= `
+            -DANYKEEP_INSTALL_PREBUILT_SDK_RUNTIME=OFF `
             -DANYKEEP_BUILD_BUNDLED_QCA=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build build/windows --target cryptoproviders_test --parallel 4

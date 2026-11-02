@@ -1,7 +1,7 @@
 include_guard(GLOBAL)
 
 # Qt Creator's package-manager helper is intentionally skipped for this project on Windows. Use the self-contained Conan
-# setup below instead, so a newly configured Windows build can find the OpenSSL required by bundled QXmpp without
+# setup below instead, so a newly configured Windows build resolves the dependencies selected for its backend without
 # relying on a previously generated build directory.
 set(_anykeep_use_conan_default OFF)
 if(WIN32)

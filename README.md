@@ -110,6 +110,8 @@ Windows QCA uses WinCrypto (CNG/Schannel), WinGSS and Cyrus SASL. The source
 fallback builds Cyrus SASL with the matching MSVC runtime and embedded
 PLAIN/SCRAM mechanisms; `ANYKEEP_CYRUS_SASL_ROOT` can select an existing SDK.
 WinCrypto is preferred even when a prebuilt QCA SDK also ships OpenSSL.
+Windows builds with Iris do not request OpenSSL from Conan, and their SDK
+runtime packaging includes only QCA and the three native/SASL providers.
 Iris requires version 1.6.1 or newer and JDNS support. Bundled Iris enables
 JDNS explicitly, including in build trees that previously cached it off.
 

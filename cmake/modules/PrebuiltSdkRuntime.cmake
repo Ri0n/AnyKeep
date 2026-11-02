@@ -7,7 +7,8 @@ function(anykeep_install_prebuilt_sdk_runtime)
   endif()
 
   if(WIN32)
-    file(GLOB _anykeep_qca_runtime CONFIGURE_DEPENDS "${ANYKEEP_QCA_SDK_ROOT}/bin/*.dll")
+    # The SDK also carries OpenSSL for qca-ossl; the native providers do not need those DLLs.
+    file(GLOB _anykeep_qca_runtime CONFIGURE_DEPENDS "${ANYKEEP_QCA_SDK_ROOT}/bin/qca3-qt6*.dll")
     set(_anykeep_qca_plugins)
     foreach(_provider IN ITEMS wincrypto wingss cyrus-sasl)
       file(GLOB _provider_files CONFIGURE_DEPENDS "${ANYKEEP_QCA_SDK_ROOT}/lib/qca3-qt6/crypto/qca-${_provider}*.dll")

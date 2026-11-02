@@ -141,11 +141,12 @@ unset(_anykeep_bundled_qtkeychain_default)
 unset(_anykeep_bundled_qxmpp_default)
 unset(_anykeep_bundled_omemo_c_default)
 
-# Iris unconditionally calls find_package(ZLIB).  Windows does not provide a
-# suitable system zlib in the supported toolchain, so make it available through
-# the same Conan setup used for OpenSSL.  Keep the requirement scoped to the
-# bundled fallback: prebuilt Iris SDKs own their dependency closure.
 set(ANYKEEP_CONAN_EXTRA_REQUIRES)
+# Windows Iris uses native QCA providers. QXmpp and other platforms still need OpenSSL.
+if(NOT WIN32 OR ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP")
+  list(APPEND ANYKEEP_CONAN_EXTRA_REQUIRES "openssl/4.0.1")
+endif()
+# Bundled Iris needs zlib on Windows; prebuilt SDKs own their dependency closure.
 if(WIN32 AND ANYKEEP_XMPP_BACKEND STREQUAL "IRIS" AND ANYKEEP_BUILD_BUNDLED_IRIS
    AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS AND NOT ANYKEEP_IRIS_SDK_ROOT)
   list(APPEND ANYKEEP_CONAN_EXTRA_REQUIRES "zlib/1.3.1")
