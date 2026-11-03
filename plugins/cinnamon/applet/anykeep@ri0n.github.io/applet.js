@@ -414,6 +414,15 @@ class AnyKeepApplet extends Applet.IconApplet {
     }
 
     _destroy() {
+        if (this._scrollAdjustment) {
+            for (let id of this._scrollSignalIds)
+                this._scrollAdjustment.disconnect(id);
+            this._scrollAdjustment = null;
+        }
+        if (this._loadMoreSourceId) {
+            Mainloop.source_remove(this._loadMoreSourceId);
+            this._loadMoreSourceId = 0;
+        }
         if (this._searchSourceId) {
             Mainloop.source_remove(this._searchSourceId);
             this._searchSourceId = 0;
@@ -507,6 +516,23 @@ class AnyKeepApplet extends Applet.IconApplet {
         });
         this._scrollView.add_actor(this._list);
         this._rootBox.add_actor(this._scrollView);
+        let adjustment = this._scrollView.get_vscroll_bar().get_adjustment();
+        let maybeLoadMore = Lang.bind(this, function() {
+            if (this._loadMoreSourceId)
+                return;
+            this._loadMoreSourceId = Mainloop.idle_add(Lang.bind(this, function() {
+                this._loadMoreSourceId = 0;
+                if (this.menu.isOpen && adjustment.page_size > 0
+                    && adjustment.value + adjustment.page_size >= adjustment.upper - 40)
+                    this._loadMore();
+                return false;
+            }));
+        });
+        this._scrollAdjustment = adjustment;
+        this._scrollSignalIds = [
+            adjustment.connect('notify::value', maybeLoadMore),
+            adjustment.connect('changed', maybeLoadMore),
+        ];
     }
 
     _addAction(label, iconName, callback) {
@@ -626,6 +652,7 @@ class AnyKeepApplet extends Applet.IconApplet {
 
             try {
                 let parsed = JSON.parse(response);
+                this._visibleRows = Math.max(1, Number(parsed.visibleRows) || 15);
                 let notes = Array.isArray(parsed.notes) ? parsed.notes : [];
                 this._available = true;
                 this._hasMore = parsed.hasMore === true;
@@ -662,6 +689,10 @@ class AnyKeepApplet extends Applet.IconApplet {
             let row = this._noteRow(this._items[i], i);
             this._noteRows.push(row);
             this._list.add_actor(row);
+            if (i === 0) {
+                let rowHeight = row.get_preferred_height(-1)[1] + 1;
+                this._scrollView.set_style('max-height: ' + Math.ceil(rowHeight * this._visibleRows) + 'px;');
+            }
         }
 
         if (this._loading || this._loadingMore)

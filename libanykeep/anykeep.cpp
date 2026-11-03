@@ -512,6 +512,9 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
             d->notesManagerWindow->close();
         for (auto *dialog : NoteDialog::openDialogs())
             dialog->close();
+        // Finish deferred view destruction before releasing style singletons.
+        // Release image-loading infrastructure before the event loop stops.
+        NoteDialog::shutdownQmlEngine();
     });
 }
 
@@ -1380,7 +1383,6 @@ void Main::createNewNoteFromSelection()
         activateWindow(dlg);
     }
 }
-
 
 } // namespace AnyKeep
 

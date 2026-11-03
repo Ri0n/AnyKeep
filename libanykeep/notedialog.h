@@ -34,6 +34,7 @@ public:
 
     static NoteDialog         *findDialog(const QString &storageId, const QString &noteId);
     static QList<NoteDialog *> openDialogs();
+    static void                shutdownQmlEngine();
 
     NoteEditor *editor() const { return editor_; }
     void        setText(const QString &text);

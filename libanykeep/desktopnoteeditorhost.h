@@ -48,6 +48,7 @@ protected:
 private:
     void updateClearColor();
     void updateFocusWindow();
+    void setWindowHovered(bool hovered);
     int  insertionRowAt(const QPointF &position) const;
     bool canAcceptImageDrop(const QMimeData *mimeData) const;
     bool handleImageDrop(const QMimeData *mimeData, int row);

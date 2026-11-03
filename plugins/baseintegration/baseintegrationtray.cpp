@@ -1,5 +1,6 @@
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QCursor>
 #include <QFrame>
 #include <QHash>
@@ -22,6 +23,7 @@
 #include "baseintegrationtray.h"
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
+#include "notemanager.h"
 #include "notetitleresolver.h"
 #include "pluginhostinterface.h"
 #include "trayiconutils.h"
@@ -31,6 +33,26 @@ namespace AnyKeep {
 
 namespace {
     constexpr int NoteTitleLimit = 48;
+
+    class TrayBodySearch : public QObject {
+    public:
+        explicit TrayBodySearch(QObject *parent) : QObject(parent) {}
+        ~TrayBodySearch() override { cancel(); }
+
+        void cancel()
+        {
+            if (finder) {
+                finder->disconnect(this);
+                finder->abort();
+                finder->deleteLater();
+                finder.clear();
+            }
+            matches.clear();
+        }
+
+        QPointer<GlobalNoteFinder> finder;
+        QSet<QString>              matches;
+    };
 
     struct TrayNote {
         QString     storageId;
@@ -69,7 +91,8 @@ namespace {
         return false;
     }
 
-    QList<TrayNote> activeNotes(PluginHostInterface *host, int limit, const QString &filter)
+    QList<TrayNote> activeNotes(PluginHostInterface *host, const QString &filter, bool searchInBody,
+                                const QSet<QString> &bodyMatches)
     {
         // Build the menu from the storage snapshot plus the persisted draft
         // overlay. New unpublished notes use a virtual Drafts storage id;
@@ -108,7 +131,7 @@ namespace {
                 continue;
             }
             const auto pending = pendingByNote.constFind(key);
-            TrayNote      entry;
+            TrayNote   entry;
             entry.storageId = note.storageId();
             entry.noteId    = note.id();
             entry.icon      = note.storage() ? note.storage()->noteIcon() : QIcon();
@@ -121,7 +144,10 @@ namespace {
                 entry.tags  = note.tags();
             }
             presented.insert(key);
-            if (matchesFilter(entry.title, entry.tags, filter))
+            const bool bodyMatch = searchInBody
+                && (pending != pendingByNote.cend() ? pending->body.contains(filter, Qt::CaseInsensitive)
+                                                    : bodyMatches.contains(key));
+            if (matchesFilter(entry.title, entry.tags, filter) || bodyMatch)
                 notes.append(std::move(entry));
         }
 
@@ -135,14 +161,16 @@ namespace {
                                it->tags,
                                storage ? storage->noteIcon() : QIcon(),
                                true };
-            if (matchesFilter(entry.title, entry.tags, filter))
+            if (matchesFilter(entry.title, entry.tags, filter)
+                || (searchInBody && it->body.contains(filter, Qt::CaseInsensitive)))
                 notes.append(std::move(entry));
         }
         for (const auto &draft : pendingTransfers) {
             const auto storage = host->noteManager()->storage(draft.storageId);
             TrayNote   entry { draft.storageId, draft.id.toString(QUuid::WithoutBraces), draftDisplayTitle(draft),
                                draft.tags,      storage ? storage->noteIcon() : QIcon(), true };
-            if (matchesFilter(entry.title, entry.tags, filter))
+            if (matchesFilter(entry.title, entry.tags, filter)
+                || (searchInBody && draft.body.contains(filter, Qt::CaseInsensitive)))
                 notes.append(std::move(entry));
         }
         for (const auto &draft : localDrafts) {
@@ -153,13 +181,12 @@ namespace {
                              QIcon::fromTheme(QStringLiteral("document-edit"),
                                               QIcon(QStringLiteral(":/icons/manager"))),
                              true };
-            if (matchesFilter(entry.title, entry.tags, filter))
+            if (matchesFilter(entry.title, entry.tags, filter)
+                || (searchInBody && draft.body.contains(filter, Qt::CaseInsensitive)))
                 notes.append(std::move(entry));
         }
 
         std::stable_partition(notes.begin(), notes.end(), [](const TrayNote &note) { return note.pendingDraft; });
-        if (notes.size() > limit)
-            notes.resize(limit);
         return notes;
     }
 
@@ -260,7 +287,7 @@ void BaseIntegrationTray::showNoteList(QSystemTrayIcon::ActivationReason reason)
     }
 
     QSettings s;
-    const int maxNotes = s.value("ui.menu-notes-amount", 15).toInt();
+    const int maxNotes = qMax(1, s.value("ui.menu-notes-amount", 15).toInt());
 
     auto *popup = new QFrame(nullptr, Qt::Tool | Qt::FramelessWindowHint);
     popup->setAttribute(Qt::WA_DeleteOnClose);
@@ -276,6 +303,10 @@ void BaseIntegrationTray::showNoteList(QSystemTrayIcon::ActivationReason reason)
     filter->setClearButtonEnabled(true);
     layout->addWidget(filter);
 
+    auto *searchInText = new QCheckBox(tr("Search in text"), popup);
+    searchInText->hide();
+    layout->addWidget(searchInText);
+
     auto *list = new QListWidget(popup);
     list->setFrameShape(QFrame::NoFrame);
     list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -288,9 +319,13 @@ void BaseIntegrationTray::showNoteList(QSystemTrayIcon::ActivationReason reason)
     auto *newButton = new QPushButton(QIcon(":/icons/new"), tr("&New"), popup);
     layout->addWidget(newButton);
 
-    auto notes       = std::make_shared<QList<TrayNote>>();
+    auto  notes       = std::make_shared<QList<TrayNote>>();
+    auto *bodySearch  = new TrayBodySearch(popup);
+    auto *searchTimer = new QTimer(popup);
+    searchTimer->setSingleShot(true);
+    searchTimer->setInterval(250);
     auto reloadNotes = [=, this]() {
-        *notes = activeNotes(host, maxNotes, filter->text());
+        *notes = activeNotes(host, filter->text().trimmed(), searchInText->isChecked(), bodySearch->matches);
         fillNotesList(list, *notes, host,
                       filter->text().trimmed().isEmpty() ? tr("No notes yet") : tr("No notes match the search"));
     };
@@ -307,10 +342,13 @@ void BaseIntegrationTray::showNoteList(QSystemTrayIcon::ActivationReason reason)
         = screen ? screen->availableGeometry() : QGuiApplication::primaryScreen()->availableGeometry();
     const QMargins margins     = layout->contentsMargins();
     const int      popupChrome = margins.top() + margins.bottom() + filter->sizeHint().height()
-        + newButton->sizeHint().height() + layout->spacing() * 2 + popup->frameWidth() * 2;
-    const int maximumListHeight = qMax(rowHeight, availableGeometry.height() - popupChrome - 16);
-    const int desiredListHeight = visibleRows * rowHeight + list->frameWidth() * 2;
-    list->setFixedHeight(qMin(desiredListHeight, maximumListHeight));
+        + newButton->sizeHint().height() + searchInText->sizeHint().height() + layout->spacing() * 3
+        + popup->frameWidth() * 2;
+    const int maximumListHeight   = qMax(rowHeight, availableGeometry.height() - popupChrome - 16);
+    const int desiredListHeight   = visibleRows * rowHeight + list->frameWidth() * 2;
+    const int searchOptionsHeight = searchInText->sizeHint().height() + layout->spacing();
+    const int listHeight          = qMin(qMax(desiredListHeight, rowHeight + searchOptionsHeight), maximumListHeight);
+    list->setFixedHeight(listHeight);
 
     auto openItem = [=, this](QListWidgetItem *item) {
         if (!item) {
@@ -325,7 +363,33 @@ void BaseIntegrationTray::showNoteList(QSystemTrayIcon::ActivationReason reason)
         emit showNoteTriggered(note.storageId, note.noteId);
     };
 
-    connect(filter, &QLineEdit::textChanged, popup, reloadNotes);
+    const auto updateSearch = [=]() {
+        searchTimer->stop();
+        bodySearch->cancel();
+        const bool showOptions = !filter->text().trimmed().isEmpty();
+        // Give the options space from the list, keeping the tray popup still.
+        list->setFixedHeight(qMax(0, listHeight - (showOptions ? searchOptionsHeight : 0)));
+        searchInText->setVisible(showOptions);
+        reloadNotes();
+        if (searchInText->isChecked() && !filter->text().trimmed().isEmpty())
+            searchTimer->start();
+    };
+    connect(searchTimer, &QTimer::timeout, popup, [=]() {
+        auto *finder = NoteManager::search();
+        finder->setParent(bodySearch);
+        bodySearch->finder = finder;
+        connect(finder, &GlobalNoteFinder::found, bodySearch, [=](const QString &storageId, const QString &noteId) {
+            bodySearch->matches.insert(storageId + QChar(0x1f) + noteId);
+            reloadNotes();
+        });
+        connect(finder, &GlobalNoteFinder::completed, bodySearch, [=]() {
+            bodySearch->finder.clear();
+            finder->deleteLater();
+        });
+        finder->start(filter->text().trimmed());
+    });
+    connect(filter, &QLineEdit::textChanged, popup, updateSearch);
+    connect(searchInText, &QCheckBox::toggled, popup, updateSearch);
     connect(filter, &QLineEdit::returnPressed, popup, [=]() { openItem(list->currentItem()); });
     connect(list, &QListWidget::itemClicked, popup, openItem);
     connect(list, &QListWidget::itemActivated, popup, openItem);
@@ -376,6 +440,7 @@ void BaseIntegrationTray::showNoteList(QSystemTrayIcon::ActivationReason reason)
         mr.moveTop(dr.top());
     }
     popup->setGeometry(mr);
+    popup->setFixedSize(mr.size());
     popup->show();
     anykeep->activateWidget(popup);
     QTimer::singleShot(0, filter, [filter]() { filter->setFocus(Qt::PopupFocusReason); });

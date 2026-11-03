@@ -103,6 +103,12 @@ DesktopNoteEditorHost::~DesktopNoteEditorHost()
 
 bool DesktopNoteEditorHost::event(QEvent *event)
 {
+    if (focusWindow_ == this && event) {
+        if (event->type() == QEvent::Enter)
+            setWindowHovered(true);
+        else if (event->type() == QEvent::Leave || event->type() == QEvent::Hide)
+            setWindowHovered(false);
+    }
     const bool paletteChanged
         = event && (event->type() == QEvent::ApplicationPaletteChange || event->type() == QEvent::PaletteChange);
     const bool handled = QWidget::event(event);
@@ -176,6 +182,13 @@ void DesktopNoteEditorHost::updateFocusWindow()
     focusWindow_ = current;
     if (focusWindow_ && focusWindow_ != this)
         focusWindow_->installEventFilter(this);
+    setWindowHovered(focusWindow_ && focusWindow_->underMouse());
+}
+
+void DesktopNoteEditorHost::setWindowHovered(bool hovered)
+{
+    if (quick_ && quick_->rootObject())
+        quick_->rootObject()->setProperty("windowHovered", hovered);
 }
 
 int DesktopNoteEditorHost::insertionRowAt(const QPointF &position) const
@@ -210,6 +223,10 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
     }
 
     if (watched == focusWindow_) {
+        if (event->type() == QEvent::Enter)
+            setWindowHovered(true);
+        else if (event->type() == QEvent::Leave || event->type() == QEvent::Hide)
+            setWindowHovered(false);
         if (event->type() == QEvent::WindowDeactivate) {
             flushPendingEditorChanges();
             if (focusReported_) {
@@ -240,7 +257,8 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
                 dragEvent->accept();
                 return true;
             }
-        } else if (event->type() == QEvent::DragMove && (fileDragAccepted_ || imageDragAccepted_ || textDragAccepted_)) {
+        } else if (event->type() == QEvent::DragMove
+                   && (fileDragAccepted_ || imageDragAccepted_ || textDragAccepted_)) {
             auto *dragEvent = static_cast<QDragMoveEvent *>(event);
             dragEvent->setDropAction(Qt::CopyAction);
             dragEvent->accept();
@@ -261,10 +279,9 @@ bool DesktopNoteEditorHost::eventFilter(QObject *watched, QEvent *event)
                 flushPendingEditorChanges();
             const bool handled = fileDrop
                 ? platformBackend_->insertFileMimeData(dropEvent->mimeData(), insertionRowAt(position))
-                : imageDrop
-                    ? handleImageDrop(dropEvent->mimeData(), insertionRowAt(position))
-                    : invokeQmlTextDrop(quick_->rootObject(), TextDropUtils::plainText(dropEvent->mimeData()),
-                                        position, TextDropUtils::detectCode(dropEvent->mimeData()));
+                : imageDrop ? handleImageDrop(dropEvent->mimeData(), insertionRowAt(position))
+                            : invokeQmlTextDrop(quick_->rootObject(), TextDropUtils::plainText(dropEvent->mimeData()),
+                                                position, TextDropUtils::detectCode(dropEvent->mimeData()));
             if (handled) {
                 dropEvent->setDropAction(Qt::CopyAction);
                 dropEvent->accept();

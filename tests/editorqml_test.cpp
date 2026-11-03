@@ -235,8 +235,7 @@ private slots:
         QQuickItem *details = nullptr;
         QTRY_VERIFY((details = quickItemByName(root, QStringLiteral("attachmentFileDetails-%1").arg(attachmentRow))));
         QVERIFY(details->isVisible());
-        QCOMPARE(details->property("text").toString(),
-                 expectedDescription + QStringLiteral("  ·  121 KB"));
+        QCOMPARE(details->property("text").toString(), expectedDescription + QStringLiteral("  ·  121 KB"));
         QVERIFY(!details->property("text").toString().contains(QStringLiteral("application/pdf")));
         QQuickItem *glyph = nullptr;
         QTRY_VERIFY((glyph = quickItemByName(root, QStringLiteral("attachmentFileGlyph-%1").arg(attachmentRow))));
@@ -264,8 +263,8 @@ private slots:
     void attachmentMimePresentationUsesQtDatabaseAndExtensionFallback()
     {
         DesktopEditorPlatformBackend backend;
-        QMimeDatabase database;
-        const QMimeType pdf = database.mimeTypeForName(QStringLiteral("application/pdf"));
+        QMimeDatabase                database;
+        const QMimeType              pdf = database.mimeTypeForName(QStringLiteral("application/pdf"));
         QVERIFY(pdf.isValid());
 
         const auto pdfInfo = backend.attachmentMimePresentation(QStringLiteral("application/pdf"),
@@ -277,12 +276,12 @@ private slots:
         // Old or remote attachments can have no reliable stored type. Qt
         // resolves the extension without opening or downloading the file.
         const auto guessed = backend.attachmentMimePresentation(QStringLiteral("application/octet-stream"),
-                                                                 QStringLiteral("specification.pdf"));
+                                                                QStringLiteral("specification.pdf"));
         QCOMPARE(guessed.value(QStringLiteral("description")).toString(), pdf.comment());
         QCOMPARE(guessed.value(QStringLiteral("iconName")).toString(), pdf.iconName());
 
         const auto invalid = backend.attachmentMimePresentation(QStringLiteral("not/a-registered-mime-type"),
-                                                                 QStringLiteral("unknown.zzzx"));
+                                                                QStringLiteral("unknown.zzzx"));
         QVERIFY(!invalid.value(QStringLiteral("description")).toString().isEmpty());
         QVERIFY(!invalid.value(QStringLiteral("genericIconName")).toString().isEmpty());
     }
@@ -3226,6 +3225,10 @@ private slots:
         QTRY_VERIFY(controller->property("dragging").toBool());
         QVERIFY(!controller->property("wholeListBlockDrag").toBool());
         QVERIFY(controller->property("blockAnimationActive").toBool());
+
+        // Probe destination transitions after the initial source collapse;
+        // otherwise the animated source geometry can move the target mid-step.
+        QTRY_VERIFY(sourceRow->height() < 0.5);
 
         const qreal expectedListGap = sourceRow->property("naturalHeight").toReal()
             + (sourceRow->property("trailingSpace").toReal() <= 0 ? listBlock->property("itemSpacing").toReal() : 0);

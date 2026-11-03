@@ -71,8 +71,8 @@ PlasmoidItem {
         Layout.minimumWidth: Kirigami.Units.gridUnit * 16
         Layout.preferredWidth: Kirigami.Units.gridUnit * 22
 
-        Layout.minimumHeight: Kirigami.Units.gridUnit * 16
-        Layout.preferredHeight: Kirigami.Units.gridUnit * 22
+        Layout.minimumHeight: Kirigami.Units.gridUnit * 8
+        Layout.preferredHeight: Kirigami.Units.gridUnit * (notesModel.visibleRows * 2 + 6)
     }
 
     Plasmoid.contextualActions: [

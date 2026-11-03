@@ -3,6 +3,7 @@
 */
 
 import Clutter from 'gi://Clutter';
+import GLib from 'gi://GLib';
 import St from 'gi://St';
 
 import {gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -13,6 +14,7 @@ export class NotesPopup {
         this._model = model;
         this._dbus = dbus;
         this._signalIds = [];
+        this._loadMoreSourceId = 0;
         this._modelDisconnect = this._model.onChanged(() => this._render());
 
         this._box = new St.BoxLayout({
@@ -56,9 +58,27 @@ export class NotesPopup {
         });
         this._scrollView.set_child(this._list);
         this._box.add_child(this._scrollView);
+        const adjustment = this._scrollView.vadjustment
+            ?? this._scrollView.get_vscroll_bar().get_adjustment();
+        const maybeLoadMore = () => {
+            if (this._loadMoreSourceId)
+                return;
+            this._loadMoreSourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                this._loadMoreSourceId = 0;
+                if (this._menu.isOpen && adjustment.page_size > 0
+                    && adjustment.value + adjustment.page_size >= adjustment.upper - 40)
+                    this._model.loadMore();
+                return GLib.SOURCE_REMOVE;
+            });
+        };
+        for (const signal of ['notify::value', 'changed'])
+            this._signalIds.push([adjustment, adjustment.connect(signal, maybeLoadMore)]);
     }
 
     destroy() {
+        if (this._loadMoreSourceId)
+            GLib.Source.remove(this._loadMoreSourceId);
+        this._loadMoreSourceId = 0;
         for (const [object, id] of this._signalIds)
             object.disconnect(id);
         this._signalIds = [];
@@ -114,8 +134,14 @@ export class NotesPopup {
             return;
         }
 
-        for (const note of this._model.items)
-            this._list.add_child(this._noteRow(note));
+        for (const note of this._model.items) {
+            const row = this._noteRow(note);
+            this._list.add_child(row);
+            if (note === this._model.items[0]) {
+                const rowHeight = row.get_preferred_height(-1)[1] + 1;
+                this._scrollView.set_style(`max-height: ${Math.ceil(rowHeight * this._model.visibleRows)}px;`);
+            }
+        }
 
         if (this._model.loading || this._model.loadingMore)
             this._list.add_child(this._message(_('Loading...')));

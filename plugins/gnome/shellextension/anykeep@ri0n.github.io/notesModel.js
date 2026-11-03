@@ -20,6 +20,7 @@ export class NotesModel {
         this.loading = false;
         this.loadingMore = false;
         this.hasMore = false;
+        this.visibleRows = 15;
 
         this._dbus.onNotesChanged(() => this.refresh());
     }
@@ -90,6 +91,7 @@ export class NotesModel {
                 return;
 
             const parsed = JSON.parse(response);
+            this.visibleRows = Math.max(1, Number(parsed.visibleRows) || 15);
             const notes = Array.isArray(parsed.notes) ? parsed.notes : [];
 
             this.available = true;

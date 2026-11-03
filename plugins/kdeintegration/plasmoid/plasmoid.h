@@ -22,6 +22,7 @@ class NotesModel : public QAbstractListModel {
     Q_PROPERTY(bool loadingMore READ loadingMore NOTIFY loadingMoreChanged)
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY hasMoreChanged)
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
+    Q_PROPERTY(int visibleRows READ visibleRows NOTIFY visibleRowsChanged)
     Q_PROPERTY(bool inSystemTray READ inSystemTray WRITE setInSystemTray NOTIFY inSystemTrayChanged)
 
 public:
@@ -47,6 +48,7 @@ public:
     bool    loadingMore() const;
     bool    hasMore() const;
     QString query() const;
+    int     visibleRows() const { return m_visibleRows; }
     void    setQuery(const QString &query);
 
     bool inSystemTray() const { return m_inSystemTray; }
@@ -63,7 +65,7 @@ public:
 
     Q_INVOKABLE void refresh();
     // Invoked by the application's D-Bus storageConnectivityChanged signal.
-    Q_SLOT void refreshConnectivity();
+    Q_SLOT void      refreshConnectivity();
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void activate();
     Q_INVOKABLE void openNote(int row, QWindow *activationWindow = nullptr);
@@ -81,6 +83,7 @@ signals:
     void loadingMoreChanged();
     void hasMoreChanged();
     void queryChanged();
+    void visibleRowsChanged();
     void inSystemTrayChanged();
 
 private slots:
@@ -116,16 +119,17 @@ private:
     QTimer              *m_queryRefreshTimer = nullptr;
     QString              m_pendingCall;
     QString              m_query;
-    bool                 m_available     = false;
-    bool                 m_loading       = false;
-    bool                 m_loadingMore   = false;
-    bool                 m_hasMore       = false;
-    bool                 m_starting      = false;
-    quint64              m_requestSerial = 0;
+    bool                 m_available          = false;
+    bool                 m_loading            = false;
+    bool                 m_loadingMore        = false;
+    bool                 m_hasMore            = false;
+    bool                 m_starting           = false;
+    quint64              m_requestSerial      = 0;
     quint64              m_connectivitySerial = 0;
-    int                  m_connectivityState = 0;
+    int                  m_connectivityState  = 0;
     QString              m_connectivityText;
-    int                  m_pageSize      = 50;
+    int                  m_pageSize    = 50;
+    int                  m_visibleRows = 15;
 
     bool m_inSystemTray = false;
 };

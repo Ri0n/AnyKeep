@@ -266,6 +266,13 @@ void NotesModel::requestPage(int offset, bool append)
             return;
         }
 
+        const int visibleRows = qMax(
+            1, QJsonDocument::fromJson(reply.value().toUtf8()).object().value(QStringLiteral("visibleRows")).toInt(15));
+        if (m_visibleRows != visibleRows) {
+            m_visibleRows = visibleRows;
+            emit visibleRowsChanged();
+        }
+
         if (append) {
             if (!items.isEmpty()) {
                 const int first = m_items.size();
@@ -331,8 +338,8 @@ void NotesModel::refreshConnectivity()
         return;
 
     const quint64 serial = ++m_connectivitySerial;
-    auto *watcher = new QDBusPendingCallWatcher(
-        callBackendWithoutActivation(QStringLiteral("storageConnectivityJson")), this);
+    auto         *watcher
+        = new QDBusPendingCallWatcher(callBackendWithoutActivation(QStringLiteral("storageConnectivityJson")), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher, serial] {
         const QDBusPendingReply<QString> reply = *watcher;
         watcher->deleteLater();
@@ -344,8 +351,7 @@ void NotesModel::refreshConnectivity()
         if (!result.isObject())
             return;
         const auto data = result.object();
-        setConnectivity(data.value(QStringLiteral("state")).toInt(),
-                        data.value(QStringLiteral("summary")).toString());
+        setConnectivity(data.value(QStringLiteral("state")).toInt(), data.value(QStringLiteral("summary")).toString());
     });
 }
 

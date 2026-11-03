@@ -21,11 +21,11 @@
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
 #include "notemanager.h"
-#include "trayiconutils.h"
 #include "notepresentationorder.h"
 #include "notetitleresolver.h"
 #include "shortcutsmanager.h"
 #include "stickynotesmanager.h"
+#include "trayiconutils.h"
 #include "windowgeometryutils.h"
 
 namespace AnyKeep {
@@ -153,15 +153,20 @@ AnyKeepDBus::~AnyKeepDBus()
 
 QString AnyKeepDBus::storageConnectivityJson() const
 {
-    int severity = 0;
-    int state    = int(NoteStorage::ConnectivityState::NotApplicable);
+    int        severity = 0;
+    int        state    = int(NoteStorage::ConnectivityState::NotApplicable);
     const auto priority = [](NoteStorage::ConnectivityState status) {
         switch (status) {
-        case NoteStorage::ConnectivityState::Error: return 4;
-        case NoteStorage::ConnectivityState::Connecting: return 3;
-        case NoteStorage::ConnectivityState::Offline: return 2;
-        case NoteStorage::ConnectivityState::Online: return 1;
-        case NoteStorage::ConnectivityState::NotApplicable: return 0;
+        case NoteStorage::ConnectivityState::Error:
+            return 4;
+        case NoteStorage::ConnectivityState::Connecting:
+            return 3;
+        case NoteStorage::ConnectivityState::Offline:
+            return 2;
+        case NoteStorage::ConnectivityState::Online:
+            return 1;
+        case NoteStorage::ConnectivityState::NotApplicable:
+            return 0;
         }
         return 0;
     };
@@ -171,7 +176,7 @@ QString AnyKeepDBus::storageConnectivityJson() const
         const auto current = storage->connectivityState();
         if (priority(current) > severity) {
             severity = priority(current);
-            state = int(current);
+            state    = int(current);
         }
     }
     const QJsonObject response {
@@ -239,7 +244,7 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
             continue;
 
         const auto it = pendingByNote.constFind(key);
-        MenuNote      entry;
+        MenuNote   entry;
         entry.storageId = note.storageId();
         entry.noteId    = note.id();
         entry.favorite  = note.isFavorite() || (folder && catalog->isEffectivelyFavorite(folder->id));
@@ -308,11 +313,13 @@ QString AnyKeepDBus::notesJson(int offset, int limit, const QString &query) cons
             { "pendingDraft", note.pendingDraft },
         });
     }
-    return QString::fromUtf8(QJsonDocument(QJsonObject {
-                                               { "notes", result },
-                                               { "hasMore", last < notes.size() },
-                                           })
-                                 .toJson(QJsonDocument::Compact));
+    return QString::fromUtf8(
+        QJsonDocument(QJsonObject {
+                          { "notes", result },
+                          { "hasMore", last < notes.size() },
+                          { "visibleRows", qMax(1, QSettings().value("ui.menu-notes-amount", 15).toInt()) },
+                      })
+            .toJson(QJsonDocument::Compact));
 }
 
 QString AnyKeepDBus::globalShortcutsJson() const

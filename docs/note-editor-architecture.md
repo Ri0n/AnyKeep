@@ -153,6 +153,15 @@ focus checkpoints but does not mark a draft Ready. Closing a standalone window,
 leaving an Android editor, switching the manager preview, or closing the manager
 calls the same `NoteEditor::close()` protocol.
 
+Standalone Quick windows share a QML engine. Logical close removes a window
+from the open-window registry immediately, while its QML tree survives until
+`deleteLater()` is delivered. During application shutdown, `Main` closes the
+windows and then calls `NoteDialog::shutdownQmlEngine()`: deferred deletion of
+these views must finish before garbage collection and engine destruction.
+Otherwise live controls can evaluate bindings after Fluent style singletons
+have already been destroyed. Keep this teardown before the event loop stops
+so Qt Quick image-loading infrastructure can also shut down cleanly.
+
 All views of one logical note share the same model, so in-process focus changes
 do not synchronize independent document snapshots. `reloadNewerDraft()` remains
 a recovery/compatibility path for a clean live model when a newer durable

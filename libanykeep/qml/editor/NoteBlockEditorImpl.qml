@@ -82,6 +82,8 @@ ListView {
                                                                * (touchMode ? 4 : 3)))
     readonly property real editorFontMetricsHeight: editorFontMetrics.height
     readonly property real editorFontAverageCharacterWidth: editorFontMetrics.averageCharacterWidth
+    property bool noteHovered: false
+    property bool windowHovered: false
     readonly property int scrollBarInset: !touchMode && verticalScrollBar.visible
                                            ? Math.ceil(verticalScrollBar.width) : 0
     model: blockModel
@@ -183,6 +185,27 @@ ListView {
     ScrollBar.vertical: ScrollBar {
         id: verticalScrollBar
         policy: root.touchMode ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
+        readonly property bool emphasized: root.windowHovered || root.noteHovered || hovered || active || pressed
+
+        // Reveal on note hover; retain a faint thumb when the pointer leaves.
+        contentItem: Rectangle {
+            implicitWidth: 8
+            implicitHeight: 8
+            radius: width / 2
+            color: root.documentTextColor
+            opacity: verticalScrollBar.size >= 1 ? 0
+                     : verticalScrollBar.pressed ? 0.85
+                     : verticalScrollBar.hovered ? 0.7
+                     : verticalScrollBar.emphasized ? 0.55 : 0.3
+
+            Behavior on opacity {
+                enabled: verticalScrollBar.size < 1 && !verticalScrollBar.pressed
+                SequentialAnimation {
+                    PauseAnimation { duration: verticalScrollBar.emphasized ? 0 : 450 }
+                    NumberAnimation { duration: verticalScrollBar.emphasized ? 70 : 300 }
+                }
+            }
+        }
     }
 
     FontMetrics {

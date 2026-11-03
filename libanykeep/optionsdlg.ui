@@ -155,7 +155,7 @@
          <item>
           <widget class="QLabel" name="label">
            <property name="text">
-            <string>Amount of notes to show in the tray menu</string>
+            <string>Visible note rows in the tray menu</string>
            </property>
           </widget>
          </item>

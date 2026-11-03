@@ -55,3 +55,25 @@ overlays the matching badge and includes the status in the tooltip.
 Do not import the XMPP plugin types into the tray/plasmoid. Treat
 `NoteStorage::ConnectivityState::NotApplicable` as "no indicator" for
 local storages, not as a disconnected remote account.
+
+## Tray search implementations
+
+The `baseintegration` popup (Windows and fallback Linux desktops) filters titles
+and tags immediately. A nonblank query reveals **Search in text**, which uses
+`GlobalNoteFinder` after a short debounce and matches pending draft bodies
+locally. Cancel the finder on query changes and popup destruction; pending
+edits must override matches from the stored version of a note.
+
+The Plasma applet, GNOME extension and Cinnamon applet currently expose only
+title/tag search through `notesJson`. The macOS native tray menu has no search
+field. The shared notes manager has its own **Search in text** control on all
+desktop platforms; do not confuse it with the separate tray implementations.
+
+## Tray list size and scrolling
+
+`ui.menu-notes-amount` controls the preferred visible row count, never a limit
+on note data. The fallback popup keeps all matching notes in its scrollable
+list. `notesJson` returns `visibleRows` separately from pagination; Plasma,
+GNOME and Cinnamon use it for popup sizing and fetch further pages while
+scrolling. Retain the load-more button as a keyboard-accessible fallback.
+macOS receives the full list and uses native menu sizing and overflow scrolling.

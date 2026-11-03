@@ -44,6 +44,13 @@
 namespace AnyKeep {
 
 namespace {
+    // Unlike openDialogs(), this also includes closed views awaiting deleteLater().
+    QSet<NoteDialog *> &liveStandaloneNoteViews()
+    {
+        static QSet<NoteDialog *> views;
+        return views;
+    }
+
     QPointer<QQmlEngine> &sharedStandaloneNoteEngineStorage()
     {
         static QPointer<QQmlEngine> sharedEngine;
@@ -69,7 +76,21 @@ namespace {
         auto &sharedEngine = sharedStandaloneNoteEngineStorage();
         if (!sharedEngine)
             return;
+
+        QList<QPointer<NoteDialog>> pendingViews;
+        for (auto *view : liveStandaloneNoteViews())
+            pendingViews.append(view);
+        for (const auto &view : pendingViews) {
+            if (view)
+                QCoreApplication::sendPostedEvents(view, QEvent::DeferredDelete);
+        }
+        // Never invalidate the engine (including Fluent's Config singleton)
+        // while a view can still evaluate its QML bindings.
+        if (!liveStandaloneNoteViews().isEmpty())
+            return;
+
         qInfo() << "Shared standalone note QML engine destruction started";
+        sharedEngine->collectGarbage();
         delete sharedEngine.data();
         sharedEngine = nullptr;
         qInfo() << "Shared standalone note QML engine destruction finished";
@@ -116,19 +137,9 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
     platformBackend_(new DesktopEditorPlatformBackend(editor_, this)), desktopActions_(new DesktopNoteActions(this)),
     speechController_(new SpeechRecognitionController(this)), mode_(mode)
 {
-    static const QMetaObject::Connection shutdownConnection
-        = QObject::connect(qApp, &QCoreApplication::aboutToQuit, qApp, [] {
-              // The shared engine owns Qt Quick image-loading infrastructure.
-              // Destroy it while the application event loop is still alive;
-              // leaving it as a QApplication child can deadlock QQuickPixmapReader
-              // during QApplication destruction after a.exec() has returned.
-              if (NoteDialog::openDialogs().isEmpty())
-                  destroySharedStandaloneNoteEngine();
-          });
-    Q_UNUSED(shutdownConnection);
-
     Q_ASSERT(main_);
     allDialogs_.insert(this);
+    liveStandaloneNoteViews().insert(this);
     windowGeometryKey_ = geometryKey();
     alwaysOnTopKey_    = windowGeometryKey_ + QStringLiteral(".always-on-top");
 
@@ -161,8 +172,7 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
         requestDeferredClose();
     });
     connect(editor_, &NoteEditor::identityChanged, this, [this] {
-        if (!registryKey_.first.isEmpty() && !registryKey_.second.isEmpty()
-            && dialogs_.value(registryKey_) == this) {
+        if (!registryKey_.first.isEmpty() && !registryKey_.second.isEmpty() && dialogs_.value(registryKey_) == this) {
             dialogs_.remove(registryKey_);
         }
         registryKey_ = {};
@@ -246,6 +256,7 @@ NoteDialog::~NoteDialog()
     removeFromRegistry();
     platformBackend_->setDragSource(nullptr);
     setSource(QUrl());
+    liveStandaloneNoteViews().remove(this);
     if (allDialogs_.isEmpty())
         scheduleStandaloneNoteGarbageCollection();
 }
@@ -256,6 +267,13 @@ NoteDialog *NoteDialog::findDialog(const QString &storageId, const QString &note
 }
 
 QList<NoteDialog *> NoteDialog::openDialogs() { return allDialogs_.values(); }
+
+void NoteDialog::shutdownQmlEngine()
+{
+    // A failed checkpoint may have left a window open. Keep its engine valid.
+    if (openDialogs().isEmpty())
+        destroySharedStandaloneNoteEngine();
+}
 
 void NoteDialog::setText(const QString &text)
 {
@@ -354,9 +372,9 @@ bool NoteDialog::trashNote()
         return false;
     }
 
-    auto *drafts = DraftManager::instance();
+    auto      *drafts   = DraftManager::instance();
     const auto prepared = drafts->prepareForRecycle(editor_->storageId(), editor_->noteId(),
-                                                     FolderCatalog::recycleBinId(), editor_->draftId());
+                                                    FolderCatalog::recycleBinId(), editor_->draftId());
     if (!prepared) {
         emit operationFailed(prepared.error.message);
         return false;
@@ -365,16 +383,14 @@ bool NoteDialog::trashNote()
     const auto recycleStorageId = prepared.value.storageId;
     const auto recycleNoteId    = prepared.value.noteId;
     if (!recycleStorageId.isEmpty() && !recycleNoteId.isEmpty()) {
-        const QUuid previousFolderId
-            = folderCatalog->catalog().folderForNote(recycleStorageId, recycleNoteId);
+        const QUuid previousFolderId = folderCatalog->catalog().folderForNote(recycleStorageId, recycleNoteId);
         if (const auto error = folderCatalog->recycleNote(recycleStorageId, recycleNoteId, previousFolderId)) {
             emit operationFailed(error.message);
             return false;
         }
 
         auto *folderOperations = FolderOperationsController::instance();
-        if (!folderOperations->assignNoteFolder(recycleStorageId, recycleNoteId, FolderCatalog::recycleBinId(),
-                                                true)) {
+        if (!folderOperations->assignNoteFolder(recycleStorageId, recycleNoteId, FolderCatalog::recycleBinId(), true)) {
             emit operationFailed(folderOperations->errorString());
             return false;
         }
@@ -486,8 +502,8 @@ bool NoteDialog::event(QEvent *event)
         auto *drag         = static_cast<QDragEnterEvent *>(event);
         fileDragAccepted_  = platformBackend_->canAcceptFileMimeData(drag->mimeData());
         imageDragAccepted_ = !fileDragAccepted_ && platformBackend_->canAcceptImageMimeData(drag->mimeData());
-        textDragAccepted_  = !fileDragAccepted_ && !imageDragAccepted_
-            && !TextDropUtils::plainText(drag->mimeData()).isEmpty();
+        textDragAccepted_
+            = !fileDragAccepted_ && !imageDragAccepted_ && !TextDropUtils::plainText(drag->mimeData()).isEmpty();
         if (fileDragAccepted_ || imageDragAccepted_ || textDragAccepted_) {
             drag->setDropAction(Qt::CopyAction);
             drag->accept();
@@ -514,10 +530,9 @@ bool NoteDialog::event(QEvent *event)
             flushEditorChanges();
         const bool handled = fileDrop
             ? platformBackend_->insertFileMimeData(drop->mimeData(), insertionRowAt(dropPosition))
-            : imageDrop
-                ? platformBackend_->insertImageMimeData(drop->mimeData(), insertionRowAt(dropPosition))
-                : invokeQmlTextDrop(rootObject(), TextDropUtils::plainText(drop->mimeData()), dropPosition,
-                                    TextDropUtils::detectCode(drop->mimeData()));
+            : imageDrop ? platformBackend_->insertImageMimeData(drop->mimeData(), insertionRowAt(dropPosition))
+                        : invokeQmlTextDrop(rootObject(), TextDropUtils::plainText(drop->mimeData()), dropPosition,
+                                            TextDropUtils::detectCode(drop->mimeData()));
         if (handled) {
             drop->setDropAction(Qt::CopyAction);
             drop->accept();

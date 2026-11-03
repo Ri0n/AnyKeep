@@ -31,8 +31,8 @@ E-Mail: rion4ik@gmail.com XMPP: rion@jabber.ru
 #include "anykeep.h"
 #include "macosxtray.h"
 #include "notemanager.h"
-#include "trayiconutils.h"
 #include "pluginhostinterface.h"
+#include "trayiconutils.h"
 #include "utils.h"
 
 typedef QPair<QString, QString> NoteIdent;
@@ -50,11 +50,11 @@ MacOSXTray::MacOSXTray(Main *anykeep, PluginHostInterface *host, QObject *parent
 
     sti = new QSystemTrayIcon(QIcon::fromTheme("anykeep", QIcon(":/icons/trayicon")), this);
 
-    actQuit    = new QAction(QIcon(":/icons/exit"), tr("&Quit"), this);
-    actNew     = new QAction(QIcon(":/icons/new"), tr("&New"), this);
-    actAbout   = new QAction(QIcon(":/icons/trayicon"), tr("&About"), this);
-    actOptions = new QAction(QIcon(":/icons/options"), tr("&Options"), this);
-    actManager = new QAction(QIcon(":/icons/manager"), tr("&Note Manager"), this);
+    actQuit          = new QAction(QIcon(":/icons/exit"), tr("&Quit"), this);
+    actNew           = new QAction(QIcon(":/icons/new"), tr("&New"), this);
+    actAbout         = new QAction(QIcon(":/icons/trayicon"), tr("&About"), this);
+    actOptions       = new QAction(QIcon(":/icons/options"), tr("&Options"), this);
+    actManager       = new QAction(QIcon(":/icons/manager"), tr("&Note Manager"), this);
     actNetworkStatus = new QAction(this);
     actNetworkStatus->setEnabled(false);
     TrayIconUtils::setupSystemTrayIcon(sti, actNetworkStatus);
@@ -89,9 +89,10 @@ MacOSXTray::~MacOSXTray()
 
 void MacOSXTray::rebuildMenu()
 {
-    uint        h = 0;
-    QSettings   s;
-    QList<Note> notes = host->noteManager()->noteList(s.value("ui.menu-notes-amount", 15).toInt());
+    uint h = 0;
+    // Native menus provide scrolling when they exceed the available screen.
+    // Do not truncate the data to the preferred number of visible rows.
+    QList<Note> notes = host->noteManager()->noteList();
     for (int i = 0; i < notes.count(); i++) {
         h ^= qHash(notes[i].displayTitle());
     }

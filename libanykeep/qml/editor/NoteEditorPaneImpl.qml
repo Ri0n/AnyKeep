@@ -160,6 +160,11 @@ Item {
         return editorView.insertionRowAtPoint(point.x, point.y)
     }
 
+    HoverHandler {
+        id: noteHover
+        enabled: !editorView.touchMode
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -214,6 +219,7 @@ Item {
             id: editorView
             Layout.fillWidth: true
             Layout.fillHeight: true
+            noteHovered: noteHover.hovered
             blockModel: root.editor ? root.editor.blockModel : null
             editorBackend: root.editor
             platformBackend: root.platformBackend

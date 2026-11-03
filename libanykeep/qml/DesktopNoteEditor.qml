@@ -4,6 +4,7 @@ import QtQuick
 
 Item {
     id: root
+    property bool windowHovered: false
 
     function flushPendingEditorChanges() { editorPane.flushPendingEditorChanges() }
     function insertTextAtCursor(text) { return editorPane.insertTextAtCursor(text) }
@@ -30,5 +31,6 @@ Item {
         platformBackend: desktopEditorPlatform
         showDeleteButton: false
         showDesktopActions: false
+        blockEditor.windowHovered: root.windowHovered
     }
 }
