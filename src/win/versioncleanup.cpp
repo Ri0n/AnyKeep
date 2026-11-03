@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cwctype>
+#include <iterator>
 #include <cstdio>
 #include <regex>
 #include <string>
