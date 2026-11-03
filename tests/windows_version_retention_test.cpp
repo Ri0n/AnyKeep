@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -29,7 +30,7 @@ std::wstring join(const std::wstring &a, const std::wstring &b) { return a + L"\
 
 void put(const std::wstring &path, const std::string &value)
 {
-    std::ofstream f(path, std::ios::binary);
+    std::ofstream f(std::filesystem::path(path), std::ios::binary);
     f << value;
     expect(f.good(), "write test fixture");
 }
