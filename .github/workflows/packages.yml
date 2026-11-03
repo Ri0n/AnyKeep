@@ -659,7 +659,13 @@ jobs:
               "anykeep-deb-debian-13",
           ):
               source = downloaded / artifact
-              files = sorted(path for path in source.rglob("*.deb") if path.is_file())
+              # Debian can emit -dbgsym packages as .deb, whereas Ubuntu
+              # commonly uses .ddeb. Keep symbols in CI artifacts only.
+              files = sorted(
+                  path for path in source.rglob("*.deb")
+                  if path.is_file()
+                  and not path.name.split("_", 1)[0].endswith(("-dbgsym", "-dbg"))
+              )
               if not files:
                   raise SystemExit(f"No Debian packages found in {source}")
               target = output / f"{artifact}.zip"
