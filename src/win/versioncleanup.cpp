@@ -384,10 +384,10 @@ void cleanupInstalledVersions(const std::wstring &root, const std::wstring &msiV
             continue;
         const std::wstring path = join(versions, entry.name);
         if (temporary) {
-            // Any prepared update may own a temp directory. Never prune one
-            // while a prepared.json pointer exists.
-            if (!retention.prepared.empty() || !expired(entry.findData, now, StageGrace)
-                || hasReparsePoint(path))
+            // Only the matching prepared version owns its temporary sibling.
+            const std::wstring temporaryVersion = entry.name.substr(1, entry.name.size() - 5);
+            if (sameVersion(temporaryVersion, retention.prepared)
+                || !expired(entry.findData, now, StageGrace) || hasReparsePoint(path))
                 continue;
         } else {
             VersionCandidate candidate { entry.name, expired(entry.findData, now, VersionGrace),
