@@ -32,7 +32,6 @@ private:
 // Only the installed launcher knows the MSI-owned base version. Run cleanup
 // there, never from an arbitrary versioned application or MSIX executable.
 void cleanupInstalledVersions(const std::wstring &root, const std::wstring &msiVersion);
-void spawnCleanupHelper(const std::wstring &root);
 
 } // namespace AnyKeepWin
 
