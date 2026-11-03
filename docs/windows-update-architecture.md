@@ -209,11 +209,25 @@ The implemented first stage verifies HTTPS, expected MSI size, and SHA-256 from 
 
 MSI extraction is delegated to Windows Installer administrative mode, and AnyKeep accepts only the expected `versions/<version>` payload. Public update delivery must remain disabled until the release-signature policy is implemented. A client that is too old to understand a future trust-key rotation may direct the user to download a fresh installer manually.
 
-## Retention and cleanup still to add
+## Installed-version retention
 
-The first stage keeps the previous version for rollback and does not aggressively remove older prepared versions. Before release, add a conservative cleanup pass that:
+The Win32 launcher checks for obsolete versions **after** starting the
+application, so the application launch itself is not delayed. If the updater
+is switching versions, cleanup is skipped until the next launcher run.
+Store/MSIX delegates retention to Windows.
 
-- never removes `current.version` or `previous.version` targets;
-- keeps at least one known-good previous version;
-- removes stale `.tmp` directories and completed staging packages;
-- limits total retained update storage.
+Cleanup touches **only** old `versions/<version>` directories. It preserves
+the current version, the previous rollback version and the initial MSI-owned
+version embedded in the launcher. It skips all deletion if either version
+pointer is invalid or an update remains prepared in
+`staging/prepared.json`. Recent directories (less than 24 hours old), running
+AnyKeep/updater executables and trees containing reparse points are protected.
+A shared per-installation mutex prevents cleanup from racing the updater's
+pointer switch and rollback. Failures are logged under
+`update-logs/cleanup.log`; they never prevent application startup.
+
+In the usual steady state this keeps two versions, plus the MSI-owned version
+if different. Temporary update and staging directories are intentionally left
+to the existing updater lifecycle rather than introducing unrelated cleanup
+logic. `windows_version_retention_test` verifies the retention behavior on
+temporary Windows directories.

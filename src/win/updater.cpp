@@ -9,6 +9,8 @@
 #include <shellapi.h>
 // clang-format on
 
+#include "versioncleanup.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -264,6 +266,15 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         return 11;
     }
 
+    // Block concurrent cleanup while switching current/previous pointers and
+    // until the new process is confirmed healthy or rollback is complete.
+    AnyKeepWin::MaintenanceLock maintenance(root);
+    if (!maintenance.acquire(150000)) {
+        appendLog(root, L"Could not acquire version maintenance lock");
+        restartThroughLauncher(root);
+        return 18;
+    }
+
     const std::wstring pointerPath = joinPath(root, L"current.version");
     std::wstring       previousVersion;
     if (!readSmallTextFile(pointerPath, &previousVersion) || !safeVersion(previousVersion)) {
@@ -341,6 +352,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         CloseHandle(newProcess.hProcess);
         DeleteFileW(marker.c_str());
         appendLog(root, L"The new version closed normally before the health timer elapsed; keeping it current");
+        maintenance.release();
+        AnyKeepWin::spawnCleanupHelper(root);
         return 0;
     }
 

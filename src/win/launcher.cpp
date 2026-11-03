@@ -10,6 +10,7 @@
 // clang-format on
 
 #include "launcher_config.h"
+#include "versioncleanup.h"
 
 #include <algorithm>
 #include <cwctype>
@@ -205,6 +206,11 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         return 1;
     }
 
+    // The updater holds this lock while switching version pointers.
+    // Never repair pointers or clean up while an update is in flight.
+    AnyKeepWin::MaintenanceLock lock(root);
+    const bool locked = lock.acquire(1500);
+
     std::wstring version;
     std::wstring application;
     std::wstring versionDirectory;
@@ -223,7 +229,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         application      = initialApplication;
         versionDirectory = initialDirectory;
     }
-    if (!currentResolved)
+    if (!currentResolved && locked)
         atomicWriteText(joinPath(root, L"current.version"), version);
 
     int          argc        = 0;
@@ -250,6 +256,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
+    if (locked)
+        AnyKeepWin::cleanupInstalledVersions(root, ANYKEEP_INITIAL_VERSION_W);
     return 0;
 }
 
