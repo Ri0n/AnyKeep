@@ -81,17 +81,27 @@ endif()
 if(WIN32)
   configure_file(win/launcher_config.h.in launcher_config.h @ONLY)
 
+  add_library(anykeep_version_maintenance STATIC
+              win/versioncleanup.cpp win/versioncleanup.h win/versionretention.h)
+  target_include_directories(anykeep_version_maintenance PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/win")
+
   add_executable(anykeep_launcher WIN32 win/launcher.cpp win/anykeep.rc "${CMAKE_CURRENT_BINARY_DIR}/launcher_config.h")
   set_target_properties(anykeep_launcher PROPERTIES OUTPUT_NAME AnyKeepLauncher RUNTIME_OUTPUT_DIRECTORY
                                                                                 "${EXECUTABLE_OUTPUT_PATH}")
   target_include_directories(anykeep_launcher PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
-  target_link_libraries(anykeep_launcher PRIVATE shell32)
+  target_link_libraries(anykeep_launcher PRIVATE shell32 anykeep_version_maintenance)
 
   add_executable(anykeep_updater WIN32 win/updater.cpp win/anykeep.rc)
   set_target_properties(anykeep_updater PROPERTIES OUTPUT_NAME AnyKeepUpdater RUNTIME_OUTPUT_DIRECTORY
                                                                               "${EXECUTABLE_OUTPUT_PATH}")
-  target_link_libraries(anykeep_updater PRIVATE shell32)
+  target_link_libraries(anykeep_updater PRIVATE shell32 anykeep_version_maintenance)
 
   install(TARGETS anykeep_launcher RUNTIME DESTINATION "." COMPONENT Launcher)
   install(TARGETS anykeep_updater RUNTIME DESTINATION "." COMPONENT Executable)
+
+  if(BUILD_TESTING)
+    add_executable(windows_version_retention_test "${CMAKE_SOURCE_DIR}/tests/windows_version_retention_test.cpp")
+    target_link_libraries(windows_version_retention_test PRIVATE anykeep_version_maintenance)
+    add_test(NAME windows_version_retention_test COMMAND windows_version_retention_test)
+  endif()
 endif()
