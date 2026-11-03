@@ -18,7 +18,6 @@
 #include <set>
 #include <string>
 #include <system_error>
-#include <vector>
 
 namespace AnyKeepWin {
 namespace {
@@ -29,6 +28,7 @@ constexpr auto VersionGrace = std::chrono::hours(24);
 std::wstring lower(std::wstring value)
 {
     std::transform(value.begin(), value.end(), value.begin(), [](wchar_t ch) { return std::towlower(ch); });
+    std::replace(value.begin(), value.end(), L'/', L'\\');
     return value;
 }
 
@@ -101,7 +101,7 @@ bool runningVersions(std::set<std::wstring> *running)
                 break;
             }
             wchar_t filename[32768] {};
-            DWORD length = DWORD(std::size(filename));
+            DWORD length = DWORD(32768);
             const bool queried = QueryFullProcessImageNameW(process, 0, filename, &length) != 0;
             CloseHandle(process);
             if (!queried) {
@@ -195,22 +195,6 @@ void cleanupInstalledVersions(const std::wstring &rootName, const std::wstring &
             log(root, "Could not delete obsolete version " + version + ": " + ec.message());
         else
             log(root, "Removed obsolete version " + version + " (" + std::to_string(removed) + " entries)");
-    }
-}
-
-void spawnCleanupHelper(const std::wstring &root)
-{
-    const std::wstring launcher = (fs::path(root) / L"AnyKeepLauncher.exe").wstring();
-    const std::wstring line = L"\"" + launcher + L"\" --cleanup";
-    std::vector<wchar_t> command(line.begin(), line.end());
-    command.push_back(L'\0');
-    STARTUPINFOW startup {};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process {};
-    if (CreateProcessW(launcher.c_str(), command.data(), nullptr, nullptr, FALSE,
-                       CREATE_NO_WINDOW, nullptr, root.c_str(), &startup, &process)) {
-        CloseHandle(process.hThread);
-        CloseHandle(process.hProcess);
     }
 }
 
