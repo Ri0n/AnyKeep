@@ -167,6 +167,9 @@ void cleanupInstalledVersions(const std::wstring &rootName, const std::wstring &
         return;
 
     std::error_code ec;
+    if (!fs::is_regular_file(versions / current / L"anykeep.exe", ec) || ec
+        || !fs::is_regular_file(versions / previous / L"anykeep.exe", ec) || ec)
+        return;
     if (fs::exists(root / L"staging" / L"prepared.json", ec) || ec)
         return; // A prepared update could still be waiting to be applied.
 
