@@ -99,10 +99,12 @@ void integrationTest()
     expect(CreateDirectoryW(staging.c_str(), nullptr), "staging root");
     for (const wchar_t *v : { L"1.0", L"2.0", L"3.0", L"4.0", L"5.0", L".6.0.tmp" })
         makeVersion(versions, v);
-    for (const wchar_t *v : { L"5.0", L"6.0" }) {
+    for (const wchar_t *v : { L"5.0", L"6.0", L"7.0" }) {
         const std::wstring path = join(staging, v);
         expect(CreateDirectoryW(path.c_str(), nullptr), "create staging directory");
         put(join(path, L"package.msi"), "fixture");
+        if (wcscmp(v, L"7.0") != 0)
+            makeOld(join(path, L"package.msi"));
         makeOld(path);
     }
     put(join(root, L"current.version"), "4.0\n");
@@ -123,6 +125,7 @@ void integrationTest()
     expect(!exists(join(versions, L".6.0.tmp")), "stale temporary version removed");
     expect(!exists(join(staging, L"6.0")), "stale staging directory removed");
     expect(exists(join(staging, L"5.0")), "prepared staging directory kept");
+    expect(exists(join(staging, L"7.0")), "recent download in old staging directory kept");
 
     // Malformed prepared state must suppress destructive cleanup.
     makeVersion(versions, L"2.0");
@@ -147,8 +150,10 @@ void integrationTest()
     }
     RemoveDirectoryW(versions.c_str());
     DeleteFileW(join(staging, L"prepared.json").c_str());
-    DeleteFileW(join(join(staging, L"5.0"), L"package.msi").c_str());
-    RemoveDirectoryW(join(staging, L"5.0").c_str());
+    for (const wchar_t *v : { L"5.0", L"7.0" }) {
+        DeleteFileW(join(join(staging, v), L"package.msi").c_str());
+        RemoveDirectoryW(join(staging, v).c_str());
+    }
     RemoveDirectoryW(staging.c_str());
     DeleteFileW(join(root, L"current.version").c_str());
     DeleteFileW(join(root, L"previous.version").c_str());
