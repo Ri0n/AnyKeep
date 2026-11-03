@@ -63,6 +63,12 @@ jobs:
           fi
 
           update_dir="${update_dirs[0]}"
+          release_tag="$(python3 -c 'import json, sys; from urllib.parse import urlparse, unquote; print(unquote(urlparse(json.load(open(sys.argv[1]))["package"]["url"]).path.split("/")[-2]))' "$update_dir/windows-x86_64.json")"
+          if [[ "$release_tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+[_-](rc|alpha|beta)[0-9]+$ ]]; then
+            echo "Versioned prerelease $release_tag is distributed through GitHub only."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           update_channel="$(basename "$update_dir")"
           printf 'update_dir=%s\n' "$update_dir" >> "$GITHUB_OUTPUT"
           printf 'update_channel=%s\n' "$update_channel" >> "$GITHUB_OUTPUT"

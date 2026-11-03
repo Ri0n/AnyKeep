@@ -48,6 +48,9 @@ jobs:
       - name: Test Qt lock-derived toolchain and SDK version alignment
         run: python3 -m unittest discover -s .github/scripts -p 'test_qt_versions.py'
 
+      - name: Test release candidate version parsing
+        run: python3 -m unittest discover -s .github/scripts -p 'test_release_versions.py'
+
       - name: Resolve compatible nightly dependencies
         id: nightly
         env:

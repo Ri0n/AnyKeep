@@ -1,3 +1,12 @@
+2026-11-04 AnyKeep-4.0.0_rc1
++ Shared structured editor for desktop and Android
++ Folders, favorites, archive and recycle bin
++ Encrypted drafts, recovery and offline caches
+* Updated XMPP synchronization and desktop integrations
+* Scrollable tray menus and fallback tray body search
+* Improved Windows packaging, scrollbar visibility and window shutdown
+* Release notes: docs/releases/4.0.0_rc1.md
+
 2018-11-16 AnyKeep-3.0.5 Release
 * Plasma integration fixes nd updates
 * New hunpell compatibility and encoding fixes

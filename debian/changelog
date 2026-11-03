@@ -1,3 +1,12 @@
+anykeep (4.0.0~rc1) unstable; urgency=medium
+
+  * First release candidate for AnyKeep 4.0.
+  * Shared structured editor, folders, encrypted drafts and offline caches.
+  * Desktop tray integrations, Android support and Windows self-updates.
+  * Improve tray search and scrolling and fix standalone window shutdown.
+
+ -- Sergei Ilinykh <rion4ik@gmail.com>  Wed, 04 Nov 2026 00:00:00 +0300
+
 anykeep (3.99.93) UNRELEASED; urgency=medium
 
   * KDE plasmamoid

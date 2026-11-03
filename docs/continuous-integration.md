@@ -59,6 +59,11 @@ updated only after every matrix job succeeds. Nightly uses the rolling
 an explicit untagged stable build uses the rolling `stable` release.
 
 Stable builds use the exact dependency versions in `dependencies.lock.json`.
+Versioned prerelease tags such as `4.0.0_rc1` also use these pinned dependencies,
+but publish a separate GitHub prerelease. They do not publish manifests to the
+stable or nightly auto-update feeds. CMake keeps a numeric native package
+version and a separate display version carrying the prerelease suffix.
+
 Nightly builds may advance Iris and QCA automatically within the
 source-controlled `nightly_compatibility` line. The current policy is
 `same-minor`: for example, an Iris 1.1.x pin may advance to a newer complete

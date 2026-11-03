@@ -36,6 +36,7 @@ jobs:
       should_build: ${{ steps.gate.outputs.should_build }}
       update_channel: ${{ steps.channel.outputs.update_channel }}
       release_tag: ${{ steps.channel.outputs.release_tag }}
+      prerelease: ${{ steps.channel.outputs.prerelease }}
       iris_tag: ${{ steps.dependencies.outputs.iris_tag }}
       qca_tag: ${{ steps.dependencies.outputs.qca_tag }}
       qtkeychain_tag: ${{ steps.dependencies.outputs.qtkeychain_tag }}
@@ -58,13 +59,17 @@ jobs:
 
           tagged_release="$(
             git tag --points-at HEAD \
-              | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
+              | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+([_-](rc|alpha|beta)[0-9]+)?$' \
               | head -n 1 \
               || true
           )"
+          prerelease=false
           if [[ -n "$tagged_release" ]]; then
             channel=stable
             release_tag="$tagged_release"
+            if [[ "$tagged_release" =~ [_-](rc|alpha|beta)[0-9]+$ ]]; then
+              prerelease=true
+            fi
             echo "HEAD is tagged as $tagged_release; selecting stable."
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             channel="${{ inputs.update_channel }}"
@@ -78,6 +83,7 @@ jobs:
 
           printf 'update_channel=%s\n' "$channel" >> "$GITHUB_OUTPUT"
           printf 'release_tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
+          printf 'prerelease=%s\n' "$prerelease" >> "$GITHUB_OUTPUT"
 
       - name: Resolve package dependencies
         id: dependencies
@@ -619,10 +625,15 @@ jobs:
       QTKEYCHAIN_TAG: ${{ needs.plan.outputs.qtkeychain_tag }}
       UPDATE_CHANNEL: ${{ needs.plan.outputs.update_channel }}
       RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+      PRERELEASE: ${{ needs.plan.outputs.prerelease }}
       DEPENDENCY_SUMMARY: ${{ needs.plan.outputs.dependency_summary }}
       DEPENDENCY_FINGERPRINT: ${{ needs.plan.outputs.dependency_fingerprint }}
 
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
       - name: Download all package artifacts
         uses: actions/download-artifact@v8
         with:
@@ -684,7 +695,10 @@ jobs:
           set -euo pipefail
 
           release_tag="$RELEASE_TAG"
-          if [[ "$UPDATE_CHANNEL" == "nightly" ]]; then
+          if [[ "$PRERELEASE" == "true" ]]; then
+            release_title="AnyKeep $release_tag"
+            release_kind=(--prerelease)
+          elif [[ "$UPDATE_CHANNEL" == "nightly" ]]; then
             release_title="AnyKeep Nightly"
             release_kind=(--prerelease)
           elif [[ "$release_tag" == "stable" ]]; then
@@ -723,7 +737,9 @@ jobs:
           built_at="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           notes_file="$RUNNER_TEMP/anykeep-release-notes.md"
           {
-            if [[ "$UPDATE_CHANNEL" == "nightly" ]]; then
+            if [[ "$PRERELEASE" == "true" ]]; then
+              cat "docs/releases/$release_tag.md"
+            elif [[ "$UPDATE_CHANNEL" == "nightly" ]]; then
               echo "Rolling AnyKeep nightly build."
             else
               echo "AnyKeep stable package build."
@@ -744,7 +760,7 @@ jobs:
           } >"$notes_file"
 
           edit_kind=()
-          if [[ "$UPDATE_CHANNEL" == "nightly" ]]; then
+          if [[ "$UPDATE_CHANNEL" == "nightly" || "$PRERELEASE" == "true" ]]; then
             edit_kind=(--prerelease)
           fi
 
