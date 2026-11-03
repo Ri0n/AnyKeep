@@ -97,8 +97,14 @@ void integrationTest()
     const std::wstring staging = join(root, L"staging");
     expect(CreateDirectoryW(versions.c_str(), nullptr), "versions root");
     expect(CreateDirectoryW(staging.c_str(), nullptr), "staging root");
-    for (const wchar_t *v : { L"1.0", L"2.0", L"3.0", L"4.0", L"5.0" })
+    for (const wchar_t *v : { L"1.0", L"2.0", L"3.0", L"4.0", L"5.0", L".6.0.tmp" })
         makeVersion(versions, v);
+    for (const wchar_t *v : { L"5.0", L"6.0" }) {
+        const std::wstring path = join(staging, v);
+        expect(CreateDirectoryW(path.c_str(), nullptr), "create staging directory");
+        put(join(path, L"package.msi"), "fixture");
+        makeOld(path);
+    }
     put(join(root, L"current.version"), "4.0\n");
     put(join(root, L"previous.version"), "3.0\n");
     put(join(staging, L"prepared.json"), R"({"schema":1,"version":"5.0"})");
@@ -114,6 +120,9 @@ void integrationTest()
     expect(exists(join(versions, L"3.0")), "rollback version kept");
     expect(exists(join(versions, L"4.0")), "active version kept");
     expect(exists(join(versions, L"5.0")), "prepared version kept");
+    expect(!exists(join(versions, L".6.0.tmp")), "stale temporary version removed");
+    expect(!exists(join(staging, L"6.0")), "stale staging directory removed");
+    expect(exists(join(staging, L"5.0")), "prepared staging directory kept");
 
     // Malformed prepared state must suppress destructive cleanup.
     makeVersion(versions, L"2.0");
@@ -129,7 +138,7 @@ void integrationTest()
 
     // Use Windows' temporary directory API for test fixtures and remove only
     // what the test itself created.
-    for (const wchar_t *v : { L"1.0", L"2.0", L"3.0", L"4.0", L"5.0" }) {
+    for (const wchar_t *v : { L"1.0", L"2.0", L"3.0", L"4.0", L"5.0", L".6.0.tmp" }) {
         const std::wstring dir = join(versions, v);
         if (exists(dir)) {
             DeleteFileW(join(dir, L"anykeep.exe").c_str());
@@ -138,6 +147,8 @@ void integrationTest()
     }
     RemoveDirectoryW(versions.c_str());
     DeleteFileW(join(staging, L"prepared.json").c_str());
+    DeleteFileW(join(join(staging, L"5.0"), L"package.msi").c_str());
+    RemoveDirectoryW(join(staging, L"5.0").c_str());
     RemoveDirectoryW(staging.c_str());
     DeleteFileW(join(root, L"current.version").c_str());
     DeleteFileW(join(root, L"previous.version").c_str());
