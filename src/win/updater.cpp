@@ -344,8 +344,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         CloseHandle(newProcess.hProcess);
         DeleteFileW(marker.c_str());
         appendLog(root, L"The new version completed the 60-second healthy-startup probe");
-        maintenance.release();
-        AnyKeepWin::spawnCleanupHelper(root);
         return 0;
     }
 
