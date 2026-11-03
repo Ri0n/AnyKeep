@@ -211,9 +211,10 @@ MSI extraction is delegated to Windows Installer administrative mode, and AnyKee
 
 ## Installed-version retention
 
-The Win32 launcher runs `AnyKeepLauncher.exe --cleanup` in a detached process
-after starting the application. The updater requests the same pass after a
-successful startup probe. Store/MSIX delegates retention to Windows.
+The Win32 launcher checks for obsolete versions **after** starting the
+application, so the application launch itself is not delayed. If the updater
+is switching versions, cleanup is skipped until the next launcher run.
+Store/MSIX delegates retention to Windows.
 
 Cleanup touches **only** old `versions/<version>` directories. It preserves
 the current version, the previous rollback version and the initial MSI-owned
