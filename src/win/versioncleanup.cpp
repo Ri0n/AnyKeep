@@ -352,8 +352,9 @@ void cleanupInstalledVersions(const std::wstring &root, const std::wstring &msiV
     }
 
     const DWORD preparedAttrs = GetFileAttributesW(join(join(root, L"staging"), L"prepared.json").c_str());
+    const DWORD preparedError = preparedAttrs == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_SUCCESS;
     retention.preparedValid = preparedAttrs == INVALID_FILE_ATTRIBUTES
-        && GetLastError() == ERROR_FILE_NOT_FOUND;
+        && (preparedError == ERROR_FILE_NOT_FOUND || preparedError == ERROR_PATH_NOT_FOUND);
     if (!retention.preparedValid && !readPrepared(root, &retention.prepared)) {
         logCleanup(root, L"Skipped: prepared.json is unreadable");
         return;
