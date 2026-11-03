@@ -206,24 +206,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         return 1;
     }
 
-    // Run cleanup out of process, after the real application has launched.
-    // This keeps disk I/O and locked-file retries off the startup path.
-    int cleanupArgc = 0;
-    LPWSTR *cleanupArgv = CommandLineToArgvW(GetCommandLineW(), &cleanupArgc);
-    const bool cleanupOnly = cleanupArgv && cleanupArgc == 2
-        && wcscmp(cleanupArgv[1], L"--cleanup") == 0;
-    if (cleanupArgv)
-        LocalFree(cleanupArgv);
-    if (cleanupOnly) {
-        AnyKeepWin::MaintenanceLock lock(root);
-        if (lock.acquire(15000))
-            AnyKeepWin::cleanupInstalledVersions(root, ANYKEEP_INITIAL_VERSION_W);
-        return 0;
-    }
-
-    // The updater holds the same lock while changing both version pointers.
-    // If it is busy, launch through the existing atomic pointer files but do
-    // not attempt a conflicting repair or schedule another cleanup.
+    // The updater holds this lock while switching version pointers.
+    // Never repair pointers or clean up while an update is in flight.
     AnyKeepWin::MaintenanceLock lock(root);
     const bool locked = lock.acquire(1500);
 
@@ -272,10 +256,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
-    if (locked) {
-        lock.release();
-        AnyKeepWin::spawnCleanupHelper(root);
-    }
+    if (locked)
+        AnyKeepWin::cleanupInstalledVersions(root, ANYKEEP_INITIAL_VERSION_W);
     return 0;
 }
 
