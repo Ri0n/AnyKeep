@@ -82,7 +82,7 @@ if(WIN32)
   configure_file(win/launcher_config.h.in launcher_config.h @ONLY)
 
   add_library(anykeep_version_maintenance STATIC
-              win/versioncleanup.cpp win/versioncleanup.h win/versionretention.h)
+              win/versioncleanup.cpp win/versioncleanup.h)
   target_include_directories(anykeep_version_maintenance PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/win")
 
   add_executable(anykeep_launcher WIN32 win/launcher.cpp win/anykeep.rc "${CMAKE_CURRENT_BINARY_DIR}/launcher_config.h")
