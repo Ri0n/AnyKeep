@@ -167,6 +167,32 @@ bool expired(const WIN32_FIND_DATAW &data, ULONGLONG now, ULONGLONG age)
     return now > modified && now - modified >= age;
 }
 
+// A resumed download can modify package.msi.part inside an old staging
+// directory without updating the directory's own last-write timestamp.
+bool hasRecentContents(const std::wstring &path, ULONGLONG now, ULONGLONG grace)
+{
+    WIN32_FIND_DATAW item {};
+    HANDLE handle = FindFirstFileW(join(path, L"*").c_str(), &item);
+    if (handle == INVALID_HANDLE_VALUE)
+        return GetLastError() != ERROR_FILE_NOT_FOUND;
+    bool recent = false;
+    do {
+        if (wcscmp(item.cFileName, L".") == 0 || wcscmp(item.cFileName, L"..") == 0)
+            continue;
+        if ((item.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+            || !expired(item, now, grace)
+            || ((item.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                && hasRecentContents(join(path, item.cFileName), now, grace))) {
+            recent = true;
+            break;
+        }
+    } while (FindNextFileW(handle, &item));
+    if (!recent && GetLastError() != ERROR_NO_MORE_FILES)
+        recent = true;
+    FindClose(handle);
+    return recent;
+}
+
 bool hasReparsePoint(const std::wstring &path)
 {
     const DWORD attrs = GetFileAttributesW(path.c_str());
@@ -387,7 +413,8 @@ void cleanupInstalledVersions(const std::wstring &root, const std::wstring &msiV
             // Only the matching prepared version owns its temporary sibling.
             const std::wstring temporaryVersion = entry.name.substr(1, entry.name.size() - 5);
             if (sameVersion(temporaryVersion, retention.prepared)
-                || !expired(entry.findData, now, StageGrace) || hasReparsePoint(path))
+                || !expired(entry.findData, now, StageGrace) || hasReparsePoint(path)
+                || hasRecentContents(path, now, StageGrace))
                 continue;
         } else {
             VersionCandidate candidate { entry.name, expired(entry.findData, now, VersionGrace),
@@ -415,7 +442,7 @@ void cleanupInstalledVersions(const std::wstring &root, const std::wstring &msiV
             || !expired(entry.findData, now, StageGrace))
             continue;
         const std::wstring path = join(staging, entry.name);
-        if (hasReparsePoint(path))
+        if (hasReparsePoint(path) || hasRecentContents(path, now, StageGrace))
             continue;
         if (deleteTree(path))
             logCleanup(root, L"Removed stale update staging directory: " + entry.name);
