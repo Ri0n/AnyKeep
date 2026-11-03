@@ -352,8 +352,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         CloseHandle(newProcess.hProcess);
         DeleteFileW(marker.c_str());
         appendLog(root, L"The new version closed normally before the health timer elapsed; keeping it current");
-        maintenance.release();
-        AnyKeepWin::spawnCleanupHelper(root);
         return 0;
     }
 

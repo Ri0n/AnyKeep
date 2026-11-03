@@ -6,12 +6,12 @@
 
 #include <QAction>
 #include <QColor>
-#include <QPainter>
-#include <QPixmap>
 #include <QGuiApplication>
 #include <QIcon>
-#include <QSystemTrayIcon>
+#include <QPainter>
+#include <QPixmap>
 #include <QStringList>
+#include <QSystemTrayIcon>
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
 #include <QStyleHints>
@@ -58,11 +58,20 @@ QString TrayIconUtils::connectionSummary()
             continue;
         QString label;
         switch (state) {
-        case NoteStorage::ConnectivityState::Online: label = QObject::tr("Online"); break;
-        case NoteStorage::ConnectivityState::Offline: label = QObject::tr("Offline"); break;
-        case NoteStorage::ConnectivityState::Connecting: label = QObject::tr("Reconnecting"); break;
-        case NoteStorage::ConnectivityState::Error: label = QObject::tr("Needs attention"); break;
-        case NoteStorage::ConnectivityState::NotApplicable: break;
+        case NoteStorage::ConnectivityState::Online:
+            label = QObject::tr("Online");
+            break;
+        case NoteStorage::ConnectivityState::Offline:
+            label = QObject::tr("Offline");
+            break;
+        case NoteStorage::ConnectivityState::Connecting:
+            label = QObject::tr("Reconnecting");
+            break;
+        case NoteStorage::ConnectivityState::Error:
+            label = QObject::tr("Needs attention");
+            break;
+        case NoteStorage::ConnectivityState::NotApplicable:
+            break;
         }
         lines.append(QObject::tr("%1: %2").arg(storage->name(), label));
     }
@@ -78,30 +87,42 @@ void TrayIconUtils::setupSystemTrayIcon(QSystemTrayIcon *trayIcon, QAction *stat
     // A local offline cache must not be interpreted as an active XMPP session.
     const auto refresh = [trayIcon, statusAction] {
         const QString summary = connectionSummary();
-        trayIcon->setToolTip(summary.isEmpty() ? QObject::tr("AnyKeep")
-                                              : QObject::tr("AnyKeep\n%1").arg(summary));
+        trayIcon->setToolTip(summary.isEmpty() ? QObject::tr("AnyKeep") : QObject::tr("AnyKeep\n%1").arg(summary));
         if (statusAction) {
             statusAction->setVisible(!summary.isEmpty());
             statusAction->setText(QString(summary).replace(QLatin1Char('\n'), QStringLiteral("; ")));
         }
 
-        int priority = 0;
+        int    priority = 0;
         QColor dot;
         for (const auto &storage : NoteManager::instance()->prioritizedStorages(true)) {
             if (!storage)
                 continue;
-            int p = 0;
+            int    p = 0;
             QColor color;
             switch (storage->connectivityState()) {
-            case NoteStorage::ConnectivityState::Online: p = 1; color = QColor("#2c995a"); break;
-            case NoteStorage::ConnectivityState::Connecting: p = 3; color = QColor("#b98a32"); break;
-            case NoteStorage::ConnectivityState::Offline: p = 2; color = QColor("#858b95"); break;
-            case NoteStorage::ConnectivityState::Error: p = 4; color = QColor("#c44a4a"); break;
-            case NoteStorage::ConnectivityState::NotApplicable: break;
+            case NoteStorage::ConnectivityState::Online:
+                p     = 1;
+                color = QColor("#2c995a");
+                break;
+            case NoteStorage::ConnectivityState::Connecting:
+                p     = 3;
+                color = QColor("#b98a32");
+                break;
+            case NoteStorage::ConnectivityState::Offline:
+                p     = 2;
+                color = QColor("#858b95");
+                break;
+            case NoteStorage::ConnectivityState::Error:
+                p     = 4;
+                color = QColor("#c44a4a");
+                break;
+            case NoteStorage::ConnectivityState::NotApplicable:
+                break;
             }
             if (p > priority) {
                 priority = p;
-                dot = color;
+                dot      = color;
             }
         }
         const auto baseIcon = themedTrayIcon();
@@ -111,12 +132,15 @@ void TrayIconUtils::setupSystemTrayIcon(QSystemTrayIcon *trayIcon, QAction *stat
         }
         QIcon composed;
         for (const int size : { 16, 22, 32, 48, 64 }) {
-            QPixmap canvas = baseIcon.pixmap(size, size);
-            if (canvas.isNull())
-                continue;
+            // A raster icon may return a smaller pixmap than requested (and
+            // its device pixel ratio may differ). Paint into a fixed logical
+            // canvas so the badge always stays inside the resulting icon.
+            QPixmap canvas(size, size);
+            canvas.fill(Qt::transparent);
             QPainter painter(&canvas);
+            baseIcon.paint(&painter, canvas.rect());
             painter.setRenderHint(QPainter::Antialiasing);
-            const qreal diameter = qMax(6.0, size * 0.36);
+            const qreal  diameter = qMax(6.0, size * 0.36);
             const QRectF badge(size - diameter, size - diameter, diameter, diameter);
             painter.setPen(QPen(QColor("#ffffff"), qMax(1.0, size * 0.055)));
             painter.setBrush(dot);
@@ -129,8 +153,10 @@ void TrayIconUtils::setupSystemTrayIcon(QSystemTrayIcon *trayIcon, QAction *stat
 
     const auto manager = NoteManager::instance();
     QObject::connect(manager, &NoteManager::storageAdded, trayIcon, [refresh](const NoteStorage::Ptr &) { refresh(); });
-    QObject::connect(manager, &NoteManager::storageRemoved, trayIcon, [refresh](const NoteStorage::Ptr &) { refresh(); });
-    QObject::connect(manager, &NoteManager::storageChanged, trayIcon, [refresh](const NoteStorage::Ptr &) { refresh(); });
+    QObject::connect(manager, &NoteManager::storageRemoved, trayIcon,
+                     [refresh](const NoteStorage::Ptr &) { refresh(); });
+    QObject::connect(manager, &NoteManager::storageChanged, trayIcon,
+                     [refresh](const NoteStorage::Ptr &) { refresh(); });
     QObject::connect(manager, &NoteManager::storageReady, trayIcon, [refresh](const NoteStorage::Ptr &) { refresh(); });
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     QObject::connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, trayIcon, refresh);

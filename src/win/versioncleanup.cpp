@@ -22,100 +22,99 @@
 namespace AnyKeepWin {
 namespace {
 
-namespace fs = std::filesystem;
-constexpr auto VersionGrace = std::chrono::hours(24);
+    namespace fs                = std::filesystem;
+    constexpr auto VersionGrace = std::chrono::hours(24);
 
-std::wstring lower(std::wstring value)
-{
-    std::transform(value.begin(), value.end(), value.begin(), [](wchar_t ch) { return std::towlower(ch); });
-    std::replace(value.begin(), value.end(), L'/', L'\\');
-    return value;
-}
-
-bool safeVersion(const std::wstring &name)
-{
-    return !name.empty() && name.size() <= 80 && name != L"." && name != L".."
-        && std::all_of(name.begin(), name.end(), [](wchar_t ch) {
-               return (ch >= L'0' && ch <= L'9') || (ch >= L'A' && ch <= L'Z')
-                   || (ch >= L'a' && ch <= L'z') || ch == L'.' || ch == L'-'
-                   || ch == L'_' || ch == L'+';
-           });
-}
-
-std::wstring readVersion(const fs::path &file)
-{
-    std::ifstream input(file, std::ios::binary);
-    std::string line;
-    if (!input || !std::getline(input, line) || line.size() > 80)
-        return {};
-    if (!line.empty() && line.back() == '\r')
-        line.pop_back();
-    std::wstring name(line.begin(), line.end());
-    return safeVersion(name) ? name : std::wstring();
-}
-
-void log(const fs::path &root, const std::string &message)
-{
-    std::error_code ec;
-    fs::create_directories(root / L"update-logs", ec);
-    if (!ec) {
-        std::ofstream output(root / L"update-logs" / L"cleanup.log", std::ios::app);
-        output << message << '\n';
+    std::wstring lower(std::wstring value)
+    {
+        std::transform(value.begin(), value.end(), value.begin(), [](wchar_t ch) { return std::towlower(ch); });
+        std::replace(value.begin(), value.end(), L'/', L'\\');
+        return value;
     }
-}
 
-bool isReparsePoint(const fs::path &path)
-{
-    const DWORD attributes = GetFileAttributesW(path.c_str());
-    return attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT);
-}
+    bool safeVersion(const std::wstring &name)
+    {
+        return !name.empty() && name.size() <= 80 && name != L"." && name != L".."
+            && std::all_of(name.begin(), name.end(), [](wchar_t ch) {
+                   return (ch >= L'0' && ch <= L'9') || (ch >= L'A' && ch <= L'Z') || (ch >= L'a' && ch <= L'z')
+                       || ch == L'.' || ch == L'-' || ch == L'_' || ch == L'+';
+               });
+    }
 
-bool safeTree(const fs::path &path)
-{
-    if (isReparsePoint(path))
-        return false;
-    std::error_code ec;
-    for (fs::recursive_directory_iterator it(path, ec), end; it != end && !ec; it.increment(ec)) {
-        if (isReparsePoint(it->path()))
+    std::wstring readVersion(const fs::path &file)
+    {
+        std::ifstream input(file, std::ios::binary);
+        std::string   line;
+        if (!input || !std::getline(input, line) || line.size() > 80)
+            return {};
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        std::wstring name(line.begin(), line.end());
+        return safeVersion(name) ? name : std::wstring();
+    }
+
+    void log(const fs::path &root, const std::string &message)
+    {
+        std::error_code ec;
+        fs::create_directories(root / L"update-logs", ec);
+        if (!ec) {
+            std::ofstream output(root / L"update-logs" / L"cleanup.log", std::ios::app);
+            output << message << '\n';
+        }
+    }
+
+    bool isReparsePoint(const fs::path &path)
+    {
+        const DWORD attributes = GetFileAttributesW(path.c_str());
+        return attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT);
+    }
+
+    bool safeTree(const fs::path &path)
+    {
+        if (isReparsePoint(path))
             return false;
+        std::error_code ec;
+        for (fs::recursive_directory_iterator it(path, ec), end; it != end && !ec; it.increment(ec)) {
+            if (isReparsePoint(it->path()))
+                return false;
+        }
+        return !ec;
     }
-    return !ec;
-}
 
-bool runningVersions(std::set<std::wstring> *running)
-{
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE)
-        return false;
-    PROCESSENTRY32W entry {};
-    entry.dwSize = sizeof(entry);
-    bool ok = Process32FirstW(snapshot, &entry);
-    if (ok) {
-        do {
-            const std::wstring name = lower(entry.szExeFile);
-            if (name != L"anykeep.exe" && name != L"anykeepupdater.exe")
-                continue;
-            HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
-            if (!process) {
+    bool runningVersions(std::set<std::wstring> *running)
+    {
+        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snapshot == INVALID_HANDLE_VALUE)
+            return false;
+        PROCESSENTRY32W entry {};
+        entry.dwSize = sizeof(entry);
+        bool ok      = Process32FirstW(snapshot, &entry);
+        if (ok) {
+            do {
+                const std::wstring name = lower(entry.szExeFile);
+                if (name != L"anykeep.exe" && name != L"anykeepupdater.exe")
+                    continue;
+                HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
+                if (!process) {
+                    ok = false;
+                    break;
+                }
+                wchar_t    filename[32768] {};
+                DWORD      length  = DWORD(32768);
+                const bool queried = QueryFullProcessImageNameW(process, 0, filename, &length) != 0;
+                CloseHandle(process);
+                if (!queried) {
+                    ok = false;
+                    break;
+                }
+                running->insert(lower(std::wstring(filename, length)));
+            } while (Process32NextW(snapshot, &entry));
+            if (ok && GetLastError() != ERROR_NO_MORE_FILES)
                 ok = false;
-                break;
-            }
-            wchar_t filename[32768] {};
-            DWORD length = DWORD(32768);
-            const bool queried = QueryFullProcessImageNameW(process, 0, filename, &length) != 0;
-            CloseHandle(process);
-            if (!queried) {
-                ok = false;
-                break;
-            }
-            running->insert(lower(std::wstring(filename, length)));
-        } while (Process32NextW(snapshot, &entry));
-        if (ok && GetLastError() != ERROR_NO_MORE_FILES)
-            ok = false;
+        }
+        CloseHandle(snapshot);
+        return ok;
     }
-    CloseHandle(snapshot);
-    return ok;
-}
 
 } // namespace
 
@@ -143,7 +142,7 @@ bool MaintenanceLock::acquire(DWORD timeoutMs)
     if (!mutex_)
         return false;
     const DWORD result = WaitForSingleObject(mutex_, timeoutMs);
-    locked_ = result == WAIT_OBJECT_0 || result == WAIT_ABANDONED;
+    locked_            = result == WAIT_OBJECT_0 || result == WAIT_ABANDONED;
     return locked_;
 }
 
@@ -160,7 +159,7 @@ void cleanupInstalledVersions(const std::wstring &rootName, const std::wstring &
     const fs::path root(rootName), versions = root / L"versions";
     if (!safeVersion(msiVersion) || isReparsePoint(root) || isReparsePoint(versions))
         return;
-    const std::wstring current = readVersion(root / L"current.version");
+    const std::wstring current  = readVersion(root / L"current.version");
     const std::wstring previous = readVersion(root / L"previous.version");
     // Leave the old installations alone until rollback state is unambiguous.
     if (current.empty() || previous.empty())
@@ -178,22 +177,26 @@ void cleanupInstalledVersions(const std::wstring &rootName, const std::wstring &
         return;
 
     for (fs::directory_iterator it(versions, ec), end; it != end && !ec; it.increment(ec)) {
-        const fs::path path = it->path();
+        const fs::path     path = it->path();
         const std::wstring name = path.filename().wstring();
-        if (!safeVersion(name) || name.front() == L'.' || lower(name) == lower(current) || lower(name) == lower(previous)
-            || lower(name) == lower(msiVersion) || isReparsePoint(path)
+        if (!safeVersion(name) || name.front() == L'.' || lower(name) == lower(current)
+            || lower(name) == lower(previous) || lower(name) == lower(msiVersion) || isReparsePoint(path)
             || !it->is_directory(ec) || ec)
             continue;
         const auto modified = fs::last_write_time(path, ec);
         if (ec || fs::file_time_type::clock::now() - modified < VersionGrace)
             continue;
         const fs::path executable = (path / L"anykeep.exe").lexically_normal();
-        const fs::path updater = (path / L"AnyKeepUpdater.exe").lexically_normal();
+        const fs::path updater    = (path / L"AnyKeepUpdater.exe").lexically_normal();
         if (running.contains(lower(executable.wstring())) || running.contains(lower(updater.wstring()))
             || !safeTree(path))
             continue;
         const std::uintmax_t removed = fs::remove_all(path, ec);
-        const std::string version(name.begin(), name.end());
+        // safeVersion() above restricts version names to ASCII.
+        std::string version;
+        version.reserve(name.size());
+        for (const wchar_t ch : name)
+            version.push_back(static_cast<char>(ch));
         if (ec)
             log(root, "Could not delete obsolete version " + version + ": " + ec.message());
         else
