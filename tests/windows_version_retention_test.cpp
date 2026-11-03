@@ -58,7 +58,9 @@ void makeVersion(const std::wstring &versions, const wchar_t *name)
 {
     const std::wstring dir = join(versions, name);
     expect(CreateDirectoryW(dir.c_str(), nullptr), "create version");
-    put(join(dir, L"anykeep.exe"), "fixture");
+    const std::wstring exe = join(dir, L"anykeep.exe");
+    put(exe, "fixture");
+    makeOld(exe);
     makeOld(dir);
 }
 
