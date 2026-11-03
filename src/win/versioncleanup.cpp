@@ -180,7 +180,7 @@ void cleanupInstalledVersions(const std::wstring &rootName, const std::wstring &
     for (fs::directory_iterator it(versions, ec), end; it != end && !ec; it.increment(ec)) {
         const fs::path path = it->path();
         const std::wstring name = path.filename().wstring();
-        if (!safeVersion(name) || name.front() == L\'.\' || lower(name) == lower(current) || lower(name) == lower(previous)
+        if (!safeVersion(name) || name.front() == L'.' || lower(name) == lower(current) || lower(name) == lower(previous)
             || lower(name) == lower(msiVersion) || isReparsePoint(path)
             || !it->is_directory(ec) || ec)
             continue;
