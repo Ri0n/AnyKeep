@@ -209,43 +209,24 @@ The implemented first stage verifies HTTPS, expected MSI size, and SHA-256 from 
 
 MSI extraction is delegated to Windows Installer administrative mode, and AnyKeep accepts only the expected `versions/<version>` payload. Public update delivery must remain disabled until the release-signature policy is implemented. A client that is too old to understand a future trust-key rotation may direct the user to download a fresh installer manually.
 
-## Installed-version retention and cleanup
+## Installed-version retention
 
-The installed Win32 launcher starts a second, console-free `AnyKeepLauncher.exe --cleanup`
-process **after** successfully starting the application. It does not block the
-normal startup path on disk deletion. After a successful health probe (or an
-early normal exit), `AnyKeepUpdater.exe` also asks the installed launcher to
-run this pass; no restart is needed to reclaim old updates. Store/MSIX uses
-Windows-managed version retention and does not use this mechanism.
+The Win32 launcher runs `AnyKeepLauncher.exe --cleanup` in a detached process
+after starting the application. The updater requests the same pass after a
+successful startup probe. Store/MSIX delegates retention to Windows.
 
-The launcher owns the original MSI version number (compiled into
-`ANYKEEP_INITIAL_VERSION_W`), so the cleanup preserves all of:
+Cleanup touches **only** old `versions/<version>` directories. It preserves
+the current version, the previous rollback version and the initial MSI-owned
+version embedded in the launcher. It skips all deletion if either version
+pointer is invalid or an update remains prepared in
+`staging/prepared.json`. Recent directories (less than 24 hours old), running
+AnyKeep/updater executables and trees containing reparse points are protected.
+A shared per-installation mutex prevents cleanup from racing the updater's
+pointer switch and rollback. Failures are logged under
+`update-logs/cleanup.log`; they never prevent application startup.
 
-- the current `current.version` target;
-- the `previous.version` rollback target;
-- the initially MSI-installed version directory, which Windows Installer owns;
-- any `staging/prepared.json` target, even if it has waited for days;
-- version directories containing running AnyKeep or updater processes.
-
-Other recognized `versions/<version>` directories become eligible after a
-24-hour grace period. Unfinished `versions/.<version>.tmp` directories and
-`staging/<version>` administrative/download directories become eligible after
-seven days; a live prepared update is never pruned. Pointer corruption,
-unreadable prepared state or failed process enumeration makes the pass
-conservatively skip version deletion. Neither the launcher nor updater deletes
-personal notes, settings or other paths outside the managed update directories.
-
-A shared per-installation Win32 mutex serializes cleanup with launcher's
-pointer repair and the updater's pointer switch, health probe and rollback.
-The cleanup checks for reparse points/junctions and refuses to traverse them.
-Deletion errors are nonfatal and recorded in `update-logs/cleanup.log` for a
-later retry.
-
-After the grace period, a normal upgraded installation retains the two
-rollback-capable versions plus the MSI-owned base if it differs. Fresh
-versions can temporarily increase the count: this is an intentional safety
-margin, not a hard instantaneous two-directory limit.
-
-`windows_version_retention_test` covers the decision policy and a real
-temporary Windows installation tree, including protected MSI/current/previous
-and prepared versions and malformed state.
+In the usual steady state this keeps two versions, plus the MSI-owned version
+if different. Temporary update and staging directories are intentionally left
+to the existing updater lifecycle rather than introducing unrelated cleanup
+logic. `windows_version_retention_test` verifies the retention behavior on
+temporary Windows directories.
