@@ -28,6 +28,7 @@ ListView {
     property alias wholeDocumentSelected: selectionController.wholeDocumentSelected
     property alias editorRegistrations: focusController.editorRegistrations
     property alias fullSelectionPasses: selectionController.fullSelectionPasses
+    property alias editorOrderPasses: focusController.editorOrderPasses
     property alias selectionSpansEditors: selectionController.selectionSpansEditors
     property alias documentSelectionStartEditor: selectionController.documentSelectionStartEditor
     property alias documentSelectionStartPosition: selectionController.documentSelectionStartPosition

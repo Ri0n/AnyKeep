@@ -1,6 +1,7 @@
 #include <QClipboard>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFont>
 #include <QImage>
@@ -1345,6 +1346,80 @@ private slots:
             QTRY_VERIFY(cell->property("comfortableWidth").toReal() > 0);
     }
 
+    // Profiling aid, skipped unless ANYKEEP_TABLE_OPEN_BENCHMARK is set: opens
+    // a note with a 4x44 table, the size where opening took seconds.
+    void tableNoteOpenBenchmark()
+    {
+        if (qEnvironmentVariableIsEmpty("ANYKEEP_TABLE_OPEN_BENCHMARK"))
+            QSKIP("Set ANYKEEP_TABLE_OPEN_BENCHMARK to run");
+        QString markdown
+            = QStringLiteral("Intro paragraph\n\n| Name | Value | Notes | Link |\n| --- | --- | --- | --- |\n");
+        for (int row = 0; row < 43; ++row)
+            markdown += QStringLiteral(
+                            "| item %1 | **%2** | some longer text in row %1 | [site](https://example.org/%1) |\n")
+                            .arg(row)
+                            .arg(row * 17);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(markdown, Note::Markdown);
+        DraftManager  drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor    editor(note, drafts);
+        QElapsedTimer timer;
+        timer.start();
+        DesktopNoteEditorHost host(&editor);
+        host.resize(900, 1400);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QTRY_VERIFY_WITH_TIMEOUT(tableCellEditors(root, 2).size() == 176, 30000);
+        const qint64 created = timer.elapsed();
+        for (int turn = 0; turn < 20; ++turn)
+            QCoreApplication::processEvents();
+        qInfo().noquote() << "table open: cells after" << created << "ms, settled after" << timer.elapsed() << "ms";
+    }
+
+    void tableDragSelectionOrdersEditorsOncePerGesture()
+    {
+        QString markdown = QStringLiteral("| A | B | C | D |\n| --- | --- | --- | --- |\n");
+        for (int row = 0; row < 8; ++row)
+            markdown += QStringLiteral("| a%1 | b%1 | c%1 | d%1 |\n").arg(row);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(markdown, Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(620, 520);
+        host.show();
+        auto *quick = host.quickWidget();
+        auto *root  = qobject_cast<QQuickItem *>(quick->rootObject());
+        QVERIFY(root);
+
+        QList<QQuickItem *> cells;
+        QTRY_VERIFY(([&]() {
+            cells = tableCellEditors(root, 1);
+            return cells.size() == 36;
+        })());
+        auto *blockEditor = ancestorWithProperty(cells.first(), "currentFindText");
+        QVERIFY(blockEditor);
+
+        // Drag from the first data cell across its row and down the table.
+        const auto centre = [](QQuickItem *cell) {
+            return cell->mapToScene(QPointF(cell->width() * 0.5, cell->height() * 0.5)).toPoint();
+        };
+        QTest::mousePress(quick, Qt::LeftButton, Qt::NoModifier, centre(cells.at(4)));
+        const int passesAtPress = blockEditor->property("editorOrderPasses").toInt();
+        for (int cell : { 5, 6, 7, 11, 15, 19, 23, 27 })
+            QTest::mouseMove(quick, centre(cells.at(cell)), 5);
+        const int passesDuringDrag = blockEditor->property("editorOrderPasses").toInt() - passesAtPress;
+        QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, centre(cells.at(27)));
+
+        QVERIFY(blockEditor->property("selectionSpansEditors").toBool());
+        QVERIFY(cells.at(5)->property("selectedText").toString().size() > 0);
+        // Before the gesture cache every move sorted all editors twice.
+        QVERIFY2(passesDuringDrag <= 1, qPrintable(QString::number(passesDuringDrag)));
+    }
+
     void codeBlockBorderUsesTableGridColor()
     {
         Note note(new NoteData(nullptr));
@@ -2207,6 +2282,84 @@ private:
         QTRY_VERIFY(!title->property("spellingRanges").toList().isEmpty());
         QTRY_VERIFY(!first->property("spellingRanges").toList().isEmpty());
         QTRY_VERIFY(!second->property("spellingRanges").toList().isEmpty());
+    }
+
+    void tableNoteOpensWithoutRehighlightingEveryCellPerCell()
+    {
+        QString markdown = QStringLiteral("| A | B | C | D |\n| --- | --- | --- | --- |\n");
+        for (int row = 0; row < 10; ++row)
+            markdown += QStringLiteral("| bad%1 | wrong%1 | typo%1 | oops%1 |\n").arg(row);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(markdown, Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.platformBackend()->addHighlightExtension(
+            makeSpellCheckExtension(std::make_shared<RejectAllEditorSpellCheckProvider>()),
+            int(NoteHighlighter::SpellCheck));
+        QSignalSpy highlighting(host.platformBackend(), &EditorPlatformBackend::highlightingChanged);
+
+        host.resize(620, 520);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QList<QQuickItem *> cells;
+        QTRY_VERIFY(([&]() {
+            cells = tableCellEditors(root, 1);
+            return cells.size() == 44;
+        })());
+        QTest::qWait(50);
+        // Every registered document used to schedule a rehighlight of all
+        // documents, each announced to every editor.
+        QVERIFY2(highlighting.count() < 5, qPrintable(QString::number(highlighting.count())));
+        for (QQuickItem *cell : std::as_const(cells))
+            QVERIFY(cell->property("spellingRanges").toList().isEmpty());
+
+        // Only the focused cell is checked.
+        cells.at(5)->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(!cells.at(5)->property("spellingRanges").toList().isEmpty());
+        for (int index = 0; index < cells.size(); ++index) {
+            if (index != 5)
+                QVERIFY(cells.at(index)->property("spellingRanges").toList().isEmpty());
+        }
+    }
+
+    void tableCellWidthsMeasuredFromMarkdownMatchTheCells()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("| Name | Notes |\n| --- | --- |\n"
+                                    "| **bold words** | a [link](https://example.org) and `code` |\n"
+                                    "| first<br>second line | plain |\n"),
+                     Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(620, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QList<QQuickItem *> cells;
+        QTRY_VERIFY(([&]() {
+            cells = tableCellEditors(root, 1);
+            return cells.size() == 6;
+        })());
+
+        // The widths decided before the cells existed are the ones the cells
+        // report once they show their text, so editing does not shift columns.
+        for (QQuickItem *cell : std::as_const(cells)) {
+            auto *document = cell->property("textDocument").value<QQuickTextDocument *>();
+            QVERIFY(document);
+            const qreal live = editor.intrinsicTextWidth(document) + cell->property("leftPadding").toReal()
+                + cell->property("rightPadding").toReal();
+            const qreal measured = cell->property("comfortableWidth").toReal();
+            QVERIFY2(qAbs(live - measured) < 0.5,
+                     qPrintable(QStringLiteral("%1: live=%2 measured=%3")
+                                    .arg(cell->property("tableCellIndex").toInt())
+                                    .arg(live)
+                                    .arg(measured)));
+        }
     }
 
     void tableWholeCellPasteIsVisibleWithoutFocusLoss()
@@ -3494,6 +3647,14 @@ private slots:
     void regressionFindRunsWhileTheQueryIsTyped() { findRunsWhileTheQueryIsTyped(); }
 
     void regressionTableShiftUpSelectsTheRowAndDeleteClearsIt() { tableShiftUpSelectsTheRowAndDeleteClearsIt(); }
+    void regressionTableNoteOpensWithoutRehighlightingEveryCellPerCell()
+    {
+        tableNoteOpensWithoutRehighlightingEveryCellPerCell();
+    }
+    void regressionTableCellWidthsMeasuredFromMarkdownMatchTheCells()
+    {
+        tableCellWidthsMeasuredFromMarkdownMatchTheCells();
+    }
 
     void regressionLineSelectionHelperSelectsOnlyTheClickedLine() { lineSelectionHelperSelectsOnlyTheClickedLine(); }
 

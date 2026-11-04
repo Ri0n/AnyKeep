@@ -162,10 +162,12 @@ public:
                                             bool enabled);
     Q_INVOKABLE void        applyInlineHtmlFormatting(QQuickTextDocument *document) const;
     Q_INVOKABLE qreal       intrinsicTextWidth(QQuickTextDocument *document) const;
-    Q_INVOKABLE QString     markdownText(QQuickTextDocument *document) const;
-    Q_INVOKABLE QString     markdownTableCellText(QQuickTextDocument *document) const;
-    Q_INVOKABLE QString     markdownSelection(QQuickTextDocument *document, int start, int end) const;
-    void                    breakHistoryMerge();
+    Q_INVOKABLE QVariantList markdownIntrinsicWidths(const QStringList &markdown, const QFont &font,
+                                                     int boldCount) const;
+    Q_INVOKABLE QString      markdownText(QQuickTextDocument *document) const;
+    Q_INVOKABLE QString      markdownTableCellText(QQuickTextDocument *document) const;
+    Q_INVOKABLE QString      markdownSelection(QQuickTextDocument *document, int start, int end) const;
+    void                     breakHistoryMerge();
 
 public slots:
     void setText(const QString &text);

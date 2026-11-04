@@ -409,6 +409,8 @@ Item {
         if (!editor || !editor.renderedMarkdown || editor.codeDocument)
             return false
         datePickerAddsSeparator = Boolean(addSeparator)
+        if (!datePicker)
+            datePicker = datePickerComponent.createObject(root, { editorView: root.editorView })
         datePicker.openFor(editor, start, end, dateText)
         return true
     }
@@ -527,13 +529,26 @@ Item {
         color: root.editor ? root.editor.palette.text : "white"
     }
 
-    DatePickerPopup {
-        id: datePicker
-        editorView: root.editorView
-        onDateChosen: function(value) {
-            root.replaceRangeWithDate(datePicker.selectionStart, datePicker.selectionEnd,
-                                      value, root.datePickerAddsSeparator)
+    // Exists only while open: every editor has this layer, and a note with
+    // large tables has hundreds of editors. An eager calendar per editor
+    // made opening such notes take seconds.
+    property var datePicker: null
+
+    Component {
+        id: datePickerComponent
+
+        DatePickerPopup {
+            id: popup
+            onDateChosen: function(value) {
+                root.replaceRangeWithDate(popup.selectionStart, popup.selectionEnd,
+                                          value, root.datePickerAddsSeparator)
+            }
+            onClosed: {
+                root.datePickerAddsSeparator = false
+                if (root.datePicker === popup)
+                    root.datePicker = null
+                popup.destroy()
+            }
         }
-        onClosed: root.datePickerAddsSeparator = false
     }
 }

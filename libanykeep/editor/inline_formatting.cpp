@@ -916,6 +916,26 @@ qreal NoteEditor::intrinsicTextWidth(QQuickTextDocument *quickDocument) const
     return document->idealWidth();
 }
 
+QVariantList NoteEditor::markdownIntrinsicWidths(const QStringList &markdown, const QFont &font, int boldCount) const
+{
+    // Measures table cells from their rendered Markdown before any cell
+    // editor exists, so column proportions are known before the first
+    // layout. The document is set up as a TextEdit sets up its own: no
+    // margin, the item font as default font, GitHub Markdown.
+    QVariantList  widths;
+    QTextDocument document;
+    document.setDocumentMargin(0);
+    QFont bold = font;
+    bold.setBold(true);
+    for (int index = 0; index < markdown.size(); ++index) {
+        document.setDefaultFont(index < boldCount ? bold : font);
+        document.setMarkdown(markdown.at(index), QTextDocument::MarkdownDialectGitHub);
+        document.setTextWidth(-1);
+        widths.append(document.idealWidth());
+    }
+    return widths;
+}
+
 QString NoteEditor::markdownText(QQuickTextDocument *quickDocument) const
 {
     if (!quickDocument || !quickDocument->textDocument())

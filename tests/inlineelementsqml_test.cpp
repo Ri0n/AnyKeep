@@ -67,8 +67,8 @@ QVariantList inlineElements(QObject *layer)
     const QVariant value = layer->property("elements");
     if (value.metaType() == QMetaType::fromType<QJSValue>()) {
         const QJSValue array = value.value<QJSValue>();
-        QVariantList result;
-        const int length = array.property(QStringLiteral("length")).toInt();
+        QVariantList   result;
+        const int      length = array.property(QStringLiteral("length")).toInt();
         result.reserve(length);
         for (int index = 0; index < length; ++index)
             result.append(array.property(index).toVariant());
@@ -143,8 +143,8 @@ private slots:
         QObject *layer = nullptr;
         QTRY_VERIFY((layer = inlineLayer(body)));
 
-        const QDate today = QDate::currentDate();
-        const auto stateFor = [&](const QDate &date, QVariant *result) {
+        const QDate today    = QDate::currentDate();
+        const auto  stateFor = [&](const QDate &date, QVariant *result) {
             return QMetaObject::invokeMethod(layer, "dateState", Q_RETURN_ARG(QVariant, *result),
                                              Q_ARG(QVariant, QVariant(date.toString(Qt::ISODate))));
         };
@@ -163,7 +163,7 @@ private slots:
     void cursorNavigationTreatsDateAsAtomic()
     {
         const QString dateText = QStringLiteral("2030-12-31");
-        Note note(new NoteData(nullptr));
+        Note          note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("title"));
         note.setText(QStringLiteral("before %1 after").arg(dateText), Note::Markdown);
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
@@ -208,7 +208,7 @@ private slots:
     void selectionTreatsDateAsAtomic()
     {
         const QString dateText = QStringLiteral("2030-12-31");
-        Note note(new NoteData(nullptr));
+        Note          note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("title"));
         note.setText(QStringLiteral("before %1 after").arg(dateText), Note::Markdown);
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
@@ -260,7 +260,7 @@ private slots:
     void backspaceAndDeleteTreatDateAsAtomic()
     {
         const QString dateText = QStringLiteral("2030-12-31");
-        Note note(new NoteData(nullptr));
+        Note          note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("title"));
         note.setText(QStringLiteral("before %1 after").arg(dateText), Note::Markdown);
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
@@ -315,7 +315,7 @@ private slots:
     void shortcutReplacementSeparatesFirstTypedCharacter()
     {
         const QString dateText = QStringLiteral("2030-12-31");
-        Note note(new NoteData(nullptr));
+        Note          note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("title"));
         note.setText(QStringLiteral("before //"), Note::Markdown);
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
@@ -341,10 +341,9 @@ private slots:
         QVERIFY(dateValue.isValid());
 
         QVariant handled;
-        QVERIFY(QMetaObject::invokeMethod(layer, "replaceRangeWithDate", Q_RETURN_ARG(QVariant, handled),
-                                          Q_ARG(QVariant, QVariant(shortcutStart)),
-                                          Q_ARG(QVariant, QVariant(shortcutStart + 2)),
-                                          Q_ARG(QVariant, dateValue), Q_ARG(QVariant, QVariant(true))));
+        QVERIFY(QMetaObject::invokeMethod(
+            layer, "replaceRangeWithDate", Q_RETURN_ARG(QVariant, handled), Q_ARG(QVariant, QVariant(shortcutStart)),
+            Q_ARG(QVariant, QVariant(shortcutStart + 2)), Q_ARG(QVariant, dateValue), Q_ARG(QVariant, QVariant(true))));
         QVERIFY(handled.toBool());
 
         // EOL stays clean: no transient trailing space is required.
@@ -366,10 +365,54 @@ private slots:
         QTRY_COMPARE(int(inlineElements(layer).size()), 1);
     }
 
+    void datePickerExistsOnlyWhileOpenAndInsertsTheChosenDate()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("due //"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 420);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QObject *layer = nullptr;
+        QTRY_VERIFY((layer = inlineLayer(body)));
+        body->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(body->hasActiveFocus());
+        // Opening a note must not build a calendar for every editor.
+        QVERIFY(!layer->property("datePicker").value<QObject *>());
+
+        const int start = currentPlainText(body).indexOf(QStringLiteral("//"));
+        QVariant  opened;
+        QVERIFY(QMetaObject::invokeMethod(layer, "openDatePicker", Q_RETURN_ARG(QVariant, opened),
+                                          Q_ARG(QVariant, QVariant(start)), Q_ARG(QVariant, QVariant(start + 2)),
+                                          Q_ARG(QVariant, QVariant(QString())), Q_ARG(QVariant, QVariant(true))));
+        QVERIFY(opened.toBool());
+        auto *picker = layer->property("datePicker").value<QObject *>();
+        QVERIFY(picker);
+        QTRY_VERIFY(picker->property("opened").toBool());
+
+        const QDateTime chosen(QDate(2030, 12, 31), QTime(0, 0));
+        QVERIFY(QMetaObject::invokeMethod(picker, "dateChosen", Q_ARG(QDateTime, chosen)));
+        QTRY_COMPARE(currentPlainText(body), QStringLiteral("due 2030-12-31"));
+        QTRY_VERIFY(editor.text().contains(QStringLiteral("due 2030-12-31")));
+
+        // Closed, the calendar is freed again.
+        const QPointer<QObject> closedPicker(picker);
+        QVERIFY(QMetaObject::invokeMethod(picker, "close"));
+        QTRY_VERIFY(closedPicker.isNull());
+        QVERIFY(!layer->property("datePicker").value<QObject *>());
+    }
+
     void punctuationAfterDateNeedsNoSeparator()
     {
         const QString dateText = QStringLiteral("2030-12-31");
-        Note note(new NoteData(nullptr));
+        Note          note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("title"));
         note.setText(QStringLiteral("before %1").arg(dateText), Note::Markdown);
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
@@ -401,7 +444,7 @@ private slots:
     void shortcutReplacementSeparatesFollowingText()
     {
         const QString dateText = QStringLiteral("2030-12-31");
-        Note note(new NoteData(nullptr));
+        Note          note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("title"));
         note.setText(QStringLiteral("before //after"), Note::Markdown);
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
@@ -427,10 +470,9 @@ private slots:
         QVERIFY(dateValue.isValid());
 
         QVariant handled;
-        QVERIFY(QMetaObject::invokeMethod(layer, "replaceRangeWithDate", Q_RETURN_ARG(QVariant, handled),
-                                          Q_ARG(QVariant, QVariant(shortcutStart)),
-                                          Q_ARG(QVariant, QVariant(shortcutStart + 2)),
-                                          Q_ARG(QVariant, dateValue), Q_ARG(QVariant, QVariant(true))));
+        QVERIFY(QMetaObject::invokeMethod(
+            layer, "replaceRangeWithDate", Q_RETURN_ARG(QVariant, handled), Q_ARG(QVariant, QVariant(shortcutStart)),
+            Q_ARG(QVariant, QVariant(shortcutStart + 2)), Q_ARG(QVariant, dateValue), Q_ARG(QVariant, QVariant(true))));
         QVERIFY(handled.toBool());
 
         QTRY_COMPARE(currentPlainText(body), QStringLiteral("before 2030-12-31 after"));

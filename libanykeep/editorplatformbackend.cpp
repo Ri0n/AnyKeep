@@ -266,11 +266,10 @@ bool EditorPlatformBackend::canInsertMedia() const { return editor_ && editor_->
 
 bool EditorPlatformBackend::canInsertAttachments() const { return editor_ && editor_->canInsertAttachments(); }
 
-QVariantMap EditorPlatformBackend::attachmentMimePresentation(const QString &mimeType,
-                                                             const QString &fileName) const
+QVariantMap EditorPlatformBackend::attachmentMimePresentation(const QString &mimeType, const QString &fileName) const
 {
     QMimeDatabase database;
-    QMimeType type = database.mimeTypeForName(mimeType.section(QLatin1Char(';'), 0, 0).trimmed());
+    QMimeType     type = database.mimeTypeForName(mimeType.section(QLatin1Char(';'), 0, 0).trimmed());
     // A missing or generic content type can be resolved from the portable
     // filename without requiring a local copy or reading the attachment.
     if (!type.isValid() || type.name() == QLatin1String("application/octet-stream")) {
@@ -330,8 +329,9 @@ void EditorPlatformBackend::registerTextDocument(QQuickTextDocument *document, b
         if (oneShotFullSpell)
             registered.highlighter->disableExtension(NoteHighlighter::SpellCheck);
         if (!fullNoteSpellCheck_)
-            QTimer::singleShot(0, this, &EditorPlatformBackend::rehighlight);
-        emit highlightingChanged();
+            scheduleRehighlight(registered.highlighter);
+        else
+            emit highlightingChanged();
         return;
     }
     textDocument->setUndoRedoEnabled(false);
@@ -352,7 +352,32 @@ void EditorPlatformBackend::registerTextDocument(QQuickTextDocument *document, b
     if (spellCheckEnabled_ && fullNoteSpellCheck_ && textDocument != activeSpellDocument_)
         highlighter->disableExtension(NoteHighlighter::SpellCheck);
     if (!fullNoteSpellCheck_)
-        QTimer::singleShot(0, this, &EditorPlatformBackend::rehighlight);
+        scheduleRehighlight(highlighter);
+}
+
+void EditorPlatformBackend::scheduleRehighlight(NoteHighlighter *highlighter)
+{
+    // A document registers while its TextArea is still loading content, so it
+    // is highlighted once more on the next event-loop turn. Only the documents
+    // registered meanwhile need it: a note with large tables registers a
+    // document per cell, and rehighlighting every document for each of them
+    // made opening such notes quadratic.
+    if (!pendingRehighlights_.contains(highlighter))
+        pendingRehighlights_.append(highlighter);
+    if (std::exchange(rehighlightScheduled_, true))
+        return;
+    QTimer::singleShot(0, this, &EditorPlatformBackend::flushPendingRehighlights);
+}
+
+void EditorPlatformBackend::flushPendingRehighlights()
+{
+    rehighlightScheduled_ = false;
+    const auto pending    = std::exchange(pendingRehighlights_, {});
+    for (const auto &highlighter : pending) {
+        if (highlighter)
+            highlighter->rehighlight();
+    }
+    emit highlightingChanged();
 }
 
 void EditorPlatformBackend::registerCodeDocument(QQuickTextDocument *document, const QString &language)
@@ -440,7 +465,10 @@ QVariantList EditorPlatformBackend::spellCheckRanges(QQuickTextDocument *documen
     QVariantList result;
     if (!spellCheckEnabled_ || !document || !document->textDocument())
         return result;
-    auto      *textDocument      = document->textDocument();
+    auto *textDocument = document->textDocument();
+    // Only the focused document is checked, unless the whole note was asked for.
+    if (!fullNoteSpellCheck_ && textDocument != activeSpellDocument_)
+        return result;
     const auto visibleTextIsHref = [textDocument](int position) {
         const int limit = documentEnd(textDocument);
         if (position < 0 || position >= limit)
@@ -607,7 +635,7 @@ bool EditorPlatformBackend::insertMediaData(const QByteArray &data, const QStrin
     if (!canInsertMedia() || data.isEmpty())
         return false;
     QMimeDatabase database;
-    QString validatedType = database.mimeTypeForData(data).name();
+    QString       validatedType = database.mimeTypeForData(data).name();
     if (validatedType == QLatin1String("application/octet-stream"))
         validatedType = mediaType;
     if (!isInlineMediaType(validatedType)) {
@@ -671,7 +699,7 @@ bool EditorPlatformBackend::insertRasterImage(const QImage &image, const QString
 }
 
 bool EditorPlatformBackend::insertMediaFiles(const QStringList &fileNames, int row, QString *error,
-                                                   MediaFileImportMode mode)
+                                             MediaFileImportMode mode)
 {
     if (!canInsertMedia() || fileNames.isEmpty())
         return false;
@@ -847,13 +875,13 @@ void EditorPlatformBackend::reloadVisualSettings()
 }
 
 bool EditorPlatformBackend::insertImportedMedia(const QList<MediaReference> &references, int row,
-                                                 const QString &historyKind)
+                                                const QString &historyKind)
 {
     if (!editor_ || references.isEmpty() || !canInsertMedia())
         return false;
     editor_->beginHistoryTransaction(historyKind);
-    int insertionRow = row < 0 ? editor_->model()->rowCount() : qBound(0, row, editor_->model()->rowCount());
-    bool inserted = true;
+    int  insertionRow = row < 0 ? editor_->model()->rowCount() : qBound(0, row, editor_->model()->rowCount());
+    bool inserted     = true;
     for (const auto &reference : references)
         inserted = editor_->insertMedia(reference, 0, 0, 0, insertionRow++) && inserted;
     editor_->endHistoryTransaction();

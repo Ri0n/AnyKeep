@@ -40,52 +40,92 @@ Item {
     onTableDataChanged: syncCells()
     onEditorPointSizeChanged: resetComfortableWidths()
     onEditorFontFamilyChanged: resetComfortableWidths()
+    onTouchModeChanged: resetComfortableWidths()
     Component.onCompleted: syncCells()
+
+    readonly property bool touchMode: editorView.touchMode
+    readonly property real cellSidePadding: touchMode ? 8 : 6
+    readonly property real columnHandleWidth: touchMode ? 22 : 17
+
+    // Unwrapped widths of the given cells, padding included, measured from
+    // their Markdown without any cell editor. firstIndex is the cell index
+    // of values[0]; the header row is bold.
+    function measuredCellWidths(values, firstIndex) {
+        const result = []
+        const backend = tableRoot.editorView.editorBackend
+        if (!backend || values.length === 0)
+            return result
+        const rendered = []
+        for (let index = 0; index < values.length; ++index)
+            rendered.push(tableRoot.editorView.markdownTableCellForRendering(String(values[index] || "")))
+        const font = Qt.font({ family: editorFontFamily, pointSize: editorPointSize })
+        const widths = backend.markdownIntrinsicWidths(rendered, font, Math.max(0, columns - firstIndex))
+        for (let index = 0; index < widths.length; ++index) {
+            const header = firstIndex + index < columns
+            result.push(Math.max(1, Number(widths[index]) + 2 * cellSidePadding
+                                    + (header ? columnHandleWidth : 0)))
+        }
+        return result
+    }
+
+    // Sets every cell's width at once: the column proportions follow from
+    // the widest cell of each column, computed after all cells are measured.
+    function applyComfortableWidths(widths) {
+        const maxima = []
+        const owners = []
+        for (let column = 0; column < columns; ++column) {
+            maxima.push(1)
+            owners.push(-1)
+        }
+        for (let index = 0; index < widths.length && columns > 0; ++index) {
+            const column = index % columns
+            if (owners[column] < 0 || widths[index] > maxima[column]) {
+                maxima[column] = widths[index]
+                owners[column] = index
+            }
+        }
+        comfortableColumnWidths = maxima
+        columnMaxCells = owners
+        distributeColumnWidths()
+    }
 
     function syncCells() {
         const values = tableData.values || []
         const shapeChanged = cachedColumnCount !== columns
                 || cellModel.count !== values.length
-        while (cellModel.count > values.length)
-            cellModel.remove(cellModel.count - 1)
-        while (cellModel.count < values.length)
-            cellModel.append({ cellText: "", comfortableWidth: 0 })
-        for (let index = 0; index < values.length; ++index) {
-            const value = values[index] || ""
-            if (cellModel.get(index).cellText !== value)
-                cellModel.setProperty(index, "cellText", value)
-        }
+        // A new or reshaped table measures all its cells and decides the
+        // column widths before any cell is created or laid out again.
+        const widths = shapeChanged ? measuredCellWidths(values, 0) : null
         if (shapeChanged) {
             cachedColumnCount = columns
-            resetComfortableWidths()
+            applyComfortableWidths(widths)
         }
+        while (cellModel.count > values.length)
+            cellModel.remove(cellModel.count - 1)
+        const changed = []
+        for (let index = 0; index < cellModel.count; ++index) {
+            const value = values[index] || ""
+            if (cellModel.get(index).cellText !== value) {
+                cellModel.setProperty(index, "cellText", value)
+                if (!shapeChanged)
+                    changed.push(index)
+            }
+            if (shapeChanged)
+                cellModel.setProperty(index, "comfortableWidth", widths[index])
+        }
+        while (cellModel.count < values.length) {
+            const index = cellModel.count
+            cellModel.append({ cellText: values[index] || "", comfortableWidth: widths[index] })
+        }
+        for (const index of changed)
+            updateComfortableWidth(index, measuredCellWidths([values[index] || ""], index)[0])
     }
 
     function resetComfortableWidths() {
-        const widths = []
-        const owners = []
-        for (let column = 0; column < columns; ++column) {
-            widths.push(1)
-            owners.push(-1)
-        }
-        for (let index = 0; index < cellModel.count; ++index)
-            cellModel.setProperty(index, "comfortableWidth", 0)
-        comfortableColumnWidths = widths
-        columnMaxCells = owners
-        distributeColumnWidths()
-        scheduleAllComfortableWidthUpdates()
-    }
-
-    function scheduleAllComfortableWidthUpdates() {
-        Qt.callLater(function() {
-            if (!tableRoot)
-                return
-            for (let index = 0; index < cellRepeater.count; ++index) {
-                const cell = cellRepeater.itemAt(index)
-                if (cell)
-                    cell.scheduleComfortableWidthUpdate()
-            }
-        })
+        const widths = measuredCellWidths(tableData.values || [], 0)
+        for (let index = 0; index < cellModel.count && index < widths.length; ++index)
+            cellModel.setProperty(index, "comfortableWidth", widths[index])
+        applyComfortableWidths(widths)
     }
 
     function updateComfortableWidth(cellIndex, width) {
@@ -415,7 +455,6 @@ Item {
                 readonly property real assignedColumnWidth: columnIndex >= 0
                         && columnIndex < tableRoot.distributedColumnWidths.length
                         ? Number(tableRoot.distributedColumnWidths[columnIndex]) : 0
-                property bool comfortableWidthUpdatePending: false
                 Layout.fillWidth: false
                 Layout.fillHeight: true
                 Layout.preferredWidth: assignedColumnWidth
@@ -434,6 +473,9 @@ Item {
                 canRemoveTableColumn: tableRoot.columns > 1
                 transform: Translate { x: tableCell.columnReorderOffsetX }
 
+                property bool comfortableWidthUpdatePending: false
+
+                // While the user types, measure the live document as shown.
                 function scheduleComfortableWidthUpdate() {
                     if (comfortableWidthUpdatePending)
                         return
@@ -508,9 +550,9 @@ Item {
                                             + Math.min(column, oldColumns - 2), 0)
                     })
                 }
-                leftPadding: tableRoot.editorView.touchMode ? 8 : 6
-                rightPadding: (tableRoot.editorView.touchMode ? 8 : 6)
-                              + (headerCell ? columnHandle.width : 0)
+                leftPadding: tableRoot.cellSidePadding
+                rightPadding: tableRoot.cellSidePadding
+                              + (headerCell ? tableRoot.columnHandleWidth : 0)
                 topPadding: tableRoot.editorView.touchMode ? 8 : 3
                 bottomPadding: tableRoot.editorView.touchMode ? 8 : 3
                 background: Rectangle {
@@ -564,12 +606,11 @@ Item {
                 }
                 onTextChanged: {
                     commitChangedText(activeFocus)
-                    scheduleComfortableWidthUpdate()
+                    // Other text changes come from the model, where
+                    // syncCells() has measured them already.
+                    if (activeFocus)
+                        scheduleComfortableWidthUpdate()
                 }
-                onFontChanged: scheduleComfortableWidthUpdate()
-                onLeftPaddingChanged: scheduleComfortableWidthUpdate()
-                onRightPaddingChanged: scheduleComfortableWidthUpdate()
-                Component.onCompleted: scheduleComfortableWidthUpdate()
                 onLinkActivated: link => Qt.openUrlExternally(link)
 
                 Item {
@@ -583,7 +624,7 @@ Item {
                     anchors.top: parent.top
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    width: tableRoot.editorView.touchMode ? 22 : 17
+                    width: tableRoot.columnHandleWidth
                     z: 50
 
                     Behavior on opacity {

@@ -16,11 +16,19 @@ QtObject {
     property int editorRegistrations: 0
     property bool suppressCursorVisibility: false
     property int viewportRestoreGeneration: 0
+    // Document order of the editors, kept for one mouse selection gesture.
+    // Nothing restructures the document while the pointer drags; delegates
+    // that ListView creates or destroys (e.g. on autoscroll) reset it.
+    property var gestureEditorOrder: null
+    property int editorOrderPasses: 0
+    readonly property bool editorOrderCached: editorView.mouseSelectionActive
+    onEditorOrderCachedChanged: gestureEditorOrder = null
 
     function registerEditor(editor) {
         if (editors.indexOf(editor) < 0) {
             editors = editors.concat([editor])
             ++editorRegistrations
+            gestureEditorOrder = null
         }
         // ListView creates delegates while it lays itself out. Completing a
         // pending request synchronously can position the view from inside that
@@ -32,6 +40,7 @@ QtObject {
 
     function unregisterEditor(editor) {
         editors = editors.filter(candidate => candidate !== editor)
+        gestureEditorOrder = null
         if (activeEditor === editor)
             activeEditor = null
         if (cursorVisibilityRefresh.editor === editor) {
@@ -131,13 +140,28 @@ QtObject {
     }
 
     function orderedEditors() {
-        return editors.filter(editor => editor !== null && editor.visible).sort((left, right) => {
-            const lp = left.mapToItem(editorView, 0, 0)
-            const rp = right.mapToItem(editorView, 0, 0)
-            if (Math.abs(lp.y - rp.y) > 1)
-                return lp.y - rp.y
-            return lp.x - rp.x
+        if (editorOrderCached && gestureEditorOrder)
+            return gestureEditorOrder.slice()
+        ++editorOrderPasses
+        // Map each editor once: a comparator that maps both sides costs two
+        // mapToItem() calls per comparison, thousands per pointer move in a
+        // note with large tables, where every cell is an editor.
+        const entries = []
+        for (const editor of editors) {
+            if (editor === null || !editor.visible)
+                continue
+            const position = editor.mapToItem(editorView, 0, 0)
+            entries.push({ editor: editor, x: position.x, y: position.y })
+        }
+        entries.sort((left, right) => {
+            if (Math.abs(left.y - right.y) > 1)
+                return left.y - right.y
+            return left.x - right.x
         })
+        const ordered = entries.map(entry => entry.editor)
+        if (editorOrderCached)
+            gestureEditorOrder = ordered
+        return ordered.slice()
     }
 
     function editorAddress(editor, position) {

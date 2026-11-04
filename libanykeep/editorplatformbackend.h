@@ -58,7 +58,7 @@ public:
     Q_INVOKABLE QString      canonicalCodeLanguage(const QString &language) const;
     Q_INVOKABLE QVariantList codeLanguages() const;
     // Localized MIME description and freedesktop icon names for file cards.
-    Q_INVOKABLE QVariantMap attachmentMimePresentation(const QString &mimeType, const QString &fileName) const;
+    Q_INVOKABLE QVariantMap  attachmentMimePresentation(const QString &mimeType, const QString &fileName) const;
     Q_INVOKABLE QVariantList spellCheckRanges(QQuickTextDocument *document);
     Q_INVOKABLE void         setActiveSpellCheckDocument(QQuickTextDocument *document);
     Q_INVOKABLE void         checkSpellingInAllDocuments();
@@ -125,6 +125,8 @@ private:
 
     bool insertImportedMedia(const QList<MediaReference> &references, int row, const QString &historyKind);
     void clearRegisteredDocuments();
+    void scheduleRehighlight(NoteHighlighter *highlighter);
+    void flushPendingRehighlights();
     void installBuiltInExtensions();
     bool isCustomSpellingWord(const QString &word) const;
     void saveCustomSpellingDictionary();
@@ -139,6 +141,8 @@ private:
     bool                                  spellCheckEnabled_ { true };
     bool                                  fullNoteSpellCheck_ { false };
     QPointer<QTextDocument>               activeSpellDocument_;
+    QList<QPointer<NoteHighlighter>>      pendingRehighlights_;
+    bool                                  rehighlightScheduled_ { false };
 };
 
 } // namespace AnyKeep

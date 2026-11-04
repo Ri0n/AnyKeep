@@ -501,9 +501,15 @@ TextArea {
         id: spellRefresh
         interval: 0
         onTriggered: {
-            blockArea.spellingRanges = editorView.platformBackend && !blockArea.codeDocument
+            const ranges = editorView.platformBackend && !blockArea.codeDocument
                     ? editorView.platformBackend.spellCheckRanges(blockArea.textDocument) : []
-            spellingCanvas.requestPaint()
+            // Only the focused document is checked; every other editor, e.g.
+            // each cell of a large table, keeps reporting nothing.
+            if (ranges.length === 0 && blockArea.spellingRanges.length === 0)
+                return
+            blockArea.spellingRanges = ranges
+            if (spellingCanvasLoader.item)
+                spellingCanvasLoader.item.requestPaint()
         }
     }
 
@@ -1004,48 +1010,57 @@ TextArea {
         }
     }
 
-    Canvas {
-        id: spellingCanvas
+    // A Canvas per editor is costly when a note has hundreds of table cells.
+    // Create it only while the editor has spelling errors to draw.
+    Loader {
+        id: spellingCanvasLoader
         anchors.fill: parent
         z: 10
-        function drawWave(ctx, left, right, y) {
-            if (right <= left)
-                return
-            ctx.beginPath()
-            ctx.moveTo(left, y)
-            let up = true
-            for (let x = left + 2; x < right; x += 2) {
-                ctx.lineTo(x, y + (up ? -1.5 : 1.5))
-                up = !up
-            }
-            ctx.lineTo(right, y)
-            ctx.stroke()
-        }
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
-        onPaint: {
-            const ctx = getContext("2d")
-            ctx.clearRect(0, 0, width, height)
-            ctx.strokeStyle = "#d32f2f"
-            ctx.lineWidth = 1.25
-            for (const range of blockArea.spellingRanges) {
-                const end = range.start + range.length
-                let segmentLeft = -1
-                let segmentY = 0
-                for (let position = range.start; position < end; ++position) {
-                    const current = blockArea.positionToRectangle(position)
-                    const next = blockArea.positionToRectangle(position + 1)
-                    let right = next.y === current.y ? next.x : current.x + current.width
-                    if (right <= current.x)
-                        right = current.x + Math.max(2, current.width)
-                    const y = current.y + current.height - 1.5
-                    if (segmentLeft < 0) {
-                        segmentLeft = current.x
-                        segmentY = y
+        active: blockArea.spellingRanges.length > 0
+        sourceComponent: Component {
+            Canvas {
+                id: spellingCanvas
+                Component.onCompleted: requestPaint()
+                function drawWave(ctx, left, right, y) {
+                    if (right <= left)
+                        return
+                    ctx.beginPath()
+                    ctx.moveTo(left, y)
+                    let up = true
+                    for (let x = left + 2; x < right; x += 2) {
+                        ctx.lineTo(x, y + (up ? -1.5 : 1.5))
+                        up = !up
                     }
-                    if (next.y !== current.y || position === end - 1) {
-                        drawWave(ctx, segmentLeft, right, segmentY)
-                        segmentLeft = -1
+                    ctx.lineTo(right, y)
+                    ctx.stroke()
+                }
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                onPaint: {
+                    const ctx = getContext("2d")
+                    ctx.clearRect(0, 0, width, height)
+                    ctx.strokeStyle = "#d32f2f"
+                    ctx.lineWidth = 1.25
+                    for (const range of blockArea.spellingRanges) {
+                        const end = range.start + range.length
+                        let segmentLeft = -1
+                        let segmentY = 0
+                        for (let position = range.start; position < end; ++position) {
+                            const current = blockArea.positionToRectangle(position)
+                            const next = blockArea.positionToRectangle(position + 1)
+                            let right = next.y === current.y ? next.x : current.x + current.width
+                            if (right <= current.x)
+                                right = current.x + Math.max(2, current.width)
+                            const y = current.y + current.height - 1.5
+                            if (segmentLeft < 0) {
+                                segmentLeft = current.x
+                                segmentY = y
+                            }
+                            if (next.y !== current.y || position === end - 1) {
+                                drawWave(ctx, segmentLeft, right, segmentY)
+                                segmentLeft = -1
+                            }
+                        }
                     }
                 }
             }
