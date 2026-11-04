@@ -1,3 +1,11 @@
+2026-11-04 AnyKeep-4.0.0_rc2
+* Notes with large tables open about five times faster
+* Smooth text selection across table cells
+* Spell checking limited to the focused text, as intended
+* Note scrollbar drawn consistently under KDE and other desktop styles
+* Debian release archives no longer include debug-symbol packages
+* Release notes: docs/releases/4.0.0_rc2.md
+
 2026-11-04 AnyKeep-4.0.0_rc1
 + Shared structured editor for desktop and Android
 + Folders, favorites, archive and recycle bin

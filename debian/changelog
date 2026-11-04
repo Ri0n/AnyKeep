@@ -1,3 +1,13 @@
+anykeep (4.0.0~rc2) unstable; urgency=medium
+
+  * Second release candidate for AnyKeep 4.0.
+  * Open notes with large tables faster and make selection across table
+    cells smooth.
+  * Spell check only the focused text unless the whole note is requested.
+  * Draw the note scrollbar consistently under KDE and other desktop styles.
+
+ -- Sergei Ilinykh <rion4ik@gmail.com>  Wed, 04 Nov 2026 23:20:00 +0300
+
 anykeep (4.0.0~rc1) unstable; urgency=medium
 
   * First release candidate for AnyKeep 4.0.
