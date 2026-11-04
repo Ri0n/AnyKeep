@@ -1378,6 +1378,44 @@ private slots:
         qInfo().noquote() << "table open: cells after" << created << "ms, settled after" << timer.elapsed() << "ms";
     }
 
+    void noteScrollBarIsDrawnByTheEditorUnderAnyStyle()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        QString text;
+        for (int line = 0; line < 80; ++line)
+            text += QStringLiteral("line %1\n\n").arg(line);
+        note.setText(text, Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(420, 320);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        auto *view = qobject_cast<QQuickItem *>(ancestorWithProperty(body, "currentFindText"));
+        QVERIFY(view);
+        QQuickItem *scrollBar = nullptr;
+        for (QQuickItem *child : view->findChildren<QQuickItem *>()) {
+            if (child->inherits("QQuickScrollBar") && child->parentItem() == view) {
+                scrollBar = child;
+                break;
+            }
+        }
+        QVERIFY(scrollBar);
+        QTRY_VERIFY(scrollBar->isVisible());
+        // A style's own scrollbar must not be drawn under the editor's thumb
+        // (KDE's org.kde.desktop draws a native Breeze one there).
+        QVERIFY(!scrollBar->property("background").value<QQuickItem *>());
+        QVERIFY2(scrollBar->width() <= 10.5, qPrintable(QString::number(scrollBar->width())));
+
+        // Scrolling runs the style's position handlers against our thumb.
+        view->setProperty("contentY", 200);
+        QTRY_VERIFY(scrollBar->property("position").toReal() > 0);
+    }
+
     void tableDragSelectionOrdersEditorsOncePerGesture()
     {
         QString markdown = QStringLiteral("| A | B | C | D |\n| --- | --- | --- | --- |\n");

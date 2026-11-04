@@ -188,10 +188,26 @@ ListView {
         policy: root.touchMode ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
         readonly property bool emphasized: root.windowHovered || root.noteHovered || hovered || active || pressed
 
+        // Drawn entirely here, the same under every style. Desktop styles
+        // such as KDE's org.kde.desktop paint a native scrollbar, with its
+        // own size and animations, as the background under this thumb.
+        hoverEnabled: true
+        // The edges are set one by one: a style may bind them, which would
+        // override a plain padding.
+        topPadding: 2
+        bottomPadding: 2
+        leftPadding: 2
+        rightPadding: 2
+        implicitWidth: implicitContentWidth + leftPadding + rightPadding
+        implicitHeight: implicitContentHeight + topPadding + bottomPadding
+        minimumSize: orientation === Qt.Horizontal ? height / Math.max(1, width)
+                                                   : width / Math.max(1, height)
+        background: null
+
         // Reveal on note hover; retain a faint thumb when the pointer leaves.
         contentItem: Rectangle {
-            implicitWidth: 8
-            implicitHeight: 8
+            implicitWidth: 6
+            implicitHeight: 6
             radius: width / 2
             color: root.documentTextColor
             opacity: verticalScrollBar.size >= 1 ? 0
