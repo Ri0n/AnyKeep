@@ -4,7 +4,7 @@
         "Description": "Restores AnyKeep note window geometry and stacking on Wayland",
         "Icon": "anykeep",
         "Id": "anykeepwindowgeometry",
-        "Version": "1.1",
+        "Version": "2.0",
         "License": "GPLv3",
         "Authors": [
             {

@@ -61,7 +61,8 @@ protected:
     bool event(QEvent *event) override;
 
 private:
-    QString geometryKey() const;
+    QString currentWindowId() const;
+    void    importLegacyWindowState();
     void    updateBackgroundColor();
     void    revealAfterInitialFrame();
     void    updateWindowTitle();
@@ -77,8 +78,7 @@ private:
     DesktopEditorPlatformBackend *platformBackend_ { nullptr };
     DesktopNoteActions           *desktopActions_ { nullptr };
     SpeechRecognitionController  *speechController_ { nullptr };
-    QString                       windowGeometryKey_;
-    QString                       alwaysOnTopKey_;
+    QString                       windowId_; // see NoteWindowGeometryStore
     QPair<QString, QString>       registryKey_;
     bool                          trashRequested_ { false };
     bool                          pinning_ { false };

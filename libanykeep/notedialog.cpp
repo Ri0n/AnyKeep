@@ -1,4 +1,5 @@
 #include "notedialog.h"
+#include "notewindowgeometrystore.h"
 
 #include "anykeep.h"
 #include "deintegrationinterface.h"
@@ -140,12 +141,15 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
     Q_ASSERT(main_);
     allDialogs_.insert(this);
     liveStandaloneNoteViews().insert(this);
-    windowGeometryKey_ = geometryKey();
-    alwaysOnTopKey_    = windowGeometryKey_ + QStringLiteral(".always-on-top");
+    windowId_ = currentWindowId();
+    importLegacyWindowState();
+    auto *windowStates = NoteWindowGeometryStore::instance();
+    windowStates->markShown(windowId_, editor_->draftId());
+    const auto windowState = windowStates->entry(windowId_);
 
     Qt::WindowFlags flags = Qt::Window | Qt::WindowTitleHint | Qt::WindowSystemMenuHint | Qt::WindowMinMaxButtonsHint
         | Qt::WindowCloseButtonHint;
-    if (QSettings().value(alwaysOnTopKey_, false).toBool())
+    if (windowState && windowState->keepAbove)
         flags |= Qt::WindowStaysOnTopHint;
     setFlags(flags);
     setResizeMode(QQuickView::SizeRootObjectToView);
@@ -179,6 +183,13 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
         if (!editor_->storageId().isEmpty() && !editor_->noteId().isEmpty()) {
             registryKey_ = { editor_->storageId(), editor_->noteId() };
             dialogs_.insert(registryKey_, this);
+        }
+        // Publication gives a draft its note id: the window state follows.
+        const QString windowId = currentWindowId();
+        if (!windowId.isEmpty() && windowId != windowId_) {
+            NoteWindowGeometryStore::instance()->rename(windowId_, windowId);
+            windowId_ = windowId;
+            main_->setWindowIdentity(this, windowId_);
         }
     });
     connect(editor_, &NoteEditor::textChanged, this, &NoteDialog::updateWindowTitle);
@@ -222,8 +233,10 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
         setIcon(storage->noteIcon());
     updateWindowTitle();
 
-    const auto  restore    = main_->restoreWindowGeometry(this, windowGeometryKey_);
-    const QRect stored     = QSettings().value(windowGeometryKey_).toRect();
+    // Everything is decided before the window is shown, so that it appears
+    // where it was rather than moving there once visible.
+    const auto  restore    = main_->restoreWindowGeometry(this, windowId_);
+    const QRect stored     = windowState ? windowState->geometry : QRect();
     const QRect safeStored = WindowGeometryUtils::constrainToCurrentScreens(stored, minimumSize());
     if (restore == WindowGeometryRestoreResult::Pending) {
         if (safeStored.isValid())
@@ -241,10 +254,9 @@ NoteDialog::NoteDialog(const Note &note, Main *main, const QUuid &draftId, Mode 
         }
     }
 
-    // KDE/X11 restores through KWindowConfig rather than QSettings, and a
-    // window manager may apply that geometry only after the native window is
-    // shown. Validate twice: once on the next event-loop turn and once after
-    // the window manager has had time to process the request.
+    // An integration that restores the geometry itself may apply it only once
+    // the native window is shown. Validate twice: once on the next event-loop
+    // turn and once after the window manager has had time to process it.
     if (restore == WindowGeometryRestoreResult::Restored) {
         QTimer::singleShot(0, this, &NoteDialog::ensureWindowGeometryVisible);
         QTimer::singleShot(250, this, &NoteDialog::ensureWindowGeometryVisible);
@@ -316,7 +328,7 @@ void NoteDialog::revealAfterInitialFrame()
 
 void NoteDialog::registerWindowGeometry()
 {
-    const auto restore = main_->restoreWindowGeometry(this, windowGeometryKey_);
+    const auto restore = main_->restoreWindowGeometry(this, windowId_);
     if (restore == WindowGeometryRestoreResult::Restored) {
         QTimer::singleShot(0, this, &NoteDialog::ensureWindowGeometryVisible);
         QTimer::singleShot(250, this, &NoteDialog::ensureWindowGeometryVisible);
@@ -439,13 +451,13 @@ void NoteDialog::setAlwaysOnTop(bool enabled)
     if (wasVisible)
         hide();
     setFlags(newFlags);
-    QSettings().setValue(alwaysOnTopKey_, enabled);
+    NoteWindowGeometryStore::instance()->setKeepAbove(windowId_, enabled, editor_->draftId());
 
     // Wayland does not let a client reliably impose stacking by changing a
-    // Qt window flag. The KDE integration queues this recreated surface for
-    // the companion KWin script, which applies Window.keepAbove in KWin.
+    // Qt window flag. The recreated surface is identified to the desktop
+    // integration again; its compositor helper applies keep-above there.
     if (QGuiApplication::platformName().contains(QLatin1String("wayland"), Qt::CaseInsensitive))
-        main_->restoreWindowGeometry(this, windowGeometryKey_);
+        main_->restoreWindowGeometry(this, windowId_);
 
     if (wasVisible) {
         show();
@@ -544,13 +556,37 @@ bool NoteDialog::event(QEvent *event)
     return QQuickView::event(event);
 }
 
-QString NoteDialog::geometryKey() const
+QString NoteDialog::currentWindowId() const
 {
     if (tutorial())
-        return QStringLiteral("geometry.tutorial");
-    if (!editor_->noteId().isEmpty())
-        return QStringLiteral("geometry.%1.%2").arg(editor_->storageId(), editor_->noteId());
-    return QStringLiteral("geometry.draft.%1").arg(editor_->draftIdString());
+        return NoteWindowGeometryStore::tutorialWindowId();
+    return NoteWindowGeometryStore::windowId(editor_->storageId(), editor_->noteId(), editor_->draftId());
+}
+
+void NoteDialog::importLegacyWindowState()
+{
+    // Earlier versions kept window state in the settings, under keys built
+    // from the same ids. Move it once.
+    auto *windowStates = NoteWindowGeometryStore::instance();
+    if (windowId_.isEmpty() || windowStates->entry(windowId_))
+        return;
+    QString legacyKey;
+    if (tutorial())
+        legacyKey = QStringLiteral("geometry.tutorial");
+    else if (!editor_->noteId().isEmpty())
+        legacyKey = QStringLiteral("geometry.%1.%2").arg(editor_->storageId(), editor_->noteId());
+    else
+        legacyKey = QStringLiteral("geometry.draft.%1").arg(editor_->draftIdString());
+    const QString alwaysOnTopKey = legacyKey + QStringLiteral(".always-on-top");
+
+    QSettings   settings;
+    const QRect geometry = settings.value(legacyKey).toRect();
+    if (geometry.isValid())
+        windowStates->setGeometry(windowId_, geometry);
+    if (settings.value(alwaysOnTopKey, false).toBool())
+        windowStates->setKeepAbove(windowId_, true);
+    settings.remove(legacyKey);
+    settings.remove(alwaysOnTopKey);
 }
 
 void NoteDialog::updateBackgroundColor() { setColor(QGuiApplication::palette().color(QPalette::Base)); }
@@ -571,15 +607,16 @@ void NoteDialog::ensureWindowGeometryVisible()
 
 void NoteDialog::saveGeometryState(bool remove)
 {
-    QSettings settings;
+    auto *windowStates = NoteWindowGeometryStore::instance();
     if (remove) {
-        main_->removeWindowGeometry(windowGeometryKey_);
-        settings.remove(windowGeometryKey_);
-        settings.remove(alwaysOnTopKey_);
+        main_->removeWindowGeometry(windowId_);
+        windowStates->remove(windowId_);
         return;
     }
-    if (!main_->saveWindowGeometry(this, windowGeometryKey_))
-        settings.setValue(windowGeometryKey_, QRect(position(), size()));
+    // A compositor helper saves where the window really is; otherwise the
+    // window knows its own geometry.
+    if (!main_->saveWindowGeometry(this, windowId_))
+        windowStates->setGeometry(windowId_, QRect(position(), size()), editor_->draftId());
 }
 
 void NoteDialog::removeFromRegistry()

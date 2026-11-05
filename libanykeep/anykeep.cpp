@@ -46,6 +46,7 @@
 #include "noteruleapplicationcontroller.h"
 #include "noterulemanager.h"
 #include "notesmanagerwindow.h"
+#include "notewindowgeometrystore.h"
 #include "notificationinterface.h"
 #include "optionsdlg.h"
 #include "optionsplugins.h"
@@ -258,18 +259,10 @@ Main::Main(QObject *parent) : QObject(parent), d(new Private(this)), _inited(fal
     connect(draftManager, &DraftManager::recoveryNotice, this, &Main::notifyError);
     connect(draftManager, &DraftManager::conflictResolved, this, &Main::notifyError);
     connect(draftManager, &DraftManager::draftPublished, this, [](const QUuid &draftId, const Note &note) {
-        // A new note has no stable note id while its window is closing. The compositor
-        // therefore saves its final frame under the draft id first. Migrate it after the
-        // asynchronous unmanaged/store round trip has had time to complete.
-        QTimer::singleShot(750, [draftId, note]() {
-            const QString temporary = QString("geometry.draft.%1").arg(draftId.toString(QUuid::WithoutBraces));
-            const QString permanent = QString("geometry.%1.%2").arg(note.storageId(), note.id());
-            QSettings     settings;
-            const QRect   rect = settings.value(temporary).toRect();
-            if (rect.isValid())
-                settings.setValue(permanent, rect);
-            settings.remove(temporary);
-        });
+        // A draft is often published after its window closed: carry the window's
+        // geometry over to the note's new id.
+        NoteWindowGeometryStore::instance()->renameDraft(
+            draftId, NoteWindowGeometryStore::windowId(note.storageId(), note.id(), draftId));
     });
 
     // Folder organisation is useful but must never make the editor
@@ -1241,6 +1234,12 @@ bool Main::saveWindowGeometry(QWindow *window, const QString &key) const
 bool Main::removeWindowGeometry(const QString &key) const { return d->de->removeWindowGeometry(key); }
 
 QString Main::takePendingWindowGeometryKey() const { return d->de->takePendingWindowGeometryKey(); }
+
+void Main::setWindowIdentity(QWindow *window, const QString &key) const
+{
+    if (window)
+        d->de->setWindowIdentity(window, key);
+}
 
 void Main::windowGeometryBridgeReady() const
 {

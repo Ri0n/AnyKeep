@@ -1,14 +1,16 @@
-#include <KConfigGroup>
 #include <KGlobalAccel>
 #include <KGlobalShortcutInfo>
 #include <KNotification>
-#include <KSharedConfig>
-#include <KWindowConfig>
+#include <KWaylandExtras>
 #include <KWindowSystem>
+#include <kwindowsystem_version.h>
 
 #include <QAction>
+#include <QDBusConnection>
+#include <QDBusConnectionInterface>
 #include <QDBusInterface>
 #include <QDBusReply>
+#include <QDBusServiceWatcher>
 #include <QDir>
 #include <QGuiApplication>
 #include <QLoggingCategory>
@@ -30,6 +32,8 @@
 namespace AnyKeep {
 
 Q_LOGGING_CATEGORY(logKdeIntegration, "anykeep.kdeintegration")
+
+static constexpr auto      anyKeepServiceName = "com.github.ri0n.AnyKeep";
 static const QLatin1String stickyPlasmoidId("com.github.ri0n.anykeep.sticky");
 static const QLatin1String stickyPresentationsGroup("kdeintegration/stickyPresentations");
 static const QLatin1String useSonnetSetting("kdeintegration/useSonnet");
@@ -39,12 +43,25 @@ static const QLatin1String useSonnetSetting("kdeintegration/useSonnet");
 //------------------------------------------------------------
 KDEIntegration::KDEIntegration(QObject *parent) : QObject(parent) {}
 
+// The KWin script talks back to this process by the service name. Until the
+// name is ours, a started script finds no AnyKeep and gives up.
+static bool ownsAnyKeepService()
+{
+    auto *bus = QDBusConnection::sessionBus().interface();
+    if (!bus)
+        return false;
+    const QDBusReply<QString> owner = bus->serviceOwner(QLatin1String(anyKeepServiceName));
+    return owner.isValid() && owner.value() == QDBusConnection::sessionBus().baseService();
+}
+
 bool KDEIntegration::ensureWaylandGeometryScript()
 {
-    if (!KWindowSystem::isPlatformWayland())
+    if (!waylandWindowTags())
         return false;
     if (_waylandGeometryScriptAvailable)
         return true;
+    if (!ownsAnyKeepService())
+        return false;
 
 #ifdef ANYKEEP_DEVEL_KWIN_SCRIPT
     const QString scriptPath = QStringLiteral(ANYKEEP_DEVEL_KWIN_SCRIPT);
@@ -69,18 +86,36 @@ bool KDEIntegration::ensureWaylandGeometryScript()
         qCWarning(logKdeIntegration) << "Failed to load AnyKeep KWin geometry script:" << scriptId.error().message();
         return false;
     }
-    const QString  scriptObjectPath = QStringLiteral("/Scripting/Script%1").arg(scriptId.value());
-    QDBusInterface script(QStringLiteral("org.kde.KWin"), scriptObjectPath, QStringLiteral("org.kde.kwin.Script"));
-    const auto     runReply         = script.call(QStringLiteral("run"));
-    _waylandGeometryScriptAvailable = runReply.type() != QDBusMessage::ErrorMessage;
+    // Start through Scripting.start(), which runs every loaded script that is
+    // not running yet. Calling run() on /Scripting/Script<id> instead can reach
+    // the object of a script unloaded earlier, which reuses the id: the new
+    // script is then silently never started.
+    const auto startReply           = scripting.call(QStringLiteral("start"));
+    _waylandGeometryScriptAvailable = startReply.type() != QDBusMessage::ErrorMessage;
     if (!_waylandGeometryScriptAvailable)
-        qCWarning(logKdeIntegration) << "Failed to start AnyKeep KWin geometry script:" << runReply.errorMessage();
+        qCWarning(logKdeIntegration) << "Failed to start AnyKeep KWin geometry script:" << startReply.errorMessage();
     else
-        qCInfo(logKdeIntegration) << "AnyKeep KWin geometry script started:" << scriptObjectPath;
+        qCInfo(logKdeIntegration) << "AnyKeep KWin geometry script started:" << scriptId.value();
     return _waylandGeometryScriptAvailable;
 }
 
-void KDEIntegration::setHost(PluginHostInterface *) {}
+void KDEIntegration::setHost(PluginHostInterface *)
+{
+    if (!waylandWindowTags())
+        return;
+    // Start the KWin script once AnyKeep owns its service name, before the
+    // first note window opens: the script reads all note window states once
+    // and must have them by then to place a window before it is painted.
+    auto      *watcher = new QDBusServiceWatcher(QLatin1String(anyKeepServiceName), QDBusConnection::sessionBus(),
+                                                 QDBusServiceWatcher::WatchForRegistration, this);
+    const auto start   = [this, watcher] {
+        if (ensureWaylandGeometryScript())
+            watcher->deleteLater();
+    };
+    connect(watcher, &QDBusServiceWatcher::serviceRegistered, watcher, start);
+    // The name may already be registered when the plugin is set up.
+    QTimer::singleShot(0, watcher, start);
+}
 
 std::shared_ptr<SpellCheckProvider> KDEIntegration::spellCheckProvider()
 {
@@ -143,39 +178,39 @@ void KDEIntegration::activateWindow(QWindow *window)
     });
 }
 
-static KConfigGroup windowGeometryGroup(const QString &key)
+// Note windows are placed on Wayland by the companion KWin script, which
+// finds a window's geometry by the xdg-toplevel tag carrying its window id.
+// Without tags (KF6 < 6.22) a window cannot be told apart from the others,
+// so it is only sized by AnyKeep and placed by KWin. On X11 the window
+// positions itself.
+bool KDEIntegration::waylandWindowTags()
 {
-    KConfigGroup root(KSharedConfig::openConfig(), QStringLiteral("AnyKeep Window Geometry"));
-    return KConfigGroup(&root, key);
+#if KWINDOWSYSTEM_VERSION >= QT_VERSION_CHECK(6, 22, 0)
+    return KWindowSystem::isPlatformWayland();
+#else
+    return false;
+#endif
 }
 
 WindowGeometryRestoreResult KDEIntegration::restoreWindowGeometry(QWindow *window, const QString &key)
 {
-    if (KWindowSystem::isPlatformWayland()) {
-        // Queue before starting the script. Its initial stacking-order scan may
-        // claim an already visible AnyKeep window synchronously during run().
-        if (!_pendingWindowGeometryKeys.contains(key))
-            _pendingWindowGeometryKeys.enqueue(key);
-        if (!ensureWaylandGeometryScript()) {
-            _pendingWindowGeometryKeys.removeAll(key);
-            return WindowGeometryRestoreResult::Unsupported;
-        }
-        return WindowGeometryRestoreResult::Pending;
-    }
-    if (!window)
+    if (!window || key.isEmpty() || !waylandWindowTags() || !ensureWaylandGeometryScript())
         return WindowGeometryRestoreResult::Unsupported;
-    window->winId();
-    auto group = windowGeometryGroup(key);
-    if (!window || !group.exists())
-        return WindowGeometryRestoreResult::Unsupported;
-    KWindowConfig::restoreWindowSize(window, group);
-    KWindowConfig::restoreWindowPosition(window, group);
-    return WindowGeometryRestoreResult::Restored;
+    setWindowIdentity(window, key);
+    return WindowGeometryRestoreResult::Pending;
 }
 
-QString KDEIntegration::takePendingWindowGeometryKey()
+void KDEIntegration::setWindowIdentity(QWindow *window, const QString &key)
 {
-    return _pendingWindowGeometryKeys.isEmpty() ? QString() : _pendingWindowGeometryKeys.dequeue();
+#if KWINDOWSYSTEM_VERSION >= QT_VERSION_CHECK(6, 22, 0)
+    // Set before the window is shown, the tag is known to KWin as soon as
+    // the window appears, and the script places it before it is painted.
+    if (window && waylandWindowTags())
+        KWaylandExtras::setXdgToplevelTag(window, key);
+#else
+    Q_UNUSED(window)
+    Q_UNUSED(key)
+#endif
 }
 
 bool KDEIntegration::isStickyNotesAvailable() const
@@ -336,30 +371,13 @@ QUuid KDEIntegration::stickyNoteIdForPresentation(const QString &presentationId)
     return QUuid(settings.value(presentationId).toString());
 }
 
-bool KDEIntegration::saveWindowGeometry(QWindow *window, const QString &key)
+bool KDEIntegration::saveWindowGeometry(QWindow *, const QString &)
 {
-    if (KWindowSystem::isPlatformWayland())
-        return ensureWaylandGeometryScript();
-    if (!window)
-        return false;
-    auto group = windowGeometryGroup(key);
-    KWindowConfig::saveWindowSize(window, group);
-    KWindowConfig::saveWindowPosition(window, group);
-    group.sync();
-    // KWindowConfig is supplemental on X11. Keep QSettings as the canonical,
-    // cross-platform value by asking the caller to perform its normal save too.
-    return false;
+    // The KWin script stores what KWin knows: the window's real position.
+    return waylandWindowTags() && _waylandGeometryScriptAvailable;
 }
 
-bool KDEIntegration::removeWindowGeometry(const QString &key)
-{
-    auto group = windowGeometryGroup(key);
-    if (group.exists()) {
-        group.deleteGroup();
-        group.sync();
-    }
-    return true;
-}
+bool KDEIntegration::removeWindowGeometry(const QString &) { return false; }
 
 namespace {
     QString shortcutConflictDescription(const QKeySequence &key, const QAction *ownAction)

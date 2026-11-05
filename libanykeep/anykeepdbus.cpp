@@ -23,6 +23,7 @@
 #include "notemanager.h"
 #include "notepresentationorder.h"
 #include "notetitleresolver.h"
+#include "notewindowgeometrystore.h"
 #include "shortcutsmanager.h"
 #include "stickynotesmanager.h"
 #include "trayiconutils.h"
@@ -347,39 +348,57 @@ QString AnyKeepDBus::stickyNoteForPresentationJson(const QString &presentationId
     return m_anykeep->stickyNotesManager()->noteForPresentationJson(presentationId);
 }
 
+namespace {
+    // A stored note window state, moved back onto the current screens.
+    QJsonObject windowStateJson(const QString &key)
+    {
+        const auto  entry = NoteWindowGeometryStore::instance()->entry(key);
+        const QRect rect
+            = entry ? WindowGeometryUtils::constrainToCurrentScreens(entry->geometry, QSize(320, 240)) : QRect();
+        const bool valid = rect.isValid();
+        return {
+            { QStringLiteral("key"), key },
+            { QStringLiteral("valid"), valid },
+            { QStringLiteral("x"), rect.x() },
+            { QStringLiteral("y"), rect.y() },
+            { QStringLiteral("width"), rect.width() },
+            { QStringLiteral("height"), rect.height() },
+            { QStringLiteral("keepAbove"), entry && entry->keepAbove },
+        };
+    }
+} // namespace
+
+QString AnyKeepDBus::windowGeometries() const
+{
+    QJsonObject windows;
+    const auto  stored = NoteWindowGeometryStore::instance()->toJson();
+    for (auto it = stored.constBegin(); it != stored.constEnd(); ++it)
+        windows.insert(it.key(), windowStateJson(it.key()));
+    return QString::fromUtf8(QJsonDocument(windows).toJson(QJsonDocument::Compact));
+}
+
+QString AnyKeepDBus::windowGeometry(const QString &key) const
+{
+    if (key.isEmpty() || !NoteWindowGeometryStore::instance()->entry(key))
+        return {};
+    return QString::fromUtf8(QJsonDocument(windowStateJson(key)).toJson(QJsonDocument::Compact));
+}
+
 QString AnyKeepDBus::claimWindowGeometry()
 {
     const QString key = m_anykeep->takePendingWindowGeometryKey();
     if (key.isEmpty())
         return {};
-
-    const QRect stored    = QSettings().value(key).toRect();
-    const QRect rect      = WindowGeometryUtils::constrainToCurrentScreens(stored, QSize(320, 240));
-    const bool  valid     = rect.isValid();
-    const bool  keepAbove = QSettings().value(key + QStringLiteral(".always-on-top"), false).toBool();
-    if (valid && rect != stored)
-        QSettings().setValue(key, rect);
-    // qInfo() << "Window geometry claimed:" << key << "stored:" << valid << rect;
-    return QString::fromUtf8(QJsonDocument(QJsonObject {
-                                               { QStringLiteral("key"), key },
-                                               { QStringLiteral("valid"), valid },
-                                               { QStringLiteral("x"), rect.x() },
-                                               { QStringLiteral("y"), rect.y() },
-                                               { QStringLiteral("width"), rect.width() },
-                                               { QStringLiteral("height"), rect.height() },
-                                               { QStringLiteral("keepAbove"), keepAbove },
-                                           })
-                                 .toJson(QJsonDocument::Compact));
+    return QString::fromUtf8(QJsonDocument(windowStateJson(key)).toJson(QJsonDocument::Compact));
 }
 
 void AnyKeepDBus::storeWindowGeometry(const QString &key, int x, int y, int width, int height)
 {
-    if (!key.startsWith(QLatin1String("geometry.")) || width <= 0 || height <= 0) {
+    if (key.isEmpty() || width <= 0 || height <= 0) {
         qWarning() << "Window geometry rejected:" << key << QRect(x, y, width, height);
         return;
     }
-    // qDebug() << "Window geometry stored:" << key << QRect(x, y, width, height);
-    QSettings().setValue(key, QRect(x, y, width, height));
+    NoteWindowGeometryStore::instance()->setGeometry(key, QRect(x, y, width, height));
 }
 
 void AnyKeepDBus::windowGeometryScriptReady()

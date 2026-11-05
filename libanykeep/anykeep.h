@@ -71,6 +71,7 @@ public:
     bool                        saveWindowGeometry(QWindow *window, const QString &key) const;
     bool                        removeWindowGeometry(const QString &key) const;
     QString                     takePendingWindowGeometryKey() const;
+    void                        setWindowIdentity(QWindow *window, const QString &key) const;
     void                        windowGeometryBridgeReady() const;
     ShortcutsManager           *shortcutsManager() const { return _shortcutsManager; }
     PluginManager              *pluginManager() const { return _pluginManager; }

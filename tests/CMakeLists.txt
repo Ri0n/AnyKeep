@@ -48,6 +48,8 @@ add_anykeep_test(
 
 add_anykeep_test(dialogservice_test dialogservice_test.cpp)
 
+add_anykeep_test(notewindowgeometrystore_test notewindowgeometrystore_test.cpp)
+
 add_anykeep_test(noteeditor_test noteeditor_test.cpp)
 
 add_anykeep_test(notefragment_test notefragment_test.cpp)

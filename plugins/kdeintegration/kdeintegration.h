@@ -2,7 +2,6 @@
 #define KDEINTEGRATION_H
 
 #include <QObject>
-#include <QQueue>
 
 #include "actionnotificationinterface.h"
 #include "anykeepplugininterface.h"
@@ -53,7 +52,7 @@ public:
     WindowGeometryRestoreResult restoreWindowGeometry(QWindow *window, const QString &key) override;
     bool                        saveWindowGeometry(QWindow *window, const QString &key) override;
     bool                        removeWindowGeometry(const QString &key) override;
-    QString                     takePendingWindowGeometryKey() override;
+    void                        setWindowIdentity(QWindow *window, const QString &key) override;
 
     bool  isStickyNotesAvailable() const override;
     bool  presentStickyNote(const QUuid &stickyId, const QRect &preferredGeometry) override;
@@ -70,11 +69,11 @@ signals:
 public slots:
 
 private:
-    bool ensureWaylandGeometryScript();
-    bool evaluatePlasmaScript(const QString &script, QString *output = nullptr) const;
+    static bool waylandWindowTags();
+    bool        ensureWaylandGeometryScript();
+    bool        evaluatePlasmaScript(const QString &script, QString *output = nullptr) const;
 
     QHash<QString, QAction *> _shortcuts;
-    QQueue<QString>           _pendingWindowGeometryKeys;
     bool                      _waylandGeometryScriptAvailable = false;
     QString                   _lastGlobalShortcutError;
 };

@@ -43,6 +43,10 @@ public slots:
     Q_SCRIPTABLE QString stickyNotesJson() const;
     Q_SCRIPTABLE QString stickyNoteJson(const QString &stickyId) const;
     Q_SCRIPTABLE QString stickyNoteForPresentationJson(const QString &presentationId) const;
+    // Note window state by window id, for the KDE companion KWin script.
+    Q_SCRIPTABLE QString windowGeometries() const;
+    Q_SCRIPTABLE QString windowGeometry(const QString &key) const;
+    // GNOME and Cinnamon: the state of the next note window being shown.
     Q_SCRIPTABLE QString claimWindowGeometry();
     Q_SCRIPTABLE void    storeWindowGeometry(const QString &key, int x, int y, int width, int height);
     Q_SCRIPTABLE void    windowGeometryScriptReady();

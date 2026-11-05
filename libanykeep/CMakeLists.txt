@@ -170,6 +170,7 @@ set(anykeep_CORE_SRCS
     storagejob.cpp
     storageprioritymodel.cpp
     utils.cpp
+    notewindowgeometrystore.cpp
     windowgeometryutils.cpp)
 set(anykeep_CORE_HDRS
     audioattachmentrecorder.h
@@ -250,6 +251,7 @@ set(anykeep_CORE_HDRS
     storagejob.h
     storageprioritymodel.h
     utils.h
+    notewindowgeometrystore.h
     windowgeometryutils.h)
 set(anykeep_CORE_UIS)
 
