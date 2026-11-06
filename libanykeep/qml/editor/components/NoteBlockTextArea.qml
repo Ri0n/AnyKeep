@@ -483,7 +483,13 @@ TextArea {
     onCursorPositionChanged: editorView.scheduleCursorVisibility(blockArea)
     onWidthChanged: inlineElementLayer.invalidateGeometry()
     onHeightChanged: inlineElementLayer.invalidateGeometry()
-    onFontChanged: inlineElementLayer.invalidateGeometry()
+    onFontChanged: {
+        // Inline code keeps the size it was imported with otherwise.
+        if (renderedMarkdown && !codeDocument && editorView.editorBackend
+                && typeof editorView.editorBackend.refreshInlineCodeSize === "function")
+            editorView.editorBackend.refreshInlineCodeSize(textDocument)
+        inlineElementLayer.invalidateGeometry()
+    }
     Component.onCompleted: {
         synchronizeSourceText(true)
         editorView.registerEditor(blockArea)

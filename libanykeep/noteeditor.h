@@ -161,9 +161,16 @@ public:
     Q_INVOKABLE bool        setInlineFormat(QQuickTextDocument *document, int start, int end, const QString &style,
                                             bool enabled);
     Q_INVOKABLE void        applyInlineHtmlFormatting(QQuickTextDocument *document) const;
-    Q_INVOKABLE qreal       intrinsicTextWidth(QQuickTextDocument *document) const;
-    Q_INVOKABLE QVariantList markdownIntrinsicWidths(const QStringList &markdown, const QFont &font,
-                                                     int boldCount) const;
+    // Markdown import gives inline code a fixed size taken from the font at
+    // import time. Gives it the size a fresh import would after a font change.
+    Q_INVOKABLE void  refreshInlineCodeSize(QQuickTextDocument *document) const;
+    Q_INVOKABLE qreal intrinsicTextWidth(QQuickTextDocument *document) const;
+    // Widths of table cell text: "natural" unwrapped, and "word", the
+    // longest word, i.e. the narrowest width that wraps between words only.
+    Q_INVOKABLE QVariantMap textWidths(QQuickTextDocument *document) const;
+    // pointSize, when positive, replaces the font's size, as table cells do.
+    Q_INVOKABLE QVariantList markdownCellWidths(const QStringList &markdown, const QFont &font, qreal pointSize,
+                                                int boldCount) const;
     Q_INVOKABLE QString      markdownText(QQuickTextDocument *document) const;
     Q_INVOKABLE QString      markdownTableCellText(QQuickTextDocument *document) const;
     Q_INVOKABLE QString      markdownSelection(QQuickTextDocument *document, int start, int end) const;

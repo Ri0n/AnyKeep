@@ -1416,6 +1416,109 @@ private slots:
         QTRY_VERIFY(scrollBar->property("position").toReal() > 0);
     }
 
+    void tableHeadersWrapBetweenWordsUnlessTheTableCannotFit()
+    {
+        // A long third column used to squeeze the second one below its header
+        // word, which then wrapped letter by letter.
+        QString longText;
+        for (int word = 0; word < 30; ++word)
+            longText += QStringLiteral("commentary ");
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("| Name | Category | Commentary |\n| --- | --- | --- |\n| a | b | %1 |\n")
+                         .arg(longText.trimmed()),
+                     Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(620, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QList<QQuickItem *> cells;
+        QTRY_VERIFY(([&]() {
+            cells = tableCellEditors(root, 1);
+            return cells.size() == 6;
+        })());
+        for (int column = 0; column < 3; ++column) {
+            QQuickItem *header = cells.at(column);
+            QTRY_VERIFY(header->width() + 0.5 >= header->property("wordWidth").toReal());
+            QCOMPARE(header->property("lineCount").toInt(), 1);
+        }
+
+        // Too narrow for the header words: the table still fits the note.
+        host.resize(170, 420);
+        QQuickItem *grid = cells.first()->parentItem();
+        QTRY_VERIFY(([&]() {
+            qreal total = 0;
+            for (int column = 0; column < 3; ++column)
+                total += cells.at(column)->width();
+            return total <= grid->width() + 1 && grid->width() < 170;
+        })());
+        bool broken = false;
+        for (int column = 0; column < 3; ++column)
+            broken = broken || cells.at(column)->width() + 0.5 < cells.at(column)->property("wordWidth").toReal();
+        QVERIFY(broken);
+    }
+
+    void inlineCodeFollowsEditorFontChanges()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("title"));
+        note.setText(QStringLiteral("Text with `code` here\n\n| A | B |\n| --- | --- |\n| x | `cell code` |"),
+                     Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        QFont                 font = QGuiApplication::font();
+        font.setPointSizeF(10.6);
+        host.platformBackend()->setEditorFont(font);
+        host.resize(620, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem         *body = nullptr;
+        QList<QQuickItem *> cells;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QTRY_VERIFY(([&]() {
+            cells = tableCellEditors(root, 2);
+            return cells.size() == 4;
+        })());
+
+        // The size inline code gets from a fresh import with the document's font.
+        const auto importedCodeSize = [](QTextDocument *document) {
+            QTextDocument probe;
+            probe.setDefaultFont(document->defaultFont());
+            probe.setMarkdown(QStringLiteral("`x`"), QTextDocument::MarkdownDialectGitHub);
+            for (auto it = probe.begin().begin(); !it.atEnd(); ++it) {
+                if (it.fragment().charFormat().fontFixedPitch())
+                    return it.fragment().charFormat().fontPointSize();
+            }
+            return qreal(-1);
+        };
+        const auto codeMatchesFont = [&](QQuickItem *item) {
+            auto *document = item->property("textDocument").value<QQuickTextDocument *>()->textDocument();
+            for (auto block = document->begin(); block.isValid(); block = block.next()) {
+                for (auto it = block.begin(); !it.atEnd(); ++it) {
+                    const auto format = it.fragment().charFormat();
+                    if (format.fontFixedPitch())
+                        return qFuzzyCompare(format.fontPointSize(), importedCodeSize(document));
+                }
+            }
+            return false;
+        };
+        QVERIFY(codeMatchesFont(body));
+        QVERIFY(codeMatchesFont(cells.at(3)));
+
+        QFont larger = font;
+        larger.setPointSizeF(13.2);
+        host.platformBackend()->setEditorFont(larger);
+        QTRY_VERIFY(codeMatchesFont(body));
+        QTRY_VERIFY(codeMatchesFont(cells.at(3)));
+        // The text itself is unchanged: nothing to commit or to undo.
+        QCOMPARE(editor.model()->blockTextAt(1), QStringLiteral("Text with `code` here"));
+    }
+
     void tableDragSelectionOrdersEditorsOncePerGesture()
     {
         QString markdown = QStringLiteral("| A | B | C | D |\n| --- | --- | --- | --- |\n");
@@ -2374,6 +2477,10 @@ private:
         DraftManager          drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor            editor(note, drafts);
         DesktopNoteEditorHost host(&editor);
+        // A fractional point size, as editor fonts often have.
+        QFont font = QGuiApplication::font();
+        font.setPointSizeF(10.6);
+        host.platformBackend()->setEditorFont(font);
         host.resize(620, 420);
         host.show();
         auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
@@ -2386,18 +2493,40 @@ private:
 
         // The widths decided before the cells existed are the ones the cells
         // report once they show their text, so editing does not shift columns.
-        for (QQuickItem *cell : std::as_const(cells)) {
-            auto *document = cell->property("textDocument").value<QQuickTextDocument *>();
-            QVERIFY(document);
-            const qreal live = editor.intrinsicTextWidth(document) + cell->property("leftPadding").toReal()
-                + cell->property("rightPadding").toReal();
-            const qreal measured = cell->property("comfortableWidth").toReal();
-            QVERIFY2(qAbs(live - measured) < 0.5,
-                     qPrintable(QStringLiteral("%1: live=%2 measured=%3")
-                                    .arg(cell->property("tableCellIndex").toInt())
-                                    .arg(live)
-                                    .arg(measured)));
-        }
+        const auto measuredMatchesLive = [&]() {
+            for (QQuickItem *cell : std::as_const(cells)) {
+                auto *document = cell->property("textDocument").value<QQuickTextDocument *>();
+                if (!document)
+                    return false;
+                const qreal padding = cell->property("leftPadding").toReal() + cell->property("rightPadding").toReal();
+                const auto  live    = editor.textWidths(document);
+                if (qAbs(live.value(QStringLiteral("natural")).toReal() + padding
+                         - cell->property("comfortableWidth").toReal())
+                        >= 0.5
+                    || qAbs(live.value(QStringLiteral("word")).toReal() + padding
+                            - cell->property("wordWidth").toReal())
+                        >= 0.5)
+                    return false;
+            }
+            return true;
+        };
+        QVERIFY(measuredMatchesLive());
+
+        // Measuring must not disturb the editor font: cells keep following it.
+        QFont larger = font;
+        larger.setPointSizeF(13.2);
+        host.platformBackend()->setEditorFont(larger);
+        for (QQuickItem *cell : std::as_const(cells))
+            QTRY_COMPARE(QQmlProperty(cell, QStringLiteral("font.pointSize")).read().toReal(), 13.2);
+        // A new editor font measures the cells again.
+        QTRY_VERIFY(measuredMatchesLive());
+
+        // A font sized in pixels: cells use the application's point size.
+        QFont pixels = font;
+        pixels.setPixelSize(19);
+        host.platformBackend()->setEditorFont(pixels);
+        QTRY_VERIFY(qAbs(QQmlProperty(cells.first(), QStringLiteral("font.pointSize")).read().toReal() - 13.2) > 0.01);
+        QTRY_VERIFY(measuredMatchesLive());
     }
 
     void tableWholeCellPasteIsVisibleWithoutFocusLoss()

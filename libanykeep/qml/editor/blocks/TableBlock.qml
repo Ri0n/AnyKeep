@@ -14,8 +14,12 @@ Item {
     property var tableData: block.table
     property int columns: Number(tableData.columns || 0)
     property int cachedColumnCount: 0
+    // Per column: the widest unwrapped cell, and the longest word of the
+    // header and of the other cells (the narrowest widths that still wrap
+    // between words only), padding included.
     property var comfortableColumnWidths: []
-    property var columnMaxCells: []
+    property var headerWordWidths: []
+    property var bodyWordWidths: []
     property var distributedColumnWidths: []
     readonly property real editorPointSize: editorView.editorPointSize
     readonly property string editorFontFamily: editorView.editorFont.family
@@ -38,55 +42,77 @@ Item {
     }
 
     onTableDataChanged: syncCells()
-    onEditorPointSizeChanged: resetComfortableWidths()
-    onEditorFontFamilyChanged: resetComfortableWidths()
-    onTouchModeChanged: resetComfortableWidths()
+    // Cells are measured in the editor font: any change of it, or of the
+    // cell size and padding, measures them again, once.
+    readonly property font editorFont: editorView.editorFont
+    onEditorFontChanged: remeasureTimer.restart()
+    onEditorPointSizeChanged: remeasureTimer.restart()
+    onTouchModeChanged: remeasureTimer.restart()
     Component.onCompleted: syncCells()
 
     readonly property bool touchMode: editorView.touchMode
     readonly property real cellSidePadding: touchMode ? 8 : 6
     readonly property real columnHandleWidth: touchMode ? 22 : 17
 
-    // Unwrapped widths of the given cells, padding included, measured from
-    // their Markdown without any cell editor. firstIndex is the cell index
-    // of values[0]; the header row is bold.
-    function measuredCellWidths(values, firstIndex) {
-        const result = []
+    function cellPadding(cellIndex) {
+        return 2 * cellSidePadding + (cellIndex < columns ? columnHandleWidth : 0)
+    }
+
+    // { natural, word } widths of the given cells, padding included, measured
+    // from their Markdown without any cell editor. firstIndex is the cell
+    // index of values[0]; the header row is bold.
+    function measuredCells(values, firstIndex) {
         const backend = tableRoot.editorView.editorBackend
-        if (!backend || values.length === 0)
-            return result
-        const rendered = []
-        for (let index = 0; index < values.length; ++index)
-            rendered.push(tableRoot.editorView.markdownTableCellForRendering(String(values[index] || "")))
-        const font = Qt.font({ family: editorFontFamily, pointSize: editorPointSize })
-        const widths = backend.markdownIntrinsicWidths(rendered, font, Math.max(0, columns - firstIndex))
-        for (let index = 0; index < widths.length; ++index) {
-            const header = firstIndex + index < columns
-            result.push(Math.max(1, Number(widths[index]) + 2 * cellSidePadding
-                                    + (header ? columnHandleWidth : 0)))
+        let widths = []
+        if (backend && values.length > 0) {
+            const rendered = []
+            for (let index = 0; index < values.length; ++index)
+                rendered.push(tableRoot.editorView.markdownTableCellForRendering(String(values[index] || "")))
+            // The cells' own font: the editor font at the cells' point size.
+            // The font is only read: value types are references in QML, and
+            // writing to one would write to the editor's font property.
+            widths = backend.markdownCellWidths(rendered, tableRoot.editorView.editorFont, editorPointSize,
+                                                Math.max(0, columns - firstIndex))
+        }
+        const result = []
+        for (let index = 0; index < values.length; ++index) {
+            const padding = cellPadding(firstIndex + index)
+            const measured = widths[index] || { natural: 0, word: 0 }
+            result.push({
+                natural: Math.max(1, Number(measured.natural) + padding),
+                word: Math.max(1, Number(measured.word) + padding)
+            })
         }
         return result
     }
 
-    // Sets every cell's width at once: the column proportions follow from
-    // the widest cell of each column, computed after all cells are measured.
-    function applyComfortableWidths(widths) {
-        const maxima = []
-        const owners = []
-        for (let column = 0; column < columns; ++column) {
-            maxima.push(1)
-            owners.push(-1)
-        }
-        for (let index = 0; index < widths.length && columns > 0; ++index) {
+    // Column widths follow from all cells at once, after every cell has
+    // been measured.
+    function applyColumnMetrics(cells) {
+        const natural = new Array(columns).fill(1)
+        const headerWord = new Array(columns).fill(0)
+        const bodyWord = new Array(columns).fill(0)
+        for (let index = 0; index < cells.length && columns > 0; ++index) {
             const column = index % columns
-            if (owners[column] < 0 || widths[index] > maxima[column]) {
-                maxima[column] = widths[index]
-                owners[column] = index
-            }
+            natural[column] = Math.max(natural[column], cells[index].natural)
+            if (index < columns)
+                headerWord[column] = cells[index].word
+            else
+                bodyWord[column] = Math.max(bodyWord[column], cells[index].word)
         }
-        comfortableColumnWidths = maxima
-        columnMaxCells = owners
+        comfortableColumnWidths = natural
+        headerWordWidths = headerWord
+        bodyWordWidths = bodyWord
         distributeColumnWidths()
+    }
+
+    function modelCells() {
+        const cells = []
+        for (let index = 0; index < cellModel.count; ++index) {
+            const cell = cellModel.get(index)
+            cells.push({ natural: Number(cell.comfortableWidth || 1), word: Number(cell.wordWidth || 0) })
+        }
+        return cells
     }
 
     function syncCells() {
@@ -95,10 +121,10 @@ Item {
                 || cellModel.count !== values.length
         // A new or reshaped table measures all its cells and decides the
         // column widths before any cell is created or laid out again.
-        const widths = shapeChanged ? measuredCellWidths(values, 0) : null
+        const measured = shapeChanged ? measuredCells(values, 0) : null
         if (shapeChanged) {
             cachedColumnCount = columns
-            applyComfortableWidths(widths)
+            applyColumnMetrics(measured)
         }
         while (cellModel.count > values.length)
             cellModel.remove(cellModel.count - 1)
@@ -110,64 +136,88 @@ Item {
                 if (!shapeChanged)
                     changed.push(index)
             }
-            if (shapeChanged)
-                cellModel.setProperty(index, "comfortableWidth", widths[index])
+            if (shapeChanged) {
+                cellModel.setProperty(index, "comfortableWidth", measured[index].natural)
+                cellModel.setProperty(index, "wordWidth", measured[index].word)
+            }
         }
         while (cellModel.count < values.length) {
             const index = cellModel.count
-            cellModel.append({ cellText: values[index] || "", comfortableWidth: widths[index] })
+            cellModel.append({
+                cellText: values[index] || "",
+                comfortableWidth: measured[index].natural,
+                wordWidth: measured[index].word
+            })
         }
         for (const index of changed)
-            updateComfortableWidth(index, measuredCellWidths([values[index] || ""], index)[0])
+            updateCellWidths(index, measuredCells([values[index] || ""], index)[0])
     }
 
+    // After a font or padding change. Existing cells are measured as they
+    // are shown, since their documents are not imported again.
     function resetComfortableWidths() {
-        const widths = measuredCellWidths(tableData.values || [], 0)
-        for (let index = 0; index < cellModel.count && index < widths.length; ++index)
-            cellModel.setProperty(index, "comfortableWidth", widths[index])
-        applyComfortableWidths(widths)
+        const measured = measuredCells(tableData.values || [], 0)
+        const backend = tableRoot.editorView.editorBackend
+        for (let index = 0; index < cellModel.count && index < measured.length; ++index) {
+            const cell = cellRepeater.itemAt(index)
+            if (cell && backend) {
+                const live = backend.textWidths(cell.textDocument)
+                const padding = cell.leftPadding + cell.rightPadding
+                if (live.natural !== undefined)
+                    measured[index] = {
+                        natural: Math.max(1, Number(live.natural) + padding),
+                        word: Math.max(1, Number(live.word) + padding)
+                    }
+            }
+            cellModel.setProperty(index, "comfortableWidth", measured[index].natural)
+            cellModel.setProperty(index, "wordWidth", measured[index].word)
+        }
+        applyColumnMetrics(measured)
     }
 
-    function updateComfortableWidth(cellIndex, width) {
-        if (cellIndex < 0 || cellIndex >= cellModel.count || columns <= 0)
+    function updateCellWidths(cellIndex, widths) {
+        if (!widths || cellIndex < 0 || cellIndex >= cellModel.count || columns <= 0)
             return
-        width = Math.max(1, Number(width) || 0)
-        const previous = Number(cellModel.get(cellIndex).comfortableWidth || 0)
-        if (Math.abs(previous - width) < 0.25)
+        const cell = cellModel.get(cellIndex)
+        const natural = Math.max(1, Number(widths.natural) || 0)
+        const word = Math.max(1, Number(widths.word) || 0)
+        if (Math.abs(Number(cell.comfortableWidth || 0) - natural) < 0.25
+                && Math.abs(Number(cell.wordWidth || 0) - word) < 0.25)
             return
-        cellModel.setProperty(cellIndex, "comfortableWidth", width)
+        cellModel.setProperty(cellIndex, "comfortableWidth", natural)
+        cellModel.setProperty(cellIndex, "wordWidth", word)
+        columnMetricsTimer.restart()
+    }
 
-        const column = cellIndex % columns
-        const oldMaximum = Number(comfortableColumnWidths[column] || 1)
-        const oldOwner = Number(columnMaxCells[column] === undefined
-                                ? -1 : columnMaxCells[column])
-        let newMaximum = oldMaximum
-        let newOwner = oldOwner
-        if (oldOwner < 0 || width > oldMaximum) {
-            newMaximum = width
-            newOwner = cellIndex
-        } else if (oldOwner === cellIndex && width < oldMaximum) {
-            newMaximum = 1
-            newOwner = -1
-            for (let candidate = column; candidate < cellModel.count;
-                 candidate += columns) {
-                const candidateWidth = Number(cellModel.get(candidate).comfortableWidth || 0)
-                if (candidateWidth > newMaximum) {
-                    newMaximum = candidateWidth
-                    newOwner = candidate
-                }
-            }
+    // The narrowest width of each column, given the available width:
+    // - no word is broken when everything fits;
+    // - otherwise words of the other cells give way first, while the header
+    //   still wraps between words only;
+    // - when even the header words do not fit, the headers are broken too,
+    //   down to the general minimum.
+    function columnFloors(available) {
+        const base = Math.min(minimumColumnWidth, available / columns)
+        const header = []
+        const body = []
+        let headerSum = 0
+        let bodySum = 0
+        for (let column = 0; column < columns; ++column) {
+            header.push(Math.max(base, Number(headerWordWidths[column] || 0)))
+            body.push(Math.max(header[column], Number(bodyWordWidths[column] || 0)))
+            headerSum += header[column]
+            bodySum += body[column]
         }
-        if (newOwner === oldOwner && Math.abs(newMaximum - oldMaximum) < 0.25)
-            return
-
-        const widths = comfortableColumnWidths.slice()
-        const owners = columnMaxCells.slice()
-        widths[column] = newMaximum
-        owners[column] = newOwner
-        comfortableColumnWidths = widths
-        columnMaxCells = owners
-        columnDistributionTimer.restart()
+        if (bodySum <= available)
+            return body
+        if (headerSum <= available) {
+            const share = bodySum > headerSum ? (available - headerSum) / (bodySum - headerSum) : 0
+            return body.map(function(value, column) {
+                return header[column] + (value - header[column]) * share
+            })
+        }
+        const baseSum = base * columns
+        const share = headerSum > baseSum ? Math.max(0, available - baseSum) / (headerSum - baseSum) : 0
+        return header.map(function(value) { return base + (value - base) * share })
     }
 
     function distributeColumnWidths() {
@@ -177,16 +227,17 @@ Item {
         }
 
         const available = Math.max(0, Number(width) || 0)
-        const minimum = Math.min(minimumColumnWidth, available / columns)
+        const floors = columnFloors(available)
         const result = new Array(columns).fill(0)
         let remainingWidth = available
         let remainingColumns = []
         for (let column = 0; column < columns; ++column)
             remainingColumns.push(column)
 
-        // Clamp narrow weighted columns first, then distribute the remaining
-        // space proportionally. This prevents a long URL in one column from
-        // making its neighbours unusable without consulting any cell geometry.
+        // Give columns that would get less than their floor exactly the floor,
+        // then share the rest in proportion to the unwrapped widths. A long
+        // URL in one column therefore cannot squeeze its neighbours below
+        // their words.
         while (remainingColumns.length > 0) {
             let weightSum = 0
             for (const column of remainingColumns)
@@ -194,7 +245,7 @@ Item {
             const clamped = []
             for (const column of remainingColumns) {
                 const weight = Math.max(1, Number(comfortableColumnWidths[column] || 1))
-                if (remainingWidth * weight / weightSum < minimum)
+                if (remainingWidth * weight / weightSum < floors[column])
                     clamped.push(column)
             }
             if (clamped.length === 0) {
@@ -211,8 +262,8 @@ Item {
                 break
             }
             for (const column of clamped) {
-                result[column] = minimum
-                remainingWidth -= minimum
+                result[column] = floors[column]
+                remainingWidth -= floors[column]
             }
             remainingColumns = remainingColumns.filter(function(column) {
                 return clamped.indexOf(column) < 0
@@ -225,9 +276,15 @@ Item {
     onMinimumColumnWidthChanged: distributeColumnWidths()
 
     Timer {
-        id: columnDistributionTimer
+        id: remeasureTimer
         interval: 0
-        onTriggered: tableRoot.distributeColumnWidths()
+        onTriggered: tableRoot.resetComfortableWidths()
+    }
+
+    Timer {
+        id: columnMetricsTimer
+        interval: 0
+        onTriggered: tableRoot.applyColumnMetrics(tableRoot.modelCells())
     }
 
     function focusCell(cellIndex, position) {
@@ -431,6 +488,7 @@ Item {
                 required property int index
                 required property string cellText
                 required property real comfortableWidth
+                required property real wordWidth
                 readonly property int columnIndex: tableRoot.columns > 0
                                                    ? index % tableRoot.columns : -1
                 readonly property bool headerCell: index < tableRoot.columns
@@ -487,10 +545,12 @@ Item {
                         const backend = tableRoot.editorView.editorBackend
                         if (!backend)
                             return
-                        const contentWidth = backend.intrinsicTextWidth(tableCell.textDocument)
-                        tableRoot.updateComfortableWidth(
-                                    tableCell.index,
-                                    contentWidth + tableCell.leftPadding + tableCell.rightPadding)
+                        const widths = backend.textWidths(tableCell.textDocument)
+                        const padding = tableCell.leftPadding + tableCell.rightPadding
+                        tableRoot.updateCellWidths(tableCell.index, {
+                            natural: Number(widths.natural) + padding,
+                            word: Number(widths.word) + padding
+                        })
                     })
                 }
 

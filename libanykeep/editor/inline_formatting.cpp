@@ -18,8 +18,10 @@
 #include <QTextDocumentFragment>
 #include <QTextFragment>
 #include <QTextLayout>
+#include <QTextOption>
 #include <QVector>
 #include <algorithm>
+#include <utility>
 
 #include "noteblockmodel.h"
 
@@ -902,6 +904,53 @@ void NoteEditor::applyInlineHtmlFormatting(QQuickTextDocument *quickDocument) co
     }
 }
 
+void NoteEditor::refreshInlineCodeSize(QQuickTextDocument *quickDocument) const
+{
+    if (!quickDocument || !quickDocument->textDocument())
+        return;
+    QTextDocument *document = quickDocument->textDocument();
+
+    // Ask the importer itself what size inline code gets with this font now,
+    // rather than repeating its rule here.
+    QTextDocument probe;
+    probe.setDefaultFont(document->defaultFont());
+    probe.setMarkdown(QStringLiteral("`x`"), QTextDocument::MarkdownDialectGitHub);
+    qreal codeSize = -1;
+    for (auto it = probe.begin().begin(); !it.atEnd(); ++it) {
+        const QTextCharFormat format = it.fragment().charFormat();
+        if (format.fontFixedPitch() && format.hasProperty(QTextFormat::FontPointSize))
+            codeSize = format.fontPointSize();
+    }
+    if (codeSize <= 0)
+        return;
+
+    // Only code with a size of its own: code formatted in the editor has none
+    // and follows the document font already.
+    QList<std::pair<int, int>> ranges;
+    for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment   fragment = it.fragment();
+            const QTextCharFormat format   = fragment.charFormat();
+            if (format.fontFixedPitch() && format.hasProperty(QTextFormat::FontPointSize)
+                && format.fontPointSize() != codeSize)
+                ranges.append({ fragment.position(), fragment.position() + fragment.length() });
+        }
+    }
+    if (ranges.isEmpty())
+        return;
+
+    QTextCharFormat size;
+    size.setFontPointSize(codeSize);
+    QTextCursor cursor(document);
+    cursor.beginEditBlock();
+    for (const auto &[start, end] : std::as_const(ranges)) {
+        cursor.setPosition(start);
+        cursor.setPosition(end, QTextCursor::KeepAnchor);
+        cursor.mergeCharFormat(size);
+    }
+    cursor.endEditBlock();
+}
+
 qreal NoteEditor::intrinsicTextWidth(QQuickTextDocument *quickDocument) const
 {
     if (!quickDocument || !quickDocument->textDocument())
@@ -916,24 +965,59 @@ qreal NoteEditor::intrinsicTextWidth(QQuickTextDocument *quickDocument) const
     return document->idealWidth();
 }
 
-QVariantList NoteEditor::markdownIntrinsicWidths(const QStringList &markdown, const QFont &font, int boldCount) const
+namespace {
+    QVariantMap documentWidths(QTextDocument *document)
+    {
+        document->setTextWidth(-1);
+        const qreal natural = document->idealWidth();
+        // Wrapping only between words at a minimal width puts every word on
+        // a line of its own: the widest line is then the longest word.
+        QTextOption option = document->defaultTextOption();
+        option.setWrapMode(QTextOption::WordWrap);
+        document->setDefaultTextOption(option);
+        document->setTextWidth(1);
+        const qreal word = qMin(natural, document->idealWidth());
+        return { { QStringLiteral("natural"), natural }, { QStringLiteral("word"), word } };
+    }
+} // namespace
+
+QVariantMap NoteEditor::textWidths(QQuickTextDocument *quickDocument) const
+{
+    if (!quickDocument || !quickDocument->textDocument())
+        return {};
+    // Measured on a clone, for the reason given in intrinsicTextWidth().
+    std::unique_ptr<QTextDocument> document(quickDocument->textDocument()->clone());
+    return documentWidths(document.get());
+}
+
+QVariantList NoteEditor::markdownCellWidths(const QStringList &markdown, const QFont &font, qreal pointSize,
+                                            int boldCount) const
 {
     // Measures table cells from their rendered Markdown before any cell
-    // editor exists, so column proportions are known before the first
-    // layout. The document is set up as a TextEdit sets up its own: no
-    // margin, the item font as default font, GitHub Markdown.
-    QVariantList  widths;
+    // editor exists, so column widths are known before the first layout.
+    // The document is set up as a TextEdit sets up its own: no margin, the
+    // item font as default font, GitHub Markdown, and design metrics as with
+    // Text.QtRendering. Hinted metrics differ by a few pixels on a real
+    // screen, enough for the last letter of a word to wrap.
+    QVariantList  result;
     QTextDocument document;
     document.setDocumentMargin(0);
-    QFont bold = font;
+    document.setUseDesignMetrics(true);
+    QFont cellFont = font;
+    if (pointSize > 0)
+        cellFont.setPointSizeF(pointSize);
+    // TextEdit renders point sizes at a 0.5 pt resolution: 10.6 pt is drawn
+    // at 10.5 pt.
+    if (cellFont.pointSizeF() > 0)
+        cellFont.setPointSizeF(qRound(cellFont.pointSizeF() * 2.0) / 2.0);
+    QFont bold = cellFont;
     bold.setBold(true);
     for (int index = 0; index < markdown.size(); ++index) {
-        document.setDefaultFont(index < boldCount ? bold : font);
+        document.setDefaultFont(index < boldCount ? bold : cellFont);
         document.setMarkdown(markdown.at(index), QTextDocument::MarkdownDialectGitHub);
-        document.setTextWidth(-1);
-        widths.append(document.idealWidth());
+        result.append(documentWidths(&document));
     }
-    return widths;
+    return result;
 }
 
 QString NoteEditor::markdownText(QQuickTextDocument *quickDocument) const
