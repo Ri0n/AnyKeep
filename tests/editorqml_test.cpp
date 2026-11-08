@@ -387,7 +387,8 @@ private slots:
         const QString glyphAsset = QStringLiteral("video-x-generic-symbolic.svg");
         QVERIFY(QFile::exists(QStringLiteral(":/svg/") + glyphAsset));
 
-        // The metadata dimensions must win over the default 16:9 ratio.
+        // The descriptor dimensions determine the *frame* geometry. The
+        // transport occupies additional space inside the same bordered card.
         for (const QSize dimensions : { QSize(0, 0), QSize(640, 480) }) {
             Note note(new NoteData(nullptr));
             note.setTitle(QStringLiteral("Video"));
@@ -404,26 +405,66 @@ private slots:
             QVERIFY(root);
 
             QQuickItem *media = nullptr;
-            QQuickItem *placeholder = nullptr;
-            QQuickItem *outline = nullptr;
+            QQuickItem *card = nullptr;
+            QQuickItem *frame = nullptr;
+            QQuickItem *transport = nullptr;
+            QQuickItem *hitLayer = nullptr;
             QQuickItem *glyph = nullptr;
             QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
-            QTRY_VERIFY((placeholder = quickItemByName(root, QStringLiteral("mediaVideoPlaceholder-2"))));
-            QTRY_VERIFY((outline = quickItemByName(root, QStringLiteral("mediaVideoOutline-2"))));
+            QTRY_VERIFY((card = quickItemByName(root, QStringLiteral("mediaVideoCard-2"))));
+            QTRY_VERIFY((frame = quickItemByName(root, QStringLiteral("mediaVideoFrame-2"))));
+            QTRY_VERIFY((transport = quickItemByName(root, QStringLiteral("mediaCard-2"))));
+            QTRY_VERIFY((hitLayer = quickItemByName(root, QStringLiteral("mediaVisualHitLayer-2"))));
             QTRY_VERIFY((glyph = quickItemByName(root, QStringLiteral("mediaVideoPlaceholderGlyph-2"))));
 
             const qreal expected = dimensions.width() ? qreal(dimensions.height()) / dimensions.width()
                                                             : 9.0 / 16;
             QVERIFY(qAbs(media->property("visualAspect").toDouble() - expected) < 0.001);
-            QVERIFY(placeholder->isVisible());
-            QVERIFY(outline->isVisible());
-            QVERIFY(qAbs(placeholder->height() - media->property("displayWidth").toDouble() * expected) < 1.0);
-            QVERIFY(qAbs(placeholder->height() - outline->height()) < 0.01);
+            QVERIFY(card->isVisible());
+            QCOMPARE(frame->parentItem(), card);
+            QCOMPARE(transport->parentItem(), card);
+            QCOMPARE(hitLayer->parentItem(), media);
+            QVERIFY(card->property("clip").toBool());
+            QVERIFY(card->property("radius").toReal() > 0.0);
+            QVERIFY(qAbs(frame->height() - media->property("displayWidth").toDouble() * expected) < 1.0);
+            QVERIFY(qAbs(card->height() - frame->height() - transport->height() - 2.0) < 1.0);
+            QVERIFY(qAbs(frame->y() + frame->height() - transport->y()) < 1.0);
+            // Editor gestures end exactly where playback controls begin.
+            QVERIFY(qAbs(hitLayer->height() - frame->height()) < 1.0);
+            QVERIFY(qAbs(hitLayer->y() + hitLayer->height() - (card->y() + transport->y())) < 1.0);
+            QVERIFY(qAbs(frame->width() - card->width() + 2.0) < 1.0);
+            QVERIFY(!quickItemByName(root, QStringLiteral("mediaVideoOutline-2")));
             QCOMPARE(glyph->property("fallbackName").toString(), glyphAsset);
             QVERIFY(glyph->property("iconSource").toUrl().toString().contains(glyphAsset));
             QVERIFY(!glyph->childItems().isEmpty());
             QTRY_COMPARE(glyph->childItems().first()->property("status").toInt(), 1);
         }
+    }
+
+    void audioControlsDoNotInstantiateVideoCard()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Audio"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(note, drafts);
+        editor.model()->insertMedia(editor.model()->rowCount(), QStringLiteral("anykeep-media:/missing/clip.ogg"),
+                                    QStringLiteral("Audio clip"), QStringLiteral("audio/ogg"), 8000);
+
+        DesktopNoteEditorHost host(&editor);
+        host.resize(700, 700);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *media = nullptr;
+        QQuickItem *transport = nullptr;
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        QTRY_VERIFY((transport = quickItemByName(root, QStringLiteral("mediaCard-2"))));
+        QVERIFY(transport->isVisible());
+        QVERIFY(!quickItemByName(root, QStringLiteral("mediaVideoCard-2")));
+        QVERIFY(!quickItemByName(root, QStringLiteral("mediaVideoFrame-2")));
+        QVERIFY(qAbs(transport->height() - media->property("displayHeight").toDouble()) < 1.0);
+        QVERIFY(quickItemByName(root, QStringLiteral("mediaPlaybackGlyph-2")));
     }
 
     void mediaControlIconsAreBundledAndRenderWithoutUnicodeGlyphs()

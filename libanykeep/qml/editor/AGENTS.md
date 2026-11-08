@@ -78,6 +78,34 @@ cmake --build build/Desktop-Debug --target editor_tests -j4
 ctest --test-dir build/Desktop-Debug -L editor --output-on-failure
 ```
 
+## Visual media and playback ownership
+
+- `blocks/MediaBlock.qml` is an editor adapter: block-model state, layout and
+  alignment, selection, reorder, resize, and context-menu commands. Its single
+  visual gesture layer handles both images and videos, without covering
+  transport buttons. It should not paint its own video placeholder or layer
+  a separate outline over video.
+- `blocks/MediaVideoCard.qml` is the **single** visual video card. Its outer
+  `Rectangle` owns the background, corner radius and border. Within it a
+  dedicated preview frame owns poster/placeholder/live video, and the transport
+  controls occupy a separate bottom row **inside** the same card.
+- `blocks/MediaTransportControls.qml` owns the common media controls for video
+  and audio. Both receive the editor's media adapter explicitly. Use lazy
+  loaders so an inactive media type cannot create duplicate playback buttons,
+  duplicate object names, or extra media output instances.
+- `blocks/MediaVideoSurface.qml` is the lazy decoder/video-output adapter,
+  including fullscreen presentation; it must not own the card's inline border
+  or the editor's media layout.
+- Video descriptor dimensions determine **frame** aspect ratio. A verified
+  poster may supply an unknown ratio; 16:9 is the final fallback. The transport
+  row adds its own height without obscuring the frame or altering that ratio.
+  Image-only blocks keep their original image-presentation behavior.
+
+For video UI tests, verify ownership and relative geometry (preview and
+transport are both children of a single card, with one outer border), not just
+whether several independent rectangles happen to overlap. Video markup and
+media synchronization state remain shared with other media types.
+
 ## Font-independent media controls
 
 `blocks/MediaBlock.qml` uses bundled SVG icons from `core.qrc` through

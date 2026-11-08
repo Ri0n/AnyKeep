@@ -31,11 +31,6 @@ FocusScope {
     readonly property bool loading: current && playback.loading
     readonly property real knownDuration: current && playback.duration > 0 ? playback.duration : block.mediaDuration
     readonly property bool visual: block.mediaType.startsWith("image/") || block.mediaType.startsWith("video/")
-    // Future sidecar posters use the same verified, encrypted-media image
-    // provider as inline images. A video URL itself must not be loaded as an Image.
-    readonly property bool hasVideoPoster:
-        video && (String(block.previewUrl).startsWith("image://anykeep-media/")
-                  || String(block.previewUrl).startsWith("data:image/jpeg;base64,"))
     readonly property bool individuallySelected:
         mediaRoot.editorView.selectedMediaIndex === block.index
     readonly property bool selected: individuallySelected || block.structurallySelected
@@ -53,16 +48,23 @@ FocusScope {
         transientWidth >= 0 ? transientWidth
                             : (block.mediaDisplayWidth > 0 ? block.mediaDisplayWidth : naturalWidth)
     readonly property real displayWidth: Math.max(1, Math.min(width, requestedWidth))
-    // Video dimensions come from the media descriptor, not the optional poster.
-    // A missing poster must never create a differently shaped or empty card.
+    readonly property var visualItem: video ? videoCard : sourceImage
+    readonly property real transportHeight: mediaRoot.editorView.touchMode ? 48 : 40
+    // Descriptor dimensions are authoritative. An optional poster may supply
+    // the ratio only if the source video has no valid dimensions.
     readonly property real visualAspect:
         video && block.mediaWidth > 0 && block.mediaHeight > 0
         ? block.mediaHeight / block.mediaWidth
-        : (sourceImage.implicitWidth > 0 && sourceImage.implicitHeight > 0
-           ? sourceImage.implicitHeight / sourceImage.implicitWidth
-           : (block.mediaWidth > 0 && block.mediaHeight > 0
-              ? block.mediaHeight / block.mediaWidth : (video ? 9 / 16 : 0.75)))
-    readonly property real displayHeight: visual ? Math.max(40, displayWidth * visualAspect) : 58
+        : (video && videoCard.posterImplicitWidth > 0 && videoCard.posterImplicitHeight > 0
+           ? videoCard.posterImplicitHeight / videoCard.posterImplicitWidth
+           : (sourceImage.implicitWidth > 0 && sourceImage.implicitHeight > 0
+              ? sourceImage.implicitHeight / sourceImage.implicitWidth
+              : (block.mediaWidth > 0 && block.mediaHeight > 0
+                 ? block.mediaHeight / block.mediaWidth : (video ? 9 / 16 : 0.75))))
+    // The video frame preserves its intrinsic aspect ratio; controls take up
+    // their own height inside the single card instead of hiding its last 40 px.
+    readonly property real displayHeight: video ? Math.max(40, displayWidth * visualAspect) + transportHeight + 2
+        : visual ? Math.max(40, displayWidth * visualAspect) : 58
     readonly property real imageY: individuallySelected ? altEditor.implicitHeight + 6 : 0
     readonly property real actionGap: mediaRoot.editorView.touchMode ? 12 : 8
     readonly property real alignedX:
@@ -105,9 +107,9 @@ FocusScope {
     function beginResize(direction) {
         resizeDirection = direction
         resizeStartWidth = displayWidth
-        resizeStartX = sourceImage.x
+        resizeStartX = visualItem.x
         transientWidth = displayWidth
-        transientX = sourceImage.x
+        transientX = visualItem.x
         mediaRoot.editorView.beginEditTransaction("resize-media")
     }
 
@@ -154,6 +156,17 @@ FocusScope {
             return
         if (!mediaRoot.editorView.finishBlankAreaSelection())
             selectAndFocus()
+    }
+
+    function openMediaContextMenu() {
+        selectAndFocus()
+        mediaContextMenu.popup()
+    }
+
+    function openVideoFullScreen() {
+        if (video)
+            if (videoCard.item)
+                videoCard.item.openFullScreen()
     }
 
     function requestTranscription() {
@@ -205,9 +218,9 @@ FocusScope {
         objectName: "mediaTitleEditor-" + mediaRoot.block.index
         visible: mediaRoot.individuallySelected
         opacity: visible ? 1 : 0
-        width: Math.min(mediaRoot.width, Math.max(180, sourceImage.width))
+        width: Math.min(mediaRoot.width, Math.max(180, visualItem.width))
         x: Math.max(0, Math.min(mediaRoot.width - width,
-                                sourceImage.x + (sourceImage.width - width) / 2))
+                                visualItem.x + (visualItem.width - width) / 2))
         placeholderText: mediaRoot.audio || mediaRoot.video ? qsTr("Media title") : qsTr("Alt text")
         text: mediaRoot.block.alt
         selectByMouse: true
@@ -220,35 +233,6 @@ FocusScope {
         Behavior on opacity { NumberAnimation { duration: 120 } }
     }
 
-    // The remote file may be available without a video poster. Reserve a
-    // visible surface (rather than an invisible gap above the control bar).
-    Rectangle {
-        id: videoPlaceholder
-        objectName: "mediaVideoPlaceholder-" + mediaRoot.block.index
-        visible: mediaRoot.video
-        x: sourceImage.x
-        y: sourceImage.y
-        width: sourceImage.width
-        height: sourceImage.height
-        color: mediaRoot.editorView.documentCardColor
-        radius: 5
-
-        Shared.ThemedIconImpl {
-            objectName: "mediaVideoPlaceholderGlyph-" + mediaRoot.block.index
-            anchors.centerIn: parent
-            anchors.verticalCenterOffset: -timedControls.height / 2
-            visible: mediaRoot.video
-                     && !(mediaRoot.current && videoSurface.status === Loader.Ready)
-                     && sourceImage.status !== Image.Ready
-            themeName: "__bundled__"
-            fallbackName: "video-x-generic-symbolic.svg"
-            recolorFallback: true
-            fallbackTintMode: String(mediaRoot.editorView.documentSecondaryTextColor)
-            pixelSize: 32
-            opacity: 0.6
-        }
-    }
-
     Image {
         id: sourceImage
         objectName: "imageBlockPreview-" + mediaRoot.block.index
@@ -256,23 +240,57 @@ FocusScope {
         y: mediaRoot.imageY
         width: mediaRoot.displayWidth
         height: mediaRoot.displayHeight
-        source: mediaRoot.block.mediaType.startsWith("image/") || mediaRoot.hasVideoPoster
-                ? mediaRoot.block.previewUrl : ""
-        visible: mediaRoot.visual && !(mediaRoot.video && mediaRoot.current && videoSurface.status === Loader.Ready)
+        source: mediaRoot.block.mediaType.startsWith("image/") ? mediaRoot.block.previewUrl : ""
+        visible: mediaRoot.visual && !mediaRoot.video
         fillMode: Image.PreserveAspectFit
         smooth: true
         asynchronous: true
         cache: true
-        ToolTip.visible: imageDescriptionHover.hovered && mediaRoot.block.alt.length > 0
-                             && !mediaRoot.selected
-        ToolTip.text: mediaRoot.block.alt
-
         Behavior on x {
             enabled: mediaRoot.transientWidth < 0
             NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
         }
 
-        HoverHandler { id: imageDescriptionHover }
+    }
+
+    Loader {
+        id: videoCard
+        active: mediaRoot.video
+        sourceComponent: Component {
+            MediaVideoCard { mediaBlock: mediaRoot }
+        }
+        x: mediaRoot.displayX
+        y: mediaRoot.imageY
+        width: mediaRoot.displayWidth
+        height: mediaRoot.displayHeight
+
+        readonly property real posterImplicitWidth: item ? item.posterImplicitWidth : 0
+        readonly property real posterImplicitHeight: item ? item.posterImplicitHeight : 0
+
+        Behavior on x {
+            enabled: mediaRoot.transientWidth < 0
+            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+        }
+    }
+
+    // MediaBlock owns editor-specific gestures for *both* images and videos.
+    // The hit region stops at the video transport: clicking its controls
+    // never starts a document drag or changes the structural selection.
+    Item {
+        id: visualHitLayer
+        objectName: "mediaVisualHitLayer-" + mediaRoot.block.index
+        visible: mediaRoot.visual
+        x: visualItem.x + (mediaRoot.video ? 1 : 0)
+        y: visualItem.y + (mediaRoot.video ? 1 : 0)
+        width: Math.max(0, visualItem.width - (mediaRoot.video ? 2 : 0))
+        height: Math.max(0, visualItem.height - (mediaRoot.video ? mediaRoot.transportHeight + 2 : 0))
+        z: 2
+
+        HoverHandler { id: visualDescriptionHover }
+        ToolTip.visible: visualDescriptionHover.hovered && mediaRoot.block.alt.length > 0
+                         && !mediaRoot.selected
+        ToolTip.text: mediaRoot.block.alt
+
         Reorder.ReorderDragHandle {
             anchors.fill: parent
             dragEnabled: !mediaRoot.editorView.touchMode && mediaRoot.transientWidth < 0
@@ -281,8 +299,7 @@ FocusScope {
             onTapped: mediaRoot.selectAndFocus()
             onDragStarted: {
                 mediaRoot.selectAndFocus()
-                mediaRoot.reorderController.startBlockDrag(
-                            mediaRoot.block.parent, mediaRoot)
+                mediaRoot.reorderController.startBlockDrag(mediaRoot.block.parent, mediaRoot)
             }
             onDragMoved: function(dx, dy) {
                 mediaRoot.reorderController.moveBlockDrag(dx, dy)
@@ -292,55 +309,27 @@ FocusScope {
         TapHandler {
             acceptedButtons: Qt.RightButton
             gesturePolicy: TapHandler.DragThreshold
-            onTapped: {
-                mediaRoot.selectAndFocus()
-                mediaContextMenu.popup()
-            }
+            onTapped: mediaRoot.openMediaContextMenu()
         }
         TapHandler {
             enabled: mediaRoot.editorView.touchMode
             acceptedButtons: Qt.LeftButton
             gesturePolicy: TapHandler.DragThreshold
-            onLongPressed: {
-                mediaRoot.selectAndFocus()
-                mediaContextMenu.popup()
-            }
+            onLongPressed: mediaRoot.openMediaContextMenu()
         }
     }
 
-    Loader {
-        id: videoSurface
-        active: mediaRoot.video && mediaRoot.current
-                && mediaRoot.playback && mediaRoot.playback.available
-        source: active ? "MediaVideoSurface.qml" : ""
-        x: sourceImage.x
-        y: sourceImage.y
-        width: sourceImage.width
-        height: sourceImage.height
-        z: 2
-        property bool fullScreenWhenReady: false
-
-        onLoaded: {
-            item.playback = mediaRoot.playback
-            if (fullScreenWhenReady) {
-                fullScreenWhenReady = false
-                item.openFullScreen()
-            }
-        }
-    }
-
-    // The image itself owns the reorder gesture, but the unused row
-    // width is still part of the document. Let an upward drag from
-    // either horizontal margin start selection at the boundary after
-    // the image (especially important when it is the final block).
+    // Horizontal margins remain part of the editor's document selection area.
+    // A drag from either side of a visual block selects the text boundary.
     MouseArea {
         id: imageLeftMarginSelectionArea
         x: 0
-        y: sourceImage.y
-        width: Math.max(0, sourceImage.x)
-        height: sourceImage.height
+        y: visualItem.y
+        width: Math.max(0, visualItem.x)
+        height: visualItem.height
         z: 1
-        enabled: !mediaRoot.editorView.touchMode && !mediaRoot.reorderController.dragging && width > 0
+        enabled: mediaRoot.visual && !mediaRoot.editorView.touchMode
+                 && !mediaRoot.reorderController.dragging && width > 0
         acceptedButtons: Qt.LeftButton
         hoverEnabled: true
         preventStealing: true
@@ -353,12 +342,13 @@ FocusScope {
 
     MouseArea {
         id: imageRightMarginSelectionArea
-        x: sourceImage.x + sourceImage.width
-        y: sourceImage.y
+        x: visualItem.x + visualItem.width
+        y: visualItem.y
         width: Math.max(0, mediaRoot.width - x)
-        height: sourceImage.height
+        height: visualItem.height
         z: 1
-        enabled: !mediaRoot.editorView.touchMode && !mediaRoot.reorderController.dragging && width > 0
+        enabled: mediaRoot.visual && !mediaRoot.editorView.touchMode
+                 && !mediaRoot.reorderController.dragging && width > 0
         acceptedButtons: Qt.LeftButton
         hoverEnabled: true
         preventStealing: true
@@ -369,191 +359,25 @@ FocusScope {
         onCanceled: mediaRoot.editorView.cancelBlankAreaSelection()
     }
 
-    // Keep the outline above the preview or the playing frame, but below
-    // playback controls. This also makes black videos visible on dark themes.
-    Rectangle {
-        objectName: "mediaVideoOutline-" + mediaRoot.block.index
-        visible: mediaRoot.video
-        x: sourceImage.x
-        y: sourceImage.y
-        width: sourceImage.width
-        height: sourceImage.height
-        z: 3
-        color: "transparent"
-        radius: 5
-        border.width: 1
-        border.color: mediaRoot.editorView.documentSecondaryTextColor
-        opacity: 0.32
-    }
-
-    Rectangle {
-        id: timedControls
-        objectName: "mediaCard-" + mediaRoot.block.index
-        visible: mediaRoot.timed
-        x: mediaRoot.visual ? sourceImage.x : 0
-        y: mediaRoot.visual ? sourceImage.y + sourceImage.height - height : mediaRoot.imageY
-        width: mediaRoot.visual ? sourceImage.width : mediaRoot.width
-        height: mediaRoot.visual ? (mediaRoot.editorView.touchMode ? 48 : 40) : mediaRoot.displayHeight
-        color: mediaRoot.editorView.documentCardColor
-        opacity: 0.94
-        radius: 5
-        z: 4
-
-        RowLayout {
-            anchors.fill: parent
-            anchors.margins: 4
-            spacing: 6
-            ToolButton {
-                id: mediaPlaybackButton
-                objectName: "mediaPlaybackButton-" + mediaRoot.block.index
-                Layout.preferredWidth: parent.height - 2
-                Layout.preferredHeight: Layout.preferredWidth
-                enabled: mediaRoot.playback && mediaRoot.playback.available
-                padding: 6
-                display: AbstractButton.IconOnly
-                contentItem: Item {
-                    implicitWidth: 20
-                    implicitHeight: 20
-                    Shared.ThemedIconImpl {
-                        objectName: "mediaPlaybackGlyph-" + mediaRoot.block.index
-                        anchors.centerIn: parent
-                        visible: !mediaRoot.loading
-                        themeName: "__bundled__"
-                        fallbackName: mediaRoot.playing ? "media-playback-pause-symbolic.svg"
-                                                        : "media-playback-start-symbolic.svg"
-                        recolorFallback: true
-                        fallbackTintMode: String(mediaPlaybackButton.palette.buttonText)
-                        pixelSize: 20
-                    }
-                    BusyIndicator {
-                        objectName: "mediaPlaybackBusyIndicator-" + mediaRoot.block.index
-                        anchors.centerIn: parent
-                        width: 22
-                        height: 22
-                        visible: mediaRoot.loading
-                        running: visible
-                    }
-                }
-                Accessible.name: mediaRoot.loading ? qsTr("Loading media")
-                                                  : (mediaRoot.playing ? qsTr("Pause media") : qsTr("Play media"))
-                onClicked: {
-                    mediaRoot.selectAndFocus()
-                    mediaRoot.playback.toggle(mediaRoot.block.url)
-                }
-            }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 1
-                Label {
-                    objectName: "mediaLabel-" + mediaRoot.block.index
-                    Layout.fillWidth: true
-                    visible: !mediaRoot.visual
-                    text: mediaRoot.block.alt.length > 0 ? mediaRoot.block.alt : qsTr("Audio recording")
-                    elide: Text.ElideMiddle
-                    font.bold: mediaRoot.selected
-                    color: mediaRoot.editorView.documentTextColor
-                }
-                Slider {
-                    Layout.fillWidth: true
-                    from: 0
-                    to: Math.max(1, mediaRoot.knownDuration)
-                    value: mediaRoot.current ? mediaRoot.playback.position : 0
-                    enabled: mediaRoot.playback && mediaRoot.knownDuration > 0
-                    onMoved: mediaRoot.playback.seek(mediaRoot.block.url, value)
-                }
-            }
-            Label {
-                text: mediaRoot.formatTime(mediaRoot.current ? mediaRoot.playback.position : 0)
-                      + " / " + mediaRoot.formatTime(mediaRoot.knownDuration)
-                color: mediaRoot.editorView.documentSecondaryTextColor
-            }
-            EditorComponents.MediaSyncIndicator {
-                objectName: "mediaAudioSync-" + mediaRoot.block.index
-                visible: mediaRoot.audio && Boolean(mediaRoot.syncStatus.valid)
-                Layout.preferredWidth: visible ? parent.height - 2 : 0
-                Layout.preferredHeight: Layout.preferredWidth
-                progress: mediaRoot.syncStatus.progress || 0
-                syncState: mediaRoot.syncStatus.state || 0
-                errorString: mediaRoot.syncStatus.error || ""
-            }
-            ToolButton {
-                visible: mediaRoot.canTranscribe
-                Layout.preferredWidth: parent.height - 2
-                Layout.preferredHeight: Layout.preferredWidth
-                enabled: !mediaRoot.transcriptionBlocked && !mediaRoot.transcribing
-                text: mediaRoot.transcribing ? "…" : "STT"
-                Accessible.name: mediaRoot.block.mediaTranscript.length > 0
-                                 ? qsTr("Show transcript") : qsTr("Transcribe audio")
-                onClicked: {
-                    mediaRoot.selectAndFocus()
-                    if (mediaRoot.block.mediaTranscript.length > 0)
-                        mediaRoot.transcriptExpanded = !mediaRoot.transcriptExpanded
-                    else
-                        mediaRoot.requestTranscription()
-                }
-            }
-            ToolButton {
-                id: fullScreenMediaButton
-                objectName: "mediaFullscreenButton-" + mediaRoot.block.index
-                visible: mediaRoot.video
-                Layout.preferredWidth: parent.height - 2
-                Layout.preferredHeight: Layout.preferredWidth
-                enabled: mediaRoot.playback && mediaRoot.playback.available
-                padding: 6
-                display: AbstractButton.IconOnly
-                contentItem: Shared.ThemedIconImpl {
-                    objectName: "mediaFullscreenGlyph-" + mediaRoot.block.index
-                    themeName: "__bundled__"
-                    fallbackName: "view-fullscreen-symbolic.svg"
-                    recolorFallback: true
-                    fallbackTintMode: String(fullScreenMediaButton.palette.buttonText)
-                    pixelSize: 20
-                }
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Full screen")
-                Accessible.name: qsTr("Show video full screen")
-                onClicked: {
-                    mediaRoot.selectAndFocus()
-                    videoSurface.fullScreenWhenReady = true
-                    if (!mediaRoot.current)
-                        mediaRoot.playback.play(mediaRoot.block.url)
-                    else if (videoSurface.item) {
-                        videoSurface.fullScreenWhenReady = false
-                        videoSurface.item.openFullScreen()
-                    }
-                }
-            }
-            ToolButton {
-                id: mediaActionsButton
-                objectName: "mediaActionsButton-" + mediaRoot.block.index
-                Layout.preferredWidth: parent.height - 2
-                Layout.preferredHeight: Layout.preferredWidth
-                padding: 6
-                display: AbstractButton.IconOnly
-                contentItem: Shared.ThemedIconImpl {
-                    objectName: "mediaActionsGlyph-" + mediaRoot.block.index
-                    themeName: "__bundled__"
-                    fallbackName: "view-more-vertical-symbolic.svg"
-                    recolorFallback: true
-                    fallbackTintMode: String(mediaActionsButton.palette.buttonText)
-                    pixelSize: 20
-                }
-                Accessible.name: qsTr("Media actions")
-                onClicked: {
-                    mediaRoot.selectAndFocus()
-                    mediaContextMenu.popup()
-                }
-            }
+    Loader {
+        id: audioControls
+        active: mediaRoot.audio
+        sourceComponent: Component {
+            MediaTransportControls { mediaBlock: mediaRoot }
         }
+        x: 0
+        y: mediaRoot.imageY
+        width: mediaRoot.width
+        height: mediaRoot.displayHeight
     }
 
     Rectangle {
         id: selectionOutline
         objectName: "mediaSelectionOutline-" + mediaRoot.block.index
-        x: (mediaRoot.visual ? sourceImage.x : timedControls.x) - 2
-        y: (mediaRoot.visual ? sourceImage.y : timedControls.y) - 2
-        width: (mediaRoot.visual ? sourceImage.width : timedControls.width) + 4
-        height: (mediaRoot.visual ? sourceImage.height : timedControls.height) + 4
+        x: (mediaRoot.visual ? visualItem.x : audioControls.x) - 2
+        y: (mediaRoot.visual ? visualItem.y : audioControls.y) - 2
+        width: (mediaRoot.visual ? visualItem.width : audioControls.width) + 4
+        height: (mediaRoot.visual ? visualItem.height : audioControls.height) + 4
         visible: mediaRoot.selected
         color: "transparent"
         border.width: 2
@@ -568,8 +392,8 @@ FocusScope {
         direction: -1
         fillColor: altEditor.palette.base
         strokeColor: altEditor.palette.highlight
-        x: Math.max(0, sourceImage.x - width / 2)
-        y: sourceImage.y + sourceImage.height - height / 2
+        x: Math.max(0, visualItem.x - width / 2)
+        y: visualItem.y + visualItem.height - height / 2
     }
 
     ImageResizeHandle {
@@ -579,8 +403,8 @@ FocusScope {
         fillColor: altEditor.palette.base
         strokeColor: altEditor.palette.highlight
         x: Math.min(mediaRoot.width - width,
-                    sourceImage.x + sourceImage.width - width / 2)
-        y: sourceImage.y + sourceImage.height - height / 2
+                    visualItem.x + visualItem.width - width / 2)
+        y: visualItem.y + visualItem.height - height / 2
     }
 
     Row {
@@ -589,9 +413,9 @@ FocusScope {
         visible: mediaRoot.visual && mediaRoot.individuallySelected
         spacing: 3
         height: mediaRoot.editorView.touchMode ? 36 : 28
-        y: sourceImage.y + sourceImage.height + mediaRoot.actionGap
+        y: visualItem.y + visualItem.height + mediaRoot.actionGap
         x: Math.max(0, Math.min(mediaRoot.width - width,
-                                sourceImage.x + (sourceImage.width - width) / 2))
+                                visualItem.x + (visualItem.width - width) / 2))
 
         Repeater {
             model: ["left", "center", "right"]
