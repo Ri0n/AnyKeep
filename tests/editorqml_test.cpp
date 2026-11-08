@@ -382,6 +382,50 @@ private slots:
         QVERIFY(surface->setProperty("playback", QVariant::fromValue<QObject *>(nullptr)));
     }
 
+    void videoWithoutPosterUsesCardPlaceholderAndMetadataAspect()
+    {
+        const QString glyphAsset = QStringLiteral("video-x-generic-symbolic.svg");
+        QVERIFY(QFile::exists(QStringLiteral(":/svg/") + glyphAsset));
+
+        // The metadata dimensions must win over the default 16:9 ratio.
+        for (const QSize dimensions : { QSize(0, 0), QSize(640, 480) }) {
+            Note note(new NoteData(nullptr));
+            note.setTitle(QStringLiteral("Video"));
+            note.setText(QStringLiteral("Body"), Note::Markdown);
+            DraftManager drafts(std::make_unique<MemoryDraftStore>());
+            NoteEditor editor(note, drafts);
+            editor.model()->insertMedia(editor.model()->rowCount(), QStringLiteral("anykeep-media:/missing/clip.mp4"),
+                                        QStringLiteral("Remote video"), QStringLiteral("video/mp4"), 10000,
+                                        dimensions.width(), dimensions.height());
+            DesktopNoteEditorHost host(&editor);
+            host.resize(700, 700);
+            host.show();
+            auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+            QVERIFY(root);
+
+            QQuickItem *media = nullptr;
+            QQuickItem *placeholder = nullptr;
+            QQuickItem *outline = nullptr;
+            QQuickItem *glyph = nullptr;
+            QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+            QTRY_VERIFY((placeholder = quickItemByName(root, QStringLiteral("mediaVideoPlaceholder-2"))));
+            QTRY_VERIFY((outline = quickItemByName(root, QStringLiteral("mediaVideoOutline-2"))));
+            QTRY_VERIFY((glyph = quickItemByName(root, QStringLiteral("mediaVideoPlaceholderGlyph-2"))));
+
+            const qreal expected = dimensions.width() ? qreal(dimensions.height()) / dimensions.width()
+                                                            : 9.0 / 16;
+            QVERIFY(qAbs(media->property("visualAspect").toDouble() - expected) < 0.001);
+            QVERIFY(placeholder->isVisible());
+            QVERIFY(outline->isVisible());
+            QVERIFY(qAbs(placeholder->height() - media->property("displayWidth").toDouble() * expected) < 1.0);
+            QVERIFY(qAbs(placeholder->height() - outline->height()) < 0.01);
+            QCOMPARE(glyph->property("fallbackName").toString(), glyphAsset);
+            QVERIFY(glyph->property("iconSource").toUrl().toString().contains(glyphAsset));
+            QVERIFY(!glyph->childItems().isEmpty());
+            QTRY_COMPARE(glyph->childItems().first()->property("status").toInt(), 1);
+        }
+    }
+
     void mediaControlIconsAreBundledAndRenderWithoutUnicodeGlyphs()
     {
         // Android fonts may lack the play/pause, fullscreen, overflow and
