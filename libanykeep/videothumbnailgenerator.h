@@ -19,11 +19,12 @@ struct MediaReference;
 // The callback is invoked on the caller's Qt event-loop thread, at most once.
 class ANYKEEP_EXPORT VideoThumbnailGenerator {
 public:
-    using Completion = std::function<void(qint64 positionMs, QByteArray jpeg)>;
+    using Completion = std::function<void(qint64 positionMs, QByteArray tinyJpeg, QByteArray posterJpeg)>;
 
     static void start(const MediaReference &reference, QObject *lifetime, Completion completion);
     static QVector<qint64> candidatePositions(qint64 durationMs);
     static QByteArray encodeTinyJpeg(const QImage &image);
+    static QByteArray encodePosterJpeg(const QImage &image);
 };
 
 } // namespace AnyKeep
