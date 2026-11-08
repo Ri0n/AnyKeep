@@ -348,11 +348,38 @@ FocusScope {
             anchors.margins: 4
             spacing: 6
             ToolButton {
+                id: mediaPlaybackButton
+                objectName: "mediaPlaybackButton-" + mediaRoot.block.index
                 Layout.preferredWidth: parent.height - 2
                 Layout.preferredHeight: Layout.preferredWidth
                 enabled: mediaRoot.playback && mediaRoot.playback.available
-                text: mediaRoot.loading ? "…" : (mediaRoot.playing ? "Ⅱ" : "▶")
-                Accessible.name: mediaRoot.playing ? qsTr("Pause media") : qsTr("Play media")
+                padding: 6
+                display: AbstractButton.IconOnly
+                contentItem: Item {
+                    implicitWidth: 20
+                    implicitHeight: 20
+                    Shared.ThemedIconImpl {
+                        objectName: "mediaPlaybackGlyph-" + mediaRoot.block.index
+                        anchors.centerIn: parent
+                        visible: !mediaRoot.loading
+                        themeName: "__bundled__"
+                        fallbackName: mediaRoot.playing ? "media-playback-pause-symbolic.svg"
+                                                        : "media-playback-start-symbolic.svg"
+                        recolorFallback: true
+                        fallbackTintMode: String(mediaPlaybackButton.palette.buttonText)
+                        pixelSize: 20
+                    }
+                    BusyIndicator {
+                        objectName: "mediaPlaybackBusyIndicator-" + mediaRoot.block.index
+                        anchors.centerIn: parent
+                        width: 22
+                        height: 22
+                        visible: mediaRoot.loading
+                        running: visible
+                    }
+                }
+                Accessible.name: mediaRoot.loading ? qsTr("Loading media")
+                                                  : (mediaRoot.playing ? qsTr("Pause media") : qsTr("Play media"))
                 onClicked: {
                     mediaRoot.selectAndFocus()
                     mediaRoot.playback.toggle(mediaRoot.block.url)
