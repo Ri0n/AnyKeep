@@ -75,7 +75,7 @@ transport must preserve these confidentiality boundaries.
    rendition (bytes, MIME, width/height, hash, and `posterFrameMs`) in the
    **encrypted Private Notes content record**, or a comparably durable encrypted
    metadata object retrievable while the original device is offline. Keep
-   aggregate thumbnail bytes bounded per note (proposed 64 KiB), avoid repeating
+   aggregate thumbnail bytes bounded per note (proposed 16 KiB), avoid repeating
    identical rendition hashes, and fall back gracefully when the budget is
    exceeded. This gives a new installation a usable poster without loading
    the large video or relying on the sender being online.
