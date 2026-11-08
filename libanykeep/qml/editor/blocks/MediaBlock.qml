@@ -165,7 +165,8 @@ FocusScope {
 
     function openVideoFullScreen() {
         if (video)
-            videoCard.openFullScreen()
+            if (videoCard.item)
+                videoCard.item.openFullScreen()
     }
 
     function requestTranscription() {
@@ -290,15 +291,19 @@ FocusScope {
         }
     }
 
-    MediaVideoCard {
+    Loader {
         id: videoCard
-        mediaRoot: mediaRoot
-        objectName: "mediaVideoCard-" + mediaRoot.block.index
-        visible: mediaRoot.video
+        active: mediaRoot.video
+        sourceComponent: Component {
+            MediaVideoCard { mediaRoot: mediaRoot }
+        }
         x: mediaRoot.displayX
         y: mediaRoot.imageY
         width: mediaRoot.displayWidth
         height: mediaRoot.displayHeight
+
+        readonly property real posterImplicitWidth: item ? item.posterImplicitWidth : 0
+        readonly property real posterImplicitHeight: item ? item.posterImplicitHeight : 0
 
         Behavior on x {
             enabled: mediaRoot.transientWidth < 0
@@ -317,7 +322,8 @@ FocusScope {
         width: Math.max(0, visualItem.x)
         height: visualItem.height
         z: 1
-        enabled: !mediaRoot.editorView.touchMode && !mediaRoot.reorderController.dragging && width > 0
+        enabled: mediaRoot.visual && !mediaRoot.editorView.touchMode
+                 && !mediaRoot.reorderController.dragging && width > 0
         acceptedButtons: Qt.LeftButton
         hoverEnabled: true
         preventStealing: true
@@ -335,7 +341,8 @@ FocusScope {
         width: Math.max(0, mediaRoot.width - x)
         height: visualItem.height
         z: 1
-        enabled: !mediaRoot.editorView.touchMode && !mediaRoot.reorderController.dragging && width > 0
+        enabled: mediaRoot.visual && !mediaRoot.editorView.touchMode
+                 && !mediaRoot.reorderController.dragging && width > 0
         acceptedButtons: Qt.LeftButton
         hoverEnabled: true
         preventStealing: true
@@ -346,10 +353,12 @@ FocusScope {
         onCanceled: mediaRoot.editorView.cancelBlankAreaSelection()
     }
 
-    MediaTransportControls {
+    Loader {
         id: audioControls
-        mediaRoot: mediaRoot
-        visible: mediaRoot.audio
+        active: mediaRoot.audio
+        sourceComponent: Component {
+            MediaTransportControls { mediaRoot: mediaRoot }
+        }
         x: 0
         y: mediaRoot.imageY
         width: mediaRoot.width
