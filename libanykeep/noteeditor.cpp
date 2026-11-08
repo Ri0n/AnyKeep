@@ -724,7 +724,8 @@ bool NoteEditor::insertMedia(const MediaReference &reference, qint64 durationMs,
         // a separate undoable user edit.
         VideoThumbnailGenerator::start(reference, this,
                                        [this, id = reference.id, blobId = reference.blobId,
-                                        checksum = reference.checksum](qint64 frameMs, QByteArray jpeg) {
+                                        checksum = reference.checksum](qint64 frameMs, QByteArray jpeg,
+                                                                         QByteArray posterJpeg) {
             if (frameMs < 0 || jpeg.isEmpty())
                 return;
             auto manifest = media_;
@@ -732,6 +733,15 @@ bool NoteEditor::insertMedia(const MediaReference &reference, qint64 durationMs,
                 if (item.id != id || item.blobId != blobId || item.checksum != checksum
                     || !item.videoThumbnailJpeg.isEmpty())
                     continue;
+                // The optional high-quality poster is an independent immutable
+                // encrypted blob. Losing it does not invalidate the thumbnail
+                // or the video, and no plaintext poster file is left behind.
+                if (!posterJpeg.isEmpty()) {
+                    const auto poster = LocalMediaStore::instance()->importData(
+                        posterJpeg, QStringLiteral("video-poster.jpg"), QStringLiteral("image/jpeg"));
+                    if (poster)
+                        item.posterBlobId = poster.value.blobId;
+                }
                 item.posterFrameMs = frameMs;
                 item.videoThumbnailJpeg = std::move(jpeg);
                 setMedia(manifest);
@@ -1009,6 +1019,12 @@ void NoteEditor::updateMediaPreviewUrls()
                 if (!url.isEmpty())
                     urls.insert(reference.uri(), url.toString());
             }
+        } else if (reference.isValid() && reference.mediaType.startsWith(QLatin1String("video/"))
+                   && reference.posterBlobId.size() == 32
+                   && LocalMediaStore::instance()->containsManagedBlob(reference.posterBlobId)) {
+            urls.insert(reference.uri(),
+                        QStringLiteral("image://anykeep-media/%1")
+                            .arg(QString::fromLatin1(reference.posterBlobId.toHex())));
         } else if (reference.isValid() && reference.mediaType.startsWith(QLatin1String("video/"))
                    && reference.videoThumbnailJpeg.size() >= 4
                    && reference.videoThumbnailJpeg.size() <= MediaReference::MaxVideoThumbnailBytes
