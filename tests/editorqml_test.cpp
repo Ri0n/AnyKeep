@@ -441,6 +441,32 @@ private slots:
         }
     }
 
+    void audioControlsDoNotInstantiateVideoCard()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Audio"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(note, drafts);
+        editor.model()->insertMedia(editor.model()->rowCount(), QStringLiteral("anykeep-media:/missing/clip.ogg"),
+                                    QStringLiteral("Audio clip"), QStringLiteral("audio/ogg"), 8000);
+
+        DesktopNoteEditorHost host(&editor);
+        host.resize(700, 700);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *media = nullptr;
+        QQuickItem *transport = nullptr;
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        QTRY_VERIFY((transport = quickItemByName(root, QStringLiteral("mediaCard-2"))));
+        QVERIFY(transport->isVisible());
+        QVERIFY(!quickItemByName(root, QStringLiteral("mediaVideoCard-2")));
+        QVERIFY(!quickItemByName(root, QStringLiteral("mediaVideoFrame-2")));
+        QVERIFY(qAbs(transport->height() - media->property("displayHeight").toDouble()) < 1.0);
+        QVERIFY(quickItemByName(root, QStringLiteral("mediaPlaybackGlyph-2")));
+    }
+
     void mediaControlIconsAreBundledAndRenderWithoutUnicodeGlyphs()
     {
         // Android fonts may lack the play/pause, fullscreen, overflow and
