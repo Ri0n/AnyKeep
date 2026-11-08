@@ -985,6 +985,15 @@ void NoteEditor::updateMediaPreviewUrls()
                 if (!url.isEmpty())
                     urls.insert(reference.uri(), url.toString());
             }
+        } else if (reference.isValid() && reference.mediaType.startsWith(QLatin1String("video/"))
+                   && reference.videoThumbnailJpeg.size() >= 4
+                   && reference.videoThumbnailJpeg.size() <= MediaReference::MaxVideoThumbnailBytes
+                   && quint8(reference.videoThumbnailJpeg.at(0)) == 0xff
+                   && quint8(reference.videoThumbnailJpeg.at(1)) == 0xd8) {
+            // A bounded preview embedded in the encrypted note record does not
+            // require the remote video to be downloaded or the source to be online.
+            urls.insert(reference.uri(), QStringLiteral("data:image/jpeg;base64,%1")
+                                             .arg(QString::fromLatin1(reference.videoThumbnailJpeg.toBase64())));
         }
     }
     for (auto it = remotePreviewUrls_.begin(); it != remotePreviewUrls_.end();) {
