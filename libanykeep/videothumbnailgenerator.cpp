@@ -182,9 +182,10 @@ private:
         finished_ = true;
         stepTimer_.stop();
         player_.stop();
-        const auto jpeg = VideoThumbnailGenerator::encodeTinyJpeg(bestImage_);
+        const auto tinyJpeg = VideoThumbnailGenerator::encodeTinyJpeg(bestImage_);
+        const auto posterJpeg = VideoThumbnailGenerator::encodePosterJpeg(bestImage_);
         if (completion_)
-            completion_(jpeg.isEmpty() ? -1 : bestFrameMs_, jpeg);
+            completion_(tinyJpeg.isEmpty() ? -1 : bestFrameMs_, tinyJpeg, posterJpeg);
         deleteLater();
     }
 
@@ -235,9 +236,10 @@ private:
             ++active_;
             auto *job = new ThumbnailJob(
                 std::move(request.reference), request.lifetime,
-                [guard = request.lifetime, done = std::move(request.completion)](qint64 frameMs, QByteArray jpeg) {
+                [guard = request.lifetime, done = std::move(request.completion)](qint64 frameMs, QByteArray jpeg,
+                                                                            QByteArray posterJpeg) {
                     if (guard)
-                        done(frameMs, std::move(jpeg));
+                        done(frameMs, std::move(jpeg), std::move(posterJpeg));
                 });
             connect(job, &QObject::destroyed, this, [this] {
                 --active_;
@@ -287,6 +289,24 @@ QByteArray VideoThumbnailGenerator::encodeTinyJpeg(const QImage &image)
     return {};
 }
 
+QByteArray VideoThumbnailGenerator::encodePosterJpeg(const QImage &image)
+{
+    if (image.isNull())
+        return {};
+    for (const int width : { 640, 512, 384 }) {
+        const auto scaled = image.scaledToWidth(std::min(image.width(), width), Qt::SmoothTransformation);
+        for (const int quality : { 85, 70, 55, 40 }) {
+            QByteArray encoded;
+            QBuffer buffer(&encoded);
+            if (!buffer.open(QIODevice::WriteOnly) || !scaled.save(&buffer, "JPEG", quality))
+                return {};
+            if (encoded.size() <= 256 * 1024)
+                return encoded;
+        }
+    }
+    return {};
+}
+
 void VideoThumbnailGenerator::start(const MediaReference &reference, QObject *lifetime, Completion completion)
 {
     if (!lifetime || !completion)
@@ -296,7 +316,7 @@ void VideoThumbnailGenerator::start(const MediaReference &reference, QObject *li
     queue->enqueue(reference, lifetime, std::move(completion));
 #else
     Q_UNUSED(reference)
-    completion(-1, {});
+    completion(-1, {}, {});
 #endif
 }
 
