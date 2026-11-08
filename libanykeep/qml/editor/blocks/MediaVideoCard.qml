@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import "../../reorder" as Reorder
 import "../../shared" as Shared
 
 // One visual card owns the poster, optional player, placeholder and controls.
@@ -87,37 +86,7 @@ Rectangle {
             }
         }
 
-        HoverHandler { id: mediaHover }
-        ToolTip.visible: mediaHover.hovered && mediaBlock.block.alt.length > 0 && !mediaBlock.selected
-        ToolTip.text: mediaBlock.block.alt
 
-        Reorder.ReorderDragHandle {
-            anchors.fill: parent
-            z: 2
-            dragEnabled: !mediaBlock.editorView.touchMode && mediaBlock.transientWidth < 0
-            hoverCursorShape: Qt.OpenHandCursor
-            dragCursorShape: Qt.ClosedHandCursor
-            onTapped: mediaBlock.selectAndFocus()
-            onDragStarted: {
-                mediaBlock.selectAndFocus()
-                mediaBlock.reorderController.startBlockDrag(mediaBlock.block.parent, mediaBlock)
-            }
-            onDragMoved: function(dx, dy) {
-                mediaBlock.reorderController.moveBlockDrag(dx, dy)
-            }
-            onDragFinished: mediaBlock.reorderController.finishBlockDrag()
-        }
-        TapHandler {
-            acceptedButtons: Qt.RightButton
-            gesturePolicy: TapHandler.DragThreshold
-            onTapped: mediaBlock.openMediaContextMenu()
-        }
-        TapHandler {
-            enabled: mediaBlock.editorView.touchMode
-            acceptedButtons: Qt.LeftButton
-            gesturePolicy: TapHandler.DragThreshold
-            onLongPressed: mediaBlock.openMediaContextMenu()
-        }
     }
 
     // The transport belongs to the card's layout, rather than floating above
