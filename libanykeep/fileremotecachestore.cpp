@@ -12,7 +12,7 @@
 namespace AnyKeep {
 namespace {
     constexpr quint32 PayloadMagic   = 0x514e5243; // QNRC
-    constexpr quint16 PayloadVersion = 3;
+    constexpr quint16 PayloadVersion = 4;
     // Consumer schema passed to SecureEnvelope::associatedData(); see AeadContext::schema.
     constexpr quint32 AeadContextSchema = 1;
 
@@ -21,10 +21,10 @@ namespace {
         out << quint32(media.size());
         for (const auto &item : media)
             out << item.id << item.blobId << item.originalName << item.portableName << item.mediaType << item.size
-                << item.checksum << item.remoteData;
+                << item.checksum << item.remoteData << item.posterFrameMs << item.videoThumbnailJpeg;
     }
 
-    bool readMedia(QDataStream &in, QList<MediaReference> &media)
+    bool readMedia(QDataStream &in, QList<MediaReference> &media, quint16 version)
     {
         quint32 count = 0;
         in >> count;
@@ -34,7 +34,10 @@ namespace {
             MediaReference item;
             in >> item.id >> item.blobId >> item.originalName >> item.portableName >> item.mediaType >> item.size
                 >> item.checksum >> item.remoteData;
-            if (!item.isValid() || item.size < 0)
+            if (version >= 4)
+                in >> item.posterFrameMs >> item.videoThumbnailJpeg;
+            if (!item.isValid() || item.size < 0 || item.posterFrameMs < -1
+                || item.videoThumbnailJpeg.size() > MediaReference::MaxVideoThumbnailBytes)
                 return false;
             media.append(std::move(item));
         }
@@ -66,7 +69,7 @@ namespace {
         QDataStream in(bytes);
         in.setVersion(QDataStream::Qt_5_10);
         in >> magic >> version >> count;
-        if (magic != PayloadMagic || (version != 2 && version != PayloadVersion) || count > 1000000)
+        if (magic != PayloadMagic || (version < 2 || version > PayloadVersion) || count > 1000000)
             return { {}, error(RemoteCacheError::Corrupt, QStringLiteral("Unsupported remote cache payload")) };
 
         QList<RemoteCacheRecord> records;
@@ -80,7 +83,7 @@ namespace {
                 >> record.bodyPresent >> record.backendData >> state >> record.lastOpenedAt >> record.cachedAt;
             if (version >= 3)
                 in >> record.folderId;
-            if (!readMedia(in, record.media))
+            if (!readMedia(in, record.media, version))
                 return { {}, error(RemoteCacheError::Corrupt, QStringLiteral("Invalid remote cache media manifest")) };
             if (record.id.isEmpty() || ids.contains(record.id) || format > Note::Html
                 || state > RemoteCacheRecord::Conflict) {
