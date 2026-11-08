@@ -81,8 +81,10 @@ ctest --test-dir build/Desktop-Debug -L editor --output-on-failure
 ## Visual media and playback ownership
 
 - `blocks/MediaBlock.qml` is an editor adapter: block-model state, layout and
-  alignment, selection, reorder, resize, and context-menu commands. It should
-  not paint its own video placeholder or layer a separate outline over video.
+  alignment, selection, reorder, resize, and context-menu commands. Its single
+  visual gesture layer handles both images and videos, without covering
+  transport buttons. It should not paint its own video placeholder or layer
+  a separate outline over video.
 - `blocks/MediaVideoCard.qml` is the **single** visual video card. Its outer
   `Rectangle` owns the background, corner radius and border. Within it a
   dedicated preview frame owns poster/placeholder/live video, and the transport
