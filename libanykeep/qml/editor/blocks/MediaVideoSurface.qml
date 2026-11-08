@@ -89,7 +89,10 @@ Item {
 
         Shortcut {
             sequences: [StandardKey.Cancel]
-            context: Qt.WindowShortcut
+            // A separate Qt Quick Window may not own the active shortcut context
+            // immediately after showFullScreen() on some Linux window managers.
+            // Keep Escape scoped by visibility instead of relying on window focus.
+            context: Qt.ApplicationShortcut
             enabled: fullScreenWindow.visible
             onActivated: root.closeFullScreen()
         }
