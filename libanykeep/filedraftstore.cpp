@@ -10,7 +10,7 @@
 namespace AnyKeep {
 namespace {
     constexpr quint32 PayloadMagic   = 0x514e4450; // QNDP
-    constexpr quint16 PayloadVersion = 8;
+    constexpr quint16 PayloadVersion = 10;
     // Consumer schema passed to SecureEnvelope::associatedData(); see AeadContext::schema.
     constexpr quint32 AeadContextSchema = 1;
 
@@ -19,10 +19,10 @@ namespace {
         out << quint32(media.size());
         for (const auto &item : media)
             out << item.id << item.blobId << item.originalName << item.portableName << item.mediaType << item.size
-                << item.checksum << item.remoteData;
+                << item.checksum << item.remoteData << item.posterFrameMs << item.videoThumbnailJpeg << item.posterBlobId;
     }
 
-    bool readMedia(QDataStream &in, QList<MediaReference> &media)
+    bool readMedia(QDataStream &in, QList<MediaReference> &media, quint16 version)
     {
         quint32 count = 0;
         in >> count;
@@ -33,7 +33,13 @@ namespace {
             MediaReference item;
             in >> item.id >> item.blobId >> item.originalName >> item.portableName >> item.mediaType >> item.size
                 >> item.checksum >> item.remoteData;
-            if (!item.isValid() || item.size < 0)
+            if (version >= 9)
+                in >> item.posterFrameMs >> item.videoThumbnailJpeg;
+            if (version >= 10)
+                in >> item.posterBlobId;
+            if (!item.isValid() || item.size < 0 || item.posterFrameMs < -1
+                || item.videoThumbnailJpeg.size() > MediaReference::MaxVideoThumbnailBytes
+                || (!item.posterBlobId.isEmpty() && item.posterBlobId.size() != 32))
                 return false;
             media.append(std::move(item));
         }
@@ -68,7 +74,7 @@ namespace {
         in.setVersion(QDataStream::Qt_5_10);
         in >> magic >> version;
         if (magic != PayloadMagic
-            || (version != 4 && version != 5 && version != 6 && version != 7 && version != PayloadVersion))
+            || (version < 4 || version > PayloadVersion))
             return { {}, error(DraftStoreError::Corrupt, QStringLiteral("Unsupported draft payload")) };
         in >> record.id >> state >> record.storageId >> record.remoteNoteId >> record.title >> record.body >> format
             >> record.tags;
@@ -83,7 +89,7 @@ namespace {
         in >> record.updatedAt >> record.lastError >> record.retryAt >> operation >> record.backendData;
         if (version == 4)
             record.revision = 1;
-        if (!readMedia(in, record.media))
+        if (!readMedia(in, record.media, version))
             return { {}, error(DraftStoreError::Corrupt, QStringLiteral("Invalid draft media manifest")) };
         if (in.status() != QDataStream::Ok || record.id.isNull() || state > DraftRecord::Deleting
             || format > Note::Html || operation > DraftRecord::Delete) {

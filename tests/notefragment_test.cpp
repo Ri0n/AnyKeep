@@ -67,6 +67,9 @@ void NoteFragmentTest::roundTripsStructuredFragment()
     media.reference.size         = 3;
     media.reference.checksum     = QByteArray::fromHex("012345");
     media.reference.remoteData.insert(QStringLiteral("revision"), 7);
+    media.reference.posterFrameMs = 1750;
+    media.reference.videoThumbnailJpeg = QByteArray::fromHex("ffd8ffe000104a46494600010100ffd9");
+    media.reference.posterBlobId = QByteArray(32, '\x03');
     media.data = QByteArray("PNG");
     fragment.media.append(media);
 
@@ -92,6 +95,9 @@ void NoteFragmentTest::roundTripsStructuredFragment()
     QCOMPARE(decoded.fragment.media.size(), 1);
     QCOMPARE(decoded.fragment.media.at(0).reference.id, media.reference.id);
     QCOMPARE(decoded.fragment.media.at(0).reference.remoteData, media.reference.remoteData);
+    QCOMPARE(decoded.fragment.media.at(0).reference.posterFrameMs, media.reference.posterFrameMs);
+    QCOMPARE(decoded.fragment.media.at(0).reference.videoThumbnailJpeg, media.reference.videoThumbnailJpeg);
+    QCOMPARE(decoded.fragment.media.at(0).reference.posterBlobId, media.reference.posterBlobId);
     QCOMPARE(decoded.fragment.media.at(0).data, media.data);
 }
 

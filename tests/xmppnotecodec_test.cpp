@@ -116,6 +116,7 @@ private slots:
     void roundTrip();
     void favoriteRoundTripUsesOptionalEncryptedExtension();
     void mediaRoundTrip();
+    void encryptedVideoThumbnailRoundTrip();
     void rejectsUndeclaredMedia();
     void encryptedPayloadDoesNotExposeText();
     void plaintextUsesOneVersionedNamespace();
@@ -241,6 +242,40 @@ void XmppNoteCodecTest::mediaRoundTrip()
     QVERIFY2(encodedAgain, qPrintable(encodedAgain.error.message));
     const auto againPlaintext = openedPlaintext(encodedAgain.value, key, XmppEncryptedPayload::Content);
     QCOMPARE(againPlaintext.count("<file-sharing"), 1);
+}
+
+void XmppNoteCodecTest::encryptedVideoThumbnailRoundTrip()
+{
+    auto source = note();
+    auto video = media();
+    video.reference.mediaType = QStringLiteral("video/mp4");
+    video.reference.posterFrameMs = 2000;
+    video.reference.videoThumbnailJpeg = QByteArray::fromHex("ffd8ffe000104a46494600010100000100010000ffd9");
+    video.fileSharingXml.replace("image/png", "video/mp4");
+    source.media = { video };
+    const auto key = masterKey();
+
+    const auto encoded = XmppNoteCodec::encodeContent(source, key, QStringLiteral("content"));
+    QVERIFY2(encoded, qPrintable(encoded.error.message));
+    const auto xml = openedPlaintext(encoded.value, key, XmppEncryptedPayload::Content);
+    QVERIFY(xml.contains("urn:anykeep:video-thumbnail:0"));
+    QVERIFY(xml.contains("frame-ms=\"2000\""));
+    QVERIFY(!encoded.value.cipherText.contains(video.reference.videoThumbnailJpeg));
+
+    const auto decoded = XmppNoteCodec::decodeContent(encoded.value, key, QStringLiteral("content"), source);
+    QVERIFY2(decoded, qPrintable(decoded.error.message));
+    QCOMPARE(decoded.value.media.size(), 1);
+    QCOMPARE(decoded.value.media.constFirst().reference.posterFrameMs, qint64(2000));
+    QCOMPARE(decoded.value.media.constFirst().reference.videoThumbnailJpeg, video.reference.videoThumbnailJpeg);
+
+    // A faulty peer cannot force large base64 data into one encrypted content record.
+    source.media.first().reference.videoThumbnailJpeg = QByteArray(6 * 1024 + 1, 'x');
+    source.media.first().reference.videoThumbnailJpeg[0] = char(0xff);
+    source.media.first().reference.videoThumbnailJpeg[1] = char(0xd8);
+    const auto oversized = XmppNoteCodec::encodeContent(source, key, QStringLiteral("content"));
+    QVERIFY2(oversized, qPrintable(oversized.error.message));
+    QVERIFY(!openedPlaintext(oversized.value, key, XmppEncryptedPayload::Content)
+                 .contains("urn:anykeep:video-thumbnail:0"));
 }
 
 void XmppNoteCodecTest::rejectsUndeclaredMedia()

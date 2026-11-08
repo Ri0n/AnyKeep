@@ -11,6 +11,7 @@
 #include "notedocumenthistory.h"
 #include "notemanager.h"
 #include "notestorage.h"
+#include "videothumbnailgenerator.h"
 
 #include <QDebug>
 #include <QGuiApplication>
@@ -716,6 +717,38 @@ bool NoteEditor::insertMedia(const MediaReference &reference, qint64 durationMs,
                         reference.mediaType, durationMs, width, height);
     endHistoryTransaction();
     emit mediaInserted({ reference });
+
+    if (reference.mediaType.startsWith(QLatin1String("video/")) && reference.videoThumbnailJpeg.isEmpty()) {
+        // Best effort. The job is cancelled with this editor and never blocks
+        // insertion or note publication. Its result is derived metadata, not
+        // a separate undoable user edit.
+        VideoThumbnailGenerator::start(reference, this,
+                                       [this, id = reference.id, blobId = reference.blobId,
+                                        checksum = reference.checksum](
+                                           qint64 frameMs, QByteArray tiny, QByteArray poster) {
+            if (frameMs < 0 || tiny.isEmpty())
+                return;
+            auto manifest = media_;
+            for (auto &item : manifest) {
+                if (item.id != id || item.blobId != blobId || item.checksum != checksum
+                    || !item.videoThumbnailJpeg.isEmpty())
+                    continue;
+                item.posterFrameMs = frameMs;
+                item.videoThumbnailJpeg = std::move(tiny);
+                if (!poster.isEmpty()) {
+                    // The sidecar uses existing encrypted, content-addressed
+                    // storage; it never appears as a second Markdown media item.
+                    const auto stored = LocalMediaStore::instance()->importData(
+                        poster, QStringLiteral("video-poster.jpg"), QStringLiteral("image/jpeg"));
+                    if (stored)
+                        item.posterBlobId = stored.value.blobId;
+                }
+                setMedia(manifest);
+                setDirty(true); // Derived metadata must survive autosave.
+                break;
+            }
+        });
+    }
     return true;
 }
 
@@ -984,6 +1017,20 @@ void NoteEditor::updateMediaPreviewUrls()
                 }
                 if (!url.isEmpty())
                     urls.insert(reference.uri(), url.toString());
+            }
+        } else if (reference.isValid() && reference.mediaType.startsWith(QLatin1String("video/"))) {
+            // Prefer the high-quality encrypted local sidecar. A synchronized
+            // tiny thumbnail remains available while the video is still remote.
+            if (reference.posterBlobId.size() == 32
+                && LocalMediaStore::instance()->containsManagedBlob(reference.posterBlobId)) {
+                urls.insert(reference.uri(), QStringLiteral("image://anykeep-media/%1")
+                                                 .arg(QString::fromLatin1(reference.posterBlobId.toHex())));
+            } else if (reference.videoThumbnailJpeg.size() >= 4
+                       && reference.videoThumbnailJpeg.size() <= MediaReference::MaxVideoThumbnailBytes
+                       && quint8(reference.videoThumbnailJpeg.at(0)) == 0xff
+                       && quint8(reference.videoThumbnailJpeg.at(1)) == 0xd8) {
+                urls.insert(reference.uri(), QStringLiteral("data:image/jpeg;base64,%1")
+                                                 .arg(QString::fromLatin1(reference.videoThumbnailJpeg.toBase64())));
             }
         }
     }

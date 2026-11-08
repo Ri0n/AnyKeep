@@ -542,6 +542,41 @@ A client that does not support `urn:xmpp:private-notes:media:0` MAY display the
 safely understood core note body but MUST NOT rewrite the content record. This
 prevents an attachment-unaware client from silently deleting media descriptors.
 
+### Optional encrypted video thumbnails
+
+An encrypted content record MAY carry a small poster thumbnail as an optional
+direct child of its `note` element, independent of the XEP-0447
+`file-sharing` source. It is an **AnyKeep-private extension**:
+
+```xml
+<thumbnail xmlns='urn:anykeep:video-thumbnail:0'
+           id='11111111-2222-3333-4444-555555555555'
+           frame-ms='2000' mime='image/jpeg'>/9j/...</thumbnail>
+```
+
+- `id` MUST refer to an attachment UUID described by `file-sharing` in
+  the same authenticated content record. Only one thumbnail per attachment
+  is permitted.
+- `frame-ms` is a nonnegative source-video-relative timestamp (the selected
+  decoded frame), not playback state.
+- `mime` is exactly `image/jpeg`. The element contains base64-encoded
+  JPEG data, **at most 6 KiB decoded**. Total JPEG thumbnail payloads in one
+  note are limited to **16 KiB** (before base64 encoding), to reduce stanza size. Producers may omit excess thumbnails rather
+  than block note publication; receivers must reject malformed or oversized
+  representations.
+- This is **not** XEP-0231 Bits of Binary, is never transmitted as a plaintext
+  BoB stanza, and is authenticated/encrypted together with the normal note
+  content. It can be read on another installation while the video publisher
+  is offline. A richer encrypted poster sidecar is a separate media object.
+- An older client may ignore the optional namespace but MUST preserve it when
+  rewriting an authenticated content record, according to the extension
+  preservation rules. A client producing fresh thumbnail metadata replaces
+  previously known thumbnail elements instead of accumulating duplicates.
+
+The sender still publishes the original XEP-0447 media descriptor and
+XEP-0448 ciphertext unchanged. Thumbnail bytes are an optional UX optimization
+and do not satisfy media durability or integrity requirements.
+
 ## Synchronization operations
 
 ### Listing and loading

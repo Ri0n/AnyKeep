@@ -30,6 +30,9 @@ namespace {
         map.insert(QStringLiteral("size"), reference.size);
         map.insert(QStringLiteral("checksum"), reference.checksum);
         map.insert(QStringLiteral("remoteData"), QCborValue::fromVariant(reference.remoteData));
+        map.insert(QStringLiteral("posterFrameMs"), reference.posterFrameMs);
+        map.insert(QStringLiteral("videoThumbnailJpeg"), reference.videoThumbnailJpeg);
+        map.insert(QStringLiteral("posterBlobId"), reference.posterBlobId);
         return map;
     }
 
@@ -55,7 +58,12 @@ namespace {
         reference->size         = map.value(QStringLiteral("size")).toInteger(-1);
         reference->checksum     = map.value(QStringLiteral("checksum")).toByteArray();
         reference->remoteData   = map.value(QStringLiteral("remoteData")).toVariant().toMap();
-        if (!reference->isValid() || reference->size < 0) {
+        reference->posterFrameMs = map.value(QStringLiteral("posterFrameMs")).toInteger(-1);
+        reference->videoThumbnailJpeg = map.value(QStringLiteral("videoThumbnailJpeg")).toByteArray();
+        reference->posterBlobId = map.value(QStringLiteral("posterBlobId")).toByteArray();
+        if (!reference->isValid() || reference->size < 0 || reference->posterFrameMs < -1
+            || reference->videoThumbnailJpeg.size() > MediaReference::MaxVideoThumbnailBytes
+            || (!reference->posterBlobId.isEmpty() && reference->posterBlobId.size() != 32)) {
             *error = QStringLiteral("media reference is incomplete");
             return false;
         }

@@ -1471,7 +1471,7 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                     return;
                 QMetaObject::invokeMethod(
                     guard,
-                    [state, next, guard, fingerprinted, mediaIndex]() mutable {
+                    [state, next, guard, fingerprinted, mediaIndex, reference]() mutable {
                         if (!guard)
                             return;
                         if (state->generation != guard->generation_ || !guard->client_) {
@@ -1492,7 +1492,13 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                                                          XmppErrorKind::Transient));
                             return;
                         }
-                        state->note.media[mediaIndex].reference = fingerprinted.value;
+                        // Fingerprinting materializes the original media identity;
+                        // it must not discard the poster derived during insertion.
+                        auto enriched = fingerprinted.value;
+                        enriched.posterFrameMs = reference.posterFrameMs;
+                        enriched.videoThumbnailJpeg = reference.videoThumbnailJpeg;
+                        enriched.posterBlobId = reference.posterBlobId;
+                        state->note.media[mediaIndex].reference = std::move(enriched);
                         (*next)();
                     },
                     Qt::QueuedConnection);
@@ -2188,7 +2194,14 @@ void IrisXmppBackend::downloadMediaAsync(XmppRemoteMedia media, quint64 generati
                               XmppErrorKind::Security));
             return;
         }
+        // The downloaded blob replaces only local byte ownership. Poster data
+        // was authenticated with the encrypted note and remains valid for the
+        // original video attachment.
+        const auto posterFrameMs = media.reference.posterFrameMs;
+        const auto thumbnailJpeg = media.reference.videoThumbnailJpeg;
         media.reference = imported.value;
+        media.reference.posterFrameMs = posterFrameMs;
+        media.reference.videoThumbnailJpeg = thumbnailJpeg;
         done(std::move(media), XmppStatusResult { true });
     };
 

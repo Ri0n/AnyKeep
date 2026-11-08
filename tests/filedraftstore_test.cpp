@@ -69,6 +69,15 @@ void FileDraftStoreTest::roundTrip()
     QCOMPARE(key.size(), FileDraftStore::MasterKeySize);
     FileDraftStore store(directory.path(), key);
     auto           record = sampleRecord();
+    MediaReference video;
+    video.id = QUuid::createUuid();
+    video.portableName = QStringLiteral("clip.mp4");
+    video.originalName = video.portableName;
+    video.mediaType = QStringLiteral("video/mp4");
+    video.posterFrameMs = 2000;
+    video.videoThumbnailJpeg = QByteArray::fromHex("ffd8ffe000104a46494600010100ffd9");
+    video.posterBlobId = QByteArray(32, '\x01');
+    record.media.append(video);
     QVERIFY(!store.write(record));
 
     QFile file(draftPath(directory.path(), record.id));
@@ -93,7 +102,10 @@ void FileDraftStoreTest::roundTrip()
     QCOMPARE(loaded.value.removeSourceNoteId, record.removeSourceNoteId);
     QCOMPARE(loaded.value.backendData, record.backendData);
     QCOMPARE(loaded.value.revision, record.revision);
-    QCOMPARE(loaded.value.media.size(), 1);
+    QCOMPARE(loaded.value.media.size(), 2);
+    QCOMPARE(loaded.value.media.at(1).posterFrameMs, video.posterFrameMs);
+    QCOMPARE(loaded.value.media.at(1).videoThumbnailJpeg, video.videoThumbnailJpeg);
+    QCOMPARE(loaded.value.media.at(1).posterBlobId, video.posterBlobId);
     QCOMPARE(loaded.value.media.first().id, record.media.first().id);
     QCOMPARE(loaded.value.media.first().originalName, record.media.first().originalName);
     QCOMPARE(loaded.value.media.first().blobId, record.media.first().blobId);
