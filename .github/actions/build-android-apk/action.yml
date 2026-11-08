@@ -119,6 +119,12 @@ runs:
         test -f "android-openssl/ssl_3/${{ inputs.abi }}/libcrypto.a"
         test -f "android-openssl/ssl_3/${{ inputs.abi }}/libssl.a"
 
+    - name: Cache Qt's Gradle distribution
+      uses: actions/cache@v4
+      with:
+        path: ~/.gradle/wrapper/dists
+        key: anykeep-gradle-wrapper-${{ runner.os }}-qt-${{ inputs.qt-version }}
+
     - name: Configure and build APK
       shell: bash
       env:
@@ -141,6 +147,40 @@ runs:
         python3 -m unittest discover -s .github/scripts -p 'test_inspect_android_apk.py'
         qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
         test -x "$qt_cmake"
+
+        # Use the wrapper version and checksum from the installed Qt SDK, but
+        # avoid services.gradle.org redirects and the 10-second, no-retry default.
+        # androiddeployqt overlays QT_ANDROID_PACKAGE_SOURCE_DIR onto its template.
+        qt_wrapper="$QT_ROOT_DIR/src/3rdparty/gradle/gradle/wrapper/gradle-wrapper.properties"
+        test -f "$qt_wrapper"
+        custom_wrapper="src/mobile/android/gradle/wrapper/gradle-wrapper.properties"
+        mkdir -p "$(dirname "$custom_wrapper")"
+        python3 - "$qt_wrapper" "$custom_wrapper" <<'PY'
+        from pathlib import Path
+        import sys
+
+        source = Path(sys.argv[1]).read_text()
+        if "distributionSha256Sum=" not in source:
+            raise SystemExit("Qt Gradle wrapper has no distribution SHA-256 checksum")
+        replacements = {
+            "distributionUrl": "https\\://downloads.gradle.org/distributions/" +
+                next(line.split("gradle-", 1)[1] for line in source.splitlines()
+                     if line.startswith("distributionUrl=")).join(("gradle-", "")),
+            "networkTimeout": "120000",
+            "retries": "4",
+            "retryBackOffMs": "2000",
+        }
+        lines = source.splitlines()
+        for name, value in replacements.items():
+            replacement = f"{name}={value}"
+            matches = [i for i, line in enumerate(lines) if line.startswith(f"{name}=")]
+            if matches:
+                lines[matches[0]] = replacement
+            else:
+                lines.append(replacement)
+        Path(sys.argv[2]).write_text("\\n".join(lines) + "\\n")
+        PY
+        grep -E '^(distributionUrl|distributionSha256Sum|networkTimeout|retries|retryBackOffMs)=' "$custom_wrapper"
         qca_root="$PWD/qca-sdk"
         bundled_qca=OFF
         sdk_runtime=ON
