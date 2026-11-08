@@ -42,6 +42,15 @@ private slots:
         QVERIFY(decoded.width() <= 240);
         QVERIFY(decoded.height() <= 240);
         QVERIFY(decoded.width() > 0 && decoded.height() > 0);
+
+        const auto poster = VideoThumbnailGenerator::encodePosterJpeg(image);
+        QVERIFY2(!poster.isEmpty(), "Full poster encoding failed");
+        QVERIFY(poster.size() <= 128 * 1024);
+        QVERIFY(poster.size() > jpeg.size());
+        QImage decodedPoster;
+        QVERIFY(decodedPoster.loadFromData(poster, "JPEG"));
+        QCOMPARE(decodedPoster.width(), 640);
+        QCOMPARE(decodedPoster.height(), 360);
     }
 
     void emptyImageHasNoThumbnail()
