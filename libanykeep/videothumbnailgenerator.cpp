@@ -70,6 +70,7 @@ public:
         stepTimer_.setSingleShot(true);
         connect(&stepTimer_, &QTimer::timeout, this, [this] { nextCandidate(); });
         connect(&player_, &QMediaPlayer::durationChanged, this, [this](qint64) { maybeStart(); });
+        connect(&player_, &QMediaPlayer::seekableChanged, this, [this](bool) { maybeStart(); });
         connect(&player_, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
             if (status == QMediaPlayer::InvalidMedia || status == QMediaPlayer::NoMedia) {
                 finish();
@@ -130,14 +131,31 @@ public:
 private:
     void maybeStart()
     {
-        if (finished_ || sampling_ || player_.duration() <= 0)
+        if (finished_ || sampling_)
             return;
         const auto status = player_.mediaStatus();
         if (status != QMediaPlayer::LoadedMedia && status != QMediaPlayer::BufferedMedia)
             return;
-        candidates_ = VideoThumbnailGenerator::candidatePositions(player_.duration());
-        if (!player_.isSeekable())
-            candidates_ = { 0 };
+        // On GStreamer, LoadedMedia can precede both duration and seekability.
+        // Give the backend a brief opportunity to expose the actual timeline.
+        if ((player_.duration() <= 0 || !player_.isSeekable()) && !metadataFallbackScheduled_) {
+            metadataFallbackScheduled_ = true;
+            QTimer::singleShot(700, this, [this] {
+                if (!finished_ && !sampling_)
+                    beginSampling();
+            });
+            return;
+        }
+        if (player_.duration() > 0 && player_.isSeekable())
+            beginSampling();
+    }
+
+    void beginSampling()
+    {
+        if (finished_ || sampling_)
+            return;
+        candidates_ = player_.duration() > 0 && player_.isSeekable()
+            ? VideoThumbnailGenerator::candidatePositions(player_.duration()) : QVector<qint64> { 0 };
         sampling_ = true;
         index_ = -1;
         nextCandidate();
@@ -182,6 +200,7 @@ private:
     qint64 bestFrameMs_ = -1;
     qsizetype index_ = -1;
     bool sampling_ = false;
+    bool metadataFallbackScheduled_ = false;
     bool frameCaptured_ = false;
     bool finished_ = false;
 };
