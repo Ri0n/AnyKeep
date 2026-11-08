@@ -2188,7 +2188,14 @@ void IrisXmppBackend::downloadMediaAsync(XmppRemoteMedia media, quint64 generati
                               XmppErrorKind::Security));
             return;
         }
+        // The downloaded blob replaces only local byte ownership. Poster data
+        // was authenticated with the encrypted note and remains valid for the
+        // original video attachment.
+        const auto posterFrameMs = media.reference.posterFrameMs;
+        const auto thumbnailJpeg = media.reference.videoThumbnailJpeg;
         media.reference = imported.value;
+        media.reference.posterFrameMs = posterFrameMs;
+        media.reference.videoThumbnailJpeg = thumbnailJpeg;
         done(std::move(media), XmppStatusResult { true });
     };
 
