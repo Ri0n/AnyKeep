@@ -34,7 +34,8 @@ FocusScope {
     // Future sidecar posters use the same verified, encrypted-media image
     // provider as inline images. A video URL itself must not be loaded as an Image.
     readonly property bool hasVideoPoster:
-        video && String(block.previewUrl).startsWith("image://anykeep-media/")
+        video && (String(block.previewUrl).startsWith("image://anykeep-media/")
+                  || String(block.previewUrl).startsWith("data:image/jpeg;base64,"))
     readonly property bool individuallySelected:
         mediaRoot.editorView.selectedMediaIndex === block.index
     readonly property bool selected: individuallySelected || block.structurallySelected
