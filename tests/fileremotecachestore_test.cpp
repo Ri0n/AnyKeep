@@ -63,6 +63,7 @@ void FileRemoteCacheStoreTest::roundTrip()
     video.mediaType = QStringLiteral("video/mp4");
     video.posterFrameMs = 1500;
     video.videoThumbnailJpeg = QByteArray::fromHex("ffd8ffe000104a46494600010100ffd9");
+    video.posterBlobId = QByteArray(32, '\x02');
     expected.media.append(video);
     QVERIFY(!store.replaceRecords({ expected }));
 
@@ -79,6 +80,7 @@ void FileRemoteCacheStoreTest::roundTrip()
     QCOMPARE(record.media.size(), 2);
     QCOMPARE(record.media.at(1).posterFrameMs, video.posterFrameMs);
     QCOMPARE(record.media.at(1).videoThumbnailJpeg, video.videoThumbnailJpeg);
+    QCOMPARE(record.media.at(1).posterBlobId, video.posterBlobId);
     QCOMPARE(record.media.first().id, expected.media.first().id);
 
     auto changed = record;
