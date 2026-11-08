@@ -19,9 +19,9 @@ const QString XmppNoteCodec::mediaFeature             = QStringLiteral("urn:xmpp
 const QString XmppNoteCodec::chunkedMediaFeature      = QStringLiteral("urn:xmpp:private-notes:media-chunks:0");
 
 namespace {
-    const QString StatelessFileSharingNamespace = QStringLiteral("urn:xmpp:sfs:0");
-    const QString ChunkedMediaSourceName        = QStringLiteral("encrypted-chunks");
-    const QString VideoThumbnailNamespace = QStringLiteral("urn:anykeep:video-thumbnail:0");
+    const QString StatelessFileSharingNamespace  = QStringLiteral("urn:xmpp:sfs:0");
+    const QString ChunkedMediaSourceName         = QStringLiteral("encrypted-chunks");
+    const QString VideoThumbnailNamespace        = QStringLiteral("urn:anykeep:video-thumbnail:0");
     constexpr int MaxVideoThumbnailsPerNoteBytes = 16 * 1024;
 
     constexpr int MaxXmlDepth      = 32;
@@ -514,6 +514,16 @@ namespace {
         return { media, {} };
     }
 
+    bool isVideoDescriptor(const QDomElement &sharing)
+    {
+        const auto files = directChildren(sharing, QStringLiteral("urn:xmpp:file:metadata:0"), QStringLiteral("file"));
+        if (files.size() != 1)
+            return false;
+        const auto types
+            = directChildren(files.first(), QStringLiteral("urn:xmpp:file:metadata:0"), QStringLiteral("media-type"));
+        return types.size() == 1 && types.first().text().trimmed().startsWith(QLatin1String("video/"));
+    }
+
     CryptoResult<QList<XmppRemoteMedia>> mediaDescriptors(const XmlRecordDocument &opened)
     {
         const auto elements
@@ -521,6 +531,8 @@ namespace {
         const bool mediaRequired   = opened.requiredFeatures.contains(XmppNoteCodec::mediaFeature);
         const bool chunkedRequired = opened.requiredFeatures.contains(XmppNoteCodec::chunkedMediaFeature);
         if (elements.isEmpty()) {
+            if (!directChildren(opened.record, VideoThumbnailNamespace, QStringLiteral("thumbnail")).isEmpty())
+                return { {}, corrupt(QStringLiteral("Video thumbnail references unknown attachment")) };
             if (mediaRequired)
                 return { {}, corrupt(QStringLiteral("Required XMPP media extension has no file-sharing descriptors")) };
             if (chunkedRequired)
@@ -555,11 +567,12 @@ namespace {
 
         // Optional tiny JPEG posters are carried inside the already-encrypted
         // content record. They are not BoB stanzas and need no online sender.
-        qint64 thumbnailBytes = 0;
+        qint64      thumbnailBytes = 0;
         QSet<QUuid> thumbnailIds;
-        for (const auto &element : directChildren(opened.record, VideoThumbnailNamespace, QStringLiteral("thumbnail"))) {
-            const QUuid id(element.attribute(QStringLiteral("id")));
-            bool ok = false;
+        for (const auto &element :
+             directChildren(opened.record, VideoThumbnailNamespace, QStringLiteral("thumbnail"))) {
+            const QUuid  id(element.attribute(QStringLiteral("id")));
+            bool         ok      = false;
             const qint64 frameMs = element.attribute(QStringLiteral("frame-ms")).toLongLong(&ok);
             if (id.isNull() || !ok || frameMs < 0
                 || element.attribute(QStringLiteral("mime")) != QLatin1String("image/jpeg")
@@ -571,15 +584,18 @@ namespace {
             const auto jpeg = QByteArray::fromBase64(text.value.toLatin1(), QByteArray::AbortOnBase64DecodingErrors);
             thumbnailBytes += jpeg.size();
             if (jpeg.size() < 4 || jpeg.size() > MediaReference::MaxVideoThumbnailBytes
-                || thumbnailBytes > MaxVideoThumbnailsPerNoteBytes
-                || quint8(jpeg.at(0)) != 0xff || quint8(jpeg.at(1)) != 0xd8)
+                || thumbnailBytes > MaxVideoThumbnailsPerNoteBytes || !MediaReference::isValidVideoThumbnail(jpeg))
                 return { {}, corrupt(QStringLiteral("Invalid video thumbnail payload")) };
-            const auto match = std::find_if(result.begin(), result.end(), [id](const XmppRemoteMedia &item) {
-                return item.reference.id == id;
-            });
+            const auto match = std::find_if(result.begin(), result.end(),
+                                            [id](const XmppRemoteMedia &item) { return item.reference.id == id; });
             if (match == result.end())
                 return { {}, corrupt(QStringLiteral("Video thumbnail references unknown attachment")) };
-            match->reference.posterFrameMs = frameMs;
+            const auto descriptor = std::find_if(elements.begin(), elements.end(), [id](const QDomElement &item) {
+                return QUuid(item.attribute(QStringLiteral("id"))) == id;
+            });
+            if (descriptor == elements.end() || !isVideoDescriptor(*descriptor))
+                return { {}, corrupt(QStringLiteral("Video thumbnail references a non-video attachment")) };
+            match->reference.posterFrameMs      = frameMs;
             match->reference.videoThumbnailJpeg = jpeg;
             thumbnailIds.insert(id);
         }
@@ -740,7 +756,7 @@ namespace {
                 createTextElement(document, XmppNoteCodec::protocolNamespace, QStringLiteral("body"), note.content),
                 anchor);
             QSet<QUuid> mediaIds;
-            bool        hasChunkedMedia = false;
+            bool        hasChunkedMedia       = false;
             qint64      encodedThumbnailBytes = 0;
             for (const auto &media : note.media) {
                 if (mediaIds.contains(media.reference.id)) {
@@ -758,15 +774,12 @@ namespace {
                 mediaIds.insert(media.reference.id);
                 insertBeforeOrAppend(record, imported.value, anchor);
                 const auto &jpeg = media.reference.videoThumbnailJpeg;
-                if (!jpeg.isEmpty() && media.reference.posterFrameMs >= 0
-                    && jpeg.size() <= MediaReference::MaxVideoThumbnailBytes
+                if (media.reference.posterFrameMs >= 0 && isVideoDescriptor(imported.value)
                     && jpeg.size() + encodedThumbnailBytes <= MaxVideoThumbnailsPerNoteBytes
-                    && quint8(jpeg.at(0)) == 0xff && quint8(jpeg.at(1)) == 0xd8) {
+                    && MediaReference::isValidVideoThumbnail(jpeg)) {
                     auto thumbnail = document.createElementNS(VideoThumbnailNamespace, QStringLiteral("thumbnail"));
-                    thumbnail.setAttribute(QStringLiteral("id"),
-                                           media.reference.id.toString(QUuid::WithoutBraces));
-                    thumbnail.setAttribute(QStringLiteral("frame-ms"),
-                                           QString::number(media.reference.posterFrameMs));
+                    thumbnail.setAttribute(QStringLiteral("id"), media.reference.id.toString(QUuid::WithoutBraces));
+                    thumbnail.setAttribute(QStringLiteral("frame-ms"), QString::number(media.reference.posterFrameMs));
                     thumbnail.setAttribute(QStringLiteral("mime"), QStringLiteral("image/jpeg"));
                     thumbnail.appendChild(document.createTextNode(QString::fromLatin1(jpeg.toBase64())));
                     insertBeforeOrAppend(record, thumbnail, anchor);

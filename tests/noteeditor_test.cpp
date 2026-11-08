@@ -16,6 +16,7 @@
 #include "notestorage.h"
 #include "notetransfercontroller.h"
 #include "spellcheckprovider.h"
+#include "videothumbnailgenerator.h"
 
 using namespace AnyKeep;
 
@@ -101,6 +102,44 @@ class NoteEditorTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void derivedMediaPreviewsSurviveUndoWithoutAddingAnUndoStep()
+    {
+        DraftManager   drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor     editor(plainNote(), drafts);
+        MediaReference video;
+        video.id           = QUuid::createUuid();
+        video.blobId       = QByteArray(32, 'v');
+        video.checksum     = QByteArray(32, 'c');
+        video.portableName = QStringLiteral("clip.mp4");
+        video.mediaType    = QStringLiteral("video/mp4");
+        editor.beginHistoryTransaction(QStringLiteral("insert-media"));
+        editor.setMedia({ video });
+        editor.model()->insertMedia(editor.model()->rowCount(), video.uri(), QStringLiteral("Video"), video.mediaType);
+        editor.endHistoryTransaction();
+        const auto insertUndoText = editor.undoText();
+
+        video.posterFrameMs = 1000;
+        QImage frame(120, 60, QImage::Format_RGB32);
+        frame.fill(Qt::blue);
+        video.videoThumbnailJpeg = VideoThumbnailGenerator::encodeTinyJpeg(frame);
+        video.posterBlobId       = QByteArray(32, 'p');
+        editor.setMedia({ video });
+        QCOMPARE(editor.undoText(), insertUndoText);
+
+        editor.beginHistoryTransaction(QStringLiteral("insert-text"));
+        editor.model()->appendText(QStringLiteral("After video"));
+        editor.endHistoryTransaction();
+        QVERIFY(editor.undo());
+        QCOMPARE(editor.media(), QList<MediaReference> { video });
+        QVERIFY(editor.undo());
+        QVERIFY(editor.media().isEmpty());
+        QVERIFY(!editor.canUndo());
+        QVERIFY(editor.redo());
+        QCOMPARE(editor.media(), QList<MediaReference> { video });
+        QVERIFY(editor.redo());
+        QCOMPARE(editor.media(), QList<MediaReference> { video });
+    }
+
     void spellCheckSkipsInlineCode()
     {
         QTextDocument document;

@@ -31,6 +31,9 @@ and multiple editor sessions.
    trip. Undo must not introduce serializer canonicalisation or parser loss.
 8. Media blobs are immutable and are not deleted by undo. The document media
    manifest is restored together with image blocks.
+   Derived video posters enrich snapshots of the same attachment and content
+   fingerprint without adding an undo command. Undoing removal or redoing an
+   insertion retains a completed preview; replacing the source cannot reuse it.
 9. Platform-standard undo and redo sequences are used. Input-method edits must
    work on desktop and Android without relying solely on `Ctrl` key events.
 

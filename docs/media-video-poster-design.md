@@ -1,6 +1,9 @@
 # Video posters and lightweight thumbnails
 
-Status: **design proposal**, not implemented. This refines
+Status: **partially implemented**. Local poster extraction, encrypted manifest
+metadata, bounded encrypted XMPP thumbnails and the shared video card are in
+place. Reuse across independent imports, remote full-poster transport and media
+garbage collection remain follow-up work. This refines
 [media storage architecture](media-storage-architecture.md), particularly its
 *derived visual cache*, metadata-first synchronization, XMPP SFS and progressive
 media sections. It does not change the canonical Markdown representation.
@@ -31,7 +34,7 @@ may be black. Remote media should retain its layout and show a useful poster
    encrypted object if supported. It is eligible for mark-and-sweep alongside
    its owning media reference and can be regenerated if the source is local.
 3. **Tiny thumbnail**: a second rendition of the same selected frame, target
-   160–240px wide and at most **6 KiB encoded**. Prefer JPEG or WebP only where
+   at most 240px on either axis and at most **6 KiB encoded**. Prefer JPEG or WebP only where
    recipient support is known; baseline JPEG is the interoperable fallback.
    Preserve aspect ratio. Use a bounded quality/resolution loop, allowing
    low quality rather than exceeding the budget. Small previews should be

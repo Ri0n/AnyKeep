@@ -88,22 +88,27 @@ public:
     void watchVideoSink()
     {
         QObject::disconnect(videoFrameConnection);
+        videoFrameAvailable = false;
         if (auto *sink = player->videoSink()) {
+            videoFrameAvailable = sink->videoFrame().isValid();
             videoFrameConnection
                 = QObject::connect(sink, &QVideoSink::videoFrameChanged, owner, [this](const QVideoFrame &frame) {
-                      if (pendingSeekPosition < 0 || !frame.isValid())
-                          return;
+                      bool changed        = videoFrameAvailable != frame.isValid();
+                      videoFrameAvailable = frame.isValid();
                       // setPosition updates the playhead before decoding finishes.
                       // Buffered frames from the old position must not dismiss the spinner.
-                      if (frame.startTime() >= 0 && qAbs(frame.startTime() / 1000 - pendingSeekPosition) > 1000)
-                          return;
-                      pendingSeekPosition = -1;
-                      emit owner->stateChanged();
+                      if (pendingSeekPosition >= 0 && frame.isValid()
+                          && (frame.startTime() < 0 || qAbs(frame.startTime() / 1000 - pendingSeekPosition) <= 1000)) {
+                          pendingSeekPosition = -1;
+                          changed             = true;
+                      }
+                      if (changed)
+                          emit owner->stateChanged();
                   });
         } else {
             pendingSeekPosition = -1;
-            emit owner->stateChanged();
         }
+        emit owner->stateChanged();
     }
 
     void resumeWhenLoaded()
@@ -170,6 +175,7 @@ public:
         }
         player->stop();
         player->setSource(QUrl());
+        videoFrameAvailable = false;
         stream.reset();
         if (!remoteUrl.isEmpty())
             MediaRangeService::releaseUrl(remoteUrl);
@@ -266,14 +272,16 @@ public:
         reloadAfterSuspend         = true;
         player->stop();
         player->setSource(QUrl());
-        positionMs = savedPosition;
-        durationMs = savedDuration;
+        videoFrameAvailable = false;
+        positionMs          = savedPosition;
+        durationMs          = savedDuration;
         emit owner->stateChanged();
 #endif
     }
 
     void stop()
     {
+        videoFrameAvailable   = false;
         pendingResumePosition = -1;
         pendingSeekPosition   = -1;
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
@@ -303,6 +311,7 @@ public:
     qint64                       positionMs { 0 };
     qint64                       durationMs { 0 };
     bool                         reloadAfterSuspend { false };
+    bool                         videoFrameAvailable { false };
     qint64                       pendingResumePosition { -1 };
     qint64                       pendingSeekPosition { -1 };
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
@@ -373,6 +382,7 @@ bool MediaPlaybackController::loading() const
 }
 qint64  MediaPlaybackController::position() const { return impl_->positionMs; }
 bool    MediaPlaybackController::seeking() const { return impl_->pendingSeekPosition >= 0; }
+bool    MediaPlaybackController::hasVideoFrame() const { return impl_->videoFrameAvailable; }
 qint64  MediaPlaybackController::duration() const { return impl_->durationMs; }
 QString MediaPlaybackController::errorString() const { return impl_->error; }
 bool    MediaPlaybackController::play(const QString &sourceUri) { return impl_->play(sourceUri); }

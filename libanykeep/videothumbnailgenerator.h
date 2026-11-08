@@ -14,17 +14,21 @@ class QObject;
 namespace AnyKeep {
 
 struct MediaReference;
+class LocalMediaStore;
 
 // Optional, best-effort video preview. It never changes the original media.
 // The callback is invoked on the caller's Qt event-loop thread, at most once.
 class ANYKEEP_EXPORT VideoThumbnailGenerator {
 public:
-    using Completion = std::function<void(qint64 positionMs, QByteArray tinyJpeg, QByteArray posterJpeg)>;
+    using Completion = std::function<void(qint64 positionMs, QByteArray tinyJpeg, QByteArray posterBlobId)>;
 
-    static void start(const MediaReference &reference, QObject *lifetime, Completion completion);
+    // An explicit store must outlive the request; normal callers use the
+    // profile-wide store. Local byte reads and derivation run off the UI thread.
+    static void            start(const MediaReference &reference, QObject *lifetime, Completion completion,
+                                 LocalMediaStore *store = nullptr);
     static QVector<qint64> candidatePositions(qint64 durationMs);
-    static QByteArray encodeTinyJpeg(const QImage &image);
-    static QByteArray encodePosterJpeg(const QImage &image);
+    static QByteArray      encodeTinyJpeg(const QImage &image);
+    static QByteArray      encodePosterJpeg(const QImage &image);
 };
 
 } // namespace AnyKeep

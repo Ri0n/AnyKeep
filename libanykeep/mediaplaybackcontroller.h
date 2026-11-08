@@ -17,6 +17,7 @@ class ANYKEEP_EXPORT MediaPlaybackController final : public QObject {
     Q_PROPERTY(bool playing READ playing NOTIFY stateChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY stateChanged)
     Q_PROPERTY(bool seeking READ seeking NOTIFY stateChanged)
+    Q_PROPERTY(bool hasVideoFrame READ hasVideoFrame NOTIFY stateChanged)
     Q_PROPERTY(qint64 position READ position NOTIFY stateChanged)
     Q_PROPERTY(qint64 duration READ duration NOTIFY stateChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY stateChanged)
@@ -30,6 +31,7 @@ public:
     bool    playing() const;
     bool    loading() const;
     bool    seeking() const;
+    bool    hasVideoFrame() const;
     qint64  position() const;
     qint64  duration() const;
     QString errorString() const;

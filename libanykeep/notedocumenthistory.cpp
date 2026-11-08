@@ -3,8 +3,28 @@
 #include <QCoreApplication>
 #include <QUndoCommand>
 
+#include <algorithm>
+#include <utility>
+
 namespace AnyKeep {
 namespace {
+    bool sameMediaContent(const MediaReference &left, const MediaReference &right)
+    {
+        return left.id == right.id && left.blobId == right.blobId && left.checksum == right.checksum
+            && left.size == right.size && left.mediaType == right.mediaType;
+    }
+
+    void enrichMedia(QList<MediaReference> &media, const MediaReference &metadata)
+    {
+        for (auto &reference : media) {
+            if (!sameMediaContent(reference, metadata))
+                continue;
+            reference.posterFrameMs      = metadata.posterFrameMs;
+            reference.videoThumbnailJpeg = metadata.videoThumbnailJpeg;
+            reference.posterBlobId       = metadata.posterBlobId;
+        }
+    }
+
     QString typingKind(const QString &before, const QString &after, const QVariantMap &beforeView)
     {
         const QVariantMap active = beforeView.value(QStringLiteral("active")).toMap();
@@ -41,8 +61,7 @@ namespace {
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Resize media");
         else if (kind == QLatin1String("align-image") || kind == QLatin1String("align-media"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Align media");
-        else if (kind == QLatin1String("reset-image-presentation")
-                 || kind == QLatin1String("reset-media-presentation"))
+        else if (kind == QLatin1String("reset-image-presentation") || kind == QLatin1String("reset-media-presentation"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Reset media size and alignment");
         else if (kind == QLatin1String("insert-table"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert table");
@@ -196,6 +215,7 @@ bool NoteDocumentHistory::statesEqual(const DocumentState &left, const DocumentS
 void NoteDocumentHistory::reset(const DocumentState &state)
 {
     stack_.clear();
+    mediaMetadata_.clear();
     current_ = state;
     currentView_.clear();
     transactionDepth_ = 0;
@@ -272,6 +292,20 @@ void NoteDocumentHistory::breakMerge()
         ++mergeGeneration_;
 }
 
+void NoteDocumentHistory::updateMediaMetadata(const MediaReference &reference)
+{
+    if (reference.videoThumbnailJpeg.isEmpty() && reference.posterBlobId.isEmpty())
+        return;
+    auto it = std::find_if(mediaMetadata_.begin(), mediaMetadata_.end(),
+                           [&reference](const auto &item) { return sameMediaContent(reference, item); });
+    if (it == mediaMetadata_.end())
+        mediaMetadata_.append(reference);
+    else
+        *it = reference;
+    enrichMedia(current_.media, reference);
+    enrichMedia(transactionBefore_.media, reference);
+}
+
 void NoteDocumentHistory::pushSnapshot(const QString &kind, const DocumentState &before, const QVariantMap &beforeView,
                                        const DocumentState &after, const QVariantMap &afterView)
 {
@@ -293,9 +327,12 @@ void NoteDocumentHistory::apply(const DocumentState &state, const QVariantMap &v
 {
     if (!restoreHandler_)
         return;
-    restoring_ = true;
-    restoreHandler_(state, viewState);
-    current_     = state;
+    restoring_    = true;
+    auto enriched = state;
+    for (const auto &metadata : std::as_const(mediaMetadata_))
+        enrichMedia(enriched.media, metadata);
+    restoreHandler_(enriched, viewState);
+    current_     = std::move(enriched);
     currentView_ = viewState;
     restoring_   = false;
     ++mergeGeneration_;

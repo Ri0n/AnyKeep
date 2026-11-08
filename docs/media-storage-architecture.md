@@ -132,6 +132,13 @@ classDiagram
 
 ## Local ownership and source policy
 
+Local image previews resolve the complete attachment identity (UUID, optional
+content fingerprint and size) through `LocalMediaImageProvider` and
+`LocalMediaStore`. A file kept in place can have no `blobId` until publication;
+it must remain previewable through its encrypted attachment locator. QML URLs
+carry no filesystem locators, and previewing never imports a second owned copy.
+Legacy blob-only image URLs remain supported for immutable blobs and posters.
+
 A `MediaReference` identifies content and intentionally does **not** identify where
 that content lives on the current device. Local ownership is a separate concern.
 When a user selects a filesystem-backed media file, the desktop editor offers two

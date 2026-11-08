@@ -1,6 +1,8 @@
+#include "videothumbnailgenerator.h"
 #include "xmppbackend.h"
 #include "xmppnotecodec.h"
 
+#include <QBuffer>
 #include <QDomDocument>
 #include <QtTest>
 
@@ -117,6 +119,7 @@ private slots:
     void favoriteRoundTripUsesOptionalEncryptedExtension();
     void mediaRoundTrip();
     void encryptedVideoThumbnailRoundTrip();
+    void rejectsInvalidVideoThumbnails();
     void rejectsUndeclaredMedia();
     void encryptedPayloadDoesNotExposeText();
     void plaintextUsesOneVersionedNamespace();
@@ -246,13 +249,15 @@ void XmppNoteCodecTest::mediaRoundTrip()
 
 void XmppNoteCodecTest::encryptedVideoThumbnailRoundTrip()
 {
-    auto source = note();
-    auto video = media();
-    video.reference.mediaType = QStringLiteral("video/mp4");
+    auto source                   = note();
+    auto video                    = media();
+    video.reference.mediaType     = QStringLiteral("video/mp4");
     video.reference.posterFrameMs = 2000;
-    video.reference.videoThumbnailJpeg = QByteArray::fromHex("ffd8ffe000104a46494600010100000100010000ffd9");
+    QImage frame(120, 60, QImage::Format_RGB32);
+    frame.fill(Qt::blue);
+    video.reference.videoThumbnailJpeg = VideoThumbnailGenerator::encodeTinyJpeg(frame);
     video.fileSharingXml.replace("image/png", "video/mp4");
-    source.media = { video };
+    source.media   = { video };
     const auto key = masterKey();
 
     const auto encoded = XmppNoteCodec::encodeContent(source, key, QStringLiteral("content"));
@@ -269,12 +274,75 @@ void XmppNoteCodecTest::encryptedVideoThumbnailRoundTrip()
     QCOMPARE(decoded.value.media.constFirst().reference.videoThumbnailJpeg, video.reference.videoThumbnailJpeg);
 
     // A faulty peer cannot force large base64 data into one encrypted content record.
-    source.media.first().reference.videoThumbnailJpeg = QByteArray(6 * 1024 + 1, 'x');
+    source.media.first().reference.videoThumbnailJpeg    = QByteArray(6 * 1024 + 1, 'x');
     source.media.first().reference.videoThumbnailJpeg[0] = char(0xff);
     source.media.first().reference.videoThumbnailJpeg[1] = char(0xd8);
     const auto oversized = XmppNoteCodec::encodeContent(source, key, QStringLiteral("content"));
     QVERIFY2(oversized, qPrintable(oversized.error.message));
     QVERIFY(!openedPlaintext(oversized.value, key, XmppEncryptedPayload::Content)
+                 .contains("urn:anykeep:video-thumbnail:0"));
+}
+
+void XmppNoteCodecTest::rejectsInvalidVideoThumbnails()
+{
+    auto source = note();
+    auto video  = media();
+    video.fileSharingXml.replace("image/png", "video/mp4");
+    video.reference.posterFrameMs = 1000;
+    QImage frame(120, 60, QImage::Format_RGB32);
+    frame.fill(Qt::blue);
+    video.reference.videoThumbnailJpeg = VideoThumbnailGenerator::encodeTinyJpeg(frame);
+    source.media                       = { video };
+    const auto key                     = masterKey();
+    const auto encoded                 = XmppNoteCodec::encodeContent(source, key, QStringLiteral("content"));
+    QVERIFY(encoded);
+    const auto mutate = [&](const auto &change) {
+        return mutatePlaintext(encoded.value, key, XmppEncryptedPayload::Content, [&](QDomDocument &document) {
+            auto record = directChild(directChild(document.documentElement(), QStringLiteral("content")),
+                                      QStringLiteral("note"));
+            auto thumbnail
+                = directChild(record, QStringLiteral("thumbnail"), QStringLiteral("urn:anykeep:video-thumbnail:0"));
+            change(document, record, thumbnail);
+        });
+    };
+    const auto decode = [&](const XmppEncryptedPayload &payload) {
+        return XmppNoteCodec::decodeContent(payload, key, QStringLiteral("content"), source);
+    };
+    for (const auto &bytes : { QByteArray::fromHex("ffd8ffd9"), QByteArray(6 * 1024 + 1, 'x') }) {
+        QVERIFY(!decode(mutate([&](QDomDocument &, QDomElement, QDomElement thumbnail) {
+            thumbnail.firstChild().setNodeValue(QString::fromLatin1(bytes.toBase64()));
+        })));
+    }
+    QImage oversized(241, 1, QImage::Format_RGB32);
+    oversized.fill(Qt::blue);
+    QByteArray jpeg;
+    QBuffer    buffer(&jpeg);
+    QVERIFY(buffer.open(QIODevice::WriteOnly));
+    QVERIFY(oversized.save(&buffer, "JPEG"));
+    QVERIFY(!decode(mutate([&](QDomDocument &, QDomElement, QDomElement thumbnail) {
+        thumbnail.firstChild().setNodeValue(QString::fromLatin1(jpeg.toBase64()));
+    })));
+    QVERIFY(!decode(mutate([](QDomDocument &, QDomElement record, QDomElement thumbnail) {
+        record.appendChild(thumbnail.cloneNode(true));
+    })));
+    QVERIFY(!decode(mutate([](QDomDocument &, QDomElement, QDomElement thumbnail) {
+        thumbnail.setAttribute(QStringLiteral("id"), QUuid::createUuid().toString(QUuid::WithoutBraces));
+    })));
+    QVERIFY(!decode(mutate([](QDomDocument &, QDomElement record, QDomElement) {
+        record.removeChild(directChild(record, QStringLiteral("file-sharing"), QStringLiteral("urn:xmpp:sfs:0")));
+    })));
+    QVERIFY(!decode(mutate([](QDomDocument &, QDomElement record, QDomElement) {
+        auto sharing = directChild(record, QStringLiteral("file-sharing"), QStringLiteral("urn:xmpp:sfs:0"));
+        auto file    = directChild(sharing, QStringLiteral("file"), QStringLiteral("urn:xmpp:file:metadata:0"));
+        directChild(file, QStringLiteral("media-type"), QStringLiteral("urn:xmpp:file:metadata:0"))
+            .firstChild()
+            .setNodeValue(QStringLiteral("image/png"));
+    })));
+    // A one-byte local value must be omitted safely instead of indexing byte 1.
+    source.media.first().reference.videoThumbnailJpeg = QByteArray(1, char(0xff));
+    const auto shortValue = XmppNoteCodec::encodeContent(source, key, QStringLiteral("content"));
+    QVERIFY(shortValue);
+    QVERIFY(!openedPlaintext(shortValue.value, key, XmppEncryptedPayload::Content)
                  .contains("urn:anykeep:video-thumbnail:0"));
 }
 

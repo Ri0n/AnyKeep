@@ -1,3 +1,4 @@
+#include "localmediaimageprovider.h"
 #include "localmediastore.h"
 #include "mediasource.h"
 #include "mediastream.h"
@@ -36,11 +37,59 @@ private slots:
     void externalFileFingerprintInvalidatesOnSourceRevision();
     void externalFileReferenceRejectsChangedChunks();
     void externalAviUsesExtensionMimeType();
+    void imageProviderReadsManagedAndExternalImages();
     void portableNames();
     void markdownDisplayTitle();
     void markdownHtmlImageDisplayTitle();
     void markdownAudioDisplayTitle();
 };
+
+void LocalMediaStoreTest::imageProviderReadsManagedAndExternalImages()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalMediaStore         store(directory.filePath(QStringLiteral("media")), SecureEnvelope::generateMasterKey());
+    LocalMediaImageProvider provider(&store);
+    QImage                  image(64, 32, QImage::Format_RGB32);
+    image.fill(Qt::blue);
+    const QString fileName = directory.filePath(QStringLiteral("picture.png"));
+    QVERIFY(image.save(fileName));
+
+    const auto copied = store.importFile(fileName);
+    const auto linked = store.referenceFile(fileName);
+    QVERIFY2(copied, qPrintable(copied.error));
+    QVERIFY2(linked, qPrintable(linked.error));
+    QVERIFY(linked.value.blobId.isEmpty());
+    const auto fingerprinted = store.fingerprintExternalFile(linked.value);
+    QVERIFY2(fingerprinted, qPrintable(fingerprinted.error));
+
+    const auto readImage = [&provider](const MediaReference &reference) {
+        const QString url = LocalMediaImageProvider::imageUrl(reference);
+        return provider.requestImage(url.mid(QStringLiteral("image://anykeep-media/").size()), nullptr, {});
+    };
+    for (const auto &reference : { copied.value, linked.value, fingerprinted.value }) {
+        const auto loaded = readImage(reference);
+        QVERIFY(!loaded.isNull());
+        QCOMPARE(loaded.size(), image.size());
+        QCOMPARE(loaded.pixelColor(0, 0), QColor(Qt::blue));
+    }
+    // Existing blob URLs (including poster sidecars) remain supported.
+    QVERIFY(!provider.requestImage(QString::fromLatin1(copied.value.blobId.toHex()), nullptr, {}).isNull());
+
+    // Exercise external lookup even when identical managed content exists.
+    const QString movedName = directory.filePath(QStringLiteral("saved.png"));
+    const auto    moved     = store.moveToFile(copied.value, movedName);
+    QVERIFY2(moved, qPrintable(moved.error));
+    for (const auto &reference : { copied.value, linked.value, fingerprinted.value })
+        QVERIFY(!readImage(reference).isNull());
+
+    QFile changed(fileName);
+    QVERIFY(changed.open(QIODevice::Append));
+    QVERIFY(changed.write("changed") > 0);
+    changed.close();
+    QVERIFY(readImage(linked.value).isNull());
+    QVERIFY(readImage(fingerprinted.value).isNull());
+}
 
 void LocalMediaStoreTest::encryptedRoundTripAndDeduplication()
 {
@@ -358,13 +407,18 @@ void LocalMediaStoreTest::externalFileFingerprintCachesContentIdentity()
 
     const auto      masterKey = SecureEnvelope::generateMasterKey();
     LocalMediaStore store(QDir(directory.path()).filePath(QStringLiteral("store")), masterKey);
-    const auto      linked = store.referenceFile(sourcePath);
+    auto            linked = store.referenceFile(sourcePath);
     QVERIFY2(linked, qPrintable(linked.error));
     QVERIFY(!linked.value.hasContentFingerprint());
+    linked.value.posterFrameMs      = 1000;
+    linked.value.videoThumbnailJpeg = QByteArrayLiteral("preview of unchanged source");
+    linked.value.posterBlobId       = QByteArray(32, 'p');
 
     const auto fingerprinted = store.fingerprintExternalFile(linked.value);
     QVERIFY2(fingerprinted, qPrintable(fingerprinted.error));
     QVERIFY(fingerprinted.value.hasContentFingerprint());
+    QCOMPARE(fingerprinted.value.videoThumbnailJpeg, linked.value.videoThumbnailJpeg);
+    QCOMPARE(fingerprinted.value.posterBlobId, linked.value.posterBlobId);
     QCOMPARE(fingerprinted.value.id, linked.value.id);
     QCOMPARE(fingerprinted.value.checksum, QCryptographicHash::hash(plain, QCryptographicHash::Sha256));
     QCOMPARE(fingerprinted.value.blobId,
@@ -401,9 +455,12 @@ void LocalMediaStoreTest::externalFileFingerprintInvalidatesOnSourceRevision()
 
     LocalMediaStore store(QDir(directory.path()).filePath(QStringLiteral("store")),
                           SecureEnvelope::generateMasterKey());
-    const auto      linked = store.referenceFile(sourcePath);
+    auto            linked = store.referenceFile(sourcePath);
     QVERIFY2(linked, qPrintable(linked.error));
-    const auto first = store.fingerprintExternalFile(linked.value);
+    linked.value.posterFrameMs      = 1000;
+    linked.value.videoThumbnailJpeg = QByteArrayLiteral("preview of original source");
+    linked.value.posterBlobId       = QByteArray(32, 'p');
+    const auto first                = store.fingerprintExternalFile(linked.value);
     QVERIFY2(first, qPrintable(first.error));
 
     QVERIFY(source.open(QIODevice::ReadWrite));
@@ -426,6 +483,13 @@ void LocalMediaStoreTest::externalFileFingerprintInvalidatesOnSourceRevision()
     QVERIFY(refreshed.value.hasContentFingerprint());
     QVERIFY(refreshed.value.checksum != first.value.checksum);
     QVERIFY(refreshed.value.blobId != first.value.blobId);
+    QCOMPARE(refreshed.value.posterFrameMs, qint64(-1));
+    QVERIFY(refreshed.value.videoThumbnailJpeg.isEmpty());
+    QVERIFY(refreshed.value.posterBlobId.isEmpty());
+    const auto cached = store.fingerprintExternalFile(first.value);
+    QVERIFY(cached);
+    QVERIFY(cached.value.videoThumbnailJpeg.isEmpty());
+    QVERIFY(cached.value.posterBlobId.isEmpty());
 }
 
 void LocalMediaStoreTest::externalFileReferenceRejectsChangedChunks()

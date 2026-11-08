@@ -9,10 +9,20 @@ class QQmlEngine;
 
 namespace AnyKeep {
 
+class LocalMediaStore;
+struct MediaReference;
+
 class ANYKEEP_EXPORT LocalMediaImageProvider final : public QQuickImageProvider {
 public:
     LocalMediaImageProvider();
-    QImage requestImage(const QString &id, QSize *size, const QSize &requestedSize) override;
+    explicit LocalMediaImageProvider(LocalMediaStore *store);
+    // Carries attachment identity for lazy external sources, without exposing
+    // their local filesystem locator to QML or copying the image into a blob.
+    static QString imageUrl(const MediaReference &reference);
+    QImage         requestImage(const QString &id, QSize *size, const QSize &requestedSize) override;
+
+private:
+    LocalMediaStore *store_;
 };
 
 ANYKEEP_EXPORT void installLocalMediaImageProvider(QQmlEngine *engine);

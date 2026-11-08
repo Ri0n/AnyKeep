@@ -1,4 +1,5 @@
 #include "noteeditor.h"
+#include "localmediaimageprovider.h"
 #include "localmediastore.h"
 #include "mediarangeservice.h"
 #include "notetitleresolver.h"
@@ -620,6 +621,8 @@ void NoteEditor::setMedia(const QList<MediaReference> &media)
     if (media_ == media)
         return;
     media_ = media;
+    for (const auto &reference : media_)
+        history_->updateMediaMetadata(reference);
     note_.setMedia(media);
     updateMediaPreviewUrls();
     emit mediaChanged(media);
@@ -722,32 +725,28 @@ bool NoteEditor::insertMedia(const MediaReference &reference, qint64 durationMs,
         // Best effort. The job is cancelled with this editor and never blocks
         // insertion or note publication. Its result is derived metadata, not
         // a separate undoable user edit.
-        VideoThumbnailGenerator::start(reference, this,
-                                       [this, id = reference.id, blobId = reference.blobId,
-                                        checksum = reference.checksum](
-                                           qint64 frameMs, QByteArray tiny, QByteArray poster) {
-            if (frameMs < 0 || tiny.isEmpty())
-                return;
-            auto manifest = media_;
-            for (auto &item : manifest) {
-                if (item.id != id || item.blobId != blobId || item.checksum != checksum
-                    || !item.videoThumbnailJpeg.isEmpty())
-                    continue;
-                item.posterFrameMs = frameMs;
-                item.videoThumbnailJpeg = std::move(tiny);
-                if (!poster.isEmpty()) {
-                    // The sidecar uses existing encrypted, content-addressed
-                    // storage; it never appears as a second Markdown media item.
-                    const auto stored = LocalMediaStore::instance()->importData(
-                        poster, QStringLiteral("video-poster.jpg"), QStringLiteral("image/jpeg"));
-                    if (stored)
-                        item.posterBlobId = stored.value.blobId;
+        auto *lifetime = new QObject(this);
+        connect(this, &NoteEditor::allViewsClosed, lifetime, [lifetime] { delete lifetime; });
+        VideoThumbnailGenerator::start(
+            reference, lifetime,
+            [this, lifetime, id = reference.id, blobId = reference.blobId,
+             checksum = reference.checksum](qint64 frameMs, QByteArray tiny, QByteArray posterBlobId) {
+                lifetime->deleteLater();
+                if (frameMs < 0 || tiny.isEmpty())
+                    return;
+                auto manifest = media_;
+                for (auto &item : manifest) {
+                    if (item.id != id || item.blobId != blobId || item.checksum != checksum
+                        || !item.videoThumbnailJpeg.isEmpty())
+                        continue;
+                    item.posterFrameMs      = frameMs;
+                    item.videoThumbnailJpeg = std::move(tiny);
+                    item.posterBlobId       = std::move(posterBlobId);
+                    setMedia(manifest);
+                    setDirty(true); // Derived metadata must survive autosave.
+                    break;
                 }
-                setMedia(manifest);
-                setDirty(true); // Derived metadata must survive autosave.
-                break;
-            }
-        });
+            });
     }
     return true;
 }
@@ -998,9 +997,7 @@ void NoteEditor::updateMediaPreviewUrls()
     for (const auto &reference : media_) {
         if (reference.isValid() && reference.mediaType.startsWith(QLatin1String("image/"))) {
             if (LocalMediaStore::instance()->contains(reference)) {
-                urls.insert(
-                    reference.uri(),
-                    QStringLiteral("image://anykeep-media/%1").arg(QString::fromLatin1(reference.blobId.toHex())));
+                urls.insert(reference.uri(), LocalMediaImageProvider::imageUrl(reference));
             } else {
                 auto url = remotePreviewUrls_.value(reference.uri());
                 if (!url.isEmpty() && remotePreviewReferences_.value(reference.uri()) != reference) {
@@ -1023,14 +1020,13 @@ void NoteEditor::updateMediaPreviewUrls()
             // tiny thumbnail remains available while the video is still remote.
             if (reference.posterBlobId.size() == 32
                 && LocalMediaStore::instance()->containsManagedBlob(reference.posterBlobId)) {
-                urls.insert(reference.uri(), QStringLiteral("image://anykeep-media/%1")
-                                                 .arg(QString::fromLatin1(reference.posterBlobId.toHex())));
-            } else if (reference.videoThumbnailJpeg.size() >= 4
-                       && reference.videoThumbnailJpeg.size() <= MediaReference::MaxVideoThumbnailBytes
-                       && quint8(reference.videoThumbnailJpeg.at(0)) == 0xff
-                       && quint8(reference.videoThumbnailJpeg.at(1)) == 0xd8) {
-                urls.insert(reference.uri(), QStringLiteral("data:image/jpeg;base64,%1")
-                                                 .arg(QString::fromLatin1(reference.videoThumbnailJpeg.toBase64())));
+                urls.insert(reference.uri(),
+                            QStringLiteral("image://anykeep-media/%1")
+                                .arg(QString::fromLatin1(reference.posterBlobId.toHex())));
+            } else if (MediaReference::isValidVideoThumbnail(reference.videoThumbnailJpeg)) {
+                urls.insert(reference.uri(),
+                            QStringLiteral("data:image/jpeg;base64,%1")
+                                .arg(QString::fromLatin1(reference.videoThumbnailJpeg.toBase64())));
             }
         }
     }

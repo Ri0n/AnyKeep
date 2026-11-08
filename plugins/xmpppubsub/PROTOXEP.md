@@ -560,7 +560,9 @@ direct child of its `note` element, independent of the XEP-0447
 - `frame-ms` is a nonnegative source-video-relative timestamp (the selected
   decoded frame), not playback state.
 - `mime` is exactly `image/jpeg`. The element contains base64-encoded
-  JPEG data, **at most 6 KiB decoded**. Total JPEG thumbnail payloads in one
+  JPEG data, **at most 6 KiB decoded**, with dimensions no greater than 240 pixels
+  on either axis. The JPEG must decode successfully; a magic prefix alone is
+  insufficient. The attachment's media type must be a video type. Total JPEG thumbnail payloads in one
   note are limited to **16 KiB** (before base64 encoding), to reduce stanza size. Producers may omit excess thumbnails rather
   than block note publication; receivers must reject malformed or oversized
   representations.

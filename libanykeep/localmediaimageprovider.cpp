@@ -4,32 +4,72 @@
 
 #include <QLoggingCategory>
 #include <QQmlEngine>
+#include <QUrl>
+#include <QUrlQuery>
 
 namespace AnyKeep {
 
 Q_LOGGING_CATEGORY(logLocalMediaImageProvider, "anykeep.media.imageprovider")
 
-LocalMediaImageProvider::LocalMediaImageProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
+LocalMediaImageProvider::LocalMediaImageProvider() : LocalMediaImageProvider(nullptr) {}
+
+LocalMediaImageProvider::LocalMediaImageProvider(LocalMediaStore *store) :
+    QQuickImageProvider(QQuickImageProvider::Image), store_(store ? store : LocalMediaStore::instance())
+{
+}
+
+QString LocalMediaImageProvider::imageUrl(const MediaReference &reference)
+{
+    QUrl url(QStringLiteral("image://anykeep-media/reference/%1").arg(reference.id.toString(QUuid::WithoutBraces)));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("size"), QString::number(reference.size));
+    query.addQueryItem(QStringLiteral("blob"), QString::fromLatin1(reference.blobId.toHex()));
+    query.addQueryItem(QStringLiteral("checksum"), QString::fromLatin1(reference.checksum.toHex()));
+    url.setQuery(query);
+    return url.toString();
+}
 
 QImage LocalMediaImageProvider::requestImage(const QString &id, QSize *size, const QSize &requestedSize)
 {
-    const auto encodedId = id.toLatin1();
-    const auto blobId    = QByteArray::fromHex(encodedId);
-    if (encodedId.size() != 64 || blobId.size() != 32 || blobId.toHex() != encodedId.toLower()) {
+    const auto decodeDigest = [](const QByteArray &encoded, QByteArray *decoded) {
+        *decoded = QByteArray::fromHex(encoded);
+        return encoded.size() == 64 && decoded->size() == 32 && decoded->toHex() == encoded.toLower();
+    };
+    LocalMediaDataResult loaded;
+    bool                 valid = false;
+    if (id.startsWith(QLatin1String("reference/"))) {
+        const QUrl      url(QStringLiteral("image://anykeep-media/") + id);
+        const QUrlQuery query(url);
+        MediaReference  reference;
+        reference.id           = QUuid(url.path().mid(QStringLiteral("/reference/").size()));
+        reference.portableName = QStringLiteral("image");
+        bool sizeOk            = false;
+        reference.size         = query.queryItemValue(QStringLiteral("size")).toLongLong(&sizeOk);
+        const auto blob        = query.queryItemValue(QStringLiteral("blob")).toLatin1();
+        const auto checksum    = query.queryItemValue(QStringLiteral("checksum")).toLatin1();
+        valid                  = !reference.id.isNull() && sizeOk && reference.size >= 0
+            && (blob.isEmpty() || decodeDigest(blob, &reference.blobId))
+            && (checksum.isEmpty() || decodeDigest(checksum, &reference.checksum));
+        if (valid)
+            loaded = store_->data(reference);
+    } else {
+        QByteArray blobId;
+        valid = decodeDigest(id.toLatin1(), &blobId);
+        if (valid)
+            loaded = store_->data(blobId);
+    }
+    if (!valid) {
         qCWarning(logLocalMediaImageProvider) << "Rejected malformed local image blob id";
         if (size)
             *size = {};
         return {};
     }
 
-    const auto loaded = LocalMediaStore::instance()->data(blobId);
-    QImage     image;
+    QImage image;
     if (!loaded) {
-        qCWarning(logLocalMediaImageProvider)
-            << "Failed to load local image blob" << QString::fromLatin1(blobId.toHex().left(12)) << loaded.error;
+        qCWarning(logLocalMediaImageProvider) << "Failed to load local image" << loaded.error;
     } else if (!image.loadFromData(loaded.value)) {
-        qCWarning(logLocalMediaImageProvider)
-            << "Failed to decode local image blob" << QString::fromLatin1(blobId.toHex().left(12));
+        qCWarning(logLocalMediaImageProvider) << "Failed to decode local image";
     }
     if (size)
         *size = image.size();

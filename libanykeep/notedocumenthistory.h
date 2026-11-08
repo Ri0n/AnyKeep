@@ -50,6 +50,9 @@ public:
                        const QVariantMap &afterView);
     void updateViewState(const QVariantMap &viewState, bool breakMerge);
     void breakMerge();
+    // Derived media metadata is an enrichment of immutable source content,
+    // shared by every snapshot rather than an undoable document edit.
+    void updateMediaMetadata(const MediaReference &reference);
 
     bool    canUndo() const { return stack_.canUndo(); }
     bool    canRedo() const { return stack_.canRedo(); }
@@ -74,19 +77,20 @@ private:
     void setCurrentScalar(const ScalarAddress &address, const QString &value);
     void changed();
 
-    QUndoStack           stack_;
-    DocumentState        current_;
-    QVariantMap          currentView_;
-    DocumentState        transactionBefore_;
-    QVariantMap          transactionBeforeView_;
-    QString              transactionKind_;
-    int                  transactionDepth_ = 0;
-    int                  mergeGeneration_  = 0;
-    bool                 restoring_        = false;
-    QElapsedTimer        elapsed_;
-    RestoreHandler       restoreHandler_;
-    ScalarRestoreHandler scalarRestoreHandler_;
-    ChangedHandler       changedHandler_;
+    QUndoStack            stack_;
+    DocumentState         current_;
+    QVariantMap           currentView_;
+    DocumentState         transactionBefore_;
+    QList<MediaReference> mediaMetadata_;
+    QVariantMap           transactionBeforeView_;
+    QString               transactionKind_;
+    int                   transactionDepth_ = 0;
+    int                   mergeGeneration_  = 0;
+    bool                  restoring_        = false;
+    QElapsedTimer         elapsed_;
+    RestoreHandler        restoreHandler_;
+    ScalarRestoreHandler  scalarRestoreHandler_;
+    ChangedHandler        changedHandler_;
 };
 
 } // namespace AnyKeep

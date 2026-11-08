@@ -60,6 +60,10 @@ bool KDEIntegration::ensureWaylandGeometryScript()
         return false;
     if (_waylandGeometryScriptAvailable)
         return true;
+    // A second window can ask again after unloadScript() reports the old
+    // script absent but before its deferred destruction has completed.
+    if (_waylandGeometryReloadScheduled)
+        return false;
     if (!ownsAnyKeepService())
         return false;
 
@@ -86,8 +90,6 @@ bool KDEIntegration::ensureWaylandGeometryScript()
         return false;
     }
     if (loaded.value()) {
-        if (_waylandGeometryReloadScheduled)
-            return false;
         const auto unload = scripting.call(QStringLiteral("unloadScript"), pluginName);
         if (unload.type() == QDBusMessage::ErrorMessage) {
             qCWarning(logKdeIntegration) << "Failed to unload old AnyKeep KWin script:" << unload.errorMessage();
@@ -107,9 +109,9 @@ bool KDEIntegration::ensureWaylandGeometryScript()
         qCWarning(logKdeIntegration) << "Failed to load AnyKeep KWin geometry script:" << scriptId.error().message();
         return false;
     }
-    const QString objectPath = QStringLiteral("/Scripting/Script%1").arg(scriptId.value());
+    const QString  objectPath = QStringLiteral("/Scripting/Script%1").arg(scriptId.value());
     QDBusInterface script(QStringLiteral("org.kde.KWin"), objectPath, QStringLiteral("org.kde.kwin.Script"));
-    const auto runReply = script.call(QStringLiteral("run"));
+    const auto     runReply         = script.call(QStringLiteral("run"));
     _waylandGeometryScriptAvailable = runReply.type() != QDBusMessage::ErrorMessage;
     if (!_waylandGeometryScriptAvailable)
         qCWarning(logKdeIntegration) << "Failed to run AnyKeep KWin geometry script" << objectPath << ":"

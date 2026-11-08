@@ -53,7 +53,7 @@ NoteFragmentMediaTransfer::Result NoteFragmentMediaTransfer::cloneForDestination
                 result.error = QStringLiteral("media bytes are unavailable");
                 return result;
             }
-            const auto loaded = sourceStore->data(source->reference.blobId);
+            const auto loaded = sourceStore->data(source->reference);
             if (!loaded) {
                 result.error = QStringLiteral("could not read source media: %1").arg(loaded.error);
                 return result;
@@ -69,6 +69,19 @@ NoteFragmentMediaTransfer::Result NoteFragmentMediaTransfer::cloneForDestination
         }
         MediaReference reference = imported.value;
         reference.remoteData.clear();
+        reference.posterFrameMs      = source->reference.posterFrameMs;
+        reference.videoThumbnailJpeg = source->reference.videoThumbnailJpeg;
+        // Sidecars belong to the destination's encryption domain too. A
+        // missing optional poster leaves the portable tiny thumbnail usable.
+        if (sourceStore && !source->reference.posterBlobId.isEmpty()) {
+            const auto poster = sourceStore->data(source->reference.posterBlobId);
+            if (poster) {
+                const auto importedPoster = destination.importData(poster.value, QStringLiteral("video-poster.jpg"),
+                                                                   QStringLiteral("image/jpeg"));
+                if (importedPoster)
+                    reference.posterBlobId = importedPoster.value.blobId;
+            }
+        }
         rewrittenUris.insert(sourceUri, reference.uri());
         result.importedMedia.append(reference);
     }

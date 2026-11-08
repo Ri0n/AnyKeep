@@ -738,13 +738,24 @@ LocalMediaResult LocalMediaStore::fingerprintExternalFile(const MediaReference &
 
     // A changed source revision invalidates cached hashes. Re-fingerprint the
     // current file rather than trusting hashes computed for an older revision.
-    if (sourceRevisionMatches(source, before) && source.hasFingerprint()) {
-        auto enriched     = reference;
-        enriched.size     = source.size;
-        enriched.blobId   = source.blobId;
-        enriched.checksum = source.checksum;
-        return { enriched, {} };
-    }
+    const bool sameRevision      = sourceRevisionMatches(source, before);
+    const auto enrichedReference = [&reference, sameRevision](const LocalMediaExternalSource &current) {
+        auto       enriched    = reference;
+        const bool sameContent = reference.hasContentFingerprint()
+            ? reference.blobId == current.blobId && reference.checksum == current.checksum
+            : sameRevision;
+        if (!sameContent) {
+            enriched.posterFrameMs = -1;
+            enriched.videoThumbnailJpeg.clear();
+            enriched.posterBlobId.clear();
+        }
+        enriched.size     = current.size;
+        enriched.blobId   = current.blobId;
+        enriched.checksum = current.checksum;
+        return enriched;
+    };
+    if (sameRevision && source.hasFingerprint())
+        return { enrichedReference(source), {} };
 
     QFile file(before.absoluteFilePath());
     if (!file.open(QIODevice::ReadOnly))
@@ -776,11 +787,7 @@ LocalMediaResult LocalMediaStore::fingerprintExternalFile(const MediaReference &
     if (const QString sourceError = writeExternalSource(reference.id, source); !sourceError.isEmpty())
         return { {}, sourceError };
 
-    auto enriched     = reference;
-    enriched.size     = source.size;
-    enriched.blobId   = source.blobId;
-    enriched.checksum = source.checksum;
-    return { enriched, {} };
+    return { enrichedReference(source), {} };
 }
 
 LocalMediaResult LocalMediaStore::importData(const QByteArray &plain, const QString &originalName,

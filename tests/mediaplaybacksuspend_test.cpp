@@ -32,6 +32,27 @@ class MediaPlaybackSuspendTest : public QObject {
     }
 
 private slots:
+    void videoFrameAvailabilityTracksTheAttachedSink()
+    {
+#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
+        MediaPlaybackController playback(nullptr);
+        QVideoSink              sink;
+        playback.attachVideoOutput(&sink);
+        QVERIFY(!playback.hasVideoFrame());
+        QVideoFrame frame(QVideoFrameFormat(QSize(2, 2), QVideoFrameFormat::Format_RGBA8888));
+        sink.setVideoFrame(frame);
+        QVERIFY(playback.hasVideoFrame());
+        sink.setVideoFrame({});
+        QVERIFY(!playback.hasVideoFrame());
+        sink.setVideoFrame(frame);
+        QVERIFY(playback.hasVideoFrame());
+        playback.detachVideoOutput(&sink);
+        QVERIFY(!playback.hasVideoFrame());
+#else
+        QSKIP("Qt Multimedia is unavailable");
+#endif
+    }
+
     void remotePlaybackReopensAtSavedPosition()
     {
         NoteEditor              editor;

@@ -11,6 +11,7 @@
 #include <QPalette>
 #include <QQmlComponent>
 #include <QQmlContext>
+#include <QQmlEngine>
 #include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickTextDocument>
@@ -27,12 +28,16 @@
 #include "desktopeditorplatformbackend.h"
 #include "desktopnoteeditorhost.h"
 #include "draftmanager.h"
+#include "localmediaimageprovider.h"
+#include "localmediastore.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
 #include "notehighlighter.h"
 #include "notestorage.h"
+#include "secureenvelope.h"
 #include "spellcheckprovider.h"
 #include "textdroputils.h"
+#include "videothumbnailgenerator.h"
 
 #include "editortestsupport.h"
 #include "quicktestsupport.h"
@@ -382,18 +387,136 @@ private slots:
         QVERIFY(surface->setProperty("playback", QVariant::fromValue<QObject *>(nullptr)));
     }
 
+    void insertingPngIntoOpenNoteLoadsItsPreview_data()
+    {
+        QTest::addColumn<int>("mode");
+        QTest::newRow("encrypted-copy") << 0;
+        QTest::newRow("keep-in-place") << 1;
+        QTest::newRow("fingerprinted-external") << 2;
+    }
+
+    void insertingPngIntoOpenNoteLoadsItsPreview()
+    {
+        QFETCH(int, mode);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QImage image(120, 60, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        const QString fileName = directory.filePath(QStringLiteral("picture.png"));
+        QVERIFY(image.save(fileName));
+        LocalMediaStore store(directory.filePath(QStringLiteral("media")), SecureEnvelope::generateMasterKey());
+        auto            imported = mode == 0 ? store.importFile(fileName) : store.referenceFile(fileName);
+        QVERIFY2(imported, qPrintable(imported.error));
+        if (mode == 2) {
+            imported = store.fingerprintExternalFile(imported.value);
+            QVERIFY2(imported, qPrintable(imported.error));
+        }
+
+        FavoriteEditorStorage storage;
+        Note                  note(new NoteData(&storage));
+        note.setTitle(QStringLiteral("Picture"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(700, 500);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        host.quickWidget()->engine()->addImageProvider(QStringLiteral("anykeep-media"),
+                                                       new LocalMediaImageProvider(&store));
+
+        QVERIFY(editor.insertMedia(imported.value));
+        // Keep this fixture independent of the profile keychain. Both the
+        // preview URL and provider use the same production reference resolver.
+        editor.model()->setPreviewUrls({ { imported.value.uri(), LocalMediaImageProvider::imageUrl(imported.value) } });
+        QQuickItem *preview = nullptr;
+        QTRY_VERIFY((preview = quickItemByName(root, QStringLiteral("imageBlockPreview-2"))));
+        QTRY_COMPARE(preview->property("status").toInt(), 1); // Image.Ready
+        QVERIFY(preview->isVisible());
+        QTRY_COMPARE(preview->width(), 120.0);
+        QTRY_COMPARE(preview->height(), 60.0);
+        const auto renderedColor = [&] {
+            const auto frame = host.quickWidget()->grabFramebuffer();
+            const auto point
+                = preview->mapToScene(QPointF(preview->width() / 2, preview->height() / 2)) * frame.devicePixelRatio();
+            return frame.rect().contains(point.toPoint()) ? frame.pixelColor(point.toPoint()) : QColor();
+        };
+        QTRY_COMPARE(renderedColor(), QColor(Qt::blue));
+        QVERIFY(!quickItemByName(root, QStringLiteral("mediaVideoCard-2")));
+    }
+
+    void videoPosterRemainsVisibleUntilAPlaybackFrameArrives()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Video"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager  drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor    editor(note, drafts);
+        const QString uri = QStringLiteral("anykeep-media:/missing/clip.mp4");
+        editor.model()->insertMedia(editor.model()->rowCount(), uri, QStringLiteral("Video"),
+                                    QStringLiteral("video/mp4"));
+        QImage image(120, 60, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        editor.model()->setPreviewUrls(
+            { { uri,
+                QStringLiteral("data:image/jpeg;base64,%1")
+                    .arg(QString::fromLatin1(VideoThumbnailGenerator::encodeTinyJpeg(image).toBase64())) } });
+        DesktopNoteEditorHost host(&editor);
+        host.resize(700, 700);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *media        = nullptr;
+        QQuickItem *poster       = nullptr;
+        QQuickItem *outputLoader = nullptr;
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        QTRY_VERIFY((poster = quickItemByName(root, QStringLiteral("mediaVideoPoster-2"))));
+        QTRY_VERIFY((outputLoader = quickItemByName(root, QStringLiteral("mediaVideoOutputLoader-2"))));
+        QTRY_COMPARE(poster->property("status").toInt(), 1);
+        QVERIFY(poster->isVisible());
+        QQmlComponent component(host.quickWidget()->engine());
+        component.setData(R"(
+            import QtQml
+            QtObject {
+                property bool available: true
+                property string currentSourceUri: "anykeep-media:/missing/clip.mp4"
+                property bool hasVideoFrame: false
+                property bool playing: false
+                property bool loading: true
+                property bool seeking: false
+                property real duration: 0
+                property real position: 0
+                function attachVideoOutput(output) {}
+                function detachVideoOutput(output) {}
+            }
+        )",
+                          QUrl());
+        std::unique_ptr<QObject> playback(component.create());
+        QVERIFY2(playback, qPrintable(component.errorString()));
+        QVERIFY(media->setProperty("playback", QVariant::fromValue(playback.get())));
+        QTRY_COMPARE(outputLoader->property("status").toInt(), 1); // Loader.Ready
+        QVERIFY(poster->isVisible());
+        QVERIFY(playback->setProperty("hasVideoFrame", true));
+        QTRY_VERIFY(!poster->isVisible());
+        QVERIFY(playback->setProperty("hasVideoFrame", false));
+        QTRY_VERIFY(poster->isVisible());
+        media->setProperty("playback", QVariant::fromValue<QObject *>(nullptr));
+    }
+
     void videoWithoutPosterUsesCardPlaceholderAndMetadataAspect()
     {
         const QString glyphAsset = QStringLiteral("video-x-generic-symbolic.svg");
         QVERIFY(QFile::exists(QStringLiteral(":/svg/") + glyphAsset));
 
-        // The metadata dimensions must win over the default 16:9 ratio.
+        // The descriptor dimensions determine the *frame* geometry. The
+        // transport occupies additional space inside the same bordered card.
         for (const QSize dimensions : { QSize(0, 0), QSize(640, 480) }) {
             Note note(new NoteData(nullptr));
             note.setTitle(QStringLiteral("Video"));
             note.setText(QStringLiteral("Body"), Note::Markdown);
             DraftManager drafts(std::make_unique<MemoryDraftStore>());
-            NoteEditor editor(note, drafts);
+            NoteEditor   editor(note, drafts);
             editor.model()->insertMedia(editor.model()->rowCount(), QStringLiteral("anykeep-media:/missing/clip.mp4"),
                                         QStringLiteral("Remote video"), QStringLiteral("video/mp4"), 10000,
                                         dimensions.width(), dimensions.height());
@@ -403,22 +526,35 @@ private slots:
             auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
             QVERIFY(root);
 
-            QQuickItem *media = nullptr;
-            QQuickItem *placeholder = nullptr;
-            QQuickItem *outline = nullptr;
-            QQuickItem *glyph = nullptr;
+            QQuickItem *media     = nullptr;
+            QQuickItem *card      = nullptr;
+            QQuickItem *frame     = nullptr;
+            QQuickItem *transport = nullptr;
+            QQuickItem *hitLayer  = nullptr;
+            QQuickItem *glyph     = nullptr;
             QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
-            QTRY_VERIFY((placeholder = quickItemByName(root, QStringLiteral("mediaVideoPlaceholder-2"))));
-            QTRY_VERIFY((outline = quickItemByName(root, QStringLiteral("mediaVideoOutline-2"))));
+            QTRY_VERIFY((card = quickItemByName(root, QStringLiteral("mediaVideoCard-2"))));
+            QTRY_VERIFY((frame = quickItemByName(root, QStringLiteral("mediaVideoFrame-2"))));
+            QTRY_VERIFY((transport = quickItemByName(root, QStringLiteral("mediaCard-2"))));
+            QTRY_VERIFY((hitLayer = quickItemByName(root, QStringLiteral("mediaVisualHitLayer-2"))));
             QTRY_VERIFY((glyph = quickItemByName(root, QStringLiteral("mediaVideoPlaceholderGlyph-2"))));
 
-            const qreal expected = dimensions.width() ? qreal(dimensions.height()) / dimensions.width()
-                                                            : 9.0 / 16;
+            const qreal expected = dimensions.width() ? qreal(dimensions.height()) / dimensions.width() : 9.0 / 16;
             QVERIFY(qAbs(media->property("visualAspect").toDouble() - expected) < 0.001);
-            QVERIFY(placeholder->isVisible());
-            QVERIFY(outline->isVisible());
-            QVERIFY(qAbs(placeholder->height() - media->property("displayWidth").toDouble() * expected) < 1.0);
-            QVERIFY(qAbs(placeholder->height() - outline->height()) < 0.01);
+            QVERIFY(card->isVisible());
+            QCOMPARE(frame->parentItem(), card);
+            QCOMPARE(transport->parentItem(), card);
+            QCOMPARE(hitLayer->parentItem(), media);
+            QVERIFY(card->property("clip").toBool());
+            QVERIFY(card->property("radius").toReal() > 0.0);
+            QVERIFY(qAbs(frame->height() - media->property("displayWidth").toDouble() * expected) < 1.0);
+            QVERIFY(qAbs(card->height() - frame->height() - transport->height() - 2.0) < 1.0);
+            QVERIFY(qAbs(frame->y() + frame->height() - transport->y()) < 1.0);
+            // Editor gestures end exactly where playback controls begin.
+            QVERIFY(qAbs(hitLayer->height() - frame->height()) < 1.0);
+            QVERIFY(qAbs(hitLayer->y() + hitLayer->height() - (card->y() + transport->y())) < 1.0);
+            QVERIFY(qAbs(frame->width() - card->width() + 2.0) < 1.0);
+            QVERIFY(!quickItemByName(root, QStringLiteral("mediaVideoOutline-2")));
             QCOMPARE(glyph->property("fallbackName").toString(), glyphAsset);
             QVERIFY(glyph->property("iconSource").toUrl().toString().contains(glyphAsset));
             QVERIFY(!glyph->childItems().isEmpty());
@@ -426,13 +562,38 @@ private slots:
         }
     }
 
+    void audioControlsDoNotInstantiateVideoCard()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Audio"));
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        editor.model()->insertMedia(editor.model()->rowCount(), QStringLiteral("anykeep-media:/missing/clip.ogg"),
+                                    QStringLiteral("Audio clip"), QStringLiteral("audio/ogg"), 8000);
+
+        DesktopNoteEditorHost host(&editor);
+        host.resize(700, 700);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *media     = nullptr;
+        QQuickItem *transport = nullptr;
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        QTRY_VERIFY((transport = quickItemByName(root, QStringLiteral("mediaCard-2"))));
+        QVERIFY(transport->isVisible());
+        QVERIFY(!quickItemByName(root, QStringLiteral("mediaVideoCard-2")));
+        QVERIFY(!quickItemByName(root, QStringLiteral("mediaVideoFrame-2")));
+        QVERIFY(qAbs(transport->height() - media->property("displayHeight").toDouble()) < 1.0);
+        QVERIFY(quickItemByName(root, QStringLiteral("mediaPlaybackGlyph-2")));
+    }
+
     void mediaControlIconsAreBundledAndRenderWithoutUnicodeGlyphs()
     {
         // Android fonts may lack the play/pause, fullscreen, overflow and
         // reset symbols. Use packaged SVGs instead of Unicode text.
         for (const QString &name :
-             { QStringLiteral("media-playback-start-symbolic.svg"),
-               QStringLiteral("media-playback-pause-symbolic.svg"),
+             { QStringLiteral("media-playback-start-symbolic.svg"), QStringLiteral("media-playback-pause-symbolic.svg"),
                QStringLiteral("view-fullscreen-symbolic.svg"), QStringLiteral("view-more-vertical-symbolic.svg"),
                QStringLiteral("view-refresh-symbolic.svg") }) {
             QVERIFY2(QFile::exists(QStringLiteral(":/svg/") + name), qPrintable(name));
@@ -480,8 +641,10 @@ private slots:
         QQuickItem *playbackGlyph = quickItemByName(root, QStringLiteral("mediaPlaybackGlyph-2"));
         QVERIFY(playbackGlyph);
         QVERIFY(playbackGlyph->setProperty("fallbackName", QStringLiteral("media-playback-pause-symbolic.svg")));
-        QTRY_VERIFY(playbackGlyph->property("iconSource").toUrl().toString().contains(
-            QStringLiteral("media-playback-pause-symbolic.svg")));
+        QTRY_VERIFY(playbackGlyph->property("iconSource")
+                        .toUrl()
+                        .toString()
+                        .contains(QStringLiteral("media-playback-pause-symbolic.svg")));
         QTRY_COMPARE(playbackGlyph->childItems().first()->property("status").toInt(), 1);
     }
 
