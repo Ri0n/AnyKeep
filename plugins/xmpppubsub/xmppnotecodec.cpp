@@ -22,7 +22,7 @@ namespace {
     const QString StatelessFileSharingNamespace = QStringLiteral("urn:xmpp:sfs:0");
     const QString ChunkedMediaSourceName        = QStringLiteral("encrypted-chunks");
     const QString VideoThumbnailNamespace = QStringLiteral("urn:anykeep:video-thumbnail:0");
-    constexpr int MaxVideoThumbnailsPerNoteBytes = 64 * 1024;
+    constexpr int MaxVideoThumbnailsPerNoteBytes = 16 * 1024;
 
     constexpr int MaxXmlDepth      = 32;
     constexpr int MaxXmlElements   = 8192;
