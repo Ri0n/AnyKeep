@@ -76,6 +76,7 @@ void FileDraftStoreTest::roundTrip()
     video.mediaType = QStringLiteral("video/mp4");
     video.posterFrameMs = 2000;
     video.videoThumbnailJpeg = QByteArray::fromHex("ffd8ffe000104a46494600010100ffd9");
+    video.posterBlobId = QByteArray(32, '\x01');
     record.media.append(video);
     QVERIFY(!store.write(record));
 
@@ -104,6 +105,7 @@ void FileDraftStoreTest::roundTrip()
     QCOMPARE(loaded.value.media.size(), 2);
     QCOMPARE(loaded.value.media.at(1).posterFrameMs, video.posterFrameMs);
     QCOMPARE(loaded.value.media.at(1).videoThumbnailJpeg, video.videoThumbnailJpeg);
+    QCOMPARE(loaded.value.media.at(1).posterBlobId, video.posterBlobId);
     QCOMPARE(loaded.value.media.first().id, record.media.first().id);
     QCOMPARE(loaded.value.media.first().originalName, record.media.first().originalName);
     QCOMPARE(loaded.value.media.first().blobId, record.media.first().blobId);
