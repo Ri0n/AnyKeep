@@ -7,28 +7,28 @@ import "../../shared" as Shared
 // Its outer bounds are the only geometry used for alignment, resize and selection.
 Rectangle {
     id: card
-    required property var mediaRoot
-    objectName: "mediaVideoCard-" + mediaRoot.block.index
+    required property var mediaBlock
+    objectName: "mediaVideoCard-" + mediaBlock.block.index
 
     readonly property real posterImplicitWidth: poster.implicitWidth
     readonly property real posterImplicitHeight: poster.implicitHeight
-    readonly property int transportHeight: mediaRoot.transportHeight
+    readonly property int transportHeight: mediaBlock.transportHeight
     readonly property bool hasPoster:
-        String(mediaRoot.block.previewUrl).startsWith("image://anykeep-media/")
-        || String(mediaRoot.block.previewUrl).startsWith("data:image/jpeg;base64,")
+        String(mediaBlock.block.previewUrl).startsWith("image://anykeep-media/")
+        || String(mediaBlock.block.previewUrl).startsWith("data:image/jpeg;base64,")
 
-    color: mediaRoot.editorView.documentCardColor
+    color: mediaBlock.editorView.documentCardColor
     border.width: 1
-    border.color: mediaRoot.editorView.documentCardBorderColor
+    border.color: mediaBlock.editorView.documentCardBorderColor
     radius: 6
     clip: true
 
     function openFullScreen() {
-        if (!mediaRoot.playback || !mediaRoot.playback.available)
+        if (!mediaBlock.playback || !mediaBlock.playback.available)
             return
         videoSurface.fullScreenWhenReady = true
-        if (!mediaRoot.current)
-            mediaRoot.playback.play(mediaRoot.block.url)
+        if (!mediaBlock.current)
+            mediaBlock.playback.play(mediaBlock.block.url)
         else if (videoSurface.item) {
             videoSurface.fullScreenWhenReady = false
             videoSurface.item.openFullScreen()
@@ -37,7 +37,7 @@ Rectangle {
 
     Rectangle {
         id: videoFrame
-        objectName: "mediaVideoFrame-" + mediaRoot.block.index
+        objectName: "mediaVideoFrame-" + mediaBlock.block.index
         x: card.border.width
         y: card.border.width
         width: Math.max(0, card.width - 2 * card.border.width)
@@ -47,39 +47,39 @@ Rectangle {
 
         Image {
             id: poster
-            objectName: "mediaVideoPoster-" + mediaRoot.block.index
+            objectName: "mediaVideoPoster-" + mediaBlock.block.index
             anchors.fill: parent
-            source: card.hasPoster ? mediaRoot.block.previewUrl : ""
+            source: card.hasPoster ? mediaBlock.block.previewUrl : ""
             fillMode: Image.PreserveAspectFit
             smooth: true
             asynchronous: true
             cache: true
-            visible: !(mediaRoot.current && videoSurface.status === Loader.Ready)
+            visible: !(mediaBlock.current && videoSurface.status === Loader.Ready)
         }
 
         Shared.ThemedIconImpl {
-            objectName: "mediaVideoPlaceholderGlyph-" + mediaRoot.block.index
+            objectName: "mediaVideoPlaceholderGlyph-" + mediaBlock.block.index
             anchors.centerIn: parent
             visible: poster.status !== Image.Ready
-                     && !(mediaRoot.current && videoSurface.status === Loader.Ready)
+                     && !(mediaBlock.current && videoSurface.status === Loader.Ready)
             themeName: "__bundled__"
             fallbackName: "video-x-generic-symbolic.svg"
             recolorFallback: true
-            fallbackTintMode: String(mediaRoot.editorView.documentSecondaryTextColor)
+            fallbackTintMode: String(mediaBlock.editorView.documentSecondaryTextColor)
             pixelSize: 32
             opacity: 0.6
         }
 
         Loader {
             id: videoSurface
-            objectName: "mediaVideoOutputLoader-" + mediaRoot.block.index
+            objectName: "mediaVideoOutputLoader-" + mediaBlock.block.index
             anchors.fill: parent
-            active: mediaRoot.current && mediaRoot.playback && mediaRoot.playback.available
+            active: mediaBlock.current && mediaBlock.playback && mediaBlock.playback.available
             source: active ? "MediaVideoSurface.qml" : ""
             z: 1
             property bool fullScreenWhenReady: false
             onLoaded: {
-                item.playback = mediaRoot.playback
+                item.playback = mediaBlock.playback
                 if (fullScreenWhenReady) {
                     fullScreenWhenReady = false
                     item.openFullScreen()
@@ -88,35 +88,35 @@ Rectangle {
         }
 
         HoverHandler { id: mediaHover }
-        ToolTip.visible: mediaHover.hovered && mediaRoot.block.alt.length > 0 && !mediaRoot.selected
-        ToolTip.text: mediaRoot.block.alt
+        ToolTip.visible: mediaHover.hovered && mediaBlock.block.alt.length > 0 && !mediaBlock.selected
+        ToolTip.text: mediaBlock.block.alt
 
         Reorder.ReorderDragHandle {
             anchors.fill: parent
             z: 2
-            dragEnabled: !mediaRoot.editorView.touchMode && mediaRoot.transientWidth < 0
+            dragEnabled: !mediaBlock.editorView.touchMode && mediaBlock.transientWidth < 0
             hoverCursorShape: Qt.OpenHandCursor
             dragCursorShape: Qt.ClosedHandCursor
-            onTapped: mediaRoot.selectAndFocus()
+            onTapped: mediaBlock.selectAndFocus()
             onDragStarted: {
-                mediaRoot.selectAndFocus()
-                mediaRoot.reorderController.startBlockDrag(mediaRoot.block.parent, mediaRoot)
+                mediaBlock.selectAndFocus()
+                mediaBlock.reorderController.startBlockDrag(mediaBlock.block.parent, mediaBlock)
             }
             onDragMoved: function(dx, dy) {
-                mediaRoot.reorderController.moveBlockDrag(dx, dy)
+                mediaBlock.reorderController.moveBlockDrag(dx, dy)
             }
-            onDragFinished: mediaRoot.reorderController.finishBlockDrag()
+            onDragFinished: mediaBlock.reorderController.finishBlockDrag()
         }
         TapHandler {
             acceptedButtons: Qt.RightButton
             gesturePolicy: TapHandler.DragThreshold
-            onTapped: mediaRoot.openMediaContextMenu()
+            onTapped: mediaBlock.openMediaContextMenu()
         }
         TapHandler {
-            enabled: mediaRoot.editorView.touchMode
+            enabled: mediaBlock.editorView.touchMode
             acceptedButtons: Qt.LeftButton
             gesturePolicy: TapHandler.DragThreshold
-            onLongPressed: mediaRoot.openMediaContextMenu()
+            onLongPressed: mediaBlock.openMediaContextMenu()
         }
     }
 
@@ -124,7 +124,7 @@ Rectangle {
     // the final part of the video. The frame keeps the true video aspect ratio.
     MediaTransportControls {
         id: transport
-        mediaRoot: card.mediaRoot
+        mediaBlock: card.mediaBlock
         embedded: true
         x: card.border.width
         y: card.height - height - card.border.width
