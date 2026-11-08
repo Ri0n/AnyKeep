@@ -19,6 +19,11 @@ struct ANYKEEP_EXPORT MediaReference {
     qint64      size { 0 };
     QByteArray  checksum;
     QVariantMap remoteData;
+    // A tiny derived poster inside encrypted note metadata. Never video bytes.
+    // -1 means that the source frame position is unknown.
+    qint64     posterFrameMs { -1 };
+    QByteArray videoThumbnailJpeg;
+    static constexpr qsizetype MaxVideoThumbnailBytes = 6 * 1024;
 
     QString uri() const;
     // The attachment UUID and portable name are the stable document identity.
@@ -31,7 +36,8 @@ struct ANYKEEP_EXPORT MediaReference {
     {
         return id == other.id && blobId == other.blobId && originalName == other.originalName
             && portableName == other.portableName && mediaType == other.mediaType && size == other.size
-            && checksum == other.checksum && remoteData == other.remoteData;
+            && checksum == other.checksum && remoteData == other.remoteData
+            && posterFrameMs == other.posterFrameMs && videoThumbnailJpeg == other.videoThumbnailJpeg;
     }
 };
 
