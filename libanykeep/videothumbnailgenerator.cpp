@@ -4,6 +4,8 @@
 #include "mediastream.h"
 
 #include <QBuffer>
+#include <QCoreApplication>
+#include <QQueue>
 #include <QDir>
 #include <QPointer>
 #include <QTimer>
@@ -101,6 +103,12 @@ public:
 
     ~ThumbnailJob() override
     {
+        // Deleting the editor cancels extraction; never invoke its callback
+        // from a mediaStatusChanged signal triggered during destruction.
+        finished_ = true;
+        QObject::disconnect(&player_, nullptr, this, nullptr);
+        QObject::disconnect(&sink_, nullptr, this, nullptr);
+        player_.stop();
         player_.setSource(QUrl());
         player_.setVideoSink(nullptr);
     }
@@ -177,6 +185,53 @@ private:
     bool frameCaptured_ = false;
     bool finished_ = false;
 };
+
+class ThumbnailQueue final : public QObject {
+public:
+    explicit ThumbnailQueue(QObject *parent) : QObject(parent) {}
+
+    void enqueue(MediaReference reference, QObject *lifetime, VideoThumbnailGenerator::Completion completion)
+    {
+        pending_.enqueue({ std::move(reference), QPointer<QObject>(lifetime), std::move(completion) });
+        pump();
+    }
+
+private:
+    struct Request {
+        MediaReference reference;
+        QPointer<QObject> lifetime;
+        VideoThumbnailGenerator::Completion completion;
+    };
+
+    void pump()
+    {
+        // Keep decoding independent of foreground playback and avoid a burst
+        // of simultaneous decoders when several videos are inserted together.
+        if (active_ >= 1)
+            return;
+        while (!pending_.isEmpty()) {
+            auto request = pending_.dequeue();
+            if (!request.lifetime)
+                continue;
+            ++active_;
+            auto *job = new ThumbnailJob(
+                std::move(request.reference), request.lifetime,
+                [guard = request.lifetime, done = std::move(request.completion)](qint64 frameMs, QByteArray jpeg) {
+                    if (guard)
+                        done(frameMs, std::move(jpeg));
+                });
+            connect(job, &QObject::destroyed, this, [this] {
+                --active_;
+                QTimer::singleShot(0, this, [this] { pump(); });
+            });
+            job->begin();
+            return;
+        }
+    }
+
+    QQueue<Request> pending_;
+    int active_ = 0;
+};
 #endif
 
 } // namespace
@@ -218,8 +273,8 @@ void VideoThumbnailGenerator::start(const MediaReference &reference, QObject *li
     if (!lifetime || !completion)
         return;
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-    auto *job = new ThumbnailJob(reference, lifetime, std::move(completion));
-    job->begin();
+    static ThumbnailQueue *queue = new ThumbnailQueue(QCoreApplication::instance());
+    queue->enqueue(reference, lifetime, std::move(completion));
 #else
     Q_UNUSED(reference)
     completion(-1, {});
