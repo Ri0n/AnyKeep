@@ -55,7 +55,15 @@ void FileRemoteCacheStoreTest::roundTrip()
     QVERIFY(directory.isValid());
     const auto           key = SecureEnvelope::generateMasterKey();
     FileRemoteCacheStore store(directory.filePath(QStringLiteral("cache.bin")), QStringLiteral("instance-1"), key);
-    const auto           expected = sampleRecord();
+    auto                 expected = sampleRecord();
+    MediaReference video;
+    video.id = QUuid::createUuid();
+    video.portableName = QStringLiteral("clip.mp4");
+    video.originalName = video.portableName;
+    video.mediaType = QStringLiteral("video/mp4");
+    video.posterFrameMs = 1500;
+    video.videoThumbnailJpeg = QByteArray::fromHex("ffd8ffe000104a46494600010100ffd9");
+    expected.media.append(video);
     QVERIFY(!store.replaceRecords({ expected }));
 
     const auto loaded = store.records();
@@ -68,7 +76,9 @@ void FileRemoteCacheStoreTest::roundTrip()
     QCOMPARE(record.folderId, expected.folderId);
     QCOMPARE(record.backendData.value(QStringLiteral("revision")).toString(), QStringLiteral("r1"));
     QVERIFY(record.cachedAt.isValid());
-    QCOMPARE(record.media.size(), 1);
+    QCOMPARE(record.media.size(), 2);
+    QCOMPARE(record.media.at(1).posterFrameMs, video.posterFrameMs);
+    QCOMPARE(record.media.at(1).videoThumbnailJpeg, video.videoThumbnailJpeg);
     QCOMPARE(record.media.first().id, expected.media.first().id);
 
     auto changed = record;
