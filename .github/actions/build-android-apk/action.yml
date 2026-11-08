@@ -119,6 +119,12 @@ runs:
         test -f "android-openssl/ssl_3/${{ inputs.abi }}/libcrypto.a"
         test -f "android-openssl/ssl_3/${{ inputs.abi }}/libssl.a"
 
+    - name: Cache Qt's Gradle distribution
+      uses: actions/cache@v4
+      with:
+        path: ~/.gradle/wrapper/dists
+        key: anykeep-gradle-wrapper-${{ runner.os }}-qt-${{ inputs.qt-version }}
+
     - name: Configure and build APK
       shell: bash
       env:
@@ -141,6 +147,56 @@ runs:
         python3 -m unittest discover -s .github/scripts -p 'test_inspect_android_apk.py'
         qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
         test -x "$qt_cmake"
+
+        # Use the wrapper version from the installed Qt SDK and verify its checksum,
+        # while avoiding services.gradle.org redirects and no-retry defaults.
+        # androiddeployqt overlays QT_ANDROID_PACKAGE_SOURCE_DIR onto its template.
+        qt_wrapper="$QT_ROOT_DIR/src/3rdparty/gradle/gradle/wrapper/gradle-wrapper.properties"
+        test -f "$qt_wrapper"
+        custom_wrapper="src/mobile/android/gradle/wrapper/gradle-wrapper.properties"
+        mkdir -p "$(dirname "$custom_wrapper")"
+        python3 - "$qt_wrapper" "$custom_wrapper" <<'PY'
+        from pathlib import Path
+        import sys
+
+        source = Path(sys.argv[1]).read_text()
+        lines = source.splitlines()
+        original_url = next(
+            (line.split("=", 1)[1] for line in lines if line.startswith("distributionUrl=")),
+            None,
+        )
+        if not original_url or "services.gradle.org/distributions/" not in original_url:
+            raise SystemExit(f"Unexpected Qt Gradle distribution URL: {original_url}")
+
+        # Some Qt SDK builds omit the checksum from their installed template.
+        # Keep a verified fallback for Qt 6.12's Gradle 9.5.1. Unknown versions
+        # must be reviewed instead of downloading unverified build tools.
+        if not any(line.startswith("distributionSha256Sum=") for line in lines):
+            import re
+            match = re.search(r"/gradle-(\d+(?:\.\d+)+)-bin\.zip$", original_url)
+            checksums = {
+                "9.5.1": "bafc141b619ad6350fd975fc903156dd5c151998cc8b058e8c1044ab5f7b031f",
+            }
+            version = match.group(1) if match else None
+            if version not in checksums:
+                raise SystemExit(f"Missing SHA-256 for Qt Gradle version: {version}")
+            lines.append(f"distributionSha256Sum={checksums[version]}")
+        replacements = {
+            "distributionUrl": original_url.replace("services.gradle.org", "downloads.gradle.org"),
+            "networkTimeout": "120000",
+            "retries": "4",
+            "retryBackOffMs": "2000",
+        }
+        for name, value in replacements.items():
+            replacement = f"{name}={value}"
+            matches = [i for i, line in enumerate(lines) if line.startswith(f"{name}=")]
+            if matches:
+                lines[matches[0]] = replacement
+            else:
+                lines.append(replacement)
+        Path(sys.argv[2]).write_text("\n".join(lines) + "\n")
+        PY
+        grep -E '^(distributionUrl|distributionSha256Sum|networkTimeout|retries|retryBackOffMs)=' "$custom_wrapper"
         qca_root="$PWD/qca-sdk"
         bundled_qca=OFF
         sdk_runtime=ON
