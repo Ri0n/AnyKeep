@@ -23,6 +23,9 @@ struct ANYKEEP_EXPORT MediaReference {
     // -1 means that the source frame position is unknown.
     qint64     posterFrameMs { -1 };
     QByteArray videoThumbnailJpeg;
+    // Local encrypted derived poster. This is not a second user-visible
+    // attachment and is never exposed as an XMPP source identifier.
+    QByteArray posterBlobId;
     static constexpr qsizetype MaxVideoThumbnailBytes = 6 * 1024;
 
     QString uri() const;
@@ -37,7 +40,8 @@ struct ANYKEEP_EXPORT MediaReference {
         return id == other.id && blobId == other.blobId && originalName == other.originalName
             && portableName == other.portableName && mediaType == other.mediaType && size == other.size
             && checksum == other.checksum && remoteData == other.remoteData
-            && posterFrameMs == other.posterFrameMs && videoThumbnailJpeg == other.videoThumbnailJpeg;
+            && posterFrameMs == other.posterFrameMs && videoThumbnailJpeg == other.videoThumbnailJpeg
+            && posterBlobId == other.posterBlobId;
     }
 };
 
