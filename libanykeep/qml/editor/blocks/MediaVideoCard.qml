@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import "../.." as EditorComponents
 import "../../reorder" as Reorder
 import "../../shared" as Shared
 
