@@ -561,7 +561,7 @@ direct child of its `note` element, independent of the XEP-0447
   decoded frame), not playback state.
 - `mime` is exactly `image/jpeg`. The element contains base64-encoded
   JPEG data, **at most 6 KiB decoded**. Total JPEG thumbnail payloads in one
-  note are limited to **64 KiB**. Producers may omit excess thumbnails rather
+  note are limited to **16 KiB** (before base64 encoding), to reduce stanza size. Producers may omit excess thumbnails rather
   than block note publication; receivers must reject malformed or oversized
   representations.
 - This is **not** XEP-0231 Bits of Binary, is never transmitted as a plaintext
