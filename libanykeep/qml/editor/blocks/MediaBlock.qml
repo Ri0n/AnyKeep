@@ -278,6 +278,7 @@ FocusScope {
     // never starts a document drag or changes the structural selection.
     Item {
         id: visualHitLayer
+        objectName: "mediaVisualHitLayer-" + mediaRoot.block.index
         visible: mediaRoot.visual
         x: visualItem.x + (mediaRoot.video ? 1 : 0)
         y: visualItem.y + (mediaRoot.video ? 1 : 0)
