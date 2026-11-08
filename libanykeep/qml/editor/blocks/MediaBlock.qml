@@ -31,6 +31,11 @@ FocusScope {
     readonly property bool loading: current && playback.loading
     readonly property real knownDuration: current && playback.duration > 0 ? playback.duration : block.mediaDuration
     readonly property bool visual: block.mediaType.startsWith("image/") || block.mediaType.startsWith("video/")
+    // Future sidecar posters use the same verified, encrypted-media image
+    // provider as inline images. A video URL itself must not be loaded as an Image.
+    readonly property bool hasVideoPoster:
+        video && (String(block.previewUrl).startsWith("image://anykeep-media/")
+                  || String(block.previewUrl).startsWith("data:image/jpeg;base64,"))
     readonly property bool individuallySelected:
         mediaRoot.editorView.selectedMediaIndex === block.index
     readonly property bool selected: individuallySelected || block.structurallySelected
@@ -43,16 +48,20 @@ FocusScope {
         block.mediaAlignment === "left" || block.mediaAlignment === "right"
         ? block.mediaAlignment : "center"
     readonly property real naturalWidth:
-        sourceImage.implicitWidth > 0 ? sourceImage.implicitWidth : Math.min(width, 480)
+        !video && sourceImage.implicitWidth > 0 ? sourceImage.implicitWidth : Math.min(width, 480)
     readonly property real requestedWidth:
         transientWidth >= 0 ? transientWidth
                             : (block.mediaDisplayWidth > 0 ? block.mediaDisplayWidth : naturalWidth)
     readonly property real displayWidth: Math.max(1, Math.min(width, requestedWidth))
+    // Video dimensions come from the media descriptor, not the optional poster.
+    // A missing poster must never create a differently shaped or empty card.
     readonly property real visualAspect:
-        sourceImage.implicitWidth > 0 && sourceImage.implicitHeight > 0
-        ? sourceImage.implicitHeight / sourceImage.implicitWidth
-        : (block.mediaWidth > 0 && block.mediaHeight > 0
-           ? block.mediaHeight / block.mediaWidth : 0.75)
+        video && block.mediaWidth > 0 && block.mediaHeight > 0
+        ? block.mediaHeight / block.mediaWidth
+        : (sourceImage.implicitWidth > 0 && sourceImage.implicitHeight > 0
+           ? sourceImage.implicitHeight / sourceImage.implicitWidth
+           : (block.mediaWidth > 0 && block.mediaHeight > 0
+              ? block.mediaHeight / block.mediaWidth : (video ? 9 / 16 : 0.75)))
     readonly property real displayHeight: visual ? Math.max(40, displayWidth * visualAspect) : 58
     readonly property real imageY: individuallySelected ? altEditor.implicitHeight + 6 : 0
     readonly property real actionGap: mediaRoot.editorView.touchMode ? 12 : 8
@@ -211,6 +220,35 @@ FocusScope {
         Behavior on opacity { NumberAnimation { duration: 120 } }
     }
 
+    // The remote file may be available without a video poster. Reserve a
+    // visible surface (rather than an invisible gap above the control bar).
+    Rectangle {
+        id: videoPlaceholder
+        objectName: "mediaVideoPlaceholder-" + mediaRoot.block.index
+        visible: mediaRoot.video
+        x: sourceImage.x
+        y: sourceImage.y
+        width: sourceImage.width
+        height: sourceImage.height
+        color: mediaRoot.editorView.documentCardColor
+        radius: 5
+
+        Shared.ThemedIconImpl {
+            objectName: "mediaVideoPlaceholderGlyph-" + mediaRoot.block.index
+            anchors.centerIn: parent
+            anchors.verticalCenterOffset: -timedControls.height / 2
+            visible: mediaRoot.video
+                     && !(mediaRoot.current && videoSurface.status === Loader.Ready)
+                     && sourceImage.status !== Image.Ready
+            themeName: "__bundled__"
+            fallbackName: "video-x-generic-symbolic.svg"
+            recolorFallback: true
+            fallbackTintMode: String(mediaRoot.editorView.documentSecondaryTextColor)
+            pixelSize: 32
+            opacity: 0.6
+        }
+    }
+
     Image {
         id: sourceImage
         objectName: "imageBlockPreview-" + mediaRoot.block.index
@@ -218,7 +256,8 @@ FocusScope {
         y: mediaRoot.imageY
         width: mediaRoot.displayWidth
         height: mediaRoot.displayHeight
-        source: mediaRoot.block.mediaType.startsWith("image/") ? mediaRoot.block.previewUrl : ""
+        source: mediaRoot.block.mediaType.startsWith("image/") || mediaRoot.hasVideoPoster
+                ? mediaRoot.block.previewUrl : ""
         visible: mediaRoot.visual && !(mediaRoot.video && mediaRoot.current && videoSurface.status === Loader.Ready)
         fillMode: Image.PreserveAspectFit
         smooth: true
@@ -328,6 +367,23 @@ FocusScope {
         onPositionChanged: function(mouse) { mediaRoot.updateMarginSelection(imageRightMarginSelectionArea, mouse) }
         onReleased: function(mouse) { mediaRoot.finishMarginSelection(mouse) }
         onCanceled: mediaRoot.editorView.cancelBlankAreaSelection()
+    }
+
+    // Keep the outline above the preview or the playing frame, but below
+    // playback controls. This also makes black videos visible on dark themes.
+    Rectangle {
+        objectName: "mediaVideoOutline-" + mediaRoot.block.index
+        visible: mediaRoot.video
+        x: sourceImage.x
+        y: sourceImage.y
+        width: sourceImage.width
+        height: sourceImage.height
+        z: 3
+        color: "transparent"
+        radius: 5
+        border.width: 1
+        border.color: mediaRoot.editorView.documentSecondaryTextColor
+        opacity: 0.32
     }
 
     Rectangle {
