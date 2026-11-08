@@ -724,8 +724,9 @@ bool NoteEditor::insertMedia(const MediaReference &reference, qint64 durationMs,
         // a separate undoable user edit.
         VideoThumbnailGenerator::start(reference, this,
                                        [this, id = reference.id, blobId = reference.blobId,
-                                        checksum = reference.checksum](qint64 frameMs, QByteArray jpeg) {
-            if (frameMs < 0 || jpeg.isEmpty())
+                                        checksum = reference.checksum](
+                                           qint64 frameMs, QByteArray tiny, QByteArray poster) {
+            if (frameMs < 0 || tiny.isEmpty())
                 return;
             auto manifest = media_;
             for (auto &item : manifest) {
@@ -733,9 +734,17 @@ bool NoteEditor::insertMedia(const MediaReference &reference, qint64 durationMs,
                     || !item.videoThumbnailJpeg.isEmpty())
                     continue;
                 item.posterFrameMs = frameMs;
-                item.videoThumbnailJpeg = std::move(jpeg);
+                item.videoThumbnailJpeg = std::move(tiny);
+                if (!poster.isEmpty()) {
+                    // The sidecar uses existing encrypted, content-addressed
+                    // storage; it never appears as a second Markdown media item.
+                    const auto stored = LocalMediaStore::instance()->importData(
+                        poster, QStringLiteral("video-poster.jpg"), QStringLiteral("image/jpeg"));
+                    if (stored)
+                        item.posterBlobId = stored.value.blobId;
+                }
                 setMedia(manifest);
-                setDirty(true); // Ensure the new derived metadata is checkpointed.
+                setDirty(true); // Derived metadata must survive autosave.
                 break;
             }
         });
@@ -1009,15 +1018,20 @@ void NoteEditor::updateMediaPreviewUrls()
                 if (!url.isEmpty())
                     urls.insert(reference.uri(), url.toString());
             }
-        } else if (reference.isValid() && reference.mediaType.startsWith(QLatin1String("video/"))
-                   && reference.videoThumbnailJpeg.size() >= 4
-                   && reference.videoThumbnailJpeg.size() <= MediaReference::MaxVideoThumbnailBytes
-                   && quint8(reference.videoThumbnailJpeg.at(0)) == 0xff
-                   && quint8(reference.videoThumbnailJpeg.at(1)) == 0xd8) {
-            // A bounded preview embedded in the encrypted note record does not
-            // require the remote video to be downloaded or the source to be online.
-            urls.insert(reference.uri(), QStringLiteral("data:image/jpeg;base64,%1")
-                                             .arg(QString::fromLatin1(reference.videoThumbnailJpeg.toBase64())));
+        } else if (reference.isValid() && reference.mediaType.startsWith(QLatin1String("video/"))) {
+            // Prefer the high-quality encrypted local sidecar. A synchronized
+            // tiny thumbnail remains available while the video is still remote.
+            if (reference.posterBlobId.size() == 32
+                && LocalMediaStore::instance()->containsManagedBlob(reference.posterBlobId)) {
+                urls.insert(reference.uri(), QStringLiteral("image://anykeep-media/%1")
+                                                 .arg(QString::fromLatin1(reference.posterBlobId.toHex())));
+            } else if (reference.videoThumbnailJpeg.size() >= 4
+                       && reference.videoThumbnailJpeg.size() <= MediaReference::MaxVideoThumbnailBytes
+                       && quint8(reference.videoThumbnailJpeg.at(0)) == 0xff
+                       && quint8(reference.videoThumbnailJpeg.at(1)) == 0xd8) {
+                urls.insert(reference.uri(), QStringLiteral("data:image/jpeg;base64,%1")
+                                                 .arg(QString::fromLatin1(reference.videoThumbnailJpeg.toBase64())));
+            }
         }
     }
     for (auto it = remotePreviewUrls_.begin(); it != remotePreviewUrls_.end();) {
