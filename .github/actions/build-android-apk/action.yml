@@ -148,8 +148,8 @@ runs:
         qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
         test -x "$qt_cmake"
 
-        # Use the wrapper version and checksum from the installed Qt SDK, but
-        # avoid services.gradle.org redirects and the 10-second, no-retry default.
+        # Use the wrapper version from the installed Qt SDK and verify its checksum,
+        # while avoiding services.gradle.org redirects and no-retry defaults.
         # androiddeployqt overlays QT_ANDROID_PACKAGE_SOURCE_DIR onto its template.
         qt_wrapper="$QT_ROOT_DIR/src/3rdparty/gradle/gradle/wrapper/gradle-wrapper.properties"
         test -f "$qt_wrapper"
@@ -160,8 +160,6 @@ runs:
         import sys
 
         source = Path(sys.argv[1]).read_text()
-        if "distributionSha256Sum=" not in source:
-            raise SystemExit("Qt Gradle wrapper has no distribution SHA-256 checksum")
         lines = source.splitlines()
         original_url = next(
             (line.split("=", 1)[1] for line in lines if line.startswith("distributionUrl=")),
@@ -169,6 +167,20 @@ runs:
         )
         if not original_url or "services.gradle.org/distributions/" not in original_url:
             raise SystemExit(f"Unexpected Qt Gradle distribution URL: {original_url}")
+
+        # Some Qt SDK builds omit the checksum from their installed template.
+        # Keep a verified fallback for Qt 6.12's Gradle 9.5.1. Unknown versions
+        # must be reviewed instead of downloading unverified build tools.
+        if not any(line.startswith("distributionSha256Sum=") for line in lines):
+            import re
+            match = re.search(r"/gradle-(\d+(?:\.\d+)+)-bin\.zip$", original_url)
+            checksums = {
+                "9.5.1": "bafc141b619ad6350fd975fc903156dd5c151998cc8b058e8c1044ab5f7b031f",
+            }
+            version = match.group(1) if match else None
+            if version not in checksums:
+                raise SystemExit(f"Missing SHA-256 for Qt Gradle version: {version}")
+            lines.append(f"distributionSha256Sum={checksums[version]}")
         replacements = {
             "distributionUrl": original_url.replace("services.gradle.org", "downloads.gradle.org"),
             "networkTimeout": "120000",
