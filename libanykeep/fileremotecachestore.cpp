@@ -12,7 +12,7 @@
 namespace AnyKeep {
 namespace {
     constexpr quint32 PayloadMagic   = 0x514e5243; // QNRC
-    constexpr quint16 PayloadVersion = 4;
+    constexpr quint16 PayloadVersion = 5;
     // Consumer schema passed to SecureEnvelope::associatedData(); see AeadContext::schema.
     constexpr quint32 AeadContextSchema = 1;
 
@@ -21,7 +21,7 @@ namespace {
         out << quint32(media.size());
         for (const auto &item : media)
             out << item.id << item.blobId << item.originalName << item.portableName << item.mediaType << item.size
-                << item.checksum << item.remoteData << item.posterFrameMs << item.videoThumbnailJpeg;
+                << item.checksum << item.remoteData << item.posterFrameMs << item.videoThumbnailJpeg << item.posterBlobId;
     }
 
     bool readMedia(QDataStream &in, QList<MediaReference> &media, quint16 version)
@@ -36,8 +36,11 @@ namespace {
                 >> item.checksum >> item.remoteData;
             if (version >= 4)
                 in >> item.posterFrameMs >> item.videoThumbnailJpeg;
+            if (version >= 5)
+                in >> item.posterBlobId;
             if (!item.isValid() || item.size < 0 || item.posterFrameMs < -1
-                || item.videoThumbnailJpeg.size() > MediaReference::MaxVideoThumbnailBytes)
+                || item.videoThumbnailJpeg.size() > MediaReference::MaxVideoThumbnailBytes
+                || (!item.posterBlobId.isEmpty() && item.posterBlobId.size() != 32))
                 return false;
             media.append(std::move(item));
         }
