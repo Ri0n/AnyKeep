@@ -31,6 +31,10 @@ FocusScope {
     readonly property bool loading: current && playback.loading
     readonly property real knownDuration: current && playback.duration > 0 ? playback.duration : block.mediaDuration
     readonly property bool visual: block.mediaType.startsWith("image/") || block.mediaType.startsWith("video/")
+    // Future sidecar posters use the same verified, encrypted-media image
+    // provider as inline images. A video URL itself must not be loaded as an Image.
+    readonly property bool hasVideoPoster:
+        video && String(block.previewUrl).startsWith("image://anykeep-media/")
     readonly property bool individuallySelected:
         mediaRoot.editorView.selectedMediaIndex === block.index
     readonly property bool selected: individuallySelected || block.structurallySelected
@@ -251,7 +255,8 @@ FocusScope {
         y: mediaRoot.imageY
         width: mediaRoot.displayWidth
         height: mediaRoot.displayHeight
-        source: mediaRoot.block.mediaType.startsWith("image/") ? mediaRoot.block.previewUrl : ""
+        source: mediaRoot.block.mediaType.startsWith("image/") || mediaRoot.hasVideoPoster
+                ? mediaRoot.block.previewUrl : ""
         visible: mediaRoot.visual && !(mediaRoot.video && mediaRoot.current && videoSurface.status === Loader.Ready)
         fillMode: Image.PreserveAspectFit
         smooth: true
