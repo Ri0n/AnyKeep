@@ -1492,7 +1492,13 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                                                          XmppErrorKind::Transient));
                             return;
                         }
-                        state->note.media[mediaIndex].reference = fingerprinted.value;
+                        // Fingerprinting materializes the original media identity;
+                        // it must not discard the poster derived during insertion.
+                        auto enriched = fingerprinted.value;
+                        enriched.posterFrameMs = reference.posterFrameMs;
+                        enriched.videoThumbnailJpeg = reference.videoThumbnailJpeg;
+                        enriched.posterBlobId = reference.posterBlobId;
+                        state->note.media[mediaIndex].reference = std::move(enriched);
                         (*next)();
                     },
                     Qt::QueuedConnection);
