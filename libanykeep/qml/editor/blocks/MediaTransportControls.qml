@@ -8,10 +8,10 @@ import ".." as EditorComponents
 // Neither the slider nor the buttons own media playback state or editor history.
 Rectangle {
     id: transport
-    required property var mediaRoot
+    required property var mediaBlock
     property bool embedded: false
-    objectName: "mediaCard-" + mediaRoot.block.index
-    color: mediaRoot.editorView.documentCardColor
+    objectName: "mediaCard-" + mediaBlock.block.index
+    color: mediaBlock.editorView.documentCardColor
     radius: embedded ? 0 : 5
 
         RowLayout {
@@ -20,104 +20,104 @@ Rectangle {
             spacing: 6
             ToolButton {
                 id: mediaPlaybackButton
-                objectName: "mediaPlaybackButton-" + mediaRoot.block.index
+                objectName: "mediaPlaybackButton-" + mediaBlock.block.index
                 Layout.preferredWidth: parent.height - 2
                 Layout.preferredHeight: Layout.preferredWidth
-                enabled: mediaRoot.playback && mediaRoot.playback.available
+                enabled: mediaBlock.playback && mediaBlock.playback.available
                 padding: 6
                 display: AbstractButton.IconOnly
                 contentItem: Item {
                     implicitWidth: 20
                     implicitHeight: 20
                     Shared.ThemedIconImpl {
-                        objectName: "mediaPlaybackGlyph-" + mediaRoot.block.index
+                        objectName: "mediaPlaybackGlyph-" + mediaBlock.block.index
                         anchors.centerIn: parent
-                        visible: !mediaRoot.loading
+                        visible: !mediaBlock.loading
                         themeName: "__bundled__"
-                        fallbackName: mediaRoot.playing ? "media-playback-pause-symbolic.svg"
+                        fallbackName: mediaBlock.playing ? "media-playback-pause-symbolic.svg"
                                                         : "media-playback-start-symbolic.svg"
                         recolorFallback: true
                         fallbackTintMode: String(mediaPlaybackButton.palette.buttonText)
                         pixelSize: 20
                     }
                     BusyIndicator {
-                        objectName: "mediaPlaybackBusyIndicator-" + mediaRoot.block.index
+                        objectName: "mediaPlaybackBusyIndicator-" + mediaBlock.block.index
                         anchors.centerIn: parent
                         width: 22
                         height: 22
-                        visible: mediaRoot.loading
+                        visible: mediaBlock.loading
                         running: visible
                     }
                 }
-                Accessible.name: mediaRoot.loading ? qsTr("Loading media")
-                                                  : (mediaRoot.playing ? qsTr("Pause media") : qsTr("Play media"))
+                Accessible.name: mediaBlock.loading ? qsTr("Loading media")
+                                                  : (mediaBlock.playing ? qsTr("Pause media") : qsTr("Play media"))
                 onClicked: {
-                    mediaRoot.selectAndFocus()
-                    mediaRoot.playback.toggle(mediaRoot.block.url)
+                    mediaBlock.selectAndFocus()
+                    mediaBlock.playback.toggle(mediaBlock.block.url)
                 }
             }
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 1
                 Label {
-                    objectName: "mediaLabel-" + mediaRoot.block.index
+                    objectName: "mediaLabel-" + mediaBlock.block.index
                     Layout.fillWidth: true
-                    visible: !mediaRoot.visual
-                    text: mediaRoot.block.alt.length > 0 ? mediaRoot.block.alt : qsTr("Audio recording")
+                    visible: !mediaBlock.visual
+                    text: mediaBlock.block.alt.length > 0 ? mediaBlock.block.alt : qsTr("Audio recording")
                     elide: Text.ElideMiddle
-                    font.bold: mediaRoot.selected
-                    color: mediaRoot.editorView.documentTextColor
+                    font.bold: mediaBlock.selected
+                    color: mediaBlock.editorView.documentTextColor
                 }
                 Slider {
                     Layout.fillWidth: true
                     from: 0
-                    to: Math.max(1, mediaRoot.knownDuration)
-                    value: mediaRoot.current ? mediaRoot.playback.position : 0
-                    enabled: mediaRoot.playback && mediaRoot.knownDuration > 0
-                    onMoved: mediaRoot.playback.seek(mediaRoot.block.url, value)
+                    to: Math.max(1, mediaBlock.knownDuration)
+                    value: mediaBlock.current ? mediaBlock.playback.position : 0
+                    enabled: mediaBlock.playback && mediaBlock.knownDuration > 0
+                    onMoved: mediaBlock.playback.seek(mediaBlock.block.url, value)
                 }
             }
             Label {
-                text: mediaRoot.formatTime(mediaRoot.current ? mediaRoot.playback.position : 0)
-                      + " / " + mediaRoot.formatTime(mediaRoot.knownDuration)
-                color: mediaRoot.editorView.documentSecondaryTextColor
+                text: mediaBlock.formatTime(mediaBlock.current ? mediaBlock.playback.position : 0)
+                      + " / " + mediaBlock.formatTime(mediaBlock.knownDuration)
+                color: mediaBlock.editorView.documentSecondaryTextColor
             }
             EditorComponents.MediaSyncIndicator {
-                objectName: "mediaAudioSync-" + mediaRoot.block.index
-                visible: mediaRoot.audio && Boolean(mediaRoot.syncStatus.valid)
+                objectName: "mediaAudioSync-" + mediaBlock.block.index
+                visible: mediaBlock.audio && Boolean(mediaBlock.syncStatus.valid)
                 Layout.preferredWidth: visible ? parent.height - 2 : 0
                 Layout.preferredHeight: Layout.preferredWidth
-                progress: mediaRoot.syncStatus.progress || 0
-                syncState: mediaRoot.syncStatus.state || 0
-                errorString: mediaRoot.syncStatus.error || ""
+                progress: mediaBlock.syncStatus.progress || 0
+                syncState: mediaBlock.syncStatus.state || 0
+                errorString: mediaBlock.syncStatus.error || ""
             }
             ToolButton {
-                visible: mediaRoot.canTranscribe
+                visible: mediaBlock.canTranscribe
                 Layout.preferredWidth: parent.height - 2
                 Layout.preferredHeight: Layout.preferredWidth
-                enabled: !mediaRoot.transcriptionBlocked && !mediaRoot.transcribing
-                text: mediaRoot.transcribing ? "…" : "STT"
-                Accessible.name: mediaRoot.block.mediaTranscript.length > 0
+                enabled: !mediaBlock.transcriptionBlocked && !mediaBlock.transcribing
+                text: mediaBlock.transcribing ? "…" : "STT"
+                Accessible.name: mediaBlock.block.mediaTranscript.length > 0
                                  ? qsTr("Show transcript") : qsTr("Transcribe audio")
                 onClicked: {
-                    mediaRoot.selectAndFocus()
-                    if (mediaRoot.block.mediaTranscript.length > 0)
-                        mediaRoot.transcriptExpanded = !mediaRoot.transcriptExpanded
+                    mediaBlock.selectAndFocus()
+                    if (mediaBlock.block.mediaTranscript.length > 0)
+                        mediaBlock.transcriptExpanded = !mediaBlock.transcriptExpanded
                     else
-                        mediaRoot.requestTranscription()
+                        mediaBlock.requestTranscription()
                 }
             }
             ToolButton {
                 id: fullScreenMediaButton
-                objectName: "mediaFullscreenButton-" + mediaRoot.block.index
-                visible: mediaRoot.video
+                objectName: "mediaFullscreenButton-" + mediaBlock.block.index
+                visible: mediaBlock.video
                 Layout.preferredWidth: parent.height - 2
                 Layout.preferredHeight: Layout.preferredWidth
-                enabled: mediaRoot.playback && mediaRoot.playback.available
+                enabled: mediaBlock.playback && mediaBlock.playback.available
                 padding: 6
                 display: AbstractButton.IconOnly
                 contentItem: Shared.ThemedIconImpl {
-                    objectName: "mediaFullscreenGlyph-" + mediaRoot.block.index
+                    objectName: "mediaFullscreenGlyph-" + mediaBlock.block.index
                     themeName: "__bundled__"
                     fallbackName: "view-fullscreen-symbolic.svg"
                     recolorFallback: true
@@ -128,19 +128,19 @@ Rectangle {
                 ToolTip.text: qsTr("Full screen")
                 Accessible.name: qsTr("Show video full screen")
                 onClicked: {
-                    mediaRoot.selectAndFocus()
-                    mediaRoot.openVideoFullScreen()
+                    mediaBlock.selectAndFocus()
+                    mediaBlock.openVideoFullScreen()
                 }
             }
             ToolButton {
                 id: mediaActionsButton
-                objectName: "mediaActionsButton-" + mediaRoot.block.index
+                objectName: "mediaActionsButton-" + mediaBlock.block.index
                 Layout.preferredWidth: parent.height - 2
                 Layout.preferredHeight: Layout.preferredWidth
                 padding: 6
                 display: AbstractButton.IconOnly
                 contentItem: Shared.ThemedIconImpl {
-                    objectName: "mediaActionsGlyph-" + mediaRoot.block.index
+                    objectName: "mediaActionsGlyph-" + mediaBlock.block.index
                     themeName: "__bundled__"
                     fallbackName: "view-more-vertical-symbolic.svg"
                     recolorFallback: true
@@ -149,8 +149,8 @@ Rectangle {
                 }
                 Accessible.name: qsTr("Media actions")
                 onClicked: {
-                    mediaRoot.selectAndFocus()
-                    mediaRoot.openMediaContextMenu()
+                    mediaBlock.selectAndFocus()
+                    mediaBlock.openMediaContextMenu()
                 }
             }
         }
