@@ -1471,7 +1471,7 @@ void IrisXmppBackend::prepareMediaAsync(XmppRemoteNote note, quint64 generation,
                     return;
                 QMetaObject::invokeMethod(
                     guard,
-                    [state, next, guard, fingerprinted, mediaIndex]() mutable {
+                    [state, next, guard, fingerprinted, mediaIndex, reference]() mutable {
                         if (!guard)
                             return;
                         if (state->generation != guard->generation_ || !guard->client_) {
