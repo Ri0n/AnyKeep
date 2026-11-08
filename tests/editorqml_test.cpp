@@ -384,11 +384,12 @@ private slots:
 
     void mediaControlIconsAreBundledAndRenderWithoutUnicodeGlyphs()
     {
-        // Regression: some Android system fonts lack the fullscreen, vertical
-        // ellipsis and reset-arrow glyphs. Icons must come from the packaged
-        // SVG resource provider rather than Unicode text.
+        // Android fonts may lack the play/pause, fullscreen, overflow and
+        // reset symbols. Use packaged SVGs instead of Unicode text.
         for (const QString &name :
-             { QStringLiteral("view-fullscreen-symbolic.svg"), QStringLiteral("view-more-vertical-symbolic.svg"),
+             { QStringLiteral("media-playback-start-symbolic.svg"),
+               QStringLiteral("media-playback-pause-symbolic.svg"),
+               QStringLiteral("view-fullscreen-symbolic.svg"), QStringLiteral("view-more-vertical-symbolic.svg"),
                QStringLiteral("view-refresh-symbolic.svg") }) {
             QVERIFY2(QFile::exists(QStringLiteral(":/svg/") + name), qPrintable(name));
         }
@@ -409,11 +410,13 @@ private slots:
         QTRY_VERIFY(quickItemByName(root, QStringLiteral("mediaBlockEditor-2")));
 
         const QStringList names {
+            QStringLiteral("mediaPlaybackGlyph-2"),
             QStringLiteral("mediaFullscreenGlyph-2"),
             QStringLiteral("mediaActionsGlyph-2"),
             QStringLiteral("mediaResetPresentationGlyph-2"),
         };
         const QStringList assets {
+            QStringLiteral("media-playback-start-symbolic.svg"),
             QStringLiteral("view-fullscreen-symbolic.svg"),
             QStringLiteral("view-more-vertical-symbolic.svg"),
             QStringLiteral("view-refresh-symbolic.svg"),
@@ -425,10 +428,17 @@ private slots:
             QVERIFY2(source.startsWith(QStringLiteral("image://anykeepicons/")), qPrintable(source));
             QVERIFY2(source.contains(assets.at(i)), qPrintable(source));
             QVERIFY(!glyph->childItems().isEmpty());
-            // QML Image.Ready is 1. This also validates Qt's SVG provider,
-            // not only that the icon filenames were declared in a resource.
+            // QML Image.Ready is 1. Validate SVG rendering, not only resource inclusion.
             QTRY_COMPARE(glyph->childItems().first()->property("status").toInt(), 1);
         }
+
+        // Verify the pause glyph is also resolvable when playback switches.
+        QQuickItem *playbackGlyph = quickItemByName(root, QStringLiteral("mediaPlaybackGlyph-2"));
+        QVERIFY(playbackGlyph);
+        QVERIFY(playbackGlyph->setProperty("fallbackName", QStringLiteral("media-playback-pause-symbolic.svg")));
+        QTRY_VERIFY(playbackGlyph->property("iconSource").toUrl().toString().contains(
+            QStringLiteral("media-playback-pause-symbolic.svg")));
+        QTRY_COMPARE(playbackGlyph->childItems().first()->property("status").toInt(), 1);
     }
 
     void mediaSyncIndicatorRendersWaitingTransferErrorAndCompletion()
