@@ -587,6 +587,10 @@ Jingle or XEP-0448 change.
 
 ## Unified media blocks and progressive media
 
+For concrete video poster extraction, derived sidecar ownership, small encrypted
+thumbnails, optional XEP-0264/BoB interoperability, and the empty-video-card UI
+fallback, see [video poster design](media-video-poster-design.md).
+
 Images, audio and video share one media-block architecture. The editor does not
 require the user to choose the media kind before import. A single **Insert media**
 action accepts supported image/audio/video inputs; probing validates the actual
