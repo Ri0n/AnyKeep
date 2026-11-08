@@ -32,6 +32,7 @@ namespace {
         map.insert(QStringLiteral("remoteData"), QCborValue::fromVariant(reference.remoteData));
         map.insert(QStringLiteral("posterFrameMs"), reference.posterFrameMs);
         map.insert(QStringLiteral("videoThumbnailJpeg"), reference.videoThumbnailJpeg);
+        map.insert(QStringLiteral("posterBlobId"), reference.posterBlobId);
         return map;
     }
 
@@ -59,8 +60,10 @@ namespace {
         reference->remoteData   = map.value(QStringLiteral("remoteData")).toVariant().toMap();
         reference->posterFrameMs = map.value(QStringLiteral("posterFrameMs")).toInteger(-1);
         reference->videoThumbnailJpeg = map.value(QStringLiteral("videoThumbnailJpeg")).toByteArray();
+        reference->posterBlobId = map.value(QStringLiteral("posterBlobId")).toByteArray();
         if (!reference->isValid() || reference->size < 0 || reference->posterFrameMs < -1
-            || reference->videoThumbnailJpeg.size() > MediaReference::MaxVideoThumbnailBytes) {
+            || reference->videoThumbnailJpeg.size() > MediaReference::MaxVideoThumbnailBytes
+            || (!reference->posterBlobId.isEmpty() && reference->posterBlobId.size() != 32)) {
             *error = QStringLiteral("media reference is incomplete");
             return false;
         }
