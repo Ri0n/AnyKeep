@@ -142,6 +142,8 @@ tag editing, or the first/last text field of a text-bearing block. A block
 boundary request waits for the requested delegate to exist; it cannot use the
 history-restoration fallback to an unrelated resident editor. Up enters the
 last list item/table cell, while Down enters the first.
+Subfield indexes come from the model's item/cell counts, so a newly added
+boundary field cannot be replaced by the last editor that has already registered.
 
 Leaving a terminal structural block uses `insertParagraphAtBoundary()` to
 create a temporary typing position. The ordinary empty-paragraph cleanup

@@ -512,6 +512,11 @@ int NoteBlockModel::listItemCountAt(int row) const
     return row >= 0 && row < blocks_.size() && isListType(blocks_.at(row).type) ? blocks_.at(row).items.size() : 0;
 }
 
+int NoteBlockModel::tableCellCountAt(int row) const
+{
+    return row >= 0 && row < blocks_.size() && blocks_.at(row).type == Table ? blocks_.at(row).cells.size() : 0;
+}
+
 bool NoteBlockModel::isExplicitEmptyTextBlock(int row) const
 {
     return row >= 0 && row < blocks_.size() && blocks_.at(row).type == Text && blocks_.at(row).text.isEmpty()
