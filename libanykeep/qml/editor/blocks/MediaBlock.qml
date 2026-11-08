@@ -246,49 +246,11 @@ FocusScope {
         smooth: true
         asynchronous: true
         cache: true
-        ToolTip.visible: imageDescriptionHover.hovered && mediaRoot.block.alt.length > 0
-                             && !mediaRoot.selected
-        ToolTip.text: mediaRoot.block.alt
-
         Behavior on x {
             enabled: mediaRoot.transientWidth < 0
             NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
         }
 
-        HoverHandler { id: imageDescriptionHover }
-        Reorder.ReorderDragHandle {
-            anchors.fill: parent
-            dragEnabled: !mediaRoot.editorView.touchMode && mediaRoot.transientWidth < 0
-            hoverCursorShape: Qt.OpenHandCursor
-            dragCursorShape: Qt.ClosedHandCursor
-            onTapped: mediaRoot.selectAndFocus()
-            onDragStarted: {
-                mediaRoot.selectAndFocus()
-                mediaRoot.reorderController.startBlockDrag(
-                            mediaRoot.block.parent, mediaRoot)
-            }
-            onDragMoved: function(dx, dy) {
-                mediaRoot.reorderController.moveBlockDrag(dx, dy)
-            }
-            onDragFinished: mediaRoot.reorderController.finishBlockDrag()
-        }
-        TapHandler {
-            acceptedButtons: Qt.RightButton
-            gesturePolicy: TapHandler.DragThreshold
-            onTapped: {
-                mediaRoot.selectAndFocus()
-                mediaContextMenu.popup()
-            }
-        }
-        TapHandler {
-            enabled: mediaRoot.editorView.touchMode
-            acceptedButtons: Qt.LeftButton
-            gesturePolicy: TapHandler.DragThreshold
-            onLongPressed: {
-                mediaRoot.selectAndFocus()
-                mediaContextMenu.popup()
-            }
-        }
     }
 
     Loader {
@@ -311,10 +273,53 @@ FocusScope {
         }
     }
 
-    // The image itself owns the reorder gesture, but the unused row
-    // width is still part of the document. Let an upward drag from
-    // either horizontal margin start selection at the boundary after
-    // the image (especially important when it is the final block).
+    // MediaBlock owns editor-specific gestures for *both* images and videos.
+    // The hit region stops at the video transport: clicking its controls
+    // never starts a document drag or changes the structural selection.
+    Item {
+        id: visualHitLayer
+        visible: mediaRoot.visual
+        x: visualItem.x + (mediaRoot.video ? 1 : 0)
+        y: visualItem.y + (mediaRoot.video ? 1 : 0)
+        width: Math.max(0, visualItem.width - (mediaRoot.video ? 2 : 0))
+        height: Math.max(0, visualItem.height - (mediaRoot.video ? mediaRoot.transportHeight + 2 : 0))
+        z: 2
+
+        HoverHandler { id: visualDescriptionHover }
+        ToolTip.visible: visualDescriptionHover.hovered && mediaRoot.block.alt.length > 0
+                         && !mediaRoot.selected
+        ToolTip.text: mediaRoot.block.alt
+
+        Reorder.ReorderDragHandle {
+            anchors.fill: parent
+            dragEnabled: !mediaRoot.editorView.touchMode && mediaRoot.transientWidth < 0
+            hoverCursorShape: Qt.OpenHandCursor
+            dragCursorShape: Qt.ClosedHandCursor
+            onTapped: mediaRoot.selectAndFocus()
+            onDragStarted: {
+                mediaRoot.selectAndFocus()
+                mediaRoot.reorderController.startBlockDrag(mediaRoot.block.parent, mediaRoot)
+            }
+            onDragMoved: function(dx, dy) {
+                mediaRoot.reorderController.moveBlockDrag(dx, dy)
+            }
+            onDragFinished: mediaRoot.reorderController.finishBlockDrag()
+        }
+        TapHandler {
+            acceptedButtons: Qt.RightButton
+            gesturePolicy: TapHandler.DragThreshold
+            onTapped: mediaRoot.openMediaContextMenu()
+        }
+        TapHandler {
+            enabled: mediaRoot.editorView.touchMode
+            acceptedButtons: Qt.LeftButton
+            gesturePolicy: TapHandler.DragThreshold
+            onLongPressed: mediaRoot.openMediaContextMenu()
+        }
+    }
+
+    // Horizontal margins remain part of the editor's document selection area.
+    // A drag from either side of a visual block selects the text boundary.
     MouseArea {
         id: imageLeftMarginSelectionArea
         x: 0
