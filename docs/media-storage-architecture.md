@@ -139,6 +139,15 @@ it must remain previewable through its encrypted attachment locator. QML URLs
 carry no filesystem locators, and previewing never imports a second owned copy.
 Legacy blob-only image URLs remain supported for immutable blobs and posters.
 
+Promoting a linked file into encrypted storage records its verified fingerprint
+behind the existing encrypted attachment locator. `managedReference()` resolves
+this alias before checking the external file, so old un-fingerprinted note and
+history references continue working even if the original file is removed. No
+Markdown, manifest, undo or publication-state mutation is needed for this local
+ownership operation. **Copy into encrypted storage** preserves the original plain
+file; **Move out of encrypted storage** updates the local locators before removing
+the managed blob. Both directions preserve attachment identity.
+
 A `MediaReference` identifies content and intentionally does **not** identify where
 that content lives on the current device. Local ownership is a separate concern.
 When a user selects a filesystem-backed media file, the desktop editor offers two
@@ -708,10 +717,22 @@ desktop-only video insertion path.
 
 ### Shared playback and media actions
 
-A single playback controller owns `QMediaPlayer` lifecycle for timed media. Audio
-and video differ only in whether a video output is attached. Starting another
-timed media item transfers the controller to that item; inactive blocks retain no
-decoder. Seeking, buffering, duration and errors therefore have one behavior.
+`MediaPlaybackController` is an editor adapter over application-owned
+`MediaPlaybackSession` instances. Sessions are keyed by the attachment and exact
+content/source descriptor, own the player, stream and range URL, and have explicit
+QObject borrower leases. Repeated acquisition by one borrower is idempotent;
+returning the final lease releases decoder/network resources and schedules
+session deletion. Audio and video share the same playback behavior.
+
+An editor borrows its currently selected session. Changing source or closing the
+final note view returns that lease. A separate video window borrows the same
+session and owns an independent QML engine, so neither the editor nor its QML
+engine must remain alive. Opening another media item in the note does not retarget
+the independent window. Windows do not acquire editor/document leases or delay
+routing/publication on note close. Video outputs form a stack: the most recently
+attached presentation receives the player output, and detaching it restores the
+previous surviving presentation. Closing fullscreen restores its inline output.
+Seeking, buffering, duration and errors live in the session, never the document.
 
 Speech-to-text is an action on `canTranscribe`, not on an Audio block type. The
 transcription boundary receives the media source and lets the backend extract or
@@ -860,7 +881,11 @@ future design, not part of PR #155.
 11. Define transports independently for other remote-storage plugins.
 
 
-Implementation note: timed media shares one playback controller. Video presentation lazily attaches an inline Qt Multimedia output to that player and switches the same player to a dedicated OS-fullscreen output while fullscreen is active; playback position and state remain unchanged. Probing/poster extraction is a separate derived-cache concern and must not write frame-by-frame playback state into storage.
+Each timed-media session owns one player. Video presentation lazily attaches an
+inline Qt Multimedia output and switches that session's player to a dedicated
+OS-fullscreen output while fullscreen is active; playback position and state
+remain unchanged. Probing/poster extraction is a separate derived-cache concern
+and must not write frame-by-frame playback state into storage.
 
 The mobile shell keeps the screen awake while foreground video is playing and
 clears this request on pause or navigation. When the application becomes hidden

@@ -1,6 +1,10 @@
+#include "draftmanager.h"
+#include "editortestsupport.h"
 #include "mediaplaybackcontroller.h"
+#include "mediaplaybacksession.h"
 #include "mediarangeservice.h"
 #include "noteeditor.h"
+#include <QQuickWindow>
 
 #include <QDataStream>
 #include <QtTest>
@@ -35,8 +39,14 @@ private slots:
     void videoFrameAvailabilityTracksTheAttachedSink()
     {
 #if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-        MediaPlaybackController playback(nullptr);
-        QVideoSink              sink;
+        MediaReference reference;
+        reference.id           = QUuid::createUuid();
+        reference.portableName = QStringLiteral("frames.mp4");
+        reference.mediaType    = QStringLiteral("video/mp4");
+        QObject    borrower;
+        auto      *session  = MediaPlaybackSession::acquire(reference, &borrower);
+        auto      &playback = *session;
+        QVideoSink sink;
         playback.attachVideoOutput(&sink);
         QVERIFY(!playback.hasVideoFrame());
         QVideoFrame frame(QVideoFrameFormat(QSize(2, 2), QVideoFrameFormat::Format_RGBA8888));
@@ -46,11 +56,93 @@ private slots:
         QVERIFY(!playback.hasVideoFrame());
         sink.setVideoFrame(frame);
         QVERIFY(playback.hasVideoFrame());
+        {
+            QVideoSink separateWindow;
+            playback.attachVideoOutput(&separateWindow);
+            QVERIFY(!playback.hasVideoFrame());
+            separateWindow.setVideoFrame(frame);
+            QVERIFY(playback.hasVideoFrame());
+        }
+        // Returning the separate presentation restores the surviving output.
+        QVERIFY(playback.hasVideoFrame());
+        sink.setVideoFrame({});
+        QVERIFY(!playback.hasVideoFrame());
         playback.detachVideoOutput(&sink);
         QVERIFY(!playback.hasVideoFrame());
 #else
         QSKIP("Qt Multimedia is unavailable");
 #endif
+    }
+
+    void independentWindowKeepsPlaybackAfterTheNoteIsDestroyed()
+    {
+        using namespace AnyKeep::TestSupport;
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        auto         editor     = std::make_unique<NoteEditor>(plainNote(), drafts);
+        auto        *controller = qobject_cast<MediaPlaybackController *>(editor->mediaPlayback());
+        if (!controller->available())
+            QSKIP("Qt Multimedia is unavailable");
+        MediaReference reference;
+        reference.id           = QUuid::createUuid();
+        reference.portableName = QStringLiteral("window.wav");
+        reference.mediaType    = QStringLiteral("video/mp4");
+        const auto wav         = silentWav();
+        reference.size         = wav.size();
+        editor->setMedia({ reference });
+        QObject provider;
+        MediaRangeService::registerResolver(
+            &provider, [reference](const auto &item) { return item.id == reference.id; },
+            [&wav](MediaReference, qint64 offset, qint64 length, MediaRangeService::Completion done) {
+                done(wav.mid(offset, length), {});
+            });
+        QVERIFY(controller->play(reference.uri()));
+        QTRY_COMPARE_WITH_TIMEOUT(controller->duration(), qint64(8000), 10000);
+        QObject                        probe;
+        QPointer<MediaPlaybackSession> session = MediaPlaybackSession::acquire(reference, &probe);
+        QCOMPARE(session->leaseCount(), 2);
+        QVERIFY(controller->openWindow(reference.uri(), QStringLiteral("Independent video"), QString(),
+                                       QUrl(QStringLiteral("qrc:/qml/editor/blocks/MediaPlayerWindow.qml"))));
+        QCOMPARE(session->leaseCount(), 3);
+        session->release(&probe);
+        QQuickWindow *window = nullptr;
+        for (auto *candidate : QGuiApplication::allWindows()) {
+            if (candidate->objectName() == QLatin1String("detachedMediaWindow"))
+                window = qobject_cast<QQuickWindow *>(candidate);
+        }
+        QVERIFY(window);
+        QVERIFY(window->isVisible());
+        QVERIFY(editor->close());
+        QCOMPARE(session->leaseCount(), 1);
+        QVERIFY(controller->currentSourceUri().isEmpty());
+        editor.reset();
+        QVERIFY(session);
+        QCOMPARE(session->leaseCount(), 1);
+        QVERIFY(session->playing());
+        QVERIFY(window->close());
+        QTRY_VERIFY(session.isNull());
+    }
+
+    void sessionBorrowersShareAndReturnTheirOwnLeases()
+    {
+        MediaReference first;
+        first.id           = QUuid::createUuid();
+        first.portableName = QStringLiteral("clip.mp4");
+        first.mediaType    = QStringLiteral("video/mp4");
+        QObject                        note;
+        auto                           window  = std::make_unique<QObject>();
+        QPointer<MediaPlaybackSession> session = MediaPlaybackSession::acquire(first, &note);
+        QCOMPARE(MediaPlaybackSession::acquire(first, window.get()), session.data());
+        QCOMPARE(MediaPlaybackSession::acquire(first, &note), session.data());
+        QCOMPARE(session->leaseCount(), 2);
+        auto replaced     = first;
+        replaced.checksum = QByteArray(32, 'x');
+        auto *other       = MediaPlaybackSession::acquire(replaced, &note);
+        QVERIFY(other != session);
+        other->release(&note);
+        session->release(&note);
+        QCOMPARE(session->leaseCount(), 1);
+        window.reset();
+        QTRY_VERIFY(session.isNull());
     }
 
     void remotePlaybackReopensAtSavedPosition()

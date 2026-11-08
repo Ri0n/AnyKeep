@@ -170,7 +170,7 @@ namespace {
             return downloaded;
 
         auto *store = LocalMediaStore::instance();
-        if (!store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference)) {
+        if (!store->managedReference(reference) && store->hasExternalSource(reference)) {
             const auto source = store->externalSource(reference);
             if (source && QFileInfo(source.value.fileName).isFile())
                 return source.value.fileName;
@@ -585,7 +585,7 @@ void DesktopEditorPlatformBackend::saveAttachmentAs(const QString &url)
         exportRemoteAttachment(*reference, fileName, false);
         return;
     }
-    if (LocalMediaStore::instance()->containsManagedBlob(reference->blobId)) {
+    if (LocalMediaStore::instance()->managedReference(*reference)) {
         bool keepOnlySavedFile = false;
         if (!chooseSaveMode(fileName, &keepOnlySavedFile))
             return;
@@ -621,6 +621,55 @@ bool DesktopEditorPlatformBackend::findAttachment(const QString &url, MediaRefer
     return true;
 }
 
+bool DesktopEditorPlatformBackend::isAttachmentInMediaStore(const QString &url) const
+{
+    MediaReference reference;
+    return findAttachment(url, &reference) && LocalMediaStore::instance()->containsManagedMedia(reference);
+}
+
+void DesktopEditorPlatformBackend::moveAttachmentOutOfStore(const QString &url)
+{
+    MediaReference reference;
+    if (!findAttachment(url, &reference) || !LocalMediaStore::instance()->managedReference(reference))
+        return;
+    const auto initialPath
+        = QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)).filePath(attachmentName(reference));
+    const auto path
+        = QFileDialog::getSaveFileName(dialogParent_, tr("Move File out of Encrypted Storage"), initialPath);
+    if (!path.isEmpty())
+        moveAttachmentToFileAsync(reference, path, url);
+}
+
+void DesktopEditorPlatformBackend::copyAttachmentIntoStore(const QString &url)
+{
+    MediaReference reference;
+    if (!findAttachment(url, &reference))
+        return;
+    auto   *store = LocalMediaStore::instance();
+    QString error;
+    if (!store->initialize(&error)) {
+        emit operationFailed(error);
+        return;
+    }
+    const QPointer<DesktopEditorPlatformBackend> guard(this);
+    QThreadPool::globalInstance()->start(QRunnable::create([guard, store, reference, url] {
+        const auto result = store->copyIntoStore(reference);
+        if (!guard)
+            return;
+        QMetaObject::invokeMethod(
+            guard,
+            [guard, result, url] {
+                if (!guard)
+                    return;
+                if (!result)
+                    emit guard->operationFailed(result.error);
+                else
+                    emit guard->attachmentStorageChanged(url);
+            },
+            Qt::QueuedConnection);
+    }));
+}
+
 bool DesktopEditorPlatformBackend::isAttachmentKeptInPlace(const QString &url) const
 {
     MediaReference reference;
@@ -628,7 +677,7 @@ bool DesktopEditorPlatformBackend::isAttachmentKeptInPlace(const QString &url) c
         return false;
     // An encrypted copy of the same content takes precedence over the file.
     auto *store = LocalMediaStore::instance();
-    return !store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference);
+    return !store->containsManagedMedia(reference) && store->hasExternalSource(reference);
 }
 
 bool DesktopEditorPlatformBackend::hasAttachmentLocalFile(const QString &url) const
@@ -639,10 +688,10 @@ bool DesktopEditorPlatformBackend::hasAttachmentLocalFile(const QString &url) co
     const QString saved = QSettings().value(attachmentSavedPathKey(reference)).toString();
     if (!saved.isEmpty() && QFileInfo(saved).isFile())
         return true;
-    // This is evaluated by QML bindings. Never decrypt a source locator or
-    // query the keychain just to determine whether to display an icon.
+    // QML bindings may use cached alias metadata, but must not query the
+    // keychain or read media content just to display an icon.
     auto *store = LocalMediaStore::instance();
-    if (!store->containsManagedBlob(reference.blobId) && store->hasExternalSource(reference))
+    if (!store->containsManagedMedia(reference) && store->hasExternalSource(reference))
         return true;
     const QString downloaded = attachmentDownloadPath(reference);
     return !downloaded.isEmpty() && QFileInfo(downloaded).isFile();
@@ -657,13 +706,13 @@ void DesktopEditorPlatformBackend::showAttachmentInFolder(const QString &url)
     }
     // A user-saved file or materialized download is usable independently
     // of the keychain. Retain detailed diagnostics for keep-in-place sources.
-    auto         *store         = LocalMediaStore::instance();
-    const QString saved         = QSettings().value(attachmentSavedPathKey(reference)).toString();
-    const QString downloaded    = attachmentDownloadPath(reference);
-    const bool    hasSaved      = !saved.isEmpty() && QFileInfo(saved).isFile();
-    const bool    hasDownload   = !downloaded.isEmpty() && QFileInfo(downloaded).isFile();
-    const bool    needsExternal = !hasSaved && !hasDownload && !store->containsManagedBlob(reference.blobId)
-        && store->hasExternalSource(reference);
+    auto         *store       = LocalMediaStore::instance();
+    const QString saved       = QSettings().value(attachmentSavedPathKey(reference)).toString();
+    const QString downloaded  = attachmentDownloadPath(reference);
+    const bool    hasSaved    = !saved.isEmpty() && QFileInfo(saved).isFile();
+    const bool    hasDownload = !downloaded.isEmpty() && QFileInfo(downloaded).isFile();
+    const bool    needsExternal
+        = !hasSaved && !hasDownload && !store->managedReference(reference) && store->hasExternalSource(reference);
     if (needsExternal) {
         QString initializeError;
         if (!store->initialize(&initializeError)) {

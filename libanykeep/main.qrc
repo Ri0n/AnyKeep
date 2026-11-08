@@ -78,6 +78,9 @@
         <file alias="editor/blocks/MediaBlock.qml">qml/editor/blocks/MediaBlock.qml</file>
         <file alias="editor/blocks/MediaVideoSurface.qml">qml/editor/blocks/MediaVideoSurface.qml</file>
         <file alias="editor/blocks/MediaVideoCard.qml">qml/editor/blocks/MediaVideoCard.qml</file>
+        <file alias="editor/blocks/MediaPlayerWindow.qml">qml/editor/blocks/MediaPlayerWindow.qml</file>
+        <file alias="editor/blocks/MediaCornerMask.qml">qml/editor/blocks/MediaCornerMask.qml</file>
+        <file alias="editor/blocks/MediaTitleField.qml">qml/editor/blocks/MediaTitleField.qml</file>
         <file alias="editor/blocks/MediaTransportControls.qml">qml/editor/blocks/MediaTransportControls.qml</file>
         <file alias="editor/blocks/ImageResizeHandle.qml">qml/editor/blocks/ImageResizeHandle.qml</file>
         <file alias="editor/blocks/ListBlock.qml">qml/editor/blocks/ListBlock.qml</file>

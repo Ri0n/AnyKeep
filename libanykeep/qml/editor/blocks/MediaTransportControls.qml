@@ -14,6 +14,15 @@ Rectangle {
     color: mediaBlock.editorView.documentCardColor
     radius: embedded ? 0 : 5
 
+    TapHandler {
+        acceptedButtons: Qt.LeftButton
+        onPressedChanged: {
+            const local = inlineTitle.mapFromItem(transport, point.position.x, point.position.y)
+            if (pressed && (!inlineTitle.visible || !inlineTitle.contains(local)))
+                mediaBlock.selectAndFocus()
+        }
+    }
+
     RowLayout {
         anchors.fill: parent
         anchors.margins: 4
@@ -25,6 +34,8 @@ Rectangle {
             Layout.preferredHeight: Layout.preferredWidth
             enabled: mediaBlock.playback && mediaBlock.playback.available
             padding: 6
+            focusPolicy: Qt.TabFocus
+            Keys.onPressed: function(event) { mediaBlock.handleNavigationKey(event) }
             display: AbstractButton.IconOnly
             contentItem: Item {
                 implicitWidth: 20
@@ -59,14 +70,17 @@ Rectangle {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 1
-            Label {
-                objectName: "mediaLabel-" + mediaBlock.block.index
+            Loader {
+                id: inlineTitle
                 Layout.fillWidth: true
-                visible: !mediaBlock.visual
-                text: mediaBlock.block.alt.length > 0 ? mediaBlock.block.alt : qsTr("Audio recording")
-                elide: Text.ElideMiddle
-                font.bold: mediaBlock.selected
-                color: mediaBlock.editorView.documentTextColor
+                active: !mediaBlock.visual
+                visible: active
+                sourceComponent: Component {
+                    MediaTitleField {
+                        mediaBlock: transport.mediaBlock
+                        editable: mediaBlock.canEditTitle
+                    }
+                }
             }
             Slider {
                 Layout.fillWidth: true
@@ -74,6 +88,9 @@ Rectangle {
                 to: Math.max(1, mediaBlock.knownDuration)
                 value: mediaBlock.current ? mediaBlock.playback.position : 0
                 enabled: mediaBlock.playback && mediaBlock.knownDuration > 0
+                focusPolicy: Qt.TabFocus
+                onPressedChanged: if (pressed) mediaBlock.selectAndFocus()
+                Keys.onPressed: function(event) { mediaBlock.handleNavigationKey(event) }
                 onMoved: mediaBlock.playback.seek(mediaBlock.block.url, value)
             }
         }
@@ -96,6 +113,8 @@ Rectangle {
             Layout.preferredWidth: parent.height - 2
             Layout.preferredHeight: Layout.preferredWidth
             enabled: !mediaBlock.transcriptionBlocked && !mediaBlock.transcribing
+            focusPolicy: Qt.TabFocus
+            Keys.onPressed: function(event) { mediaBlock.handleNavigationKey(event) }
             text: mediaBlock.transcribing ? "…" : "STT"
             Accessible.name: mediaBlock.block.mediaTranscript.length > 0
                              ? qsTr("Show transcript") : qsTr("Transcribe audio")
@@ -115,6 +134,8 @@ Rectangle {
             Layout.preferredHeight: Layout.preferredWidth
             enabled: mediaBlock.playback && mediaBlock.playback.available
             padding: 6
+            focusPolicy: Qt.TabFocus
+            Keys.onPressed: function(event) { mediaBlock.handleNavigationKey(event) }
             display: AbstractButton.IconOnly
             contentItem: Shared.ThemedIconImpl {
                 objectName: "mediaFullscreenGlyph-" + mediaBlock.block.index
@@ -133,11 +154,38 @@ Rectangle {
             }
         }
         ToolButton {
+            id: detachVideoButton
+            objectName: "mediaSeparateWindowButton-" + mediaBlock.block.index
+            visible: mediaBlock.video && mediaBlock.playback && typeof mediaBlock.playback.openWindow === "function"
+            enabled: visible && mediaBlock.playback.available
+            Layout.preferredWidth: parent.height - 2
+            Layout.preferredHeight: Layout.preferredWidth
+            focusPolicy: Qt.TabFocus
+            Keys.onPressed: function(event) { mediaBlock.handleNavigationKey(event) }
+            padding: 6
+            contentItem: Shared.ThemedIconImpl {
+                themeName: "__bundled__"
+                fallbackName: "open-external-symbolic.svg"
+                recolorFallback: true
+                fallbackTintMode: String(detachVideoButton.palette.buttonText)
+                pixelSize: 20
+            }
+            Accessible.name: qsTr("Open video in a separate window")
+            ToolTip.visible: hovered
+            ToolTip.text: Accessible.name
+            onClicked: {
+                mediaBlock.selectAndFocus()
+                mediaBlock.openVideoWindow()
+            }
+        }
+        ToolButton {
             id: mediaActionsButton
             objectName: "mediaActionsButton-" + mediaBlock.block.index
             Layout.preferredWidth: parent.height - 2
             Layout.preferredHeight: Layout.preferredWidth
             padding: 6
+            focusPolicy: Qt.TabFocus
+            Keys.onPressed: function(event) { mediaBlock.handleNavigationKey(event) }
             display: AbstractButton.IconOnly
             contentItem: Shared.ThemedIconImpl {
                 objectName: "mediaActionsGlyph-" + mediaBlock.block.index

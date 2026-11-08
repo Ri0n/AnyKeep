@@ -19,10 +19,6 @@ function handleKey(host, controller, event, cell, itemIndex) {
     }
     if (!blocked && !(event.modifiers & Qt.ShiftModifier)
             && (event.key === Qt.Key_Up || event.key === Qt.Key_Down)) {
-        if (event.key === Qt.Key_Down && itemIndex + 1 >= host.itemCount()) {
-            controller.focusFollowingBlock(host.block.index, !event.isAutoRepeat)
-            return true
-        }
         const rectangle = cell.positionToRectangle(cell.cursorPosition)
         const probeY = event.key === Qt.Key_Up ? rectangle.y - rectangle.height
                                                : rectangle.y + rectangle.height + 1

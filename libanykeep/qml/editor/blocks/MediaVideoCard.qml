@@ -11,6 +11,7 @@ Rectangle {
 
     readonly property real posterImplicitWidth: poster.implicitWidth
     readonly property real posterImplicitHeight: poster.implicitHeight
+    readonly property real titleAreaHeight: titleOverlay.visible ? titleOverlay.y + titleOverlay.height + 4 : 0
     readonly property int transportHeight: mediaBlock.transportHeight
     readonly property bool hasPoster:
         String(mediaBlock.block.previewUrl).startsWith("image://anykeep-media/")
@@ -68,7 +69,7 @@ Rectangle {
             fallbackName: "video-x-generic-symbolic.svg"
             recolorFallback: true
             fallbackTintMode: String(mediaBlock.editorView.documentSecondaryTextColor)
-            pixelSize: 32
+            pixelSize: 64
             opacity: 0.6
         }
 
@@ -89,7 +90,35 @@ Rectangle {
             }
         }
 
+        Rectangle {
+            id: titleOverlay
+            objectName: "mediaVideoTitleOverlay-" + mediaBlock.block.index
+            x: 8
+            y: 8
+            width: Math.max(0, parent.width - 16)
+            height: titleField.implicitHeight + 4
+            radius: 4
+            color: "#a0000000"
+            visible: !mediaBlock.playing || titleField.editing
+            z: 3
+            MediaTitleField {
+                id: titleField
+                mediaBlock: card.mediaBlock
+                anchors.fill: parent
+                anchors.margins: 2
+            }
+        }
+    }
 
+    Connections {
+        target: videoSurface.item
+        function onFullScreenChanged() {
+            card.mediaBlock.editorView.mediaFullScreen = videoSurface.item.fullScreen
+        }
+    }
+    Component.onDestruction: {
+        if (videoSurface.item && videoSurface.item.fullScreen)
+            mediaBlock.editorView.mediaFullScreen = false
     }
 
     // The transport belongs to the card's layout, rather than floating above
@@ -102,6 +131,15 @@ Rectangle {
         y: card.height - height - card.border.width
         width: Math.max(0, card.width - 2 * card.border.width)
         height: card.transportHeight
+    }
+
+    MediaCornerMask {
+        anchors.fill: parent
+        z: 10
+        cornerRadius: card.radius
+        borderWidth: card.border.width
+        borderColor: card.border.color
+        outsideColor: mediaBlock.editorView.documentBackgroundColor
     }
 
     Rectangle {

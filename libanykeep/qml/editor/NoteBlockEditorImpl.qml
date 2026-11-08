@@ -10,6 +10,8 @@ ListView {
     property var editorBackend: typeof noteEditor !== "undefined" ? noteEditor : null
     property var platformBackend: typeof qmlNoteEditor !== "undefined" ? qmlNoteEditor : null
     property var audioTranscriptionController: null
+    property bool mediaFullScreen: false
+    readonly property color documentBackgroundColor: palette.base
     readonly property color documentTextColor: palette.text
     readonly property color documentSecondaryTextColor: palette.placeholderText
     readonly property color documentCardColor: palette.alternateBase
@@ -364,6 +366,8 @@ ListView {
     function selectMediaBlock(blockIndex) { return mediaNavigationController.selectMediaBlock(blockIndex) }
     function clearMediaSelection() { return mediaNavigationController.clearMediaSelection() }
     function selectAttachmentBlock(blockIndex) { return mediaNavigationController.selectAttachmentBlock(blockIndex) }
+    function navigateBlock(index, direction, createParagraph) { return mediaNavigationController.navigateBlock(index, direction, createParagraph) }
+    function navigateMediaBlock(index, direction) { return mediaNavigationController.navigateMediaBlock(index, direction) }
     function focusAttachmentBlock(blockIndex) { return mediaNavigationController.focusAttachmentBlock(blockIndex) }
     function clearAttachmentSelection() { return mediaNavigationController.clearAttachmentSelection() }
     function isMediaBlockType(type) { return mediaNavigationController.isMediaBlockType(type) }

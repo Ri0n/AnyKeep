@@ -725,6 +725,8 @@ LocalMediaResult LocalMediaStore::referenceFile(const QString &fileName, const Q
 
 LocalMediaResult LocalMediaStore::fingerprintExternalFile(const MediaReference &reference)
 {
+    if (const auto managed = managedReference(reference); managed)
+        return managed;
     if (!reference.isValid())
         return { {}, QStringLiteral("Invalid media reference") };
     auto loaded = loadExternalSource(reference);
@@ -873,12 +875,82 @@ QString LocalMediaStore::writeContentSource(const QByteArray &blobId, const Loca
     return writeSealedSource(contentSourcePath(blobId), key, contentSourceContext(blobId), source);
 }
 
-LocalMediaResult LocalMediaStore::moveToFile(const MediaReference &reference, const QString &fileName)
+LocalMediaResult LocalMediaStore::copyIntoStore(const MediaReference &reference)
 {
-    if (!reference.isValid() || !containsManagedBlob(reference.blobId))
-        return { {}, QStringLiteral("The media is not in encrypted storage") };
+    if (const auto managed = managedReference(reference); managed)
+        return managed;
+    const auto source = externalSource(reference);
+    if (!source)
+        return { {}, source.error };
     QString    keyError;
     const auto key = masterKey(&keyError);
+    if (key.isEmpty())
+        return { {}, keyError };
+    QFile plain(source.value.fileName);
+    if (!plain.open(QIODevice::ReadOnly))
+        return { {}, plain.errorString() };
+    Fingerprint fingerprint;
+    QString     fingerprintError;
+    if (!fingerprintDevice(plain, SecureEnvelope::deriveKey(key, KeyDomain::LocalMedia), &fingerprint,
+                           &fingerprintError, true))
+        return { {}, fingerprintError };
+    plain.close();
+    if (!sourceRevisionMatches(source.value, QFileInfo(source.value.fileName)))
+        return { {}, QStringLiteral("The external media source changed while it was being imported") };
+    const auto copied = importFile(source.value.fileName, reference.id);
+    if (!copied)
+        return copied;
+    // Recheck the pinned locator after import; a concurrent external edit
+    // must not silently replace the attachment described by the note.
+    const auto unchanged = externalSource(reference);
+    if (!unchanged || copied.value.checksum != fingerprint.checksum
+        || (source.value.hasFingerprint() && source.value.checksum != copied.value.checksum))
+        return { {}, QStringLiteral("The external media source changed while it was being imported") };
+    // Cache the content identity behind the encrypted attachment locator. Old
+    // un-fingerprinted note/history references now resolve to the managed blob
+    // without rewriting the document, draft or publication transaction.
+    auto locator        = source.value;
+    locator.blobId      = fingerprint.blobId;
+    locator.checksum    = fingerprint.checksum;
+    locator.chunkSize   = quint32(ExternalChunkSize);
+    locator.chunkHashes = std::move(fingerprint.chunkHashes);
+    if (const auto error = writeExternalSource(reference.id, locator); !error.isEmpty())
+        return { {}, error };
+    auto enriched     = reference;
+    enriched.blobId   = copied.value.blobId;
+    enriched.checksum = copied.value.checksum;
+    enriched.size     = copied.value.size;
+    return { enriched, {} };
+}
+
+LocalMediaResult LocalMediaStore::managedReference(const MediaReference &reference) const
+{
+    if (!reference.isValid())
+        return { {}, QStringLiteral("Invalid media reference") };
+    if (!reference.blobId.isEmpty() && containsManagedBlob(reference.blobId))
+        return { reference, {} };
+    if (!hasExternalSource(reference))
+        return { {}, QStringLiteral("The media is not in encrypted storage") };
+    const auto source = loadExternalSource(reference);
+    if (!source || source.value.size != reference.size || !source.value.hasFingerprint()
+        || !containsManagedBlob(source.value.blobId)
+        || (!reference.blobId.isEmpty() && reference.blobId != source.value.blobId)
+        || (!reference.checksum.isEmpty() && reference.checksum != source.value.checksum))
+        return { {}, QStringLiteral("The media is not in encrypted storage") };
+    auto enriched     = reference;
+    enriched.blobId   = source.value.blobId;
+    enriched.checksum = source.value.checksum;
+    return { enriched, {} };
+}
+
+LocalMediaResult LocalMediaStore::moveToFile(const MediaReference &unresolved, const QString &fileName)
+{
+    const auto managed = managedReference(unresolved);
+    if (!managed)
+        return { {}, QStringLiteral("The media is not in encrypted storage") };
+    const auto &reference = managed.value;
+    QString     keyError;
+    const auto  key = masterKey(&keyError);
     if (key.isEmpty())
         return { {}, keyError };
 
@@ -926,6 +998,10 @@ LocalMediaResult LocalMediaStore::moveToFile(const MediaReference &reference, co
     source.chunkHashes             = std::move(fingerprint.chunkHashes);
     if (const QString sourceError = writeContentSource(reference.blobId, source); !sourceError.isEmpty())
         return { {}, sourceError };
+    if (hasExternalSource(unresolved)) {
+        if (const auto error = writeExternalSource(reference.id, source); !error.isEmpty())
+            return { {}, error };
+    }
 
     if (!QFile::remove(blobPath(reference.blobId)))
         return { {}, QStringLiteral("The file was saved, but its encrypted copy could not be removed") };
@@ -1080,8 +1156,8 @@ bool LocalMediaStore::hasExternalSource(const MediaReference &reference) const
 
 LocalMediaDataResult LocalMediaStore::data(const MediaReference &reference) const
 {
-    if (!reference.blobId.isEmpty() && containsManagedBlob(reference.blobId))
-        return data(reference.blobId);
+    if (const auto managed = managedReference(reference); managed)
+        return data(managed.value.blobId);
 
     const auto source = externalSource(reference);
     if (!source)
@@ -1166,9 +1242,23 @@ bool LocalMediaStore::containsManagedBlob(const QByteArray &blobId) const
 
 bool LocalMediaStore::contains(const MediaReference &reference) const
 {
-    if (!reference.blobId.isEmpty() && containsManagedBlob(reference.blobId))
+    if (managedReference(reference))
         return true;
     return bool(externalSource(reference));
+}
+
+bool LocalMediaStore::containsManagedMedia(const MediaReference &reference) const
+{
+    if (!reference.isValid())
+        return false;
+    if (!reference.blobId.isEmpty() && containsManagedBlob(reference.blobId))
+        return true;
+    {
+        QMutexLocker lock(&masterKeyMutex_);
+        if (masterKey_.isEmpty())
+            return false;
+    }
+    return bool(managedReference(reference));
 }
 
 bool LocalMediaStore::contains(const QByteArray &blobId) const

@@ -30,6 +30,7 @@ Item {
             fullScreenWindow.screen = sourceWindow.screen
         attachedPlayback.attachVideoOutput(fullScreenVideo)
         fullScreenWindow.showFullScreen()
+        fullScreenWindow.requestActivate()
         fullScreenContent.forceActiveFocus()
     }
 
@@ -39,6 +40,10 @@ Item {
         fullScreenWindow.hide()
         if (attachedPlayback)
             attachedPlayback.attachVideoOutput(inlineVideo)
+        const sourceWindow = root.Window.window
+        if (sourceWindow)
+            sourceWindow.requestActivate()
+        root.forceActiveFocus()
     }
 
     onPlaybackChanged: attach()
@@ -75,10 +80,19 @@ Item {
 
     Window {
         id: fullScreenWindow
+        objectName: "mediaFullScreenWindow"
         visible: false
         color: "black"
         flags: Qt.Window | Qt.FramelessWindowHint
         title: qsTr("Video")
+        onActiveChanged: if (active) fullScreenContent.forceActiveFocus()
+
+        Shortcut {
+            sequences: [StandardKey.Cancel]
+            context: Qt.WindowShortcut
+            enabled: fullScreenWindow.visible
+            onActivated: root.closeFullScreen()
+        }
 
         onClosing: function(close) {
             close.accepted = false

@@ -90,6 +90,32 @@ QtObject {
         return false
     }
 
+    // Cross a model-row boundary through the common focus dispatcher. The
+    // registry of instantiated text editors cannot describe document order:
+    // media has no text editor, and distant delegates may not exist yet.
+    function navigateBlock(blockIndex, direction, createParagraph) {
+        if (!blockModel)
+            return false
+        const target = blockIndex + direction
+        if (target >= 0 && target < blockModel.rowCount()) {
+            selectedMediaIndex = -1
+            selectedAttachmentIndex = -1
+            return editorView.focusBlock(target, direction < 0)
+        }
+        if (!createParagraph || !blockModel.markdown)
+            return false
+        return editorView.insertParagraphAtBoundary(direction < 0 ? 0 : blockModel.rowCount())
+    }
+
+    function navigateMediaBlock(blockIndex, direction) {
+        return navigateBlock(blockIndex, direction, true)
+    }
+
+    function allowsBoundaryParagraph(blockIndex) {
+        const type = blockModel ? blockModel.blockTypeAt(blockIndex) : -1
+        return type >= 0 && type !== NoteBlockType.Text && type !== NoteBlockType.TagLine
+    }
+
     function focusAfterMediaRemoval(blockIndex) {
         if (blockIndex < editorView.count && isMediaBlockType(blockModel.blockTypeAt(blockIndex)))
             return focusStructuralMediaBlock(blockIndex)
@@ -123,55 +149,11 @@ QtObject {
     }
 
     function focusFollowingBlock(blockIndex, appendIfMissing) {
-        if (blockIndex + 1 < editorView.count && blockModel.blockTypeAt(blockIndex + 1) === NoteBlockType.TagLine)
-            return editorView.focusTagLineBlock(blockIndex + 1, false, false)
-        // Media blocks have no text cursor of their own. Find the next actual editor,
-        // rather than pretending the immediately following block is one.
-        const ordered = editorView.orderedEditors()
-        for (const editor of ordered) {
-            if (editor.blockIndex <= blockIndex)
-                continue
-            editor.forceActiveFocus()
-            editor.cursorPosition = 0
-            editorView.activeEditor = editor
-            return true
-        }
-        // The next delegate may not be instantiated yet when it is outside
-        // ListView's cache. Locate it from the model and let the normal
-        // pending-focus path load it; structural media blocks are intentionally
-        // skipped here.
-        for (let row = blockIndex + 1; row < editorView.count; ++row) {
-            if (!isMediaBlockType(blockModel.blockTypeAt(row))) {
-                editorView.focusBlock(row)
-                return true
-            }
-        }
-        if (!appendIfMissing)
-            return false
-        editorView.runEditTransaction("append-following-text-block", function() {
-            blockModel.appendTextBlock()
-            editorView.focusBlock(editorView.count - 1)
-        })
-        return true
+        return navigateBlock(blockIndex, 1, appendIfMissing)
     }
 
     function focusPrecedingBlock(blockIndex) {
-        if (blockIndex <= 0)
-            return
-        if (blockModel.blockTypeAt(blockIndex - 1) === NoteBlockType.TagLine) {
-            editorView.focusTagLineBlock(blockIndex - 1, true, false)
-            return
-        }
-        const ordered = editorView.orderedEditors()
-        const activeIndex = ordered.indexOf(editorView.activeEditor)
-        if (activeIndex > 0) {
-            const editor = ordered[activeIndex - 1]
-            editor.forceActiveFocus()
-            editor.cursorPosition = editor.length
-            editorView.activeEditor = editor
-            return
-        }
-        editorView.focusBlock(blockIndex - 1)
+        return navigateBlock(blockIndex, -1, allowsBoundaryParagraph(blockIndex))
     }
 
     function hasOnlyMediaFollowing(blockIndex) {
@@ -190,8 +172,6 @@ QtObject {
         const restoreFocus = focusAfter === undefined ? true : Boolean(focusAfter)
         return editorView.runEditTransaction("remove-media", function() {
             const oldCount = editorView.count
-            if (editorBackend && editorBackend.mediaPlayback)
-                editorBackend.mediaPlayback.stop()
             editorView.prepareForStructuralMutation()
             blockModel.removeBlock(blockIndex)
             if (oldCount === 1) {
@@ -346,34 +326,12 @@ QtObject {
         const modifiers = event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
         if (modifiers || (event.key !== Qt.Key_Up && event.key !== Qt.Key_Down))
             return false
+        const backwards = event.key === Qt.Key_Up
         const rectangle = editor.positionToRectangle(editor.cursorPosition)
-        if (event.key === Qt.Key_Up) {
-            // A code-only Markdown note has no ordinary text editor above
-            // its first line, which made it impossible to add a title with
-            // the keyboard.  Use the very same temporary paragraph insertion
-            // as the inter-block gap: it is focused immediately and is
-            // discarded unchanged on focus loss.
-            if (editor.codeDocument && editor.blockIndex === 0
-                    && editorBackend && editorBackend.markdown
-                    && rectangle.y <= editor.positionToRectangle(0).y + 0.5)
-                return editorView.insertParagraphAtBoundary(0)
-            if (editor.blockIndex <= 0 || rectangle.y > editor.positionToRectangle(0).y + 0.5)
-                return false
-            focusPrecedingBlock(editor.blockIndex)
-        } else {
-            const last = editor.positionToRectangle(editor.length)
-            if (rectangle.y < last.y - 0.5)
-                return false
-            // Do not create ordinary empty paragraphs by pressing Down at the
-            // end of a note. Structured code blocks and image-only tails need
-            // a real text block so the cursor can leave them.
-            const blockType = blockModel.blockTypeAt(editor.blockIndex)
-            focusFollowingBlock(
-                editor.blockIndex,
-                !event.isAutoRepeat
-                    && (editor.codeDocument || blockType === NoteBlockType.Heading || blockType === NoteBlockType.BlockQuote
-                        || hasOnlyMediaFollowing(editor.blockIndex)))
-        }
-        return true
+        const edge = editor.positionToRectangle(backwards ? 0 : editor.length)
+        if (backwards ? rectangle.y > edge.y + 0.5 : rectangle.y < edge.y - 0.5)
+            return false
+        return navigateBlock(editor.blockIndex, backwards ? -1 : 1,
+                             !event.isAutoRepeat && allowsBoundaryParagraph(editor.blockIndex))
     }
 }

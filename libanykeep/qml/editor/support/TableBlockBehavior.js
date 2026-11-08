@@ -47,10 +47,6 @@ function handleKey(host, controller, event, cell) {
             host.focusCell(cell.index + 1, 0)
         return true
     }
-    if (!modifiers && event.key === Qt.Key_Down && row + 1 >= host.rowCount()) {
-        controller.focusFollowingBlock(host.block.index, !event.isAutoRepeat)
-        return true
-    }
     if (!modifiers && (event.key === Qt.Key_Up || event.key === Qt.Key_Down)) {
         const rectangle = cell.positionToRectangle(cell.cursorPosition)
         const boundary = event.key === Qt.Key_Up

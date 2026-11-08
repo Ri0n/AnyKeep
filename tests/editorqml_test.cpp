@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFont>
 #include <QImage>
+#include <QJSValue>
 #include <QMimeData>
 #include <QMimeDatabase>
 #include <QMimeType>
@@ -15,6 +16,7 @@
 #include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickTextDocument>
+#include <QQuickView>
 #include <QQuickWidget>
 #include <QTemporaryDir>
 #include <QTextCursor>
@@ -37,6 +39,7 @@
 #include "secureenvelope.h"
 #include "spellcheckprovider.h"
 #include "textdroputils.h"
+#include "themediconimageprovider.h"
 #include "videothumbnailgenerator.h"
 
 #include "editortestsupport.h"
@@ -504,6 +507,534 @@ private slots:
         media->setProperty("playback", QVariant::fromValue<QObject *>(nullptr));
     }
 
+    void timedMediaTitlesEditInsideTheCard_data()
+    {
+        QTest::addColumn<QString>("type");
+        QTest::newRow("audio") << QStringLiteral("audio/ogg");
+        QTest::newRow("video") << QStringLiteral("video/mp4");
+    }
+
+    void timedMediaTitlesEditInsideTheCard()
+    {
+        QFETCH(QString, type);
+        auto note = plainNote();
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        editor.model()->insertMedia(2, QStringLiteral("anykeep-media:/missing/clip"), QStringLiteral("Original title"),
+                                    type);
+        editor.model()->appendText(QStringLiteral("Following paragraph"));
+        DesktopNoteEditorHost host(&editor);
+        host.resize(750, 700);
+        host.show();
+        auto       *root      = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QQuickItem *media     = nullptr;
+        QQuickItem *title     = nullptr;
+        QQuickItem *transport = nullptr;
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        QTRY_VERIFY((title = quickItemByName(root, QStringLiteral("mediaInlineTitle-2"))));
+        QTRY_VERIFY((transport = quickItemByName(root, QStringLiteral("mediaCard-2"))));
+        auto *quick = host.quickWidget();
+        QTest::mouseClick(quick, Qt::LeftButton, Qt::NoModifier, transport->mapToScene(QPointF(3, 3)).toPoint());
+        QTRY_VERIFY(media->hasActiveFocus());
+        QVERIFY(!quickItemByName(root, QStringLiteral("mediaTitleEditor-2"))->isVisible());
+        QVERIFY(title->isVisible());
+        QTest::mouseClick(quick, Qt::LeftButton, Qt::NoModifier,
+                          title->mapToScene(QPointF(title->width() / 2, title->height() / 2)).toPoint());
+        QTRY_VERIFY(title->hasActiveFocus());
+        QVERIFY(!title->property("readOnly").toBool());
+        QVERIFY(QMetaObject::invokeMethod(title, "selectAll"));
+        QTest::keyClicks(quick, "Edited title");
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AltRole).toString(),
+                     QStringLiteral("Edited title"));
+        QTest::keyClick(quick, Qt::Key_Return);
+        QTRY_VERIFY(media->hasActiveFocus());
+        QVERIFY(editor.undo());
+        QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::AltRole).toString(),
+                 QStringLiteral("Original title"));
+        QVERIFY(editor.redo());
+        // A history snapshot may replace the renamed media's delegate.
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))) && media->hasActiveFocus());
+        QTest::keyClick(quick, Qt::Key_Down);
+        QTRY_VERIFY(textEditorForBlock(root, 3)->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(media, "selectAndFocus"));
+        QTest::keyClick(quick, Qt::Key_Up);
+        QTRY_VERIFY(textEditorForBlock(root, 1)->hasActiveFocus());
+        if (type.startsWith(QLatin1String("video/"))) {
+            QVERIFY(QMetaObject::invokeMethod(media, "selectAndFocus"));
+            QTest::keyClick(quick, Qt::Key_Left);
+            QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::MediaAlignmentRole).toString(),
+                     QStringLiteral("left"));
+            QTest::keyClick(quick, Qt::Key_Right);
+            QTest::keyClick(quick, Qt::Key_Right);
+            QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::MediaAlignmentRole).toString(),
+                     QStringLiteral("right"));
+        }
+    }
+
+    void mediaMenuContainsOnlyAvailableActionGroups()
+    {
+        auto note = plainNote();
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        editor.model()->insertMedia(2, QStringLiteral("anykeep-media:/missing/audio.ogg"), QStringLiteral("Audio"),
+                                    QStringLiteral("audio/ogg"));
+        DesktopNoteEditorHost host(&editor);
+        host.resize(700, 500);
+        host.show();
+        auto       *root  = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QQuickItem *media = nullptr;
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        auto *view = ancestorWithProperty(media, "currentFindText");
+        QVERIFY(view);
+        const auto entries = [&] {
+            QVariant result;
+            QMetaObject::invokeMethod(media, "contextMenuEntries", Q_RETURN_ARG(QVariant, result));
+            if (result.canConvert<QJSValue>())
+                return result.value<QJSValue>().toVariant().toList();
+            return result.toList();
+        };
+        view->setProperty("platformBackend", QVariant::fromValue<QObject *>(nullptr));
+        QCOMPARE(entries().size(), 1);
+        QCOMPARE(entries().first().toMap().value(QStringLiteral("command")).toString(), QStringLiteral("remove"));
+        QQmlComponent component(host.quickWidget()->engine());
+        component.setData(R"(
+            import QtQml
+            QtObject {
+                property bool managed: false
+                property bool spellCheckEnabled: false
+                function registerTextDocument(document, title) {}
+                signal attachmentStorageChanged(string url)
+                function isAttachmentInMediaStore(url) { return managed }
+                function isAttachmentKeptInPlace(url) { return !managed }
+                function hasAttachmentLocalFile(url) { return true }
+                function copyAttachmentIntoStore(url) {}
+                function moveAttachmentOutOfStore(url) {}
+                function showAttachmentInFolder(url) {}
+            }
+        )",
+                          QUrl());
+        std::unique_ptr<QObject> backend(component.create());
+        QVERIFY2(backend, qPrintable(component.errorString()));
+        view->setProperty("platformBackend", QVariant::fromValue(backend.get()));
+        auto external = entries();
+        QCOMPARE(external.size(), 4);
+        QCOMPARE(external.first().toMap().value(QStringLiteral("command")).toString(), QStringLiteral("copy-in"));
+        QCOMPARE(external.at(1).toMap().value(QStringLiteral("command")).toString(), QStringLiteral("show"));
+        QVERIFY(external.at(2).toMap().value(QStringLiteral("separator")).toBool());
+        QVERIFY(backend->setProperty("managed", true));
+        QMetaObject::invokeMethod(backend.get(), "attachmentStorageChanged",
+                                  Q_ARG(QString, QStringLiteral("anykeep-media:/missing/audio.ogg")));
+        const auto managed = entries();
+        QCOMPARE(managed.size(), 3);
+        QCOMPARE(managed.first().toMap().value(QStringLiteral("command")).toString(), QStringLiteral("move-out"));
+        QVERIFY(QMetaObject::invokeMethod(media, "openMediaContextMenu"));
+        auto *menu = media->findChild<QObject *>(QStringLiteral("mediaContextMenu-2"));
+        QVERIFY(menu);
+        QCOMPARE(menu->property("count").toInt(), 3);
+        QVERIFY(QMetaObject::invokeMethod(menu, "close"));
+        QVERIFY(QMetaObject::invokeMethod(media, "openMediaContextMenu"));
+        QCOMPARE(menu->property("count").toInt(), 3);
+        view->setProperty("platformBackend", QVariant::fromValue<QObject *>(nullptr));
+    }
+
+    void videoCornersRemainRoundedOverThePoster()
+    {
+        auto note = plainNote();
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        const auto   uri = QStringLiteral("anykeep-media:/missing/video.mp4");
+        editor.model()->insertMedia(2, uri, QStringLiteral("Video"), QStringLiteral("video/mp4"), 10000, 640, 360);
+        QImage image(160, 90, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        editor.model()->setPreviewUrls(
+            { { uri,
+                QStringLiteral("data:image/jpeg;base64,%1")
+                    .arg(QString::fromLatin1(VideoThumbnailGenerator::encodeTinyJpeg(image).toBase64())) } });
+        DesktopNoteEditorHost host(&editor);
+        host.resize(750, 750);
+        host.show();
+        auto       *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QQuickItem *card = nullptr;
+        QTRY_VERIFY((card = quickItemByName(root, QStringLiteral("mediaVideoCard-2"))));
+        auto *media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"));
+        auto *view  = ancestorWithProperty(media, "currentFindText");
+        QVERIFY(view);
+        const auto outside      = view->property("documentBackgroundColor").value<QColor>();
+        const auto cornersMatch = [&] {
+            const auto frame = host.quickWidget()->grabFramebuffer();
+            for (const auto &point : { QPointF(1, 1), QPointF(card->width() - 2, 1), QPointF(1, card->height() - 2),
+                                       QPointF(card->width() - 2, card->height() - 2) }) {
+                const auto pixel = (card->mapToScene(point) * frame.devicePixelRatio()).toPoint();
+                if (!frame.rect().contains(pixel))
+                    return false;
+                const auto actual = frame.pixelColor(pixel);
+                // The edge of the round border is antialiased over the page.
+                if (qAbs(actual.red() - outside.red()) > 12 || qAbs(actual.green() - outside.green()) > 12
+                    || qAbs(actual.blue() - outside.blue()) > 12)
+                    return false;
+            }
+            return true;
+        };
+        QTRY_VERIFY(cornersMatch());
+    }
+
+    void fullScreenEscapeReturnsToTheNoteBeforeClosingIt()
+    {
+        auto note = plainNote();
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        const auto   uri = QStringLiteral("anykeep-media:/missing/escape.mp4");
+        editor.model()->insertMedia(2, uri, QStringLiteral("Video"), QStringLiteral("video/mp4"));
+        DesktopEditorPlatformBackend platform(&editor);
+        QQuickView                   view;
+        view.setResizeMode(QQuickView::SizeRootObjectToView);
+        installLocalMediaImageProvider(view.engine());
+        installThemedIconImageProvider(view.engine());
+        QQmlComponent stub(view.engine());
+        stub.setData(R"(
+            import QtQml
+            QtObject {
+                property bool tutorial: false
+                property bool pinAvailable: false
+                property bool alwaysOnTop: false
+                property bool available: false
+                property bool busy: false
+                property bool recording: false
+                property bool modeSwitchVisible: false
+                property int mode: 0
+                property int closeRequests: 0
+                signal recognizedText(string text)
+                function requestClose() { ++closeRequests }
+            }
+        )",
+                     QUrl());
+        std::unique_ptr<QObject> shell(stub.create());
+        QVERIFY2(shell, qPrintable(stub.errorString()));
+        const QUrl source(QStringLiteral("qrc:/qml/StandaloneNoteWindow.qml"));
+        auto      *component = new QQmlComponent(view.engine(), source, &view);
+        auto      *root      = qobject_cast<QQuickItem *>(component->createWithInitialProperties(
+            { { QStringLiteral("noteEditor"), QVariant::fromValue(&editor) },
+              { QStringLiteral("desktopEditorPlatform"), QVariant::fromValue(&platform) },
+              { QStringLiteral("desktopNoteActions"), QVariant::fromValue<QObject *>(nullptr) },
+              { QStringLiteral("desktopSpeech"), QVariant::fromValue(shell.get()) },
+              { QStringLiteral("standaloneHost"), QVariant::fromValue(shell.get()) } }));
+        QVERIFY2(root, qPrintable(component->errorString()));
+        view.setContent(source, component, root);
+        view.resize(750, 700);
+        view.show();
+        QQuickItem *media = nullptr;
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        QQmlComponent playbackComponent(view.engine());
+        playbackComponent.setData(R"(
+            import QtQml
+            QtObject {
+                property bool available: true
+                property string currentSourceUri: "anykeep-media:/missing/escape.mp4"
+                property bool hasVideoFrame: false
+                property bool playing: false
+                property bool loading: false
+                property bool seeking: false
+                property real duration: 0
+                property real position: 0
+                function attachVideoOutput(output) {}
+                function detachVideoOutput(output) {}
+            }
+        )",
+                                  QUrl());
+        std::unique_ptr<QObject> playback(playbackComponent.create());
+        QVERIFY(playback);
+        media->setProperty("playback", QVariant::fromValue(playback.get()));
+        auto *loader = quickItemByName(root, QStringLiteral("mediaVideoOutputLoader-2"));
+        QVERIFY(loader);
+        QTRY_COMPARE(loader->property("status").toInt(), 1);
+        QVERIFY(QMetaObject::invokeMethod(media, "openVideoFullScreen"));
+        QQuickWindow *fullScreen = nullptr;
+        QTRY_VERIFY(([&] {
+            for (auto *candidate : QGuiApplication::allWindows()) {
+                if (candidate->objectName() == QLatin1String("mediaFullScreenWindow") && candidate->isVisible()) {
+                    fullScreen = qobject_cast<QQuickWindow *>(candidate);
+                    return true;
+                }
+            }
+            return false;
+        })());
+        QTRY_VERIFY(fullScreen->isActive());
+        QTest::keyClick(fullScreen, Qt::Key_Escape);
+        QTRY_VERIFY(!fullScreen->isVisible());
+        QCOMPARE(shell->property("closeRequests").toInt(), 0);
+        view.requestActivate();
+        QTRY_VERIFY(view.isActive());
+        QTest::keyClick(&view, Qt::Key_Escape);
+        QTRY_COMPARE(shell->property("closeRequests").toInt(), 1);
+        media->setProperty("playback", QVariant::fromValue<QObject *>(nullptr));
+        view.setSource(QUrl());
+    }
+
+    void arrowsVisitAdjacentImagesAudioAndAttachments()
+    {
+        auto note = plainNote();
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        editor.model()->insertMedia(2, QStringLiteral("missing.wav"), QStringLiteral("Audio"),
+                                    QStringLiteral("audio/wav"));
+        editor.model()->insertMedia(3, QStringLiteral("qrc:/svg/anykeep"), QStringLiteral("Image"),
+                                    QStringLiteral("image/png"));
+        editor.model()->insertAttachment(4, QStringLiteral("missing.pdf"), QStringLiteral("File"),
+                                         QStringLiteral("application/pdf"), 0);
+        editor.model()->appendText(QStringLiteral("After attachments"));
+        DesktopNoteEditorHost host(&editor);
+        host.resize(750, 800);
+        host.show();
+        auto       *root       = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QQuickItem *audio      = nullptr;
+        QQuickItem *image      = nullptr;
+        QQuickItem *attachment = nullptr;
+        QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        QTRY_VERIFY((image = quickItemByName(root, QStringLiteral("mediaBlockEditor-3"))));
+        QTRY_VERIFY((attachment = quickItemByName(root, QStringLiteral("attachmentBlockEditor-4"))));
+        QVERIFY(QMetaObject::invokeMethod(audio, "selectAndFocus"));
+        QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+        QTRY_VERIFY(image->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Left);
+        QCOMPARE(editor.model()->data(editor.model()->index(3), NoteBlockModel::MediaAlignmentRole).toString(),
+                 QStringLiteral("left"));
+        QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+        QTRY_VERIFY(attachment->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+        QTRY_VERIFY(textEditorForBlock(root, 5)->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(attachment, "selectAndFocus"));
+        QTest::keyClick(host.quickWidget(), Qt::Key_Up);
+        QTRY_VERIFY(image->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Up);
+        QTRY_VERIFY(audio->hasActiveFocus());
+    }
+
+    void textAndMediaArrowsVisitTheSameAdjacentBlocks_data()
+    {
+        QTest::addColumn<QString>("mediaType");
+        QTest::newRow("audio") << QStringLiteral("audio/wav");
+        QTest::newRow("video") << QStringLiteral("video/mp4");
+        QTest::newRow("image") << QStringLiteral("image/png");
+        QTest::newRow("attachment") << QStringLiteral("application/pdf");
+    }
+
+    void textAndMediaArrowsVisitTheSameAdjacentBlocks()
+    {
+        QFETCH(QString, mediaType);
+        auto note = plainNote();
+        note.setText(QStringLiteral("Before media"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        const bool   attachment = mediaType.startsWith(QLatin1String("application/"));
+        const auto   uri        = mediaType.startsWith(QLatin1String("image/"))
+            ? QStringLiteral("qrc:/svg/video-x-generic-symbolic.svg")
+            : QStringLiteral("anykeep-media:/missing/navigation");
+        if (attachment)
+            editor.model()->insertAttachment(2, uri, QStringLiteral("File"), mediaType, 0);
+        else
+            editor.model()->insertMedia(2, uri, QStringLiteral("Media"), mediaType, 0, 64, 48);
+        editor.model()->appendText(QStringLiteral("After media"));
+        DesktopNoteEditorHost host(&editor);
+        host.resize(750, 700);
+        host.show();
+        auto       *root   = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QQuickItem *before = nullptr;
+        QQuickItem *after  = nullptr;
+        QQuickItem *media  = nullptr;
+        QTRY_VERIFY((before = textEditorForBlock(root, 1)));
+        QTRY_VERIFY((after = textEditorForBlock(root, 3)));
+        QTRY_VERIFY(
+            (media = quickItemByName(
+                 root, attachment ? QStringLiteral("attachmentBlockEditor-2") : QStringLiteral("mediaBlockEditor-2"))));
+        after->forceActiveFocus();
+        after->setProperty("cursorPosition", 0);
+        QTRY_VERIFY(after->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Up);
+        QTRY_VERIFY(media->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Up);
+        QTRY_VERIFY(before->hasActiveFocus());
+        QCOMPARE(before->property("cursorPosition").toInt(), before->property("length").toInt());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+        QTRY_VERIFY(media->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+        QTRY_VERIFY(after->hasActiveFocus());
+        QCOMPARE(after->property("cursorPosition").toInt(), 0);
+    }
+
+    void downFromFinalMediaCreatesOnlyATemporaryParagraph_data()
+    {
+        textAndMediaArrowsVisitTheSameAdjacentBlocks_data();
+    }
+
+    void downFromFinalMediaCreatesOnlyATemporaryParagraph()
+    {
+        QFETCH(QString, mediaType);
+        auto note = plainNote();
+        note.setText(QStringLiteral("Before media"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        const bool   attachment = mediaType.startsWith(QLatin1String("application/"));
+        const auto   uri        = mediaType.startsWith(QLatin1String("image/"))
+            ? QStringLiteral("qrc:/svg/video-x-generic-symbolic.svg")
+            : QStringLiteral("anykeep-media:/missing/navigation");
+        if (attachment)
+            editor.model()->insertAttachment(2, uri, QStringLiteral("File"), mediaType, 0);
+        else
+            editor.model()->insertMedia(2, uri, QStringLiteral("Media"), mediaType, 0, 64, 48);
+        const auto            originalText = editor.text();
+        DesktopNoteEditorHost host(&editor);
+        host.resize(750, 700);
+        host.show();
+        auto       *root  = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QQuickItem *media = nullptr;
+        QTRY_VERIFY(
+            (media = quickItemByName(
+                 root, attachment ? QStringLiteral("attachmentBlockEditor-2") : QStringLiteral("mediaBlockEditor-2"))));
+        QVERIFY(QMetaObject::invokeMethod(media, "selectAndFocus"));
+        QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+        QTRY_COMPARE(editor.model()->rowCount(), 4);
+        QQuickItem *paragraph = nullptr;
+        QTRY_VERIFY((paragraph = textEditorForBlock(root, 3)) && paragraph->hasActiveFocus());
+        QVERIFY(editor.model()->isExplicitEmptyTextBlock(3));
+
+        // Leaving the empty typing position discards it; another Down creates
+        // a fresh position that becomes ordinary content as soon as we type.
+        QTest::keyClick(host.quickWidget(), Qt::Key_Up);
+        QTRY_VERIFY(media->hasActiveFocus());
+        QTRY_COMPARE(editor.model()->rowCount(), 3);
+        QCOMPARE(editor.text(), originalText);
+        QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+        QTRY_COMPARE(editor.model()->rowCount(), 4);
+        QTRY_VERIFY((paragraph = textEditorForBlock(root, 3)) && paragraph->hasActiveFocus());
+        QTest::keyClicks(host.quickWidget(), "Kept paragraph");
+        QTRY_COMPARE(editor.model()->blockTextAt(3), QStringLiteral("Kept paragraph"));
+        QVERIFY(QMetaObject::invokeMethod(media, "selectAndFocus"));
+        QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+        QTRY_VERIFY(paragraph->hasActiveFocus());
+        QCOMPARE(editor.model()->rowCount(), 4);
+        QVERIFY(!editor.model()->isExplicitEmptyTextBlock(3));
+        QVERIFY(editor.undo());
+        QTRY_VERIFY(editor.model()->blockTextAt(3).isEmpty());
+        QVERIFY(editor.redo());
+        QTRY_COMPARE(editor.model()->blockTextAt(3), QStringLiteral("Kept paragraph"));
+    }
+
+    void structuredFieldsAndMediaShareBlockBoundaries_data()
+    {
+        QTest::addColumn<QString>("markdown");
+        QTest::addColumn<bool>("multilineLastField");
+        QTest::newRow("code") << QStringLiteral("```txt\nfirst\nlast\n```") << true;
+        QTest::newRow("list") << QStringLiteral("- one\n- first  \n  last") << true;
+        QTest::newRow("table") << QStringLiteral("| A | B |\n| --- | --- |\n| one | first<br>last |") << true;
+        QTest::newRow("heading") << QStringLiteral("## Heading") << false;
+        QTest::newRow("quote") << QStringLiteral("> Quote") << false;
+    }
+
+    void structuredFieldsAndMediaShareBlockBoundaries()
+    {
+        QFETCH(QString, markdown);
+        QFETCH(bool, multilineLastField);
+        auto note = plainNote();
+        note.setText(markdown, Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        QCOMPARE(editor.model()->rowCount(), 2);
+        editor.model()->insertMedia(1, QStringLiteral("anykeep-media:/missing/audio"), QStringLiteral("Audio"),
+                                    QStringLiteral("audio/wav"));
+        editor.model()->insertAttachment(3, QStringLiteral("anykeep-media:/missing/file"), QStringLiteral("File"),
+                                         QStringLiteral("application/pdf"), 0);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(750, 700);
+        host.show();
+        auto       *root       = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QQuickItem *audio      = nullptr;
+        QQuickItem *attachment = nullptr;
+        QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("mediaBlockEditor-1"))));
+        QTRY_VERIFY((attachment = quickItemByName(root, QStringLiteral("attachmentBlockEditor-3"))));
+        auto *view = ancestorWithProperty(audio, "currentFindText");
+        QVERIFY(view);
+        QVariant registeredFields;
+        QVERIFY(QMetaObject::invokeMethod(view, "orderedEditors", Q_RETURN_ARG(QVariant, registeredFields)));
+        QList<QQuickItem *> fields;
+        for (const auto &value : registeredFields.toList()) {
+            auto *field = qobject_cast<QQuickItem *>(value.value<QObject *>());
+            if (field && field->property("blockIndex").toInt() == 2)
+                fields.append(field);
+        }
+        QVERIFY(!fields.isEmpty());
+        auto *first = fields.first();
+        auto *last  = fields.last();
+        QVERIFY(QMetaObject::invokeMethod(attachment, "selectAndFocus"));
+        QTest::keyClick(host.quickWidget(), Qt::Key_Up);
+        QTRY_VERIFY(last->hasActiveFocus());
+        QCOMPARE(last->property("cursorPosition").toInt(), last->property("length").toInt());
+
+        first->forceActiveFocus();
+        first->setProperty("cursorPosition", 0);
+        QTest::keyClick(host.quickWidget(), Qt::Key_Up);
+        QTRY_VERIFY(audio->hasActiveFocus());
+        QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+        QTRY_VERIFY(first->hasActiveFocus());
+        QCOMPARE(first->property("cursorPosition").toInt(), 0);
+
+        last->forceActiveFocus();
+        if (multilineLastField) {
+            QRectF top;
+            QRectF bottom;
+            QVERIFY(QMetaObject::invokeMethod(last, "positionToRectangle", Q_RETURN_ARG(QRectF, top), Q_ARG(int, 0)));
+            QVERIFY(QMetaObject::invokeMethod(last, "positionToRectangle", Q_RETURN_ARG(QRectF, bottom),
+                                              Q_ARG(int, last->property("length").toInt())));
+            QVERIFY(bottom.y() > top.y());
+            last->setProperty("cursorPosition", 0);
+            QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+            QTRY_VERIFY(last->hasActiveFocus());
+            QVERIFY(last->property("cursorPosition").toInt() > 0);
+        }
+        last->setProperty("cursorPosition", last->property("length"));
+        QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+        QTRY_VERIFY(attachment->hasActiveFocus());
+    }
+
+    void mediaNavigationWaitsForTheAdjacentBlockOutsideTheDelegateCache()
+    {
+        auto note = plainNote();
+        note.setText(QStringLiteral("Before tall video"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        editor.model()->insertMedia(2, QStringLiteral("anykeep-media:/missing/tall-video"), QStringLiteral("Video"),
+                                    QStringLiteral("video/mp4"), 0, 640, 2560);
+        editor.model()->appendText(QStringLiteral("After tall video"));
+        bool                  unrelatedTextFocused = false;
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 360);
+        host.show();
+        auto       *root  = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QQuickItem *media = nullptr;
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        auto *view = ancestorWithProperty(media, "currentFindText");
+        QVERIFY(view);
+        view->setProperty("cacheBuffer", 0);
+        QVERIFY(QMetaObject::invokeMethod(media, "selectAndFocus"));
+        QTRY_VERIFY(media->hasActiveFocus());
+        QTRY_VERIFY(!textEditorForBlock(root, 3));
+        for (auto *field : textEditors(root)) {
+            connect(field, &QQuickItem::activeFocusChanged, &host, [field, &unrelatedTextFocused] {
+                if (field->hasActiveFocus() && field->property("blockIndex").toInt() != 3)
+                    unrelatedTextFocused = true;
+            });
+        }
+        QTest::keyClick(host.quickWidget(), Qt::Key_Down);
+        QQuickItem *after = nullptr;
+        QTRY_VERIFY((after = textEditorForBlock(root, 3)) && after->hasActiveFocus());
+        QVERIFY(!unrelatedTextFocused);
+        QCOMPARE(after->property("cursorPosition").toInt(), 0);
+    }
+
     void videoWithoutPosterUsesCardPlaceholderAndMetadataAspect()
     {
         const QString glyphAsset = QStringLiteral("video-x-generic-symbolic.svg");
@@ -551,11 +1082,14 @@ private slots:
             QVERIFY(qAbs(card->height() - frame->height() - transport->height() - 2.0) < 1.0);
             QVERIFY(qAbs(frame->y() + frame->height() - transport->y()) < 1.0);
             // Editor gestures end exactly where playback controls begin.
-            QVERIFY(qAbs(hitLayer->height() - frame->height()) < 1.0);
+            auto *titleOverlay = quickItemByName(root, QStringLiteral("mediaVideoTitleOverlay-2"));
+            QVERIFY(titleOverlay);
+            QVERIFY(qAbs(hitLayer->height() + titleOverlay->y() + titleOverlay->height() + 4 - frame->height()) < 1.0);
             QVERIFY(qAbs(hitLayer->y() + hitLayer->height() - (card->y() + transport->y())) < 1.0);
             QVERIFY(qAbs(frame->width() - card->width() + 2.0) < 1.0);
             QVERIFY(!quickItemByName(root, QStringLiteral("mediaVideoOutline-2")));
             QCOMPARE(glyph->property("fallbackName").toString(), glyphAsset);
+            QCOMPARE(glyph->property("pixelSize").toInt(), 64);
             QVERIFY(glyph->property("iconSource").toUrl().toString().contains(glyphAsset));
             QVERIFY(!glyph->childItems().isEmpty());
             QTRY_COMPARE(glyph->childItems().first()->property("status").toInt(), 1);
@@ -1290,7 +1824,7 @@ private slots:
         QVERIFY(caretTop >= 0 && caretTop + caret.height() <= blockEditor->height());
     }
 
-    void windowActivationAndArrowKeysKeepViewport()
+    void windowActivationKeepsViewportAndMediaArrowsStayNearby()
     {
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("title"));
@@ -1336,8 +1870,8 @@ private slots:
             QVERIFY2(recorder.values.isEmpty(), "Window activation scrolled back to the caret");
         }
 
-        // A selected image keeps its selection and the viewport: neither
-        // window activation nor arrow keys may move focus to the title.
+        // Activation keeps a selected image and the viewport. Arrow navigation
+        // reveals the adjacent block without jumping back to the title.
         QVariant handled;
         QVERIFY(QMetaObject::invokeMethod(blockEditor, "focusMediaBlock", Q_RETURN_ARG(QVariant, handled),
                                           Q_ARG(QVariant, 50)));
@@ -1348,13 +1882,20 @@ private slots:
         reactivateWindow();
         QCOMPARE(blockEditor->property("selectedMediaIndex").toInt(), 50);
         QVERIFY(!title->hasActiveFocus());
+        QVERIFY2(recorder.values.isEmpty(), "Window activation scrolled away from the selected image");
+        const qreal imageViewportY = blockEditor->property("contentY").toReal();
         QTest::keyClick(host.quickWidget(), Qt::Key_Down);
-        QTest::keyClick(host.quickWidget(), Qt::Key_PageDown);
+        QTRY_VERIFY(textEditorForBlock(root, 51) && textEditorForBlock(root, 51)->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "focusMediaBlock", Q_RETURN_ARG(QVariant, handled),
+                                          Q_ARG(QVariant, 50)));
+        QTRY_COMPARE(blockEditor->property("selectedMediaIndex").toInt(), 50);
+        QTRY_VERIFY(quickItemByName(root, QStringLiteral("mediaBlockEditor-50"))->hasActiveFocus());
         QTest::keyClick(host.quickWidget(), Qt::Key_Up);
+        QTRY_VERIFY(textEditorForBlock(root, 49) && textEditorForBlock(root, 49)->hasActiveFocus());
         QTest::qWait(100);
-        QVERIFY2(
-            recorder.values.isEmpty(),
-            qPrintable(QStringLiteral("The selected image scrolled the document through %1").arg(recorder.trace())));
+        for (const qreal value : std::as_const(recorder.values))
+            QVERIFY2(qAbs(value - imageViewportY) < blockEditor->height(),
+                     qPrintable(QStringLiteral("Media navigation scrolled too far through %1").arg(recorder.trace())));
         QVERIFY(!title->hasActiveFocus());
     }
 
@@ -2377,23 +2918,23 @@ private:
         auto *quick = host.quickWidget();
         auto *root  = qobject_cast<QQuickItem *>(quick->rootObject());
         QVERIFY(root);
-        QQuickItem *body    = nullptr;
-        QQuickItem *audio   = nullptr;
-        QQuickItem *outline = nullptr;
-        QQuickItem *label   = nullptr;
+        QQuickItem *body       = nullptr;
+        QQuickItem *audio      = nullptr;
+        QQuickItem *outline    = nullptr;
+        QQuickItem *titleField = nullptr;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
         QTRY_VERIFY((audio = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
         QTRY_VERIFY((outline = quickItemByName(root, QStringLiteral("mediaSelectionOutline-2"))));
-        QTRY_VERIFY((label = quickItemByName(root, QStringLiteral("mediaLabel-2"))));
+        QTRY_VERIFY((titleField = quickItemByName(root, QStringLiteral("mediaInlineTitle-2"))));
         auto *blockEditor = ancestorWithProperty(body, "currentFindText");
         QVERIFY(blockEditor);
 
         QVERIFY(!outline->isVisible());
-        QVERIFY(!QQmlProperty(label, QStringLiteral("font.bold")).read().toBool());
+        QVERIFY(!QQmlProperty(titleField, QStringLiteral("font.bold")).read().toBool());
         QVERIFY(QMetaObject::invokeMethod(blockEditor, "selectAllDocument"));
         QTRY_VERIFY(audio->property("selected").toBool());
         QTRY_VERIFY(outline->isVisible());
-        QTRY_VERIFY(QQmlProperty(label, QStringLiteral("font.bold")).read().toBool());
+        QTRY_VERIFY(QQmlProperty(titleField, QStringLiteral("font.bold")).read().toBool());
         QVERIFY(QMetaObject::invokeMethod(blockEditor, "clearDocumentSelection"));
         QTRY_VERIFY(!outline->isVisible());
 
@@ -2422,7 +2963,7 @@ private:
         QTest::mouseMove(quick, audioPoint, 50);
         QTRY_VERIFY(audio->property("selected").toBool());
         QTRY_VERIFY(outline->isVisible());
-        QTRY_VERIFY(QQmlProperty(label, QStringLiteral("font.bold")).read().toBool());
+        QTRY_VERIFY(QQmlProperty(titleField, QStringLiteral("font.bold")).read().toBool());
         QTest::qWait(100);
         QTest::mouseRelease(quick, Qt::LeftButton, Qt::NoModifier, audioPoint);
 
@@ -2430,7 +2971,7 @@ private:
         QTest::qWait(200);
         QVERIFY(audio->property("selected").toBool());
         QVERIFY(outline->isVisible());
-        QVERIFY(QQmlProperty(label, QStringLiteral("font.bold")).read().toBool());
+        QVERIFY(QQmlProperty(titleField, QStringLiteral("font.bold")).read().toBool());
         QCOMPARE(editor.model()->rowCount(), 4);
 
         QVERIFY(QMetaObject::invokeMethod(blockEditor, "clearDocumentSelection"));

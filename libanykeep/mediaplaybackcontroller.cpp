@@ -1,324 +1,111 @@
 #include "mediaplaybackcontroller.h"
 
-#include "localmediastore.h"
-#include "mediarangeservice.h"
-#include "mediastream.h"
+#include "localmediaimageprovider.h"
+#include "mediaplaybacksession.h"
 #include "noteblockmodel.h"
 #include "noteeditor.h"
+#include "themediconimageprovider.h"
 
-#include <QDir>
-#include <QUrl>
+#include <QCoreApplication>
+#include <QPointer>
+#include <QQmlComponent>
+#include <QQmlEngine>
+#include <QQuickWindow>
 
 #include <algorithm>
 
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-#include <QAudioOutput>
-#include <QMediaPlayer>
-#include <QVideoFrame>
-#include <QVideoSink>
-#endif
-
 namespace AnyKeep {
+namespace {
+    // Its engine and window have application lifetime, independent of the note's
+    // QQuickWidget/engine. The session lease is returned after the view is destroyed.
+    class MediaWindowHost final : public QObject {
+    public:
+        MediaWindowHost() : QObject(QCoreApplication::instance())
+        {
+            installLocalMediaImageProvider(&engine);
+            installThemedIconImageProvider(&engine);
+        }
+        ~MediaWindowHost() override { delete window; }
+        QQmlEngine    engine;
+        QQuickWindow *window = nullptr;
+    };
+}
 
 class MediaPlaybackController::Impl {
 public:
-    Impl(MediaPlaybackController *q, NoteEditor *editor) : owner(q), editor(editor)
+    Impl(MediaPlaybackController *owner, NoteEditor *editor) : owner(owner), editor(editor)
     {
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-        if (editor) {
-            QObject::connect(editor, &NoteEditor::mediaChanged, owner, [this](const QList<MediaReference> &media) {
-                if (sourceUri.isEmpty())
+        if (!editor)
+            return;
+        QObject::connect(editor, &NoteEditor::allViewsClosed, owner, [this] { release(); });
+        QObject::connect(editor, &NoteEditor::mediaChanged, owner, [this](const auto &) {
+            if (session && !session->matches(referenceFor(session->currentSourceUri())))
+                release();
+        });
+        QObject::connect(editor->model(), &NoteBlockModel::contentsChanged, owner, [this] {
+            if (!session)
+                return;
+            const auto uri = session->currentSourceUri();
+            for (int row = 0; row < this->editor->model()->rowCount(); ++row) {
+                if (this->editor->model()->data(this->editor->model()->index(row), NoteBlockModel::UrlRole) == uri)
                     return;
-                const bool exists = std::any_of(media.cbegin(), media.cend(),
-                                                [this](const MediaReference &item) { return item.uri() == sourceUri; });
-                if (!exists)
-                    stop();
-            });
-            if (editor->model()) {
-                QObject::connect(editor->model(), &NoteBlockModel::contentsChanged, owner, [this] {
-                    if (!sourceUri.isEmpty() && !sourceStillReferenced())
-                        stop();
-                });
+            }
+            release();
+        });
+    }
+    ~Impl() { release(); }
+
+    MediaReference referenceFor(const QString &uri) const
+    {
+        if (editor) {
+            for (const auto &reference : editor->media()) {
+                if (reference.uri() == uri
+                    && (reference.mediaType.startsWith(QLatin1String("audio/"))
+                        || reference.mediaType.startsWith(QLatin1String("video/"))))
+                    return reference;
             }
         }
-#endif
+        return {};
     }
 
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-    bool ensurePlayer()
+    bool ensureSession(const QString &uri)
     {
-        if (player)
+        const auto reference = referenceFor(uri);
+        if (!reference.isValid())
+            return false;
+        if (session && session->matches(reference))
             return true;
-
-        audioOutput = std::make_unique<QAudioOutput>();
-        player      = std::make_unique<QMediaPlayer>();
-        player->setAudioOutput(audioOutput.get());
-        QObject::connect(player.get(), &QMediaPlayer::positionChanged, owner, [this](qint64 value) {
-            if (reloadAfterSuspend)
-                return;
-            positionMs = value;
-            emit owner->stateChanged();
-        });
-        QObject::connect(player.get(), &QMediaPlayer::durationChanged, owner, [this](qint64 value) {
-            if (reloadAfterSuspend)
-                return;
-            durationMs = value;
-            emit owner->stateChanged();
-        });
-        QObject::connect(player.get(), &QMediaPlayer::playbackStateChanged, owner,
-                         [this](QMediaPlayer::PlaybackState) { emit owner->stateChanged(); });
-        QObject::connect(player.get(), &QMediaPlayer::mediaStatusChanged, owner, [this](QMediaPlayer::MediaStatus) {
-            const auto status = player->mediaStatus();
-            if (status == QMediaPlayer::NoMedia || status == QMediaPlayer::InvalidMedia
-                || status == QMediaPlayer::EndOfMedia)
-                pendingSeekPosition = -1;
-            resumeWhenLoaded();
-            emit owner->stateChanged();
-        });
-        QObject::connect(player.get(), &QMediaPlayer::seekableChanged, owner, [this](bool) { resumeWhenLoaded(); });
-        QObject::connect(player.get(), &QMediaPlayer::errorOccurred, owner,
-                         [this](QMediaPlayer::Error, const QString &message) {
-                             error               = message;
-                             pendingSeekPosition = -1;
-                             emit owner->stateChanged();
-                         });
+        release();
+        session = MediaPlaybackSession::acquire(reference, owner);
+        if (!session)
+            return false;
+        QObject::connect(session, &MediaPlaybackSession::stateChanged, owner, &MediaPlaybackController::stateChanged);
+        for (const auto &output : std::as_const(outputs)) {
+            if (output)
+                session->attachVideoOutput(output);
+        }
         return true;
     }
 
-    void watchVideoSink()
+    void release()
     {
-        QObject::disconnect(videoFrameConnection);
-        videoFrameAvailable = false;
-        if (auto *sink = player->videoSink()) {
-            videoFrameAvailable = sink->videoFrame().isValid();
-            videoFrameConnection
-                = QObject::connect(sink, &QVideoSink::videoFrameChanged, owner, [this](const QVideoFrame &frame) {
-                      bool changed        = videoFrameAvailable != frame.isValid();
-                      videoFrameAvailable = frame.isValid();
-                      // setPosition updates the playhead before decoding finishes.
-                      // Buffered frames from the old position must not dismiss the spinner.
-                      if (pendingSeekPosition >= 0 && frame.isValid()
-                          && (frame.startTime() < 0 || qAbs(frame.startTime() / 1000 - pendingSeekPosition) <= 1000)) {
-                          pendingSeekPosition = -1;
-                          changed             = true;
-                      }
-                      if (changed)
-                          emit owner->stateChanged();
-                  });
-        } else {
-            pendingSeekPosition = -1;
+        if (!session)
+            return;
+        auto *previous = session.data();
+        session.clear();
+        QObject::disconnect(previous, nullptr, owner, nullptr);
+        for (const auto &output : std::as_const(outputs)) {
+            if (output)
+                previous->detachVideoOutput(output);
         }
+        previous->release(owner);
         emit owner->stateChanged();
     }
 
-    void resumeWhenLoaded()
-    {
-        if (pendingResumePosition < 0 || !player)
-            return;
-        const auto status = player->mediaStatus();
-        if (status != QMediaPlayer::LoadedMedia && status != QMediaPlayer::BufferedMedia)
-            return;
-        // LoadedMedia can precede seekableChanged with Qt 6.4/GStreamer.
-        // QMediaPlayer silently ignores setPosition until seeking is enabled.
-        if (pendingResumePosition > 0 && !player->isSeekable())
-            return;
-        const qint64 resumePosition = pendingResumePosition;
-        pendingResumePosition       = -1;
-        player->setPosition(resumePosition);
-        player->play();
-    }
-#endif
-
-    ~Impl()
-    {
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-        if (player)
-            player->setSource(QUrl());
-#endif
-        if (!remoteUrl.isEmpty())
-            MediaRangeService::releaseUrl(remoteUrl);
-    }
-
-    bool sourceStillReferenced() const
-    {
-        if (!editor || sourceUri.isEmpty() || !editor->model())
-            return false;
-        const auto *model = editor->model();
-        for (int row = 0; row < model->rowCount(); ++row) {
-            const QModelIndex index = model->index(row, 0);
-            if (model->data(index, NoteBlockModel::TypeRole).toInt() == NoteBlockModel::Media
-                && model->data(index, NoteBlockModel::UrlRole).toString() == sourceUri) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    bool load(const QString &uri)
-    {
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-        if (!editor || uri.isEmpty() || !ensurePlayer())
-            return false;
-        reloadAfterSuspend    = false;
-        pendingResumePosition = -1;
-        pendingSeekPosition   = -1;
-        const auto media      = editor->media();
-        const auto it         = std::find_if(media.cbegin(), media.cend(), [&uri](const MediaReference &item) {
-            return item.uri() == uri
-                && (item.mediaType.startsWith(QLatin1String("audio/"))
-                    || item.mediaType.startsWith(QLatin1String("video/")));
-        });
-        if (it == media.cend()) {
-            error = MediaPlaybackController::tr("The timed media is not present in this note.");
-            emit owner->stateChanged();
-            return false;
-        }
-        player->stop();
-        player->setSource(QUrl());
-        videoFrameAvailable = false;
-        stream.reset();
-        if (!remoteUrl.isEmpty())
-            MediaRangeService::releaseUrl(remoteUrl);
-        remoteUrl = QUrl();
-        if (!LocalMediaStore::instance()->contains(*it)) {
-            const auto url = MediaRangeService::urlFor(*it);
-            if (!url.isEmpty()) {
-                sourceUri = uri;
-                error.clear();
-                positionMs = durationMs = 0;
-                remoteUrl               = url;
-                player->setSource(url);
-                emit owner->stateChanged();
-                return true;
-            }
-        }
-        stream = std::make_unique<MediaStream>(*it);
-        if (!stream->open(QIODevice::ReadOnly)) {
-            error = stream->errorString();
-            stream.reset();
-            emit owner->stateChanged();
-            return false;
-        }
-        sourceUri = uri;
-        error.clear();
-        positionMs            = 0;
-        durationMs            = 0;
-        const QUrl formatHint = QUrl::fromLocalFile(QDir(QDir::tempPath()).filePath(it->portableName));
-        player->setSourceDevice(stream.get(), formatHint);
-        emit owner->stateChanged();
-        return true;
-#else
-        Q_UNUSED(uri)
-        return false;
-#endif
-    }
-
-    bool play(const QString &uri)
-    {
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-        if (reloadAfterSuspend && sourceUri == uri) {
-            const qint64 resumePosition = positionMs;
-            if (!load(uri))
-                return false;
-            pendingResumePosition = resumePosition;
-            resumeWhenLoaded();
-            return true;
-        }
-        if (sourceUri != uri && !load(uri))
-            return false;
-        // Some multimedia backends leave EndOfMedia after the player loses
-        // focus, while retaining the final position.  Stopped playback with
-        // a non-zero position is still a completed/explicitly stopped run and
-        // must restart; PausedState intentionally resumes in place.
-        if (player->mediaStatus() == QMediaPlayer::EndOfMedia
-            || (player->playbackState() == QMediaPlayer::StoppedState && player->position() > 0)) {
-            player->setPosition(0);
-        }
-        player->play();
-        return true;
-#else
-        Q_UNUSED(uri)
-        return false;
-#endif
-    }
-
-    void pause()
-    {
-        if (pendingResumePosition >= 0) {
-            suspend();
-            return;
-        }
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-        if (player)
-            player->pause();
-#endif
-    }
-
-    void suspend()
-    {
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-        if (!player || sourceUri.isEmpty() || reloadAfterSuspend)
-            return;
-        if (remoteUrl.isEmpty()) {
-            pause();
-            return;
-        }
-        // A suspended process can lose XMPP and the decoder's HTTP connection.
-        // Reopening on Play uses the authenticated cache and a fresh request.
-        const qint64 savedPosition = pendingResumePosition >= 0 ? pendingResumePosition : positionMs;
-        const qint64 savedDuration = durationMs;
-        pendingResumePosition      = -1;
-        pendingSeekPosition        = -1;
-        reloadAfterSuspend         = true;
-        player->stop();
-        player->setSource(QUrl());
-        videoFrameAvailable = false;
-        positionMs          = savedPosition;
-        durationMs          = savedDuration;
-        emit owner->stateChanged();
-#endif
-    }
-
-    void stop()
-    {
-        videoFrameAvailable   = false;
-        pendingResumePosition = -1;
-        pendingSeekPosition   = -1;
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-        if (player) {
-            player->stop();
-            player->setSource(QUrl());
-        }
-#endif
-        stream.reset();
-        if (!remoteUrl.isEmpty())
-            MediaRangeService::releaseUrl(remoteUrl);
-        remoteUrl = QUrl();
-        sourceUri.clear();
-        reloadAfterSuspend = false;
-        positionMs         = 0;
-        durationMs         = 0;
-        error.clear();
-        emit owner->stateChanged();
-    }
-
-    MediaPlaybackController     *owner;
-    NoteEditor                  *editor;
-    QString                      sourceUri;
-    QUrl                         remoteUrl;
-    QString                      error;
-    std::unique_ptr<MediaStream> stream;
-    qint64                       positionMs { 0 };
-    qint64                       durationMs { 0 };
-    bool                         reloadAfterSuspend { false };
-    bool                         videoFrameAvailable { false };
-    qint64                       pendingResumePosition { -1 };
-    qint64                       pendingSeekPosition { -1 };
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-    std::unique_ptr<QAudioOutput> audioOutput;
-    std::unique_ptr<QMediaPlayer> player;
-    QMetaObject::Connection       videoFrameConnection;
-#endif
+    MediaPlaybackController       *owner;
+    QPointer<NoteEditor>           editor;
+    QPointer<MediaPlaybackSession> session;
+    QList<QPointer<QObject>>       outputs;
 };
 
 MediaPlaybackController::MediaPlaybackController(NoteEditor *editor, QObject *parent) :
@@ -326,30 +113,6 @@ MediaPlaybackController::MediaPlaybackController(NoteEditor *editor, QObject *pa
 {
 }
 MediaPlaybackController::~MediaPlaybackController() = default;
-
-void MediaPlaybackController::attachVideoOutput(QObject *output)
-{
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-    if (output && impl_->ensurePlayer()) {
-        impl_->player->setVideoOutput(output);
-        impl_->watchVideoSink();
-    }
-#else
-    Q_UNUSED(output)
-#endif
-}
-
-void MediaPlaybackController::detachVideoOutput(QObject *output)
-{
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-    if (impl_->player && impl_->player->videoOutput() == output) {
-        impl_->player->setVideoOutput(nullptr);
-        impl_->watchVideoSink();
-    }
-#else
-    Q_UNUSED(output)
-#endif
-}
 
 bool MediaPlaybackController::available() const
 {
@@ -359,71 +122,88 @@ bool MediaPlaybackController::available() const
     return false;
 #endif
 }
-QString MediaPlaybackController::currentSourceUri() const { return impl_->sourceUri; }
-bool    MediaPlaybackController::playing() const
+QString MediaPlaybackController::currentSourceUri() const
 {
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-    return impl_->player && impl_->player->playbackState() == QMediaPlayer::PlayingState;
-#else
-    return false;
-#endif
+    return impl_->session ? impl_->session->currentSourceUri() : QString();
 }
-bool MediaPlaybackController::loading() const
+bool    MediaPlaybackController::playing() const { return impl_->session && impl_->session->playing(); }
+bool    MediaPlaybackController::loading() const { return impl_->session && impl_->session->loading(); }
+bool    MediaPlaybackController::seeking() const { return impl_->session && impl_->session->seeking(); }
+bool    MediaPlaybackController::hasVideoFrame() const { return impl_->session && impl_->session->hasVideoFrame(); }
+qint64  MediaPlaybackController::position() const { return impl_->session ? impl_->session->position() : 0; }
+qint64  MediaPlaybackController::duration() const { return impl_->session ? impl_->session->duration() : 0; }
+QString MediaPlaybackController::errorString() const
 {
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-    if (!impl_->player)
-        return false;
-    const auto status = impl_->player->mediaStatus();
-    return status == QMediaPlayer::LoadingMedia || status == QMediaPlayer::BufferingMedia
-        || status == QMediaPlayer::StalledMedia;
-#else
-    return false;
-#endif
+    return impl_->session ? impl_->session->errorString() : QString();
 }
-qint64  MediaPlaybackController::position() const { return impl_->positionMs; }
-bool    MediaPlaybackController::seeking() const { return impl_->pendingSeekPosition >= 0; }
-bool    MediaPlaybackController::hasVideoFrame() const { return impl_->videoFrameAvailable; }
-qint64  MediaPlaybackController::duration() const { return impl_->durationMs; }
-QString MediaPlaybackController::errorString() const { return impl_->error; }
-bool    MediaPlaybackController::play(const QString &sourceUri) { return impl_->play(sourceUri); }
-bool    MediaPlaybackController::toggle(const QString &sourceUri)
+bool MediaPlaybackController::play(const QString &uri)
 {
-    if (playing() && impl_->sourceUri == sourceUri) {
-        pause();
-        return true;
-    }
-    return play(sourceUri);
+    return impl_->ensureSession(uri) && impl_->session->play(uri);
 }
-void MediaPlaybackController::pause() { impl_->pause(); }
-void MediaPlaybackController::suspend() { impl_->suspend(); }
-void MediaPlaybackController::stop() { impl_->stop(); }
-bool MediaPlaybackController::seek(const QString &sourceUri, qint64 positionMs)
+bool MediaPlaybackController::toggle(const QString &uri)
 {
-#if defined(ANYKEEP_MULTIMEDIA_AVAILABLE) && QT_VERSION >= QT_VERSION_CHECK(6, 4, 0)
-    if ((impl_->reloadAfterSuspend || impl_->pendingResumePosition >= 0) && impl_->sourceUri == sourceUri) {
-        impl_->positionMs = qMax<qint64>(0, positionMs);
-        if (impl_->pendingResumePosition >= 0)
-            impl_->pendingResumePosition = impl_->positionMs;
-        emit stateChanged();
-        return true;
-    }
-    if (impl_->sourceUri != sourceUri && !impl_->load(sourceUri))
-        return false;
-    const auto target = impl_->player->duration() > 0 ? qBound<qint64>(0, positionMs, impl_->player->duration())
-                                                      : qMax<qint64>(0, positionMs);
-    if (target == impl_->player->position())
-        return true;
-    if (impl_->player->videoSink() && impl_->player->isSeekable()) {
-        impl_->pendingSeekPosition = target;
-        emit stateChanged();
-    }
-    impl_->player->setPosition(target);
-    return true;
-#else
-    Q_UNUSED(sourceUri)
-    Q_UNUSED(positionMs)
-    return false;
-#endif
+    return impl_->ensureSession(uri) && impl_->session->toggle(uri);
+}
+void MediaPlaybackController::pause()
+{
+    if (impl_->session)
+        impl_->session->pause();
+}
+void MediaPlaybackController::suspend()
+{
+    if (impl_->session)
+        impl_->session->suspend();
+}
+void MediaPlaybackController::stop() { impl_->release(); }
+bool MediaPlaybackController::seek(const QString &uri, qint64 positionMs)
+{
+    return impl_->ensureSession(uri) && impl_->session->seek(uri, positionMs);
+}
+void MediaPlaybackController::attachVideoOutput(QObject *output)
+{
+    if (!output)
+        return;
+    impl_->outputs.removeIf([output](const auto &item) { return !item || item == output; });
+    impl_->outputs.append(output);
+    if (impl_->session)
+        impl_->session->attachVideoOutput(output);
+}
+void MediaPlaybackController::detachVideoOutput(QObject *output)
+{
+    impl_->outputs.removeIf([output](const auto &item) { return !item || item == output; });
+    if (impl_->session)
+        impl_->session->detachVideoOutput(output);
 }
 
+bool MediaPlaybackController::openWindow(const QString &uri, const QString &title, const QString &previewUrl,
+                                         const QUrl &componentUrl)
+{
+    const auto reference = impl_->referenceFor(uri);
+    if (!available() || !reference.isValid() || componentUrl.scheme() != QLatin1String("qrc"))
+        return false;
+    auto         *host    = new MediaWindowHost;
+    auto         *session = MediaPlaybackSession::acquire(reference, host);
+    QQmlComponent component(&host->engine, componentUrl);
+    auto *object = component.createWithInitialProperties({ { QStringLiteral("playback"), QVariant::fromValue(session) },
+                                                           { QStringLiteral("sourceUri"), uri },
+                                                           { QStringLiteral("mediaTitle"), title },
+                                                           { QStringLiteral("previewUrl"), QUrl(previewUrl) } });
+    host->window = qobject_cast<QQuickWindow *>(object);
+    if (!host->window) {
+        qWarning() << "Could not create media window:" << component.errorString();
+        delete object;
+        delete host;
+        return false;
+    }
+    QQmlEngine::setObjectOwnership(object, QQmlEngine::CppOwnership);
+    connect(host->window, &QWindow::visibleChanged, host, [host](bool visible) {
+        if (!visible)
+            host->deleteLater();
+    });
+    host->window->show();
+    host->window->requestActivate();
+    if (session->currentSourceUri().isEmpty())
+        session->play(uri);
+    return true;
+}
 } // namespace AnyKeep

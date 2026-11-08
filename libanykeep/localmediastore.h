@@ -81,6 +81,10 @@ public:
     // change. The file is written and verified before the encrypted copy is
     // removed, which keeps precedence until then.
     LocalMediaResult moveToFile(const MediaReference &reference, const QString &fileName);
+    // Promote a verified external source into encrypted storage. The original
+    // plain file stays in place; ownership then resolves to the managed copy.
+    LocalMediaResult copyIntoStore(const MediaReference &reference);
+    LocalMediaResult managedReference(const MediaReference &reference) const;
 
     LocalMediaDataResult           data(const QByteArray &blobId) const;
     LocalMediaDataResult           data(const MediaReference &reference) const;
@@ -89,7 +93,10 @@ public:
     bool                           contains(const QByteArray &blobId) const;
     bool                           contains(const MediaReference &reference) const;
     bool                           containsManagedBlob(const QByteArray &blobId) const;
-    bool                           isChunkedManagedBlob(const QByteArray &blobId) const;
+    // UI membership checks must not initialize the keychain. Attachment aliases
+    // can be resolved once initialize() has supplied the cached media key.
+    bool containsManagedMedia(const MediaReference &reference) const;
+    bool isChunkedManagedBlob(const QByteArray &blobId) const;
 
     // Whether a file kept in place is registered for the reference on this
     // device. Only checks that its encrypted locator exists, so it needs no

@@ -39,6 +39,7 @@ private slots:
     void externalAviUsesExtensionMimeType();
     void imageProviderReadsManagedAndExternalImages();
     void portableNames();
+    void storageOwnershipRoundTripPreservesLazyReferences();
     void markdownDisplayTitle();
     void markdownHtmlImageDisplayTitle();
     void markdownAudioDisplayTitle();
@@ -89,6 +90,54 @@ void LocalMediaStoreTest::imageProviderReadsManagedAndExternalImages()
     changed.close();
     QVERIFY(readImage(linked.value).isNull());
     QVERIFY(readImage(fingerprinted.value).isNull());
+}
+
+void LocalMediaStoreTest::storageOwnershipRoundTripPreservesLazyReferences()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto      key = SecureEnvelope::generateMasterKey();
+    LocalMediaStore store(directory.filePath(QStringLiteral("store")), key);
+    const QString   originalPath = directory.filePath(QStringLiteral("original.wav"));
+    QFile           original(originalPath);
+    QVERIFY(original.open(QIODevice::WriteOnly));
+    const QByteArray payload("immutable source bytes");
+    QCOMPARE(original.write(payload), qint64(payload.size()));
+    original.close();
+    const auto linked = store.referenceFile(originalPath);
+    QVERIFY(linked);
+    QVERIFY(linked.value.blobId.isEmpty());
+    QVERIFY(!store.containsManagedMedia(linked.value));
+    const auto copied = store.copyIntoStore(linked.value);
+    QVERIFY2(copied, qPrintable(copied.error));
+    QVERIFY(QFile::exists(originalPath));
+    QVERIFY(store.managedReference(linked.value));
+    QVERIFY(store.containsManagedMedia(linked.value));
+    QVERIFY(original.remove());
+    LocalMediaStore reopened(directory.filePath(QStringLiteral("store")), key);
+    QCOMPARE(reopened.data(linked.value).value, payload);
+    LocalMediaStore locked(directory.filePath(QStringLiteral("store")));
+    QVERIFY(!locked.containsManagedMedia(linked.value));
+    // The note and every old history snapshot still carry the original,
+    // un-fingerprinted reference. They resolve to the encrypted owned bytes.
+    QCOMPARE(store.data(linked.value).value, payload);
+    MediaStream managed(createLocalMediaSource(linked.value, &store));
+    QVERIFY(managed.open(QIODevice::ReadOnly));
+    QCOMPARE(managed.readAll(), payload);
+    managed.close();
+    const auto publishable = store.fingerprintExternalFile(linked.value);
+    QVERIFY(publishable);
+    QCOMPARE(publishable.value.blobId, copied.value.blobId);
+    const QString savedPath = directory.filePath(QStringLiteral("saved.wav"));
+    const auto    moved     = store.moveToFile(linked.value, savedPath);
+    QVERIFY2(moved, qPrintable(moved.error));
+    QVERIFY(!store.managedReference(linked.value));
+    QVERIFY(!store.containsManagedMedia(linked.value));
+    QCOMPARE(store.externalSource(linked.value).value.fileName, savedPath);
+    QCOMPARE(store.data(linked.value).value, payload);
+    QVERIFY(store.copyIntoStore(linked.value));
+    QVERIFY(QFile::remove(savedPath));
+    QCOMPARE(store.data(linked.value).value, payload);
 }
 
 void LocalMediaStoreTest::encryptedRoundTripAndDeduplication()

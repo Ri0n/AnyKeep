@@ -128,6 +128,27 @@ adapter. It owns no document or draft state. The desktop note manager does not
 use this QWidget host: it is a pure Qt Quick top-level window and connects the
 same controller, model, toolbar, and block editor directly.
 
+## Block boundary navigation
+
+All block types cross document boundaries through `navigateBlock()` on
+`NoteBlockEditorImpl`, implemented by `EditorMediaNavigationController`.
+The target is the adjacent `NoteBlockModel` row; the registry of instantiated
+text editors is never used to skip media or unloaded blocks. Text, list and
+table delegates handle movement within their own fields and call this common
+path only at the first or last visual line.
+
+`EditorFocusController.focusBlock()` dispatches that row to media selection,
+tag editing, or the first/last text field of a text-bearing block. A block
+boundary request waits for the requested delegate to exist; it cannot use the
+history-restoration fallback to an unrelated resident editor. Up enters the
+last list item/table cell, while Down enters the first.
+
+Leaving a terminal structural block uses `insertParagraphAtBoundary()` to
+create a temporary typing position. The ordinary empty-paragraph cleanup
+discards it on blur; entering text makes it regular document content. Keyboard
+navigation must not append a separate permanent empty paragraph. Ordinary
+text at the end of a note does not create another block on Down.
+
 ## Lifecycle ownership
 
 Only the shared `NoteEditor` performs editing lifecycle transitions; individual

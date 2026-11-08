@@ -224,6 +224,13 @@ QtObject {
     }
 
     function editorForAddress(address, candidate) {
+        if (address && address.blockBoundary) {
+            // A normal block transition waits for that exact row to be
+            // instantiated. History may fall back from a removed field, but
+            // navigation must never jump to a different resident text block.
+            const fields = orderedEditors().filter(editor => editor.blockIndex === Number(address.blockIndex))
+            return fields.length > 0 ? fields[address.atEnd ? fields.length - 1 : 0] : null
+        }
         if (candidate && addressMatchesEditor(address, candidate, true))
             return candidate
         // A delegate that ListView is removing reports row -1 until it is
@@ -691,13 +698,10 @@ QtObject {
         if (type === NoteBlockType.Media || type === NoteBlockType.Attachment)
             return editorView.focusMediaBlock(blockIndex)
         activeTagLineIndex = -1
-        const listItemIndex = Boolean(atEnd)
-                && (type === NoteBlockType.BulletList || type === NoteBlockType.CheckList
-                    || type === NoteBlockType.NumberedList)
-                ? Math.max(0, blockModel.listItemCountAt(blockIndex) - 1) : -1
         return focusEditorAddress({
             blockIndex: blockIndex,
-            listItemIndex: listItemIndex,
+            blockBoundary: true,
+            listItemIndex: -1,
             tableCellIndex: -1,
             cursorPosition: position === undefined ? -1 : position,
             selectionStart: position === undefined ? -1 : position,

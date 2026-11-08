@@ -54,6 +54,8 @@ namespace {
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert text");
         else if (kind == QLatin1String("insert-image") || kind == QLatin1String("insert-media"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Insert media");
+        else if (kind == QLatin1String("rename-media"))
+            source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Rename media");
         else if (kind == QLatin1String("remove-image") || kind == QLatin1String("remove-adjacent-image")
                  || kind == QLatin1String("remove-media") || kind == QLatin1String("remove-adjacent-media"))
             source = QT_TRANSLATE_NOOP("NoteDocumentHistory", "Remove media");

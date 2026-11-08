@@ -35,6 +35,9 @@ public:
     // Includes files previously saved or opened in the persistent downloads folder.
     Q_INVOKABLE bool hasAttachmentLocalFile(const QString &url) const;
     Q_INVOKABLE void showAttachmentInFolder(const QString &url);
+    Q_INVOKABLE bool isAttachmentInMediaStore(const QString &url) const;
+    Q_INVOKABLE void moveAttachmentOutOfStore(const QString &url);
+    Q_INVOKABLE void copyAttachmentIntoStore(const QString &url);
 
     // File-manager drops use the same local media store as picker imports.
     bool canAcceptFileMimeData(const QMimeData *mimeData) const;

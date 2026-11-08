@@ -4,6 +4,7 @@
 #include "anykeep_export.h"
 
 #include <QObject>
+#include <QUrl>
 #include <memory>
 
 namespace AnyKeep {
@@ -45,6 +46,8 @@ public:
     Q_INVOKABLE bool seek(const QString &sourceUri, qint64 positionMs);
     Q_INVOKABLE void attachVideoOutput(QObject *output);
     Q_INVOKABLE void detachVideoOutput(QObject *output);
+    Q_INVOKABLE bool openWindow(const QString &sourceUri, const QString &title, const QString &previewUrl,
+                                const QUrl &componentUrl);
 
 signals:
     void stateChanged();

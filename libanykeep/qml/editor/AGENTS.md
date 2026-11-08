@@ -12,7 +12,7 @@
 - `controllers/EditorFocusController.qml`: editor registry/addressing,
   focus/state restoration, viewport preservation, and text insertion targets.
 - `controllers/EditorMediaNavigationController.qml`: image/audio/attachment
-  selection, removal, and navigation across structural boundaries.
+  selection and removal, plus the common model-row navigation for every block type.
 - `components/NoteBlockTextArea.qml`: the common editable text surface, including source
   synchronization, formatting, spell checking, link interaction, and local
   pointer/keyboard handling.
@@ -93,6 +93,14 @@ ctest --test-dir build/Desktop-Debug -L editor --output-on-failure
   and audio. Both receive the editor's media adapter explicitly. Use lazy
   loaders so an inactive media type cannot create duplicate playback buttons,
   duplicate object names, or extra media output instances.
+- `blocks/MediaTitleField.qml` edits timed-media titles inline through the model
+  and one editor history transaction. Audio titles live in the transport row;
+  video titles overlay the paused preview. The gesture area excludes that title.
+- `blocks/MediaCornerMask.qml` restores the owning card's rounded corners above
+  its rectangular poster/video/control children, using palette colors and small
+  Canvas surfaces without requiring a GPU effect.
+- `blocks/MediaPlayerWindow.qml` is an independent presentation of a borrowed
+  playback session. Its engine and lease belong to the application, not a note.
 - `blocks/MediaVideoSurface.qml` is the lazy decoder/video-output adapter,
   including fullscreen presentation; it must not own the card's inline border
   or the editor's media layout.
@@ -133,3 +141,21 @@ identical content and aggregates verified plaintext bytes without affecting
 the document, manifest or undo history. Keep the four state glyphs,
 rotation-only-while-transferring behavior, tooltips and accessible names.
 Do not import plugin-specific QML types into editor blocks.
+
+## Media interaction
+
+Transport-background clicks focus/select the media block; title clicks enter
+inline editing, and playback/menu/slider controls retain their own actions.
+Outside title editing, Up/Down visit the immediately adjacent model block,
+including images, audio and attachments; Left/Right adjust supported visual
+alignment. All inter-block transitions use `navigateBlock()` and `focusBlock()`;
+never find the next block by scanning the registry of text editors. Lists and
+tables retain their own movement within the block and leave it only at a visual
+line boundary. Block focus selects the first/last field and waits for unloaded
+delegates instead of falling back to a different row. Exiting a terminal
+structural block uses the existing temporary paragraph insertion/cleanup path.
+Fullscreen owns Escape until it returns to the source window; only
+then may the note's close shortcut handle another Escape. Build media context
+menus from current capabilities when opening, inserting separators only between
+nonempty action groups. Filesystem ownership actions use the platform backend
+and the shared LocalMediaStore; they never rewrite document media URLs.

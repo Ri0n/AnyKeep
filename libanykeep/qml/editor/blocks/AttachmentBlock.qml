@@ -64,7 +64,10 @@ FocusScope {
         }
         if (event.modifiers)
             return
-        if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) {
+        if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
+            attachmentRoot.editorView.navigateBlock(block.index, event.key === Qt.Key_Up ? -1 : 1, !event.isAutoRepeat)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) {
             attachmentRoot.editorView.removeAttachmentBlock(block.index, true)
             event.accepted = true
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {

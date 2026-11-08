@@ -32,7 +32,7 @@ Item {
     Shortcut {
         sequences: [StandardKey.Cancel]
         context: Qt.WindowShortcut
-        enabled: true
+        enabled: !editorPane.blockEditor.mediaFullScreen
         onActivated: standaloneHost.requestClose()
     }
 

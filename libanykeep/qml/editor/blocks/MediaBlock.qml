@@ -20,6 +20,9 @@ FocusScope {
     }
     property var transcription: mediaRoot.editorView.audioTranscriptionController
     property bool transcriptExpanded: false
+    property bool titleEditing: false
+    readonly property bool canEditTitle: true
+    readonly property var platform: editorView.platformBackend
     readonly property bool timed: block.mediaType.startsWith("audio/") || block.mediaType.startsWith("video/")
     readonly property bool video: block.mediaType.startsWith("video/")
     readonly property bool audio: block.mediaType.startsWith("audio/")
@@ -66,7 +69,7 @@ FocusScope {
     // their own height inside the single card instead of hiding its last 40 px.
     readonly property real displayHeight: video ? Math.max(40, displayWidth * visualAspect) + transportHeight + 2
         : visual ? Math.max(40, displayWidth * visualAspect) : 58
-    readonly property real imageY: individuallySelected ? altEditor.implicitHeight + 6 : 0
+    readonly property real imageY: individuallySelected && !timed ? altEditor.implicitHeight + 6 : 0
     readonly property real actionGap: mediaRoot.editorView.touchMode ? 12 : 8
     readonly property real alignedX:
         normalizedAlignment === "left" ? 0
@@ -82,8 +85,10 @@ FocusScope {
     implicitHeight: baseContentHeight
                     + (transcriptPanel.visible ? 6 + transcriptPanel.implicitHeight : 0)
     activeFocusOnTab: true
+    signal finishTitleEditing()
 
     function selectAndFocus() {
+        finishTitleEditing()
         mediaRoot.editorView.selectMediaBlock(block.index)
         mediaRoot.forceActiveFocus()
     }
@@ -161,6 +166,7 @@ FocusScope {
 
     function openMediaContextMenu() {
         selectAndFocus()
+        mediaContextMenu.rebuild()
         mediaContextMenu.popup()
     }
 
@@ -168,6 +174,34 @@ FocusScope {
         if (video)
             if (videoCard.item)
                 videoCard.item.openFullScreen()
+    }
+
+    function openVideoWindow() {
+        if (playback && typeof playback.openWindow === "function")
+            playback.openWindow(block.url, block.alt, String(block.previewUrl), Qt.resolvedUrl("MediaPlayerWindow.qml"))
+    }
+
+    function setTitle(value) {
+        mediaRoot.editorView.blockModel.setMediaTitle(block.index, value)
+    }
+
+    function handleNavigationKey(event) {
+        if (titleEditing || event.modifiers)
+            return false
+        if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
+            editorView.navigateBlock(block.index, event.key === Qt.Key_Up ? -1 : 1, !event.isAutoRepeat)
+            event.accepted = true
+            return true
+        }
+        if (visual && (event.key === Qt.Key_Left || event.key === Qt.Key_Right)) {
+            const alignments = ["left", "center", "right"]
+            const next = Math.max(0, Math.min(2, alignments.indexOf(normalizedAlignment)
+                                            + (event.key === Qt.Key_Left ? -1 : 1)))
+            setAlignment(alignments[next])
+            event.accepted = true
+            return true
+        }
+        return false
     }
 
     function requestTranscription() {
@@ -184,21 +218,13 @@ FocusScope {
     }
 
     Keys.onPressed: function(event) {
-        if (altEditor.activeFocus)
+        if (altEditor.activeFocus || titleEditing)
+            return
+        if (handleNavigationKey(event))
             return
         if (timed && !event.modifiers && (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
             if (playback)
                 playback.toggle(block.url)
-            event.accepted = true
-            return
-        }
-        if (timed && !event.modifiers && event.key === Qt.Key_Left && playback) {
-            playback.seek(block.url, Math.max(0, (current ? playback.position : 0) - 5000))
-            event.accepted = true
-            return
-        }
-        if (timed && !event.modifiers && event.key === Qt.Key_Right && playback) {
-            playback.seek(block.url, Math.min(knownDuration, (current ? playback.position : 0) + 5000))
             event.accepted = true
             return
         }
@@ -217,7 +243,7 @@ FocusScope {
     TextField {
         id: altEditor
         objectName: "mediaTitleEditor-" + mediaRoot.block.index
-        visible: mediaRoot.individuallySelected
+        visible: mediaRoot.individuallySelected && !mediaRoot.timed
         opacity: visible ? 1 : 0
         width: Math.min(mediaRoot.width, Math.max(180, visualItem.width))
         x: Math.max(0, Math.min(mediaRoot.width - width,
@@ -282,9 +308,10 @@ FocusScope {
         objectName: "mediaVisualHitLayer-" + mediaRoot.block.index
         visible: mediaRoot.visual
         x: visualItem.x + (mediaRoot.video ? 1 : 0)
-        y: visualItem.y + (mediaRoot.video ? 1 : 0)
+        readonly property real titleInset: mediaRoot.video && videoCard.item ? videoCard.item.titleAreaHeight : 0
+        y: visualItem.y + (mediaRoot.video ? 1 : 0) + titleInset
         width: Math.max(0, visualItem.width - (mediaRoot.video ? 2 : 0))
-        height: Math.max(0, visualItem.height - (mediaRoot.video ? mediaRoot.transportHeight + 2 : 0))
+        height: Math.max(0, visualItem.height - (mediaRoot.video ? mediaRoot.transportHeight + 2 : 0) - titleInset)
         z: 2
 
         HoverHandler { id: visualDescriptionHover }
@@ -507,67 +534,91 @@ FocusScope {
         }
     }
 
+    function contextMenuEntries() {
+        const entries = []
+        function section(items) {
+            if (items.length === 0)
+                return
+            if (entries.length > 0)
+                entries.push({ separator: true })
+            for (const item of items)
+                entries.push(item)
+        }
+        const storage = []
+        if (platform && block.url.startsWith("anykeep-media:/")) {
+            // Query on every opening: another attachment/window can change
+            // where the same content is stored without changing this block.
+            const managed = typeof platform.isAttachmentInMediaStore === "function"
+                            && platform.isAttachmentInMediaStore(block.url)
+            const keptInPlace = typeof platform.isAttachmentKeptInPlace === "function"
+                                && platform.isAttachmentKeptInPlace(block.url)
+            const hasLocalFile = typeof platform.hasAttachmentLocalFile === "function"
+                                 && platform.hasAttachmentLocalFile(block.url)
+            if (managed && typeof platform.moveAttachmentOutOfStore === "function")
+                storage.push({ text: qsTr("Move out of encrypted storage…"), command: "move-out" })
+            else if (keptInPlace && typeof platform.copyAttachmentIntoStore === "function")
+                storage.push({ text: qsTr("Copy into encrypted storage"), command: "copy-in" })
+            else if (typeof platform.saveAttachmentAs === "function")
+                storage.push({ text: qsTr("Save To…"), command: "save" })
+            if (!managed && hasLocalFile && typeof platform.showAttachmentInFolder === "function")
+                storage.push({ text: qsTr("Show in Folder"), command: "show" })
+            if (!timed && typeof platform.saveImageAs === "function")
+                storage.push({ text: qsTr("Save Image As…"), command: "save-image" })
+        }
+        section(storage)
+        if (visual) {
+            section([{ text: qsTr("Align Left"), command: "left" },
+                     { text: qsTr("Align Center"), command: "center" },
+                     { text: qsTr("Align Right"), command: "right" },
+                     { text: qsTr("Reset Size and Alignment"), command: "reset",
+                       enabled: block.mediaDisplayWidth > 0 || normalizedAlignment !== "center" }])
+        }
+        if (canTranscribe) {
+            const actions = [{ text: block.mediaTranscript.length > 0 ? qsTr("Show transcript") : qsTr("Transcribe audio"),
+                               command: "transcript", enabled: !transcriptionBlocked && !transcribing }]
+            if (block.mediaTranscript.length > 0)
+                actions.push({ text: qsTr("Transcribe again"), command: "transcribe",
+                               enabled: !transcriptionBlocked && !transcribing })
+            section(actions)
+        }
+        section([{ text: qsTr("Remove Media"), command: "remove" }])
+        return entries
+    }
+    function runMenuCommand(command) {
+        if (command === "move-out") platform.moveAttachmentOutOfStore(block.url)
+        else if (command === "copy-in") platform.copyAttachmentIntoStore(block.url)
+        else if (command === "save") platform.saveAttachmentAs(block.url)
+        else if (command === "save-image") platform.saveImageAs(block.url)
+        else if (command === "show") platform.showAttachmentInFolder(block.url)
+        else if (command === "left" || command === "right" || command === "center") setAlignment(command)
+        else if (command === "reset") resetPresentation()
+        else if (command === "transcript" && block.mediaTranscript.length > 0) transcriptExpanded = true
+        else if (command === "transcript" || command === "transcribe") requestTranscription()
+        else if (command === "remove") editorView.removeMediaBlock(block.index, true)
+    }
     Menu {
         id: mediaContextMenu
-        MenuItem {
-            text: qsTr("Save Image As…")
-            visible: mediaRoot.block.mediaType.startsWith("image/")
-                     && mediaRoot.editorView.platformBackend !== null
-            height: visible ? implicitHeight : 0
-            enabled: visible && mediaRoot.block.url.startsWith("anykeep-media:/")
-            onTriggered: mediaRoot.editorView.platformBackend.saveImageAs(mediaRoot.block.url)
-        }
-        MenuSeparator { visible: mediaRoot.visual }
-        MenuItem {
-            text: qsTr("Align Left")
-            visible: mediaRoot.visual
-            height: visible ? implicitHeight : 0
-            onTriggered: mediaRoot.setAlignment("left")
-        }
-        MenuItem {
-            text: qsTr("Align Center")
-            visible: mediaRoot.visual
-            height: visible ? implicitHeight : 0
-            onTriggered: mediaRoot.setAlignment("center")
-        }
-        MenuItem {
-            text: qsTr("Align Right")
-            visible: mediaRoot.visual
-            height: visible ? implicitHeight : 0
-            onTriggered: mediaRoot.setAlignment("right")
-        }
-        MenuItem {
-            text: qsTr("Reset Size and Alignment")
-            visible: mediaRoot.visual
-            height: visible ? implicitHeight : 0
-            enabled: mediaRoot.block.mediaDisplayWidth > 0 || mediaRoot.normalizedAlignment !== "center"
-            onTriggered: mediaRoot.resetPresentation()
-        }
-        MenuSeparator { visible: mediaRoot.canTranscribe }
-        MenuItem {
-            text: mediaRoot.block.mediaTranscript.length > 0 ? qsTr("Show transcript") : qsTr("Transcribe audio")
-            visible: mediaRoot.canTranscribe
-            height: visible ? implicitHeight : 0
-            enabled: !mediaRoot.transcriptionBlocked && !mediaRoot.transcribing
-            onTriggered: {
-                if (mediaRoot.block.mediaTranscript.length > 0)
-                    mediaRoot.transcriptExpanded = true
-                else
-                    mediaRoot.requestTranscription()
+        objectName: "mediaContextMenu-" + mediaRoot.block.index
+        function rebuild() {
+            while (count > 0) {
+                const old = takeItem(0)
+                old.destroy()
+            }
+            for (const entry of mediaRoot.contextMenuEntries()) {
+                const item = entry.separator ? separatorFactory.createObject(mediaRoot)
+                                             : menuItemFactory.createObject(mediaRoot, {
+                                                   text: entry.text, command: entry.command,
+                                                   enabled: entry.enabled === undefined ? true : entry.enabled })
+                addItem(item)
             }
         }
+    }
+    Component { id: separatorFactory; MenuSeparator {} }
+    Component {
+        id: menuItemFactory
         MenuItem {
-            text: qsTr("Transcribe again")
-            visible: mediaRoot.canTranscribe && mediaRoot.block.mediaTranscript.length > 0
-            height: visible ? implicitHeight : 0
-            enabled: !mediaRoot.transcriptionBlocked && !mediaRoot.transcribing
-            onTriggered: mediaRoot.requestTranscription()
-        }
-        MenuSeparator { }
-        MenuItem {
-            text: qsTr("Remove Media")
-            onTriggered: mediaRoot.editorView.removeMediaBlock(mediaRoot.block.index, true)
+            property string command
+            onTriggered: mediaRoot.runMenuCommand(command)
         }
     }
-
 }

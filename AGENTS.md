@@ -38,3 +38,20 @@ set `QT_QPA_PLATFORM=offscreen` and `QSG_RHI_BACKEND=software`.
 Keep `NoteBlockModel` canonical, preserve the tiny root QML compatibility
 facades, and do not mix desktop-only dependencies into the shared mobile core.
 Preserve unrelated working-tree changes and verify with `git diff --check`.
+
+## Commit messages and squash merges
+
+Write commit messages in English. Use a concise imperative subject describing
+the resulting behavior. For a squash commit, describe the complete final change
+as one coherent unit, including relevant fixes made during review.
+
+For a nontrivial change, include a body explaining the problem, what changed and
+why, plus the validation performed and any material limitations. Scale the
+detail to the change; do not dump implementation details or conversational
+history into the message.
+
+Keep the PR title and description aligned with the final implementation so
+they can serve as the squash commit subject and body. When performing a squash
+merge or rewriting a commit, explicitly supply the final subject and body.
+Do not use an automatically concatenated list of intermediate commit messages,
+repeated fixup subjects, or abandoned approaches as the squash commit body.
