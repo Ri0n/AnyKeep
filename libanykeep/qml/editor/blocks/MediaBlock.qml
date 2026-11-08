@@ -295,7 +295,7 @@ FocusScope {
         id: videoCard
         active: mediaRoot.video
         sourceComponent: Component {
-            MediaVideoCard { mediaRoot: mediaRoot }
+            MediaVideoCard { mediaBlock: mediaRoot }
         }
         x: mediaRoot.displayX
         y: mediaRoot.imageY
@@ -357,7 +357,7 @@ FocusScope {
         id: audioControls
         active: mediaRoot.audio
         sourceComponent: Component {
-            MediaTransportControls { mediaRoot: mediaRoot }
+            MediaTransportControls { mediaBlock: mediaRoot }
         }
         x: 0
         y: mediaRoot.imageY
