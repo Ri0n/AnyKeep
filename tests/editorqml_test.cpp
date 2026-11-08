@@ -408,11 +408,13 @@ private slots:
             QQuickItem *card = nullptr;
             QQuickItem *frame = nullptr;
             QQuickItem *transport = nullptr;
+            QQuickItem *hitLayer = nullptr;
             QQuickItem *glyph = nullptr;
             QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
             QTRY_VERIFY((card = quickItemByName(root, QStringLiteral("mediaVideoCard-2"))));
             QTRY_VERIFY((frame = quickItemByName(root, QStringLiteral("mediaVideoFrame-2"))));
             QTRY_VERIFY((transport = quickItemByName(root, QStringLiteral("mediaCard-2"))));
+            QTRY_VERIFY((hitLayer = quickItemByName(root, QStringLiteral("mediaVisualHitLayer-2"))));
             QTRY_VERIFY((glyph = quickItemByName(root, QStringLiteral("mediaVideoPlaceholderGlyph-2"))));
 
             const qreal expected = dimensions.width() ? qreal(dimensions.height()) / dimensions.width()
@@ -421,11 +423,15 @@ private slots:
             QVERIFY(card->isVisible());
             QCOMPARE(frame->parentItem(), card);
             QCOMPARE(transport->parentItem(), card);
+            QCOMPARE(hitLayer->parentItem(), media);
             QVERIFY(card->property("clip").toBool());
             QVERIFY(card->property("radius").toReal() > 0.0);
             QVERIFY(qAbs(frame->height() - media->property("displayWidth").toDouble() * expected) < 1.0);
             QVERIFY(qAbs(card->height() - frame->height() - transport->height() - 2.0) < 1.0);
             QVERIFY(qAbs(frame->y() + frame->height() - transport->y()) < 1.0);
+            // Editor gestures end exactly where playback controls begin.
+            QVERIFY(qAbs(hitLayer->height() - frame->height()) < 1.0);
+            QVERIFY(qAbs(hitLayer->y() + hitLayer->height() - (card->y() + transport->y())) < 1.0);
             QVERIFY(qAbs(frame->width() - card->width() + 2.0) < 1.0);
             QVERIFY(!quickItemByName(root, QStringLiteral("mediaVideoOutline-2")));
             QCOMPARE(glyph->property("fallbackName").toString(), glyphAsset);
