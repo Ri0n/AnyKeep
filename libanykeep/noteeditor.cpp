@@ -11,6 +11,7 @@
 #include "notedocumenthistory.h"
 #include "notemanager.h"
 #include "notestorage.h"
+#include "videothumbnailgenerator.h"
 
 #include <QDebug>
 #include <QGuiApplication>
@@ -716,6 +717,29 @@ bool NoteEditor::insertMedia(const MediaReference &reference, qint64 durationMs,
                         reference.mediaType, durationMs, width, height);
     endHistoryTransaction();
     emit mediaInserted({ reference });
+
+    if (reference.mediaType.startsWith(QLatin1String("video/")) && reference.videoThumbnailJpeg.isEmpty()) {
+        // Best effort. The job is cancelled with this editor and never blocks
+        // insertion or note publication. Its result is derived metadata, not
+        // a separate undoable user edit.
+        VideoThumbnailGenerator::start(reference, this,
+                                       [this, id = reference.id, blobId = reference.blobId,
+                                        checksum = reference.checksum](qint64 frameMs, QByteArray jpeg) {
+            if (frameMs < 0 || jpeg.isEmpty())
+                return;
+            auto manifest = media_;
+            for (auto &item : manifest) {
+                if (item.id != id || item.blobId != blobId || item.checksum != checksum
+                    || !item.videoThumbnailJpeg.isEmpty())
+                    continue;
+                item.posterFrameMs = frameMs;
+                item.videoThumbnailJpeg = std::move(jpeg);
+                setMedia(manifest);
+                setDirty(true); // Ensure the new derived metadata is checkpointed.
+                break;
+            }
+        });
+    }
     return true;
 }
 
