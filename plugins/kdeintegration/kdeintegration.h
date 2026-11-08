@@ -75,6 +75,7 @@ private:
 
     QHash<QString, QAction *> _shortcuts;
     bool                      _waylandGeometryScriptAvailable = false;
+    bool                      _waylandGeometryReloadScheduled = false;
     QString                   _lastGlobalShortcutError;
 };
 

@@ -2510,7 +2510,7 @@ private:
             }
             return true;
         };
-        QVERIFY(measuredMatchesLive());
+        QTRY_VERIFY(measuredMatchesLive());
 
         // Measuring must not disturb the editor font: cells keep following it.
         QFont larger = font;

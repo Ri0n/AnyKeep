@@ -78,24 +78,44 @@ bool KDEIntegration::ensureWaylandGeometryScript()
     QDBusInterface scripting(QStringLiteral("org.kde.KWin"), QStringLiteral("/Scripting"),
                              QStringLiteral("org.kde.kwin.Scripting"));
     const QString  pluginName = QStringLiteral("anykeepwindowgeometry");
-    // Reload even if a previous process loaded the script but failed before run().
-    scripting.call(QStringLiteral("unloadScript"), pluginName);
+    // KWin unloads script objects via deleteLater(). Defer a reload when an
+    // old script is present so a reused ID cannot point to the dying object.
+    const QDBusReply<bool> loaded = scripting.call(QStringLiteral("isScriptLoaded"), pluginName);
+    if (!loaded.isValid()) {
+        qCWarning(logKdeIntegration) << "Cannot query AnyKeep KWin script state:" << loaded.error().message();
+        return false;
+    }
+    if (loaded.value()) {
+        if (_waylandGeometryReloadScheduled)
+            return false;
+        const auto unload = scripting.call(QStringLiteral("unloadScript"), pluginName);
+        if (unload.type() == QDBusMessage::ErrorMessage) {
+            qCWarning(logKdeIntegration) << "Failed to unload old AnyKeep KWin script:" << unload.errorMessage();
+            return false;
+        }
+        _waylandGeometryReloadScheduled = true;
+        QTimer::singleShot(250, this, [this] {
+            _waylandGeometryReloadScheduled = false;
+            ensureWaylandGeometryScript();
+        });
+        qCInfo(logKdeIntegration) << "Waiting for the previous KWin script object to be destroyed";
+        return false;
+    }
 
-    QDBusReply<int> scriptId = scripting.call(QStringLiteral("loadScript"), scriptPath, pluginName);
+    const QDBusReply<int> scriptId = scripting.call(QStringLiteral("loadScript"), scriptPath, pluginName);
     if (!scriptId.isValid() || scriptId.value() < 0) {
         qCWarning(logKdeIntegration) << "Failed to load AnyKeep KWin geometry script:" << scriptId.error().message();
         return false;
     }
-    // Start through Scripting.start(), which runs every loaded script that is
-    // not running yet. Calling run() on /Scripting/Script<id> instead can reach
-    // the object of a script unloaded earlier, which reuses the id: the new
-    // script is then silently never started.
-    const auto startReply           = scripting.call(QStringLiteral("start"));
-    _waylandGeometryScriptAvailable = startReply.type() != QDBusMessage::ErrorMessage;
+    const QString objectPath = QStringLiteral("/Scripting/Script%1").arg(scriptId.value());
+    QDBusInterface script(QStringLiteral("org.kde.KWin"), objectPath, QStringLiteral("org.kde.kwin.Script"));
+    const auto runReply = script.call(QStringLiteral("run"));
+    _waylandGeometryScriptAvailable = runReply.type() != QDBusMessage::ErrorMessage;
     if (!_waylandGeometryScriptAvailable)
-        qCWarning(logKdeIntegration) << "Failed to start AnyKeep KWin geometry script:" << startReply.errorMessage();
+        qCWarning(logKdeIntegration) << "Failed to run AnyKeep KWin geometry script" << objectPath << ":"
+                                     << runReply.errorMessage();
     else
-        qCInfo(logKdeIntegration) << "AnyKeep KWin geometry script started:" << scriptId.value();
+        qCInfo(logKdeIntegration) << "Requested direct KWin geometry script run:" << objectPath;
     return _waylandGeometryScriptAvailable;
 }
 
