@@ -1,6 +1,7 @@
 #include "irisjinglepublicationprovider.h"
 
 #include "irisxmppbackend.h"
+#include "localmediastore.h"
 #include "mediachunkwirestream.h"
 #include "secureenvelope.h"
 
