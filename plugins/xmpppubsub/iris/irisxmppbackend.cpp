@@ -444,7 +444,7 @@ void IrisXmppBackend::resetClient()
             delete job;
 #endif
     mediaRangeTransfers_.clear();
-    mediaRangeTransferActive_ = false;
+    activeMediaRangeTransfers_ = 0;
     cachedLegacyMedia_.clear();
     cachedMediaChunk_.clear();
     cachedMediaPlain_.clear();
@@ -1958,7 +1958,7 @@ void IrisXmppBackend::fetchPublishedRangeAsync(XMPP::Jid publisher, QString publ
     qCDebug(lcIrisJingleMedia) << "Queueing Jingle media range: publication=" << publicationId
                                << "publisher=" << publisher.full() << "offset=" << offset << "length=" << length
                                << "wire-size=" << wireSize << "queued=" << mediaRangeTransfers_.size()
-                               << "active=" << mediaRangeTransferActive_ << "generation=" << generation_;
+                               << "active=" << activeMediaRangeTransfers_ << "generation=" << generation_;
     const auto generation = generation_;
     mediaRangeTransfers_.enqueue([this, generation, publisher, publicationId, wireSize, offset, length,
                                   callback = std::move(callback)]() mutable {
@@ -1968,7 +1968,7 @@ void IrisXmppBackend::fetchPublishedRangeAsync(XMPP::Jid publisher, QString publ
                                      if (!guard)
                                          return;
                                      if (generation == generation_)
-                                         mediaRangeTransferActive_ = false;
+                                         --activeMediaRangeTransfers_;
                                      callback(std::move(bytes), std::move(error));
                                      if (guard && generation == generation_)
                                          QTimer::singleShot(0, this, &IrisXmppBackend::startNextMediaRangeTransfer);
@@ -1979,11 +1979,16 @@ void IrisXmppBackend::fetchPublishedRangeAsync(XMPP::Jid publisher, QString publ
 
 void IrisXmppBackend::startNextMediaRangeTransfer()
 {
-    if (mediaRangeTransferActive_ || mediaRangeTransfers_.isEmpty() || !client_)
+    if (!client_)
         return;
-    mediaRangeTransferActive_ = true;
-    auto next                 = mediaRangeTransfers_.dequeue();
-    next();
+    // Each range negotiates an independent Jingle transfer. Admit several
+    // ranges simultaneously, without recursively starting new sessions from
+    // their completion callbacks. The cap bounds active network and memory use.
+    while (activeMediaRangeTransfers_ < MaxConcurrentJingleRanges && !mediaRangeTransfers_.isEmpty()) {
+        ++activeMediaRangeTransfers_;
+        auto next = mediaRangeTransfers_.dequeue();
+        next();
+    }
 }
 
 void IrisXmppBackend::startPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize,
