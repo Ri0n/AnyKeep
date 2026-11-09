@@ -1,0 +1,31 @@
+name: Dispatch AnyKeep 4.0.5 packages
+on:
+  push:
+    branches:
+      - release/dispatch-4.0.5-packages-final
+    paths:
+      - .github/workflows/dispatch-4.0.5-packages-final.yml
+permissions:
+  actions: write
+  contents: read
+jobs:
+  dispatch:
+    if: github.repository == 'Ri0n/AnyKeep'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify exact tagged source and dispatch stable build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SOURCE_SHA: b552565896c0852dc636e0d79e8ea87fd46c0cdd
+        shell: bash
+        run: |
+          set -euo pipefail
+          master_sha="$(gh api "repos/$REPO/git/ref/heads/master" --jq '.object.sha')"
+          tag_sha="$(gh api "repos/$REPO/git/ref/tags/4.0.5" --jq '.object.sha')"
+          if [[ "$tag_sha" != "$SOURCE_SHA" || "$master_sha" != "$SOURCE_SHA" ]]; then
+            echo "::error::Ref mismatch: master=$master_sha tag=$tag_sha expected=$SOURCE_SHA" >&2
+            exit 1
+          fi
+          gh workflow run packages.yml --repo "$REPO" --ref master -f update_channel=stable
+          echo "Dispatched stable 4.0.5 packaging at $SOURCE_SHA"
