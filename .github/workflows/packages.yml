@@ -743,7 +743,7 @@ jobs:
           built_at="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           notes_file="$RUNNER_TEMP/anykeep-release-notes.md"
           {
-            if [[ "$PRERELEASE" == "true" ]]; then
+            if [[ -f "docs/releases/$release_tag.md" ]]; then
               cat "docs/releases/$release_tag.md"
             elif [[ "$UPDATE_CHANNEL" == "nightly" ]]; then
               echo "Rolling AnyKeep nightly build."

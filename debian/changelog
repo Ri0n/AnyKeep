@@ -1,3 +1,14 @@
+anykeep (4.0.1) unstable; urgency=medium
+
+  * First stable package set following the 4.0.0 release candidates.
+  * Restore image previews and improve media player presentation, video
+    posters, compact encrypted thumbnails, and vector playback controls.
+  * Restore KDE Wayland note-window positions after application restart.
+  * Improve structured editor navigation and table formatting.
+  * Make Android Gradle downloads more resilient during packaging.
+
+ -- Sergei Ilinykh <rion4ik@gmail.com>  Mon, 09 Nov 2026 01:55:00 +0300
+
 anykeep (4.0.0~rc2) unstable; urgency=medium
 
   * Second release candidate for AnyKeep 4.0.
