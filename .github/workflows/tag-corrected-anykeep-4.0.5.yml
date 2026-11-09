@@ -1,0 +1,42 @@
+# One-shot tag publisher. This workflow exists only on its release branch.
+name: Tag corrected AnyKeep 4.0.5
+on:
+  push:
+    branches:
+      - release/retag-anykeep-4.0.5-after-source-fix
+    paths:
+      - .github/workflows/tag-corrected-anykeep-4.0.5.yml
+permissions:
+  contents: write
+jobs:
+  tag:
+    if: github.repository == 'Ri0n/AnyKeep' && github.ref == 'refs/heads/release/retag-anykeep-4.0.5-after-source-fix'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tag the corrected source archive commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: b552565896c0852dc636e0d79e8ea87fd46c0cdd
+          RELEASE_TAG: '4.0.5'
+        run: |
+          set -euo pipefail
+          actual_master="$(gh api "repos/$REPOSITORY/git/ref/heads/master" --jq '.object.sha')"
+          if [[ "$actual_master" != "$SOURCE_SHA" ]]; then
+            echo "::error::Master changed since correction: $actual_master != $SOURCE_SHA"
+            exit 1
+          fi
+          if existing="$(gh api "repos/$REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha' 2>/dev/null)"; then
+            if [[ "$existing" != "$SOURCE_SHA" ]]; then
+              echo "::error::Release tag already exists at $existing; not touching it"
+              exit 1
+            fi
+            echo "Tag already points to validated source"
+          else
+            gh api -X POST "repos/$REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$RELEASE_TAG" \
+              -f "sha=$SOURCE_SHA"
+            echo "Created tag $RELEASE_TAG at $SOURCE_SHA"
+          fi
+          # Do not publish release assets yet. User will test Gentoo first.
