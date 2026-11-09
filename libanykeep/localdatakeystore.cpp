@@ -110,7 +110,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
     }
 
     auto &state = keyLoadState();
-    const auto deliver = [context = QPointer<QObject>(context), callback = std::move(callback)](
+    auto deliver = [context = QPointer<QObject>(context), callback = std::move(callback)](
                              QByteArray key, QString error) mutable {
         if (!context)
             return;
