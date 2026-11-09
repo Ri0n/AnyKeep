@@ -192,25 +192,6 @@ if(KF6GlobalAccel_FOUND
   find_package(Qt6 COMPONENTS DBus REQUIRED)
   set(kdeintegration_buildable ON)
 endif()
-set(kdeintegration_auto_disabled_cache_key ANYKEEP_PLUGIN_AUTO_DISABLED_kdeintegration)
-
-if(NOT kdeintegration_buildable)
-  if(ANYKEEP_PLUGIN_ENABLE_kdeintegration)
-    set(${kdeintegration_auto_disabled_cache_key}
-        ON
-        CACHE INTERNAL "kdeintegration was disabled automatically")
-  endif()
-  set(ANYKEEP_PLUGIN_ENABLE_kdeintegration
-      OFF
-      CACHE BOOL "Enable AnyKeep plugin: Integration with KDE Plasma" FORCE)
-elseif(${kdeintegration_auto_disabled_cache_key} OR (DEFINED CACHE{ANYKEEP_PLUGIN_ENABLE_kdeintegration}
-                                                     AND NOT ANYKEEP_PLUGIN_ENABLE_kdeintegration))
-  set(ANYKEEP_PLUGIN_ENABLE_kdeintegration
-      ON
-      CACHE BOOL "Enable AnyKeep plugin: Integration with KDE Plasma" FORCE)
-  unset(${kdeintegration_auto_disabled_cache_key} CACHE)
-endif()
-
 add_anykeep_plugin(
   kdeintegration
   "Integration with KDE Plasma"
