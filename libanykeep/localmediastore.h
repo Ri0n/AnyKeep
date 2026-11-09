@@ -8,6 +8,9 @@
 #include <QMutex>
 #include <QString>
 #include <memory>
+#include <functional>
+
+class QObject;
 
 namespace AnyKeep {
 
@@ -63,6 +66,9 @@ public:
     // Image providers may call data() from a worker thread, so the first
     // keychain access must never be deferred to requestImage().
     bool initialize(QString *error = nullptr) const;
+    // Do not spin a nested event loop while a file-transfer callback is active.
+    // The callback runs on context's event loop, or is canceled with context.
+    void initializeAsync(QObject *context, std::function<void(QString)> callback) const;
 
     static constexpr qint64 ManagedChunkSize  = 1024 * 1024;
     static constexpr qint64 ExternalChunkSize = 1024 * 1024;
