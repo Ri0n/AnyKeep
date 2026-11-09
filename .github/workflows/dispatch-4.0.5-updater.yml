@@ -1,0 +1,29 @@
+name: Dispatch AnyKeep 4.0.5 stable updater
+on:
+  push:
+    branches:
+      - release/dispatch-4.0.5-updater
+    paths:
+      - .github/workflows/dispatch-4.0.5-updater.yml
+permissions:
+  actions: write
+  contents: read
+jobs:
+  dispatch:
+    if: github.repository == 'Ri0n/AnyKeep'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify source run and immutable release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          source_sha="$(gh api repos/$REPO/actions/runs/42668925672 --jq '.head_sha')"
+          source_conclusion="$(gh api repos/$REPO/actions/runs/42668925672 --jq '.conclusion')"
+          tag_sha="$(gh api repos/$REPO/git/ref/tags/4.0.5 --jq '.object.sha')"
+          if [[ "$source_sha" != "b552565896c0852dc636e0d79e8ea87fd46c0cdd" || "$tag_sha" != "$source_sha" || "$source_conclusion" != success ]]; then
+            echo "::error::Source run/tag mismatch" >&2
+            exit 1
+          fi
+          gh workflow run publish-updates.yml --repo "$REPO" --ref master -f source_run_id=42668925672
