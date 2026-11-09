@@ -578,7 +578,7 @@ void LocalMediaStore::initializeAsync(QObject *context, std::function<void(QStri
 {
     if (!context || !callback)
         return;
-    const auto deliver = [guard = QPointer<QObject>(context), callback = std::move(callback)](
+    auto deliver = [guard = QPointer<QObject>(context), callback = std::move(callback)](
                              QString error) mutable {
         if (guard) {
             QMetaObject::invokeMethod(guard, [callback = std::move(callback), error = std::move(error)]() mutable {
