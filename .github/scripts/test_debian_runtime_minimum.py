@@ -38,16 +38,22 @@ class RuntimeMinimumTest(unittest.TestCase):
             f"libiris-qt6-1 (>= {minimums['iris']}), libsasl2-modules",
         )
 
-    def test_iris_minor_release_tag_is_supported(self):
+    def test_iris_release_tag_and_runtime_floor_are_not_hardcoded(self):
         self.assertEqual(module.version_tuple("v1.2"), (1, 2, 0))
         self.assertEqual(module.version_tuple("1.2.0"), (1, 2, 0))
-        # Desktop and Android use Qt 6.12 with Iris 1.6.1 and JDNS enabled;
-        # Linux continues using the distribution's Qt.
-        lock = json.loads((ROOT / "dependencies.lock.json").read_text(encoding="utf-8"))
-        self.assertEqual(lock["iris"]["tag"], "v1.6.1")
-        self.assertEqual(lock["iris"]["nightly_compatibility"], "same-minor")
-        self.assertEqual(lock["iris"]["minimum_version"], "1.6.1")
-        self.assertEqual(module.locked_minimums()["iris"], "1.6.1")
+        original_lock = json.loads((ROOT / "dependencies.lock.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "lock.json"
+            for tag, minimum in (("v7.2", "7.2"), ("v7.2.3", "7.2.3"),
+                                 ("v7.3.0", "7.2.3")):
+                with self.subTest(tag=tag, minimum=minimum):
+                    lock = json.loads(json.dumps(original_lock))
+                    lock["iris"]["tag"] = tag
+                    lock["iris"]["minimum_version"] = minimum
+                    path.write_text(json.dumps(lock), encoding="utf-8")
+                    self.assertEqual(module.locked_minimums(path)["iris"], minimum)
+                    self.assertIn(f"libiris-qt6-1 (>= {minimum})",
+                                  module.runtime_depends(path))
 
     def test_independent_minimums_not_inferred_from_tags(self):
         with tempfile.TemporaryDirectory() as directory:
