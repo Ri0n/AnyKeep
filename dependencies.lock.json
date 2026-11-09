@@ -5,10 +5,10 @@
         "minimum_desktop": "6.4"
     },
     "iris": {
-        "tag": "v1.6.1",
-        "commit": "c1faba41ee67413d523a2a87ade25e301ee75499",
+        "tag": "v1.6.2",
+        "commit": "21ded8c0818a7c5d7b6f862efeb2b4eb7f13a02c",
         "nightly_compatibility": "same-minor",
-        "minimum_version": "1.6.1"
+        "minimum_version": "1.6.2"
     },
     "qca": {
         "tag": "v3.1.2",
