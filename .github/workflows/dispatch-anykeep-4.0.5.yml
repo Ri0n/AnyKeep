@@ -1,0 +1,47 @@
+# One-shot release dispatcher. Do not merge this workflow into master.
+# The 4.0.5 tag must point to the validated release commit, not this workflow branch.
+name: Dispatch AnyKeep 4.0.5 stable release
+on:
+  push:
+    branches:
+      - release/dispatch-anykeep-4.0.5
+    paths:
+      - .github/workflows/dispatch-anykeep-4.0.5.yml
+permissions:
+  contents: write
+  actions: write
+jobs:
+  tag-and-dispatch:
+    if: github.repository == 'Ri0n/AnyKeep' && github.ref == 'refs/heads/release/dispatch-anykeep-4.0.5'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pin release tag to validated master and dispatch stable packaging
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: '4.0.5'
+          SOURCE_SHA: f57456f67fe49b7502870ce74fd5525b352027b6
+        run: |
+          set -euo pipefail
+          current_master="$(gh api "repos/$REPOSITORY/git/ref/heads/master" --jq '.object.sha')"
+          if [[ "$current_master" != "$SOURCE_SHA" ]]; then
+            echo "::error::Master moved ($current_master) from validated 4.0.5 release source ($SOURCE_SHA)"
+            exit 1
+          fi
+          if existing="$(gh api "repos/$REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha' 2>/dev/null)"; then
+            if [[ "$existing" != "$SOURCE_SHA" ]]; then
+              echo "::error::Ref $RELEASE_TAG already points to $existing rather than expected $SOURCE_SHA"
+              exit 1
+            fi
+            echo "Existing release tag points at the expected commit"
+          else
+            gh api -X POST "repos/$REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$SOURCE_SHA"
+            echo "Created release tag $RELEASE_TAG"
+          fi
+          # A tag pushed by GITHUB_TOKEN does not trigger push workflows.
+          # workflow_dispatch explicitly triggers the stock package publisher.
+          gh workflow run packages.yml --repo "$REPOSITORY" --ref master \
+            -f update_channel=stable
+          echo "Dispatched AnyKeep 4.0.5 stable package workflow"
