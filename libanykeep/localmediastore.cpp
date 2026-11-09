@@ -16,6 +16,7 @@
 #include <QMessageAuthenticationCode>
 #include <QMimeDatabase>
 #include <QMutexLocker>
+#include <QPointer>
 #include <QSaveFile>
 #include <QThread>
 #include <QtCrypto>
@@ -571,6 +572,46 @@ bool LocalMediaStore::initialize(QString *error) const
     if (error)
         error->clear();
     return true;
+}
+
+void LocalMediaStore::initializeAsync(QObject *context, std::function<void(QString)> callback) const
+{
+    if (!context || !callback)
+        return;
+    const auto deliver = [guard = QPointer<QObject>(context), callback = std::move(callback)](
+                             QString error) mutable {
+        if (guard) {
+            QMetaObject::invokeMethod(guard, [callback = std::move(callback), error = std::move(error)]() mutable {
+                callback(std::move(error));
+            }, Qt::QueuedConnection);
+        }
+    };
+    {
+        const QMutexLocker locker(&masterKeyMutex_);
+        if (!masterKey_.isEmpty()) {
+            deliver({});
+            return;
+        }
+    }
+    auto *app = QCoreApplication::instance();
+    if (app && QThread::currentThread() != app->thread()) {
+        deliver(QCoreApplication::translate(
+            "LocalMediaStore", "The local media store must be initialized on the application thread."));
+        return;
+    }
+    LocalDataKeyStore::loadOrCreateMasterKeyAsync(
+        context, [this, deliver = std::move(deliver)](QByteArray key, QString error) mutable {
+            if (key.size() == LocalDataKeyStore::MasterKeySize) {
+                const QMutexLocker locker(&masterKeyMutex_);
+                if (masterKey_.isEmpty())
+                    masterKey_ = std::move(key);
+                else if (masterKey_ != key)
+                    error = QStringLiteral("The local media key changed during initialization");
+            } else if (error.isEmpty()) {
+                error = QStringLiteral("Could not resolve the local media master key");
+            }
+            deliver(std::move(error));
+        });
 }
 
 QByteArray LocalMediaStore::masterKey(QString *error) const
