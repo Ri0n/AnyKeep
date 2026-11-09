@@ -4,6 +4,9 @@
 
 #include <QCoreApplication>
 #include <QEventLoop>
+#include <QList>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QPointer>
 #include <QThread>
 
@@ -29,6 +32,7 @@ namespace {
 
     struct KeyLoadState {
         bool                      inFlight = false;
+        QMutex                    cacheMutex;
         QByteArray                cachedKey;
         QList<PendingKeyCallback> pending;
     };
@@ -38,6 +42,20 @@ namespace {
         static KeyLoadState state;
         return state;
     }
+
+    QByteArray cachedMasterKey()
+    {
+        auto &state = keyLoadState();
+        const QMutexLocker locker(&state.cacheMutex);
+        return state.cachedKey;
+    }
+
+    void cacheMasterKey(const QByteArray &key)
+    {
+        auto &state = keyLoadState();
+        const QMutexLocker locker(&state.cacheMutex);
+        state.cachedKey = key;
+    }
 } // namespace
 
 QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
@@ -45,8 +63,9 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
     QString ignored;
     auto   &errorText = error ? *error : ignored;
     errorText.clear();
-    if (keyLoadState().cachedKey.size() == MasterKeySize)
-        return keyLoadState().cachedKey;
+    const auto cached = cachedMasterKey();
+    if (cached.size() == MasterKeySize)
+        return cached;
     if (!QKeychain::isAvailable()) {
         errorText = QCoreApplication::translate("LocalDataKeyStore", "No secure system keychain is available.");
         return {};
@@ -65,7 +84,7 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
         if (key.size() != MasterKeySize)
             errorText = QCoreApplication::translate("LocalDataKeyStore", "The local data encryption key is invalid.");
         if (key.size() == MasterKeySize)
-            keyLoadState().cachedKey = key;
+            cacheMasterKey(key);
         return key.size() == MasterKeySize ? key : QByteArray();
     }
     if (read.error() != QKeychain::EntryNotFound) {
@@ -90,7 +109,7 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
         errorText = keychainError(&write);
         return {};
     }
-    keyLoadState().cachedKey = key;
+    cacheMasterKey(key);
     return key;
 }
 
@@ -119,8 +138,9 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
             callback(std::move(key), std::move(error));
         }, Qt::QueuedConnection);
     };
-    if (state.cachedKey.size() == MasterKeySize) {
-        deliver(state.cachedKey, {});
+    const auto cached = cachedMasterKey();
+    if (cached.size() == MasterKeySize) {
+        deliver(cached, {});
         return;
     }
     if (!app || !QKeychain::isAvailable()) {
@@ -135,7 +155,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
     const auto finish = [](QByteArray key, QString error) {
         auto &state = keyLoadState();
         if (key.size() == MasterKeySize)
-            state.cachedKey = key;
+            cacheMasterKey(key);
         auto pending = std::exchange(state.pending, {});
         state.inFlight = false;
         for (auto &waiter : pending) {
