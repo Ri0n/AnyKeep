@@ -1,3 +1,14 @@
+anykeep (4.0.5) unstable; urgency=high
+
+  * Fix a critical Jingle/SCTP reentrancy deadlock during remote encrypted
+    media streaming and repeated video seeks.
+  * Defer keychain initialization for incoming Jingle file requests, avoiding
+    nested event-loop reentrancy in the media-serving callback.
+  * Allow bounded parallel Jingle media range requests.
+  * Update the pinned Iris dependency to v1.6.2 for deferred SCTP callbacks.
+
+ -- Sergei Ilinykh <rion4ik@gmail.com>  Mon, 09 Nov 2026 19:20:00 +0300
+
 anykeep (4.0.1) unstable; urgency=medium
 
   * First stable package set following the 4.0.0 release candidates.
