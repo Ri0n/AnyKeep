@@ -1,3 +1,4 @@
+#include "localmediastore.h"
 #include "mediachunkwire.h"
 #include "mediachunkwirestream.h"
 #include "mediasource.h"
@@ -61,6 +62,7 @@ private slots:
     void privateNotesProfileRoundTrip();
     void mediaChunkWireRoundTripAndMapping();
     void mediaChunkWireStreamIsSeekableAndStable();
+    void mediaStoreAsyncInitializationIsDeferredAndContextBound();
     void mediaChunkWireRejectsTamperingAndWrongIndex();
     void mediaChunkWireRepresentsEmptyFile();
     void recoveryKeyRoundTrip();
@@ -271,6 +273,32 @@ void SecureEnvelopeTest::mediaChunkWireStreamIsSeekableAndStable()
     QVERIFY(ranged.seek(0));
     QCOMPARE(ranged.read(97), wire.left(97));
     QVERIFY(ranged.completedWireSha256().isEmpty());
+}
+
+void SecureEnvelopeTest::mediaStoreAsyncInitializationIsDeferredAndContextBound()
+{
+    // No platform keychain is needed: an injected master key exercises the
+    // already-initialized fast path used by an active publication transfer.
+    LocalMediaStore store({}, QByteArray(SecureEnvelope::MasterKeySize, 'k'));
+    QObject         receiver;
+    int             called = 0;
+    QString         error = QStringLiteral("not called");
+
+    store.initializeAsync(&receiver, [&](QString result) {
+        ++called;
+        error = std::move(result);
+    });
+    QCOMPARE(called, 0);
+    QCoreApplication::processEvents();
+    QCOMPARE(called, 1);
+    QVERIFY(error.isEmpty());
+
+    // Queued work must not outlive the Jingle content that requested it.
+    auto abandoned = std::make_unique<QObject>();
+    store.initializeAsync(abandoned.get(), [&](QString) { ++called; });
+    abandoned.reset();
+    QCoreApplication::processEvents();
+    QCOMPARE(called, 1);
 }
 
 void SecureEnvelopeTest::mediaChunkWireRejectsTamperingAndWrongIndex()
