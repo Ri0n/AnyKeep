@@ -1,0 +1,30 @@
+name: One-time AnyKeep 4.0.1 release dispatch
+on:
+  push:
+    branches:
+      - automation/release-4.0.1-dispatch
+permissions:
+  contents: write
+  actions: write
+jobs:
+  tag-and-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify release SHA, create tag, explicitly dispatch stable packages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: 3b068aa122c6f86365da99c8408aa6f5630ba572
+        run: |
+          set -euo pipefail
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/master" --jq '.object.sha')"
+          test "$actual" = "$EXPECTED_SHA" || { echo "::error::master moved: $actual"; exit 1; }
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/4.0.1" >/dev/null 2>&1; then
+            echo "::error::Tag 4.0.1 already exists; refusing to move it"
+            exit 1
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/4.0.1" -f sha="$EXPECTED_SHA"
+          tagged="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/4.0.1" --jq '.object.sha')"
+          test "$tagged" = "$EXPECTED_SHA"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/packages.yml/dispatches" -f ref="4.0.1" -f 'inputs[update_channel]=stable'
+          echo "Created 4.0.1 at $tagged and explicitly dispatched stable packages"
