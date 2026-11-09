@@ -21,6 +21,21 @@ else()
 endif()
 
 foreach(plugin ${plugins_list})
+  set(_anykeep_option "ANYKEEP_PLUGIN_ENABLE_${plugin}")
+  set(${_anykeep_option} AUTO CACHE STRING "Build ${plugin} plugin: AUTO (detect), ON (require) or OFF")
+  set_property(CACHE ${_anykeep_option} PROPERTY STRINGS AUTO ON OFF)
+  anykeep_plugin_mode("${plugin}" _anykeep_mode)
+
+  # An explicit OFF must not even probe this plugin's optional dependencies.
+  # Keep an empty target for translation-source discovery on desktop builds.
+  if(_anykeep_mode STREQUAL "OFF")
+    message(STATUS "PLUGIN ${plugin} explicitly disabled")
+    if(NOT ANYKEEP_BUILD_MOBILE)
+      add_custom_target(${plugin})
+    endif()
+    continue()
+  endif()
+
   if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/${plugin}")
     add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/${plugin}")
   else()
