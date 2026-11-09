@@ -20,6 +20,8 @@ class ReleaseVersionsTest(unittest.TestCase):
             ("4.0.0_rc1-12-gabcdef", "4.0.0", "_rc1", "12", "abcdef"),
             ("v3.99.0-123-g012abc", "3.99.0", "", "123", "012abc"),
             ("4.0.0", "4.0.0", "", "", ""),
+            ("4.0.5\n", "4.0.5", "", "", ""),
+            ("  4.0.5 \t\n", "4.0.5", "", "", ""),
             ("3.2", "3.2.0", "", "", ""),
         ]
         with tempfile.TemporaryDirectory() as directory:
