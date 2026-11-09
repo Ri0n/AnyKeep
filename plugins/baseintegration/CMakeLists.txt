@@ -15,10 +15,15 @@ if(WIN32)
 endif()
 
 set(_baseintegration_buildable ON)
-if(UNIX
-   AND NOT APPLE
-   AND NOT ANYKEEP_ENABLE_X11)
-  set(_baseintegration_buildable OFF)
+if(UNIX AND NOT APPLE)
+  if(NOT ANYKEEP_ENABLE_X11)
+    set(_baseintegration_buildable OFF)
+  else()
+    find_package(X11 QUIET)
+    if(NOT X11_FOUND)
+      set(_baseintegration_buildable OFF)
+    endif()
+  endif()
 endif()
 
 add_anykeep_plugin(
@@ -46,7 +51,6 @@ if(UNIX)
   if(APPLE)
     target_link_libraries(baseintegration "-framework Carbon")
   elseif(ANYKEEP_ENABLE_X11)
-    find_package(X11 REQUIRED)
     target_compile_definitions(baseintegration PRIVATE ANYKEEP_ENABLE_X11)
     target_link_libraries(baseintegration X11::X11)
   endif()
