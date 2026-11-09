@@ -4,6 +4,12 @@ on:
   workflow_run:
     workflows: ["AnyKeep packages"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Successful AnyKeep packages run ID to publish'
+        required: true
+        type: string
 
 permissions:
   actions: read
@@ -12,7 +18,7 @@ permissions:
 jobs:
   publish-updates:
     name: Publish updater payload
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: anykeep-net
@@ -28,9 +34,16 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_id || github.event.workflow_run.id }}
         run: |
           set -euo pipefail
+
+          source_conclusion="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq '.conclusion')"
+          source_workflow="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq '.path')"
+          if [[ "$source_conclusion" != success || "$source_workflow" != ".github/workflows/packages.yml" ]]; then
+            echo "::error::Source run must be a successful AnyKeep packages workflow" >&2
+            exit 1
+          fi
 
           artifact_count="$(
             gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts" \
