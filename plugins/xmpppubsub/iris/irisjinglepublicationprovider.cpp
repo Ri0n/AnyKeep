@@ -433,19 +433,35 @@ bool IrisJinglePublicationProvider::cacheCapability(const IrisJingleCapability &
                             content->setDevice(nullptr);
                             return;
                         }
-                        auto *wire = new MediaChunkWireStream(capability.reference, capability.chunked, content);
-                        if (!wire->open(QIODevice::ReadOnly) || !wire->seek(qint64(offset))) {
-                            qCWarning(lcIrisJingleMedia) << "Could not open/seek published media stream: publication="
-                                                         << capability.publicationId << "offset=" << offset
-                                                         << "stream-error=" << wire->errorString();
-                            wire->deleteLater();
-                            content->setDevice(nullptr);
-                            return;
-                        }
-                        // Iris owns the requested range length through its internal
-                        // bytesLeft counter, so the same seekable deterministic wire
-                        // object can serve both complete and resumed transfers.
-                        content->setDevice(wire);
+                        // Keychain I/O is asynchronous. A synchronous lookup here
+                        // used to start a nested event loop from a usrsctp callback,
+                        // letting incoming DTLS packets reenter usrsctp under its lock.
+                        LocalMediaStore::instance()->initializeAsync(
+                            content, [content = QPointer<XMPP::Jingle::FileTransfer::Application>(content),
+                                      capability, offset](QString keyError) {
+                                if (!content || content->state() >= XMPP::Jingle::State::Finishing)
+                                    return;
+                                if (!keyError.isEmpty()) {
+                                    qCWarning(lcIrisJingleMedia) << "Could not initialize media key: publication="
+                                                                 << capability.publicationId << keyError;
+                                    content->setDevice(nullptr);
+                                    return;
+                                }
+                                auto *wire = new MediaChunkWireStream(capability.reference, capability.chunked,
+                                                                      content.data());
+                                if (!wire->open(QIODevice::ReadOnly) || !wire->seek(qint64(offset))) {
+                                    qCWarning(lcIrisJingleMedia)
+                                        << "Could not open/seek published media stream: publication="
+                                        << capability.publicationId << "offset=" << offset
+                                        << "stream-error=" << wire->errorString();
+                                    wire->deleteLater();
+                                    content->setDevice(nullptr);
+                                    return;
+                                }
+                                // Each range retains its own seekable source. Iris
+                                // enforces its negotiated bytesLeft range.
+                                content->setDevice(wire);
+                            });
                     });
             };
             configureContent(app);
