@@ -4,14 +4,18 @@ find_package(
   Qt6
   COMPONENTS Network
   REQUIRED)
-if(ANYKEEP_BUILD_MOBILE)
-  find_package(Qt6 COMPONENTS Multimedia REQUIRED)
-else()
-  find_package(Qt6 COMPONENTS Multimedia QUIET)
-  if(NOT TARGET Qt6::Multimedia)
-    message(STATUS "Skipping Yandex plugin: Qt Multimedia is unavailable")
-    return()
+find_package(Qt6 COMPONENTS Multimedia QUIET)
+set(_yandex_buildable OFF)
+if(TARGET Qt6::Multimedia)
+  set(_yandex_buildable ON)
+endif()
+if(ANYKEEP_BUILD_MOBILE AND NOT _yandex_buildable)
+  anykeep_plugin_mode(yandex _yandex_mode)
+  if(_yandex_mode STREQUAL "ON")
+    message(FATAL_ERROR "ANYKEEP_PLUGIN_ENABLE_yandex=ON requires Qt6 Multimedia")
   endif()
+  message(STATUS "Skipping bundled Yandex plugin: Qt6 Multimedia is unavailable")
+  return()
 endif()
 
 set(yandex_sources
@@ -36,7 +40,7 @@ endif()
 add_anykeep_plugin(
   yandex
   "Yandex cloud services"
-  ON
+  ${_yandex_buildable}
   unix
   macosx
   windows
