@@ -82,6 +82,16 @@ class PluginConfigurationTest(unittest.TestCase):
             self.assertIn("ANYKEEP_PLUGIN_ENABLE_spellchecker:STRING=AUTO",
                           (build / "CMakeCache.txt").read_text(encoding="utf-8"))
 
+            mobile = subprocess.run(
+                [cmake, "-S", str(source), "-B", str(Path(directory) / "mobile"),
+                 "-DANYKEEP_BUILD_MOBILE=ON",
+                 "-DANYKEEP_PLUGIN_ENABLE_spellchecker=ON"],
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(mobile.returncode, 0)
+            self.assertIn("ANYKEEP_PLUGIN_ENABLE_spellchecker=ON", mobile.stderr)
+            self.assertIn("not supported by the mobile build", mobile.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
