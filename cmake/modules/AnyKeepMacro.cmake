@@ -4,8 +4,11 @@ set(ANYKEEP_DEFAULT_VERSION 1.0.0)
 
 macro(sanitize_version VERSION PREFIX OUT_VAR)
   # try to sanitize version to fit cmake standard
-  string(STRIP "${VERSION}" VERSION)
-  if("${VERSION}" MATCHES "^v?([0-9]+)\\.([0-9]+)\\.?([0-9]+)?([_-](rc|alpha|beta)[0-9]+)?(\\-([0-9]+)\\-g([0-9a-f]+))?$")
+  # Macro parameters are textual substitutions, not local variables.
+  # Strip into a real variable so Git-free source archives with a trailing
+  # newline in anykeep.version parse the same as tagged Git checkouts.
+  string(STRIP "${VERSION}" _anykeep_normalized_version)
+  if("${_anykeep_normalized_version}" MATCHES "^v?([0-9]+)\\.([0-9]+)\\.?([0-9]+)?([_-](rc|alpha|beta)[0-9]+)?(\\-([0-9]+)\\-g([0-9a-f]+))?$")
     set(${PREFIX}_VERSION_MAJOR ${CMAKE_MATCH_1})
     set(${PREFIX}_VERSION_MINOR ${CMAKE_MATCH_2})
     set(${PREFIX}_VERSION_PATCH ${CMAKE_MATCH_3})
@@ -18,9 +21,10 @@ macro(sanitize_version VERSION PREFIX OUT_VAR)
     endif()
     set(${OUT_VAR} ${${PREFIX}_VERSION_MAJOR}.${${PREFIX}_VERSION_MINOR}.${${PREFIX}_VERSION_PATCH})
   else()
-    message(WARNING "Failed to sanitize version ${VERSION}. Doesn't look like semver at all.")
+    message(WARNING "Failed to sanitize version '${_anykeep_normalized_version}'. Doesn't look like semver at all.")
     set(${OUT_VAR})
   endif()
+  unset(_anykeep_normalized_version)
 endmacro()
 
 if(NOT ANYKEEP_VERSION_MAJOR)
