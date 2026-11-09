@@ -85,7 +85,8 @@ private:
     void fetchPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize, quint64 offset,
                                   quint64 length, MediaRangeService::Completion callback);
     QQueue<std::function<void()>> mediaRangeTransfers_;
-    bool                          mediaRangeTransferActive_ = false;
+    int                           activeMediaRangeTransfers_ = 0;
+    static constexpr int          MaxConcurrentJingleRanges = 3;
     void                          startNextMediaRangeTransfer();
     void startPublishedRangeAsync(XMPP::Jid publisher, QString publicationId, quint64 wireSize, quint64 offset,
                                   quint64 length, MediaRangeService::Completion callback);
