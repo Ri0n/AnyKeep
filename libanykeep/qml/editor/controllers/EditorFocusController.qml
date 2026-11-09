@@ -228,7 +228,7 @@ QtObject {
             // A normal block transition waits for that exact row to be
             // instantiated. History may fall back from a removed field, but
             // navigation must never jump to a different resident text block.
-            const fields = orderedEditors().filter(editor => editor.blockIndex === Number(address.blockIndex))
+            const fields = orderedEditors().filter(editor => addressMatchesEditor(address, editor, true))
             return fields.length > 0 ? fields[address.atEnd ? fields.length - 1 : 0] : null
         }
         if (candidate && addressMatchesEditor(address, candidate, true))
@@ -698,11 +698,16 @@ QtObject {
         if (type === NoteBlockType.Media || type === NoteBlockType.Attachment)
             return editorView.focusMediaBlock(blockIndex)
         activeTagLineIndex = -1
+        // The model may already contain a new last item/cell while the old
+        // delegate is still the final registered editor. Wait for the actual
+        // boundary field instead of committing focus to that preceding one.
+        const listItems = blockModel ? blockModel.listItemCountAt(blockIndex) : 0
+        const tableCells = blockModel ? blockModel.tableCellCountAt(blockIndex) : 0
         return focusEditorAddress({
             blockIndex: blockIndex,
             blockBoundary: true,
-            listItemIndex: -1,
-            tableCellIndex: -1,
+            listItemIndex: listItems > 0 ? (atEnd ? listItems - 1 : 0) : -1,
+            tableCellIndex: tableCells > 0 ? (atEnd ? tableCells - 1 : 0) : -1,
             cursorPosition: position === undefined ? -1 : position,
             selectionStart: position === undefined ? -1 : position,
             selectionEnd: position === undefined ? -1 : position,

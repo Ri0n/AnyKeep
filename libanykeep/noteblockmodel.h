@@ -136,6 +136,7 @@ public:
     Q_INVOKABLE int         blockTypeAt(int row) const;
     Q_INVOKABLE QString     blockTextAt(int row) const;
     Q_INVOKABLE int         listItemCountAt(int row) const;
+    Q_INVOKABLE int         tableCellCountAt(int row) const;
     Q_INVOKABLE bool        isExplicitEmptyTextBlock(int row) const;
     Q_INVOKABLE QVariantMap findText(const QString &text, const QVariantMap &after = {}, bool backwards = false,
                                      bool caseSensitive = false) const;

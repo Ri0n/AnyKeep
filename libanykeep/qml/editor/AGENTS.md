@@ -152,8 +152,10 @@ alignment. All inter-block transitions use `navigateBlock()` and `focusBlock()`;
 never find the next block by scanning the registry of text editors. Lists and
 tables retain their own movement within the block and leave it only at a visual
 line boundary. Block focus selects the first/last field and waits for unloaded
-delegates instead of falling back to a different row. Exiting a terminal
-structural block uses the existing temporary paragraph insertion/cleanup path.
+delegates instead of falling back to a different row. Boundary field indexes
+come from model item/cell counts, not the set of already registered editors.
+Exiting a terminal structural block uses the existing temporary paragraph
+insertion/cleanup path.
 Fullscreen owns Escape until it returns to the source window; only
 then may the note's close shortcut handle another Escape. Build media context
 menus from current capabilities when opening, inserting separators only between

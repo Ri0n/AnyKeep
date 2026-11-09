@@ -763,6 +763,35 @@ private slots:
             return false;
         })());
         QTRY_VERIFY(fullScreen->isActive());
+        // A visible fullscreen window must not intercept Escape in a different
+        // active window. Its shortcut becomes eligible again on reactivation.
+        QQuickView other;
+        auto      *otherComponent = new QQmlComponent(other.engine(), &other);
+        otherComponent->setData(R"(
+            import QtQuick
+            Item {
+                property int cancellations: 0
+                Shortcut {
+                    sequences: [StandardKey.Cancel]
+                    context: Qt.WindowShortcut
+                    onActivated: ++cancellations
+                }
+            }
+        )",
+                                QUrl());
+        auto *otherRoot = qobject_cast<QQuickItem *>(otherComponent->create());
+        QVERIFY2(otherRoot, qPrintable(otherComponent->errorString()));
+        other.setContent(QUrl(), otherComponent, otherRoot);
+        other.resize(200, 160);
+        other.show();
+        other.requestActivate();
+        QTRY_VERIFY(other.isActive());
+        QTest::keyClick(&other, Qt::Key_Escape);
+        QTRY_COMPARE(otherRoot->property("cancellations").toInt(), 1);
+        QVERIFY(fullScreen->isVisible());
+        QVERIFY(other.close());
+        fullScreen->requestActivate();
+        QTRY_VERIFY(fullScreen->isActive());
         QTest::keyClick(fullScreen, Qt::Key_Escape);
         QTRY_VERIFY(!fullScreen->isVisible());
         QCOMPARE(shell->property("closeRequests").toInt(), 0);
@@ -1033,6 +1062,58 @@ private slots:
         QTRY_VERIFY((after = textEditorForBlock(root, 3)) && after->hasActiveFocus());
         QVERIFY(!unrelatedTextFocused);
         QCOMPARE(after->property("cursorPosition").toInt(), 0);
+    }
+
+    void blockBoundaryFocusWaitsForTheModelField_data()
+    {
+        QTest::addColumn<QString>("markdown");
+        QTest::newRow("list") << QStringLiteral("- first\n- last");
+        QTest::newRow("table") << QStringLiteral("| A | B |\n| --- | --- |\n| first | last |");
+    }
+
+    void blockBoundaryFocusWaitsForTheModelField()
+    {
+        QFETCH(QString, markdown);
+        auto note = plainNote();
+        note.setText(markdown, Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(650, 500);
+        host.show();
+        auto *root  = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        auto *title = textEditorForBlock(root, 0);
+        QVERIFY(title);
+        auto *view = ancestorWithProperty(title, "currentFindText");
+        QVERIFY(view);
+        QVariant registeredFields;
+        QVERIFY(QMetaObject::invokeMethod(view, "orderedEditors", Q_RETURN_ARG(QVariant, registeredFields)));
+        QList<QQuickItem *> fields;
+        for (const auto &value : registeredFields.toList()) {
+            auto *field = qobject_cast<QQuickItem *>(value.value<QObject *>());
+            if (field && field->property("blockIndex").toInt() == 1)
+                fields.append(field);
+        }
+        QVERIFY(fields.size() >= 2);
+        auto *first = fields.first();
+        auto *last  = fields.last();
+        title->forceActiveFocus();
+        QTRY_VERIFY(title->hasActiveFocus());
+        // Model changes can add a field before its delegate registers. Keep
+        // the preceding fields resident to reproduce that intermediate state.
+        QVERIFY(
+            QMetaObject::invokeMethod(view, "unregisterEditor", Q_ARG(QVariant, QVariant::fromValue<QObject *>(last))));
+        QVERIFY(QMetaObject::invokeMethod(view, "focusBlock", Q_ARG(QVariant, 1), Q_ARG(QVariant, true),
+                                          Q_ARG(QVariant, -1)));
+        QVariant completed;
+        QVERIFY(QMetaObject::invokeMethod(view, "tryPendingEditorFocus", Q_RETURN_ARG(QVariant, completed),
+                                          Q_ARG(QVariant, QVariant())));
+        QVERIFY(!completed.toBool());
+        QVERIFY(!first->hasActiveFocus());
+        QVERIFY(
+            QMetaObject::invokeMethod(view, "registerEditor", Q_ARG(QVariant, QVariant::fromValue<QObject *>(last))));
+        QTRY_VERIFY(last->hasActiveFocus());
+        QCOMPARE(last->property("cursorPosition").toInt(), last->property("length").toInt());
     }
 
     void videoWithoutPosterUsesCardPlaceholderAndMetadataAspect()
@@ -1831,8 +1912,11 @@ private slots:
         note.setText(longSectionedMarkdown(), Note::Markdown);
         DraftManager drafts(std::make_unique<MemoryDraftStore>());
         NoteEditor   editor(note, drafts);
-        editor.model()->insertMedia(50, QStringLiteral("media://image"), QStringLiteral("Image"),
-                                    QStringLiteral("image/png"), 0, 64, 48);
+        editor.model()->insertMedia(50, QStringLiteral("qrc:/svg/video-x-generic-symbolic.svg"),
+                                    QStringLiteral("Image"), QStringLiteral("image/png"), 0, 64, 48);
+        // Descriptor dimensions define the ratio, not the display size. Keep
+        // this fixture smaller than the viewport on every platform/font.
+        editor.model()->setMediaDisplayWidth(50, 64);
         DesktopNoteEditorHost host(&editor);
         host.resize(520, 360);
         host.show();
@@ -1877,6 +1961,9 @@ private slots:
                                           Q_ARG(QVariant, 50)));
         QTRY_COMPARE(blockEditor->property("selectedMediaIndex").toInt(), 50);
         QTRY_VERIFY(blockEditor->property("contentY").toReal() > 1000);
+        auto *media = quickItemByName(root, QStringLiteral("mediaBlockEditor-50"));
+        QVERIFY(media);
+        QVERIFY(media->height() < blockEditor->height());
         QTest::qWait(100);
         ContentYRecorder recorder(blockEditor);
         reactivateWindow();

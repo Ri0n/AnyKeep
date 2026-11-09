@@ -87,16 +87,6 @@ Item {
         title: qsTr("Video")
         onActiveChanged: if (active) fullScreenContent.forceActiveFocus()
 
-        Shortcut {
-            sequences: [StandardKey.Cancel]
-            // A separate Qt Quick Window may not own the active shortcut context
-            // immediately after showFullScreen() on some Linux window managers.
-            // Keep Escape scoped by visibility instead of relying on window focus.
-            context: Qt.ApplicationShortcut
-            enabled: fullScreenWindow.visible
-            onActivated: root.closeFullScreen()
-        }
-
         onClosing: function(close) {
             close.accepted = false
             root.closeFullScreen()
@@ -107,6 +97,16 @@ Item {
             anchors.fill: parent
             focus: true
             Keys.onEscapePressed: root.closeFullScreen()
+
+            // Anchor the shortcut to this scene's item. A Shortcut declared
+            // directly under the nested Window can retain the source scene's
+            // QObject parent on older Qt and resolve the wrong window.
+            Shortcut {
+                sequences: [StandardKey.Cancel]
+                context: Qt.WindowShortcut
+                enabled: fullScreenWindow.visible
+                onActivated: root.closeFullScreen()
+            }
 
             VideoOutput {
                 id: fullScreenVideo
