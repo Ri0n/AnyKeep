@@ -4,6 +4,14 @@ if(ANYKEEP_BUILD_MOBILE)
   # Mobile has an explicit allow-list. These subdirectories create bundled static libraries rather than
   # desktop-discoverable shared plugins.
   set(plugins_list gemini nextcloud openaiwhisper yandex xmpppubsub)
+  # Do not silently ignore explicitly requested desktop-only plugins.
+  foreach(_anykeep_desktop_plugin IN ITEMS baseintegration cinnamon gnome kdeintegration macosx spellchecker tomboy)
+    anykeep_plugin_mode("${_anykeep_desktop_plugin}" _anykeep_desktop_mode)
+    if(_anykeep_desktop_mode STREQUAL "ON")
+      message(FATAL_ERROR
+              "ANYKEEP_PLUGIN_ENABLE_${_anykeep_desktop_plugin}=ON was requested, but the plugin is not supported by the mobile build")
+    endif()
+  endforeach()
 else()
   set(plugins_list
       baseintegration
