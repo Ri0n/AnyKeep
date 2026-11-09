@@ -90,7 +90,7 @@ class PluginConfigurationTest(unittest.TestCase):
             )
             self.assertNotEqual(mobile.returncode, 0)
             self.assertIn("ANYKEEP_PLUGIN_ENABLE_spellchecker=ON", mobile.stderr)
-            self.assertIn("not supported by the mobile build", mobile.stderr)
+            self.assertRegex(mobile.stderr, r"not\s+supported by the mobile build")
 
 
 if __name__ == "__main__":
