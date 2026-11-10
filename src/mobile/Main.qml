@@ -13,6 +13,25 @@ ApplicationWindow {
     title: qsTr("AnyKeep")
     Material.theme: mobileApp.darkColorScheme ? Material.Dark : Material.Light
 
+    // Qt 6.12 treats Android Back as a navigation request. An unhandled
+    // back key/gesture backgrounds the activity without emitting onClosing.
+    // A window-level shortcut works even when a text editor has focus.
+    Shortcut {
+        sequences: ["Back"]
+        enabled: Qt.platform.os === "android" && navigation.depth > 1
+        onActivated: window.navigateBack()
+    }
+
+    function navigateBack() {
+        if (navigation.depth <= 1)
+            return
+        const page = navigation.currentItem
+        if (page && typeof page.closeEditor === "function")
+            page.closeEditor()
+        else
+            navigation.pop()
+    }
+
     // Called by the shared XMPP setup host only after the user finishes a
     // successful key synchronization. Pop all settings pages back to Notes.
     // The root notes view is already visible if the wizard opened on startup.
@@ -77,11 +96,7 @@ ApplicationWindow {
         if (navigation.depth <= 1)
             return
         close.accepted = false
-        const page = navigation.currentItem
-        if (page && typeof page.closeEditor === "function")
-            page.closeEditor()
-        else
-            navigation.pop()
+        window.navigateBack()
     }
 
     Component {
