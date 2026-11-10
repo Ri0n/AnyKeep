@@ -215,6 +215,29 @@ qt_add_qml_module(
   mobilebundledplugins.cpp
   mobilebundledplugins.h)
 
+# Android does not enter the desktop translations/ directory. Embed all existing
+# language catalogs directly into the APK, including the mobile-specific strings.
+# The translation resource is part of anykeep_mobile, not a separate file that
+# Android's package deployment would have to discover and copy.
+find_package(Qt6 REQUIRED COMPONENTS LinguistTools)
+file(GLOB anykeep_mobile_translation_sources
+     "${CMAKE_SOURCE_DIR}/translations/anykeep_*.ts"
+     "${CMAKE_CURRENT_SOURCE_DIR}/translations/anykeep_mobile_*.ts")
+if(Qt6LinguistTools_VERSION VERSION_LESS 6.7.0)
+  qt_add_translation(anykeep_mobile_qm ${anykeep_mobile_translation_sources})
+  qt_add_resources(anykeep_mobile anykeep_mobile_translations
+                   PREFIX "/i18n"
+                   BASE "${CMAKE_CURRENT_BINARY_DIR}"
+                   FILES ${anykeep_mobile_qm})
+else()
+  qt_add_translations(
+    TARGETS anykeep_mobile
+    SOURCE_TARGETS anykeep_mobile anykeep_core
+    TS_FILES ${anykeep_mobile_translation_sources}
+    RESOURCE_PREFIX "/i18n"
+    NO_GENERATE_PLURALS_TS_FILE)
+endif()
+
 # mobilebundledplugins.cpp includes the concrete plugin entry point headers. Suppress dynamic plugin metadata in this
 # target as well as in the bundled static libraries, so AUTOMOC never produces duplicate plugin entry symbols.
 target_compile_definitions(anykeep_mobile PRIVATE ANYKEEP_BUNDLED_PLUGIN_BUILD)

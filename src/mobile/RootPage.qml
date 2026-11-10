@@ -7,7 +7,7 @@ Page {
 
     signal openSettings()
 
-    readonly property int headerButtonSize: 29
+    readonly property int headerButtonSize: 44
 
     header: ToolBar {
         background: Rectangle { color: palette.window }
@@ -29,16 +29,17 @@ Page {
 
             ToolButton {
                 id: settingsButton
+                objectName: "androidSettingsButton"
                 Layout.preferredWidth: root.headerButtonSize
                 Layout.preferredHeight: root.headerButtonSize
                 padding: 0
                 display: AbstractButton.IconOnly
                 contentItem: ThemedIcon {
-                    themeName: "preferences-system-symbolic"
+                    themeName: "__bundled__"
                     fallbackName: "preferences-system-symbolic.svg"
                     recolorFallback: true
-                    fallbackTintMode: "light"
-                    pixelSize: 14
+                    fallbackTintMode: String(settingsButton.palette.buttonText)
+                    pixelSize: 22
                 }
                 Accessible.name: qsTr("Settings")
                 ToolTip.visible: hovered
