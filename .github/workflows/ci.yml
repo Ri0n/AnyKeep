@@ -51,6 +51,9 @@ jobs:
       - name: Test release candidate version parsing
         run: python3 -m unittest discover -s .github/scripts -p 'test_release_versions.py'
 
+      - name: Test plugin AUTO/ON/OFF configuration semantics
+        run: python3 -m unittest discover -s .github/scripts -p 'test_plugin_configuration.py'
+
       - name: Resolve compatible nightly dependencies
         id: nightly
         env:
