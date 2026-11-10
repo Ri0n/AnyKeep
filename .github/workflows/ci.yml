@@ -51,6 +51,9 @@ jobs:
       - name: Test release candidate version parsing
         run: python3 -m unittest discover -s .github/scripts -p 'test_release_versions.py'
 
+      - name: Test Android settings and localization
+        run: python3 -m unittest discover -s .github/scripts -p 'test_mobile_localization.py'
+
       - name: Resolve compatible nightly dependencies
         id: nightly
         env:
