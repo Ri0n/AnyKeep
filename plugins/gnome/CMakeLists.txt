@@ -9,10 +9,18 @@ if(ANYKEEP_ENABLE_X11)
   list(APPEND _gnome_sources x11util.cpp x11util.h)
 endif()
 
+set(_gnome_buildable ON)
+if(ANYKEEP_ENABLE_X11 AND UNIXLIKE)
+  find_package(X11 QUIET)
+  if(NOT X11_FOUND)
+    set(_gnome_buildable OFF)
+  endif()
+endif()
+
 add_anykeep_plugin(
   gnome
   "Gnome integration"
-  ON
+  ${_gnome_buildable}
   unix
   METADATA
   plugin-metadata.json
@@ -24,7 +32,6 @@ add_anykeep_plugin(
 target_link_libraries(gnome ${EXTRA_LINK_TARGET} Qt6::Core Qt6::Gui Qt6::Widgets)
 if(ANYKEEP_ENABLE_X11 AND UNIXLIKE)
   target_compile_definitions(gnome PRIVATE ANYKEEP_ENABLE_X11)
-  find_package(X11 REQUIRED)
   target_link_libraries(gnome X11::X11)
 endif()
 

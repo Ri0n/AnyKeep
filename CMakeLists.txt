@@ -267,99 +267,102 @@ if(NOT TARGET ${ANYKEEP_QCA_TARGET})
   message(FATAL_ERROR "Selected QCA target does not exist: ${ANYKEEP_QCA_TARGET}")
 endif()
 
-if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
-  # Iris and libanykeep must share one dynamic QCA runtime. Inspect the real
-  # package target rather than the QCA 2 compatibility facade above.
-  get_target_property(_anykeep_qca_type ${_anykeep_qca_native_target} TYPE)
-  get_target_property(_anykeep_qca_definitions ${_anykeep_qca_native_target} INTERFACE_COMPILE_DEFINITIONS)
-  if(_anykeep_qca_type STREQUAL "STATIC_LIBRARY")
-    message(FATAL_ERROR
-            "The Iris backend requires shared QCA so AnyKeep and Iris use one QCA instance; "
-            "${_anykeep_qca_native_target} is static")
-  endif()
-  if(_anykeep_qca_definitions)
-    list(FIND _anykeep_qca_definitions "QCA_STATIC" _anykeep_qca_static_definition)
-    if(NOT _anykeep_qca_static_definition EQUAL -1)
+anykeep_plugin_mode(xmpppubsub _anykeep_xmpp_plugin_mode)
+if(NOT _anykeep_xmpp_plugin_mode STREQUAL "OFF")
+  if(ANYKEEP_XMPP_BACKEND STREQUAL "IRIS")
+    # Iris and libanykeep must share one dynamic QCA runtime. Inspect the real
+    # package target rather than the QCA 2 compatibility facade above.
+    get_target_property(_anykeep_qca_type ${_anykeep_qca_native_target} TYPE)
+    get_target_property(_anykeep_qca_definitions ${_anykeep_qca_native_target} INTERFACE_COMPILE_DEFINITIONS)
+    if(_anykeep_qca_type STREQUAL "STATIC_LIBRARY")
       message(FATAL_ERROR
               "The Iris backend requires shared QCA so AnyKeep and Iris use one QCA instance; "
-              "${_anykeep_qca_native_target} exports QCA_STATIC")
+              "${_anykeep_qca_native_target} is static")
     endif()
-    unset(_anykeep_qca_static_definition)
-  endif()
-  unset(_anykeep_qca_type)
-  unset(_anykeep_qca_definitions)
-endif()
-
-if(ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP")
-  # The OMEMO package pulls in its matching QXmpp core package. Searching it first also avoids creating a core-only
-  # imported target when OMEMO is absent, so the bundled fallback can define a complete, self-consistent target pair.
-  find_package(QXmppOmemoQt6 1.11 QUIET)
-
-  if(TARGET QXmpp::QXmpp AND TARGET QXmpp::Omemo)
-    message(STATUS "XMPP backend: system QXmpp with OMEMO")
-  elseif(ANYKEEP_BUILD_BUNDLED_QXMPP AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
-    message(STATUS "XMPP backend: bundled QXmpp with OMEMO")
-    include(BundledQXmpp)
-  elseif(ANYKEEP_BUILD_BUNDLED_QXMPP)
-    message(STATUS "QXmpp source fallback is disabled; the XMPP plugin will be disabled")
-  else()
-    message(STATUS "QXmpp 1.11+ with OMEMO not found; the XMPP plugin will be disabled")
-  endif()
-else()
-  # A prebuilt SDK is explicit and takes precedence over source fallbacks. A
-  # local Iris source checkout remains available for development when source
-  # dependency fallbacks are enabled. System/package Iris is used whenever QCA
-  # itself is not a private bundled build.
-  if(ANYKEEP_IRIS_SDK_ROOT)
-    set(_anykeep_iris_package_dir "${ANYKEEP_IRIS_SDK_ROOT}/lib/cmake/Iris")
-    if(NOT EXISTS "${_anykeep_iris_package_dir}/IrisConfig.cmake")
-      message(FATAL_ERROR "Iris SDK CMake package missing: ${_anykeep_iris_package_dir}")
-    endif()
-    find_package(Iris ${ANYKEEP_DEP_IRIS_MINIMUM_VERSION} CONFIG REQUIRED
-                 PATHS "${_anykeep_iris_package_dir}"
-                 NO_DEFAULT_PATH
-                 NO_CMAKE_FIND_ROOT_PATH)
-    if(NOT TARGET Iris::Iris)
-      message(FATAL_ERROR "Iris SDK did not provide Iris::Iris: ${ANYKEEP_IRIS_SDK_ROOT}")
-    endif()
-    message(STATUS "XMPP backend: prebuilt Iris SDK (${ANYKEEP_IRIS_SDK_ROOT})")
-    unset(_anykeep_iris_package_dir)
-  elseif(ANYKEEP_IRIS_SOURCE_DIR)
-    if(NOT ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
-      message(FATAL_ERROR
-              "ANYKEEP_IRIS_SOURCE_DIR was set while ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS=OFF")
-    endif()
-    message(STATUS "XMPP backend: local Iris source (${ANYKEEP_IRIS_SOURCE_DIR})")
-    include(BundledIris)
-  else()
-    if(NOT ANYKEEP_QCA_IS_BUNDLED)
-      find_package(Iris ${ANYKEEP_DEP_IRIS_MINIMUM_VERSION} CONFIG QUIET)
-    endif()
-
-    if(TARGET Iris::Iris)
-      if(DEFINED Iris_QCA_MAJOR AND NOT "${Iris_QCA_MAJOR}" STREQUAL "${ANYKEEP_QCA_MAJOR}")
+    if(_anykeep_qca_definitions)
+      list(FIND _anykeep_qca_definitions "QCA_STATIC" _anykeep_qca_static_definition)
+      if(NOT _anykeep_qca_static_definition EQUAL -1)
         message(FATAL_ERROR
-                "Iris uses QCA ${Iris_QCA_MAJOR}, but AnyKeep selected QCA ${ANYKEEP_QCA_MAJOR}. "
-                "Use matching packages/SDKs or build Iris with AnyKeep.")
+                "The Iris backend requires shared QCA so AnyKeep and Iris use one QCA instance; "
+                "${_anykeep_qca_native_target} exports QCA_STATIC")
       endif()
-      message(STATUS "XMPP backend: installed Iris (Iris::Iris)")
-    elseif(ANYKEEP_BUILD_BUNDLED_IRIS AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
-      message(STATUS "XMPP backend: bundled Iris FetchContent")
-      include(BundledIris)
-    elseif(ANYKEEP_QCA_IS_BUNDLED)
-      message(STATUS
-              "Installed Iris is not used with bundled QCA and bundled Iris is unavailable; the XMPP plugin will be disabled")
-    elseif(ANYKEEP_BUILD_BUNDLED_IRIS)
-      message(STATUS "Iris source fallback is disabled; the XMPP plugin will be disabled")
-    else()
-      message(STATUS "Iris package not found and bundled Iris is disabled; the XMPP plugin will be disabled")
+      unset(_anykeep_qca_static_definition)
     endif()
+    unset(_anykeep_qca_type)
+    unset(_anykeep_qca_definitions)
   endif()
 
-  if(TARGET Iris::Iris AND DEFINED Iris_QCA_MAJOR AND NOT "${Iris_QCA_MAJOR}" STREQUAL "${ANYKEEP_QCA_MAJOR}")
-    message(FATAL_ERROR
-            "Iris uses QCA ${Iris_QCA_MAJOR}, but AnyKeep selected QCA ${ANYKEEP_QCA_MAJOR}. "
-            "Use matching packages/SDKs or build Iris with AnyKeep.")
+  if(ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP")
+    # The OMEMO package pulls in its matching QXmpp core package. Searching it first also avoids creating a core-only
+    # imported target when OMEMO is absent, so the bundled fallback can define a complete, self-consistent target pair.
+    find_package(QXmppOmemoQt6 1.11 QUIET)
+
+    if(TARGET QXmpp::QXmpp AND TARGET QXmpp::Omemo)
+      message(STATUS "XMPP backend: system QXmpp with OMEMO")
+    elseif(ANYKEEP_BUILD_BUNDLED_QXMPP AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
+      message(STATUS "XMPP backend: bundled QXmpp with OMEMO")
+      include(BundledQXmpp)
+    elseif(ANYKEEP_BUILD_BUNDLED_QXMPP)
+      message(STATUS "QXmpp source fallback is disabled; the XMPP plugin will be disabled")
+    else()
+      message(STATUS "QXmpp 1.11+ with OMEMO not found; the XMPP plugin will be disabled")
+    endif()
+  else()
+    # A prebuilt SDK is explicit and takes precedence over source fallbacks. A
+    # local Iris source checkout remains available for development when source
+    # dependency fallbacks are enabled. System/package Iris is used whenever QCA
+    # itself is not a private bundled build.
+    if(ANYKEEP_IRIS_SDK_ROOT)
+      set(_anykeep_iris_package_dir "${ANYKEEP_IRIS_SDK_ROOT}/lib/cmake/Iris")
+      if(NOT EXISTS "${_anykeep_iris_package_dir}/IrisConfig.cmake")
+        message(FATAL_ERROR "Iris SDK CMake package missing: ${_anykeep_iris_package_dir}")
+      endif()
+      find_package(Iris ${ANYKEEP_DEP_IRIS_MINIMUM_VERSION} CONFIG REQUIRED
+                   PATHS "${_anykeep_iris_package_dir}"
+                   NO_DEFAULT_PATH
+                   NO_CMAKE_FIND_ROOT_PATH)
+      if(NOT TARGET Iris::Iris)
+        message(FATAL_ERROR "Iris SDK did not provide Iris::Iris: ${ANYKEEP_IRIS_SDK_ROOT}")
+      endif()
+      message(STATUS "XMPP backend: prebuilt Iris SDK (${ANYKEEP_IRIS_SDK_ROOT})")
+      unset(_anykeep_iris_package_dir)
+    elseif(ANYKEEP_IRIS_SOURCE_DIR)
+      if(NOT ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
+        message(FATAL_ERROR
+                "ANYKEEP_IRIS_SOURCE_DIR was set while ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS=OFF")
+      endif()
+      message(STATUS "XMPP backend: local Iris source (${ANYKEEP_IRIS_SOURCE_DIR})")
+      include(BundledIris)
+    else()
+      if(NOT ANYKEEP_QCA_IS_BUNDLED)
+        find_package(Iris ${ANYKEEP_DEP_IRIS_MINIMUM_VERSION} CONFIG QUIET)
+      endif()
+
+      if(TARGET Iris::Iris)
+        if(DEFINED Iris_QCA_MAJOR AND NOT "${Iris_QCA_MAJOR}" STREQUAL "${ANYKEEP_QCA_MAJOR}")
+          message(FATAL_ERROR
+                  "Iris uses QCA ${Iris_QCA_MAJOR}, but AnyKeep selected QCA ${ANYKEEP_QCA_MAJOR}. "
+                  "Use matching packages/SDKs or build Iris with AnyKeep.")
+        endif()
+        message(STATUS "XMPP backend: installed Iris (Iris::Iris)")
+      elseif(ANYKEEP_BUILD_BUNDLED_IRIS AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
+        message(STATUS "XMPP backend: bundled Iris FetchContent")
+        include(BundledIris)
+      elseif(ANYKEEP_QCA_IS_BUNDLED)
+        message(STATUS
+                "Installed Iris is not used with bundled QCA and bundled Iris is unavailable; the XMPP plugin will be disabled")
+      elseif(ANYKEEP_BUILD_BUNDLED_IRIS)
+        message(STATUS "Iris source fallback is disabled; the XMPP plugin will be disabled")
+      else()
+        message(STATUS "Iris package not found and bundled Iris is disabled; the XMPP plugin will be disabled")
+      endif()
+    endif()
+
+    if(TARGET Iris::Iris AND DEFINED Iris_QCA_MAJOR AND NOT "${Iris_QCA_MAJOR}" STREQUAL "${ANYKEEP_QCA_MAJOR}")
+      message(FATAL_ERROR
+              "Iris uses QCA ${Iris_QCA_MAJOR}, but AnyKeep selected QCA ${ANYKEEP_QCA_MAJOR}. "
+              "Use matching packages/SDKs or build Iris with AnyKeep.")
+    endif()
   endif()
 endif()
 
@@ -399,17 +402,19 @@ if(NOT TARGET QSourceHighlite::QSourceHighlite)
   message(FATAL_ERROR "Vendored QSourceHighlite did not provide QSourceHighlite::QSourceHighlite")
 endif()
 
-if(ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP")
-  find_package(QCoro6 QUIET COMPONENTS Core)
-  if(TARGET QCoro::Core)
-    message(STATUS "Using system QCoro")
-  elseif(ANYKEEP_BUILD_BUNDLED_QCORO AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
-    message(STATUS "System QCoro not found; using bundled QCoro")
-    include(BundledQCoro)
-  elseif(ANYKEEP_BUILD_BUNDLED_QCORO)
-    message(STATUS "QCoro source fallback is disabled; the QXmpp XMPP backend will be disabled")
-  else()
-    message(STATUS "QCoro not found; the QXmpp XMPP backend will be disabled")
+if(NOT _anykeep_xmpp_plugin_mode STREQUAL "OFF")
+  if(ANYKEEP_XMPP_BACKEND STREQUAL "QXMPP")
+    find_package(QCoro6 QUIET COMPONENTS Core)
+    if(TARGET QCoro::Core)
+      message(STATUS "Using system QCoro")
+    elseif(ANYKEEP_BUILD_BUNDLED_QCORO AND ANYKEEP_ALLOW_SOURCE_DEPENDENCY_FALLBACKS)
+      message(STATUS "System QCoro not found; using bundled QCoro")
+      include(BundledQCoro)
+    elseif(ANYKEEP_BUILD_BUNDLED_QCORO)
+      message(STATUS "QCoro source fallback is disabled; the QXmpp XMPP backend will be disabled")
+    else()
+      message(STATUS "QCoro not found; the QXmpp XMPP backend will be disabled")
+    endif()
   endif()
 endif()
 
