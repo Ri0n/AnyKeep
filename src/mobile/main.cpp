@@ -1,4 +1,6 @@
 #include <QGuiApplication>
+#include <QLocale>
+#include <QTranslator>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 
@@ -23,6 +25,19 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationName(QStringLiteral("R-Soft"));
     QCoreApplication::setApplicationName(QStringLiteral("AnyKeep"));
     QGuiApplication::setApplicationDisplayName(QStringLiteral("AnyKeep"));
+
+    // All catalogs live in the APK's Qt resource system. The shared catalog
+    // covers C++ and existing desktop strings; the mobile catalog adds the
+    // translated mobile QML shell, taking precedence for duplicate entries.
+    // Install both before loading Main.qml so qsTr() resolves on first render.
+    const QLocale locale = QLocale::system();
+    QTranslator sharedTranslator;
+    QTranslator mobileTranslator;
+    if (sharedTranslator.load(locale, QStringLiteral("anykeep"), QStringLiteral("_"), QStringLiteral(":/i18n")))
+        application.installTranslator(&sharedTranslator);
+    if (mobileTranslator.load(locale, QStringLiteral("anykeep_mobile"), QStringLiteral("_"),
+                              QStringLiteral(":/i18n")))
+        application.installTranslator(&mobileTranslator);
 
     AnyKeep::MobileApplication mobileApplication;
     QQmlApplicationEngine      engine;
