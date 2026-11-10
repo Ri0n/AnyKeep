@@ -480,7 +480,7 @@
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="190"/>
         <source>AnyKeep %1 is available in Microsoft Store.</source>
-        <translation type="unfinished"></translation>
+        <translation>AnyKeep %1 доступен в Microsoft Store.</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="192"/>
@@ -490,7 +490,7 @@
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="202"/>
         <source>Download</source>
-        <translation type="unfinished"></translation>
+        <translation>Скачать</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="203"/>
@@ -500,7 +500,7 @@
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="270"/>
         <source>Search notes</source>
-        <translation type="unfinished"></translation>
+        <translation>Поиск заметок</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="292"/>
@@ -510,22 +510,22 @@
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="315"/>
         <source>Undo deleting “%1”</source>
-        <translation type="unfinished"></translation>
+        <translation>Отменить удаление «%1»</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="318"/>
         <source>Undo delete</source>
-        <translation type="unfinished"></translation>
+        <translation>Отменить удаление</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="336"/>
         <source>Search in text</source>
-        <translation type="unfinished"></translation>
+        <translation>Искать в тексте</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="355"/>
         <source>Notes view</source>
-        <translation type="unfinished"></translation>
+        <translation>Режим отображения заметок</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="364"/>
@@ -545,162 +545,162 @@
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="425"/>
         <source>Close search</source>
-        <translation type="unfinished"></translation>
+        <translation>Закрыть поиск</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="577"/>
         <source>No notes yet. Create the first note with the + button.</source>
-        <translation type="unfinished"></translation>
+        <translation>Заметок пока нет. Создайте первую заметку кнопкой +.</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="651"/>
         <source>Loading note…</source>
-        <translation type="unfinished"></translation>
+        <translation>Загрузка заметки…</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="651"/>
         <source>Select a note to edit</source>
-        <translation type="unfinished"></translation>
+        <translation>Выберите заметку для редактирования</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="674"/>
         <source>Open</source>
-        <translation type="unfinished"></translation>
+        <translation>Открыть</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="681"/>
         <source>Open in separate window</source>
-        <translation type="unfinished"></translation>
+        <translation>Открыть в отдельном окне</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="687"/>
         <source>Send notes to storage…</source>
-        <translation type="unfinished"></translation>
+        <translation>Отправить заметки в хранилище…</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="688"/>
         <source>Send to storage…</source>
-        <translation type="unfinished"></translation>
+        <translation>Отправить в хранилище…</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="694"/>
         <source>Move notes…</source>
-        <translation type="unfinished"></translation>
+        <translation>Переместить заметки…</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="694"/>
         <source>Move…</source>
-        <translation type="unfinished"></translation>
+        <translation>Переместить…</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="712"/>
         <source>Restore notes from Recycle Bin</source>
-        <translation type="unfinished"></translation>
+        <translation>Восстановить заметки из корзины</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="713"/>
         <source>Restore from Recycle Bin</source>
-        <translation type="unfinished"></translation>
+        <translation>Восстановить из корзины</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="719"/>
         <source>Delete notes permanently</source>
-        <translation type="unfinished"></translation>
+        <translation>Удалить заметки безвозвратно</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="720"/>
         <source>Delete permanently</source>
-        <translation type="unfinished"></translation>
+        <translation>Удалить безвозвратно</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="721"/>
         <source>Delete selected notes</source>
-        <translation type="unfinished"></translation>
+        <translation>Удалить выбранные заметки</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="723"/>
         <source>Move notes to Recycle Bin</source>
-        <translation type="unfinished"></translation>
+        <translation>Переместить заметки в корзину</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="724"/>
         <source>Move to Recycle Bin</source>
-        <translation type="unfinished"></translation>
+        <translation>Переместить в корзину</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="738"/>
         <source>New note in this storage</source>
-        <translation type="unfinished"></translation>
+        <translation>Новая заметка в этом хранилище</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="745"/>
         <source>Storage settings…</source>
-        <translation type="unfinished"></translation>
+        <translation>Настройки хранилища…</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="760"/>
         <source>Delete note permanently</source>
-        <translation type="unfinished"></translation>
+        <translation>Удалить заметку безвозвратно</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="771"/>
         <source>Permanently delete the selected recycled notes? The other selected notes will be moved to the Recycle Bin.</source>
-        <translation type="unfinished"></translation>
+        <translation>Безвозвратно удалить выбранные заметки из корзины? Остальные выбранные заметки будут перемещены в корзину.</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="773"/>
         <source>Permanently delete “%1”? This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Безвозвратно удалить «%1»? Это действие нельзя отменить.</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="775"/>
         <source>Permanently delete %1 notes? This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Безвозвратно удалить %1 заметок? Это действие нельзя отменить.</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="781"/>
         <source>Don&apos;t ask again</source>
-        <translation type="unfinished"></translation>
+        <translation>Больше не спрашивать</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="810"/>
         <source>Move notes</source>
-        <translation type="unfinished"></translation>
+        <translation>Переместить заметки</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="810"/>
         <source>Move note</source>
-        <translation type="unfinished"></translation>
+        <translation>Переместить заметку</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="819"/>
         <source>Move %1 selected notes to:</source>
-        <translation type="unfinished"></translation>
+        <translation>Переместить %1 выбранных заметок в:</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="820"/>
         <source>Move “%1” to:</source>
-        <translation type="unfinished"></translation>
+        <translation>Переместить «%1» в:</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="844"/>
         <source>Send notes to storage</source>
-        <translation type="unfinished"></translation>
+        <translation>Отправить заметки в хранилище</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="845"/>
         <source>Send note to storage</source>
-        <translation type="unfinished"></translation>
+        <translation>Отправить заметку в хранилище</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="854"/>
         <source>Copy %1 selected notes to:</source>
-        <translation type="unfinished"></translation>
+        <translation>Скопировать %1 выбранных заметок в:</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/notesmanager/NotesManagerPageImpl.qml" line="855"/>
         <source>Copy “%1” to:</source>
-        <translation type="unfinished"></translation>
+        <translation>Скопировать «%1» в:</translation>
     </message>
 </context>
 <context>
@@ -708,62 +708,62 @@
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="295"/>
         <source>Could not create folder</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось создать папку</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="425"/>
         <source>New folder</source>
-        <translation type="unfinished"></translation>
+        <translation>Новая папка</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="442"/>
         <source>Collapse all folders</source>
-        <translation type="unfinished"></translation>
+        <translation>Свернуть все папки</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="483"/>
         <source>%1 (%2)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 (%2)</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="573"/>
         <source>No notes or folders yet. Create a folder or a note to get started.</source>
-        <translation type="unfinished"></translation>
+        <translation>Заметок и папок пока нет. Создайте папку или заметку.</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="583"/>
         <source>Folders are unavailable until the encrypted folder catalog is recovered.</source>
-        <translation type="unfinished"></translation>
+        <translation>Папки недоступны до восстановления зашифрованного каталога папок.</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="601"/>
         <source>Create folder</source>
-        <translation type="unfinished"></translation>
+        <translation>Создать папку</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="619"/>
         <source>Folder name</source>
-        <translation type="unfinished"></translation>
+        <translation>Название папки</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="627"/>
         <source>Name</source>
-        <translation type="unfinished"></translation>
+        <translation>Название</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="636"/>
         <source>Add to favorites</source>
-        <translation type="unfinished"></translation>
+        <translation>Добавить в избранное</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="644"/>
         <source>Hide from menu (Archive)</source>
-        <translation type="unfinished"></translation>
+        <translation>Скрыть из меню (Архив)</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="651"/>
         <source>Archived folders stay available in the folder tree.</source>
-        <translation type="unfinished"></translation>
+        <translation>Архивные папки останутся доступны в дереве папок.</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="674"/>
@@ -773,57 +773,57 @@
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="680"/>
         <source>Create</source>
-        <translation type="unfinished"></translation>
+        <translation>Создать</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="706"/>
         <source>New subfolder</source>
-        <translation type="unfinished"></translation>
+        <translation>Новая подпапка</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="711"/>
         <source>Rename</source>
-        <translation type="unfinished"></translation>
+        <translation>Переименовать</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="715"/>
         <source>Expand</source>
-        <translation type="unfinished"></translation>
+        <translation>Развернуть</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="715"/>
         <source>Collapse</source>
-        <translation type="unfinished"></translation>
+        <translation>Свернуть</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="721"/>
         <source>Remove from favorites</source>
-        <translation type="unfinished"></translation>
+        <translation>Убрать из избранного</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="727"/>
         <source>Show in menu</source>
-        <translation type="unfinished"></translation>
+        <translation>Показывать в меню</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="727"/>
         <source>Hide from menu</source>
-        <translation type="unfinished"></translation>
+        <translation>Скрыть из меню</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="734"/>
         <source>Move to Recycle Bin</source>
-        <translation type="unfinished"></translation>
+        <translation>Переместить в корзину</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="751"/>
         <source>Empty Recycle Bin</source>
-        <translation type="unfinished"></translation>
+        <translation>Очистить корзину</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/FoldersPage.qml" line="775"/>
         <source>Permanently delete all notes in the Recycle Bin? This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Безвозвратно удалить все заметки из корзины? Это действие нельзя отменить.</translation>
     </message>
 </context>
 <context>
@@ -831,12 +831,12 @@
     <message>
         <location filename="../../../libanykeep/qml/AnimatedSettingsList.qml" line="274"/>
         <source>Configure %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Настроить %1</translation>
     </message>
     <message>
         <location filename="../../../libanykeep/qml/AnimatedSettingsList.qml" line="293"/>
         <source>Plugin load policy for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Правила загрузки плагина %1</translation>
     </message>
 </context>
 </TS>
