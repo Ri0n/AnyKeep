@@ -56,9 +56,11 @@ endfunction()
 set(anykeep_plasmoid_buildable OFF)
 set(anykeep_plasmoid_unavailable_reason "required Plasma/KF6 development packages were not found")
 if(UNIXLIKE)
-  find_package(Qt6 REQUIRED COMPONENTS DBus Qml)
-  find_package(ECM QUIET NO_MODULE)
-  if(ECM_FOUND)
+  find_package(Qt6 QUIET COMPONENTS DBus Qml)
+  if(TARGET Qt6::DBus AND TARGET Qt6::Qml)
+    find_package(ECM QUIET NO_MODULE)
+  endif()
+  if(ECM_FOUND AND TARGET Qt6::DBus AND TARGET Qt6::Qml)
     set(CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
     anykeep_kde_adopt_cmake_install_dirs()
     find_package(KF6Config QUIET)
@@ -188,29 +190,10 @@ set(kdeintegration_buildable OFF)
 if(KF6GlobalAccel_FOUND
    AND KF6Notifications_FOUND
    AND KF6WindowSystem_FOUND
-   AND KF6Config_FOUND)
-  find_package(Qt6 COMPONENTS DBus REQUIRED)
+   AND KF6Config_FOUND
+   AND TARGET Qt6::DBus)
   set(kdeintegration_buildable ON)
 endif()
-set(kdeintegration_auto_disabled_cache_key ANYKEEP_PLUGIN_AUTO_DISABLED_kdeintegration)
-
-if(NOT kdeintegration_buildable)
-  if(ANYKEEP_PLUGIN_ENABLE_kdeintegration)
-    set(${kdeintegration_auto_disabled_cache_key}
-        ON
-        CACHE INTERNAL "kdeintegration was disabled automatically")
-  endif()
-  set(ANYKEEP_PLUGIN_ENABLE_kdeintegration
-      OFF
-      CACHE BOOL "Enable AnyKeep plugin: Integration with KDE Plasma" FORCE)
-elseif(${kdeintegration_auto_disabled_cache_key} OR (DEFINED CACHE{ANYKEEP_PLUGIN_ENABLE_kdeintegration}
-                                                     AND NOT ANYKEEP_PLUGIN_ENABLE_kdeintegration))
-  set(ANYKEEP_PLUGIN_ENABLE_kdeintegration
-      ON
-      CACHE BOOL "Enable AnyKeep plugin: Integration with KDE Plasma" FORCE)
-  unset(${kdeintegration_auto_disabled_cache_key} CACHE)
-endif()
-
 add_anykeep_plugin(
   kdeintegration
   "Integration with KDE Plasma"

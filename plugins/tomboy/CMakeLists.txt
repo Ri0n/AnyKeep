@@ -1,9 +1,15 @@
 include(AnyKeepMacro)
 
+find_package(Qt6 COMPONENTS Xml QUIET)
+set(_tomboy_buildable OFF)
+if(TARGET Qt6::Xml)
+  set(_tomboy_buildable ON)
+endif()
+
 add_anykeep_plugin(
   tomboy
   "Allows to load notes from Tomboy"
-  ON
+  ${_tomboy_buildable}
   unix
   macosx
   windows
@@ -19,10 +25,6 @@ add_anykeep_plugin(
   tomboynoteformat.h
   tomboystorage.cpp
   tomboystorage.h)
-find_package(
-  Qt6
-  COMPONENTS Xml
-  REQUIRED)
 target_link_libraries(tomboy ${EXTRA_LINK_TARGET} Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Xml)
 
 install_anykeep_plugin(tomboy)

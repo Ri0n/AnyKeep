@@ -87,9 +87,10 @@ The principal options are:
 * `ANYKEEP_DEVEL` — use development resource and plugin search paths;
 * `ANYKEEP_ENABLE_X11` — build components which access X11 directly;
 * `ANYKEEP_BUILD_BUNDLED_QXMPP` — build the bundled QXmpp fallback;
-* `ANYKEEP_PLUGIN_ENABLE_<name>` — enable or disable an individual plugin.
-  Plugins default to enabled when the platform and their dependencies support
-  them.
+* `ANYKEEP_PLUGIN_ENABLE_<name>` — `AUTO` (default: detect platform and
+  dependencies on each configure), `ON` (require the plugin and fail when
+  prerequisites are absent), or `OFF` (skip the plugin and its dependency
+  probes). AUTO is preserved in the CMake cache across reconfiguration.
 
 ## Build DEB/RPM
 

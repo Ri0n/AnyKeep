@@ -51,8 +51,14 @@ jobs:
       - name: Test release candidate version parsing
         run: python3 -m unittest discover -s .github/scripts -p 'test_release_versions.py'
 
+      - name: Test Android system Back navigation
+        run: python3 -m unittest discover -s .github/scripts -p 'test_mobile_back_navigation.py'
+
       - name: Test Android settings and localization
         run: python3 -m unittest discover -s .github/scripts -p 'test_mobile_localization.py'
+
+      - name: Test plugin AUTO/ON/OFF configuration semantics
+        run: python3 -m unittest discover -s .github/scripts -p 'test_plugin_configuration.py'
 
       - name: Resolve compatible nightly dependencies
         id: nightly
