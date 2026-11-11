@@ -336,7 +336,7 @@ ListView {
     function beginEditTransaction(kind, flushEditors) { return selectionController.beginEditTransaction(kind, flushEditors) }
     function endEditTransaction() { return selectionController.endEditTransaction() }
     function runEditTransaction(kind, callback, flushEditors) { return selectionController.runEditTransaction(kind, callback, flushEditors) }
-    function prepareForStructuralMutation() { return selectionController.prepareForStructuralMutation() }
+    function prepareForStructuralMutation(exceptEditor) { return selectionController.prepareForStructuralMutation(exceptEditor) }
     function prepareForHistoryRestore() { return selectionController.prepareForHistoryRestore() }
     function setEditorSelection(editor, start, end) { return selectionController.setEditorSelection(editor, start, end) }
     function handleKeyboardSelection(event, editor) { return selectionController.handleKeyboardSelection(event, editor) }

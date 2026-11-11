@@ -57,15 +57,19 @@ Editor.NoteBlockTextArea {
         titleImeSplitQueued = true
         Qt.callLater(function() {
             titleImeSplitQueued = false
-            if (!editorView.blockModel || editorView.blockModel.blockTypeAt(0) !== 0)
+            if (!textCell.activeFocus || !editorView.blockModel
+                    || editorView.blockModel.blockTypeAt(0) !== 0)
                 return
+            // Do not flush the title's transient multiline document before
+            // splitting: setBlockText(0, ...) already splits it into the model,
+            // so a second split would duplicate the body text.
             editorView.runEditTransaction("split-title-ime", function() {
-                editorView.prepareForStructuralMutation()
+                editorView.prepareForStructuralMutation(textCell)
                 if (!editorView.blockModel.splitTitleBlock(before, after))
                     return false
                 editorView.focusBlock(1, false, caret)
                 return true
-            })
+            }, false)
         })
         return true
     }

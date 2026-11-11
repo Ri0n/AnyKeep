@@ -4663,6 +4663,33 @@ private slots:
         QTRY_VERIFY(body->hasActiveFocus());
     }
 
+    void softKeyboardReturnPreservesExistingBody()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Android"));
+        note.setText(QStringLiteral("Original body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *title = nullptr;
+        QTRY_VERIFY((title = textEditorForBlock(root, 0)));
+        QVERIFY(title->setProperty("androidImeWorkaround", true));
+        title->forceActiveFocus();
+        QTRY_VERIFY(title->hasActiveFocus());
+        title->setProperty("cursorPosition", title->property("length"));
+        QInputMethodEvent softReturn;
+        softReturn.setCommitString(QStringLiteral("\nTest"));
+        QCoreApplication::sendEvent(title, &softReturn);
+        QTRY_COMPARE(editor.model()->blockTextAt(0), QStringLiteral("Android"));
+        QTRY_COMPARE(editor.model()->blockTextAt(1), QStringLiteral("Test"));
+        QTRY_COMPARE(editor.model()->blockTextAt(2), QStringLiteral("Original body"));
+        QCOMPARE(editor.model()->contents().count(QStringLiteral("Test")), 1);
+    }
+
     void focusedPlainTextEditsUpdateDisplayTitleImmediately()
     {
         Note note(new NoteData(nullptr));
