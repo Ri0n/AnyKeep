@@ -46,6 +46,9 @@ public:
     virtual void start()                                                   = 0;
     virtual void setConfig(const XmppConfig &config)                       = 0;
     virtual void shutdown()                                                = 0;
+    // App became active after suspension. Backends can probe apparently live
+    // transports; the storage adapter owns the reconnect/retry policy.
+    virtual void checkConnectionAfterResume() {}
     virtual void probeAsync(StatusCallback callback)                       = 0;
     virtual void listNotesAsync(ListCallback callback)                     = 0;
     virtual void getNoteAsync(QString id, NoteCallback callback)           = 0;
@@ -82,6 +85,9 @@ signals:
     void remoteNodeInvalidated();
     /// Reports changes of the underlying XMPP connection state.
     void connectionChanged(bool connected);
+    /// A liveness probe found a stale transport. Retry immediately instead
+    /// of waiting for normal exponential backoff after an Android wakeup.
+    void transportRecoveryRequested();
     /// Reports a backend error that is not tied to a single callback.
     void backendError(const QString &error);
     /// Requests user approval for bootstrapping trust in an OMEMO key.
