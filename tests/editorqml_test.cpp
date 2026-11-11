@@ -1323,6 +1323,14 @@ private slots:
         QTRY_VERIFY(quickItemByName(root, QStringLiteral("noteMediaSyncDesktop")));
         QTRY_VERIFY(quickItemByName(root, QStringLiteral("mediaVisualSync-2")));
         QTRY_VERIFY(quickItemByName(root, QStringLiteral("mediaAudioSync-3")));
+        // No image bytes are available yet. A visible waiting/error placeholder
+        // must explain why the image area is blank instead of disappearing.
+        QQuickItem *missingImage = nullptr;
+        QTRY_VERIFY((missingImage = quickItemByName(root, QStringLiteral("imageSyncPlaceholder-2"))));
+        QTRY_VERIFY(missingImage->isVisible());
+        auto *placeholderState = quickItemByName(root, QStringLiteral("imageSyncPlaceholderStatus-2"));
+        QVERIFY(placeholderState);
+        QVERIFY(placeholderState->property("syncState").toInt() != 3);
         const auto *noteSync = quickItemByName(root, QStringLiteral("noteMediaSyncDesktop"));
         QVERIFY(noteSync->isVisible());
         QVERIFY(noteSync->property("progress").toDouble() < 1.0);
