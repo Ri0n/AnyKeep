@@ -319,6 +319,8 @@ void XmppStorage::applyConfig(const XmppConfig &config)
     cache_.clear();
     cacheValid_ = false;
     accessible_ = false;
+    transportOnline_ = false;
+    backgroundSinceMs_ = 0;
     config_     = readConfig();
     backend_->start();
     init();
