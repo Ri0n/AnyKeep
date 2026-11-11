@@ -91,6 +91,7 @@ private slots:
     void onRemoteNoteRetracted(const QString &id);
     void onRemoteNodeInvalidated();
     void onConnectionChanged(bool connected);
+    void onApplicationResumed();
 
 private:
     class ReorderOperation;
@@ -170,6 +171,10 @@ private:
     QIcon icon_;
     /// Whether normal storage operations may currently be attempted.
     bool accessible_ { false };
+    /// Network state is separate from offline cache readability.
+    bool transportOnline_ { false };
+    /// Wall clock is needed because steady clocks may pause during Android sleep.
+    qint64 backgroundSinceMs_ { 0 };
     /// Active asynchronous connection/probe jobs, including the first login.
     /// Kept separate from retryInProgress_ to avoid changing retry ownership.
     QSet<StorageInitJob *> activeInitJobs_;
