@@ -290,7 +290,9 @@ FocusScope {
         y: sourceImage.y
         width: sourceImage.width
         height: sourceImage.height
-        z: 1
+        // The existing hit layer must remain above the placeholder so image
+        // selection, drag and resize continue to work while waiting.
+        z: -1
         visible: mediaRoot.visual && !mediaRoot.video
                  && sourceImage.status !== Image.Ready
                  && (Boolean(mediaRoot.syncStatus.valid) || sourceImage.status === Image.Error)
