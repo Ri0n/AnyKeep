@@ -333,9 +333,14 @@ MediaRangeService::Cancel MediaRangeService::readRangeAsync(
         done({}, QStringLiteral("Invalid or unavailable media range"));
         return {};
     }
-    for (const auto &resolver : server->resolvers) {
-        if (resolver.owner && resolver.accepts(reference))
-            return resolver.read(reference, offset, length, false, std::move(done));
+    // A provider callback may register another resolver. Hold a snapshot so
+    // that reentrant updates cannot invalidate the callable mid-dispatch.
+    const auto resolvers = server->resolvers;
+    for (const auto &resolver : resolvers) {
+        if (resolver.owner && resolver.accepts(reference)) {
+            const auto reader = resolver.read;
+            return reader(reference, offset, length, false, std::move(done));
+        }
     }
     done({}, QStringLiteral("No media provider can read this attachment"));
     return {};
