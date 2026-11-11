@@ -41,6 +41,9 @@ TextArea {
     // The Android IME owns preedit composition. Never reserialize a live
     // QTextDocument while it is still replacing its predictive text.
     property bool inputMethodCommitPending: false
+    // Structured editors can handle Android IME commits (notably Return in
+    // the title) without first publishing a duplicate multiline model row.
+    property var finalizeInputMethodEdit: null
     property string observedPlainText: ""
     property bool observedPlainTextInitialized: false
     property bool discardEmptyBlockOnFocusLoss: false
@@ -451,8 +454,11 @@ TextArea {
             // serializing Markdown and notifying NoteBlockModel. One commit,
             // regardless of how many predictive candidates the IME emitted.
             Qt.callLater(function() {
-                if (blockArea && !blockArea.inputMethodComposing)
+                if (blockArea && !blockArea.inputMethodComposing) {
+                    if (blockArea.finalizeInputMethodEdit && blockArea.finalizeInputMethodEdit())
+                        return
                     blockArea.commitChangedText(blockArea.activeFocus)
+                }
             })
         }
     }
