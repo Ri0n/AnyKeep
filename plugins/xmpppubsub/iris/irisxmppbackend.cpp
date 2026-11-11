@@ -697,7 +697,10 @@ void IrisXmppBackend::createClient()
     connect(stream_, &XMPP::ClientStream::connectionClosed, this, [this]() {
         qInfo() << "Iris XMPP connection closed before or after authentication; authenticated="
                 << (stream_ && stream_->isAuthenticated());
+        const bool wakeProbeInterrupted = wakeProbe_ != WakeProbe::None;
         markDisconnected();
+        if (wakeProbeInterrupted)
+            emit transportRecoveryRequested();
         if (client_ && client_->hasStream())
             client_->close(true);
         if (connectionAttempt_ && !connectionAttempt_->finished) {
@@ -717,7 +720,10 @@ void IrisXmppBackend::createClient()
     });
     connect(stream_, qOverload<int>(&XMPP::ClientStream::error), this, [this](int code) {
         qInfo() << "Iris XMPP stream error:" << code;
+        const bool wakeProbeInterrupted = wakeProbe_ != WakeProbe::None;
         markDisconnected();
+        if (wakeProbeInterrupted)
+            emit transportRecoveryRequested();
         const auto errorKind
             = code == XMPP::ClientStream::ErrAuth ? XmppErrorKind::Authentication : XmppErrorKind::Transient;
         const auto message = code == XMPP::ClientStream::ErrAuth
