@@ -803,9 +803,9 @@ void IrisXmppBackend::handleWakeProbeXml(const QString &xml)
         return;
     }
     if (wakeProbe_ == WakeProbe::ServerPing && name == QStringLiteral("iq")
-        && reader.attributes().value(QStringLiteral("id")) == wakePingId_
-        && (reader.attributes().value(QStringLiteral("type")) == QStringLiteral("result")
-            || reader.attributes().value(QStringLiteral("type")) == QStringLiteral("error"))) {
+        && reader.attributes().value(QStringLiteral("id")).toString() == wakePingId_
+        && (reader.attributes().value(QStringLiteral("type")).toString() == QStringLiteral("result")
+            || reader.attributes().value(QStringLiteral("type")).toString() == QStringLiteral("error"))) {
         // Even service-unavailable is a valid response proving the stream is
         // alive. Servers without XEP-0198 must never receive an SM <r/>.
         finishWakeProbe();
