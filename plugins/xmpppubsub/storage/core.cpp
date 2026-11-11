@@ -18,6 +18,8 @@
 #include "xmppsettingscontroller.h"
 
 #include <QCryptographicHash>
+#include <QDateTime>
+#include <QGuiApplication>
 #include <QMetaObject>
 #include <QNetworkInformation>
 #include <QPointer>
@@ -64,6 +66,15 @@ XmppStorage::XmppStorage(QObject *parent, XmppBackend *backend, FolderCatalogMan
     connect(backend_, &XmppBackend::remoteNoteRetracted, this, &XmppStorage::onRemoteNoteRetracted);
     connect(backend_, &XmppBackend::remoteNodeInvalidated, this, &XmppStorage::onRemoteNodeInvalidated);
     connect(backend_, &XmppBackend::connectionChanged, this, &XmppStorage::onConnectionChanged);
+    connect(backend_, &XmppBackend::transportRecoveryRequested, this, [this] {
+        if (shuttingDown_ || errorState_ || retryInProgress_)
+            return;
+        // A confirmed dead socket after wakeup should not sit in backoff.
+        if (retryTimer_)
+            retryTimer_->stop();
+        retryDelaySeconds_ = MinimumRetryDelaySeconds;
+        QTimer::singleShot(0, this, &XmppStorage::retryInitialization);
+    });
     connect(backend_, &XmppBackend::backendError, this, [this](const QString &error) {
         if (isStorageKeyMismatch(error))
             enterErrorState(error, true);
@@ -87,6 +98,25 @@ XmppStorage::XmppStorage(QObject *parent, XmppBackend *backend, FolderCatalogMan
     retryTimer_ = new QTimer(this);
     retryTimer_->setSingleShot(true);
     connect(retryTimer_, &QTimer::timeout, this, &XmppStorage::retryInitialization);
+
+#ifdef Q_OS_ANDROID
+    if (auto *application = qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
+        connect(application, &QGuiApplication::applicationStateChanged, this,
+                [this](Qt::ApplicationState state) {
+                    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+                    if (state != Qt::ApplicationActive) {
+                        if (backgroundSinceMs_ == 0)
+                            backgroundSinceMs_ = now;
+                        return;
+                    }
+                    const qint64 since = std::exchange(backgroundSinceMs_, 0);
+                    // Ignore brief focus transitions (permission overlays,
+                    // notifications); a real app wakeup gets a live probe.
+                    if (since > 0 && now - since >= 1500)
+                        QTimer::singleShot(0, this, &XmppStorage::onApplicationResumed);
+                });
+    }
+#endif
 
     if (folderCatalogManager_) {
         connect(folderCatalogManager_, &FolderCatalogManager::availabilityChanged, this, [this](bool available) {
