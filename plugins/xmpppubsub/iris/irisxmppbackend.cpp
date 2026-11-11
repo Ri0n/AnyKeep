@@ -789,6 +789,11 @@ void IrisXmppBackend::finishWakeProbe()
 
 void IrisXmppBackend::handleWakeProbeXml(const QString &xml)
 {
+    // Stream::incomingXml also sees every encrypted note stanza; avoid
+    // needlessly reparsing those large payloads in normal operation.
+    if (wakeProbe_ != WakeProbe::ServerPing
+        && (streamManagementActive_ || !xml.contains(QStringLiteral("urn:xmpp:sm:3"))))
+        return;
     QXmlStreamReader reader(xml);
     if (!reader.readNextStartElement())
         return;
