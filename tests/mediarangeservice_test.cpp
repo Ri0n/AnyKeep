@@ -6,6 +6,7 @@
 #include <QTimer>
 #include <QtTest>
 #include <atomic>
+#include <memory>
 using namespace AnyKeep;
 class MediaRangeServiceTest : public QObject {
     Q_OBJECT
