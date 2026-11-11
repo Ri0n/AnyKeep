@@ -41,7 +41,8 @@ Editor.NoteBlockTextArea {
     // the new body block can both render the body text. Split it exactly once,
     // outside the IME's synchronous textChanged delivery.
     function scheduleTitleImeSplit() {
-        if (!titleDocument || !activeFocus || syncingSourceText || inputMethodComposing
+        if (!androidImeWorkaround || !titleDocument || !activeFocus
+                || syncingSourceText || inputMethodComposing
                 || !editorView.blockModel || editorView.blockModel.blockTypeAt(0) !== 0)
             return false
         const plain = normalizedTagLinePlainText()
@@ -78,7 +79,7 @@ Editor.NoteBlockTextArea {
     }
 
     function tagLineCandidate(force) {
-        if (!activeFocus || syncingSourceText || inputMethodComposing
+        if (!activeFocus || syncingSourceText || (androidImeWorkaround && inputMethodComposing)
                 || !editorView.blockModel || !editorView.blockModel.markdown
                 || editorView.blockModel.blockTypeAt(0) !== 0
                 || (block.index !== 0 && block.index !== 1))
@@ -176,7 +177,7 @@ Editor.NoteBlockTextArea {
         // observe the pre-space document and miss "#tag ".  Defer only
         // plausible tag-line candidates to the next event-loop turn;
         // ordinary text keeps its existing immediate commit path.
-        if (scheduleTitleImeSplit())
+        if (androidImeWorkaround && scheduleTitleImeSplit())
             return
         if (tagLineCandidate(false))
             scheduleTagLinePromotion(false)
