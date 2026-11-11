@@ -48,6 +48,7 @@ public:
     void start() override;
     void setConfig(const XmppConfig &config) override;
     void shutdown() override;
+    void checkConnectionAfterResume() override;
 
     void probeAsync(StatusCallback callback) override;
     void listNotesAsync(ListCallback callback) override;
@@ -99,6 +100,9 @@ private:
     void                                                 destroyClientObjects();
     void                                                 markDisconnected();
     void                                                 createClient();
+    void                                                 handleWakeProbeXml(const QString &xml);
+    void                                                 finishWakeProbe();
+    void                                                 failWakeProbe();
     void                                                 connectToServerAsync(StatusCallback callback);
     void                                                 ensureOmemoReadyAsync(StatusCallback callback);
     void                                                 ensureReadyAsync(StatusCallback callback);
@@ -158,6 +162,12 @@ private:
     bool    prepared_ { false };
     bool    freshClientRequired_ { false };
     quint64 generation_ { 0 };
+
+    enum class WakeProbe { None, StreamManagement, ServerPing };
+    WakeProbe wakeProbe_ { WakeProbe::None };
+    QTimer   *wakeProbeTimer_ { nullptr };
+    QString   wakePingId_;
+    bool      streamManagementActive_ { false };
 
     std::shared_ptr<ConnectionAttempt> connectionAttempt_;
     std::shared_ptr<ReadyAttempt>      omemoAttempt_;
