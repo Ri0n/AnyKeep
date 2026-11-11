@@ -142,7 +142,8 @@ void XmppStorage::onApplicationResumed()
     if (!transportOnline_) {
         // Reachability callbacks are not guaranteed on Android when a stale
         // socket survives sleep. Retry immediately on a foreground wake.
-        if (retryInProgress_)
+        // Do not duplicate the initial connection or key-recovery job.
+        if (retryInProgress_ || !activeInitJobs_.isEmpty())
             return;
         if (retryTimer_)
             retryTimer_->stop();
