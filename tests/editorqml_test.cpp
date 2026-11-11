@@ -4627,6 +4627,36 @@ private slots:
         QCOMPARE(editor.model()->rowCount(), 2);
     }
 
+    void softKeyboardReturnSplitsTitleWithoutDuplicatingBody()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Android"));
+        note.setText(QString(), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *title = nullptr;
+        QTRY_VERIFY((title = textEditorForBlock(root, 0)));
+        title->forceActiveFocus();
+        QTRY_VERIFY(title->hasActiveFocus());
+        title->setProperty("cursorPosition", title->property("length"));
+        // Android may commit the newline and the first body text directly from
+        // the keyboard, never generating a Qt.Key_Return keypress.
+        QInputMethodEvent softReturn;
+        softReturn.setCommitString(QStringLiteral("\nTest"));
+        QCoreApplication::sendEvent(title, &softReturn);
+        QTRY_COMPARE(editor.model()->blockTextAt(0), QStringLiteral("Android"));
+        QTRY_COMPARE(editor.model()->blockTextAt(1), QStringLiteral("Test"));
+        QCOMPARE(editor.model()->contents().count(QStringLiteral("Test")), 1);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        QTRY_VERIFY(body->hasActiveFocus());
+    }
+
     void focusedPlainTextEditsUpdateDisplayTitleImmediately()
     {
         Note note(new NoteData(nullptr));
