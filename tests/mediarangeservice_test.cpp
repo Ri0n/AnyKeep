@@ -219,7 +219,8 @@ private slots:
         int completions = 0;
         QString error;
         auto next = std::make_shared<std::function<void()>>();
-        *next = [&, next] {
+        const std::weak_ptr<std::function<void()>> weakNext = next;
+        *next = [&, weakNext] {
             if (assembled.size() == cached.size()) {
                 ++completions;
                 return;
@@ -227,14 +228,15 @@ private slots:
             const qint64 offset = assembled.size();
             MediaRangeService::readRangeAsync(
                 reference, offset, qMin<qint64>(65536, reference.size - offset),
-                [&, next](QByteArray bytes, QString failure) {
+                [&, weakNext](QByteArray bytes, QString failure) {
                     error = std::move(failure);
                     if (!error.isEmpty()) {
                         ++completions;
                         return;
                     }
                     assembled += bytes;
-                    (*next)();
+                    if (auto resume = weakNext.lock())
+                        (*resume)();
                 });
         };
         (*next)();
