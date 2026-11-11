@@ -193,6 +193,9 @@ private slots:
         const QByteArray cached(qsizetype(reference.size), 'x');
         int cacheReads = 0;
         int networkTransfers = 0;
+        QHash<qint64, QByteArray> verifiedCache;
+        for (qint64 pos = 0; pos < reference.size; pos += 65536)
+            verifiedCache.insert(pos, cached.mid(pos, 65536));
         QList<qint64> offsets;
         MediaRangeService::registerResolver(
             &owner, [id = reference.id](const MediaReference &r) { return r.id == id; },
@@ -202,11 +205,14 @@ private slots:
                 QVERIFY(length <= 65536);
                 offsets.append(offset);
                 ++cacheReads;
-                // A real XMPP provider returns authenticated opaque cache records
-                // here without opening Jingle or HTTP. This fixture simulates that
-                // already-complete cache using only an in-memory record.
-                QTimer::singleShot(0, &owner, [cached, offset, length, done = std::move(done)] {
-                    done(cached.mid(offset, length), {});
+                // Simulate the provider's existing cache-first range reader:
+                // a missing chunk would use Jingle, but no remote request is
+                // needed for a verified local record.
+                if (!verifiedCache.contains(offset))
+                    ++networkTransfers;
+                const QByteArray bytes = verifiedCache.value(offset).left(length);
+                QTimer::singleShot(0, &owner, [bytes, done = std::move(done)] {
+                    done(bytes, {});
                 });
             });
         QByteArray assembled;
