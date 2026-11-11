@@ -254,7 +254,7 @@ namespace {
                     }
                     guard->digest_.addData(bytes);
                     guard->position_ += bytes.size();
-                    QTimer::singleShot(0, guard, [guard] {
+                    QTimer::singleShot(0, guard.data(), [guard] {
                         if (guard)
                             guard->readNext();
                     });
