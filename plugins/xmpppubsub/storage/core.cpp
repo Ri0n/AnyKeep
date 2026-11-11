@@ -438,6 +438,8 @@ void XmppStorage::shutdown()
     if (shuttingDown_)
         return;
     shuttingDown_ = true;
+    transportOnline_ = false;
+    backgroundSinceMs_ = 0;
     abortKeyResolution();
     cancelRefreshAttempt();
     folderPathUpdateQueue_.clear();
