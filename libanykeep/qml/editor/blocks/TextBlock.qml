@@ -45,7 +45,7 @@ Editor.NoteBlockTextArea {
                 || !editorView.blockModel || editorView.blockModel.blockTypeAt(0) !== 0)
             return false
         const plain = normalizedTagLinePlainText()
-        const separator = plain.indexOf("\\n")
+        const separator = plain.indexOf("\n")
         if (separator < 0)
             return false
         if (titleImeSplitQueued)
