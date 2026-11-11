@@ -38,6 +38,9 @@ TextArea {
     property string sourceText: ""
     property bool syncingSourceText: false
     property bool sourceTextPending: false
+    // The Android IME owns preedit composition. Never reserialize a live
+    // QTextDocument while it is still replacing its predictive text.
+    property bool inputMethodCommitPending: false
     property string observedPlainText: ""
     property bool observedPlainTextInitialized: false
     property bool discardEmptyBlockOnFocusLoss: false
@@ -274,7 +277,7 @@ TextArea {
     }
 
     function flushToModel() {
-        if (syncingSourceText)
+        if (syncingSourceText || inputMethodComposing)
             return false
         const current = currentPlainText()
         if (observedPlainTextInitialized && current === observedPlainText)
@@ -404,7 +407,7 @@ TextArea {
     }
 
     function synchronizeSourceText(force) {
-        if (activeFocus) {
+        if (activeFocus || inputMethodComposing) {
             sourceTextPending = true
             return false
         }
@@ -412,7 +415,7 @@ TextArea {
     }
 
     function applyPendingSourceText() {
-        if (!sourceTextPending)
+        if (!sourceTextPending || inputMethodComposing)
             return false
         return applySourceText(true)
     }
@@ -420,6 +423,10 @@ TextArea {
     function shouldCommitTextChange(allowed) {
         if (syncingSourceText)
             return false
+        if (inputMethodComposing) {
+            inputMethodCommitPending = true
+            return false
+        }
         const current = currentPlainText()
         if (!observedPlainTextInitialized) {
             observedPlainText = current
@@ -435,6 +442,19 @@ TextArea {
         commitText(true)
         rememberPlainText()
         return true
+    }
+
+    onInputMethodComposingChanged: {
+        if (!inputMethodComposing && inputMethodCommitPending) {
+            inputMethodCommitPending = false
+            // Let Qt apply the final commit and cursor replacement before
+            // serializing Markdown and notifying NoteBlockModel. One commit,
+            // regardless of how many predictive candidates the IME emitted.
+            Qt.callLater(function() {
+                if (blockArea && !blockArea.inputMethodComposing)
+                    blockArea.commitChangedText(blockArea.activeFocus)
+            })
+        }
     }
 
     onSourceTextChanged: {
