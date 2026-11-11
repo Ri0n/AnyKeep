@@ -40,6 +40,7 @@ TextArea {
     property bool sourceTextPending: false
     // The Android IME owns preedit composition. Never reserialize a live
     // QTextDocument while it is still replacing its predictive text.
+    property bool androidImeWorkaround: Qt.platform.os === "android"
     property bool inputMethodCommitPending: false
     // Structured editors can handle Android IME commits (notably Return in
     // the title) without first publishing a duplicate multiline model row.
@@ -280,7 +281,7 @@ TextArea {
     }
 
     function flushToModel() {
-        if (syncingSourceText || inputMethodComposing)
+        if (syncingSourceText || (androidImeWorkaround && inputMethodComposing))
             return false
         const current = currentPlainText()
         if (observedPlainTextInitialized && current === observedPlainText)
@@ -410,7 +411,7 @@ TextArea {
     }
 
     function synchronizeSourceText(force) {
-        if (activeFocus || inputMethodComposing) {
+        if (activeFocus || (androidImeWorkaround && inputMethodComposing)) {
             sourceTextPending = true
             return false
         }
@@ -418,7 +419,7 @@ TextArea {
     }
 
     function applyPendingSourceText() {
-        if (!sourceTextPending || inputMethodComposing)
+        if (!sourceTextPending || (androidImeWorkaround && inputMethodComposing))
             return false
         return applySourceText(true)
     }
@@ -426,7 +427,7 @@ TextArea {
     function shouldCommitTextChange(allowed) {
         if (syncingSourceText)
             return false
-        if (inputMethodComposing) {
+        if (androidImeWorkaround && inputMethodComposing) {
             inputMethodCommitPending = true
             return false
         }
@@ -448,7 +449,7 @@ TextArea {
     }
 
     onInputMethodComposingChanged: {
-        if (!inputMethodComposing && inputMethodCommitPending) {
+        if (androidImeWorkaround && !inputMethodComposing && inputMethodCommitPending) {
             inputMethodCommitPending = false
             // Let Qt apply the final commit and cursor replacement before
             // serializing Markdown and notifying NoteBlockModel. One commit,
