@@ -43,7 +43,8 @@ Editor.NoteBlockTextArea {
     }
 
     function tagLineCandidate(force) {
-        if (!activeFocus || syncingSourceText || !editorView.blockModel || !editorView.blockModel.markdown
+        if (!activeFocus || syncingSourceText || inputMethodComposing
+                || !editorView.blockModel || !editorView.blockModel.markdown
                 || editorView.blockModel.blockTypeAt(0) !== 0
                 || (block.index !== 0 && block.index !== 1))
             return null
