@@ -4599,6 +4599,10 @@ private slots:
         QVERIFY(root);
         QQuickItem *body = nullptr;
         QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        // On desktop, the historical text-commit path must remain the default.
+        QCOMPARE(body->property("androidImeWorkaround").toBool(), false);
+        // Simulate the Android branch in this shared-editor QML regression.
+        QVERIFY(body->setProperty("androidImeWorkaround", true));
         body->forceActiveFocus();
         QTRY_VERIFY(body->hasActiveFocus());
         body->setProperty("cursorPosition", body->property("length"));
@@ -4641,6 +4645,8 @@ private slots:
         QVERIFY(root);
         QQuickItem *title = nullptr;
         QTRY_VERIFY((title = textEditorForBlock(root, 0)));
+        QCOMPARE(title->property("androidImeWorkaround").toBool(), false);
+        QVERIFY(title->setProperty("androidImeWorkaround", true));
         title->forceActiveFocus();
         QTRY_VERIFY(title->hasActiveFocus());
         title->setProperty("cursorPosition", title->property("length"));
