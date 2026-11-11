@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFont>
 #include <QImage>
+#include <QInputMethodEvent>
 #include <QJSValue>
 #include <QMimeData>
 #include <QMimeDatabase>
@@ -4582,6 +4583,48 @@ private slots:
         QTest::keyClick(host->quickWidget(), Qt::Key_Return);
         QTest::keyClick(host->quickWidget(), Qt::Key_Return, Qt::ShiftModifier);
         QTRY_COMPARE(editor->model()->blockTypeAt(1), int(NoteBlockModel::BlockQuote));
+    }
+
+    void predictiveImeCommitDoesNotDuplicateMarkdownBody()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Android"));
+        note.setText(QStringLiteral("Test"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *body = nullptr;
+        QTRY_VERIFY((body = textEditorForBlock(root, 1)));
+        body->forceActiveFocus();
+        QTRY_VERIFY(body->hasActiveFocus());
+        body->setProperty("cursorPosition", body->property("length"));
+
+        // Android predictive keyboards repeatedly replace their preedit.
+        // Until commit, the shared model must retain the last confirmed text.
+        QInputMethodEvent preedit(QStringLiteral("Xx"), {});
+        QCoreApplication::sendEvent(body, &preedit);
+        QCOMPARE(editor.model()->blockTextAt(1), QStringLiteral("Test"));
+        QInputMethodEvent replacement(QStringLiteral("Xxx"), {});
+        QCoreApplication::sendEvent(body, &replacement);
+        QCOMPARE(editor.model()->blockTextAt(1), QStringLiteral("Test"));
+
+        QInputMethodEvent committed;
+        committed.setCommitString(QStringLiteral("Xxx"));
+        QCoreApplication::sendEvent(body, &committed);
+        QTRY_COMPARE(editor.model()->blockTextAt(1), QStringLiteral("TestXxx"));
+
+        QInputMethodEvent nextPreedit(QStringLiteral(" Gg"), {});
+        QCoreApplication::sendEvent(body, &nextPreedit);
+        QCOMPARE(editor.model()->blockTextAt(1), QStringLiteral("TestXxx"));
+        QInputMethodEvent nextCommit;
+        nextCommit.setCommitString(QStringLiteral(" Ggdsf"));
+        QCoreApplication::sendEvent(body, &nextCommit);
+        QTRY_COMPARE(editor.model()->blockTextAt(1), QStringLiteral("TestXxx Ggdsf"));
+        QCOMPARE(editor.model()->rowCount(), 2);
     }
 
     void focusedPlainTextEditsUpdateDisplayTitleImmediately()
