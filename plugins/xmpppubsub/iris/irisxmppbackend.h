@@ -12,6 +12,8 @@
 
 #include <memory>
 
+class QTimer;
+
 namespace XMPP {
 class AdvancedConnector;
 class Client;
