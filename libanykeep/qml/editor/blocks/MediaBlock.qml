@@ -280,6 +280,65 @@ FocusScope {
 
     }
 
+    // The preview can be empty or fail long before the background provider
+    // finishes downloading the authenticated source. Give this case a visible
+    // status rather than leaving an unexplained blank rectangle.
+    Rectangle {
+        id: missingImagePlaceholder
+        objectName: "imageSyncPlaceholder-" + mediaRoot.block.index
+        x: sourceImage.x
+        y: sourceImage.y
+        width: sourceImage.width
+        height: sourceImage.height
+        // The existing hit layer must remain above the placeholder so image
+        // selection, drag and resize continue to work while waiting.
+        z: -1
+        visible: mediaRoot.visual && !mediaRoot.video
+                 && sourceImage.status !== Image.Ready
+                 && (Boolean(mediaRoot.syncStatus.valid) || sourceImage.status === Image.Error)
+        radius: 6
+        color: mediaRoot.editorView.documentCardColor
+        border.color: mediaRoot.editorView.documentCardBorderColor
+        border.width: 1
+        clip: true
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 8
+            width: Math.max(0, parent.width - 16)
+            EditorComponents.MediaSyncIndicator {
+                id: missingImageStatus
+                objectName: "imageSyncPlaceholderStatus-" + mediaRoot.block.index
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 28
+                height: 28
+                syncState: mediaRoot.syncStatus.valid ? mediaRoot.syncStatus.state : 2
+                progress: mediaRoot.syncStatus.progress || 0
+                errorString: mediaRoot.syncStatus.error || ""
+                SequentialAnimation on opacity {
+                    running: missingImagePlaceholder.visible && missingImageStatus.syncState === 0
+                    loops: Animation.Infinite
+                    NumberAnimation { from: 0.45; to: 1; duration: 900; easing.type: Easing.InOutSine }
+                    NumberAnimation { from: 1; to: 0.45; duration: 900; easing.type: Easing.InOutSine }
+                }
+            }
+            Label {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                color: mediaRoot.editorView.documentSecondaryTextColor
+                text: {
+                    const state = mediaRoot.syncStatus.valid ? mediaRoot.syncStatus.state : 2
+                    if (state === 0)
+                        return qsTr("Waiting for the source device…")
+                    if (state === 1)
+                        return qsTr("Synchronizing image…")
+                    return qsTr("Image unavailable")
+                }
+            }
+        }
+    }
+
     Loader {
         id: videoCard
         active: mediaRoot.video
