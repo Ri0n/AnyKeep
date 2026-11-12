@@ -539,6 +539,41 @@ public:
         request->start();
     }
 
+    // An offline device is not a failed download. Tear down stale signaling
+    // and SCTP sessions, but preserve authenticated cache records, the gap
+    // map and every pending reader. They resume on this resource's next
+    // available presence (or the local account's reconnect).
+    void waitForPublisher()
+    {
+        timer->stop();
+        QObject::disconnect(incoming);
+        requestedSid.clear();
+        if (request) {
+            auto *old = request.data();
+            request = nullptr;
+            old->deleteLater();
+        }
+        QSet<J::Session *> sessions;
+        for (const auto &part : parts) {
+            part->closing = true; // teardown signals must not call fail()
+            if (part->session)
+                sessions.insert(part->session);
+        }
+        for (auto *session : sessions) {
+            if (session->state() < J::State::Finishing)
+                session->terminate(J::Reason::FailedApplication,
+                                   QStringLiteral("Media source unavailable"));
+            if (auto *scheduler = MediaChunkScheduler::instance())
+                scheduler->releaseExternalTransfer(session);
+        }
+        current.reset();
+        pending.reset();
+        parts.clear();
+        demandPending = true;
+        error.clear();
+        report(); // Waiting, never Failed, even with outstanding range readers
+    }
+
     void fail(QString reason)
     {
         if (stopped || !error.isEmpty())
@@ -621,15 +656,11 @@ void IrisMediaSync::setConnected(bool connected, XMPP::Client *client)
     }
     const bool wasPublisherAvailable = d->publisherAvailable;
     d->publisherAvailable = publisherAvailable;
-    if (!connected && !d->stopped && (!d->parts.isEmpty() || d->request))
-        d->fail(QStringLiteral("Media connection lost"));
-    else if (!publisherAvailable && wasPublisherAvailable && !d->stopped
-             && (!d->parts.isEmpty() || d->request))
-        d->fail(QStringLiteral("Remote media source went offline"));
+    if (!publisherAvailable && (wasPublisherAvailable || !d->parts.isEmpty() || d->request))
+        d->waitForPublisher();
 
-    // The verified opaque chunks and missing-range map survive both local
-    // reconnects and remote-device departures. Resume without restarting
-    // the download when a matching XMPP resource is seen again.
+    // Readiness and verified cache are independent. Only restart missing
+    // ranges when the exact resource is back; do not retry a stale session.
     if (connected && publisherAvailable && !d->stopped) {
         if (!d->error.isEmpty() || !sameClient)
             d->error.clear();
@@ -645,8 +676,8 @@ void IrisMediaSync::setPublisherAvailable(const XMPP::Jid &jid, bool available)
         || d->publisherAvailable == available)
         return;
     d->publisherAvailable = available;
-    if (!available && (!d->parts.isEmpty() || d->request))
-        d->fail(QStringLiteral("Remote media source went offline"));
+    if (!available)
+        d->waitForPublisher();
     if (available && d->connected) {
         d->error.clear();
         d->schedule();
