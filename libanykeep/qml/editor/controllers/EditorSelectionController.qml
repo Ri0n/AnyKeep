@@ -388,14 +388,14 @@ QtObject {
         releaseRetainedEmptySelectionEditor()
     }
 
-    function flushPendingEditorChanges() {
+    function flushPendingEditorChanges(exceptEditor) {
         const candidates = []
         if (editorView.activeEditor)
             candidates.push(editorView.activeEditor)
         if (contextEditor && candidates.indexOf(contextEditor) < 0)
             candidates.push(contextEditor)
         for (const editor of candidates) {
-            if (editor && editor.flushToModel)
+            if (editor && editor !== exceptEditor && editor.flushToModel)
                 editor.flushToModel()
         }
     }
@@ -426,12 +426,14 @@ QtObject {
         }
     }
 
-    function prepareForStructuralMutation() {
+    function prepareForStructuralMutation(exceptEditor) {
         // A focused delegate may defer applying a changed sourceText until it
         // loses focus. The target address applies that pending source before
         // restoring its cursor; do not move focus here, because doing so makes
-        // ListView reposition the viewport before the mutation.
-        flushPendingEditorChanges()
+        // ListView reposition the viewport before the mutation. For a soft-IME
+        // title split, skip only that live title document: committing its
+        // embedded newline would already materialize the body before split.
+        flushPendingEditorChanges(exceptEditor)
         clearDocumentSelection()
         editorView.selectedMediaIndex = -1
         editorView.selectedAttachmentIndex = -1

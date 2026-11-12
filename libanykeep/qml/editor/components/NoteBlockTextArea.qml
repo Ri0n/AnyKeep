@@ -38,6 +38,13 @@ TextArea {
     property string sourceText: ""
     property bool syncingSourceText: false
     property bool sourceTextPending: false
+    // The Android IME owns preedit composition. Never reserialize a live
+    // QTextDocument while it is still replacing its predictive text.
+    property bool androidImeWorkaround: Qt.platform.os === "android"
+    property bool inputMethodCommitPending: false
+    // Structured editors can handle Android IME commits (notably Return in
+    // the title) without first publishing a duplicate multiline model row.
+    property var finalizeInputMethodEdit: null
     property string observedPlainText: ""
     property bool observedPlainTextInitialized: false
     property bool discardEmptyBlockOnFocusLoss: false
@@ -274,7 +281,7 @@ TextArea {
     }
 
     function flushToModel() {
-        if (syncingSourceText)
+        if (syncingSourceText || (androidImeWorkaround && inputMethodComposing))
             return false
         const current = currentPlainText()
         if (observedPlainTextInitialized && current === observedPlainText)
@@ -404,7 +411,7 @@ TextArea {
     }
 
     function synchronizeSourceText(force) {
-        if (activeFocus) {
+        if (activeFocus || (androidImeWorkaround && inputMethodComposing)) {
             sourceTextPending = true
             return false
         }
@@ -412,7 +419,7 @@ TextArea {
     }
 
     function applyPendingSourceText() {
-        if (!sourceTextPending)
+        if (!sourceTextPending || (androidImeWorkaround && inputMethodComposing))
             return false
         return applySourceText(true)
     }
@@ -420,6 +427,10 @@ TextArea {
     function shouldCommitTextChange(allowed) {
         if (syncingSourceText)
             return false
+        if (androidImeWorkaround && inputMethodComposing) {
+            inputMethodCommitPending = true
+            return false
+        }
         const current = currentPlainText()
         if (!observedPlainTextInitialized) {
             observedPlainText = current
@@ -435,6 +446,22 @@ TextArea {
         commitText(true)
         rememberPlainText()
         return true
+    }
+
+    onInputMethodComposingChanged: {
+        if (androidImeWorkaround && !inputMethodComposing && inputMethodCommitPending) {
+            inputMethodCommitPending = false
+            // Let Qt apply the final commit and cursor replacement before
+            // serializing Markdown and notifying NoteBlockModel. One commit,
+            // regardless of how many predictive candidates the IME emitted.
+            Qt.callLater(function() {
+                if (blockArea && !blockArea.inputMethodComposing) {
+                    if (blockArea.finalizeInputMethodEdit && blockArea.finalizeInputMethodEdit())
+                        return
+                    blockArea.commitChangedText(blockArea.activeFocus)
+                }
+            })
+        }
     }
 
     onSourceTextChanged: {

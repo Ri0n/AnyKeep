@@ -33,6 +33,46 @@ Editor.NoteBlockTextArea {
         return editorView.handleHeadingShortcut(event, textCell)
     }
     property bool deferredTagLineForce: false
+    property bool titleImeSplitQueued: false
+    finalizeInputMethodEdit: function() { return scheduleTitleImeSplit() }
+
+    // Soft keyboards can commit Return via QInputMethodEvent without sending
+    // Qt.Key_Return. If the title keeps that newline, the title TextArea and
+    // the new body block can both render the body text. Split it exactly once,
+    // outside the IME's synchronous textChanged delivery.
+    function scheduleTitleImeSplit() {
+        if (!androidImeWorkaround || !titleDocument || !activeFocus
+                || syncingSourceText || inputMethodComposing
+                || !editorView.blockModel || editorView.blockModel.blockTypeAt(0) !== 0)
+            return false
+        const plain = normalizedTagLinePlainText()
+        const separator = plain.indexOf("\n")
+        if (separator < 0)
+            return false
+        if (titleImeSplitQueued)
+            return true
+        const before = markdownRange(0, separator)
+        const after = markdownRange(separator + 1, length)
+        const caret = Math.max(0, cursorPosition - separator - 1)
+        titleImeSplitQueued = true
+        Qt.callLater(function() {
+            titleImeSplitQueued = false
+            if (!textCell.activeFocus || !editorView.blockModel
+                    || editorView.blockModel.blockTypeAt(0) !== 0)
+                return
+            // Do not flush the title's transient multiline document before
+            // splitting: setBlockText(0, ...) already splits it into the model,
+            // so a second split would duplicate the body text.
+            editorView.runEditTransaction("split-title-ime", function() {
+                editorView.prepareForStructuralMutation(textCell)
+                if (!editorView.blockModel.splitTitleBlock(before, after))
+                    return false
+                editorView.focusBlock(1, false, caret)
+                return true
+            }, false)
+        })
+        return true
+    }
 
     function normalizedTagLinePlainText() {
         // QML TextEdit may expose QTextDocument paragraph/line
@@ -43,7 +83,8 @@ Editor.NoteBlockTextArea {
     }
 
     function tagLineCandidate(force) {
-        if (!activeFocus || syncingSourceText || !editorView.blockModel || !editorView.blockModel.markdown
+        if (!activeFocus || syncingSourceText || (androidImeWorkaround && inputMethodComposing)
+                || !editorView.blockModel || !editorView.blockModel.markdown
                 || editorView.blockModel.blockTypeAt(0) !== 0
                 || (block.index !== 0 && block.index !== 1))
             return null
@@ -140,6 +181,8 @@ Editor.NoteBlockTextArea {
         // observe the pre-space document and miss "#tag ".  Defer only
         // plausible tag-line candidates to the next event-loop turn;
         // ordinary text keeps its existing immediate commit path.
+        if (androidImeWorkaround && scheduleTitleImeSplit())
+            return
         if (tagLineCandidate(false))
             scheduleTagLinePromotion(false)
         else
