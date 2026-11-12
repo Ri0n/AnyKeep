@@ -558,12 +558,13 @@ FocusScope {
                 storage.push({ text: qsTr("Move out of encrypted storage…"), command: "move-out" })
             else if (keptInPlace && typeof platform.copyAttachmentIntoStore === "function")
                 storage.push({ text: qsTr("Copy into encrypted storage"), command: "copy-in" })
-            else if (typeof platform.saveAttachmentAs === "function")
+            // One export action for every media source. Unlike the removed
+            // saveImageAs path, this supports verified remote XMPP ranges as
+            // well as local managed and external files.
+            if (typeof platform.saveAttachmentAs === "function")
                 storage.push({ text: qsTr("Save To…"), command: "save" })
             if (!managed && hasLocalFile && typeof platform.showAttachmentInFolder === "function")
                 storage.push({ text: qsTr("Show in Folder"), command: "show" })
-            if (!timed && typeof platform.saveImageAs === "function")
-                storage.push({ text: qsTr("Save Image As…"), command: "save-image" })
         }
         section(storage)
         if (visual) {
@@ -588,7 +589,6 @@ FocusScope {
         if (command === "move-out") platform.moveAttachmentOutOfStore(block.url)
         else if (command === "copy-in") platform.copyAttachmentIntoStore(block.url)
         else if (command === "save") platform.saveAttachmentAs(block.url)
-        else if (command === "save-image") platform.saveImageAs(block.url)
         else if (command === "show") platform.showAttachmentInFolder(block.url)
         else if (command === "left" || command === "right" || command === "center") setAlignment(command)
         else if (command === "reset") resetPresentation()

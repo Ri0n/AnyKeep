@@ -73,7 +73,6 @@ public:
     Q_INVOKABLE bool         insertAttachmentData(const QByteArray &data, const QString &name, const QString &mediaType,
                                                   int row = -1);
     Q_INVOKABLE virtual bool insertAttachment(int row = -1);
-    Q_INVOKABLE virtual void saveImageAs(const QString &url);
     Q_INVOKABLE virtual bool startImageDrag(int row);
 
     bool insertRasterImage(const QImage &image, const QString &name, int row = -1);

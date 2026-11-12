@@ -639,6 +639,84 @@ private slots:
         view->setProperty("platformBackend", QVariant::fromValue<QObject *>(nullptr));
     }
 
+
+    void imageMenuHasOneCacheAwareSaveAction()
+    {
+        auto note = plainNote();
+        note.setText(QStringLiteral("Body"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(note, drafts);
+        const auto url = QStringLiteral("anykeep-media:/remote/photo.png");
+        editor.model()->insertMedia(2, url, QStringLiteral("Remote image"), QStringLiteral("image/png"));
+        DesktopNoteEditorHost host(&editor);
+        host.resize(700, 500);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *media = nullptr;
+        QTRY_VERIFY((media = quickItemByName(root, QStringLiteral("mediaBlockEditor-2"))));
+        auto *view = ancestorWithProperty(media, "currentFindText");
+        QVERIFY(view);
+        QQmlComponent component(host.quickWidget()->engine());
+        component.setData(R"(
+            import QtQml
+            QtObject {
+                property bool managed: false
+                property bool keptInPlace: false
+                property bool localFile: false
+                property bool spellCheckEnabled: false
+                function registerTextDocument(document, title) {}
+                function isAttachmentInMediaStore(url) { return managed }
+                function isAttachmentKeptInPlace(url) { return keptInPlace }
+                function hasAttachmentLocalFile(url) { return localFile }
+                function copyAttachmentIntoStore(url) {}
+                function moveAttachmentOutOfStore(url) {}
+                function showAttachmentInFolder(url) {}
+                function saveAttachmentAs(url) {}
+                // Even if an older platform supplies this method, it must not
+                // appear beside the cache-aware Save To action.
+                function saveImageAs(url) {}
+            }
+        )", QUrl());
+        std::unique_ptr<QObject> backend(component.create());
+        QVERIFY2(backend, qPrintable(component.errorString()));
+        view->setProperty("platformBackend", QVariant::fromValue(backend.get()));
+        const commands = [&]() {
+            QVariant result;
+            if (!QMetaObject::invokeMethod(media, "contextMenuEntries", Q_RETURN_ARG(QVariant, result)))
+                return QStringList {};
+            const auto items = result.canConvert<QJSValue>()
+                ? result.value<QJSValue>().toVariant().toList() : result.toList();
+            QStringList values;
+            for (const auto &item : items) {
+                const auto command = item.toMap().value(QStringLiteral("command")).toString();
+                if (!command.isEmpty())
+                    values.append(command);
+            }
+            return values;
+        };
+        const auto remote = commands();
+        QCOMPARE(remote.count(QStringLiteral("save")), 1);
+        QVERIFY(!remote.contains(QStringLiteral("save-image")));
+        QCOMPARE(remote.first(), QStringLiteral("save"));
+
+        QVERIFY(backend->setProperty("managed", true));
+        const auto managed = commands();
+        QVERIFY(managed.contains(QStringLiteral("move-out")));
+        QCOMPARE(managed.count(QStringLiteral("save")), 1);
+        QVERIFY(!managed.contains(QStringLiteral("save-image")));
+
+        QVERIFY(backend->setProperty("managed", false));
+        QVERIFY(backend->setProperty("keptInPlace", true));
+        QVERIFY(backend->setProperty("localFile", true));
+        const auto external = commands();
+        QVERIFY(external.contains(QStringLiteral("copy-in")));
+        QVERIFY(external.contains(QStringLiteral("show")));
+        QCOMPARE(external.count(QStringLiteral("save")), 1);
+        QVERIFY(!external.contains(QStringLiteral("save-image")));
+        view->setProperty("platformBackend", QVariant::fromValue<QObject *>(nullptr));
+    }
+
     void videoCornersRemainRoundedOverThePoster()
     {
         auto note = plainNote();

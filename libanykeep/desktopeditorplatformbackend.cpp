@@ -429,39 +429,6 @@ bool DesktopEditorPlatformBackend::referenceFileAsync(const QString &fileName, i
     return true;
 }
 
-void DesktopEditorPlatformBackend::saveImageAs(const QString &url)
-{
-    if (!editor())
-        return;
-    const auto            media     = editor()->media();
-    const MediaReference *reference = nullptr;
-    for (const auto &candidate : media) {
-        if (candidate.uri() == url) {
-            reference = &candidate;
-            break;
-        }
-    }
-    if (!reference) {
-        emit operationFailed(tr("The image data is not available locally."));
-        return;
-    }
-    const auto loaded = LocalMediaStore::instance()->data(*reference);
-    if (!loaded) {
-        emit operationFailed(tr("Could not read the image: %1").arg(loaded.error));
-        return;
-    }
-    const QString name        = reference->portableName.isEmpty() ? reference->originalName : reference->portableName;
-    const QString initialPath = QDir(QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)).filePath(name);
-    const QString fileName
-        = QFileDialog::getSaveFileName(dialogParent_, tr("Save Image As"), initialPath,
-                                       tr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg);;All files (*)"));
-    if (fileName.isEmpty())
-        return;
-    QSaveFile file(fileName);
-    if (!file.open(QIODevice::WriteOnly) || file.write(loaded.value) != loaded.value.size() || !file.commit())
-        emit operationFailed(tr("Could not save the image: %1").arg(file.errorString()));
-}
-
 bool DesktopEditorPlatformBackend::startImageDrag(int row)
 {
     if (!editor() || !dragSource_ || !editor()->isMarkdown()
