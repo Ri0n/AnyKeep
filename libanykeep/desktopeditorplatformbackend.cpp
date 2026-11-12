@@ -7,8 +7,6 @@
 #include "notetransfercontroller.h"
 #include "utils.h"
 #include <QCryptographicHash>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
 
 #include <QCursor>
 #include <QDesktopServices>
@@ -30,6 +28,7 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QThreadPool>
+#include <QTimer>
 #include <QUrl>
 #include <QWidget>
 #include <QWindow>
@@ -190,6 +189,97 @@ namespace {
         return false;
     }
 
+    // Remote-only media may already be fully available in the verified XMPP
+    // cache. Read through the provider resolver directly: it authenticates each
+    // record and requests only missing chunks, without a localhost HTTP GET.
+    // Streaming bounds plaintext memory even for large attachments.
+    class RemoteMediaExportJob final : public QObject {
+    public:
+        using Finished = std::function<void(QString)>;
+
+        RemoteMediaExportJob(MediaReference reference, QString path, Finished finished, QObject *parent) :
+            QObject(parent), reference_(std::move(reference)), file_(std::move(path)),
+            finished_(std::move(finished))
+        {
+        }
+
+        ~RemoteMediaExportJob() override
+        {
+            if (cancelRead_)
+                cancelRead_();
+        }
+
+        void start()
+        {
+            file_.setDirectWriteFallback(false);
+            if (!file_.open(QIODevice::WriteOnly)) {
+                complete(file_.errorString());
+                return;
+            }
+            file_.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+            readNext();
+        }
+
+    private:
+        void readNext()
+        {
+            if (position_ == reference_.size) {
+                if (!reference_.checksum.isEmpty() && digest_.result() != reference_.checksum) {
+                    complete(QStringLiteral("Downloaded media failed its integrity check"));
+                    return;
+                }
+                if (!file_.commit()) {
+                    complete(file_.errorString());
+                    return;
+                }
+                complete({});
+                return;
+            }
+            const qint64 requested = qMin<qint64>(64 * 1024, reference_.size - position_);
+            const QPointer<RemoteMediaExportJob> guard(this);
+            cancelRead_ = MediaRangeService::readRangeAsync(
+                reference_, position_, requested,
+                [guard, requested](QByteArray bytes, QString error) {
+                    if (!guard)
+                        return;
+                    guard->cancelRead_ = {};
+                    if (!error.isEmpty() || bytes.isEmpty() || bytes.size() > requested) {
+                        guard->complete(error.isEmpty()
+                                            ? QStringLiteral("Media provider returned an invalid range") : error);
+                        return;
+                    }
+                    if (guard->file_.write(bytes) != bytes.size()) {
+                        guard->complete(guard->file_.errorString());
+                        return;
+                    }
+                    guard->digest_.addData(bytes);
+                    guard->position_ += bytes.size();
+                    QTimer::singleShot(0, guard.data(), [guard] {
+                        if (guard)
+                            guard->readNext();
+                    });
+                });
+        }
+
+        void complete(QString error)
+        {
+            if (finished_) {
+                if (!error.isEmpty())
+                    file_.cancelWriting();
+                auto finished = std::move(finished_);
+                finished(std::move(error));
+            }
+            deleteLater();
+        }
+
+        MediaReference reference_;
+        QSaveFile file_;
+        QCryptographicHash digest_ { QCryptographicHash::Sha256 };
+        qint64 position_ = 0;
+        MediaRangeService::Cancel cancelRead_;
+        Finished finished_;
+    };
+
 } // namespace
 
 DesktopEditorPlatformBackend::DesktopEditorPlatformBackend(QObject *parent) : EditorPlatformBackend(parent) {}
@@ -337,39 +427,6 @@ bool DesktopEditorPlatformBackend::referenceFileAsync(const QString &fileName, i
                 Qt::QueuedConnection);
         }));
     return true;
-}
-
-void DesktopEditorPlatformBackend::saveImageAs(const QString &url)
-{
-    if (!editor())
-        return;
-    const auto            media     = editor()->media();
-    const MediaReference *reference = nullptr;
-    for (const auto &candidate : media) {
-        if (candidate.uri() == url) {
-            reference = &candidate;
-            break;
-        }
-    }
-    if (!reference) {
-        emit operationFailed(tr("The image data is not available locally."));
-        return;
-    }
-    const auto loaded = LocalMediaStore::instance()->data(*reference);
-    if (!loaded) {
-        emit operationFailed(tr("Could not read the image: %1").arg(loaded.error));
-        return;
-    }
-    const QString name        = reference->portableName.isEmpty() ? reference->originalName : reference->portableName;
-    const QString initialPath = QDir(QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)).filePath(name);
-    const QString fileName
-        = QFileDialog::getSaveFileName(dialogParent_, tr("Save Image As"), initialPath,
-                                       tr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg);;All files (*)"));
-    if (fileName.isEmpty())
-        return;
-    QSaveFile file(fileName);
-    if (!file.open(QIODevice::WriteOnly) || file.write(loaded.value) != loaded.value.size() || !file.commit())
-        emit operationFailed(tr("Could not save the image: %1").arg(file.errorString()));
 }
 
 bool DesktopEditorPlatformBackend::startImageDrag(int row)
@@ -736,59 +793,23 @@ void DesktopEditorPlatformBackend::showAttachmentInFolder(const QString &url)
 }
 
 void DesktopEditorPlatformBackend::exportRemoteAttachment(const MediaReference &reference, const QString &path,
-                                                          bool openAfter)
+                                                           bool openAfter)
 {
-    const auto url = MediaRangeService::urlFor(reference);
-    if (url.isEmpty()) {
-        emit operationFailed(tr("No device can supply the attached file."));
-        return;
-    }
-    auto file = std::make_shared<QSaveFile>(path);
-    file->setDirectWriteFallback(false);
-    if (!file->open(QIODevice::WriteOnly)) {
-        MediaRangeService::releaseUrl(url);
-        emit operationFailed(file->errorString());
-        return;
-    }
-    file->setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-    auto *manager = new QNetworkAccessManager(this);
-    auto *reply   = manager->get(QNetworkRequest(url));
-    reply->setReadBufferSize(128 * 1024);
-    auto       hash  = std::make_shared<QCryptographicHash>(QCryptographicHash::Sha256);
-    auto       count = std::make_shared<qint64>(0);
-    const auto drain = [reply, file, hash, count, reference] {
-        while (reply->bytesAvailable() > 0) {
-            const auto bytes = reply->read(64 * 1024);
-            if (bytes.isEmpty())
-                break;
-            *count += bytes.size();
-            if (*count > reference.size || file->write(bytes) != bytes.size()) {
-                reply->abort();
+    auto *job = new RemoteMediaExportJob(
+        reference, path,
+        [this, reference, path, openAfter](QString error) {
+            if (!error.isEmpty()) {
+                emit operationFailed(tr("Could not verify or save the attached file: %1").arg(error));
                 return;
             }
-            hash->addData(bytes);
-        }
-    };
-    connect(reply, &QNetworkReply::readyRead, reply, drain);
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply, manager, file, hash, count, reference, path, openAfter, url, drain] {
-                drain();
-                MediaRangeService::releaseUrl(url);
-                const bool verified = reply->error() == QNetworkReply::NoError && *count == reference.size
-                    && hash->result() == reference.checksum;
-                if (!verified || !file->commit()) {
-                    file->cancelWriting();
-                    emit operationFailed(tr("Could not verify or save the attached file."));
-                } else {
-                    if (!openAfter)
-                        rememberAttachmentPath(reference, path);
-                    emit attachmentStorageChanged(reference.uri());
-                    if (openAfter && !QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
-                        emit operationFailed(tr("No application could open the attached file."));
-                }
-                manager->deleteLater();
-            });
-    connect(manager, &QObject::destroyed, [url] { MediaRangeService::releaseUrl(url); });
+            if (!openAfter)
+                rememberAttachmentPath(reference, path);
+            emit attachmentStorageChanged(reference.uri());
+            if (openAfter && !QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
+                emit operationFailed(tr("No application could open the attached file."));
+        },
+        this);
+    job->start();
 }
 
 QString DesktopEditorPlatformBackend::materializeDragImage(const MediaReference &reference, const QByteArray &data)

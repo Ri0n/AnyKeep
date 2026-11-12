@@ -6,6 +6,7 @@
 #include <QTimer>
 #include <QtTest>
 #include <atomic>
+#include <memory>
 using namespace AnyKeep;
 class MediaRangeServiceTest : public QObject {
     Q_OBJECT
@@ -181,6 +182,88 @@ private slots:
         QTRY_COMPARE(canceled, 1);
         reply->deleteLater();
         MediaRangeService::releaseUrl(url);
+    }
+
+    void directExportReadsVerifiedCachedRangesWithoutHttp()
+    {
+        QObject owner;
+        MediaReference reference;
+        reference.id = QUuid::createUuid();
+        reference.portableName = QStringLiteral("already-cached-image.png");
+        reference.size = 3 * 65536;
+        const QByteArray cached(qsizetype(reference.size), 'x');
+        int cacheReads = 0;
+        int networkTransfers = 0;
+        QHash<qint64, QByteArray> verifiedCache;
+        for (qint64 pos = 0; pos < reference.size; pos += 65536)
+            verifiedCache.insert(pos, cached.mid(pos, 65536));
+        QList<qint64> offsets;
+        MediaRangeService::registerResolver(
+            &owner, [id = reference.id](const MediaReference &r) { return r.id == id; },
+            [&](MediaReference, qint64 offset, qint64 length, bool prioritize,
+                MediaRangeService::Completion done) {
+                QVERIFY(!prioritize); // Saving must not interrupt a playing video.
+                QVERIFY(length <= 65536);
+                offsets.append(offset);
+                ++cacheReads;
+                // Simulate the provider's existing cache-first range reader:
+                // a missing chunk would use Jingle, but no remote request is
+                // needed for a verified local record.
+                if (!verifiedCache.contains(offset))
+                    ++networkTransfers;
+                const QByteArray bytes = verifiedCache.value(offset).left(length);
+                QTimer::singleShot(0, &owner, [bytes, done = std::move(done)] {
+                    done(bytes, {});
+                });
+            });
+        QByteArray assembled;
+        int completions = 0;
+        QString error;
+        auto next = std::make_shared<std::function<void()>>();
+        const std::weak_ptr<std::function<void()>> weakNext = next;
+        *next = [&, weakNext] {
+            if (assembled.size() == cached.size()) {
+                ++completions;
+                return;
+            }
+            const qint64 offset = assembled.size();
+            MediaRangeService::readRangeAsync(
+                reference, offset, qMin<qint64>(65536, reference.size - offset),
+                [&, weakNext](QByteArray bytes, QString failure) {
+                    error = std::move(failure);
+                    if (!error.isEmpty()) {
+                        ++completions;
+                        return;
+                    }
+                    assembled += bytes;
+                    if (auto resume = weakNext.lock())
+                        (*resume)();
+                });
+        };
+        (*next)();
+        QTRY_COMPARE(completions, 1);
+        QVERIFY(error.isEmpty());
+        QCOMPARE(assembled, cached);
+        QCOMPARE(offsets, QList<qint64>({ 0, 65536, 131072 }));
+        QCOMPARE(cacheReads, 3);
+        QCOMPARE(networkTransfers, 0);
+    }
+
+    void invalidDirectExportRangeIsRejected()
+    {
+        MediaReference reference;
+        reference.id = QUuid::createUuid();
+        reference.portableName = QStringLiteral("invalid.png");
+        reference.size = 65536;
+        int completions = 0;
+        QString error;
+        MediaRangeService::readRangeAsync(reference, reference.size, 10, [&](QByteArray bytes, QString failure) {
+            QVERIFY(bytes.isEmpty());
+            error = std::move(failure);
+            ++completions;
+        });
+        QCOMPARE(completions, 1);
+        QVERIFY(!error.isEmpty());
     }
 
     void failureDoesNotExposePlaintext()

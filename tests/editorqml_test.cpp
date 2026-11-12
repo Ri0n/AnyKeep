@@ -639,6 +639,7 @@ private slots:
         view->setProperty("platformBackend", QVariant::fromValue<QObject *>(nullptr));
     }
 
+
     void videoCornersRemainRoundedOverThePoster()
     {
         auto note = plainNote();

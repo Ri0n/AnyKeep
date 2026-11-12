@@ -28,6 +28,10 @@ public:
     static void registerResolver(QObject *owner, Accepts accepts, Reader reader);
     static void registerResolver(QObject *owner, Accepts accepts, RequestReader reader);
     static void registerResolver(QObject *owner, Accepts accepts, CancelableRequestReader reader);
+    // Direct application-side read for exports. Reuses the exact registered
+    // authenticated reader used by the player, without an extra localhost HTTP
+    // download. Providers return verified cached bytes before fetching gaps.
+    static Cancel readRangeAsync(const MediaReference &reference, qint64 offset, qint64 length, Completion done);
     static QUrl urlFor(const MediaReference &reference);
     static void releaseUrl(const QUrl &url);
 };

@@ -23,7 +23,6 @@ public:
     void setDialogParent(QWidget *parent);
     void setDragSource(QObject *source) { dragSource_ = source; }
 
-    Q_INVOKABLE void saveImageAs(const QString &url) override;
     Q_INVOKABLE bool startImageDrag(int row) override;
     Q_INVOKABLE bool insertMedia(int row = -1) override;
     Q_INVOKABLE bool insertAttachment(int row = -1) override;

@@ -324,6 +324,28 @@ void MediaRangeService::releaseUrl(const QUrl &url)
     if (auto *server = instance(false))
         server->resources.remove(url.path().toLatin1());
 }
+MediaRangeService::Cancel MediaRangeService::readRangeAsync(
+    const MediaReference &reference, qint64 offset, qint64 length, Completion done)
+{
+    auto *server = instance(false);
+    if (!server || !reference.isValid() || offset < 0 || length <= 0 || offset >= reference.size
+        || length > reference.size - offset) {
+        done({}, QStringLiteral("Invalid or unavailable media range"));
+        return {};
+    }
+    // A provider callback may register another resolver. Hold a snapshot so
+    // that reentrant updates cannot invalidate the callable mid-dispatch.
+    const auto resolvers = server->resolvers;
+    for (const auto &resolver : resolvers) {
+        if (resolver.owner && resolver.accepts(reference)) {
+            const auto reader = resolver.read;
+            return reader(reference, offset, length, false, std::move(done));
+        }
+    }
+    done({}, QStringLiteral("No media provider can read this attachment"));
+    return {};
+}
+
 QUrl MediaRangeService::urlFor(const MediaReference &reference)
 {
     auto *server = instance();

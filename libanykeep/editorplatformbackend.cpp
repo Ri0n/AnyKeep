@@ -682,7 +682,6 @@ bool EditorPlatformBackend::insertAttachment(int row)
     return true;
 }
 
-void EditorPlatformBackend::saveImageAs(const QString &) {}
 bool EditorPlatformBackend::startImageDrag(int) { return false; }
 
 bool EditorPlatformBackend::insertRasterImage(const QImage &image, const QString &name, int row)
