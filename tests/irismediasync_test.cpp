@@ -252,6 +252,45 @@ private slots:
         QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
     }
 
+    void absentPublisherWaitsWithoutStartingNewSessions()
+    {
+        const auto p = parameters();
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        MediaReference reference;
+        reference.id = QUuid::createUuid();
+        reference.portableName = QStringLiteral("waiting.bin");
+        reference.size = plain.size();
+        reference.checksum = p.plainChecksum;
+        reference.remoteData.insert(QStringLiteral("xmpp.instance"), reference.id.toString());
+        XMPP::Client client;
+        XMPP::Jingle::JinglePub publication;
+        const XMPP::Jid publisher(QStringLiteral("source@example.test/device"));
+        publication.setFrom(publisher);
+        publication.setId(QStringLiteral("waiting-publication"));
+        QSignalSpy outgoing(&client, &XMPP::Client::xmlOutgoing);
+        IrisMediaSync sync(&client, publication, p,
+                           std::make_shared<MediaPartialChunkCache>(
+                               MediaPartialChunkCache::Format::VerifiedOpaque, directory.path()),
+                           1000, nullptr, reference);
+        // The account is connected but this particular publishing resource
+        // is missing from the self-presence list: do not attempt Jingle.
+        sync.setConnected(true, &client);
+        sync.prioritize(0);
+        QTest::qWait(100);
+        QCOMPARE(outgoing.count(), 0);
+        QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
+        sync.setPublisherAvailable(XMPP::Jid(QStringLiteral("source@example.test/other")), true);
+        QTest::qWait(25);
+        QCOMPARE(outgoing.count(), 0);
+        sync.setPublisherAvailable(publisher, false);
+        QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
+        // An own-connection drop while the publisher is absent must not
+        // classify the missing device as a permanent transfer failure.
+        sync.setConnected(false, &client);
+        QCOMPARE(MediaSyncService::instance()->snapshot(reference).state, MediaSyncSnapshot::Waiting);
+    }
+
     void completedCacheNeedsNoPublicationSession()
     {
         const auto    p = parameters();
