@@ -103,8 +103,10 @@ public:
     QPointer<J::PublishedSessionRequest>                 request;
     QMetaObject::Connection                              incoming;
     QTimer                                              *timer;
+    QTimer                                              *retryTimer;
     QStringList                                          restore;
     bool    scanning = true, scheduled = false, stopped = false, demandPending = true;
+    int     stalledStarts = 0;
     QString requestedSid;
     QString error;
     int     timeout;
@@ -113,11 +115,13 @@ public:
          std::shared_ptr<MediaPartialChunkCache> cache, int timeoutMs, MediaReference ref) :
         q(owner), client(c), publication(std::move(pub)), parameters(std::move(p)),
         partialCache(std::move(cache)), reference(std::move(ref)), connected(c != nullptr),
-        map(parameters.chunkCount()), timer(new QTimer(owner)),
+        map(parameters.chunkCount()), timer(new QTimer(owner)), retryTimer(new QTimer(owner)),
         timeout(qBound(1000, timeoutMs, 25000))
     {
         timer->setSingleShot(true);
-        QObject::connect(timer, &QTimer::timeout, q, [this] { fail(QStringLiteral("Media gap handover timed out")); });
+        QObject::connect(timer, &QTimer::timeout, q, [this] { handoverTimedOut(); });
+        retryTimer->setSingleShot(true);
+        QObject::connect(retryTimer, &QTimer::timeout, q, [this] { schedule(); });
         restore = partialCache->storedChunkNames();
         QTimer::singleShot(0, q, [this] { restoreNext(); });
     }
@@ -150,6 +154,8 @@ public:
             return;
         map.markAvailable(index);
         verifiedPlain += MediaChunkWire::plainChunkSize(parameters, index).value_or(0);
+        // A new authenticated chunk proves that the peer is making progress.
+        stalledStarts = 0;
         report();
     }
 
@@ -274,7 +280,8 @@ public:
 
     void plan()
     {
-        if (stopped || scanning || !error.isEmpty() || !client || !connected || !publisherAvailable)
+        if (stopped || scanning || !error.isEmpty() || !client || !connected || !publisherAvailable
+            || retryTimer->isActive())
             return;
         if (pending) {
             if (!pending->accepted)
@@ -539,6 +546,32 @@ public:
         request->start();
     }
 
+    // JinglePub <starting/> acknowledges a publication request, not an actual
+    // Jingle session. A freshly online source may stall before initiating it.
+    // Retry with backoff without losing verified chunks or pending consumers.
+    void handoverTimedOut()
+    {
+        if (stopped)
+            return;
+        if (!connected || !publisherAvailable) {
+            waitForPublisher();
+            return;
+        }
+        if (!pending || pending->session) {
+            fail(QStringLiteral("Media gap handover timed out"));
+            return;
+        }
+        const bool acknowledged = !requestedSid.isEmpty();
+        const int retryMs = qMin(60000, 5000 * (1 << qMin(stalledStarts, 4)));
+        ++stalledStarts;
+        qCWarning(lcIrisJingleMedia)
+            << "JinglePub start produced no incoming Jingle session; retrying missing media gap"
+            << "publisher=" << publication.from().full() << "publication=" << publication.id()
+            << "acknowledged=" << acknowledged << "sid=" << requestedSid << "retry-ms=" << retryMs;
+        waitForPublisher();
+        retryTimer->start(retryMs);
+    }
+
     // An offline device is not a failed download. Tear down stale signaling
     // and SCTP sessions, but preserve authenticated cache records, the gap
     // map and every pending reader. They resume on this resource's next
@@ -546,6 +579,7 @@ public:
     void waitForPublisher()
     {
         timer->stop();
+        retryTimer->stop();
         QObject::disconnect(incoming);
         requestedSid.clear();
         if (request) {
@@ -582,6 +616,7 @@ public:
         report();
         qCDebug(lcIrisJingleMedia) << "Media synchronization stopped:" << error;
         timer->stop();
+        retryTimer->stop();
         QObject::disconnect(incoming);
         if (request) {
             request->deleteLater();
@@ -656,8 +691,11 @@ void IrisMediaSync::setConnected(bool connected, XMPP::Client *client)
     }
     const bool wasPublisherAvailable = d->publisherAvailable;
     d->publisherAvailable = publisherAvailable;
-    if (!publisherAvailable && (wasPublisherAvailable || !d->parts.isEmpty() || d->request))
+    if (!publisherAvailable && (wasPublisherAvailable || !d->parts.isEmpty() || d->request
+                                || d->retryTimer->isActive())) {
+        d->stalledStarts = 0;
         d->waitForPublisher();
+    }
 
     // Readiness and verified cache are independent. Only restart missing
     // ranges when the exact resource is back; do not retry a stale session.
@@ -676,6 +714,8 @@ void IrisMediaSync::setPublisherAvailable(const XMPP::Jid &jid, bool available)
         || d->publisherAvailable == available)
         return;
     d->publisherAvailable = available;
+    d->stalledStarts = 0;
+    d->retryTimer->stop();
     if (!available)
         d->waitForPublisher();
     if (available && d->connected) {
