@@ -13,6 +13,7 @@
 
 namespace XMPP {
 class Client;
+class Jid;
 }
 namespace AnyKeep {
 
@@ -88,6 +89,7 @@ public:
     void readWireChunk(quint64 index, MediaRangeService::Completion callback, bool prioritize = true);
     void prioritize(quint64 index);
     void setConnected(bool connected, XMPP::Client *client);
+    void setPublisherAvailable(const XMPP::Jid &jid, bool available);
     void cancel();
 
 private:

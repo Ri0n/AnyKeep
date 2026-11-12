@@ -12,6 +12,7 @@
 #include <QDataStream>
 #include <QDir>
 #include <QDomDocument>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QMap>
@@ -22,6 +23,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <memory>
 #include <utility>
 
 Q_LOGGING_CATEGORY(lcIrisJingleMedia, "anykeep.xmpp.iris.media", QtInfoMsg)
@@ -33,6 +35,16 @@ namespace {
     constexpr quint16 LegacyVersion = 1;
     constexpr quint16 Version       = 2;
     constexpr quint32 MaximumSize   = 100000;
+
+    // Temporary instrumentation for Android Jingle/SCTP throughput investigations.
+    // Tracks sender-side QIODevice consumption, not acknowledged network delivery.
+    struct MediaSendDiagnostics {
+        QElapsedTimer requested;
+        QElapsedTimer transfer;
+        quint64       offset = 0;
+        quint64       sent = 0;
+        qint64        lastReportMs = 0;
+    };
 
     AeadContext storeContext(const XmppConfig &config)
     {
@@ -415,12 +427,51 @@ bool IrisJinglePublicationProvider::cacheCapability(const IrisJingleCapability &
             file.addHash(XMPP::Hash(XMPP::Hash::Sha256, capability.cipherHash));
             app->setFile(file);
             auto configureContent = [capability, session](XMPP::Jingle::FileTransfer::Application *content) {
+                const auto diagnostics = std::make_shared<MediaSendDiagnostics>();
+                const auto publicationId = capability.publicationId;
+                const auto sid = session->sid();
+                QObject::connect(
+                    content, &XMPP::Jingle::FileTransfer::Application::progress, content,
+                    [diagnostics, publicationId, sid](quint64 position) {
+                        if (!diagnostics->transfer.isValid())
+                            return;
+                        const quint64 progressed = position > diagnostics->offset
+                            ? position - diagnostics->offset : 0;
+                        diagnostics->sent = std::max(diagnostics->sent, progressed);
+                        const qint64 elapsed = diagnostics->transfer.elapsed();
+                        if (elapsed - diagnostics->lastReportMs < 2000)
+                            return;
+                        diagnostics->lastReportMs = elapsed;
+                        qCInfo(lcIrisJingleMedia)
+                            << "MEDIA_DIAG send progress:" << "publication=" << publicationId
+                            << "sid=" << sid << "wire-bytes=" << diagnostics->sent
+                            << "elapsed-ms=" << elapsed;
+                    });
+                QObject::connect(
+                    content, &XMPP::Jingle::FileTransfer::Application::stateChanged, content,
+                    [diagnostics, publicationId, sid](XMPP::Jingle::State state) {
+                        if (state != XMPP::Jingle::State::Finished || !diagnostics->transfer.isValid())
+                            return;
+                        qCInfo(lcIrisJingleMedia)
+                            << "MEDIA_DIAG send finished:" << "publication=" << publicationId
+                            << "sid=" << sid << "wire-bytes=" << diagnostics->sent
+                            << "elapsed-ms=" << diagnostics->transfer.elapsed();
+                    });
 #ifdef IRIS_FT_DEFERRED_RECEIPTS
                 content->setKeepTransportUntilReceipt();
 #endif
                 QObject::connect(
                     content, &XMPP::Jingle::FileTransfer::Application::deviceRequested, content,
-                    [content, capability, sid = session->sid()](quint64 offset, std::optional<quint64> size) {
+                    [content, capability, sid = session->sid(), diagnostics](quint64 offset, std::optional<quint64> size) {
+                        diagnostics->requested.start();
+                        diagnostics->transfer.invalidate();
+                        diagnostics->offset = offset;
+                        diagnostics->sent = 0;
+                        diagnostics->lastReportMs = 0;
+                        qCInfo(lcIrisJingleMedia) << "MEDIA_DIAG send requested:"
+                            << "publication=" << capability.publicationId << "sid=" << sid
+                            << "offset=" << offset
+                            << "length=" << (size ? QString::number(*size) : QStringLiteral("to-end"));
                         qCDebug(lcIrisJingleMedia)
                             << "Published media device requested: publication=" << capability.publicationId
                             << "sid=" << sid << "offset=" << offset
@@ -439,7 +490,7 @@ bool IrisJinglePublicationProvider::cacheCapability(const IrisJingleCapability &
                         // letting incoming DTLS packets reenter usrsctp under its lock.
                         LocalMediaStore::instance()->initializeAsync(
                             content, [content = QPointer<XMPP::Jingle::FileTransfer::Application>(content),
-                                      capability, offset](QString keyError) {
+                                      capability, offset, diagnostics, sid](QString keyError) {
                                 if (!content || content->state() >= XMPP::Jingle::State::Finishing)
                                     return;
                                 if (!keyError.isEmpty()) {
@@ -461,6 +512,11 @@ bool IrisJinglePublicationProvider::cacheCapability(const IrisJingleCapability &
                                 }
                                 // Each range retains its own seekable source. Iris
                                 // enforces its negotiated bytesLeft range.
+                                diagnostics->transfer.start();
+                                qCInfo(lcIrisJingleMedia) << "MEDIA_DIAG send source ready:"
+                                    << "publication=" << capability.publicationId << "sid=" << sid
+                                    << "preparation-ms="
+                                    << (diagnostics->requested.isValid() ? diagnostics->requested.elapsed() : -1);
                                 content->setDevice(wire);
                             });
                     });

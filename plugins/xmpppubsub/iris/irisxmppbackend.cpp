@@ -555,6 +555,26 @@ void IrisXmppBackend::createClient()
 
     client_ = new XMPP::Client(this);
     client_->setNetworkAccessManager(new QNetworkAccessManager(client_));
+#ifdef IRIS_FT_DEFERRED_RECEIPTS
+    // Availability is per publishing resource, not the account's connection.
+    // Only the matching media task is resumed when its device returns.
+    connect(client_, &XMPP::Client::resourceAvailable, this,
+            [this](const XMPP::Jid &jid, const XMPP::Resource &) {
+                // A snapshot avoids invalidated QHash iterators if status
+                // observers create another media job synchronously.
+                const auto jobs = mediaSyncJobs_.values();
+                for (const auto &job : jobs)
+                    if (job)
+                        job->setPublisherAvailable(jid, true);
+            });
+    connect(client_, &XMPP::Client::resourceUnavailable, this,
+            [this](const XMPP::Jid &jid, const XMPP::Resource &) {
+                const auto jobs = mediaSyncJobs_.values();
+                for (const auto &job : jobs)
+                    if (job)
+                        job->setPublisherAvailable(jid, false);
+            });
+#endif
     client_->jingleManager()->setRemoteJidChecker(
         [owner = bareJid(config_)](const XMPP::Jid &requester) { return requester.compare(owner, false); });
     auto *tcpPortReserver = new XMPP::TcpPortReserver(client_);
@@ -1882,6 +1902,9 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
                                     reference);
             mediaSyncJobs_.insert(cacheId, job);
         }
+        // A foreground read may create this job before observeMedia().
+        // Initialize its per-publisher presence immediately in that path too.
+        job->setConnected(connected_, client_);
         return job;
     };
     auto prioritizeSync = [syncJob, index, prioritize] {
