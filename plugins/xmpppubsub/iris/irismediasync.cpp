@@ -697,12 +697,15 @@ void IrisMediaSync::setConnected(bool connected, XMPP::Client *client)
         d->waitForPublisher();
     }
 
-    // Readiness and verified cache are independent. Only restart missing
-    // ranges when the exact resource is back; do not retry a stale session.
+    // An own reconnect can restore presence before remote capabilities have
+    // been discovered. Allow that short disco round trip to settle first.
     if (connected && publisherAvailable && !d->stopped) {
         if (!d->error.isEmpty() || !sameClient)
             d->error.clear();
-        d->schedule();
+        if (!wasPublisherAvailable || !sameClient)
+            d->retryTimer->start(1000);
+        else
+            d->schedule();
     }
     d->report();
 }
@@ -720,7 +723,9 @@ void IrisMediaSync::setPublisherAvailable(const XMPP::Jid &jid, bool available)
         d->waitForPublisher();
     if (available && d->connected) {
         d->error.clear();
-        d->schedule();
+        // Peer presence precedes its disco#info exchange. Starting JinglePub
+        // immediately here can race the publisher's transport selection.
+        d->retryTimer->start(1000);
     }
     d->report();
 }
