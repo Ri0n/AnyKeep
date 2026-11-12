@@ -560,13 +560,17 @@ void IrisXmppBackend::createClient()
     // Only the matching media task is resumed when its device returns.
     connect(client_, &XMPP::Client::resourceAvailable, this,
             [this](const XMPP::Jid &jid, const XMPP::Resource &) {
-                for (const auto &job : std::as_const(mediaSyncJobs_))
+                // A snapshot avoids invalidated QHash iterators if status
+                // observers create another media job synchronously.
+                const auto jobs = mediaSyncJobs_.values();
+                for (const auto &job : jobs)
                     if (job)
                         job->setPublisherAvailable(jid, true);
             });
     connect(client_, &XMPP::Client::resourceUnavailable, this,
             [this](const XMPP::Jid &jid, const XMPP::Resource &) {
-                for (const auto &job : std::as_const(mediaSyncJobs_))
+                const auto jobs = mediaSyncJobs_.values();
+                for (const auto &job : jobs)
                     if (job)
                         job->setPublisherAvailable(jid, false);
             });
