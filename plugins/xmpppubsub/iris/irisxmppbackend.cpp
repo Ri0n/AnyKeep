@@ -555,6 +555,22 @@ void IrisXmppBackend::createClient()
 
     client_ = new XMPP::Client(this);
     client_->setNetworkAccessManager(new QNetworkAccessManager(client_));
+#ifdef IRIS_FT_DEFERRED_RECEIPTS
+    // Availability is per publishing resource, not the account's connection.
+    // Only the matching media task is resumed when its device returns.
+    connect(client_, &XMPP::Client::resourceAvailable, this,
+            [this](const XMPP::Jid &jid, const XMPP::Resource &) {
+                for (const auto &job : std::as_const(mediaSyncJobs_))
+                    if (job)
+                        job->setPublisherAvailable(jid, true);
+            });
+    connect(client_, &XMPP::Client::resourceUnavailable, this,
+            [this](const XMPP::Jid &jid, const XMPP::Resource &) {
+                for (const auto &job : std::as_const(mediaSyncJobs_))
+                    if (job)
+                        job->setPublisherAvailable(jid, false);
+            });
+#endif
     client_->jingleManager()->setRemoteJidChecker(
         [owner = bareJid(config_)](const XMPP::Jid &requester) { return requester.compare(owner, false); });
     auto *tcpPortReserver = new XMPP::TcpPortReserver(client_);
