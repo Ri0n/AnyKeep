@@ -1898,6 +1898,9 @@ void IrisXmppBackend::readMediaRangeAsync(MediaReference reference, qint64 offse
                                     reference);
             mediaSyncJobs_.insert(cacheId, job);
         }
+        // A foreground read may create this job before observeMedia().
+        // Initialize its per-publisher presence immediately in that path too.
+        job->setConnected(connected_, client_);
         return job;
     };
     auto prioritizeSync = [syncJob, index, prioritize] {
