@@ -13,6 +13,7 @@
 
 namespace XMPP {
 class Client;
+class Jid;
 }
 namespace AnyKeep {
 
