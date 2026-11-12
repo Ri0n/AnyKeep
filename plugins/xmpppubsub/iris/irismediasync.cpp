@@ -93,6 +93,7 @@ public:
     MediaReference                                       reference;
     quint64                                              verifiedPlain = 0;
     bool                                                 connected     = false;
+    bool                                                 publisherAvailable = true;
     IrisMediaGapMap                                      map;
     quint64                                              priority = 0;
     QHash<quint64, QList<MediaRangeService::Completion>> waiters;
@@ -133,7 +134,7 @@ public:
         snapshot.verifiedBytes         = qint64(qMin(verifiedPlain, parameters.plainSize));
         snapshot.totalBytes            = qint64(parameters.plainSize);
         snapshot.state                 = map.complete() ? MediaSyncSnapshot::Complete
-            : stopped || !connected                     ? MediaSyncSnapshot::Waiting
+            : stopped || !connected || !publisherAvailable ? MediaSyncSnapshot::Waiting
             : !error.isEmpty()                          ? MediaSyncSnapshot::Failed
             : transferring                              ? MediaSyncSnapshot::Transferring
                                                         : MediaSyncSnapshot::Waiting;
@@ -272,7 +273,7 @@ public:
 
     void plan()
     {
-        if (stopped || scanning || !error.isEmpty() || !client || !connected)
+        if (stopped || scanning || !error.isEmpty() || !client || !connected || !publisherAvailable)
             return;
         if (pending) {
             if (!pending->accepted)
@@ -602,22 +603,54 @@ void IrisMediaSync::prioritize(quint64 index)
 }
 void IrisMediaSync::setConnected(bool connected, XMPP::Client *client)
 {
+    const bool sameClient = d->client == client;
     d->connected = connected;
-    if (connected && d->client == client && !d->stopped) {
-        if (!d->error.isEmpty()) {
-            d->error.clear();
-            d->report();
-        }
-        d->schedule();
-        return;
-    }
     d->client = client;
+
+    // JinglePub identifies the publishing resource. The same account being
+    // online does not imply that another device can serve its media.
+    bool publisherAvailable = connected && client && d->publication.from().resource().isEmpty();
+    if (connected && client && !d->publication.from().resource().isEmpty()) {
+        for (const auto &resource : client->resourceList()) {
+            if (resource.name() == d->publication.from().resource()) {
+                publisherAvailable = true;
+                break;
+            }
+        }
+    }
+    const bool wasPublisherAvailable = d->publisherAvailable;
+    d->publisherAvailable = publisherAvailable;
     if (!connected && !d->stopped && (!d->parts.isEmpty() || d->request))
         d->fail(QStringLiteral("Media connection lost"));
-    d->error.clear();
-    d->report();
-    if (connected && !d->stopped)
+    else if (!publisherAvailable && wasPublisherAvailable && !d->stopped
+             && (!d->parts.isEmpty() || d->request))
+        d->fail(QStringLiteral("Remote media source went offline"));
+
+    // The verified opaque chunks and missing-range map survive both local
+    // reconnects and remote-device departures. Resume without restarting
+    // the download when a matching XMPP resource is seen again.
+    if (connected && publisherAvailable && !d->stopped) {
+        if (!d->error.isEmpty() || !sameClient)
+            d->error.clear();
         d->schedule();
+    }
+    d->report();
+}
+
+void IrisMediaSync::setPublisherAvailable(const XMPP::Jid &jid, bool available)
+{
+    if (d->publication.from().resource().isEmpty()
+        || !d->publication.from().compare(jid, true) || d->stopped
+        || d->publisherAvailable == available)
+        return;
+    d->publisherAvailable = available;
+    if (!available && (!d->parts.isEmpty() || d->request))
+        d->fail(QStringLiteral("Remote media source went offline"));
+    if (available && d->connected) {
+        d->error.clear();
+        d->schedule();
+    }
+    d->report();
 }
 void IrisMediaSync::cancel()
 {
