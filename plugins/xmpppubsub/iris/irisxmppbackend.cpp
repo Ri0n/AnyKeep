@@ -60,6 +60,7 @@
 #include <QTemporaryFile>
 #include <QThreadPool>
 #include <QTimer>
+#include <QXmlStreamReader>
 #include <QUuid>
 
 #include <algorithm>
@@ -348,6 +349,9 @@ struct IrisXmppBackend::ReadyAttempt {
 
 IrisXmppBackend::IrisXmppBackend(QObject *parent) : XmppBackend(parent)
 {
+    wakeProbeTimer_ = new QTimer(this);
+    wakeProbeTimer_->setSingleShot(true);
+    connect(wakeProbeTimer_, &QTimer::timeout, this, &IrisXmppBackend::failWakeProbe);
     qRegisterMetaType<XmppRemoteNote>();
     connect(this, &XmppBackend::connectionChanged, this, [this](bool online) {
 #ifdef IRIS_FT_DEFERRED_RECEIPTS
@@ -436,6 +440,8 @@ XmppStatusResult IrisXmppBackend::cancelledResult() const
 
 void IrisXmppBackend::resetClient()
 {
+    finishWakeProbe();
+    streamManagementActive_ = false;
     ++generation_;
 #ifdef IRIS_FT_DEFERRED_RECEIPTS
     const auto syncJobs = std::exchange(mediaSyncJobs_, {});
@@ -503,6 +509,7 @@ void IrisXmppBackend::destroyClientObjects()
 
 void IrisXmppBackend::markDisconnected()
 {
+    finishWakeProbe();
     const bool wasConnected = connected_;
     connected_              = false;
     omemoReady_             = false;
@@ -535,6 +542,16 @@ void IrisXmppBackend::createClient()
     tlsHandler_->setXMPPCertCheck(true);
     stream_ = new XMPP::ClientStream(connector_, tlsHandler_, this);
     stream_->setAllowPlain(XMPP::ClientStream::AllowPlainOverTLS);
+    // Unlike Psi, AnyKeep previously left Iris's XEP-0198 disabled (its
+    // SMState defaults to false). Enable stream resumption before login.
+    stream_->setSMEnabled(true);
+    streamManagementActive_ = false;
+    connect(stream_, &XMPP::ClientStream::incomingXml, this,
+            [this](const QString &xml) { handleWakeProbeXml(xml); });
+    connect(stream_, &XMPP::ClientStream::stanzasAcked, this, [this](int) {
+        if (wakeProbe_ == WakeProbe::StreamManagement)
+            finishWakeProbe();
+    });
 
     client_ = new XMPP::Client(this);
     client_->setNetworkAccessManager(new QNetworkAccessManager(client_));
@@ -629,6 +646,13 @@ void IrisXmppBackend::createClient()
         stream_->continueAfterParams();
     });
     connect(stream_, &XMPP::ClientStream::warning, this, [this](int warning) {
+        if (warning == XMPP::ClientStream::WarnSMReconnection) {
+            // Iris has already recognized a dead stream and is trying native
+            // XEP-0198 resumption. Do not race that with our wake watchdog.
+            finishWakeProbe();
+            qInfo() << "Iris is reconnecting the managed XMPP stream";
+            return;
+        }
         if (warning == XMPP::ClientStream::WarnNoTLS) {
             if (connectionAttempt_ && !connectionAttempt_->finished) {
                 auto attempt      = connectionAttempt_;
@@ -673,7 +697,10 @@ void IrisXmppBackend::createClient()
     connect(stream_, &XMPP::ClientStream::connectionClosed, this, [this]() {
         qInfo() << "Iris XMPP connection closed before or after authentication; authenticated="
                 << (stream_ && stream_->isAuthenticated());
+        const bool wakeProbeInterrupted = wakeProbe_ != WakeProbe::None;
         markDisconnected();
+        if (wakeProbeInterrupted)
+            emit transportRecoveryRequested();
         if (client_ && client_->hasStream())
             client_->close(true);
         if (connectionAttempt_ && !connectionAttempt_->finished) {
@@ -693,7 +720,10 @@ void IrisXmppBackend::createClient()
     });
     connect(stream_, qOverload<int>(&XMPP::ClientStream::error), this, [this](int code) {
         qInfo() << "Iris XMPP stream error:" << code;
+        const bool wakeProbeInterrupted = wakeProbe_ != WakeProbe::None;
         markDisconnected();
+        if (wakeProbeInterrupted)
+            emit transportRecoveryRequested();
         const auto errorKind
             = code == XMPP::ClientStream::ErrAuth ? XmppErrorKind::Authentication : XmppErrorKind::Transient;
         const auto message = code == XMPP::ClientStream::ErrAuth
@@ -753,6 +783,80 @@ void IrisXmppBackend::createClient()
             && (node == config_.indexNodeName() || node == config_.contentNodeName()))
             emit remoteNodeInvalidated();
     });
+}
+
+void IrisXmppBackend::finishWakeProbe()
+{
+    if (wakeProbeTimer_)
+        wakeProbeTimer_->stop();
+    wakeProbe_ = WakeProbe::None;
+    wakePingId_.clear();
+}
+
+void IrisXmppBackend::handleWakeProbeXml(const QString &xml)
+{
+    // Stream::incomingXml also sees every encrypted note stanza; avoid
+    // needlessly reparsing those large payloads in normal operation.
+    if (wakeProbe_ != WakeProbe::ServerPing
+        && (streamManagementActive_ || !xml.contains(QStringLiteral("urn:xmpp:sm:3"))))
+        return;
+    QXmlStreamReader reader(xml);
+    if (!reader.readNextStartElement())
+        return;
+
+    const QString name = reader.name().toString();
+    const QString ns   = reader.namespaceUri().toString();
+    if (ns == QStringLiteral("urn:xmpp:sm:3")
+        && (name == QStringLiteral("enabled") || name == QStringLiteral("resumed"))) {
+        // Iris authenticates only after SM negotiation completed. A matching
+        // acknowledgement request is legal on this active stream.
+        streamManagementActive_ = true;
+        return;
+    }
+    if (wakeProbe_ == WakeProbe::ServerPing && name == QStringLiteral("iq")
+        && reader.attributes().value(QStringLiteral("id")).toString() == wakePingId_
+        && (reader.attributes().value(QStringLiteral("type")).toString() == QStringLiteral("result")
+            || reader.attributes().value(QStringLiteral("type")).toString() == QStringLiteral("error"))) {
+        // Even service-unavailable is a valid response proving the stream is
+        // alive. Servers without XEP-0198 must never receive an SM <r/>.
+        finishWakeProbe();
+    }
+}
+
+void IrisXmppBackend::failWakeProbe()
+{
+    if (wakeProbe_ == WakeProbe::None || !connected_ || !acceptingWork_)
+        return;
+    qCWarning(lcIrisXmpp) << "XMPP wakeup liveness probe timed out; replacing stale transport";
+    finishWakeProbe();
+    markDisconnected();
+    // close() alone can wait forever on a half-open Android TCP socket.
+    // Retire the old stream and preserve the storage's encrypted cache.
+    resetClient();
+    emit transportRecoveryRequested();
+}
+
+void IrisXmppBackend::checkConnectionAfterResume()
+{
+    if (!acceptingWork_ || !connected_ || !stream_ || !stream_->isAuthenticated()
+        || wakeProbe_ != WakeProbe::None)
+        return;
+
+    constexpr int WakeProbeTimeoutMs = 15000;
+    wakeProbeTimer_->start(WakeProbeTimeoutMs);
+    if (streamManagementActive_) {
+        wakeProbe_ = WakeProbe::StreamManagement;
+        qInfo() << "XMPP resume: checking XEP-0198 acknowledgement";
+        stream_->writeDirect(QStringLiteral("<r xmlns='urn:xmpp:sm:3'/>"));
+    } else {
+        // Old servers can lack SM entirely. Probe with an ordinary XEP-0199
+        // server IQ ping rather than sending them an invalid SM element.
+        wakeProbe_ = WakeProbe::ServerPing;
+        wakePingId_ = QStringLiteral("anykeep-wake-") + newUuid();
+        qInfo() << "XMPP resume: checking server IQ ping (SM not negotiated)";
+        stream_->writeDirect(QStringLiteral("<iq type='get' id='%1'><ping xmlns='urn:xmpp:ping'/></iq>")
+                                 .arg(wakePingId_));
+    }
 }
 
 void IrisXmppBackend::connectToServerAsync(StatusCallback callback)

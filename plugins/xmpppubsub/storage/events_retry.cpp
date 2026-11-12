@@ -117,6 +117,7 @@ void XmppStorage::onRemoteNodeInvalidated()
 
 void XmppStorage::onConnectionChanged(bool connected)
 {
+    transportOnline_ = connected;
     if (errorState_) {
         return;
     }
@@ -131,6 +132,30 @@ void XmppStorage::onConnectionChanged(bool connected)
     }
     if (connected)
         scheduleFolderPathSynchronization();
+}
+
+void XmppStorage::onApplicationResumed()
+{
+    if (shuttingDown_ || errorState_)
+        return;
+
+    if (!transportOnline_) {
+        // Reachability callbacks are not guaranteed on Android when a stale
+        // socket survives sleep. Retry immediately on a foreground wake.
+        // Do not duplicate the initial connection or key-recovery job.
+        if (retryInProgress_ || !activeInitJobs_.isEmpty())
+            return;
+        if (retryTimer_)
+            retryTimer_->stop();
+        retryDelaySeconds_ = MinimumRetryDelaySeconds;
+        QTimer::singleShot(0, this, &XmppStorage::retryInitialization);
+        return;
+    }
+
+    // A socket can look connected after sleep while no packets reach the
+    // server. The backend probes XEP-0198 (or an IQ fallback); only a failed
+    // probe triggers a full reconnect, avoiding unnecessary OMEMO restarts.
+    backend_->checkConnectionAfterResume();
 }
 
 void XmppStorage::recordSyncStep(const QString &summary, bool busy)
@@ -295,6 +320,8 @@ void XmppStorage::applyConfig(const XmppConfig &config)
     cache_.clear();
     cacheValid_ = false;
     accessible_ = false;
+    transportOnline_ = false;
+    backgroundSinceMs_ = 0;
     config_     = readConfig();
     backend_->start();
     init();

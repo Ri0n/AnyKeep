@@ -29,6 +29,8 @@ public:
     void start() override {}
     void setConfig(const XmppConfig &config) override { config_ = config; }
     void shutdown() override { ++shutdownCalls; }
+    void checkConnectionAfterResume() override { ++wakeupProbes; }
+    void simulateConnection(bool online) { emit connectionChanged(online); }
     void probeAsync(StatusCallback callback) override { callback({ true }); }
     void listNotesAsync(ListCallback callback) override
     {
@@ -124,6 +126,7 @@ public:
 
     int                            fullSaveCount { 0 };
     int                            shutdownCalls { 0 };
+    int                            wakeupProbes { 0 };
     int                            indexUpdateCount { 0 };
     QList<XmppRemoteNote>          indexRequests;
     QHash<QString, XmppRemoteNote> remote_;
@@ -157,6 +160,7 @@ class XmppStorageTest : public QObject {
 
 private slots:
     void init();
+    void foregroundResumeProbesOnlineStreamWithoutRestart();
     void reorderPublishesOnlyTheIndex();
     void syncActivityReportsIndexStages();
     void sharedRefreshStaysBusyUntilTheLastCallerCancels();
@@ -179,6 +183,23 @@ void XmppStorageTest::init()
     // its own cache, regardless of whether the previous scenario wrote notes.
     QSettings().setValue(QStringLiteral("storage.xmpppubsub.instanceId"),
                          QUuid::createUuid().toString(QUuid::WithoutBraces));
+}
+
+void XmppStorageTest::foregroundResumeProbesOnlineStreamWithoutRestart()
+{
+    auto *backend = new FakeXmppBackend;
+    XmppStorage storage(nullptr, backend);
+    backend->simulateConnection(true);
+
+    // The lifecycle event is delivered to the storage adapter (not to a
+    // mobile-only copy of the XMPP plugin). It must test the existing socket,
+    // not tear down an otherwise healthy authenticated session.
+    QVERIFY(QMetaObject::invokeMethod(&storage, "onApplicationResumed", Qt::DirectConnection));
+    QCOMPARE(backend->wakeupProbes, 1);
+    QCOMPARE(backend->shutdownCalls, 0);
+    QVERIFY(QMetaObject::invokeMethod(&storage, "onApplicationResumed", Qt::DirectConnection));
+    QCOMPARE(backend->wakeupProbes, 2);
+    QCOMPARE(backend->shutdownCalls, 0);
 }
 
 void XmppStorageTest::mixedKeyIndexRequiresRecovery_data()
