@@ -11,6 +11,7 @@
 #include <iris/jingle-pub.h>
 #include <iris/jingle-session.h>
 #include <iris/xmpp_client.h>
+#include <iris/xmpp_resourcelist.h>
 #include <utility>
 
 namespace AnyKeep {
