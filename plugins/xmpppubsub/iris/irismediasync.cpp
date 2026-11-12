@@ -3,6 +3,7 @@
 #include "mediapartialchunkcache.h"
 #include "mediachunkscheduler.h"
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QPointer>
 #include <QSaveFile>
@@ -85,6 +86,9 @@ public:
         QPointer<IrisMediaChunkSink> sink;
         bool accepted = false, verified = false, draining = false, drained = false, closing = false;
         bool shared = false, receiving = false;
+        QElapsedTimer transferClock;
+        quint64       receivedWireBytes = 0;
+        qint64        cacheWriteMs = 0, lastProgressLogMs = 0;
     };
     IrisMediaSync                                       *q;
     QPointer<XMPP::Client>                               client;
@@ -381,12 +385,30 @@ public:
                 if (!part || stopped || !error.isEmpty())
                     return IrisMediaChunkSink::Action::Error;
                 const auto expected = MediaChunkWire::wireChunkSize(parameters, index);
-                if (!expected || !partialCache->write(
-                        index, wire, qint64(*expected),
-                        [this](quint64 i, const QByteArray &bytes) {
-                            return bool(MediaChunkWire::decryptChunk(parameters, i, bytes));
-                        }))
+                if (!expected)
                     return IrisMediaChunkSink::Action::Error;
+                QElapsedTimer cacheTimer;
+                cacheTimer.start();
+                const bool stored = partialCache->write(
+                    index, wire, qint64(*expected),
+                    [this](quint64 i, const QByteArray &bytes) {
+                        return bool(MediaChunkWire::decryptChunk(parameters, i, bytes));
+                    });
+                part->cacheWriteMs += cacheTimer.elapsed();
+                if (!stored)
+                    return IrisMediaChunkSink::Action::Error;
+                part->receivedWireBytes += quint64(wire.size());
+                if (part->transferClock.isValid()) {
+                    const qint64 elapsed = part->transferClock.elapsed();
+                    if (elapsed - part->lastProgressLogMs >= 2000) {
+                        part->lastProgressLogMs = elapsed;
+                        qCDebug(lcIrisJingleMedia)
+                            << "Jingle media receive progress:"
+                            << "sid=" << (part->session ? part->session->sid() : QString())
+                            << "wire-bytes=" << part->receivedWireBytes << "elapsed-ms=" << elapsed
+                            << "cache-write-ms=" << part->cacheWriteMs;
+                    }
+                }
                 // SCTP streams are non-preemptible. Meter authenticated
                 // records and pace only subsequent managed HTTP admissions.
                 if (auto *scheduler = MediaChunkScheduler::instance())
@@ -414,6 +436,7 @@ public:
                                  fail(QStringLiteral("Peer changed the requested media gap"));
                                  return;
                              }
+                             part->transferClock.start();
                              part->receiving = true;
                              report();
                              part->app->setDevice(part->sink, false);
@@ -429,6 +452,12 @@ public:
                 return;
             }
             part->verified = true;
+            qCDebug(lcIrisJingleMedia)
+                << "Jingle media gap verified:"
+                << "sid=" << (part->session ? part->session->sid() : QString())
+                << "wire-bytes=" << part->receivedWireBytes
+                << "elapsed-ms=" << (part->transferClock.isValid() ? part->transferClock.elapsed() : -1)
+                << "cache-write-ms=" << part->cacheWriteMs;
             report();
             schedule();
         });
