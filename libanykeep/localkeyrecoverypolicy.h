@@ -10,10 +10,10 @@
 #include <utility>
 #include <QString>
 
-// Internal policy: a missing Android Keystore private key may be replaced
-// automatically only if no encrypted local AnyKeep content can be orphaned.
-// Plain PTF files, UI settings and other unrelated app files are not keyed by
-// LocalDataKeyStore, so their presence must not block an otherwise safe repair.
+// Internal policy for a missing Android Keystore key. Only local encrypted
+// data is staged for reset; plaintext PTF notes and unrelated settings must
+// remain untouched. The temporary staging area is removed when the new key
+// has been stored successfully, or rolled back if storing the key fails.
 namespace AnyKeep::LocalKeyRecoveryPolicy {
 
 inline QString protectedCategory(const QString &path)
@@ -52,12 +52,10 @@ inline bool containsProtectedFiles(const QString &rootPath, QString *category = 
     return false;
 }
 
-// Preserve potentially valuable old ciphertext instead of deleting it.
-// In the verified missing-private-key case, we can safely start a new editing
-// session with a different keychain alias while retaining both the old
-// ciphertext and the old Keystore alias for possible future recovery.
-// Each move stays within AppDataLocation, on the same filesystem. Nothing
-// under ptf/ is ever touched.
+// Stage unreadable ciphertext for rollback if generating or saving the new
+// key fails. No permanent backup is useful once AndroidKeyStore confirms the
+// private key is gone. Each move stays within AppDataLocation on the same
+// filesystem. Nothing under ptf/ is ever touched.
 inline bool quarantineProtectedFiles(const QString &rootPath, QString *backupPath, QString *error)
 {
     if (backupPath)
