@@ -5,6 +5,7 @@
 #include "utils.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
 #include <QEventLoop>
@@ -14,7 +15,6 @@
 #include <QMutexLocker>
 #include <QPointer>
 #include <QSettings>
-#include <QUuid>
 #include <QThread>
 
 #include <utility>
@@ -38,30 +38,6 @@ namespace {
         return KeychainKey;
 #endif
     }
-
-#ifdef Q_OS_ANDROID
-    QString nextAndroidKeychainAlias()
-    {
-        // Rotate instead of deleting the original alias. Even if Android
-        // later recovers the old private key, the old QtKeychain entry remains
-        // available for manual recovery of the quarantined ciphertext.
-        return QStringLiteral("draft-store-master-key-v2:")
-            + QUuid::createUuid().toString(QUuid::WithoutBraces);
-    }
-
-    bool storeActiveAndroidAlias(const QString &alias, QString *error)
-    {
-        QSettings settings;
-        settings.setValue(ActiveKeychainAliasSetting, alias);
-        settings.sync();
-        if (settings.status() == QSettings::NoError)
-            return true;
-        if (error)
-            *error = QCoreApplication::translate("LocalDataKeyStore",
-                                                  "The new local encryption key could not be activated.");
-        return false;
-    }
-#endif
 
     QString keychainError(QKeychain::Job *job, const char *operation = nullptr)
     {
@@ -206,8 +182,19 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
         }
         if (!preserveInaccessibleAndroidData(&preservedPath, &errorText))
             return {};
-        // The old alias and its AndroidKeyStore key are left untouched.
-        // Only the new editor state will use the replacement alias.
+        // This entry cannot decrypt the old ciphertext. Remove its stale
+        // QtKeychain record before storing a new key under the same alias.
+        QKeychain::DeletePasswordJob remove(KeychainService);
+        remove.setAutoDelete(false);
+        remove.setInsecureFallback(false);
+        remove.setKey(oldAlias);
+        QObject::connect(&remove, &QKeychain::Job::finished, &loop, &QEventLoop::quit);
+        remove.start();
+        loop.exec();
+        if (remove.error() != QKeychain::NoError) {
+            errorText = keychainError(&remove, "repair") + restoreAfterFailedRecovery(preservedPath);
+            return {};
+        }
 #else
         errorText = keychainError(&read, "read");
         return {};
@@ -225,12 +212,7 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
     QKeychain::WritePasswordJob write(KeychainService);
     write.setAutoDelete(false);
     write.setInsecureFallback(false);
-#ifdef Q_OS_ANDROID
-    const auto nextAlias = read.error() == QKeychain::EntryNotFound ? oldAlias : nextAndroidKeychainAlias();
-#else
-    const auto nextAlias = oldAlias;
-#endif
-    write.setKey(nextAlias);
+    write.setKey(oldAlias);
     write.setBinaryData(key);
     QObject::connect(&write, &QKeychain::Job::finished, &loop, &QEventLoop::quit);
     write.start();
@@ -242,15 +224,11 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
 #endif
         return {};
     }
-#ifdef Q_OS_ANDROID
-    if (nextAlias != oldAlias && !storeActiveAndroidAlias(nextAlias, &errorText)) {
-        errorText += restoreAfterFailedRecovery(preservedPath);
-        return {};
-    }
-#endif
     cacheMasterKey(key);
 #ifdef Q_OS_ANDROID
     notePreservedDrafts(preservedPath);
+    if (!preservedPath.isEmpty() && !QDir(preservedPath).removeRecursively())
+        qWarning() << "Failed to clean up temporary unreadable Android encryption state";
 #endif
     return key;
 }
@@ -307,7 +285,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
     };
 
     const auto oldAlias = activeKeychainAlias();
-    const auto createAndStore = [app, finish, oldAlias](const QString &preservedPath, const QString &nextAlias) {
+    const auto createAndStore = [app, finish, oldAlias](const QString &preservedPath) {
         const auto key = SecureEnvelope::generateMasterKey();
         if (key.size() != MasterKeySize) {
             auto message = QCoreApplication::translate("LocalDataKeyStore", "A secure local data key could not be generated.");
@@ -320,22 +298,22 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
         auto *write = new QKeychain::WritePasswordJob(KeychainService, app);
         write->setAutoDelete(false);
         write->setInsecureFallback(false);
-        write->setKey(nextAlias);
+        write->setKey(oldAlias);
         write->setBinaryData(key);
         QObject::connect(write, &QKeychain::Job::finished, write,
-                         [write, key, finish, preservedPath, nextAlias, oldAlias] {
+                         [write, key, finish, preservedPath] {
             auto message = write->error() == QKeychain::NoError ? QString() : keychainError(write, "write");
             write->deleteLater();
 #ifdef Q_OS_ANDROID
-            if (message.isEmpty() && nextAlias != oldAlias)
-                storeActiveAndroidAlias(nextAlias, &message);
-            if (message.isEmpty())
+            if (message.isEmpty()) {
                 notePreservedDrafts(preservedPath);
-            else
+                if (!preservedPath.isEmpty() && !QDir(preservedPath).removeRecursively())
+                    qWarning() << "Failed to clean up temporary unreadable Android encryption state";
+            } else {
                 message += restoreAfterFailedRecovery(preservedPath);
+            }
 #else
             Q_UNUSED(preservedPath);
-            Q_UNUSED(oldAlias);
 #endif
             finish(message.isEmpty() ? key : QByteArray(), message);
         });
@@ -346,7 +324,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
     read->setAutoDelete(false);
     read->setInsecureFallback(false);
     read->setKey(oldAlias);
-    QObject::connect(read, &QKeychain::Job::finished, read, [read, finish, createAndStore, oldAlias] {
+    QObject::connect(read, &QKeychain::Job::finished, read, [read, app, finish, createAndStore, oldAlias] {
         const auto error = read->error();
         if (error == QKeychain::NoError) {
             auto key = read->binaryData();
@@ -369,7 +347,23 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
                     return;
                 }
                 read->deleteLater();
-                createAndStore(preservedPath, nextAndroidKeychainAlias());
+                auto *remove = new QKeychain::DeletePasswordJob(KeychainService, app);
+                remove->setAutoDelete(false);
+                remove->setInsecureFallback(false);
+                remove->setKey(oldAlias);
+                QObject::connect(remove, &QKeychain::Job::finished, remove,
+                                 [remove, finish, createAndStore, preservedPath] {
+                    auto message = remove->error() == QKeychain::NoError
+                        ? QString() : keychainError(remove, "repair");
+                    remove->deleteLater();
+                    if (!message.isEmpty()) {
+                        message += restoreAfterFailedRecovery(preservedPath);
+                        finish({}, message);
+                        return;
+                    }
+                    createAndStore(preservedPath);
+                });
+                remove->start();
                 return;
             }
 #endif
@@ -379,7 +373,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
             return;
         }
         read->deleteLater();
-        createAndStore({}, oldAlias);
+        createAndStore({});
     });
     read->start();
 }
