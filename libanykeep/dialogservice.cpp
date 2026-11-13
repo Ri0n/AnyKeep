@@ -31,20 +31,6 @@ quint64 DialogService::inform(const QString &title, const QString &message, cons
     request.title      = title;
     request.message    = message;
     request.acceptText = acceptText.isEmpty() ? tr("OK") : acceptText;
-
-    // Autosave and an explicit close can report the same persistent failure.
-    // Do not build an unbounded queue of identical error dialogs while the
-    // user is trying to dismiss the first one.
-    const auto matches = [&request](const Request &other) {
-        return other.rejectText.isEmpty() && !other.destructive && other.title == request.title
-            && other.message == request.message && other.acceptText == request.acceptText;
-    };
-    if (active_ && matches(current_))
-        return current_.id;
-    for (const auto &pending : std::as_const(pending_)) {
-        if (matches(pending))
-            return pending.id;
-    }
     return enqueue(std::move(request));
 }
 
