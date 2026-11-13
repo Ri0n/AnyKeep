@@ -1,6 +1,9 @@
 #include "xmppstorage.h"
 
 #include "private.h"
+#ifdef Q_OS_ANDROID
+#include "omemostateresetpolicy.h"
+#endif
 
 #include "draftmanager.h"
 #include "fileremotecachestore.h"
@@ -516,13 +519,51 @@ XmppConfig XmppStorage::readConfig() const
             config.allowForeignKeyIndices = settings.value(freshStorageKeySetting(config.jid)).toString()
                 == QString::fromLatin1(currentKeyId.toHex());
         }
-        const auto omemoKey
-            = SecureKeyStore::loadOrCreate(QStringLiteral("xmpp-omemo-state-key-v1:%1").arg(config.jid));
-        if (omemoKey)
-            config.omemoStateKey = omemoKey.value;
         const auto accountHash = QCryptographicHash::hash(config.jid.toUtf8(), QCryptographicHash::Sha256).toHex();
         config.omemoStatePath  = Utils::anykeepDataDir() + QStringLiteral("/xmpp-omemo-")
             + QString::fromLatin1(accountHash.left(16)) + QStringLiteral(".state");
+        const auto omemoKeyName = QStringLiteral("xmpp-omemo-state-key-v1:%1").arg(config.jid);
+#ifdef Q_OS_ANDROID
+        const auto omemoKey = SecureKeyStore::read(omemoKeyName);
+        if (omemoKey) {
+            config.omemoStateKey = omemoKey.value;
+        } else {
+            // Android restores QtKeychain settings without their hardware-backed
+            // private keys. An OMEMO identity is local device state, unlike the
+            // XMPP note-storage master key: it can be recreated independently.
+            const bool missingPrivateKey = omemoKey.error.code == CryptoError::Unavailable
+                && omemoKey.error.message.contains(QStringLiteral("retrieve private key from keystore"),
+                                                   Qt::CaseInsensitive);
+            if (omemoKey.error.code == CryptoError::InvalidArgument || missingPrivateKey) {
+                QString stagedPath, stageError;
+                if (!XmppOmemoStateReset::stage(config.omemoStatePath, &stagedPath, &stageError)) {
+                    qWarning().noquote() << "Could not stage old local OMEMO state:" << stageError;
+                } else {
+                    const auto replacement = SecureEnvelope::generateMasterKey();
+                    const auto writeError  = replacement.size() == SecureEnvelope::MasterKeySize
+                        ? SecureKeyStore::write(omemoKeyName, replacement)
+                        : CryptoError { CryptoError::Unavailable, QStringLiteral("Could not generate OMEMO state key") };
+                    if (!writeError) {
+                        config.omemoStateKey = replacement;
+                        if (!XmppOmemoStateReset::discard(stagedPath))
+                            qWarning() << "Could not remove temporary unreadable OMEMO state";
+                        if (missingPrivateKey)
+                            qWarning() << "Android Keystore lost the local OMEMO identity; a new device identity will be initialized";
+                    } else {
+                        if (!XmppOmemoStateReset::restore(config.omemoStatePath, stagedPath))
+                            qWarning() << "Could not restore staged OMEMO state after failed key reset";
+                        qWarning().noquote() << "Could not initialize the local OMEMO state key:" << writeError.message;
+                    }
+                }
+            } else {
+                qWarning().noquote() << "Could not access the local OMEMO state key:" << omemoKey.error.message;
+            }
+        }
+#else
+        const auto omemoKey = SecureKeyStore::loadOrCreate(omemoKeyName);
+        if (omemoKey)
+            config.omemoStateKey = omemoKey.value;
+#endif
     }
     return config;
 }
