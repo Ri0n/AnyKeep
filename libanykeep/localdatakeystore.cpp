@@ -77,7 +77,7 @@ namespace {
         QMutex                    cacheMutex;
         QByteArray                cachedKey;
         QList<PendingKeyCallback> pending;
-        bool                      inaccessiblePreviousDrafts = false;
+        bool                      inaccessiblePreviousContent = false;
     };
 
     KeyLoadState &keyLoadState()
@@ -100,28 +100,29 @@ namespace {
         state.cachedKey = key;
     }
 #ifdef Q_OS_ANDROID
-    void noteDiscardedDrafts(const QString &preservedPath)
+    void noteDiscardedLocalContent(const QString &preservedPath)
     {
         if (preservedPath.isEmpty())
             return;
-        QDirIterator drafts(preservedPath, { QStringLiteral("*.draft") }, QDir::Files,
-                            QDirIterator::Subdirectories);
-        if (!drafts.hasNext())
+        QDirIterator lostContent(preservedPath,
+                                 { QStringLiteral("*.draft"), QStringLiteral("*.blob"), QStringLiteral("*.source") },
+                                 QDir::Files, QDirIterator::Subdirectories);
+        if (!lostContent.hasNext())
             return;
         auto &state = keyLoadState();
         const QMutexLocker locker(&state.cacheMutex);
-        state.inaccessiblePreviousDrafts = true;
+        state.inaccessiblePreviousContent = true;
     }
 #endif
 } // namespace
 
-bool LocalDataKeyStore::takeInaccessiblePreviousDraftsNotice()
+bool LocalDataKeyStore::takeInaccessiblePreviousContentNotice()
 {
 #ifdef Q_OS_ANDROID
     auto &state = keyLoadState();
     const QMutexLocker locker(&state.cacheMutex);
-    const bool result = state.inaccessiblePreviousDrafts;
-    state.inaccessiblePreviousDrafts = false;
+    const bool result = state.inaccessiblePreviousContent;
+    state.inaccessiblePreviousContent = false;
     return result;
 #else
     return false;
@@ -219,7 +220,7 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
     }
     cacheMasterKey(key);
 #ifdef Q_OS_ANDROID
-    noteDiscardedDrafts(preservedPath);
+    noteDiscardedLocalContent(preservedPath);
     if (!preservedPath.isEmpty() && !LocalKeyRecoveryPolicy::discardStagedFiles(preservedPath))
         qWarning() << "Failed to clean up temporary unreadable Android encryption state";
 #endif
@@ -299,7 +300,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
             write->deleteLater();
 #ifdef Q_OS_ANDROID
             if (message.isEmpty()) {
-                noteDiscardedDrafts(preservedPath);
+                noteDiscardedLocalContent(preservedPath);
                 if (!preservedPath.isEmpty() && !LocalKeyRecoveryPolicy::discardStagedFiles(preservedPath))
                     qWarning() << "Failed to clean up temporary unreadable Android encryption state";
             } else {
