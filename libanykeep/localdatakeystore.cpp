@@ -188,6 +188,9 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
     const auto key = SecureEnvelope::generateMasterKey();
     if (key.size() != MasterKeySize) {
         errorText = QCoreApplication::translate("LocalDataKeyStore", "A secure local data key could not be generated.");
+#ifdef Q_OS_ANDROID
+        errorText += restoreAfterFailedRecovery(preservedPath);
+#endif
         return {};
     }
     QKeychain::WritePasswordJob write(KeychainService);
@@ -263,10 +266,14 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
         }
     };
 
-    const auto createAndStore = [app, finish] {
+    const auto createAndStore = [app, finish](const QString &preservedPath) {
         const auto key = SecureEnvelope::generateMasterKey();
         if (key.size() != MasterKeySize) {
-            finish({}, QCoreApplication::translate("LocalDataKeyStore", "A secure local data key could not be generated."));
+            auto message = QCoreApplication::translate("LocalDataKeyStore", "A secure local data key could not be generated.");
+#ifdef Q_OS_ANDROID
+            message += restoreAfterFailedRecovery(preservedPath);
+#endif
+            finish({}, message);
             return;
         }
         auto *write = new QKeychain::WritePasswordJob(KeychainService, app);
@@ -274,9 +281,15 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
         write->setInsecureFallback(false);
         write->setKey(KeychainKey);
         write->setBinaryData(key);
-        QObject::connect(write, &QKeychain::Job::finished, write, [write, key, finish] {
-            const auto message = write->error() == QKeychain::NoError ? QString() : keychainError(write, "write");
+        QObject::connect(write, &QKeychain::Job::finished, write, [write, key, finish, preservedPath] {
+            auto message = write->error() == QKeychain::NoError ? QString() : keychainError(write, "write");
             write->deleteLater();
+#ifdef Q_OS_ANDROID
+            if (message.isEmpty())
+                notePreservedDrafts(preservedPath);
+            else
+                message += restoreAfterFailedRecovery(preservedPath);
+#endif
             finish(message.isEmpty() ? key : QByteArray(), message);
         });
         write->start();
@@ -300,40 +313,41 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
         }
         if (error != QKeychain::EntryNotFound) {
 #ifdef Q_OS_ANDROID
-            QString protectedCategory;
-            if (canReplaceMissingAndroidKey(read, &protectedCategory)) {
+            if (isMissingAndroidPrivateKey(read)) {
+                QString preservedPath;
+                QString recoveryError;
+                if (!preserveInaccessibleAndroidData(&preservedPath, &recoveryError)) {
+                    read->deleteLater();
+                    finish({}, recoveryError);
+                    return;
+                }
                 read->deleteLater();
                 auto *remove = new QKeychain::DeletePasswordJob(KeychainService, app);
                 remove->setAutoDelete(false);
                 remove->setInsecureFallback(false);
                 remove->setKey(KeychainKey);
                 QObject::connect(remove, &QKeychain::Job::finished, remove,
-                                 [remove, finish, createAndStore] {
-                    const auto message = remove->error() == QKeychain::NoError ? QString() : keychainError(remove, "repair");
+                                 [remove, finish, createAndStore, preservedPath] {
+                    auto message = remove->error() == QKeychain::NoError ? QString() : keychainError(remove, "repair");
                     remove->deleteLater();
                     if (!message.isEmpty()) {
+                        message += restoreAfterFailedRecovery(preservedPath);
                         finish({}, message);
                         return;
                     }
-                    createAndStore();
+                    createAndStore(preservedPath);
                 });
                 remove->start();
                 return;
             }
 #endif
-#ifdef Q_OS_ANDROID
-            auto message = keychainError(read, protectedCategory.isEmpty() ? "read" : "read:protected-data");
-            if (!protectedCategory.isEmpty())
-                message += QStringLiteral(" (") + protectedCategory + QLatin1Char(')');
-#else
             const auto message = keychainError(read, "read");
-#endif
             read->deleteLater();
             finish({}, message);
             return;
         }
         read->deleteLater();
-        createAndStore();
+        createAndStore({});
     });
     read->start();
 }
