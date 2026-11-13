@@ -10,9 +10,6 @@ inputs:
   qt-version:
     description: Qt version or series
     required: true
-  qt-sdk-suffix:
-    description: Lock-derived Qt SDK suffix for QtKeychain release asset names
-    required: true
   ndk-version:
     description: Android NDK version
     required: true
@@ -31,15 +28,6 @@ inputs:
     default: 'false'
   iris-tag:
     description: Iris release tag
-    required: true
-  qtkeychain-tag:
-    description: QtKeychain dependency release tag
-    required: true
-  qtkeychain-version:
-    description: QtKeychain upstream version
-    required: true
-  qtkeychain-revision:
-    description: QtKeychain package revision
     required: true
   aqt-source:
     description: aqtinstall source used for Qt 6.12 Android repositories
