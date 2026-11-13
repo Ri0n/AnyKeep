@@ -5,6 +5,7 @@
 #include "utils.h"
 
 #include <QCoreApplication>
+#include <QDirIterator>
 #include <QFileInfo>
 #include <QEventLoop>
 #include <QDebug>
@@ -40,31 +41,30 @@ namespace {
     }
 
 #ifdef Q_OS_ANDROID
-    // QtKeychain may restore ciphertext without its hardware-backed key.
-    // Recover only when no local content encrypted by this master key exists.
-    bool canReplaceMissingAndroidKey(QKeychain::Job *job, QString *protectedCategory = nullptr)
+    // A QtKeychain settings entry was restored, but its AndroidKeyStore
+    // private key is missing. This is not a transient decryption error.
+    bool isMissingAndroidPrivateKey(const QKeychain::Job *job)
     {
-        if (protectedCategory)
-            protectedCategory->clear();
-        if (job->error() != QKeychain::AccessDenied
-            || !job->errorString().contains(QStringLiteral("retrieve private key from keystore"),
-                                            Qt::CaseInsensitive))
-            return false;
-
-        const QFileInfo root(Utils::anykeepDataDir());
-        if (!root.isDir() || !root.isReadable())
-            return false;
-        QString category;
-        if (LocalKeyRecoveryPolicy::containsProtectedFiles(root.absoluteFilePath(), &category)) {
-            // Never silently orphan an existing encrypted draft, catalog,
-            // media blob or remote cache. Only log the category, not filenames.
-            if (protectedCategory)
-                *protectedCategory = category;
-            qWarning() << "Android local key recovery blocked by protected data in" << category;
-            return false;
-        }
-        return true;
+        return job->error() == QKeychain::AccessDenied
+            && job->errorString().contains(QStringLiteral("retrieve private key from keystore"),
+                                           Qt::CaseInsensitive);
     }
+
+    bool preserveInaccessibleAndroidData(QString *preservedPath, QString *error)
+    {
+        return LocalKeyRecoveryPolicy::quarantineProtectedFiles(Utils::anykeepDataDir(), preservedPath, error);
+    }
+
+    QString restoreAfterFailedRecovery(const QString &preservedPath)
+    {
+        if (preservedPath.isEmpty())
+            return {};
+        if (LocalKeyRecoveryPolicy::restoreQuarantinedFiles(Utils::anykeepDataDir(), preservedPath))
+            return {};
+        return QCoreApplication::translate("LocalDataKeyStore",
+                                           " The backup of previous local data could not be restored.");
+    }
+
 #endif
 
     struct PendingKeyCallback {
@@ -77,6 +77,7 @@ namespace {
         QMutex                    cacheMutex;
         QByteArray                cachedKey;
         QList<PendingKeyCallback> pending;
+        bool                      inaccessiblePreviousDrafts = false;
     };
 
     KeyLoadState &keyLoadState()
@@ -98,7 +99,34 @@ namespace {
         const QMutexLocker locker(&state.cacheMutex);
         state.cachedKey = key;
     }
+#ifdef Q_OS_ANDROID
+    void notePreservedDrafts(const QString &preservedPath)
+    {
+        if (preservedPath.isEmpty())
+            return;
+        QDirIterator drafts(preservedPath, { QStringLiteral("*.draft") }, QDir::Files,
+                            QDirIterator::Subdirectories);
+        if (!drafts.hasNext())
+            return;
+        auto &state = keyLoadState();
+        const QMutexLocker locker(&state.cacheMutex);
+        state.inaccessiblePreviousDrafts = true;
+    }
+#endif
 } // namespace
+
+bool LocalDataKeyStore::takeInaccessiblePreviousDraftsNotice()
+{
+#ifdef Q_OS_ANDROID
+    auto &state = keyLoadState();
+    const QMutexLocker locker(&state.cacheMutex);
+    const bool result = state.inaccessiblePreviousDrafts;
+    state.inaccessiblePreviousDrafts = false;
+    return result;
+#else
+    return false;
+#endif
+}
 
 QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
 {
@@ -129,17 +157,17 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
             cacheMasterKey(key);
         return key.size() == MasterKeySize ? key : QByteArray();
     }
+    QString preservedPath;
     if (read.error() != QKeychain::EntryNotFound) {
 #ifdef Q_OS_ANDROID
-        QString protectedCategory;
-        if (!canReplaceMissingAndroidKey(&read, &protectedCategory)) {
-            errorText = keychainError(&read, protectedCategory.isEmpty() ? "read" : "read:protected-data");
-            if (!protectedCategory.isEmpty())
-                errorText += QStringLiteral(" (") + protectedCategory + QLatin1Char(')');
+        if (!isMissingAndroidPrivateKey(&read)) {
+            errorText = keychainError(&read, "read");
             return {};
         }
-        // Do not change an existing key on an ordinary access failure. This
-        // narrowly handles a backed-up QSettings entry with no Keystore key.
+        if (!preserveInaccessibleAndroidData(&preservedPath, &errorText))
+            return {};
+        // AndroidKeyStore has lost the private key. We retain the old
+        // ciphertext and recreate only the local keychain entry.
         QKeychain::DeletePasswordJob remove(KeychainService);
         remove.setAutoDelete(false);
         remove.setInsecureFallback(false);
@@ -148,7 +176,7 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
         remove.start();
         loop.exec();
         if (remove.error() != QKeychain::NoError) {
-            errorText = keychainError(&remove, "repair");
+            errorText = keychainError(&remove, "repair") + restoreAfterFailedRecovery(preservedPath);
             return {};
         }
 #else
@@ -172,78 +200,18 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
     loop.exec();
     if (write.error() != QKeychain::NoError) {
         errorText = keychainError(&write, "write");
+#ifdef Q_OS_ANDROID
+        errorText += restoreAfterFailedRecovery(preservedPath);
+#endif
         return {};
     }
     cacheMasterKey(key);
+#ifdef Q_OS_ANDROID
+    notePreservedDrafts(preservedPath);
+#endif
     return key;
 }
 
-
-bool LocalDataKeyStore::recoverUnusableAndroidKey(QString *error, QString *backupPath)
-{
-    QString ignored;
-    auto &errorText = error ? *error : ignored;
-    errorText.clear();
-    if (backupPath)
-        backupPath->clear();
-#ifdef Q_OS_ANDROID
-    if (cachedMasterKey().size() == MasterKeySize)
-        return true;
-    if (!QKeychain::isAvailable()) {
-        errorText = QCoreApplication::translate("LocalDataKeyStore", "No secure system keychain is available.");
-        return false;
-    }
-
-    // Recheck the failure immediately before moving anything. A working key
-    // must never cause old user data to be quarantined.
-    QKeychain::ReadPasswordJob read(KeychainService);
-    read.setAutoDelete(false);
-    read.setInsecureFallback(false);
-    read.setKey(KeychainKey);
-    QEventLoop loop;
-    QObject::connect(&read, &QKeychain::Job::finished, &loop, &QEventLoop::quit);
-    read.start();
-    loop.exec();
-    if (read.error() == QKeychain::NoError) {
-        const auto key = read.binaryData();
-        if (key.size() != MasterKeySize) {
-            errorText = QCoreApplication::translate("LocalDataKeyStore", "The local data encryption key is invalid.");
-            return false;
-        }
-        cacheMasterKey(key);
-        return true;
-    }
-
-    QString protectedCategory;
-    const bool autoRecoverable = canReplaceMissingAndroidKey(&read, &protectedCategory);
-    if (!autoRecoverable && protectedCategory.isEmpty()) {
-        errorText = keychainError(&read, "read");
-        return false;
-    }
-    const QString rootPath = Utils::anykeepDataDir();
-    QString savedPath;
-    if (!LocalKeyRecoveryPolicy::quarantineProtectedFiles(rootPath, &savedPath, &errorText))
-        return false;
-
-    QString newKeyError;
-    const auto newKey = loadOrCreateMasterKey(&newKeyError);
-    if (newKey.size() != MasterKeySize) {
-        const bool rolledBack = LocalKeyRecoveryPolicy::restoreQuarantinedFiles(rootPath, savedPath);
-        errorText = newKeyError;
-        if (!rolledBack)
-            errorText += QStringLiteral(" (failed to restore the preserved encrypted files)");
-        return false;
-    }
-    if (backupPath)
-        *backupPath = savedPath;
-    qInfo() << "Android local encryption key recreated; old encrypted files preserved:" << !savedPath.isEmpty();
-    return true;
-#else
-    Q_UNUSED(backupPath);
-    errorText = QCoreApplication::translate("LocalDataKeyStore", "Android Keystore recovery is not available on this platform.");
-    return false;
-#endif
-}
 
 void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCallback callback)
 {
