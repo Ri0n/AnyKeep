@@ -1,11 +1,10 @@
 #include "localdatakeystore.h"
+#include "localkeyrecoverypolicy.h"
 
 #include "secureenvelope.h"
 #include "utils.h"
 
 #include <QCoreApplication>
-#include <QDir>
-#include <QDirIterator>
 #include <QFileInfo>
 #include <QEventLoop>
 #include <QDebug>
@@ -41,34 +40,8 @@ namespace {
     }
 
 #ifdef Q_OS_ANDROID
-    // Android backup may restore QtKeychain's encrypted QSettings value
-    // without the hardware-backed AndroidKeyStore key. The key may be reset
-    // automatically only if no payload encrypted with it is still present.
-    // Check the key-bearing storage locations rather than every file in the
-    // application directory: Qt, plugins and ordinary PTF storage also create
-    // non-secret files there.
-    bool containsKeyProtectedFiles(const QString &rootPath)
-    {
-        const QDir root(rootPath);
-        QDirIterator files(rootPath, QDir::Files | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot,
-                           QDirIterator::Subdirectories);
-        while (files.hasNext()) {
-            const auto relativePath = root.relativeFilePath(files.next());
-            if (relativePath.startsWith(QStringLiteral("drafts/"))
-                || relativePath.startsWith(QStringLiteral("drafts-unrecoverable-"))
-                || relativePath.startsWith(QStringLiteral("media/"))
-                || relativePath.startsWith(QStringLiteral("remote-cache/"))
-                || relativePath.startsWith(QStringLiteral("xmpp-omemo-"))
-                || relativePath.startsWith(QStringLiteral("folder-catalog.bin"))
-                || relativePath.startsWith(QStringLiteral("note-rules.bin"))) {
-                qWarning() << "Android local key recovery blocked by protected data in"
-                           << relativePath.section(QLatin1Char('/'), 0, 0);
-                return true;
-            }
-        }
-        return false;
-    }
-
+    // QtKeychain may restore ciphertext without its hardware-backed key.
+    // Recover only when no local content encrypted by this master key exists.
     bool canReplaceMissingAndroidKey(QKeychain::Job *job)
     {
         if (job->error() != QKeychain::AccessDenied
@@ -79,7 +52,14 @@ namespace {
         const QFileInfo root(Utils::anykeepDataDir());
         if (!root.isDir() || !root.isReadable())
             return false;
-        return !containsKeyProtectedFiles(root.absoluteFilePath());
+        QString protectedCategory;
+        if (LocalKeyRecoveryPolicy::containsProtectedFiles(root.absoluteFilePath(), &protectedCategory)) {
+            // Never silently orphan an existing encrypted draft, catalog,
+            // media blob or remote cache. Only log the category, not filenames.
+            qWarning() << "Android local key recovery blocked by protected data in" << protectedCategory;
+            return false;
+        }
+        return true;
     }
 #endif
 
