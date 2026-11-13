@@ -39,14 +39,14 @@ private slots:
         QTest::addColumn<QString>("category");
         QTest::newRow("draft") << "drafts/123.draft" << "drafts";
         QTest::newRow("unrecoverable-draft") << "drafts-unrecoverable-2026/123.draft"
-                                            << "drafts-unrecoverable-2026";
+                                            << "drafts";
         QTest::newRow("encrypted-media") << "media/0a/abcd" << "media";
         QTest::newRow("remote-cache") << "remote-cache/xmpppubsub/note.cache" << "remote-cache";
-        QTest::newRow("omemo") << "xmpp-omemo-001.state" << "xmpp-omemo-001.state";
-        QTest::newRow("catalog") << "folder-catalog.bin" << "folder-catalog.bin";
-        QTest::newRow("catalog-backup") << "folder-catalog.bin.bak" << "folder-catalog.bin.bak";
-        QTest::newRow("rules") << "note-rules.bin" << "note-rules.bin";
-        QTest::newRow("rules-backup") << "note-rules.bin.bak" << "note-rules.bin.bak";
+        QTest::newRow("omemo") << "xmpp-omemo-001.state" << "xmpp-omemo";
+        QTest::newRow("catalog") << "folder-catalog.bin" << "folder-catalog";
+        QTest::newRow("catalog-backup") << "folder-catalog.bin.bak" << "folder-catalog";
+        QTest::newRow("rules") << "note-rules.bin" << "note-rules";
+        QTest::newRow("rules-backup") << "note-rules.bin.bak" << "note-rules";
     }
 
     void protectedDataLocations()
