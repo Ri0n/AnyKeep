@@ -128,6 +128,8 @@ runs:
         mkdir -p qtkeychain-source
         tar -xzf qtkeychain-android-source.tar.gz --strip-components=1 -C qtkeychain-source
         grep -F "set(QTKEYCHAIN_VERSION ${qtkeychain_version})" qtkeychain-source/CMakeLists.txt
+        grep -F "using android::security::keystore::KeyGenParameterSpec;" \
+          qtkeychain-source/qtkeychain/keychain_android.cpp
         qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
         test -x "$qt_cmake"
         "$qt_cmake" -S qtkeychain-source -B qtkeychain-build -G Ninja \
