@@ -84,7 +84,7 @@ runs:
         aqtsource: ${{ inputs.aqt-source }}
         cache: true
 
-    - name: Download QCA/Iris/QtKeychain SDKs
+    - name: Download QCA/Iris SDKs
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
@@ -97,18 +97,57 @@ runs:
         gh release download "${{ inputs.iris-tag }}" --repo psi-im/iris \
           -p "iris-qt6-android-${{ inputs.abi }}.zip" -O iris.zip
 
-        qtkeychain_asset="qtkeychain-${{ inputs.qtkeychain-version }}-${{ inputs.qtkeychain-revision }}-${{ inputs.qt-sdk-suffix }}-android-${{ inputs.abi }}.tar.gz"
-        gh release download "${{ inputs.qtkeychain-tag }}" --repo "$GITHUB_REPOSITORY" \
-          -p "$qtkeychain_asset" -O qtkeychain.tar.gz
-
         (cd qca-sdk && cmake -E tar xvf ../qca.zip)
         (cd iris-sdk && cmake -E tar xvf ../iris.zip)
-        tar -xzf qtkeychain.tar.gz -C qtkeychain-sdk
-
         test -d qca-sdk/lib/cmake/Qca3-qt6
         test -d iris-sdk/lib/cmake/Iris
+
+    # QtKeychain 0.14.3 uses the deprecated Android KeyPairGeneratorSpec
+    # backend. It can fail to retrieve the RSA key even on a clean install.
+    # Keep desktop packages on their existing pinned SDK and build the modern,
+    # Android-only backend from the commit pinned in dependencies.lock.json.
+    - name: Build pinned Android QtKeychain
+      shell: bash
+      env:
+        ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+      run: |
+        set -euo pipefail
+        read -r qtkeychain_version qtkeychain_commit < <(python3 - <<'PY'
+        import json
+        with open('dependencies.lock.json', encoding='utf-8') as f:
+            android = json.load(f)['qtkeychain']['android_source']
+        print(android['version'], android['commit'])
+        PY
+        )
+        test "${#qtkeychain_commit}" -eq 40
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends extra-cmake-modules
+        curl --fail --location --retry 5 --retry-all-errors \
+          "https://github.com/frankosterfeld/qtkeychain/archive/${qtkeychain_commit}.tar.gz" \
+          -o qtkeychain-android-source.tar.gz
+        mkdir -p qtkeychain-source
+        tar -xzf qtkeychain-android-source.tar.gz --strip-components=1 -C qtkeychain-source
+        grep -F "set(QTKEYCHAIN_VERSION ${qtkeychain_version})" qtkeychain-source/CMakeLists.txt
+        qt_cmake=$(find "$QT_ROOT_DIR" -type f -name qt-cmake -print -quit)
+        test -x "$qt_cmake"
+        "$qt_cmake" -S qtkeychain-source -B qtkeychain-build -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX="$PWD/qtkeychain-sdk" \
+          -DCMAKE_INSTALL_LIBDIR=lib \
+          -DCMAKE_INSTALL_INCLUDEDIR=include \
+          -DANDROID_NDK="$ANDROID_NDK_ROOT" \
+          -DANDROID_PLATFORM="android-${{ inputs.android-api }}" \
+          -DBUILD_SHARED_LIBS=OFF \
+          -DBUILD_TEST_APPLICATION=OFF \
+          -DBUILD_TRANSLATIONS=OFF \
+          -DBUILD_TESTING=OFF \
+          -DLIBSECRET_SUPPORT=OFF
+        cmake --build qtkeychain-build --parallel 4
+        cmake --install qtkeychain-build
+        test -f qtkeychain-sdk/include/qt6keychain/keychain.h
         test -f qtkeychain-sdk/lib/cmake/Qt6Keychain/Qt6KeychainConfig.cmake
         test -f qtkeychain-sdk/lib/libqt6keychain.a
+        echo "Android QtKeychain: ${qtkeychain_version} (${qtkeychain_commit})"
 
     - name: Provision Android OpenSSL
       shell: bash
