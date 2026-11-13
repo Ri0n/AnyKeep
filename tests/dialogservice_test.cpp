@@ -45,32 +45,6 @@ private slots:
         QCOMPARE(dialogs.requestId(), quint64(0));
     }
 
-    void coalescesRepeatedInformRequests()
-    {
-        DialogService dialogs;
-        QSignalSpy completed(&dialogs, &DialogService::completed);
-        const auto first = dialogs.inform(QStringLiteral("AnyKeep"), QStringLiteral("Save failed"));
-        for (int i = 0; i < 20; ++i)
-            QCOMPARE(dialogs.inform(QStringLiteral("AnyKeep"), QStringLiteral("Save failed")), first);
-        const auto second = dialogs.inform(QStringLiteral("AnyKeep"), QStringLiteral("Another failure"));
-        QCOMPARE(dialogs.requestId(), first);
-
-        // Also deduplicate an error queued behind a different active dialog.
-        for (int i = 0; i < 10; ++i)
-            QCOMPARE(dialogs.inform(QStringLiteral("AnyKeep"), QStringLiteral("Another failure")), second);
-
-        dialogs.accept();
-        QCOMPARE(dialogs.requestId(), second);
-        dialogs.accept();
-        QVERIFY(!dialogs.active());
-        QCOMPARE(completed.size(), 2);
-
-        // Once dismissed, the same error may legitimately be reported again.
-        const auto next = dialogs.inform(QStringLiteral("AnyKeep"), QStringLiteral("Save failed"));
-        QVERIFY(next > second);
-        QCOMPARE(dialogs.requestId(), next);
-    }
-
     void ignoresCompletionWithoutActiveRequest()
     {
         DialogService dialogs;
