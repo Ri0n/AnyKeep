@@ -217,10 +217,10 @@ MobileApplication::MobileApplication(QObject *parent) :
     // that AndroidKeyStore no longer holds. PTF remains the source of truth:
     // allow editing with a fresh local key and warn only about potentially
     // unsaved previous changes, never about implementation details.
-    if (LocalDataKeyStore::takeInaccessiblePreviousDraftsNotice()) {
-        dialogs_->inform(tr("Previous draft not restored"),
-                         tr("Some unsaved changes from an earlier editing session could not be recovered. "
-                            "Your saved notes are available and can be edited normally."));
+    if (LocalDataKeyStore::takeInaccessiblePreviousContentNotice()) {
+        dialogs_->inform(tr("Previous local changes unavailable"),
+                         tr("Some unsaved edits or local attachments could not be restored. "
+                            "Your saved notes are still available for editing."));
     }
 }
 
