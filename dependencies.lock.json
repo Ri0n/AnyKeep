@@ -32,6 +32,10 @@
         "tag": "deps-qtkeychain-0.14.3-r1-qt6.12",
         "version": "0.14.3",
         "revision": "r1",
-        "nightly_compatibility": "same-minor"
+        "nightly_compatibility": "same-minor",
+        "android_source": {
+            "version": "0.17.0",
+            "commit": "875f77d9f61bd97fd84cca47ce3bc71186dfbd09"
+        }
     }
 }
