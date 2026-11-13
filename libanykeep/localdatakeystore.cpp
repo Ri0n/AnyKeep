@@ -7,7 +7,6 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
-#include <QFileInfo>
 #include <QEventLoop>
 #include <QDebug>
 #include <QList>
@@ -142,11 +141,10 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
         return {};
     }
 
-    const auto oldAlias = KeychainKey;
     QKeychain::ReadPasswordJob read(KeychainService);
     read.setAutoDelete(false);
     read.setInsecureFallback(false);
-    read.setKey(oldAlias);
+    read.setKey(KeychainKey);
     QEventLoop loop;
     QObject::connect(&read, &QKeychain::Job::finished, &loop, &QEventLoop::quit);
     read.start();
@@ -173,7 +171,7 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
         QKeychain::DeletePasswordJob remove(KeychainService);
         remove.setAutoDelete(false);
         remove.setInsecureFallback(false);
-        remove.setKey(oldAlias);
+        remove.setKey(KeychainKey);
         QObject::connect(&remove, &QKeychain::Job::finished, &loop, &QEventLoop::quit);
         remove.start();
         loop.exec();
@@ -206,7 +204,7 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
     QKeychain::WritePasswordJob write(KeychainService);
     write.setAutoDelete(false);
     write.setInsecureFallback(false);
-    write.setKey(oldAlias);
+    write.setKey(KeychainKey);
     write.setBinaryData(key);
     QObject::connect(&write, &QKeychain::Job::finished, &loop, &QEventLoop::quit);
     write.start();
@@ -278,8 +276,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
         }
     };
 
-    const auto oldAlias = KeychainKey;
-    const auto createAndStore = [app, finish, oldAlias](const QString &preservedPath) {
+    const auto createAndStore = [app, finish](const QString &preservedPath) {
         const auto key = SecureEnvelope::generateMasterKey();
         if (key.size() != MasterKeySize) {
             auto message = QCoreApplication::translate("LocalDataKeyStore", "A secure local data key could not be generated.");
@@ -292,7 +289,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
         auto *write = new QKeychain::WritePasswordJob(KeychainService, app);
         write->setAutoDelete(false);
         write->setInsecureFallback(false);
-        write->setKey(oldAlias);
+        write->setKey(KeychainKey);
         write->setBinaryData(key);
         QObject::connect(write, &QKeychain::Job::finished, write,
                          [write, key, finish, preservedPath] {
@@ -317,8 +314,8 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
     auto *read = new QKeychain::ReadPasswordJob(KeychainService, app);
     read->setAutoDelete(false);
     read->setInsecureFallback(false);
-    read->setKey(oldAlias);
-    QObject::connect(read, &QKeychain::Job::finished, read, [read, app, finish, createAndStore, oldAlias] {
+    read->setKey(KeychainKey);
+    QObject::connect(read, &QKeychain::Job::finished, read, [read, app, finish, createAndStore] {
         const auto error = read->error();
         if (error == QKeychain::NoError) {
             auto key = read->binaryData();
@@ -344,7 +341,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
                 auto *remove = new QKeychain::DeletePasswordJob(KeychainService, app);
                 remove->setAutoDelete(false);
                 remove->setInsecureFallback(false);
-                remove->setKey(oldAlias);
+                remove->setKey(KeychainKey);
                 QObject::connect(remove, &QKeychain::Job::finished, remove,
                                  [remove, finish, createAndStore, preservedPath] {
                     auto message = remove->error() == QKeychain::NoError
