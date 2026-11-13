@@ -24,10 +24,20 @@ namespace {
     const QString KeychainService = QStringLiteral("com.github.ri0n.anykeep");
     const QString KeychainKey     = QStringLiteral("draft-store-master-key-v1");
 
-    QString keychainError(QKeychain::Job *job)
+    QString keychainError(QKeychain::Job *job, const char *operation = nullptr)
     {
-        return QCoreApplication::translate("LocalDataKeyStore", "Failed to access the secure keychain: %1")
-            .arg(job->errorString());
+        const auto message = QCoreApplication::translate("LocalDataKeyStore", "Failed to access the secure keychain: %1")
+                                 .arg(job->errorString());
+#ifdef Q_OS_ANDROID
+        // The old QtKeychain Android implementation reports the same error
+        // for a stale read and for failure to fetch a newly generated RSA key.
+        // Keep the phase visible to distinguish the two on physical devices.
+        if (operation)
+            return message + QStringLiteral(" [") + QString::fromLatin1(operation) + QLatin1Char(']');
+#else
+        Q_UNUSED(operation)
+#endif
+        return message;
     }
 
 #ifdef Q_OS_ANDROID
@@ -131,7 +141,7 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
     if (read.error() != QKeychain::EntryNotFound) {
 #ifdef Q_OS_ANDROID
         if (!canReplaceMissingAndroidKey(&read)) {
-            errorText = keychainError(&read);
+            errorText = keychainError(&read, "read");
             return {};
         }
         // Do not change an existing key on an ordinary access failure. This
@@ -144,11 +154,11 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
         remove.start();
         loop.exec();
         if (remove.error() != QKeychain::NoError) {
-            errorText = keychainError(&remove);
+            errorText = keychainError(&remove, "repair");
             return {};
         }
 #else
-        errorText = keychainError(&read);
+        errorText = keychainError(&read, "read");
         return {};
 #endif
     }
@@ -167,7 +177,7 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
     write.start();
     loop.exec();
     if (write.error() != QKeychain::NoError) {
-        errorText = keychainError(&write);
+        errorText = keychainError(&write, "write");
         return {};
     }
     cacheMasterKey(key);
@@ -237,7 +247,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
         write->setKey(KeychainKey);
         write->setBinaryData(key);
         QObject::connect(write, &QKeychain::Job::finished, write, [write, key, finish] {
-            const auto message = write->error() == QKeychain::NoError ? QString() : keychainError(write);
+            const auto message = write->error() == QKeychain::NoError ? QString() : keychainError(write, "write");
             write->deleteLater();
             finish(message.isEmpty() ? key : QByteArray(), message);
         });
@@ -270,7 +280,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
                 remove->setKey(KeychainKey);
                 QObject::connect(remove, &QKeychain::Job::finished, remove,
                                  [remove, finish, createAndStore] {
-                    const auto message = remove->error() == QKeychain::NoError ? QString() : keychainError(remove);
+                    const auto message = remove->error() == QKeychain::NoError ? QString() : keychainError(remove, "repair");
                     remove->deleteLater();
                     if (!message.isEmpty()) {
                         finish({}, message);
@@ -282,7 +292,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
                 return;
             }
 #endif
-            const auto message = keychainError(read);
+            const auto message = keychainError(read, "read");
             read->deleteLater();
             finish({}, message);
             return;
