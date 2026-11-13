@@ -220,7 +220,14 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController 
     if (jid.isEmpty() || keyResolutionInProgress_)
         return;
     auto config = readConfig();
-    config.jid  = jid;
+    if (config.jid != jid) {
+        const auto message = tr("Apply the XMPP account settings before synchronizing its key.");
+        if (settings)
+            settings->setKeyState({}, message);
+        else
+            reportError(message);
+        return;
+    }
     QString configurationError;
     if (!connectionConfigIsValid(config, &configurationError)) {
         if (settings)
