@@ -18,15 +18,12 @@ namespace AnyKeep::LocalKeyRecoveryPolicy {
 
 inline QString protectedCategory(const QString &path)
 {
-    if (path.startsWith(QStringLiteral("drafts/"))
-        || path.startsWith(QStringLiteral("drafts-unrecoverable-")))
+    if (path.startsWith(QStringLiteral("drafts/")))
         return QStringLiteral("drafts");
     if (path.startsWith(QStringLiteral("media/")))
         return QStringLiteral("media");
     if (path.startsWith(QStringLiteral("remote-cache/")))
         return QStringLiteral("remote-cache");
-    if (path.startsWith(QStringLiteral("xmpp-omemo-")))
-        return QStringLiteral("xmpp-omemo");
     if (path.startsWith(QStringLiteral("folder-catalog.bin")))
         return QStringLiteral("folder-catalog");
     if (path.startsWith(QStringLiteral("note-rules.bin")))
