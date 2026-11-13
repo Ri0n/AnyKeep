@@ -64,9 +64,10 @@ inline bool quarantineProtectedFiles(const QString &rootPath, QString *backupPat
         error->clear();
     const QDir root(rootPath);
     if (!root.exists()) {
-        if (error)
-            *error = QStringLiteral("Local application data directory is missing");
-        return false;
+        // An app-data directory can be absent on the very first launch even
+        // when QtKeychain settings were restored elsewhere. Nothing needs
+        // staging in this case.
+        return true;
     }
 
     QStringList toMove;
