@@ -539,11 +539,21 @@ XmppConfig XmppStorage::readConfig() const
                 if (!XmppOmemoStateReset::stage(config.omemoStatePath, &stagedPath, &stageError)) {
                     qWarning().noquote() << "Could not stage old local OMEMO state:" << stageError;
                 } else {
-                    const auto replacement = SecureEnvelope::generateMasterKey();
-                    const auto writeError  = replacement.size() == SecureEnvelope::MasterKeySize
-                        ? SecureKeyStore::write(omemoKeyName, replacement)
-                        : CryptoError { CryptoError::Unavailable, QStringLiteral("Could not generate OMEMO state key") };
-                    if (!writeError) {
+                    // A stale Android Keystore entry must be deleted before
+                    // rewriting: getEntry() may fail even when containsAlias()
+                    // still reports an alias. Never apply this to the XMPP
+                    // note-storage key, whose value must be recovered.
+                    CryptoError resetError;
+                    if (missingPrivateKey)
+                        resetError = SecureKeyStore::remove(omemoKeyName);
+                    QByteArray replacement;
+                    if (!resetError)
+                        replacement = SecureEnvelope::generateMasterKey();
+                    if (!resetError && replacement.size() != SecureEnvelope::MasterKeySize)
+                        resetError = { CryptoError::Unavailable, QStringLiteral("Could not generate OMEMO state key") };
+                    if (!resetError)
+                        resetError = SecureKeyStore::write(omemoKeyName, replacement);
+                    if (!resetError) {
                         config.omemoStateKey = replacement;
                         if (!XmppOmemoStateReset::discard(stagedPath))
                             qWarning() << "Could not remove temporary unreadable OMEMO state";
@@ -552,7 +562,7 @@ XmppConfig XmppStorage::readConfig() const
                     } else {
                         if (!XmppOmemoStateReset::restore(config.omemoStatePath, stagedPath))
                             qWarning() << "Could not restore staged OMEMO state after failed key reset";
-                        qWarning().noquote() << "Could not initialize the local OMEMO state key:" << writeError.message;
+                        qWarning().noquote() << "Could not initialize the local OMEMO state key:" << resetError.message;
                     }
                 }
             } else {
