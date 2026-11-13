@@ -42,10 +42,10 @@ namespace {
 #ifdef Q_OS_ANDROID
     // QtKeychain may restore ciphertext without its hardware-backed key.
     // Recover only when no local content encrypted by this master key exists.
-    bool canReplaceMissingAndroidKey(QKeychain::Job *job, bool *protectedDataPresent = nullptr)
+    bool canReplaceMissingAndroidKey(QKeychain::Job *job, QString *protectedCategory = nullptr)
     {
-        if (protectedDataPresent)
-            *protectedDataPresent = false;
+        if (protectedCategory)
+            protectedCategory->clear();
         if (job->error() != QKeychain::AccessDenied
             || !job->errorString().contains(QStringLiteral("retrieve private key from keystore"),
                                             Qt::CaseInsensitive))
@@ -54,13 +54,13 @@ namespace {
         const QFileInfo root(Utils::anykeepDataDir());
         if (!root.isDir() || !root.isReadable())
             return false;
-        QString protectedCategory;
-        if (LocalKeyRecoveryPolicy::containsProtectedFiles(root.absoluteFilePath(), &protectedCategory)) {
+        QString category;
+        if (LocalKeyRecoveryPolicy::containsProtectedFiles(root.absoluteFilePath(), &category)) {
             // Never silently orphan an existing encrypted draft, catalog,
             // media blob or remote cache. Only log the category, not filenames.
-            if (protectedDataPresent)
-                *protectedDataPresent = true;
-            qWarning() << "Android local key recovery blocked by protected data in" << protectedCategory;
+            if (protectedCategory)
+                *protectedCategory = category;
+            qWarning() << "Android local key recovery blocked by protected data in" << category;
             return false;
         }
         return true;
@@ -131,9 +131,11 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
     }
     if (read.error() != QKeychain::EntryNotFound) {
 #ifdef Q_OS_ANDROID
-        bool protectedDataPresent = false;
-        if (!canReplaceMissingAndroidKey(&read, &protectedDataPresent)) {
-            errorText = keychainError(&read, protectedDataPresent ? "read:protected-data" : "read");
+        QString protectedCategory;
+        if (!canReplaceMissingAndroidKey(&read, &protectedCategory)) {
+            errorText = keychainError(&read, protectedCategory.isEmpty() ? "read" : "read:protected-data");
+            if (!protectedCategory.isEmpty())
+                errorText += QStringLiteral(" (") + protectedCategory + QLatin1Char(')');
             return {};
         }
         // Do not change an existing key on an ordinary access failure. This
@@ -264,8 +266,8 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
         }
         if (error != QKeychain::EntryNotFound) {
 #ifdef Q_OS_ANDROID
-            bool protectedDataPresent = false;
-            if (canReplaceMissingAndroidKey(read, &protectedDataPresent)) {
+            QString protectedCategory;
+            if (canReplaceMissingAndroidKey(read, &protectedCategory)) {
                 read->deleteLater();
                 auto *remove = new QKeychain::DeletePasswordJob(KeychainService, app);
                 remove->setAutoDelete(false);
@@ -286,7 +288,9 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
             }
 #endif
 #ifdef Q_OS_ANDROID
-            const auto message = keychainError(read, protectedDataPresent ? "read:protected-data" : "read");
+            auto message = keychainError(read, protectedCategory.isEmpty() ? "read" : "read:protected-data");
+            if (!protectedCategory.isEmpty())
+                message += QStringLiteral(" (") + protectedCategory + QLatin1Char(')');
 #else
             const auto message = keychainError(read, "read");
 #endif
