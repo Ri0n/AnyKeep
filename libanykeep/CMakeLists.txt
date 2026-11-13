@@ -20,6 +20,7 @@ file(GLOB libanykeep_HDRS CONFIGURE_DEPENDS "./*.h")
 file(GLOB libanykeep_UIS CONFIGURE_DEPENDS "./*.ui")
 set(libanykeep_PRIVATE_HDRS
     "${CMAKE_CURRENT_SOURCE_DIR}/notedocumenthistory.h" "${CMAKE_CURRENT_SOURCE_DIR}/ptffolderindex.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/localkeyrecoverypolicy.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/storeupdatebackend_win.h" "${CMAKE_CURRENT_SOURCE_DIR}/updatecontroller.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/updatesessionmanager.h")
 list(APPEND libanykeep_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/iconutils.cpp")
@@ -27,6 +28,7 @@ list(APPEND libanykeep_HDRS "${CMAKE_CURRENT_SOURCE_DIR}/iconutils.h")
 list(REMOVE_DUPLICATES libanykeep_SRCS)
 list(REMOVE_DUPLICATES libanykeep_HDRS)
 list(FILTER libanykeep_HDRS EXCLUDE REGEX "/notedocumenthistory\\.h$")
+list(FILTER libanykeep_HDRS EXCLUDE REGEX "/localkeyrecoverypolicy\\.h$")
 list(FILTER libanykeep_HDRS EXCLUDE REGEX "/ptffolderindex\\.h$")
 list(FILTER libanykeep_HDRS EXCLUDE REGEX "/storeupdatebackend_win\\.h$")
 list(FILTER libanykeep_HDRS EXCLUDE REGEX "/updatecontroller\\.h$")
