@@ -117,6 +117,13 @@ inline bool quarantineProtectedFiles(const QString &rootPath, QString *backupPat
     return true;
 }
 
+// A completed reset makes staged ciphertext undecipherable by design:
+// no private key exists to recover it. Remove the temporary rollback area.
+inline bool discardStagedFiles(const QString &stagedPath)
+{
+    return stagedPath.isEmpty() || QDir(stagedPath).removeRecursively();
+}
+
 inline bool restoreQuarantinedFiles(const QString &rootPath, const QString &backupPath)
 {
     if (backupPath.isEmpty())
