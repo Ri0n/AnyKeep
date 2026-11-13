@@ -30,6 +30,10 @@ private slots:
         QVERIFY(touch(dir.filePath(QStringLiteral("ptf/.anykeep-folders.json"))));
         QVERIFY(touch(dir.filePath(QStringLiteral("app-state/qt-settings.ini"))));
         QVERIFY(touch(dir.filePath(QStringLiteral("other-plugin/runtime-state.json"))));
+        // Different encryption domains and previously quarantined drafts must
+        // not be discarded by a reset of this local master key.
+        QVERIFY(touch(dir.filePath(QStringLiteral("xmpp-omemo-001.state"))));
+        QVERIFY(touch(dir.filePath(QStringLiteral("drafts-unrecoverable-2026/123.draft"))));
         QVERIFY(!containsProtectedFiles(dir.path()));
     }
 
@@ -38,11 +42,8 @@ private slots:
         QTest::addColumn<QString>("relativePath");
         QTest::addColumn<QString>("category");
         QTest::newRow("draft") << "drafts/123.draft" << "drafts";
-        QTest::newRow("unrecoverable-draft") << "drafts-unrecoverable-2026/123.draft"
-                                            << "drafts";
         QTest::newRow("encrypted-media") << "media/0a/abcd" << "media";
         QTest::newRow("remote-cache") << "remote-cache/xmpppubsub/note.cache" << "remote-cache";
-        QTest::newRow("omemo") << "xmpp-omemo-001.state" << "xmpp-omemo";
         QTest::newRow("catalog") << "folder-catalog.bin" << "folder-catalog";
         QTest::newRow("catalog-backup") << "folder-catalog.bin.bak" << "folder-catalog";
         QTest::newRow("rules") << "note-rules.bin" << "note-rules";
@@ -71,6 +72,8 @@ private slots:
         QVERIFY(touch(dir.filePath(QStringLiteral("folder-catalog.bin"))));
         QVERIFY(touch(dir.filePath(QStringLiteral("media/aa/blob.blob"))));
         QVERIFY(touch(dir.filePath(QStringLiteral("other-plugin/config.json"))));
+        QVERIFY(touch(dir.filePath(QStringLiteral("xmpp-omemo-001.state"))));
+        QVERIFY(touch(dir.filePath(QStringLiteral("drafts-unrecoverable-2026/older.draft"))));
         QString backupPath, error;
         QVERIFY2(AnyKeep::LocalKeyRecoveryPolicy::quarantineProtectedFiles(dir.path(), &backupPath, &error),
                  qPrintable(error));
@@ -78,6 +81,8 @@ private slots:
         QVERIFY(!containsProtectedFiles(dir.path()));
         QVERIFY(QFile::exists(ptfPath));
         QVERIFY(QFile::exists(dir.filePath(QStringLiteral("other-plugin/config.json"))));
+        QVERIFY(QFile::exists(dir.filePath(QStringLiteral("xmpp-omemo-001.state"))));
+        QVERIFY(QFile::exists(dir.filePath(QStringLiteral("drafts-unrecoverable-2026/older.draft"))));
         QVERIFY(QFile::exists(backupPath + QStringLiteral("/drafts/123.draft")));
         QVERIFY(QFile::exists(backupPath + QStringLiteral("/folder-catalog.bin")));
         QVERIFY(QFile::exists(backupPath + QStringLiteral("/media/aa/blob.blob")));
