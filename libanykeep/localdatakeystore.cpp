@@ -12,6 +12,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QPointer>
+#include <QSettings>
 #include <QThread>
 
 #include <utility>
@@ -47,12 +48,19 @@ namespace {
         QDirIterator files(root.absoluteFilePath(), QDir::Files | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot,
                            QDirIterator::Subdirectories);
         const QDir dataDir(root.absoluteFilePath());
+        // Some Qt/Android configurations place QSettings inside AppDataLocation
+        // itself. The stale QtKeychain settings file is not encrypted user data
+        // that could be recovered by preserving the missing Keystore key.
+        const QString keychainSettingsPath = QSettings(KeychainService).fileName();
+        const QString appSettingsPath = QSettings().fileName();
         while (files.hasNext()) {
-            // PTF stores plaintext notes and sidecar metadata, none of which
-            // depend on this key. Keep them intact while repairing a fresh
-            // installation whose QtKeychain settings were restored alone.
-            if (!dataDir.relativeFilePath(files.next()).startsWith(QStringLiteral("ptf/")))
-                return false;
+            const auto path = files.next();
+            const auto relativePath = dataDir.relativeFilePath(path);
+            // Plain PTF notes and their metadata do not depend on the key.
+            if (relativePath.startsWith(QStringLiteral("ptf/")) || path == keychainSettingsPath
+                || path == appSettingsPath)
+                continue;
+            return false;
         }
         return true;
     }
