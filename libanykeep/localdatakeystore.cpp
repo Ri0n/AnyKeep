@@ -65,18 +65,18 @@ namespace {
 
     QString keychainError(QKeychain::Job *job, const char *operation = nullptr)
     {
-        const auto message = QCoreApplication::translate("LocalDataKeyStore", "Failed to access the secure keychain: %1")
-                                 .arg(job->errorString());
 #ifdef Q_OS_ANDROID
-        // The old QtKeychain Android implementation reports the same error
-        // for a stale read and for failure to fetch a newly generated RSA key.
-        // Keep the phase visible to distinguish the two on physical devices.
-        if (operation)
-            return message + QStringLiteral(" [") + QString::fromLatin1(operation) + QLatin1Char(']');
+        // Android users should never have to decipher Keystore internals.
+        // Keep the operation phase and technical error in logcat for diagnosis.
+        qWarning().noquote() << "Android local keychain" << (operation ? operation : "unknown") << ':'
+                             << job->errorString();
+        return QCoreApplication::translate("LocalDataKeyStore",
+                                           "Local note saving is unavailable. Previously saved notes have not been changed.");
 #else
         Q_UNUSED(operation);
+        return QCoreApplication::translate("LocalDataKeyStore", "Failed to access the secure keychain: %1")
+            .arg(job->errorString());
 #endif
-        return message;
     }
 
 #ifdef Q_OS_ANDROID
