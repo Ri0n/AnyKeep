@@ -11,6 +11,7 @@ public:
     static CryptoError           writePassword(const QString &service, const QString &keyName, const QString &password);
     static CryptoResult<QByteArray> read(const QString &keyName);
     static CryptoError              write(const QString &keyName, const QByteArray &key);
+    static CryptoError              remove(const QString &keyName);
     static CryptoResult<QByteArray> loadOrCreate(const QString &keyName);
 };
 
