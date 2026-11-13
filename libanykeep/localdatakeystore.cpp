@@ -200,6 +200,14 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
         return {};
 #endif
     }
+#ifdef Q_OS_ANDROID
+    if (read.error() == QKeychain::EntryNotFound) {
+        QString category;
+        if (LocalKeyRecoveryPolicy::containsProtectedFiles(Utils::anykeepDataDir(), &category)
+            && !preserveInaccessibleAndroidData(&preservedPath, &errorText))
+            return {};
+    }
+#endif
 
     const auto key = SecureEnvelope::generateMasterKey();
     if (key.size() != MasterKeySize) {
@@ -373,6 +381,18 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
             return;
         }
         read->deleteLater();
+#ifdef Q_OS_ANDROID
+        QString category;
+        if (LocalKeyRecoveryPolicy::containsProtectedFiles(Utils::anykeepDataDir(), &category)) {
+            QString preservedPath, error;
+            if (!preserveInaccessibleAndroidData(&preservedPath, &error)) {
+                finish({}, error);
+                return;
+            }
+            createAndStore(preservedPath);
+            return;
+        }
+#endif
         createAndStore({});
     });
     read->start();
