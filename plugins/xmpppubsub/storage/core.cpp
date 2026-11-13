@@ -219,10 +219,26 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController 
 {
     if (jid.isEmpty() || keyResolutionInProgress_)
         return;
-    keyResolutionInProgress_               = true;
-    auto config                            = readConfig();
-    config.jid                             = jid;
-    const auto                       epoch = configEpoch_;
+    auto config = readConfig();
+    config.jid  = jid;
+    QString configurationError;
+    if (!connectionConfigIsValid(config, &configurationError)) {
+        if (settings)
+            settings->setKeyState({}, configurationError);
+        else
+            reportError(configurationError);
+        return;
+    }
+    if (config.omemoStateKey.size() != SecureEnvelope::MasterKeySize) {
+        const auto message = tr("The local OMEMO key is unavailable. XMPP key synchronization cannot start.");
+        if (settings)
+            settings->setKeyState({}, message);
+        else
+            reportError(message);
+        return;
+    }
+    keyResolutionInProgress_        = true;
+    const auto                epoch = configEpoch_;
     QPointer<XmppSettingsController> settingsGuard(settings);
     QMetaObject::invokeMethod(backend_, [this, config, jid, settingsGuard, epoch]() {
         if (shuttingDown_ || epoch != configEpoch_) {
