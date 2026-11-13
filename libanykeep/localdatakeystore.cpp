@@ -4,6 +4,7 @@
 #include "utils.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
 #include <QEventLoop>
@@ -45,7 +46,15 @@ namespace {
             return false;
         QDirIterator files(root.absoluteFilePath(), QDir::Files | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot,
                            QDirIterator::Subdirectories);
-        return !files.hasNext();
+        const QDir dataDir(root.absoluteFilePath());
+        while (files.hasNext()) {
+            // PTF stores plaintext notes and sidecar metadata, none of which
+            // depend on this key. Keep them intact while repairing a fresh
+            // installation whose QtKeychain settings were restored alone.
+            if (!dataDir.relativeFilePath(files.next()).startsWith(QStringLiteral("ptf/")))
+                return false;
+        }
+        return true;
     }
 #endif
 
