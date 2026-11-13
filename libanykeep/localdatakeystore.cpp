@@ -1,8 +1,11 @@
 #include "localdatakeystore.h"
 
 #include "secureenvelope.h"
+#include "utils.h"
 
 #include <QCoreApplication>
+#include <QDirIterator>
+#include <QFileInfo>
 #include <QEventLoop>
 #include <QList>
 #include <QMutex>
@@ -24,6 +27,27 @@ namespace {
         return QCoreApplication::translate("LocalDataKeyStore", "Failed to access the secure keychain: %1")
             .arg(job->errorString());
     }
+
+#ifdef Q_OS_ANDROID
+    // QtKeychain persists the encrypted value in QSettings, but Android does
+    // not restore its hardware-backed private key along with a settings backup.
+    // Repair only a genuinely empty local installation: an existing draft,
+    // catalog, media blob or remote cache must never be orphaned silently.
+    bool canReplaceMissingAndroidKey(QKeychain::Job *job)
+    {
+        if (job->error() != QKeychain::AccessDenied
+            || !job->errorString().contains(QStringLiteral("retrieve private key from keystore"),
+                                            Qt::CaseInsensitive))
+            return false;
+
+        const QFileInfo root(Utils::anykeepDataDir());
+        if (!root.isDir() || !root.isReadable())
+            return false;
+        QDirIterator files(root.absoluteFilePath(), QDir::Files | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot,
+                           QDirIterator::Subdirectories);
+        return !files.hasNext();
+    }
+#endif
 
     struct PendingKeyCallback {
         QPointer<QObject> context;
@@ -88,8 +112,28 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
         return key.size() == MasterKeySize ? key : QByteArray();
     }
     if (read.error() != QKeychain::EntryNotFound) {
+#ifdef Q_OS_ANDROID
+        if (!canReplaceMissingAndroidKey(&read)) {
+            errorText = keychainError(&read);
+            return {};
+        }
+        // Do not change an existing key on an ordinary access failure. This
+        // narrowly handles a backed-up QSettings entry with no Keystore key.
+        QKeychain::DeletePasswordJob remove(KeychainService);
+        remove.setAutoDelete(false);
+        remove.setInsecureFallback(false);
+        remove.setKey(KeychainKey);
+        QObject::connect(&remove, &QKeychain::Job::finished, &loop, &QEventLoop::quit);
+        remove.start();
+        loop.exec();
+        if (remove.error() != QKeychain::NoError) {
+            errorText = keychainError(&remove);
+            return {};
+        }
+#else
         errorText = keychainError(&read);
         return {};
+#endif
     }
 
     const auto key = SecureEnvelope::generateMasterKey();
@@ -164,29 +208,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
         }
     };
 
-    auto *read = new QKeychain::ReadPasswordJob(KeychainService, app);
-    read->setAutoDelete(false);
-    read->setInsecureFallback(false);
-    read->setKey(KeychainKey);
-    QObject::connect(read, &QKeychain::Job::finished, read, [read, app, finish] {
-        const auto error = read->error();
-        if (error == QKeychain::NoError) {
-            auto key = read->binaryData();
-            read->deleteLater();
-            if (key.size() != MasterKeySize) {
-                finish({}, QCoreApplication::translate("LocalDataKeyStore", "The local data encryption key is invalid."));
-                return;
-            }
-            finish(std::move(key), {});
-            return;
-        }
-        if (error != QKeychain::EntryNotFound) {
-            const auto message = keychainError(read);
-            read->deleteLater();
-            finish({}, message);
-            return;
-        }
-        read->deleteLater();
+    const auto createAndStore = [app, finish] {
         const auto key = SecureEnvelope::generateMasterKey();
         if (key.size() != MasterKeySize) {
             finish({}, QCoreApplication::translate("LocalDataKeyStore", "A secure local data key could not be generated."));
@@ -203,6 +225,53 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
             finish(message.isEmpty() ? key : QByteArray(), message);
         });
         write->start();
+    };
+
+    auto *read = new QKeychain::ReadPasswordJob(KeychainService, app);
+    read->setAutoDelete(false);
+    read->setInsecureFallback(false);
+    read->setKey(KeychainKey);
+    QObject::connect(read, &QKeychain::Job::finished, read, [read, app, finish, createAndStore] {
+        const auto error = read->error();
+        if (error == QKeychain::NoError) {
+            auto key = read->binaryData();
+            read->deleteLater();
+            if (key.size() != MasterKeySize) {
+                finish({}, QCoreApplication::translate("LocalDataKeyStore", "The local data encryption key is invalid."));
+                return;
+            }
+            finish(std::move(key), {});
+            return;
+        }
+        if (error != QKeychain::EntryNotFound) {
+#ifdef Q_OS_ANDROID
+            if (canReplaceMissingAndroidKey(read)) {
+                read->deleteLater();
+                auto *remove = new QKeychain::DeletePasswordJob(KeychainService, app);
+                remove->setAutoDelete(false);
+                remove->setInsecureFallback(false);
+                remove->setKey(KeychainKey);
+                QObject::connect(remove, &QKeychain::Job::finished, remove,
+                                 [remove, finish, createAndStore] {
+                    const auto message = remove->error() == QKeychain::NoError ? QString() : keychainError(remove);
+                    remove->deleteLater();
+                    if (!message.isEmpty()) {
+                        finish({}, message);
+                        return;
+                    }
+                    createAndStore();
+                });
+                remove->start();
+                return;
+            }
+#endif
+            const auto message = keychainError(read);
+            read->deleteLater();
+            finish({}, message);
+            return;
+        }
+        read->deleteLater();
+        createAndStore();
     });
     read->start();
 }
