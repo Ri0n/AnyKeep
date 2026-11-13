@@ -89,6 +89,27 @@ private slots:
         QVERIFY(containsProtectedFiles(dir.path()));
     }
 
+    void successfulResetDiscardsOnlyStagedEncryptedState()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const auto notePath = dir.filePath(QStringLiteral("ptf/Saved.md"));
+        QVERIFY(touch(notePath));
+        QVERIFY(touch(dir.filePath(QStringLiteral("drafts/unsaved.draft"))));
+        QVERIFY(touch(dir.filePath(QStringLiteral("media/aa/attachment.blob"))));
+        QVERIFY(touch(dir.filePath(QStringLiteral("settings.json"))));
+        QString stagedPath, error;
+        QVERIFY2(AnyKeep::LocalKeyRecoveryPolicy::quarantineProtectedFiles(dir.path(), &stagedPath, &error),
+                 qPrintable(error));
+        QVERIFY(!stagedPath.isEmpty());
+        QVERIFY(AnyKeep::LocalKeyRecoveryPolicy::discardStagedFiles(stagedPath));
+        QVERIFY(!QFile::exists(stagedPath));
+        QVERIFY(QFile::exists(notePath));
+        QVERIFY(QFile::exists(dir.filePath(QStringLiteral("settings.json"))));
+        QVERIFY(!containsProtectedFiles(dir.path()));
+        QVERIFY(AnyKeep::LocalKeyRecoveryPolicy::discardStagedFiles({}));
+    }
+
     void quarantineLeavesOnlyPtfUntouched()
     {
         QTemporaryDir dir;
