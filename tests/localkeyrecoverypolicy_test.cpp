@@ -61,6 +61,46 @@ private slots:
         QCOMPARE(detectedCategory, category);
     }
 
+    void quarantinePreservesPtfAndCanRollback()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const auto ptfPath = dir.filePath(QStringLiteral("ptf/Hello.md"));
+        QVERIFY(touch(ptfPath));
+        QVERIFY(touch(dir.filePath(QStringLiteral("drafts/123.draft"))));
+        QVERIFY(touch(dir.filePath(QStringLiteral("folder-catalog.bin"))));
+        QVERIFY(touch(dir.filePath(QStringLiteral("media/aa/blob.blob"))));
+        QVERIFY(touch(dir.filePath(QStringLiteral("other-plugin/config.json"))));
+        QString backupPath, error;
+        QVERIFY2(AnyKeep::LocalKeyRecoveryPolicy::quarantineProtectedFiles(dir.path(), &backupPath, &error),
+                 qPrintable(error));
+        QVERIFY(!backupPath.isEmpty());
+        QVERIFY(!containsProtectedFiles(dir.path()));
+        QVERIFY(QFile::exists(ptfPath));
+        QVERIFY(QFile::exists(dir.filePath(QStringLiteral("other-plugin/config.json"))));
+        QVERIFY(QFile::exists(backupPath + QStringLiteral("/drafts/123.draft")));
+        QVERIFY(QFile::exists(backupPath + QStringLiteral("/folder-catalog.bin")));
+        QVERIFY(QFile::exists(backupPath + QStringLiteral("/media/aa/blob.blob")));
+
+        QVERIFY(AnyKeep::LocalKeyRecoveryPolicy::restoreQuarantinedFiles(dir.path(), backupPath));
+        QVERIFY(QFile::exists(ptfPath));
+        QVERIFY(QFile::exists(dir.filePath(QStringLiteral("drafts/123.draft"))));
+        QVERIFY(QFile::exists(dir.filePath(QStringLiteral("folder-catalog.bin"))));
+        QVERIFY(containsProtectedFiles(dir.path()));
+    }
+
+    void quarantineLeavesOnlyPtfUntouched()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QVERIFY(touch(dir.filePath(QStringLiteral("ptf/Hello.md"))));
+        QString backupPath, error;
+        QVERIFY(AnyKeep::LocalKeyRecoveryPolicy::quarantineProtectedFiles(dir.path(), &backupPath, &error));
+        QVERIFY(backupPath.isEmpty());
+        QVERIFY(error.isEmpty());
+        QVERIFY(QFile::exists(dir.filePath(QStringLiteral("ptf/Hello.md"))));
+    }
+
     void emptyProtectedDirectoriesAreNotData()
     {
         QTemporaryDir dir;
