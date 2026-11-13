@@ -52,8 +52,10 @@ inline bool containsProtectedFiles(const QString &rootPath, QString *category = 
     return false;
 }
 
-// Preserve potentially valuable old ciphertext instead of deleting it. The
-// caller must obtain explicit user confirmation before invoking this.
+// Preserve potentially valuable old ciphertext instead of deleting it.
+// In the verified missing-private-key case, we can safely start a new editing
+// session with a different keychain alias while retaining both the old
+// ciphertext and the old Keystore alias for possible future recovery.
 // Each move stays within AppDataLocation, on the same filesystem. Nothing
 // under ptf/ is ever touched.
 inline bool quarantineProtectedFiles(const QString &rootPath, QString *backupPath, QString *error)
