@@ -20,15 +20,24 @@ inline bool containsProtectedFiles(const QString &rootPath, QString *category = 
                        QDirIterator::Subdirectories);
     while (files.hasNext()) {
         const auto path = root.relativeFilePath(files.next());
+        QString kind;
         if (path.startsWith(QStringLiteral("drafts/"))
-            || path.startsWith(QStringLiteral("drafts-unrecoverable-"))
-            || path.startsWith(QStringLiteral("media/"))
-            || path.startsWith(QStringLiteral("remote-cache/"))
-            || path.startsWith(QStringLiteral("xmpp-omemo-"))
-            || path.startsWith(QStringLiteral("folder-catalog.bin"))
-            || path.startsWith(QStringLiteral("note-rules.bin"))) {
+            || path.startsWith(QStringLiteral("drafts-unrecoverable-")))
+            kind = QStringLiteral("drafts");
+        else if (path.startsWith(QStringLiteral("media/")))
+            kind = QStringLiteral("media");
+        else if (path.startsWith(QStringLiteral("remote-cache/")))
+            kind = QStringLiteral("remote-cache");
+        else if (path.startsWith(QStringLiteral("xmpp-omemo-")))
+            kind = QStringLiteral("xmpp-omemo");
+        else if (path.startsWith(QStringLiteral("folder-catalog.bin")))
+            kind = QStringLiteral("folder-catalog");
+        else if (path.startsWith(QStringLiteral("note-rules.bin")))
+            kind = QStringLiteral("note-rules");
+
+        if (!kind.isEmpty()) {
             if (category)
-                *category = path.section(QLatin1Char('/'), 0, 0);
+                *category = kind;
             return true;
         }
     }
