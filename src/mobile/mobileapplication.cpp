@@ -5,6 +5,7 @@
 #include "dialogservice.h"
 #include "draftmanager.h"
 #include "foldercatalogmanager.h"
+#include "localdatakeystore.h"
 #include "mediaplaybackcontroller.h"
 #include "mobilebundledplugins.h"
 #include "mobileeditorplatformbackend.h"
@@ -211,6 +212,16 @@ MobileApplication::MobileApplication(QObject *parent) :
     bundledPlugins_.initializeEnabledPlugins();
     speechController_->setEditor(workspace_->editor());
     refreshSpeechProvider();
+
+    // A restored Android backup may contain a draft encrypted with a key
+    // that AndroidKeyStore no longer holds. PTF remains the source of truth:
+    // allow editing with a fresh local key and warn only about potentially
+    // unsaved previous changes, never about implementation details.
+    if (LocalDataKeyStore::takeInaccessiblePreviousContentNotice()) {
+        dialogs_->inform(tr("Previous local changes unavailable"),
+                         tr("Some unsaved edits or local attachments could not be restored. "
+                            "Your saved notes are still available for editing."));
+    }
 }
 
 QAbstractItemModel *MobileApplication::notesModel() { return workspace_->recentNotesModel(); }

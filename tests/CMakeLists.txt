@@ -100,6 +100,9 @@ set_tests_properties(settingsqml_test PROPERTIES LABELS "settings;qml")
 
 add_anykeep_test(ptfstorage_test ptfstorage_test.cpp)
 
+add_anykeep_test(localkeyrecoverypolicy_test localkeyrecoverypolicy_test.cpp)
+set_tests_properties(localkeyrecoverypolicy_test PROPERTIES LABELS storage)
+
 add_anykeep_test(notesindex_test notesindex_test.cpp)
 
 add_anykeep_test(filedraftstore_test filedraftstore_test.cpp)

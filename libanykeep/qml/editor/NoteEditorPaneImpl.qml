@@ -32,6 +32,7 @@ Item {
     property bool alwaysOnTop: false
     property int autosaveInterval: 1000
     property bool autosaveEnabled: true
+    property string lastCheckpointFailure: ""
     property var saveHandler: null
     property var closeHandler: null
     property alias blockEditor: editorView
@@ -56,13 +57,23 @@ Item {
         editorView.flushPendingEditorChanges()
     }
 
+    function reportCheckpointFailure(message) {
+        const errorText = message && message.length > 0 ? String(message) : qsTr("Could not save note.")
+        if (root.lastCheckpointFailure === errorText)
+            return
+        root.lastCheckpointFailure = errorText
+        root.checkpointFailed(errorText)
+    }
+
     function checkpointEditor() {
         if (!root.editor)
             return true
         flushPendingEditorChanges()
         const saved = root.saveHandler ? root.saveHandler() : root.editor.save()
         if (!saved)
-            root.checkpointFailed(root.editor.errorString)
+            reportCheckpointFailure(root.editor.errorString)
+        else
+            root.lastCheckpointFailure = ""
         return saved
     }
 
@@ -71,7 +82,9 @@ Item {
         flushPendingEditorChanges()
         const closed = root.closeHandler ? root.closeHandler() : (root.editor ? root.editor.close() : true)
         if (!closed && root.editor)
-            root.checkpointFailed(root.editor.errorString)
+            reportCheckpointFailure(root.editor.errorString)
+        else if (closed)
+            root.lastCheckpointFailure = ""
         return closed
     }
 
