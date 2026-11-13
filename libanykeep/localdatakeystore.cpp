@@ -346,7 +346,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
     read->setAutoDelete(false);
     read->setInsecureFallback(false);
     read->setKey(oldAlias);
-    QObject::connect(read, &QKeychain::Job::finished, read, [read, app, finish, createAndStore] {
+    QObject::connect(read, &QKeychain::Job::finished, read, [read, finish, createAndStore, oldAlias] {
         const auto error = read->error();
         if (error == QKeychain::NoError) {
             auto key = read->binaryData();
