@@ -8,11 +8,11 @@
 #include <QDirIterator>
 #include <QFileInfo>
 #include <QEventLoop>
+#include <QDebug>
 #include <QList>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QPointer>
-#include <QSettings>
 #include <QThread>
 
 #include <utility>
@@ -41,10 +41,34 @@ namespace {
     }
 
 #ifdef Q_OS_ANDROID
-    // QtKeychain persists the encrypted value in QSettings, but Android does
-    // not restore its hardware-backed private key along with a settings backup.
-    // Repair only a genuinely empty local installation: an existing draft,
-    // catalog, media blob or remote cache must never be orphaned silently.
+    // Android backup may restore QtKeychain's encrypted QSettings value
+    // without the hardware-backed AndroidKeyStore key. The key may be reset
+    // automatically only if no payload encrypted with it is still present.
+    // Check the key-bearing storage locations rather than every file in the
+    // application directory: Qt, plugins and ordinary PTF storage also create
+    // non-secret files there.
+    bool containsKeyProtectedFiles(const QString &rootPath)
+    {
+        const QDir root(rootPath);
+        QDirIterator files(rootPath, QDir::Files | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot,
+                           QDirIterator::Subdirectories);
+        while (files.hasNext()) {
+            const auto relativePath = root.relativeFilePath(files.next());
+            if (relativePath.startsWith(QStringLiteral("drafts/"))
+                || relativePath.startsWith(QStringLiteral("drafts-unrecoverable-"))
+                || relativePath.startsWith(QStringLiteral("media/"))
+                || relativePath.startsWith(QStringLiteral("remote-cache/"))
+                || relativePath.startsWith(QStringLiteral("xmpp-omemo-"))
+                || relativePath.startsWith(QStringLiteral("folder-catalog.bin"))
+                || relativePath.startsWith(QStringLiteral("note-rules.bin"))) {
+                qWarning() << "Android local key recovery blocked by protected data in"
+                           << relativePath.section(QLatin1Char('/'), 0, 0);
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool canReplaceMissingAndroidKey(QKeychain::Job *job)
     {
         if (job->error() != QKeychain::AccessDenied
@@ -55,24 +79,7 @@ namespace {
         const QFileInfo root(Utils::anykeepDataDir());
         if (!root.isDir() || !root.isReadable())
             return false;
-        QDirIterator files(root.absoluteFilePath(), QDir::Files | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot,
-                           QDirIterator::Subdirectories);
-        const QDir dataDir(root.absoluteFilePath());
-        // Some Qt/Android configurations place QSettings inside AppDataLocation
-        // itself. The stale QtKeychain settings file is not encrypted user data
-        // that could be recovered by preserving the missing Keystore key.
-        const QString keychainSettingsPath = QSettings(KeychainService).fileName();
-        const QString appSettingsPath = QSettings().fileName();
-        while (files.hasNext()) {
-            const auto path = files.next();
-            const auto relativePath = dataDir.relativeFilePath(path);
-            // Plain PTF notes and their metadata do not depend on the key.
-            if (relativePath.startsWith(QStringLiteral("ptf/")) || path == keychainSettingsPath
-                || path == appSettingsPath)
-                continue;
-            return false;
-        }
-        return true;
+        return !containsKeyProtectedFiles(root.absoluteFilePath());
     }
 #endif
 
