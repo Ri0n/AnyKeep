@@ -35,7 +35,7 @@ namespace {
         if (operation)
             return message + QStringLiteral(" [") + QString::fromLatin1(operation) + QLatin1Char(']');
 #else
-        Q_UNUSED(operation)
+        Q_UNUSED(operation);
 #endif
         return message;
     }
