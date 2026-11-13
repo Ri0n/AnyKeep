@@ -115,7 +115,7 @@ namespace {
         state.cachedKey = key;
     }
 #ifdef Q_OS_ANDROID
-    void notePreservedDrafts(const QString &preservedPath)
+    void noteDiscardedDrafts(const QString &preservedPath)
     {
         if (preservedPath.isEmpty())
             return;
@@ -234,8 +234,8 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
     }
     cacheMasterKey(key);
 #ifdef Q_OS_ANDROID
-    notePreservedDrafts(preservedPath);
-    if (!preservedPath.isEmpty() && !QDir(preservedPath).removeRecursively())
+    noteDiscardedDrafts(preservedPath);
+    if (!preservedPath.isEmpty() && !LocalKeyRecoveryPolicy::discardStagedFiles(preservedPath))
         qWarning() << "Failed to clean up temporary unreadable Android encryption state";
 #endif
     return key;
@@ -314,8 +314,8 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
             write->deleteLater();
 #ifdef Q_OS_ANDROID
             if (message.isEmpty()) {
-                notePreservedDrafts(preservedPath);
-                if (!preservedPath.isEmpty() && !QDir(preservedPath).removeRecursively())
+                noteDiscardedDrafts(preservedPath);
+                if (!preservedPath.isEmpty() && !LocalKeyRecoveryPolicy::discardStagedFiles(preservedPath))
                     qWarning() << "Failed to clean up temporary unreadable Android encryption state";
             } else {
                 message += restoreAfterFailedRecovery(preservedPath);
