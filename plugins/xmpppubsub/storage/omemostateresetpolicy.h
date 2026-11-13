@@ -68,7 +68,10 @@ inline bool stage(const QString &statePath, QString *stagingPath, QString *error
             if (!QDir().rename(QDir(path).filePath(*it), root.filePath(*it)))
                 rolledBack = false;
         }
-        QDir(path).removeRecursively();
+        // On a partial rollback, keep any remaining staged files for manual
+        // recovery; deleting the staging directory would destroy the originals.
+        if (rolledBack)
+            QDir(path).removeRecursively();
         if (error)
             *error = rolledBack ? QStringLiteral("Could not stage inaccessible OMEMO state")
                                 : QStringLiteral("Could not restore OMEMO state after failed staging");
