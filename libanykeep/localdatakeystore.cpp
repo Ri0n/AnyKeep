@@ -14,7 +14,6 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QPointer>
-#include <QSettings>
 #include <QThread>
 
 #include <utility>
@@ -25,20 +24,6 @@ namespace AnyKeep {
 namespace {
     const QString KeychainService = QStringLiteral("com.github.ri0n.anykeep");
     const QString KeychainKey     = QStringLiteral("draft-store-master-key-v1");
-#ifdef Q_OS_ANDROID
-    const QString ActiveKeychainAliasSetting = QStringLiteral("security.local-data-keychain-alias");
-#endif
-
-    QString activeKeychainAlias()
-    {
-#ifdef Q_OS_ANDROID
-        const auto configured = QSettings().value(ActiveKeychainAliasSetting).toString();
-        return configured.startsWith(QStringLiteral("draft-store-master-key-v2:")) ? configured : KeychainKey;
-#else
-        return KeychainKey;
-#endif
-    }
-
     QString keychainError(QKeychain::Job *job, const char *operation = nullptr)
     {
 #ifdef Q_OS_ANDROID
@@ -156,7 +141,7 @@ QByteArray LocalDataKeyStore::loadOrCreateMasterKey(QString *error)
         return {};
     }
 
-    const auto oldAlias = activeKeychainAlias();
+    const auto oldAlias = KeychainKey;
     QKeychain::ReadPasswordJob read(KeychainService);
     read.setAutoDelete(false);
     read.setInsecureFallback(false);
@@ -292,7 +277,7 @@ void LocalDataKeyStore::loadOrCreateMasterKeyAsync(QObject *context, AsyncKeyCal
         }
     };
 
-    const auto oldAlias = activeKeychainAlias();
+    const auto oldAlias = KeychainKey;
     const auto createAndStore = [app, finish, oldAlias](const QString &preservedPath) {
         const auto key = SecureEnvelope::generateMasterKey();
         if (key.size() != MasterKeySize) {
