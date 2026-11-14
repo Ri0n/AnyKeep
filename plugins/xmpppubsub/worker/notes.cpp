@@ -105,6 +105,13 @@ void XmppWorker::trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallb
     trustOwnOmemoDevicesTask(std::move(keyIds)).then(std::move(callback));
 }
 
+void XmppWorker::onlineResourcesAsync(ResourcesCallback callback)
+{
+    onlinePrivateNotesResourcesTask().then([callback = std::move(callback)](auto result) mutable {
+        callback(std::move(result.first), std::move(result.second));
+    });
+}
+
 void XmppWorker::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress)
 {
     auditStorageKeysTask(std::move(progress)).then(std::move(callback));
