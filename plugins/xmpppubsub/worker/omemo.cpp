@@ -432,9 +432,10 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(
         if (progress)
             progress(
                 { tr("Waiting for device %1 of %2 to return its key…").arg(resourceNumber).arg(resources.size()) });
+        // Do not repeat an unanswered key request while the same XMPP
+        // resource remains online. Retry only after an offline->online
+        // transition or an explicit action in the recovery wizard.
         auto result = co_await requestStorageKeyTask(resource);
-        if (!result.ok && result.retryable())
-            result = co_await requestStorageKeyTask(resource);
         if (!result.ok || result.candidates.isEmpty()) {
             output.rejectedResources.append(result.rejectedResources);
             errors.append(QStringLiteral("%1: %2").arg(resource, result.error));
