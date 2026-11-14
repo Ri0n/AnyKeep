@@ -1,4 +1,5 @@
 #include "videothumbnailgenerator.h"
+#include "foldercatalog.h"
 #include "xmppbackend.h"
 #include "xmppnotecodec.h"
 
@@ -116,6 +117,8 @@ class XmppNoteCodecTest : public QObject {
 
 private slots:
     void roundTrip();
+    void systemRecycleBinMarkerRoundTrip();
+    void rejectsMalformedSystemFolderMarker();
     void favoriteRoundTripUsesOptionalEncryptedExtension();
     void mediaRoundTrip();
     void encryptedVideoThumbnailRoundTrip();
@@ -148,6 +151,76 @@ private slots:
     void rekeysOnlyOtherKeyRecords_data();
     void rekeysOnlyOtherKeyRecords();
 };
+
+void XmppNoteCodecTest::systemRecycleBinMarkerRoundTrip()
+{
+    auto source = note();
+    source.folderPath = { QStringLiteral("Localized trash name") };
+    source.systemFolderId = FolderCatalog::recycleBinId();
+    const auto key = masterKey();
+    const auto encoded = XmppNoteCodec::encodeIndex(source, key, QStringLiteral("index"));
+    QVERIFY2(encoded, qPrintable(encoded.error.message));
+    const auto plain = openedPlaintext(encoded.value, key, XmppEncryptedPayload::Index);
+    QVERIFY(plain.contains(XmppNoteCodec::systemFolderNamespace.toUtf8()));
+    QVERIFY(plain.contains(FolderCatalog::recycleBinId().toString(QUuid::WithoutBraces).toUtf8()));
+
+    const auto decoded = XmppNoteCodec::decodeIndex(encoded.value, key, QStringLiteral("index"));
+    QVERIFY2(decoded, qPrintable(decoded.error.message));
+    QCOMPARE(decoded.value.systemFolderId, FolderCatalog::recycleBinId());
+    QCOMPARE(decoded.value.folderPath, source.folderPath);
+
+    // An index-only move out of the bin must not keep stale system identity.
+    auto moved = decoded.value;
+    moved.systemFolderId = {};
+    moved.folderPath = { QStringLiteral("Projects") };
+    const auto movedEncoded = XmppNoteCodec::encodeIndex(moved, key, QStringLiteral("index"));
+    QVERIFY2(movedEncoded, qPrintable(movedEncoded.error.message));
+    const auto movedDecoded = XmppNoteCodec::decodeIndex(movedEncoded.value, key, QStringLiteral("index"));
+    QVERIFY2(movedDecoded, qPrintable(movedDecoded.error.message));
+    QVERIFY(movedDecoded.value.systemFolderId.isNull());
+    QCOMPARE(movedDecoded.value.folderPath, moved.folderPath);
+    QVERIFY(!openedPlaintext(movedEncoded.value, key, XmppEncryptedPayload::Index)
+                 .contains(XmppNoteCodec::systemFolderNamespace.toUtf8()));
+}
+
+void XmppNoteCodecTest::rejectsMalformedSystemFolderMarker()
+{
+    const auto key = masterKey();
+    auto source = note();
+    source.systemFolderId = FolderCatalog::recycleBinId();
+    const auto encoded = XmppNoteCodec::encodeIndex(source, key, QStringLiteral("index"));
+    QVERIFY2(encoded, qPrintable(encoded.error.message));
+
+    const auto duplicate = mutatePlaintext(encoded.value, key, XmppEncryptedPayload::Index,
+                                           [](QDomDocument &document) {
+        const auto content = directChild(document.documentElement(), QStringLiteral("content"));
+        auto index = directChild(content, QStringLiteral("index"));
+        const auto marker = directChild(index, QStringLiteral("system-folder"),
+                                        XmppNoteCodec::systemFolderNamespace);
+        index.appendChild(marker.cloneNode(true));
+    });
+    const auto decodedDuplicate = XmppNoteCodec::decodeIndex(duplicate, key, QStringLiteral("index"));
+    QVERIFY(!decodedDuplicate);
+    QCOMPARE(decodedDuplicate.error.code, CryptoError::Corrupt);
+
+    const auto unknown = mutatePlaintext(encoded.value, key, XmppEncryptedPayload::Index,
+                                         [](QDomDocument &document) {
+        const auto content = directChild(document.documentElement(), QStringLiteral("content"));
+        auto index = directChild(content, QStringLiteral("index"));
+        auto marker = directChild(index, QStringLiteral("system-folder"),
+                                  XmppNoteCodec::systemFolderNamespace);
+        marker.setAttribute(QStringLiteral("id"), QStringLiteral("unknown"));
+    });
+    const auto decodedUnknown = XmppNoteCodec::decodeIndex(unknown, key, QStringLiteral("index"));
+    QVERIFY(!decodedUnknown);
+    QCOMPARE(decodedUnknown.error.code, CryptoError::Corrupt);
+
+    auto invalidOutbound = note();
+    invalidOutbound.systemFolderId = QUuid::createUuid();
+    const auto outbound = XmppNoteCodec::encodeIndex(invalidOutbound, key, QStringLiteral("index"));
+    QVERIFY(!outbound);
+    QCOMPARE(outbound.error.code, CryptoError::InvalidArgument);
+}
 
 void XmppNoteCodecTest::roundTrip()
 {
