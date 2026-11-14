@@ -447,6 +447,8 @@ Item {
                         embeddedEditor: root.embeddedEditor
                         currentStorageId: root.selectedStorageId
                         currentNoteId: root.selectedNoteId
+                        openingStorageId: root.workspace.loading ? root.selectedStorageId : ""
+                        openingNoteId: root.workspace.loading ? root.selectedNoteId : ""
                         viewObjectName: "recentNotes"
                         rowObjectNamePrefix: "recentDelegate-"
                         allowNoteDrag: true
@@ -487,6 +489,8 @@ Item {
                         defaultGroupKind: "storage"
                         currentStorageId: root.selectedStorageId
                         currentNoteId: root.selectedNoteId
+                        openingStorageId: root.workspace.loading ? root.selectedStorageId : ""
+                        openingNoteId: root.workspace.loading ? root.selectedNoteId : ""
                         selectedGroupId: root.selectedNoteId.length === 0
                                          ? root.selectedStorageId : ""
                         viewObjectName: "notesTree"
