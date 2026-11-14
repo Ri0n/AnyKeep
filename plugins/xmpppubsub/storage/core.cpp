@@ -647,7 +647,7 @@ bool XmppStorage::configIsValid(const XmppConfig &config, QString *error) const
 
 bool XmppStorage::init()
 {
-    if (errorState_) {
+    if (errorState_ && !isStorageKeyMismatch(errorStateMessage_)) {
         return false;
     }
 
@@ -666,7 +666,7 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
         job->cancel();
         return job;
     }
-    if (errorState_) {
+    if (errorState_ && !isStorageKeyMismatch(errorStateMessage_)) {
         job->fail({ StorageError::Unavailable, errorStateMessage_, false });
         return job;
     }
@@ -712,10 +712,18 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
         emit invalidated();
     const auto               config = config_;
     const auto               epoch  = configEpoch_;
+    QString noteKeyError;
+    bool encryptedStoreReady = configIsValid(config, &noteKeyError);
+    if (errorState_ && isStorageKeyMismatch(errorStateMessage_)) {
+        // A wrong remote-storage key must never terminate an authenticated
+        // XMPP session, including when that session needs to reconnect.
+        encryptedStoreReady = false;
+        noteKeyError = errorStateMessage_;
+    }
     QPointer<StorageInitJob> guard(job);
     QMetaObject::invokeMethod(
         backend_,
-        [this, guard, config, epoch]() {
+        [this, guard, config, epoch, encryptedStoreReady, noteKeyError = std::move(noteKeyError)]() mutable {
             if (!guard || guard->isFinished())
                 return;
             if (shuttingDown_ || epoch != configEpoch_) {
@@ -724,8 +732,6 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
                 return;
             }
             backend_->setConfig(config);
-            QString noteKeyError;
-            const bool encryptedStoreReady = configIsValid(config, &noteKeyError);
             const auto handleResult = [this, guard, epoch](XmppStatusResult result, bool authenticated,
                                                             QString missingKeyError) {
                 QMetaObject::invokeMethod(
