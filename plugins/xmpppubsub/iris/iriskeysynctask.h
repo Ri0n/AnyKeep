@@ -24,7 +24,6 @@ public:
 
     void replyWithKey(const QString &requestId, const QString &recoveryKey);
     void replyTrustApproved(const QString &requestId);
-    void rejectByUser(const QString &requestId);
     void reject(const QString &requestId);
 
 signals:
@@ -58,7 +57,6 @@ public:
     QString    recoveryKey() const { return recoveryKey_; }
     QByteArray responseSenderKey() const { return responseSenderKey_; }
     bool       trustApproved() const { return trustApproved_; }
-    bool       trustRejected() const { return trustRejected_; }
 
 protected:
     void onGo() override;
@@ -72,7 +70,6 @@ private:
     QString     recoveryKey_;
     QByteArray  responseSenderKey_;
     bool        trustApproved_ { false };
-    bool        trustRejected_ { false };
 };
 
 } // namespace AnyKeep
