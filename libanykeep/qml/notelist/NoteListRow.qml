@@ -43,6 +43,10 @@ SwipeDelegate {
     property double suppressClickUntil: 0
 
     readonly property bool noteRow: itemType === collection.noteItemType
+    readonly property bool openingNote: noteRow
+                                        && collection.openingStorageId === storageId
+                                        && collection.openingNoteId === noteId
+                                        && noteId.length > 0
     readonly property bool groupRow: !noteRow
     readonly property bool compactFlatNoteRow: noteRow && collection.flatNoteRows
     readonly property real leadingInset: compactFlatNoteRow ? 8 : 8 + itemDepth * 18
@@ -287,6 +291,7 @@ SwipeDelegate {
                 id: suppliedIcon
 
                 anchors.fill: parent
+                visible: !row.openingNote
                 source: row.iconSource
                 sourceSize.width: 20
                 sourceSize.height: 20
@@ -296,7 +301,7 @@ SwipeDelegate {
 
             App.ThemedIcon {
                 anchors.centerIn: parent
-                visible: suppliedIcon.status !== Image.Ready
+                visible: !row.openingNote && suppliedIcon.status !== Image.Ready
                 themeName: row.systemFolder ? "__bundled__" : collection.fallbackThemeName(row)
                 fallbackName: row.systemFolder ? "user-trash-full-symbolic.svg"
                                               : collection.fallbackIconName(row)
@@ -305,6 +310,15 @@ SwipeDelegate {
                                          ? row.palette.highlightedText
                                          : row.palette.text)
                 pixelSize: 20
+            }
+
+            BusyIndicator {
+                anchors.centerIn: parent
+                width: 24
+                height: 24
+                visible: row.openingNote
+                running: visible
+                Accessible.name: qsTr("Opening note")
             }
 
             // Keep the tree control discoverable without reserving a whole
