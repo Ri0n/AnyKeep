@@ -176,6 +176,7 @@ private:
     QString                   deviceStatus_;
     QStringList               onlineResources_;
     QString                   presenceStatus_;
+    QSet<QString>             rejectedResources_;
     QString                   keyStatus_;
     QString                   summary_;
     QString                   resultText_;
