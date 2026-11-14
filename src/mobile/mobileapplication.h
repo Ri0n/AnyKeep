@@ -98,6 +98,7 @@ public:
     Q_INVOKABLE bool     openDraft(const QString &draftId);
     Q_INVOKABLE bool     discardDraft(const QString &draftId);
     Q_INVOKABLE bool     setPluginEnabled(int row, bool enabled);
+    Q_INVOKABLE bool     disableXmppStorage();
     Q_INVOKABLE bool     moveStorage(int sourceRow, int destinationRow);
     Q_INVOKABLE QUrl     pluginSettingsComponent(const QString &pluginId) const;
     Q_INVOKABLE QObject *createPluginSettingsController(const QString &pluginId, QObject *owner);
