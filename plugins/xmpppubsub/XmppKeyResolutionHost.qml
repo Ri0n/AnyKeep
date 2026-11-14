@@ -350,9 +350,7 @@ Item {
                             delegate: Label {
                                 required property string modelData
                                 Layout.fillWidth: true
-                                text: root.controller.refusedResources.indexOf(modelData) >= 0
-                                      ? qsTr("%1 — explicitly declined trust").arg(modelData)
-                                      : qsTr("%1 — online").arg(modelData)
+                                text: qsTr("%1 — online").arg(modelData)
                                 wrapMode: Text.WordWrap
                                 color: palette.placeholderText
                             }
