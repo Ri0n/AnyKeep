@@ -3338,8 +3338,6 @@ void IrisXmppBackend::requestStorageKeyFromResourceAsync(QString fullJid, AuditC
         [this, target, callback = std::move(callback)](IrisKeySyncRequestTask *trustTask) mutable {
             if (!trustTask || !trustTask->success() || !trustTask->trustApproved()) {
                 XmppKeyAuditResult output;
-                if (trustTask && trustTask->trustRejected())
-                    output.rejectedResources.append(target.full());
                 output.error     = QStringLiteral("%1: OMEMO trust bootstrap failed: %2")
                                        .arg(target.full(), firstTaskError(trustTask));
                 output.errorKind = XmppErrorKind::Security;
@@ -3355,8 +3353,6 @@ void IrisXmppBackend::requestStorageKeyFromResourceAsync(QString fullJid, AuditC
                 [this, target, callback = std::move(callback)](IrisKeySyncRequestTask *request) mutable {
                     XmppKeyAuditResult output;
                     if (!request || !request->success()) {
-                        if (request && request->trustRejected())
-                            output.rejectedResources.append(target.full());
                         output.error     = QStringLiteral("%1: %2").arg(target.full(), firstTaskError(request));
                         output.errorKind = XmppErrorKind::Security;
                         callback(std::move(output));
@@ -3539,7 +3535,6 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgress
                         } else if (!remote.error.isEmpty()) {
                             errors->append(remote.error);
                         }
-                        output->rejectedResources.append(remote.rejectedResources);
                         if (progress)
                             progress({ (remote.ok && !remote.candidates.isEmpty()
                                             ? tr("Received a key from device %1 of %2")
@@ -4051,7 +4046,7 @@ void IrisXmppBackend::rejectKeySyncRequest(QString requestId)
 {
     pendingInboundKeyRequests_.remove(requestId);
     if (keySyncTask_)
-        keySyncTask_->rejectByUser(requestId);
+        keySyncTask_->reject(requestId);
 }
 
 } // namespace AnyKeep
