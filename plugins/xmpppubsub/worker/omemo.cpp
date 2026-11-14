@@ -345,6 +345,12 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::requestStorageKeyTask(QString resour
         output.errorKind = XmppErrorKind::Security;
         co_return output;
     }
+    if (XmppKeySyncExtension::isTrustRejected(*plain, requestId)) {
+        output.rejectedResources.append(resource);
+        output.error = QStringLiteral("The other device explicitly declined to share its key");
+        output.errorKind = XmppErrorKind::Security;
+        co_return output;
+    }
     auto key = SecureEnvelope::decodeRecoveryKey(XmppKeySyncExtension::responseRecoveryKey(*plain, requestId),
                                                  KeyDerivationProfile::PrivateNotes);
     if (!key) {
