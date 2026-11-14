@@ -40,7 +40,17 @@ FolderCatalogError FolderCatalog::reconcileProviderFolderPaths(const QString    
         normalizedAssignments.append(std::move(normalized));
     }
 
-    auto       candidate = snapshot_;
+    auto candidate = snapshot_;
+    // The provider serializes the Recycle Bin as a plain folder path, not its
+    // UUID. Import it under the canonical system identity from the outset,
+    // and migrate catalogs created by older clients before resolving hints.
+    for (const auto &incoming : normalizedAssignments) {
+        if (!incoming.path.isEmpty()
+            && normalizedName(incoming.path.constFirst()) == QStringLiteral("recycle bin")) {
+            ensureRecycleBin(&candidate);
+            break;
+        }
+    }
     const auto hintIndex = [&candidate](const QString &providerId, const QStringList &path) {
         const auto key = FolderCatalog::pathKey(providerId, path);
         for (int index = 0; index < candidate.pathHints.size(); ++index) {
