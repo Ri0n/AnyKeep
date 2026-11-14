@@ -224,6 +224,7 @@ bool IrisKeySyncRequestTask::take(const QDomElement &stanza)
         return true;
     }
     const auto type = payload.value(QStringLiteral("type")).toString();
+    trustRejected_ = type == QStringLiteral("trust-rejected");
     if (type_ == RequestType::TrustBootstrap) {
         trustApproved_ = type == QStringLiteral("trust-approved");
         if (!trustApproved_) {
