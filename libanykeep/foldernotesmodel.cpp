@@ -324,14 +324,14 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
     const QString searchText = searchModel_ ? searchModel_->searchText().trimmed() : QString();
     const bool    searchBody = searchModel_ && searchModel_->searchInBody();
     for (const auto &draft : pending) {
-        // A permanent-delete root is not an editable draft and must never
-        // reappear in either the Drafts section or the Recycle Bin.
-        if (draft.state == DraftRecord::Deleting)
-            continue;
         if (!draft.remoteNoteId.isEmpty())
             pendingRemoteNotes.insert(draft.storageId + QChar(0x1f) + draft.remoteNoteId);
         if (!draft.removeSourceStorageId.isEmpty() && !draft.removeSourceNoteId.isEmpty())
             pendingRemoteNotes.insert(draft.removeSourceStorageId + QChar(0x1f) + draft.removeSourceNoteId);
+        // Keep persisted objects hidden during permanent deletion, but do
+        // not present the deletion transaction itself as an editable draft.
+        if (draft.state == DraftRecord::Deleting)
+            continue;
 
         QString title = NoteTitleResolver::displayTitle(draft.title, draft.body, draft.format);
         if (title.isEmpty())
