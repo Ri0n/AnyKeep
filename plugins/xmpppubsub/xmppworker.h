@@ -112,7 +112,8 @@ private:
     QCoro::Task<XmppStatusResult>                          trustOwnOmemoDevicesTask(QList<QByteArray> keyIds);
     QCoro::Task<std::pair<QStringList, QString>>           onlinePrivateNotesResourcesTask();
     QCoro::Task<XmppKeyAuditResult>                        requestStorageKeyTask(QString resource);
-    QCoro::Task<XmppKeyAuditResult>                        auditStorageKeysTask(XmppProgressCallback progress);
+    QCoro::Task<XmppKeyAuditResult>                        auditStorageKeysTask(
+        XmppProgressCallback progress, std::optional<QStringList> onlyResources);
     QCoro::Task<XmppRekeyResult>   rekeyStorageTask(QList<QByteArray> keys, QByteArray canonicalKey,
                                                     XmppProgressCallback progress);
     QCoro::Task<XmppCleanupResult> scanObsoleteItemsTask();
