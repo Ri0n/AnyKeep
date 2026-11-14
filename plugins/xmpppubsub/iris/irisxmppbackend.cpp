@@ -3536,6 +3536,7 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgress
                         } else if (!remote.error.isEmpty()) {
                             errors->append(remote.error);
                         }
+                        output->rejectedResources.append(remote.rejectedResources);
                         if (progress)
                             progress({ (remote.ok && !remote.candidates.isEmpty()
                                             ? tr("Received a key from device %1 of %2")
