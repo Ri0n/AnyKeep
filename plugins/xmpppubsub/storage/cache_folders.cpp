@@ -2,6 +2,7 @@
 
 #include "private.h"
 
+#include "draftmanager.h"
 #include "fileremotecachestore.h"
 #include "foldercatalogmanager.h"
 #include "localdatakeystore.h"
@@ -224,8 +225,21 @@ void XmppStorage::enqueueFolderPathUpdates()
         return;
     }
 
+    // A durable Publish draft is the authoritative writer for its remote
+    // index item, including its folder path. Do not send a competing index-only
+    // update from the catalog synchronizer while that draft is pending.
+    QSet<QString> pendingDraftNotes;
+    for (const auto &draft : DraftManager::instance()->pendingDrafts()) {
+        if (draft.operation == DraftRecord::Publish && draft.storageId == systemName()
+            && !draft.remoteNoteId.isEmpty()) {
+            pendingDraftNotes.insert(draft.remoteNoteId);
+        }
+    }
+
     const auto &catalog = folderCatalogManager_->catalog();
     for (const auto &cached : std::as_const(cache_)) {
+        if (pendingDraftNotes.contains(cached.id()))
+            continue;
         if (cached.isNull() || cached.id().isEmpty() || folderPathUpdateInFlight_.contains(cached.id()))
             continue;
 
@@ -264,6 +278,11 @@ void XmppStorage::publishNextFolderPathUpdate()
 
         const auto cached = cache_.value(noteId);
         if (cached.isNull())
+            continue;
+        // The draft may have appeared after this item was enqueued.
+        // Drop this stale queue entry; a successful draft publication will
+        // re-evaluate the folder projection from the storage cache.
+        if (DraftManager::instance()->pendingDraftForNote(systemName(), noteId))
             continue;
 
         Note desired = cached;
