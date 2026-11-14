@@ -402,9 +402,18 @@ Item {
                             Button {
                                 objectName: "xmppRecoveryContinueWithoutXmppButton"
                                 Layout.fillWidth: true
-                                text: qsTr("Continue without XMPP notes")
+                                text: root.hostItem && root.hostItem.window
+                                      && typeof root.hostItem.window.disableXmppStorageAfterRecovery === "function"
+                                      ? qsTr("Disable XMPP storage and continue")
+                                      : qsTr("Close setup without changing XMPP")
                                 enabled: !root.controller.busy
-                                onClicked: root.controller.cancel()
+                                onClicked: {
+                                    const hostWindow = root.hostItem ? root.hostItem.window : null;
+                                    const disable = hostWindow && typeof hostWindow.disableXmppStorageAfterRecovery === "function";
+                                    if (disable)
+                                        hostWindow.disableXmppStorageAfterRecovery();
+                                    root.controller.cancel();
+                                }
                             }
                         }
 
