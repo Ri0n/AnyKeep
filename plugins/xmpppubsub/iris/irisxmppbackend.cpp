@@ -3408,6 +3408,7 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgress
             progress({ tr("Discovering online AnyKeep devices…") });
         onlinePrivateNotesResourcesAsync([this, output, callback = std::move(callback),
                                           progress](QStringList resources, QString discoveryError) mutable {
+            output->onlineResources = resources;
             auto errors = std::make_shared<QStringList>();
             if (!discoveryError.isEmpty())
                 errors->append(discoveryError);
