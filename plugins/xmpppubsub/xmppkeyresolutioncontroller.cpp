@@ -319,6 +319,13 @@ void XmppKeyResolutionController::selectKey(int row)
     emit navigationChanged();
 }
 
+void XmppKeyResolutionController::checkAgain()
+{
+    if (completed_ || busy_ || !waitingForDevices_ || currentPage_ != DevicesPage)
+        return;
+    requestKeyAudit();
+}
+
 void XmppKeyResolutionController::retryKeySearch()
 {
     if (busy_ || completed_ || currentPage_ != KeysPage)
@@ -369,6 +376,7 @@ void XmppKeyResolutionController::startFresh()
     if (!canStartFresh())
         return;
     const bool fromWelcome = currentPage_ == ProblemPage;
+    setWaitingForDevices(false);
     freshStartFromWelcome_ = fromWelcome;
     freshStart_            = true;
 
