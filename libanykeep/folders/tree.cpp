@@ -210,25 +210,8 @@ FolderCatalogResult<DeletedFolderBranch> FolderCatalog::trashFolderBranch(const 
     auto       candidate = snapshot_;
     const auto now       = currentTime();
     const auto recycleId = recycleBinId();
-    if (!branch.assignments.isEmpty()) {
-        auto recyclePos = -1;
-        for (int index = 0; index < candidate.folders.size(); ++index) {
-            if (candidate.folders.at(index).id == recycleId) {
-                recyclePos = index;
-                break;
-            }
-        }
-        if (recyclePos < 0) {
-            FolderRecord recycle;
-            recycle.id         = recycleId;
-            recycle.name       = QStringLiteral("Recycle Bin");
-            recycle.sortOrder  = std::numeric_limits<qint64>::max() / 4;
-            recycle.archived   = true;
-            recycle.revision   = 1;
-            recycle.modifiedAt = now;
-            candidate.folders.append(std::move(recycle));
-        }
-    }
+    if (!branch.assignments.isEmpty())
+        ensureRecycleBin(&candidate);
 
     for (auto &assignment : candidate.assignments) {
         if (assignment.tombstone || !branchIds.contains(assignment.folderId))
