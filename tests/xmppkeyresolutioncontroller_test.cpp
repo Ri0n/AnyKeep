@@ -10,6 +10,9 @@ class XmppKeyResolutionControllerTest : public QObject {
 
 private slots:
     void completesRecovery();
+    void waitsForOnlyNewlyOnlineResources();
+    void doesNotRetryExplicitlyRejectedResource();
+    void waitingCanChooseNewKeyWithoutAnyRemoteWrite();
     void requiresRecognizedDevice();
     void reportsPartialDeviceRefresh();
     void timesOutAndIgnoresLateDeviceResult();
@@ -94,6 +97,128 @@ void XmppKeyResolutionControllerTest::completesRecovery()
     controller.next();
     QCOMPARE(finished.count(), 1);
     QCOMPARE(finished.first().first().toBool(), true);
+}
+
+void XmppKeyResolutionControllerTest::waitsForOnlyNewlyOnlineResources()
+{
+    XmppDeviceInfo device { QStringLiteral("Desktop"), 42, QByteArray("device-key"),
+                            XmppTrustLevel::ManuallyTrusted };
+    QStringList resources;
+    int initialAudits = 0;
+    QList<QStringList> targetedAudits;
+    XmppKeyResolutionController controller(
+        true, { device }, {},
+        [](const QList<QByteArray> &, auto done) { done({ true }); }, {},
+        [&initialAudits, &resources](auto done) {
+            ++initialAudits;
+            XmppKeyAuditResult result;
+            result.ok = true;
+            result.onlineResources = resources;
+            done(result);
+        },
+        {}, 1000, {}, nullptr,
+        [&resources](auto done) { done(resources, {}); }, 15);
+    controller.setNewResourceAuditor([&](QStringList targets, auto done) {
+        targetedAudits.append(targets);
+        XmppKeyAuditResult result;
+        result.ok = true;
+        result.onlineResources = resources;
+        done(result);
+    });
+
+    controller.next();
+    controller.next();
+    QCOMPARE(initialAudits, 1);
+    QVERIFY(controller.waitingForDevices());
+    QVERIFY(controller.canCancel());
+    QTest::qWait(50);
+    QCOMPARE(initialAudits, 1);
+    QCOMPARE(targetedAudits.size(), 0);
+
+    resources = { QStringLiteral("laptop") };
+    QTRY_COMPARE_WITH_TIMEOUT(targetedAudits.size(), 1, 500);
+    QCOMPARE(targetedAudits.constFirst(), QStringList { QStringLiteral("laptop") });
+    QTest::qWait(90);
+    QCOMPARE(targetedAudits.size(), 1); // Stable online status never resends.
+
+    resources.clear();
+    QTRY_VERIFY_WITH_TIMEOUT(controller.onlineResources().isEmpty(), 500);
+    resources = { QStringLiteral("laptop") };
+    QTRY_COMPARE_WITH_TIMEOUT(targetedAudits.size(), 2, 500);
+    QCOMPARE(targetedAudits.constLast(), QStringList { QStringLiteral("laptop") });
+    QCOMPARE(initialAudits, 1);
+}
+
+void XmppKeyResolutionControllerTest::doesNotRetryExplicitlyRejectedResource()
+{
+    XmppDeviceInfo device { QStringLiteral("Desktop"), 42, QByteArray("device-key"),
+                            XmppTrustLevel::ManuallyTrusted };
+    QStringList resources { QStringLiteral("rejected") };
+    int manualAudits = 0;
+    int automaticAudits = 0;
+    XmppKeyResolutionController controller(
+        true, { device }, {},
+        [](const QList<QByteArray> &, auto done) { done({ true }); }, {},
+        [&resources, &manualAudits](auto done) {
+            ++manualAudits;
+            XmppKeyAuditResult result;
+            result.ok = true;
+            result.onlineResources = resources;
+            result.rejectedResources = { QStringLiteral("self@example.org/rejected") };
+            done(result);
+        },
+        {}, 1000, {}, nullptr,
+        [&resources](auto done) { done(resources, {}); }, 15);
+    controller.setNewResourceAuditor([&automaticAudits](QStringList, auto done) {
+        ++automaticAudits;
+        XmppKeyAuditResult result;
+        result.ok = true;
+        done(result);
+    });
+
+    controller.next();
+    controller.next();
+    QVERIFY(controller.waitingForDevices());
+    QVERIFY(controller.refusedResources().contains(QStringLiteral("rejected")));
+    resources.clear();
+    QTRY_VERIFY_WITH_TIMEOUT(controller.onlineResources().isEmpty(), 500);
+    resources = { QStringLiteral("rejected") };
+    QTRY_COMPARE_WITH_TIMEOUT(controller.onlineResources(), resources, 500);
+    QTest::qWait(70);
+    QCOMPARE(automaticAudits, 0);
+    QCOMPARE(manualAudits, 1);
+    controller.checkAgain();
+    QCOMPARE(manualAudits, 2); // Deliberate user action overrides refusal.
+}
+
+void XmppKeyResolutionControllerTest::waitingCanChooseNewKeyWithoutAnyRemoteWrite()
+{
+    const QByteArray newKey(32, 'n');
+    int remoteWrites = 0;
+    XmppDeviceInfo device { QStringLiteral("Desktop"), 42, QByteArray("device-key"),
+                            XmppTrustLevel::ManuallyTrusted };
+    XmppKeyResolutionController controller(
+        true, { device }, {},
+        [](const QList<QByteArray> &, auto done) { done({ true }); }, {},
+        [](auto done) {
+            XmppKeyAuditResult result;
+            result.ok = true;
+            done(result);
+        },
+        [&remoteWrites](const QList<QByteArray> &, const QByteArray &, auto) { ++remoteWrites; },
+        1000,
+        [newKey](auto done) { done({ true }, newKey, QByteArray("new-id")); });
+
+    controller.next();
+    controller.next();
+    QVERIFY(controller.waitingForDevices());
+    QVERIFY(controller.canStartFresh());
+    controller.startFresh();
+    QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ReviewPage));
+    QCOMPARE(controller.canonicalKey(), newKey);
+    controller.next();
+    QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ResultPage));
+    QCOMPARE(remoteWrites, 0);
 }
 
 void XmppKeyResolutionControllerTest::requiresRecognizedDevice()
