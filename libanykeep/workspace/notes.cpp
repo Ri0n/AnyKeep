@@ -329,12 +329,22 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
         return false;
     }
 
-    const bool accepted
-        = folderOperations_->assignNoteFolder(recycleStorageId, recycleNoteId, FolderCatalog::recycleBinId(), true);
+    // An existing XMPP note may have an active durable snapshot. Its
+    // publication already includes the recycle folder, and sending a separate
+    // native folder update here races the draft's own index publication.
+    // Keep the draft as the sole remote writer and let its retry machinery
+    // complete the move after an offline interval.
+    const auto storage = NoteManager::instance()->storage(recycleStorageId);
+    const bool snapshotPublishesFolder = !prepared.value.draftId.isNull() && storage
+        && storage->supportsDraftSnapshotSave();
+    if (!snapshotPublishesFolder
+        && !folderOperations_->assignNoteFolder(recycleStorageId, recycleNoteId,
+                                                FolderCatalog::recycleBinId(), true)) {
+        setError(folderOperations_->errorString());
+        return false;
+    }
     trashUndoEntries_.append({ TrashUndoEntry::NoteTrash, recycleStorageId, recycleNoteId, title, {} });
     emit trashUndoChanged();
-    if (!accepted)
-        return false;
 
     if (!prepared.value.draftId.isNull()) {
         if (const auto readyError = draftManager_->retryDraftNow(prepared.value.draftId)) {
