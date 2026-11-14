@@ -413,7 +413,12 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(
             errors.append(QStringLiteral("%1: OMEMO trust bootstrap failed: %2").arg(resource, errorText(*error)));
             continue;
         }
-        if (!XmppKeySyncExtension::isTrustApproved(std::get<QDomElement>(trustResult), trustId)) {
+        const auto &trustResponse = std::get<QDomElement>(trustResult);
+        if (XmppKeySyncExtension::isTrustRejected(trustResponse, trustId)) {
+            output.rejectedResources.append(resource);
+            continue;
+        }
+        if (!XmppKeySyncExtension::isTrustApproved(trustResponse, trustId)) {
             errors.append(QStringLiteral("%1: invalid OMEMO trust bootstrap response").arg(resource));
             continue;
         }
