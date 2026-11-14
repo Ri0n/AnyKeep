@@ -877,16 +877,34 @@ explicit trust provide authentication.
 
 ### Rejection and timeout
 
-The current protocol deliberately does not reveal whether a request was
-rejected, expired, malformed, or referred to an unknown identity: the receiver
-may discard it and the requester observes a timeout. An implementation MAY
-return an XMPP IQ error, but MUST NOT include the storage key or sensitive trust
-state in an error. Pending requests SHOULD expire locally and MUST NOT be reused
-after completion or rejection.
+When the **user explicitly declines** an AnyKeep trust request, the receiving
+installation sends an IQ result with the same stanza ID and the JSON application
+payload `{"type":"trust-rejected","requestId":"..."}`. This response is sent
+to the original full JID and contains no storage key or confidential device
+details. For an encrypted storage-key request, the refusal MUST use the same
+authenticated OMEMO reply context. A trust bootstrap has no encryption context;
+its refusal is a plaintext result, just like `trust-approved`.
 
-Transient transport errors MAY be retried with a new request ID. User rejection,
-invalid credentials, malformed data, failed identity verification, or a
-permanent authorization error MUST NOT be retried automatically.
+A client MUST verify the matching IQ ID, JSON request ID, and exact responding
+full JID before classifying a result as an explicit refusal. An unsupported old
+responder might still time out rather than returning this payload; absence of
+response MUST NOT be interpreted as a user rejection.
+
+Malformed, unauthorized or unknown requests MAY be discarded without revealing
+whether an identity is recognized. Pending requests SHOULD expire locally and
+MUST NOT be reused after completion or rejection. A user-rejected resource MUST
+be excluded from automatic recovery retries within the current wizard session.
+
+Monitor online XMPP resources advertising the key-sync feature independently
+of the published OMEMO device list. They do not have a guaranteed mapping to
+OMEMO IDs or user-selected fingerprints. Automatic key requests SHOULD occur
+only when a previously offline resource appears online (or a new resource is
+discovered); an unchanged online resource MUST NOT receive periodic duplicate
+requests. Explicit user actions can initiate a fresh check.
+
+Transient transport failures MAY be retried after a new resource transition
+or explicit user request. User rejection, invalid credentials, failed identity
+verification or permanent authorization errors MUST NOT be retried automatically.
 
 ## Multiple storage keys and migration
 
@@ -1119,8 +1137,8 @@ factories and observe catalog changes.
 Known protocol-level limitations are:
 
 - deletion and two-record publication are recoverable but not atomic;
-- rejection is currently represented by timeout rather than an explicit IQ
-  error;
+- older installations may still represent a user rejection by timeout;
+  the explicit `trust-rejected` result is supported by both current backends;
 - responder-side pending requests do not yet have an explicit expiry timer;
 - direct Jingle media publication is not yet implemented by the QXmpp backend;
 - an installation that was offline for an entire note-deletion event does not
