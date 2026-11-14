@@ -24,6 +24,7 @@ public:
 
     void replyWithKey(const QString &requestId, const QString &recoveryKey);
     void replyTrustApproved(const QString &requestId);
+    void rejectByUser(const QString &requestId);
     void reject(const QString &requestId);
 
 signals:
