@@ -89,7 +89,7 @@ FolderCatalogError FolderCatalog::recycleNote(const QString &storageId, const QS
     } else {
         auto &record = candidate.assignments[index];
         if (!record.tombstone && isRecycleBinId(record.folderId))
-            return {};
+            return replaceSnapshot(std::move(candidate));
         record.folderId         = trashId;
         record.previousFolderId = previousFolderId;
         record.recycledAt       = now;
