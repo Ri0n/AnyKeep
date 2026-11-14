@@ -95,24 +95,22 @@ bool XmppStorage::folderPathForFolder(const QUuid &folderId, QStringList *path, 
 
 bool XmppStorage::folderPathForNote(const Note &note, QStringList *path, QString *error) const
 {
-    if (!note.folderId().isNull())
-        return folderPathForFolder(note.folderId(), path, error);
-
     if (path)
         path->clear();
     if (error)
         error->clear();
-    if (note.id().isEmpty())
-        return true;
-    if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
-        const auto assignedFolder = folderCatalogManager_->catalog().folderForNote(systemName(), note.id());
-        if (!assignedFolder.isNull())
-            return folderPathForFolder(assignedFolder, path, error);
-        const auto *assignment = folderCatalogManager_->catalog().assignment(systemName(), note.id());
-        if (assignment && assignment->tombstone)
-            return true;
-    }
 
+    // Catalog assignments are committed authority. A Note may still refer
+    // to a legacy folder UUID after an imported bin has been canonicalized.
+    if (!note.id().isEmpty() && folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
+        if (const auto *assignment = folderCatalogManager_->catalog().assignment(systemName(), note.id())) {
+            if (assignment->tombstone)
+                return true;
+            return folderPathForFolder(assignment->folderId, path, error);
+        }
+    }
+    if (!note.folderId().isNull())
+        return folderPathForFolder(note.folderId(), path, error);
     if (path)
         *path = note.backendValue(FolderPathBackendKey).toStringList();
     return true;
@@ -152,9 +150,9 @@ bool XmppStorage::toRemote(const Note &note, XmppRemoteNote *remote, QString *er
     if (!folderPathForNote(note, &result.folderPath, error))
         return false;
     QUuid folderId = note.folderId();
-    if (folderId.isNull() && folderCatalogManager_ && folderCatalogManager_->isAvailable()
-        && !note.id().isEmpty()) {
-        folderId = folderCatalogManager_->catalog().folderForNote(systemName(), note.id());
+    if (folderCatalogManager_ && folderCatalogManager_->isAvailable() && !note.id().isEmpty()) {
+        if (const auto *assignment = folderCatalogManager_->catalog().assignment(systemName(), note.id()))
+            folderId = assignment->tombstone ? QUuid {} : assignment->folderId;
     }
     if (FolderCatalog::isRecycleBinId(folderId))
         result.systemFolderId = FolderCatalog::recycleBinId();
@@ -267,9 +265,10 @@ void XmppStorage::enqueueFolderPathUpdates()
             continue;
         }
         const bool samePath = path == cached.backendValue(FolderPathBackendKey).toStringList();
-        const bool sameSystemFolder = !FolderCatalog::isRecycleBinId(desired.folderId())
-            || QUuid(cached.backendValue(QStringLiteral("xmpp.systemFolderId")).toString())
-                == FolderCatalog::recycleBinId();
+        const auto expectedSystemFolder = FolderCatalog::isRecycleBinId(desired.folderId())
+            ? FolderCatalog::recycleBinId() : QUuid {};
+        const bool sameSystemFolder =
+            expectedSystemFolder == QUuid(cached.backendValue(QStringLiteral("xmpp.systemFolderId")).toString());
         if (samePath && sameSystemFolder)
             continue;
         if (!folderPathUpdateQueued_.contains(cached.id())) {
@@ -315,9 +314,10 @@ void XmppStorage::publishNextFolderPathUpdate()
             continue;
         }
         const bool samePath = path == cached.backendValue(FolderPathBackendKey).toStringList();
-        const bool sameSystemFolder = !FolderCatalog::isRecycleBinId(desired.folderId())
-            || QUuid(cached.backendValue(QStringLiteral("xmpp.systemFolderId")).toString())
-                == FolderCatalog::recycleBinId();
+        const auto expectedSystemFolder = FolderCatalog::isRecycleBinId(desired.folderId())
+            ? FolderCatalog::recycleBinId() : QUuid {};
+        const bool sameSystemFolder =
+            expectedSystemFolder == QUuid(cached.backendValue(QStringLiteral("xmpp.systemFolderId")).toString());
         if (samePath && sameSystemFolder)
             continue;
 
