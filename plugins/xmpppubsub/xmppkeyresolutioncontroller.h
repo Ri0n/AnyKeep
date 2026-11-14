@@ -212,6 +212,7 @@ private:
     // The first-install new-key route skips remote key discovery. Counts are
     // unknown rather than zero, and Back must return to the welcome screen.
     bool    freshStartFromWelcome_ { false };
+    bool    freshStartFromWaiting_ { false };
     QTimer  operationTimer_;
     QString operationTimeoutMessage_;
     quint64 operationToken_ { 0 };
