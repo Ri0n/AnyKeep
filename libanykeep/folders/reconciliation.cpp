@@ -25,6 +25,8 @@ FolderCatalogError FolderCatalog::reconcileProviderFolderPaths(const QString    
     for (const auto &incoming : assignments) {
         if (incoming.noteId.isEmpty())
             return error(FolderCatalogError::InvalidArgument, QStringLiteral("Provider note id is required"));
+        if (!incoming.systemFolderId.isNull() && !isRecycleBinId(incoming.systemFolderId))
+            return error(FolderCatalogError::InvalidArgument, QStringLiteral("Unknown system folder identity"));
         if (seenNoteIds.contains(incoming.noteId))
             return error(FolderCatalogError::AlreadyExists, QStringLiteral("Duplicate provider note path assignment"));
         seenNoteIds.insert(incoming.noteId);
@@ -45,8 +47,9 @@ FolderCatalogError FolderCatalog::reconcileProviderFolderPaths(const QString    
     // UUID. Import it under the canonical system identity from the outset,
     // and migrate catalogs created by older clients before resolving hints.
     for (const auto &incoming : normalizedAssignments) {
-        if (!incoming.path.isEmpty()
-            && normalizedName(incoming.path.constFirst()) == QStringLiteral("recycle bin")) {
+        if (isRecycleBinId(incoming.systemFolderId)
+            || (!incoming.path.isEmpty()
+                && normalizedName(incoming.path.constFirst()) == QStringLiteral("recycle bin"))) {
             ensureRecycleBin(&candidate);
             break;
         }
@@ -96,7 +99,11 @@ FolderCatalogError FolderCatalog::reconcileProviderFolderPaths(const QString    
 
     for (const auto &incoming : normalizedAssignments) {
         QUuid folderId;
-        if (!incoming.path.isEmpty()) {
+        if (isRecycleBinId(incoming.systemFolderId)) {
+            // A system folder is defined by identity, not by a translated or
+            // otherwise arbitrary XMPP display path.
+            folderId = recycleBinId();
+        } else if (!incoming.path.isEmpty()) {
             const auto existingHint = hintIndex(storageId, incoming.path);
             if (existingHint >= 0) {
                 folderId = candidate.pathHints.at(existingHint).folderId;
