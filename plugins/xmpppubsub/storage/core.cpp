@@ -389,6 +389,34 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController 
                                 Qt::QueuedConnection);
                         });
 
+                    // Automatic retries are scoped to newly online resources;
+                    // do not solicit keys repeatedly from unchanged peers.
+                    controller->setNewResourceAuditor(
+                        [this, epoch](QStringList resources, XmppKeyResolutionController::AuditCompletion completion) {
+                            auto progress = recoveryProgressCallback();
+                            QMetaObject::invokeMethod(
+                                backend_,
+                                [this, epoch, resources = std::move(resources),
+                                 completion = std::move(completion), progress = std::move(progress)]() mutable {
+                                    if (shuttingDown_ || epoch != configEpoch_)
+                                        return;
+                                    backend_->auditStorageKeysAsync(
+                                        [this, epoch, completion = std::move(completion)](
+                                            XmppKeyAuditResult result) mutable {
+                                            QMetaObject::invokeMethod(
+                                                this,
+                                                [this, epoch, completion = std::move(completion),
+                                                 result = std::move(result)]() mutable {
+                                                    if (shuttingDown_ || epoch != configEpoch_)
+                                                        return;
+                                                    completion(std::move(result));
+                                                },
+                                                Qt::QueuedConnection);
+                                        },
+                                        std::move(progress), std::move(resources));
+                                },
+                                Qt::QueuedConnection);
+                        });
                     keyResolutionController_ = controller;
                     QPointer<XmppKeyResolutionController> controllerGuard(controller);
                     controller->setKeyInstaller(
