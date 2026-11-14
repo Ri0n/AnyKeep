@@ -22,6 +22,7 @@ private slots:
     void buildsFolderPaths();
     void reconcilesPathOnlyProviderAssignments();
     void importsRecycleBinUsingSystemIdentity();
+    void importsExplicitRecycleBinByUuidWithoutMatchingItsName();
     void adoptsPreviouslyImportedRecycleBin();
     void retainsAssignmentTombstones();
     void recyclesAndRestoresNotesWithOriginalFolder();
@@ -255,6 +256,33 @@ void FolderCatalogTest::importsRecycleBinUsingSystemIdentity()
     const auto *hint = catalog.pathHint(QStringLiteral("xmpp-pubsub"), remote.path);
     QVERIFY(hint);
     QCOMPARE(hint->folderId, FolderCatalog::recycleBinId());
+}
+
+void FolderCatalogTest::importsExplicitRecycleBinByUuidWithoutMatchingItsName()
+{
+    FolderCatalog catalog;
+    ProviderFolderPathAssignment remote;
+    remote.noteId = QStringLiteral("trash-uuid-note");
+    remote.path = { QStringLiteral("Translated label from another device") };
+    remote.systemFolderId = FolderCatalog::recycleBinId();
+    remote.modifiedAt = QDateTime::currentDateTimeUtc();
+
+    QVERIFY(!catalog.reconcileProviderFolderPaths(QStringLiteral("xmpp-pubsub"), { remote }));
+    QCOMPARE(catalog.folderForNote(QStringLiteral("xmpp-pubsub"), remote.noteId),
+             FolderCatalog::recycleBinId());
+    QVERIFY(catalog.isRecycled(QStringLiteral("xmpp-pubsub"), remote.noteId));
+    QCOMPARE(catalog.children().size(), 1);
+    QCOMPARE(catalog.children().first().id, FolderCatalog::recycleBinId());
+    QVERIFY(!catalog.pathHint(QStringLiteral("xmpp-pubsub"), remote.path));
+
+    // Reimport must remain idempotent without generating a second sibling.
+    QVERIFY(!catalog.reconcileProviderFolderPaths(QStringLiteral("xmpp-pubsub"), { remote }));
+    QCOMPARE(catalog.children().size(), 1);
+
+    remote.systemFolderId = QUuid::createUuid();
+    const auto rejected = catalog.reconcileProviderFolderPaths(QStringLiteral("xmpp-pubsub"), { remote });
+    QVERIFY(rejected);
+    QCOMPARE(rejected.code, FolderCatalogError::InvalidArgument);
 }
 
 void FolderCatalogTest::adoptsPreviouslyImportedRecycleBin()
