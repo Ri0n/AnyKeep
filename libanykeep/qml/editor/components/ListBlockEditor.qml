@@ -381,13 +381,15 @@ Column {
             property alias markerItem: markerSlot
             property alias dragContent: rowContent
             property real swipeOffset: 0
-            // The destructive target is at the far edge of the display, not
-            // exposed on the first few pixels of an ordinary horizontal pan.
-            readonly property real deleteDistance: Math.max(80, width
-                - itemIndent * editorView.listIndent
-                - 8 * editorView.editorFontAverageCharacterWidth)
-            readonly property bool inDeleteZone: (listRoot.rightToLeft ? swipeOffset < 0 : swipeOffset > 0)
-                                                 && Math.abs(swipeOffset) >= deleteDistance
+            // Test the finger's position against the far edge of the list,
+            // not how far the row has translated. Translation-based thresholds
+            // depend on where the user first grabbed the item.
+            property real swipePointerX: -1
+            readonly property real deleteEdgeMargin: Math.max(24, 8 * editorView.editorFontAverageCharacterWidth)
+            readonly property bool inDeleteZone: swipePointerX >= 0
+                && (listRoot.rightToLeft ? swipeOffset < -24 : swipeOffset > 24)
+                && (listRoot.rightToLeft ? swipePointerX <= deleteEdgeMargin
+                                        : swipePointerX >= listRoot.width - deleteEdgeMargin)
             readonly property bool sourceRow: listRoot.isSourceIndex(index)
             readonly property var ownLevelRange: {
                 listRoot.itemsRevision
@@ -586,17 +588,26 @@ Column {
 
                 onActiveTranslationChanged: {
                     rowWrapper.swipeOffset = activeTranslation.x
+                    // Scene coordinates are independent of the rowContent
+                    // translation that follows the gesture.
+                    const point = listRoot.mapFromItem(null, centroid.scenePosition.x,
+                                                       centroid.scenePosition.y)
+                    rowWrapper.swipePointerX = point.x
                 }
                 onActiveChanged: {
                     if (active)
                         return
-                    if (rowWrapper.inDeleteZone) {
+                    const deleteItem = rowWrapper.inDeleteZone
+                    rowWrapper.swipePointerX = -1
+                    if (deleteItem)
                         rowWrapper.removeBySwipe()
-                    } else {
+                    else
                         rowWrapper.swipeOffset = 0
-                    }
                 }
-                onCanceled: rowWrapper.swipeOffset = 0
+                onCanceled: {
+                    rowWrapper.swipePointerX = -1
+                    rowWrapper.swipeOffset = 0
+                }
             }
 
             Behavior on swipeOffset {
