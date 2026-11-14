@@ -43,6 +43,8 @@ void XmppStorage::applyRemote(Note &note, const XmppRemoteNote &remote)
     note.setBackendValue(IndexRecordTemplateKey, remote.indexRecordTemplate);
     note.setBackendValue(ContentRecordTemplateKey, remote.contentRecordTemplate);
     note.setBackendValue(FolderPathBackendKey, remote.folderPath);
+    note.setBackendValue(QStringLiteral("xmpp.systemFolderId"),
+                         remote.systemFolderId.toString(QUuid::WithoutBraces));
     note.setFavorite(remote.favorite);
     if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
         note.setFolderId(folderCatalogManager_->catalog().folderForNote(systemName(), remote.id));
@@ -149,6 +151,13 @@ bool XmppStorage::toRemote(const Note &note, XmppRemoteNote *remote, QString *er
     result.contentRecordTemplate = note.backendValue(ContentRecordTemplateKey).toByteArray();
     if (!folderPathForNote(note, &result.folderPath, error))
         return false;
+    QUuid folderId = note.folderId();
+    if (folderId.isNull() && folderCatalogManager_ && folderCatalogManager_->isAvailable()
+        && !note.id().isEmpty()) {
+        folderId = folderCatalogManager_->catalog().folderForNote(systemName(), note.id());
+    }
+    if (FolderCatalog::isRecycleBinId(folderId))
+        result.systemFolderId = FolderCatalog::recycleBinId();
     *remote = std::move(result);
     return true;
 }
@@ -165,8 +174,9 @@ void XmppStorage::reconcileRemoteFolders(const QList<XmppRemoteNote> &notes)
             continue;
         ProviderFolderPathAssignment assignment;
         assignment.noteId     = remote.id;
-        assignment.path       = remote.folderPath;
-        assignment.modifiedAt = remote.modified;
+        assignment.path           = remote.folderPath;
+        assignment.systemFolderId = remote.systemFolderId;
+        assignment.modifiedAt     = remote.modified;
         assignments.append(std::move(assignment));
     }
     if (assignments.isEmpty())
@@ -189,6 +199,7 @@ void XmppStorage::reconcileCachedFolders()
         remote.id         = cached.id();
         remote.modified   = cached.lastChangeUTC();
         remote.folderPath = cached.backendValue(FolderPathBackendKey).toStringList();
+        remote.systemFolderId = QUuid(cached.backendValue(QStringLiteral("xmpp.systemFolderId")).toString());
         notes.append(std::move(remote));
     }
     reconcileRemoteFolders(notes);
@@ -255,7 +266,11 @@ void XmppStorage::enqueueFolderPathUpdates()
             reportError(tr("Could not resolve the XMPP folder path for a note: %1").arg(error));
             continue;
         }
-        if (path == cached.backendValue(FolderPathBackendKey).toStringList())
+        const bool samePath = path == cached.backendValue(FolderPathBackendKey).toStringList();
+        const bool sameSystemFolder = !FolderCatalog::isRecycleBinId(desired.folderId())
+            || QUuid(cached.backendValue(QStringLiteral("xmpp.systemFolderId")).toString())
+                == FolderCatalog::recycleBinId();
+        if (samePath && sameSystemFolder)
             continue;
         if (!folderPathUpdateQueued_.contains(cached.id())) {
             folderPathUpdateQueued_.insert(cached.id());
@@ -299,7 +314,11 @@ void XmppStorage::publishNextFolderPathUpdate()
             reportError(tr("Could not resolve the XMPP folder path for a note: %1").arg(error));
             continue;
         }
-        if (path == cached.backendValue(FolderPathBackendKey).toStringList())
+        const bool samePath = path == cached.backendValue(FolderPathBackendKey).toStringList();
+        const bool sameSystemFolder = !FolderCatalog::isRecycleBinId(desired.folderId())
+            || QUuid(cached.backendValue(QStringLiteral("xmpp.systemFolderId")).toString())
+                == FolderCatalog::recycleBinId();
+        if (samePath && sameSystemFolder)
             continue;
 
         XmppRemoteNote local;
