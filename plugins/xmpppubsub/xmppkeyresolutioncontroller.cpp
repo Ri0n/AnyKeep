@@ -381,9 +381,11 @@ void XmppKeyResolutionController::startFresh()
 {
     if (!canStartFresh())
         return;
-    const bool fromWelcome = currentPage_ == ProblemPage || waitingForDevices_;
+    const bool fromWelcome = currentPage_ == ProblemPage;
+    const bool fromWaiting = currentPage_ == DevicesPage && waitingForDevices_;
     setWaitingForDevices(false);
     freshStartFromWelcome_ = fromWelcome;
+    freshStartFromWaiting_ = fromWaiting;
     freshStart_            = true;
 
     setKeyStatus(tr("Creating a new storage key…"));
@@ -404,7 +406,7 @@ void XmppKeyResolutionController::startFresh()
         emit guard->selectedKeyIndexChanged();
         guard->setKeyStatus(guard->tr("A new storage key is ready. Existing encrypted notes will be left unchanged."));
         guard->updateSummary();
-        if (guard->freshStartFromWelcome_)
+        if (guard->freshStartFromWelcome_ || guard->freshStartFromWaiting_)
             guard->setCurrentPage(ReviewPage);
         emit guard->navigationChanged();
     });
@@ -437,6 +439,7 @@ void XmppKeyResolutionController::next()
         // to recover existing notes instead. It has not been installed yet.
         if (freshStartFromWelcome_) {
             freshStartFromWelcome_ = false;
+            freshStartFromWaiting_ = false;
             freshStart_            = false;
             keysModel_->setCandidates({});
             audit_            = {};
@@ -456,7 +459,7 @@ void XmppKeyResolutionController::next()
             return;
         }
         if (!devicesModel_->hasTrustedOrSelectedDevice()) {
-            if (onlineResources_.isEmpty() && localKeyMissing_) {
+            if (presenceKnown_ && onlineResources_.isEmpty() && localKeyMissing_) {
                 // The selected peer might be offline, or its OMEMO device
                 // listing may not yet have reached this account.
                 setWaitingForDevices(true);
@@ -611,15 +614,21 @@ void XmppKeyResolutionController::requestKeyAudit(QStringList resources)
         // The audit is an authoritative snapshot of resources available
         // when requests were sent. Establish it as the presence baseline so
         // the next periodic discovery does not retry unchanged resources.
-        if (guard->onlineResources_ != audit.onlineResources) {
-            guard->onlineResources_ = audit.onlineResources;
-            guard->onlineResources_.removeDuplicates();
-            guard->onlineResources_.sort();
+        // A successful audit is also a presence snapshot. An unchanged
+        // empty list still counts as completed discovery, unlike an initial
+        // wizard page where presence has never been checked.
+        if (audit.error.isEmpty()) {
             guard->presenceKnown_ = true;
-            guard->presenceStatus_ = guard->onlineResources_.isEmpty()
-                ? guard->tr("No other AnyKeep XMPP resources are online.")
-                : guard->tr("Online AnyKeep XMPP resources:");
-            emit guard->onlineResourcesChanged();
+            QStringList online = audit.onlineResources;
+            online.removeDuplicates();
+            online.sort();
+            if (guard->onlineResources_ != online || guard->presenceStatus_.isEmpty()) {
+                guard->onlineResources_ = std::move(online);
+                guard->presenceStatus_ = guard->onlineResources_.isEmpty()
+                    ? guard->tr("No other AnyKeep XMPP resources are online.")
+                    : guard->tr("Online AnyKeep XMPP resources:");
+                emit guard->onlineResourcesChanged();
+            }
         }
 
         // The user may have denied an inbound trust prompt on a particular
@@ -632,6 +641,15 @@ void XmppKeyResolutionController::requestKeyAudit(QStringList resources)
         const bool hasUsableKey = std::any_of(audit.candidates.cbegin(), audit.candidates.cend(),
                                              [](const auto &candidate) { return !candidate.key.isEmpty(); });
         if (!hasUsableKey) {
+            // The remote index is confirmed empty: preserve the explicit
+            // create-new-key page rather than waiting indefinitely.
+            if (audit.totalIndexItems == 0) {
+                guard->setWaitingForDevices(false);
+                guard->populateKeys(audit);
+                guard->devicesComplete_ = true;
+                guard->setCurrentPage(KeysPage);
+                return;
+            }
             guard->audit_ = std::move(audit);
             guard->setWaitingForDevices(true);
             guard->setDeviceStatus(guard->onlineResources_.isEmpty()
