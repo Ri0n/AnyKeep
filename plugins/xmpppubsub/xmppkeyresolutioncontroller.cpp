@@ -202,13 +202,19 @@ XmppKeyResolutionController::XmppKeyResolutionController(bool localKeyMissing, c
                                                          const QString &deviceError, TrustDevices trustDevices,
                                                          RemoveDevice removeDevice, AuditKeys auditKeys,
                                                          RekeyStorage rekeyStorage, int operationTimeoutMs,
-                                                         CreateStorageKey createStorageKey, QObject *parent) :
+                                                         CreateStorageKey createStorageKey, QObject *parent,
+                                                         DiscoverResources discoverResources,
+                                                         int presencePollIntervalMs) :
     QObject(parent), devicesModel_(new XmppDeviceSelectionModel(devices, this)),
     keysModel_(new XmppStorageKeyModel(this)), trustDevices_(std::move(trustDevices)),
-    removeDevice_(std::move(removeDevice)), auditKeys_(std::move(auditKeys)), rekeyStorage_(std::move(rekeyStorage)),
+    removeDevice_(std::move(removeDevice)), auditKeys_(std::move(auditKeys)),
+    discoverResources_(std::move(discoverResources)), rekeyStorage_(std::move(rekeyStorage)),
     createStorageKey_(std::move(createStorageKey)), localKeyMissing_(localKeyMissing),
-    operationTimeoutMs_(qMax(1, operationTimeoutMs))
+    operationTimeoutMs_(qMax(1, operationTimeoutMs)),
+    presencePollIntervalMs_(qMax(1, presencePollIntervalMs))
 {
+    presenceTimer_.setInterval(presencePollIntervalMs_);
+    connect(&presenceTimer_, &QTimer::timeout, this, &XmppKeyResolutionController::refreshOnlineResources);
     operationTimer_.setSingleShot(true);
     connect(&operationTimer_, &QTimer::timeout, this, [this]() {
         if (!busy_ || completed_)
@@ -233,6 +239,8 @@ bool XmppKeyResolutionController::canGoNext() const
 {
     if (busy_ || completed_)
         return false;
+    if (waitingForDevices_ && currentPage_ == DevicesPage)
+        return false;
     if (currentPage_ == KeysPage)
         return !canonicalKey().isEmpty();
     return true;
@@ -251,6 +259,8 @@ bool XmppKeyResolutionController::canStartFresh() const
     // a local key without OMEMO trust/key-sync. Existing remote notes are
     // never rewritten by this route, and their count remains unknown.
     if (currentPage_ == ProblemPage)
+        return true;
+    if (currentPage_ == DevicesPage && waitingForDevices_)
         return true;
     return currentPage_ == KeysPage && audit_.ok && keysModel_->rowCount() == 0;
 }
