@@ -3355,6 +3355,8 @@ void IrisXmppBackend::requestStorageKeyFromResourceAsync(QString fullJid, AuditC
                 [this, target, callback = std::move(callback)](IrisKeySyncRequestTask *request) mutable {
                     XmppKeyAuditResult output;
                     if (!request || !request->success()) {
+                        if (request && request->trustRejected())
+                            output.rejectedResources.append(target.full());
                         output.error     = QStringLiteral("%1: %2").arg(target.full(), firstTaskError(request));
                         output.errorKind = XmppErrorKind::Security;
                         callback(std::move(output));
