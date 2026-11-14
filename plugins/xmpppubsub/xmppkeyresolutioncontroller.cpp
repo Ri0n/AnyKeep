@@ -640,7 +640,10 @@ void XmppKeyResolutionController::requestKeyAudit(QStringList resources)
                                        : tr("No online resource provided a trusted key. Waiting for another "
                                             "device or a resource to reconnect."));
             if (!guard->newlyOnlinePending_.isEmpty()) {
-                QStringList pending = guard->newlyOnlinePending_.values();
+                QStringList pending;
+                for (const auto &resource : guard->newlyOnlinePending_)
+                    pending.append(resource);
+                pending.sort();
                 guard->newlyOnlinePending_.clear();
                 pending.removeIf([guard](const QString &name) { return guard->rejectedResources_.contains(name); });
                 if (!pending.isEmpty())
