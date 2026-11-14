@@ -353,7 +353,12 @@ void XmppStorageTest::noteBodyKeyMismatchRequiresRecovery()
     backend->loadFailure = failed;
     XmppStorage storage(nullptr, backend);
     emit        backend->connectionChanged(true);
-    auto       *job = storage.loadNoteAsync(QStringLiteral("note-with-unreadable-body"));
+    // The SASL connection alone no longer grants encrypted note access.
+    // Complete a successful index preparation to make the storage ready.
+    auto *ready = storage.refreshNotesAsync();
+    QTRY_VERIFY(ready->isFinished());
+    QCOMPARE(ready->state(), StorageJob::Succeeded);
+    auto *job = storage.loadNoteAsync(QStringLiteral("note-with-unreadable-body"));
     QTRY_VERIFY(job->isFinished());
     QCOMPARE(job->state(), StorageJob::Failed);
     // A key mismatch blocks further ordinary loads until recovery; isolated
