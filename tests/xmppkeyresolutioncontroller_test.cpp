@@ -11,7 +11,7 @@ class XmppKeyResolutionControllerTest : public QObject {
 private slots:
     void completesRecovery();
     void waitsForOnlyNewlyOnlineResources();
-    void doesNotRetryExplicitlyRejectedResource();
+    void doesNotRetrySilentRefusalUntilReconnect();
     void waitingCanChooseNewKeyWithoutAnyRemoteWrite();
     void requiresRecognizedDevice();
     void reportsPartialDeviceRefresh();
@@ -150,47 +150,54 @@ void XmppKeyResolutionControllerTest::waitsForOnlyNewlyOnlineResources()
     QCOMPARE(initialAudits, 1);
 }
 
-void XmppKeyResolutionControllerTest::doesNotRetryExplicitlyRejectedResource()
+void XmppKeyResolutionControllerTest::doesNotRetrySilentRefusalUntilReconnect()
 {
     XmppDeviceInfo device { QStringLiteral("Desktop"), 42, QByteArray("device-key"),
                             XmppTrustLevel::ManuallyTrusted };
-    QStringList resources { QStringLiteral("rejected") };
+    QStringList resources { QStringLiteral("laptop") };
     int manualAudits = 0;
-    int automaticAudits = 0;
+    QList<QStringList> automaticAudits;
     XmppKeyResolutionController controller(
         true, { device }, {},
         [](const QList<QByteArray> &, auto done) { done({ true }); }, {},
         [&resources, &manualAudits](auto done) {
             ++manualAudits;
             XmppKeyAuditResult result;
+            // No key was shared: the peer might have declined the trust
+            // prompt or failed to respond. Neither is reported as a denial.
             result.ok = true;
             result.totalIndexItems = 2;
             result.onlineResources = resources;
-            result.rejectedResources = { QStringLiteral("self@example.org/rejected") };
             done(result);
         },
         {}, 1000, {}, nullptr,
         [&resources](auto done) { done(resources, {}); }, 15);
-    controller.setNewResourceAuditor([&automaticAudits](QStringList, auto done) {
-        ++automaticAudits;
+    controller.setNewResourceAuditor([&](QStringList targets, auto done) {
+        automaticAudits.append(targets);
         XmppKeyAuditResult result;
         result.ok = true;
+        result.totalIndexItems = 2;
+        result.onlineResources = resources;
         done(result);
     });
 
     controller.next();
     controller.next();
     QVERIFY(controller.waitingForDevices());
-    QVERIFY(controller.refusedResources().contains(QStringLiteral("rejected")));
+    QCOMPARE(manualAudits, 1);
+    QTest::qWait(75);
+    QCOMPARE(automaticAudits.size(), 0); // Do not resend to a steady online peer.
+
     resources.clear();
     QTRY_VERIFY_WITH_TIMEOUT(controller.onlineResources().isEmpty(), 500);
-    resources = { QStringLiteral("rejected") };
-    QTRY_COMPARE_WITH_TIMEOUT(controller.onlineResources(), resources, 500);
-    QTest::qWait(70);
-    QCOMPARE(automaticAudits, 0);
-    QCOMPARE(manualAudits, 1);
+    resources = { QStringLiteral("laptop") };
+    QTRY_COMPARE_WITH_TIMEOUT(automaticAudits.size(), 1, 500);
+    QCOMPARE(automaticAudits.constFirst(), QStringList { QStringLiteral("laptop") });
+    QTest::qWait(75);
+    QCOMPARE(automaticAudits.size(), 1);
+
     controller.checkAgain();
-    QCOMPARE(manualAudits, 2); // Deliberate user action overrides refusal.
+    QCOMPARE(manualAudits, 2); // Manual retry may target the same online peer.
 }
 
 void XmppKeyResolutionControllerTest::waitingCanChooseNewKeyWithoutAnyRemoteWrite()
