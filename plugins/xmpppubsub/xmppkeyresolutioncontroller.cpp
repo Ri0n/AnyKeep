@@ -326,9 +326,7 @@ void XmppKeyResolutionController::checkAgain()
 {
     if (completed_ || busy_ || !waitingForDevices_ || currentPage_ != DevicesPage)
         return;
-    rejectedResources_.clear();
     newlyOnlinePending_.clear();
-    emit onlineResourcesChanged();
     requestKeyAudit();
 }
 
@@ -631,13 +629,6 @@ void XmppKeyResolutionController::requestKeyAudit(QStringList resources)
             }
         }
 
-        // The user may have denied an inbound trust prompt on a particular
-        // full JID. Exclude it until a deliberate manual retry.
-        for (const auto &resource : audit.rejectedResources)
-            guard->rejectedResources_.insert(resource.section(QLatin1Char('/'), -1));
-        if (!audit.rejectedResources.isEmpty())
-            emit guard->onlineResourcesChanged();
-
         const bool hasUsableKey = std::any_of(audit.candidates.cbegin(), audit.candidates.cend(),
                                              [](const auto &candidate) { return !candidate.key.isEmpty(); });
         if (!hasUsableKey) {
@@ -663,7 +654,6 @@ void XmppKeyResolutionController::requestKeyAudit(QStringList resources)
                     pending.append(resource);
                 pending.sort();
                 guard->newlyOnlinePending_.clear();
-                pending.removeIf([guard](const QString &name) { return guard->rejectedResources_.contains(name); });
                 if (!pending.isEmpty())
                     QTimer::singleShot(0, guard, [guard, pending]() { if (guard) guard->requestKeyAudit(pending); });
             }
@@ -709,8 +699,7 @@ void XmppKeyResolutionController::refreshOnlineResources()
         resources.sort();
         QStringList newlyOnline;
         for (const auto &resource : resources) {
-            if (!guard->onlineResources_.contains(resource)
-                && !guard->rejectedResources_.contains(resource))
+            if (!guard->onlineResources_.contains(resource))
                 newlyOnline.append(resource);
         }
         guard->onlineResources_ = std::move(resources);
@@ -724,8 +713,8 @@ void XmppKeyResolutionController::refreshOnlineResources()
         if (!guard->waitingForDevices_ || !guard->presenceKnown_)
             return;
         // Only offline->online transitions trigger automatic key requests.
-        // Stable resources (including ones that timed out) are not polled for
-        // keys, and explicit trust refusals remain excluded for this wizard.
+        // Stable resources (including those that timed out or silently
+        // rejected trust) are not polled for keys.
         if (!newlyOnline.isEmpty() && !guard->devicesModel_->hasTrustedOrSelectedDevice()) {
             guard->setDeviceStatus(guard->tr("An AnyKeep XMPP resource is online. Select a known OMEMO "
                                              "identity above to approve key synchronization."));
