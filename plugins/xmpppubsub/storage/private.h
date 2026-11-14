@@ -15,6 +15,7 @@ inline const QString IndexRecordTemplateKey    = QStringLiteral("xmpp.xml.v1.ind
 inline const QString ContentRecordTemplateKey  = QStringLiteral("xmpp.xml.v1.content-template");
 inline const QString ContentRevisionBackendKey = QStringLiteral("xmpp.xml.v1.content-revision");
 inline const QString FolderPathBackendKey      = QStringLiteral("xmpp.xml.v1.folder-path");
+inline const QString SystemFolderBackendKey    = QStringLiteral("xmpp.xml.v1.system-folder-id");
 
 inline bool isStorageKeyMismatch(const QString &error)
 {

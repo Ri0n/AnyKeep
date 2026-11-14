@@ -320,6 +320,7 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
     });
     QSet<QString> pendingRemoteNotes;
     QList<Row>    draftRows;
+    QList<Row>    recycledDraftRows;
     const QString searchText = searchModel_ ? searchModel_->searchText().trimmed() : QString();
     const bool    searchBody = searchModel_ && searchModel_->searchInBody();
     for (const auto &draft : pending) {
@@ -327,6 +328,10 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
             pendingRemoteNotes.insert(draft.storageId + QChar(0x1f) + draft.remoteNoteId);
         if (!draft.removeSourceStorageId.isEmpty() && !draft.removeSourceNoteId.isEmpty())
             pendingRemoteNotes.insert(draft.removeSourceStorageId + QChar(0x1f) + draft.removeSourceNoteId);
+        // Keep persisted objects hidden during permanent deletion, but do
+        // not present the deletion transaction itself as an editable draft.
+        if (draft.state == DraftRecord::Deleting)
+            continue;
 
         QString title = NoteTitleResolver::displayTitle(draft.title, draft.body, draft.format);
         if (title.isEmpty())
@@ -372,7 +377,16 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
         } else {
             row.storageName = row.storageId;
         }
-        draftRows.append(std::move(row));
+        // A recycled published note may be waiting for a remote ACK while
+        // offline. It is still a pending draft for persistence purposes,
+        // but belongs to the Recycle Bin in the folder projection.
+        if (!draft.remoteNoteId.isEmpty() && catalogManager_ && catalogManager_->isAvailable()
+            && catalogManager_->catalog().isRecycled(draft.storageId, draft.remoteNoteId)) {
+            row.folderId = FolderCatalog::recycleBinId();
+            recycledDraftRows.append(std::move(row));
+        } else {
+            draftRows.append(std::move(row));
+        }
     }
 
     if (!draftRows.isEmpty()) {
@@ -418,7 +432,7 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
         const auto rootFolders = catalogManager_->catalog().children();
         for (const auto &folder : rootFolders) {
             if (!folder.archived && !FolderCatalog::isRecycleBinId(folder.id))
-                appendFolder(&rows, folder.id, 0, notesByFolder);
+                appendFolder(&rows, folder.id, 0, notesByFolder, recycledDraftRows);
         }
     }
 
@@ -434,11 +448,11 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
         const auto rootFolders = catalogManager_->catalog().children();
         for (const auto &folder : rootFolders) {
             if (folder.archived && !FolderCatalog::isRecycleBinId(folder.id))
-                appendFolder(&rows, folder.id, 0, notesByFolder);
+                appendFolder(&rows, folder.id, 0, notesByFolder, recycledDraftRows);
         }
         for (const auto &folder : rootFolders) {
             if (FolderCatalog::isRecycleBinId(folder.id))
-                appendFolder(&rows, folder.id, 0, notesByFolder);
+                appendFolder(&rows, folder.id, 0, notesByFolder, recycledDraftRows);
         }
     }
     return rows;
@@ -568,7 +582,8 @@ QUuid FolderNotesModel::effectiveFolderId(const Note &note) const
 }
 
 void FolderNotesModel::appendFolder(QList<Row> *rows, const QUuid &folderId, int depth,
-                                    const QHash<QUuid, QList<Note>> &notesByFolder) const
+                                    const QHash<QUuid, QList<Note>> &notesByFolder,
+                                    const QList<Row> &recycledDraftRows) const
 {
     if (!rows || !catalogManager_)
         return;
@@ -588,14 +603,21 @@ void FolderNotesModel::appendFolder(QList<Row> *rows, const QUuid &folderId, int
     row.favorite         = folder->favorite;
     row.archived         = folder->archived;
     row.childFolderCount = catalog.children(folder->id).size();
-    row.noteCount        = notesByFolder.value(folder->id).size();
+    row.noteCount        = notesByFolder.value(folder->id).size()
+        + (row.systemFolder ? recycledDraftRows.size() : 0);
     rows->append(std::move(row));
 
     if (folder->collapsed)
         return;
     for (const auto &child : catalog.children(folder->id))
-        appendFolder(rows, child.id, depth + 1, notesByFolder);
+        appendFolder(rows, child.id, depth + 1, notesByFolder, recycledDraftRows);
     appendNotes(rows, notesByFolder.value(folder->id), folder->id, depth + 1);
+    if (row.systemFolder) {
+        for (auto pendingRow : recycledDraftRows) {
+            pendingRow.depth = depth + 1;
+            rows->append(std::move(pendingRow));
+        }
+    }
 }
 
 void FolderNotesModel::appendNotes(QList<Row> *rows, const QList<Note> &notes, const QUuid &folderId, int depth) const

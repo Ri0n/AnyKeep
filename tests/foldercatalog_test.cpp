@@ -21,6 +21,9 @@ private slots:
     void sortsArchivedAndRecycleBinAfterNormalFolders();
     void buildsFolderPaths();
     void reconcilesPathOnlyProviderAssignments();
+    void importsRecycleBinUsingSystemIdentity();
+    void importsExplicitRecycleBinByUuidWithoutMatchingItsName();
+    void adoptsPreviouslyImportedRecycleBin();
     void retainsAssignmentTombstones();
     void recyclesAndRestoresNotesWithOriginalFolder();
     void trashesAndRestoresFolderBranchesVolatilely();
@@ -233,6 +236,90 @@ void FolderCatalogTest::reconcilesPathOnlyProviderAssignments()
     const auto externalFolder = catalog.folderForNote(QStringLiteral("nextcloud"), QStringLiteral("note-1"));
     QVERIFY(!externalFolder.isNull());
     QCOMPARE(catalog.pathForFolder(externalFolder), QStringList({ QStringLiteral("External") }));
+}
+
+void FolderCatalogTest::importsRecycleBinUsingSystemIdentity()
+{
+    FolderCatalog catalog;
+    ProviderFolderPathAssignment remote;
+    remote.noteId = QStringLiteral("old-recycled-note");
+    remote.path = { QStringLiteral("Recycle Bin") };
+    remote.modifiedAt = QDateTime::currentDateTimeUtc();
+
+    QVERIFY(!catalog.reconcileProviderFolderPaths(QStringLiteral("xmpp-pubsub"), { remote }));
+    QCOMPARE(catalog.folderForNote(QStringLiteral("xmpp-pubsub"), remote.noteId), FolderCatalog::recycleBinId());
+    QVERIFY(catalog.isRecycled(QStringLiteral("xmpp-pubsub"), remote.noteId));
+    QCOMPARE(catalog.children().size(), 1);
+    QCOMPARE(catalog.children().first().id, FolderCatalog::recycleBinId());
+    QCOMPARE(catalog.pathForFolder(FolderCatalog::recycleBinId()),
+             QStringList({ QStringLiteral("Recycle Bin") }));
+    const auto *hint = catalog.pathHint(QStringLiteral("xmpp-pubsub"), remote.path);
+    QVERIFY(hint);
+    QCOMPARE(hint->folderId, FolderCatalog::recycleBinId());
+}
+
+void FolderCatalogTest::importsExplicitRecycleBinByUuidWithoutMatchingItsName()
+{
+    FolderCatalog catalog;
+    ProviderFolderPathAssignment remote;
+    remote.noteId = QStringLiteral("trash-uuid-note");
+    remote.path = { QStringLiteral("Translated label from another device") };
+    remote.systemFolderId = FolderCatalog::recycleBinId();
+    remote.modifiedAt = QDateTime::currentDateTimeUtc();
+
+    QVERIFY(!catalog.reconcileProviderFolderPaths(QStringLiteral("xmpp-pubsub"), { remote }));
+    QCOMPARE(catalog.folderForNote(QStringLiteral("xmpp-pubsub"), remote.noteId),
+             FolderCatalog::recycleBinId());
+    QVERIFY(catalog.isRecycled(QStringLiteral("xmpp-pubsub"), remote.noteId));
+    QCOMPARE(catalog.children().size(), 1);
+    QCOMPARE(catalog.children().first().id, FolderCatalog::recycleBinId());
+    QVERIFY(!catalog.pathHint(QStringLiteral("xmpp-pubsub"), remote.path));
+
+    // Reimport must remain idempotent without generating a second sibling.
+    QVERIFY(!catalog.reconcileProviderFolderPaths(QStringLiteral("xmpp-pubsub"), { remote }));
+    QCOMPARE(catalog.children().size(), 1);
+
+    remote.systemFolderId = QUuid::createUuid();
+    const auto rejected = catalog.reconcileProviderFolderPaths(QStringLiteral("xmpp-pubsub"), { remote });
+    QVERIFY(rejected);
+    QCOMPARE(rejected.code, FolderCatalogError::InvalidArgument);
+}
+
+void FolderCatalogTest::adoptsPreviouslyImportedRecycleBin()
+{
+    FolderCatalog catalog;
+    const auto imported = catalog.addFolder(folder(QStringLiteral("Recycle Bin")));
+    QVERIFY(imported);
+    const auto child = catalog.addFolder(folder(QStringLiteral("Old child"), imported.value));
+    QVERIFY(child);
+    QVERIFY(!catalog.assignNote(QStringLiteral("xmpp-pubsub"), QStringLiteral("already-recycled"), imported.value));
+    QVERIFY(!catalog.assignNote(QStringLiteral("xmpp-pubsub"), QStringLiteral("nested"), child.value));
+
+    auto snapshot = catalog.snapshot();
+    ProviderPathHint hint;
+    hint.storageId = QStringLiteral("xmpp-pubsub");
+    hint.path = { QStringLiteral("Recycle Bin") };
+    hint.folderId = imported.value;
+    hint.revision = 1;
+    hint.modifiedAt = QDateTime::currentDateTimeUtc();
+    snapshot.pathHints.append(hint);
+    QVERIFY(!catalog.replaceSnapshot(snapshot));
+
+    // Recycle of an existing note in this folder must still commit the UUID
+    // migration, even though its assignment is already in the bin by name.
+    QVERIFY(!catalog.recycleNote(QStringLiteral("xmpp-pubsub"), QStringLiteral("already-recycled"), {}));
+    QVERIFY(catalog.isRecycled(QStringLiteral("xmpp-pubsub"), QStringLiteral("already-recycled")));
+    QCOMPARE(catalog.folderForNote(QStringLiteral("xmpp-pubsub"), QStringLiteral("nested")), child.value);
+    QCOMPARE(catalog.children(FolderCatalog::recycleBinId()).size(), 1);
+    QCOMPARE(catalog.children(FolderCatalog::recycleBinId()).first().id, child.value);
+    const auto *migrated = catalog.pathHint(QStringLiteral("xmpp-pubsub"), hint.path);
+    QVERIFY(migrated);
+    QCOMPARE(migrated->folderId, FolderCatalog::recycleBinId());
+    QCOMPARE(catalog.children().size(), 1);
+    QVERIFY(!catalog.folder(imported.value));
+
+    QVERIFY(!catalog.recycleNote(QStringLiteral("xmpp-pubsub"), QStringLiteral("newly-recycled"), {}));
+    QVERIFY(catalog.isRecycled(QStringLiteral("xmpp-pubsub"), QStringLiteral("newly-recycled")));
 }
 
 void FolderCatalogTest::retainsAssignmentTombstones()

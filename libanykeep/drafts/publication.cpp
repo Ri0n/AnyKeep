@@ -11,6 +11,8 @@
 
 #include <QDateTime>
 #include <QDebug>
+#include <QPointer>
+#include <QSharedPointer>
 #include <QTimer>
 
 #include <algorithm>
@@ -106,6 +108,27 @@ namespace {
         }
         return true;
     }
+
+    // A provider may fail a StorageJob synchronously before returning it.
+    // Subscribing only to finished() would miss that terminal result forever
+    // and strand the durable draft in Publishing. Observe both the signal and
+    // an already-terminal job, but never dispatch a completion twice.
+    template<typename Job, typename Callback>
+    void observeJobCompletion(Job *job, QObject *receiver, Callback callback)
+    {
+        const auto handled = QSharedPointer<bool>::create(false);
+        const QPointer<Job> guard(job);
+        const auto finish = [guard, handled, callback = std::move(callback)]() mutable {
+            if (!guard || *handled)
+                return;
+            *handled = true;
+            callback();
+        };
+        QObject::connect(job, &StorageJob::finished, receiver, finish);
+        if (job->isFinished())
+            QTimer::singleShot(0, receiver, finish);
+    }
+
 
 } // namespace
 
@@ -682,7 +705,7 @@ void DraftManager::publish(const DraftRecord &record)
                                     << "storage=" << storage->systemName() << "noteIdPresent=" << !note.id().isEmpty();
         auto *job = storage->saveNoteAsync(note, this);
         publishJobs_.insert(record.id, job);
-        connect(job, &StorageJob::finished, this, [this, record, job]() {
+        observeJobCompletion(job, this, [this, record, job]() {
             if (publishJobs_.value(record.id) != job) {
                 qCInfo(logDraftPersistence)
                     << "Reconciling stale draft save job: draft=" << record.id.toString(QUuid::WithoutBraces)
@@ -735,7 +758,7 @@ void DraftManager::publish(const DraftRecord &record)
 
     auto *job = storage->loadNoteAsync(record.remoteNoteId, this);
     publishJobs_.insert(record.id, job);
-    connect(job, &StorageJob::finished, this,
+    observeJobCompletion(job, this,
             [this, record, storage, job, save, snapshot = *snapshot]() mutable {
         if (publishJobs_.value(record.id) != job) {
             qCInfo(logDraftPersistence) << "Ignoring stale draft load job: draft="
@@ -849,7 +872,7 @@ void DraftManager::remove(const DraftRecord &record)
     publishing_.insert(record.id);
     auto *job = storage->removeNoteAsync(record.remoteNoteId, this);
     publishJobs_.insert(record.id, job);
-    connect(job, &StorageJob::finished, this, [this, id = record.id, job]() {
+    observeJobCompletion(job, this, [this, id = record.id, job]() {
         if (publishJobs_.value(id) != job) {
             qCInfo(logDraftPersistence) << "Ignoring stale draft removal job: draft="
                                         << id.toString(QUuid::WithoutBraces);

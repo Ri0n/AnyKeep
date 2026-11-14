@@ -18,6 +18,8 @@ QtObject {
     property var documentSelectionEndEditor: null
     property int documentSelectionEndPosition: 0
     property bool documentSelectionAvailable: false
+    // Toolbar availability needs to update even when selection stays nonempty.
+    property int selectionRevision: 0
     property var contextEditor: null
     property bool mouseSelectionActive: false
     property int blankSelectionBoundary: -1
@@ -36,6 +38,7 @@ QtObject {
     property int editTransactionDepth: 0
 
     function refreshSelectionState() {
+        ++selectionRevision
         if (wholeDocumentSelected) {
             documentSelectionAvailable = true
             return

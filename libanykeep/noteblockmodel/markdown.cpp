@@ -171,20 +171,20 @@ namespace {
     {
         static const QRegularExpression outer(QStringLiteral(R"(^\s*<video\b([^>]*?)(?:>\s*</video>|/>)\s*$)"),
                                               QRegularExpression::CaseInsensitiveOption);
-        const auto match = outer.match(line);
+        const auto                      match = outer.match(line);
         if (!match.hasMatch())
             return {};
-        const auto attributes = htmlAttributes(match.captured(1));
+        const auto     attributes = htmlAttributes(match.captured(1));
         HtmlVideoBlock result;
-        result.source = attributes.value(QStringLiteral("src")).trimmed();
-        result.title = attributes.value(QStringLiteral("title"));
-        bool ok = false;
+        result.source         = attributes.value(QStringLiteral("src")).trimmed();
+        result.title          = attributes.value(QStringLiteral("title"));
+        bool         ok       = false;
         const qint64 duration = attributes.value(QStringLiteral("data-anykeep-duration-ms")).toLongLong(&ok);
-        result.durationMs = ok ? qBound<qint64>(0, duration, MaxMediaDurationMs) : 0;
-        result.width = qBound(0, attributes.value(QStringLiteral("data-anykeep-width")).toInt(),
-                              MaxMediaPixelDimension);
-        result.height = qBound(0, attributes.value(QStringLiteral("data-anykeep-height")).toInt(),
-                               MaxMediaPixelDimension);
+        result.durationMs     = ok ? qBound<qint64>(0, duration, MaxMediaDurationMs) : 0;
+        result.width
+            = qBound(0, attributes.value(QStringLiteral("data-anykeep-width")).toInt(), MaxMediaPixelDimension);
+        result.height
+            = qBound(0, attributes.value(QStringLiteral("data-anykeep-height")).toInt(), MaxMediaPixelDimension);
         return result;
     }
 
@@ -474,11 +474,14 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
                                                     QRegularExpression::CaseInsensitiveOption);
     static const QRegularExpression inlineCode(QStringLiteral(R"((?<!`)`+[^\n]*?`+)"));
     static const QRegularExpression quote(QStringLiteral(R"(^\s*>\s?(.*)$)"));
-    const bool                      preserveInlineSourceLines = inlineLink.match(protectedSource).hasMatch()
-        || inlineUnderline.match(protectedSource).hasMatch() || inlineCode.match(protectedSource).hasMatch();
+    // Qt's writer can cross nested strikethrough/emphasis delimiters. Keep
+    // their valid source spelling, as for links, underline and inline code.
+    const bool preserveInlineSourceLines = inlineLink.match(protectedSource).hasMatch()
+        || inlineUnderline.match(protectedSource).hasMatch() || inlineCode.match(protectedSource).hasMatch()
+        || protectedSource.contains(QStringLiteral("~~"));
     const bool hasHtmlMedia = std::any_of(sourceLines.cbegin(), sourceLines.cend(), [](const QString &line) {
-        return bool(parseHtmlImageBlock(line)) || bool(parseHtmlAudioBlock(line))
-            || bool(parseHtmlVideoBlock(line)) || bool(parseHtmlAttachmentBlock(line));
+        return bool(parseHtmlImageBlock(line)) || bool(parseHtmlAudioBlock(line)) || bool(parseHtmlVideoBlock(line))
+            || bool(parseHtmlAttachmentBlock(line));
     });
     // QTextDocument remains the Markdown reader for inline semantics, but its
     // writer wraps long paragraphs (very often around a link). Such a soft
@@ -684,13 +687,13 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
         const HtmlVideoBlock htmlVideo = parseHtmlVideoBlock(lines[i]);
         if (htmlVideo) {
             Block block;
-            block.type = Media;
-            block.mediaType = QStringLiteral("video/*");
+            block.type            = Media;
+            block.mediaType       = QStringLiteral("video/*");
             block.mediaDurationMs = htmlVideo.durationMs;
-            block.mediaWidth = htmlVideo.width;
-            block.mediaHeight = htmlVideo.height;
-            block.url = htmlVideo.source;
-            block.alt = htmlVideo.title;
+            block.mediaWidth      = htmlVideo.width;
+            block.mediaHeight     = htmlVideo.height;
+            block.url             = htmlVideo.source;
+            block.alt             = htmlVideo.title;
             ++i;
             if (i < lines.size()) {
                 const QString transcript = parseHtmlMediaTranscript(lines.at(i));
@@ -717,12 +720,12 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
         const HtmlImageBlock htmlImage = parseHtmlImageBlock(lines[i]);
         if (htmlImage) {
             Block block;
-            block.type           = Media;
-            block.mediaType      = QStringLiteral("image/*");
-            block.url            = htmlImage.source;
-            block.alt            = htmlImage.alt;
-            block.mediaDisplayWidth     = htmlImage.width;
-            block.mediaAlignment = htmlImage.alignment;
+            block.type              = Media;
+            block.mediaType         = QStringLiteral("image/*");
+            block.url               = htmlImage.source;
+            block.alt               = htmlImage.alt;
+            block.mediaDisplayWidth = htmlImage.width;
+            block.mediaAlignment    = htmlImage.alignment;
             result.append(block);
             ++i;
             continue;
@@ -730,10 +733,10 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
         match = image.match(lines[i]);
         if (match.hasMatch()) {
             Block block;
-            block.type = Media;
+            block.type      = Media;
             block.mediaType = QStringLiteral("image/*");
-            block.alt  = match.captured(1);
-            block.url  = match.captured(2);
+            block.alt       = match.captured(1);
+            block.url       = match.captured(2);
             result.append(block);
             ++i;
             continue;
@@ -743,7 +746,8 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
                && !bullet.match(lines[i]).hasMatch() && !numbered.match(lines[i]).hasMatch()
                && !image.match(lines[i]).hasMatch() && !heading.match(lines[i]).hasMatch()
                && !quote.match(lines[i]).hasMatch() && !parseHtmlAudioBlock(lines[i])
-               && !parseHtmlAttachmentBlock(lines[i]) && !parseHtmlVideoBlock(lines[i]) && !parseHtmlImageBlock(lines[i])
+               && !parseHtmlAttachmentBlock(lines[i]) && !parseHtmlVideoBlock(lines[i])
+               && !parseHtmlImageBlock(lines[i])
                && !(i + 1 < lines.size() && lines[i].contains('|') && isTableSeparator(lines[i + 1])))
             paragraph.append(lines[i++]);
         const QString text = paragraph.join('\n');

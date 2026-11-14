@@ -70,25 +70,9 @@ FolderCatalogError FolderCatalog::recycleNote(const QString &storageId, const QS
     if (storageId.isEmpty() || noteId.isEmpty())
         return error(FolderCatalogError::InvalidArgument, QStringLiteral("Storage id and note id are required"));
 
-    auto       candidate  = snapshot_;
-    const auto trashId    = recycleBinId();
-    auto       trashIndex = -1;
-    for (int index = 0; index < candidate.folders.size(); ++index) {
-        if (candidate.folders.at(index).id == trashId) {
-            trashIndex = index;
-            break;
-        }
-    }
-    if (trashIndex < 0) {
-        FolderRecord trash;
-        trash.id         = trashId;
-        trash.name       = QStringLiteral("Recycle Bin");
-        trash.sortOrder  = std::numeric_limits<qint64>::max() / 4;
-        trash.archived   = true;
-        trash.revision   = 1;
-        trash.modifiedAt = currentTime();
-        candidate.folders.append(std::move(trash));
-    }
+    auto candidate = snapshot_;
+    ensureRecycleBin(&candidate);
+    const auto trashId = recycleBinId();
 
     const auto index = indexOfAssignment(storageId, noteId);
     const auto now   = currentTime();
@@ -105,7 +89,7 @@ FolderCatalogError FolderCatalog::recycleNote(const QString &storageId, const QS
     } else {
         auto &record = candidate.assignments[index];
         if (!record.tombstone && isRecycleBinId(record.folderId))
-            return {};
+            return replaceSnapshot(std::move(candidate));
         record.folderId         = trashId;
         record.previousFolderId = previousFolderId;
         record.recycledAt       = now;

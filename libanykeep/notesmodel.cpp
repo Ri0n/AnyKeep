@@ -288,7 +288,9 @@ QVariant NotesModel::data(const QModelIndex &modelIndex, int role) const
     case DraftErrorRole:
         return !storage ? item->draftError : QString();
     case RecycledRole:
-        return !storage && !item->pendingDraft && folderCatalogManager_ && folderCatalogManager_->isAvailable()
+        // Recycle is committed by FolderCatalog, not by a provisional
+        // draft intent. A failed catalog transaction must not hide the note.
+        return !storage && folderCatalogManager_ && folderCatalogManager_->isAvailable()
             && folderCatalogManager_->catalog().isRecycled(item->parent->id, item->id);
     default:
         return {};
@@ -626,7 +628,10 @@ void NotesModel::replaceVisibleNotes(NMMItem *storageItem, int desiredCount)
     } else {
         QHash<QString, DraftRecord> draftByNote;
         for (const auto &draft : pending) {
-            if (draft.operation == DraftRecord::Delete || draft.state == DraftRecord::Deleting)
+            if (draft.operation == DraftRecord::Delete || draft.state == DraftRecord::Deleting
+                || (folderCatalogManager_ && folderCatalogManager_->isAvailable()
+                    && !draft.remoteNoteId.isEmpty()
+                    && folderCatalogManager_->catalog().isRecycled(storageItem->id, draft.remoteNoteId)))
                 continue;
             if (draft.storageId != storageItem->id || isUnpublishedDraft(draft))
                 continue;
@@ -765,7 +770,10 @@ int NotesModel::projectedNoteCount(const NMMItem *storageItem) const
         }
         if (draft.removeSourceStorageId == storageItem->id && !draft.removeSourceNoteId.isEmpty())
             ids.remove(draft.removeSourceNoteId);
-        if (draft.storageId != storageItem->id || isUnpublishedDraft(draft))
+        if (draft.storageId != storageItem->id || isUnpublishedDraft(draft)
+            || (folderCatalogManager_ && folderCatalogManager_->isAvailable()
+                && !draft.remoteNoteId.isEmpty()
+                && folderCatalogManager_->catalog().isRecycled(storageItem->id, draft.remoteNoteId)))
             continue;
         ids.insert(draft.remoteNoteId.isEmpty() ? draft.id.toString(QUuid::WithoutBraces) : draft.remoteNoteId);
     }

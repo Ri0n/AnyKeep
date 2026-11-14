@@ -362,6 +362,36 @@ the observed path into its own shared folder catalog and retains its stable
 local UUID mapping. The extension remains inside the encrypted index payload,
 so it is not visible to the XMPP server.
 
+### System-folder identity extension
+
+A note assigned to an application-owned system folder MAY contain one direct
+`<system-folder/>` element in the
+`urn:xmpp:private-notes:system-folder:0` namespace. It MUST be empty and
+MUST have exactly one unqualified `id` attribute containing the canonical UUID.
+
+For the Recycle Bin the fixed identifier is
+`7cc71968-8b71-4bbf-a0ec-61f0d0e6cd1b`. Clients MUST identify a note
+as recycled by this UUID, irrespective of any localized path segments
+accompanying it. Unknown system-folder UUIDs MUST NOT be silently treated
+as normal folders. The element is optional and lives in the authenticated,
+encrypted index just like `favorite`; it is not observable by the server.
+
+```xml
+<folder xmlns='urn:xmpp:private-notes:folders:0'>
+  <segment>Recycle Bin</segment>
+</folder>
+<system-folder xmlns='urn:xmpp:private-notes:system-folder:0'
+               id='7cc71968-8b71-4bbf-a0ec-61f0d0e6cd1b'/>
+```
+
+The ordinary folder path is retained for clients that only implement the
+path extension. Existing encrypted indexes without the marker are interpreted
+using the legacy folder-path rules, including historical `Recycle Bin`
+paths. When moving a note out of the bin, a writer supporting this extension
+MUST remove the marker. Older writers that preserve unknown XML extensions
+may not do so; implementations should treat those clients as lacking full
+cross-device Recycle Bin semantics.
+
 ### Content-revision extension
 
 An index-only update changes metadata such as the folder without uploading the

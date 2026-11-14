@@ -47,6 +47,96 @@ using FolderCatalogPrivate::assignmentKey;
 using FolderCatalogPrivate::error;
 using FolderCatalogPrivate::folderKey;
 
+void FolderCatalog::ensureRecycleBin(FolderCatalogSnapshot *snapshot)
+{
+    if (!snapshot)
+        return;
+
+    const QUuid systemId = recycleBinId();
+    const auto now = currentTime();
+    int systemIndex = -1;
+    int importedIndex = -1;
+    for (int i = 0; i < snapshot->folders.size(); ++i) {
+        const auto &folder = snapshot->folders.at(i);
+        if (folder.id == systemId)
+            systemIndex = i;
+        else if (!folder.tombstone && folder.parentId.isNull()
+                 && normalizedName(folder.name) == QStringLiteral("recycle bin"))
+            importedIndex = i;
+    }
+
+    if (systemIndex >= 0 && !snapshot->folders.at(systemIndex).tombstone)
+        return;
+
+    if (importedIndex >= 0) {
+        // Older clients could import the remote "Recycle Bin" path as an
+        // ordinary root with a random UUID. Adopt that folder as the stable
+        // system bin instead of adding a duplicate named sibling. Preserve
+        // its note assignments, path hints and child folder relationships.
+        const QUuid importedId = snapshot->folders.at(importedIndex).id;
+        if (systemIndex < 0) {
+            auto &folder = snapshot->folders[importedIndex];
+            folder.id = systemId;
+            folder.parentId = {};
+            folder.name = QStringLiteral("Recycle Bin");
+            folder.archived = true;
+            folder.favorite = false;
+            folder.revision = std::max<quint64>(folder.revision + 1, 1);
+            folder.modifiedAt = now;
+        } else {
+            auto &folder = snapshot->folders[systemIndex];
+            folder.tombstone = false;
+            folder.parentId = {};
+            folder.name = QStringLiteral("Recycle Bin");
+            folder.archived = true;
+            folder.favorite = false;
+            folder.revision = std::max<quint64>(folder.revision + 1, 1);
+            folder.modifiedAt = now;
+            auto &obsolete = snapshot->folders[importedIndex];
+            obsolete.tombstone = true;
+            obsolete.name.clear();
+            obsolete.revision = std::max<quint64>(obsolete.revision + 1, 1);
+            obsolete.modifiedAt = now;
+        }
+        for (auto &folder : snapshot->folders) {
+            if (folder.parentId == importedId)
+                folder.parentId = systemId;
+        }
+        for (auto &assignment : snapshot->assignments) {
+            if (assignment.folderId == importedId)
+                assignment.folderId = systemId;
+            if (assignment.previousFolderId == importedId)
+                assignment.previousFolderId = systemId;
+        }
+        for (auto &hint : snapshot->pathHints) {
+            if (hint.folderId == importedId)
+                hint.folderId = systemId;
+        }
+        return;
+    }
+
+    if (systemIndex >= 0) {
+        auto &folder = snapshot->folders[systemIndex];
+        folder.tombstone = false;
+        folder.parentId = {};
+        folder.name = QStringLiteral("Recycle Bin");
+        folder.archived = true;
+        folder.favorite = false;
+        folder.revision = std::max<quint64>(folder.revision + 1, 1);
+        folder.modifiedAt = now;
+        return;
+    }
+
+    FolderRecord folder;
+    folder.id = systemId;
+    folder.name = QStringLiteral("Recycle Bin");
+    folder.sortOrder = std::numeric_limits<qint64>::max() / 4;
+    folder.archived = true;
+    folder.revision = 1;
+    folder.modifiedAt = now;
+    snapshot->folders.append(std::move(folder));
+}
+
 FolderCatalogError FolderCatalog::replaceSnapshot(FolderCatalogSnapshot snapshot)
 {
     if (const auto validation = validate(snapshot))

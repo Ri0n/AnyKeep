@@ -66,8 +66,22 @@ ApplicationWindow {
     Connections {
         target: mobileApp
         function onCurrentNoteEditorChanged() {
-            if (mobileApp.currentNoteEditor && navigation.depth === 1)
-                navigation.push(noteEditor, { "editor": mobileApp.currentNoteEditor })
+            if (mobileApp.currentNoteEditor) {
+                if (navigation.depth === 1)
+                    navigation.push(noteEditor, { "editor": mobileApp.currentNoteEditor })
+                return
+            }
+            // A note can be removed from the list, another window or during
+            // synchronization. Never leave a page bound to a discarded editor.
+            // Defer so an explicit Back request from the editor cannot pop
+            // the next page a second time.
+            const page = navigation.currentItem
+            if (page && typeof page.closeEditor === "function") {
+                Qt.callLater(function() {
+                    if (navigation.currentItem === page && !mobileApp.currentNoteEditor)
+                        navigation.pop()
+                })
+            }
         }
         function onOperationFailed(message) {
             mobileApp.dialogs.inform(qsTr("AnyKeep"), message)

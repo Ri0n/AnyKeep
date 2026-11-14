@@ -58,6 +58,16 @@
 - Root-level facade files remain intentionally tiny and preserve compatibility
   for desktop resource URLs and the mobile QML module.
 
+## No post-glitch correction
+
+For text, list, and document changes, update only the affected blocks/items
+and retain all surviving editor delegates and their `QTextDocument` instances.
+Do not compensate for needless delegate destruction by scheduling a later
+scroll, focus, selection, or content rewrite. The existing event-loop deferrals
+used for genuine asynchronous delegate creation are not permission to repair
+an avoidable visual glitch after it has occurred. If the correct incremental
+update is too invasive, defer the feature instead of adding such a workaround.
+
 ## `NoteBlockEditorImpl` public API owners
 
 | API group | Implementation owner |

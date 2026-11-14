@@ -7,6 +7,10 @@ import "../../reorder" as Reorder
 Column {
     id: listRoot
 
+    readonly property bool rightToLeft: Qt.application.layoutDirection === Qt.RightToLeft
+    LayoutMirroring.enabled: rightToLeft
+    LayoutMirroring.childrenInherit: true
+
     required property var editorView
     required property var block
     required property var reorderController
@@ -179,9 +183,10 @@ Column {
     }
 
     function markerCenterXForIndent(indent) {
+        const markerX = Math.max(0, Number(indent)) * editorView.listIndent
+                        + editorView.listMarkerWidth / 2
         return listRoot.mapToItem(editorView.contentItem,
-                                  Math.max(0, Number(indent)) * editorView.listIndent
-                                  + editorView.listMarkerWidth / 2, 0).x
+                                  rightToLeft ? width - markerX : markerX, 0).x
     }
 
     function levelHandleHeight(range) {
@@ -376,6 +381,15 @@ Column {
             property alias markerItem: markerSlot
             property alias dragContent: rowContent
             property real swipeOffset: 0
+            // Test the finger's position against the far edge of the list,
+            // not how far the row has translated. Translation-based thresholds
+            // depend on where the user first grabbed the item.
+            property real swipePointerX: -1
+            readonly property real deleteEdgeMargin: Math.max(24, 8 * editorView.editorFontAverageCharacterWidth)
+            readonly property bool inDeleteZone: swipePointerX >= 0
+                && (listRoot.rightToLeft ? swipeOffset < -24 : swipeOffset > 24)
+                && (listRoot.rightToLeft ? swipePointerX <= deleteEdgeMargin
+                                        : swipePointerX >= listRoot.width - deleteEdgeMargin)
             readonly property bool sourceRow: listRoot.isSourceIndex(index)
             readonly property var ownLevelRange: {
                 listRoot.itemsRevision
@@ -445,7 +459,7 @@ Column {
 
             Rectangle {
                 anchors.fill: parent
-                visible: editorView.touchMode && Math.abs(rowWrapper.swipeOffset) > 0
+                visible: editorView.touchMode && rowWrapper.inDeleteZone
                 color: "#b3261e"
 
                 Label {
@@ -463,7 +477,8 @@ Column {
             RowLayout {
                 id: rowContent
 
-                x: rowWrapper.itemIndent * editorView.listIndent + rowWrapper.swipeOffset
+                x: (listRoot.rightToLeft ? 0 : rowWrapper.itemIndent * editorView.listIndent)
+                   + rowWrapper.swipeOffset
                 y: reorderController.wholeListBlockDrag ? 0 : rowWrapper.dropSpace
                 width: Math.max(0, listRoot.width
                                   - rowWrapper.itemIndent * editorView.listIndent)
@@ -573,18 +588,26 @@ Column {
 
                 onActiveTranslationChanged: {
                     rowWrapper.swipeOffset = activeTranslation.x
+                    // Scene coordinates are independent of the rowContent
+                    // translation that follows the gesture.
+                    const point = listRoot.mapFromItem(null, centroid.scenePosition.x,
+                                                       centroid.scenePosition.y)
+                    rowWrapper.swipePointerX = point.x
                 }
                 onActiveChanged: {
                     if (active)
                         return
-                    const removeThreshold = Math.min(120, rowWrapper.width * 0.35)
-                    if (Math.abs(rowWrapper.swipeOffset) >= removeThreshold) {
+                    const deleteItem = rowWrapper.inDeleteZone
+                    rowWrapper.swipePointerX = -1
+                    if (deleteItem)
                         rowWrapper.removeBySwipe()
-                    } else {
+                    else
                         rowWrapper.swipeOffset = 0
-                    }
                 }
-                onCanceled: rowWrapper.swipeOffset = 0
+                onCanceled: {
+                    rowWrapper.swipePointerX = -1
+                    rowWrapper.swipeOffset = 0
+                }
             }
 
             Behavior on swipeOffset {
@@ -612,7 +635,9 @@ Column {
                 visible: active && (!reorderController.dragging || dragging)
                 forceVisible: editorView.touchMode
                 fullHeight: true
-                x: handleLevel * editorView.listIndent - levelHandleGutter
+                x: listRoot.rightToLeft
+                   ? rowWrapper.width - handleLevel * editorView.listIndent - levelHandleGutter
+                   : handleLevel * editorView.listIndent - levelHandleGutter
                 y: 0
                 width: Math.max(12, levelHandleGutter - 2)
                 height: dragging && dragHeightSnapshot > 0

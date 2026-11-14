@@ -37,6 +37,7 @@ ListView {
     property alias documentSelectionEndEditor: selectionController.documentSelectionEndEditor
     property alias documentSelectionEndPosition: selectionController.documentSelectionEndPosition
     property alias documentSelectionAvailable: selectionController.documentSelectionAvailable
+    property alias selectionRevision: selectionController.selectionRevision
     property alias contextEditor: selectionController.contextEditor
     property alias mouseSelectionActive: selectionController.mouseSelectionActive
     property alias blankSelectionBoundary: selectionController.blankSelectionBoundary
@@ -662,6 +663,9 @@ ListView {
     }
 
     function applyActiveInlineStyle(style) {
+        // Toolbar and shortcut must format the same set of selected editors.
+        if (style === "bold" || style === "italic" || style === "strike" || style === "underline")
+            return applyInlineFormattingStyle(style, activeEditor)
         if (!editorBackend)
             return false
         if (style === "code" && !hasDocumentSelection()
@@ -848,38 +852,61 @@ ListView {
         customDictionaryDialog.openEditor()
     }
 
-    function handleInlineFormatting(event, editor) {
-        const style = inlineMarkers(event)
-        if (!style)
+    function hasMultiListItemSelection() {
+        let count = 0
+        // Toolbar bindings need a read-only query, without the visual-order
+        // cache/counter updates in orderedEditors(). Counting needs no order.
+        for (const candidate of editors) {
+            if (candidate && candidate.visible && candidate.listItemIndex >= 0
+                    && candidate.selectionStart !== candidate.selectionEnd
+                    && ++count > 1)
+                return true
+        }
+        return false
+    }
+
+    // Shared entry point for keyboard shortcuts and toolbar actions. Keep
+    // multi-editor formatting in one history transaction.
+    function applyInlineFormattingStyle(style, editor) {
+        if (!editorBackend)
             return false
         if (style === "link") {
-            if (!editor || editor.textFormat !== TextEdit.MarkdownText)
+            if (!editor || editor.textFormat !== TextEdit.MarkdownText
+                    || hasMultiListItemSelection())
                 return false
             const selected = orderedEditors().filter(candidate => candidate.selectionStart !== candidate.selectionEnd
-                                                      && !selectionTouchesTitle(candidate))
+                                                          && !selectionTouchesTitle(candidate))
             openLinkEditor(selected.length === 1 ? selected[0] : editor)
             return true
         }
         if (style === "code") {
+            if (hasMultiListItemSelection())
+                return false
             if (editor && activeEditor !== editor)
                 activeEditor = editor
-            applyActiveInlineStyle("code")
-            return true
+            return applyActiveInlineStyle("code")
         }
         const selected = orderedEditors().filter(candidate => candidate.selectionStart !== candidate.selectionEnd
                                                   && !selectionTouchesTitle(candidate))
-        runEditTransaction("inline-format", function() {
+        if (selected.length === 0 && (!editor || editor.codeDocument || selectionTouchesTitle(editor)))
+            return false
+        return runEditTransaction("inline-format", function() {
             if (selected.length > 1) {
                 for (const candidate of selected)
                     applyInlineStyle(candidate, style)
                 refreshSelectionState()
             } else if (selected.length === 1) {
                 applyInlineStyle(selected[0], style)
-            } else if (!selectionTouchesTitle(editor)) {
+            } else {
                 applyInlineStyle(editor, style)
             }
+            return true
         })
-        return true
+    }
+
+    function handleInlineFormatting(event, editor) {
+        const style = inlineMarkers(event)
+        return style ? applyInlineFormattingStyle(style, editor) : false
     }
 
     CustomDictionaryDialog {

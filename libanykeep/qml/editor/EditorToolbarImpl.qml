@@ -159,6 +159,18 @@ ToolBar {
         return level > 0 ? qsTr("H%1").arg(level) : qsTr("P")
     }
 
+    readonly property bool multiListItemSelection: {
+        if (!root.blockEditor)
+            return false
+        root.blockEditor.selectionRevision
+        return root.blockEditor.hasMultiListItemSelection()
+    }
+
+    function formatSelection(style) {
+        return root.blockEditor && root.blockEditor.applyInlineFormattingStyle(
+                    style, root.blockEditor.activeEditor)
+    }
+
     function activeInlineStyleEnabled(style) {
         return root.blockEditor && typeof root.blockEditor.activeInlineStyleEnabled === "function"
                 && root.blockEditor.activeInlineStyleEnabled(style)
@@ -421,12 +433,13 @@ ToolBar {
 
         ToolButton {
             id: styleButton
+            focusPolicy: Qt.NoFocus
             visible: !root.compact && root.optionalSlotCount >= root.styleSlot
             Layout.preferredWidth: 42
             Layout.preferredHeight: root.controlSize
             text: root.activeBlockStyleLabel() + qsTr(" ▾")
             font.bold: root.activeHeadingLevel() > 0
-            enabled: root.editorBackend && root.editorBackend.markdown
+            enabled: root.editorBackend && root.editorBackend.markdown && !root.multiListItemSelection
             Accessible.name: qsTr("Paragraph style")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
@@ -434,7 +447,7 @@ ToolBar {
 
             Menu {
                 id: headingMenu
-                MenuItem { text: qsTr("Normal paragraph"); onTriggered: root.blockEditor.convertActiveToHeading(0) }
+                MenuItem { text: qsTr("Normal paragraph"); enabled: !root.multiListItemSelection; onTriggered: root.blockEditor.convertActiveToHeading(0) }
                 MenuItem { text: qsTr("Heading 1"); onTriggered: root.blockEditor.convertActiveToHeading(1) }
                 MenuItem { text: qsTr("Heading 2"); onTriggered: root.blockEditor.convertActiveToHeading(2) }
                 MenuItem { text: qsTr("Heading 3"); onTriggered: root.blockEditor.convertActiveToHeading(3) }
@@ -453,11 +466,12 @@ ToolBar {
             checkable: true
             checked: root.activeInlineStyleEnabled("bold")
             padding: 0
+            focusPolicy: Qt.NoFocus
             enabled: root.editorBackend && root.editorBackend.markdown
             Accessible.name: qsTr("Bold")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
-            onClicked: root.blockEditor.applyActiveInlineStyle("bold")
+            onClicked: root.formatSelection("bold")
         }
         ToolButton {
             visible: !root.compact && root.optionalSlotCount >= root.styleSlot + 2
@@ -469,11 +483,12 @@ ToolBar {
             checkable: true
             checked: root.activeInlineStyleEnabled("italic")
             padding: 0
+            focusPolicy: Qt.NoFocus
             enabled: root.editorBackend && root.editorBackend.markdown
             Accessible.name: qsTr("Italic")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
-            onClicked: root.blockEditor.applyActiveInlineStyle("italic")
+            onClicked: root.formatSelection("italic")
         }
         ToolButton {
             visible: !root.compact && root.optionalSlotCount >= root.styleSlot + 3
@@ -485,11 +500,12 @@ ToolBar {
             checkable: true
             checked: root.activeInlineStyleEnabled("strike")
             padding: 0
+            focusPolicy: Qt.NoFocus
             enabled: root.editorBackend && root.editorBackend.markdown
             Accessible.name: qsTr("Strikethrough")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
-            onClicked: root.blockEditor.applyActiveInlineStyle("strike")
+            onClicked: root.formatSelection("strike")
         }
         ToolButton {
             visible: !root.compact && root.optionalSlotCount >= root.styleSlot + 4
@@ -497,7 +513,8 @@ ToolBar {
             Layout.preferredHeight: root.controlSize
             padding: 0
             display: AbstractButton.IconOnly
-            enabled: root.editorBackend && root.editorBackend.markdown
+            focusPolicy: Qt.NoFocus
+            enabled: root.editorBackend && root.editorBackend.markdown && !root.multiListItemSelection
             contentItem: Shared.ThemedIconImpl {
                 themeName: "__bundled__"
                 fallbackName: "code-symbolic.svg"
@@ -508,7 +525,7 @@ ToolBar {
             Accessible.name: qsTr("Code")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
-            onClicked: root.blockEditor.applyActiveInlineStyle("code")
+            onClicked: root.formatSelection("code")
         }
         ToolButton {
             visible: !root.compact && root.optionalSlotCount >= root.styleSlot + 5
@@ -516,7 +533,8 @@ ToolBar {
             Layout.preferredHeight: root.controlSize
             padding: 0
             display: AbstractButton.IconOnly
-            enabled: root.editorBackend && root.editorBackend.markdown
+            focusPolicy: Qt.NoFocus
+            enabled: root.editorBackend && root.editorBackend.markdown && !root.multiListItemSelection
             contentItem: Shared.ThemedIconImpl {
                 themeName: "__bundled__"
                 fallbackName: "insert-link-symbolic.svg"
@@ -527,7 +545,7 @@ ToolBar {
             Accessible.name: qsTr("Edit link")
             ToolTip.visible: hovered
             ToolTip.text: Accessible.name
-            onClicked: root.blockEditor.editActiveLink()
+            onClicked: root.formatSelection("link")
         }
 
         Item {
@@ -689,8 +707,8 @@ ToolBar {
                 }
                 Menu {
                     title: qsTr("Paragraph style")
-                    enabled: root.editorBackend && root.editorBackend.markdown
-                    MenuItem { text: qsTr("Normal paragraph"); onTriggered: root.blockEditor.convertActiveToHeading(0) }
+                    enabled: root.editorBackend && root.editorBackend.markdown && !root.multiListItemSelection
+                    MenuItem { text: qsTr("Normal paragraph"); enabled: !root.multiListItemSelection; onTriggered: root.blockEditor.convertActiveToHeading(0) }
                     MenuItem { text: qsTr("Heading 1"); onTriggered: root.blockEditor.convertActiveToHeading(1) }
                     MenuItem { text: qsTr("Heading 2"); onTriggered: root.blockEditor.convertActiveToHeading(2) }
                     MenuItem { text: qsTr("Heading 3"); onTriggered: root.blockEditor.convertActiveToHeading(3) }
@@ -700,11 +718,11 @@ ToolBar {
                 Menu {
                     title: qsTr("Formatting")
                     enabled: root.editorBackend && root.editorBackend.markdown
-                    MenuItem { text: qsTr("Bold"); onTriggered: root.blockEditor.applyActiveInlineStyle("bold") }
-                    MenuItem { text: qsTr("Italic"); onTriggered: root.blockEditor.applyActiveInlineStyle("italic") }
-                    MenuItem { text: qsTr("Strikethrough"); onTriggered: root.blockEditor.applyActiveInlineStyle("strike") }
-                    MenuItem { text: qsTr("Code"); onTriggered: root.blockEditor.applyActiveInlineStyle("code") }
-                    MenuItem { text: qsTr("Edit link"); onTriggered: root.blockEditor.editActiveLink() }
+                    MenuItem { text: qsTr("Bold"); onTriggered: root.formatSelection("bold") }
+                    MenuItem { text: qsTr("Italic"); onTriggered: root.formatSelection("italic") }
+                    MenuItem { text: qsTr("Strikethrough"); onTriggered: root.formatSelection("strike") }
+                    MenuItem { text: qsTr("Code"); enabled: !root.multiListItemSelection; onTriggered: root.formatSelection("code") }
+                    MenuItem { text: qsTr("Edit link"); enabled: !root.multiListItemSelection; onTriggered: root.formatSelection("link") }
                 }
 
                 MenuSeparator { visible: root.showDesktopActions }
@@ -786,8 +804,8 @@ ToolBar {
                 }
                 Menu {
                     title: qsTr("Paragraph style")
-                    enabled: root.editorBackend && root.editorBackend.markdown
-                    MenuItem { text: qsTr("Normal paragraph"); onTriggered: root.blockEditor.convertActiveToHeading(0) }
+                    enabled: root.editorBackend && root.editorBackend.markdown && !root.multiListItemSelection
+                    MenuItem { text: qsTr("Normal paragraph"); enabled: !root.multiListItemSelection; onTriggered: root.blockEditor.convertActiveToHeading(0) }
                     MenuItem { text: qsTr("Heading 1"); onTriggered: root.blockEditor.convertActiveToHeading(1) }
                     MenuItem { text: qsTr("Heading 2"); onTriggered: root.blockEditor.convertActiveToHeading(2) }
                     MenuItem { text: qsTr("Heading 3"); onTriggered: root.blockEditor.convertActiveToHeading(3) }
@@ -797,11 +815,11 @@ ToolBar {
                 Menu {
                     title: qsTr("Formatting")
                     enabled: root.editorBackend && root.editorBackend.markdown
-                    MenuItem { text: qsTr("Bold"); onTriggered: root.blockEditor.applyActiveInlineStyle("bold") }
-                    MenuItem { text: qsTr("Italic"); onTriggered: root.blockEditor.applyActiveInlineStyle("italic") }
-                    MenuItem { text: qsTr("Strikethrough"); onTriggered: root.blockEditor.applyActiveInlineStyle("strike") }
-                    MenuItem { text: qsTr("Code"); onTriggered: root.blockEditor.applyActiveInlineStyle("code") }
-                    MenuItem { text: qsTr("Edit link"); onTriggered: root.blockEditor.editActiveLink() }
+                    MenuItem { text: qsTr("Bold"); onTriggered: root.formatSelection("bold") }
+                    MenuItem { text: qsTr("Italic"); onTriggered: root.formatSelection("italic") }
+                    MenuItem { text: qsTr("Strikethrough"); onTriggered: root.formatSelection("strike") }
+                    MenuItem { text: qsTr("Code"); enabled: !root.multiListItemSelection; onTriggered: root.formatSelection("code") }
+                    MenuItem { text: qsTr("Edit link"); enabled: !root.multiListItemSelection; onTriggered: root.formatSelection("link") }
                 }
 
                 MenuSeparator { }

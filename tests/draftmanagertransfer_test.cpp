@@ -102,6 +102,12 @@ public:
 
     NoteLoadJob *loadNoteAsync(const QString &id, QObject *owner = nullptr) override
     {
+        if (failLoadsSynchronously_) {
+            auto *job = new NoteLoadJob(owner ? owner : this);
+            job->start();
+            job->fail({ StorageError::Network, QStringLiteral("immediate load failure"), true });
+            return job;
+        }
         if (!failLoads_)
             return NoteStorage::loadNoteAsync(id, owner);
         auto *job = new NoteLoadJob(owner ? owner : this);
@@ -115,6 +121,12 @@ public:
 
     NoteSaveJob *saveNoteAsync(const Note &note, QObject *owner = nullptr) override
     {
+        if (failSavesSynchronously_) {
+            auto *job = new NoteSaveJob(owner ? owner : this);
+            job->start();
+            job->fail({ StorageError::Network, QStringLiteral("immediate save failure"), true });
+            return job;
+        }
         if (!delaySaveCompletions_)
             return NoteStorage::saveNoteAsync(note, owner);
 
@@ -174,6 +186,17 @@ public:
         return true;
     }
 
+    NoteRemoveJob *removeNoteAsync(const QString &id, QObject *owner = nullptr) override
+    {
+        if (failRemovesSynchronously_) {
+            auto *job = new NoteRemoveJob(owner ? owner : this);
+            job->start();
+            job->fail({ StorageError::Network, QStringLiteral("immediate remove failure"), true });
+            return job;
+        }
+        return NoteStorage::removeNoteAsync(id, owner);
+    }
+
     void removeNote(const QString &id) override
     {
         for (qsizetype index = 0; index < notes_.size(); ++index) {
@@ -203,6 +226,9 @@ public:
     bool                                      supportsFavorite_ { false };
     bool                                      supportsDraftSnapshotSave_ { false };
     bool                                      failLoads_ { false };
+    bool                                      failLoadsSynchronously_ { false };
+    bool                                      failSavesSynchronously_ { false };
+    bool                                      failRemovesSynchronously_ { false };
     bool                                      failSaves_ { false };
     bool                                      failCreates_ { false };
     bool                                      delaySaveCompletions_ { false };
@@ -230,6 +256,9 @@ class DraftManagerTransferTest : public QObject {
 private slots:
     void publishesDestinationBeforeDeletingSource();
     void preservesSourceWhenDestinationPublicationFails();
+    void synchronouslyFailedLoadDoesNotStrandDraft();
+    void synchronouslyFailedSaveDoesNotStrandDraft();
+    void synchronouslyFailedRemovalDoesNotStrandDelete();
     void resumesPublishingDraftForEditing();
     void excludesActiveEditingSessionFromCrashRecovery();
     void prepareForShutdownRequeuesPublishingDraft();
@@ -307,6 +336,83 @@ void DraftManagerTransferTest::publishesFavoriteOnlyChangesForMultipleNotesAndAl
     QTRY_COMPARE(raw->saveCalls_, 3);
     QTRY_VERIFY(!raw->note(first.id()).isFavorite());
     QTRY_VERIFY(raw->note(second.id()).isFavorite());
+}
+
+void DraftManagerTransferTest::synchronouslyFailedLoadDoesNotStrandDraft()
+{
+    auto storage = std::make_unique<TransferStorage>(QStringLiteral("synchronous-load-failure"));
+    const auto note = storage->addStored(QStringLiteral("note"), QStringLiteral("Title"), QStringLiteral("Original"));
+    storage->failLoadsSynchronously_ = true;
+    auto *raw = registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([raw]() {
+        if (NoteManager::instance()->storage(raw->systemName()) == raw)
+            NoteManager::instance()->unregisterStorage(raw);
+    });
+
+    DraftManager drafts(std::make_unique<MemoryDraftStore>());
+    {
+        NoteEditor editor(note, drafts);
+        editor.setText(QStringLiteral("Title\n\nEdited"));
+        QVERIFY(editor.close());
+    }
+
+    QTRY_VERIFY(drafts.pendingDraftForNote(raw->systemName(), note.id()).value.state == DraftRecord::Retry);
+    const auto pending = drafts.pendingDraftForNote(raw->systemName(), note.id());
+    QVERIFY(pending);
+    QCOMPARE(pending.value.lastError, QStringLiteral("immediate load failure"));
+    QCOMPARE(raw->saveCalls_, 0);
+}
+
+void DraftManagerTransferTest::synchronouslyFailedSaveDoesNotStrandDraft()
+{
+    auto storage = std::make_unique<TransferStorage>(QStringLiteral("synchronous-save-failure"));
+    const auto note = storage->addStored(QStringLiteral("note"), QStringLiteral("Title"), QStringLiteral("Original"));
+    storage->failSavesSynchronously_ = true;
+    auto *raw = registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([raw]() {
+        if (NoteManager::instance()->storage(raw->systemName()) == raw)
+            NoteManager::instance()->unregisterStorage(raw);
+    });
+
+    DraftManager drafts(std::make_unique<MemoryDraftStore>());
+    {
+        NoteEditor editor(note, drafts);
+        editor.setText(QStringLiteral("Title\n\nEdited"));
+        QVERIFY(editor.close());
+    }
+
+    QTRY_VERIFY(drafts.pendingDraftForNote(raw->systemName(), note.id()).value.state == DraftRecord::Retry);
+    const auto pending = drafts.pendingDraftForNote(raw->systemName(), note.id());
+    QVERIFY(pending);
+    QCOMPARE(pending.value.lastError, QStringLiteral("immediate save failure"));
+    QCOMPARE(raw->saveCalls_, 0);
+}
+
+void DraftManagerTransferTest::synchronouslyFailedRemovalDoesNotStrandDelete()
+{
+    auto storage = std::make_unique<TransferStorage>(QStringLiteral("synchronous-remove-failure"));
+    const auto note = storage->addStored(QStringLiteral("note"), QStringLiteral("Title"), QStringLiteral("Original"));
+    storage->failRemovesSynchronously_ = true;
+    auto *raw = registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([raw]() {
+        if (NoteManager::instance()->storage(raw->systemName()) == raw)
+            NoteManager::instance()->unregisterStorage(raw);
+    });
+
+    auto store = std::make_unique<MemoryDraftStore>();
+    auto *storeRaw = store.get();
+    DraftManager drafts(std::move(store));
+    QVERIFY(!drafts.queueRemoval(raw->systemName(), note.id()));
+    drafts.publishPending();
+
+    const auto deletionRetried = [storeRaw]() {
+        const auto records = storeRaw->records();
+        return records && std::any_of(records.value.cbegin(), records.value.cend(), [](const DraftRecord &record) {
+            return record.operation == DraftRecord::Delete && record.state == DraftRecord::Retry;
+        });
+    };
+    QTRY_VERIFY(deletionRetried());
+    QCOMPARE(raw->removeCalls_, 0);
 }
 
 void DraftManagerTransferTest::publishesDestinationBeforeDeletingSource()

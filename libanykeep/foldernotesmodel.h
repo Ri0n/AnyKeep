@@ -144,7 +144,8 @@ private:
     bool           matchesSearch(const Note &note) const;
     QUuid          effectiveFolderId(const Note &note) const;
     void           appendFolder(QList<Row> *rows, const QUuid &folderId, int depth,
-                                const QHash<QUuid, QList<Note>> &notesByFolder) const;
+                                const QHash<QUuid, QList<Note>> &notesByFolder,
+                                const QList<Row> &recycledDraftRows) const;
     void           appendNotes(QList<Row> *rows, const QList<Note> &notes, const QUuid &folderId, int depth) const;
     void appendFolderPickerItems(const QUuid &folderId, int depth, bool includeArchived, QVariantList *items) const;
 };

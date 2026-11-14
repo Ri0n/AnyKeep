@@ -31,6 +31,7 @@ public:
     QIcon               storageIcon() const override { return {}; }
     QIcon               noteIcon() const override { return {}; }
     bool                isAccessible() const override { return true; }
+    bool                canAcceptWrites() const override { return writeAvailable; }
     QList<Note::Format> availableFormats() const override { return { Note::Markdown }; }
     QList<Note>         noteList(int limit = 0) override { return limit > 0 ? notes.mid(0, limit) : notes; }
     Note                note(const QString &id) override
@@ -47,8 +48,26 @@ public:
         note.setLastChangeUTC(QDateTime::currentDateTimeUtc());
         return note;
     }
-    bool saveNote(const Note &) override { return true; }
+    bool saveNote(const Note &note) override
+    {
+        ++saveCalls;
+        lastSavedFolderId = note.folderId();
+        return true;
+    }
+    bool supportsNativeFolders() const override { return snapshotFolderWrites; }
+    bool supportsDraftSnapshotSave() const override { return snapshotFolderWrites; }
+    NoteFolderChangeJob *changeNoteFolderAsync(const Note &note, QObject *owner = nullptr) override
+    {
+        ++folderChangeCalls;
+        return NoteStorage::changeNoteFolderAsync(note, owner);
+    }
     void removeNote(const QString &) override {}
+
+    bool snapshotFolderWrites { false };
+    bool writeAvailable { true };
+    int saveCalls { 0 };
+    int folderChangeCalls { 0 };
+    QUuid lastSavedFolderId;
 
     Note makeNote(const QString &id, const QString &title)
     {
@@ -75,6 +94,8 @@ private slots:
     void createsFoldersWithInitialFlagsAtomically();
     void exposesFoldersAndMovesCleanEditorMetadata();
     void recycleBinHidesNotesUntilRestored();
+    void recyclesLiveSnapshotWithOneStorageWriter();
+    void pendingRecycledSnapshotAppearsInRecycleBinNotDrafts();
     void deletesFolderBranchesWithSessionUndo();
     void recentReorderRejectsCrossStorageMove();
     void exposesBodySearchMatchesForEditorFind();
@@ -253,10 +274,112 @@ void NotesWorkspaceFoldersTest::recycleBinHidesNotesUntilRestored()
     QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 1);
     QTRY_COMPARE(workspace.recentNotesModel()->rowCount(), 1);
 
+    // A live editor creates a pending draft overlay. Recycling it must
+    // still hide the note from Recent, even before publication completes.
+    QVERIFY(workspace.openNote(raw->systemName(), QStringLiteral("note")));
+    QTRY_VERIFY(workspace.editor() != nullptr);
     QVERIFY(workspace.trashNote(raw->systemName(), QStringLiteral("note")));
     QVERIFY(workspace.canUndoTrash());
+    QTRY_COMPARE(workspace.recentNotesModel()->rowCount(), 0);
     QVERIFY(workspace.restoreRecycledNote(raw->systemName(), QStringLiteral("note")));
     QVERIFY(!workspace.canUndoTrash());
+}
+
+void NotesWorkspaceFoldersTest::recyclesLiveSnapshotWithOneStorageWriter()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager drafts(makeDraftStore(directory));
+    QVERIFY(catalog.initialize());
+
+    auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-snapshot-recycle"));
+    storage->snapshotFolderWrites = true;
+    storage->notes = { storage->makeNote(QStringLiteral("note"), QStringLiteral("Note with remote snapshot")) };
+    auto *raw = storage.get();
+    auto *manager = NoteManager::instance();
+    manager->registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([manager, raw]() {
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+    QTRY_VERIFY(manager->notesIndex()->hasSnapshot(raw->systemName()));
+
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
+    QVERIFY(workspace.openNote(raw->systemName(), QStringLiteral("note")));
+    QTRY_VERIFY(workspace.editor() != nullptr);
+    workspace.editor()->setText(QStringLiteral("Edited before recycling"));
+    QVERIFY(workspace.trashNote(raw->systemName(), QStringLiteral("note")));
+
+    QVERIFY(catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("note")));
+    QTRY_COMPARE(workspace.recentNotesModel()->rowCount(), 0);
+    // The durable snapshot already publishes the folder. A parallel native
+    // folder update would race it and could overwrite the remote recycle path.
+    QCOMPARE(raw->folderChangeCalls, 0);
+    QTRY_VERIFY(raw->saveCalls > 0);
+    QCOMPARE(raw->lastSavedFolderId, FolderCatalog::recycleBinId());
+}
+
+void NotesWorkspaceFoldersTest::pendingRecycledSnapshotAppearsInRecycleBinNotDrafts()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager drafts(makeDraftStore(directory));
+    QVERIFY(catalog.initialize());
+
+    auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-offline-recycle"));
+    storage->snapshotFolderWrites = true;
+    storage->notes = { storage->makeNote(QStringLiteral("note"), QStringLiteral("Offline note")) };
+    auto *raw = storage.get();
+    auto *manager = NoteManager::instance();
+    manager->registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([manager, raw]() {
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+    QTRY_VERIFY(manager->notesIndex()->hasSnapshot(raw->systemName()));
+
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
+    QVERIFY(workspace.openNote(raw->systemName(), QStringLiteral("note")));
+    QTRY_VERIFY(workspace.editor() != nullptr);
+    workspace.editor()->setText(QStringLiteral("Not yet published"));
+
+    // Simulate Android losing its XMPP connection after editing, but before
+    // the explicit recycle transaction can be committed remotely.
+    raw->writeAvailable = false;
+    QVERIFY(workspace.trashNote(raw->systemName(), QStringLiteral("note")));
+
+    const auto pending = drafts.pendingDraftForNote(raw->systemName(), QStringLiteral("note"));
+    QVERIFY(pending);
+    QCOMPARE(pending.value.folderId, FolderCatalog::recycleBinId());
+    // A successful local recycle must never leave an orphaned Editing record
+    // after the last Android editor view has been detached.
+    QVERIFY(pending.value.state == DraftRecord::Ready || pending.value.state == DraftRecord::Retry
+            || pending.value.state == DraftRecord::Publishing);
+    QCOMPARE(drafts.editingSessionCount(pending.value.id), 0);
+    QCOMPARE(workspace.recentNotesModel()->rowCount(), 0);
+    QCOMPARE(raw->folderChangeCalls, 0);
+    QCOMPARE(raw->saveCalls, 0);
+
+    auto *model = qobject_cast<FolderNotesModel *>(workspace.folderNotesModel());
+    QVERIFY(model);
+    QTRY_VERIFY(model->rowForFolder(FolderCatalog::recycleBinId().toString(QUuid::WithoutBraces)) >= 0);
+    const int binRow = model->rowForFolder(FolderCatalog::recycleBinId().toString(QUuid::WithoutBraces));
+    QCOMPARE(model->index(binRow, 0).data(FolderNotesModel::NoteCountRole).toInt(), 1);
+    const auto recycledRow = model->index(binRow + 1, 0);
+    QCOMPARE(recycledRow.data(FolderNotesModel::RowKindRole).toInt(), int(FolderNotesModel::NoteRow));
+    QCOMPARE(recycledRow.data(FolderNotesModel::NoteIdRole).toString(), QStringLiteral("note"));
+    QCOMPARE(recycledRow.data(FolderNotesModel::PendingDraftRole).toBool(), true);
+    QCOMPARE(recycledRow.data(FolderNotesModel::FolderIdRole).toString(),
+             FolderCatalog::recycleBinId().toString(QUuid::WithoutBraces));
+
+    for (int row = 0; row < model->rowCount(); ++row)
+        QVERIFY(model->index(row, 0).data(FolderNotesModel::RowKindRole).toInt() != int(FolderNotesModel::DraftsRow));
+
+    // A pending recycle does not belong to the ordinary storage view either.
+    const auto storageIndex = workspace.sourceModel()->index(0, 0);
+    QCOMPARE(workspace.sourceModel()->rowCount(storageIndex), 0);
 }
 
 void NotesWorkspaceFoldersTest::deletesFolderBranchesWithSessionUndo()

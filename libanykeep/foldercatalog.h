@@ -59,6 +59,8 @@ struct ANYKEEP_EXPORT ProviderPathHint {
 struct ANYKEEP_EXPORT ProviderFolderPathAssignment {
     QString     noteId;
     QStringList path;
+    /** Optional globally-defined system folder; takes priority over the path. */
+    QUuid       systemFolderId;
     QDateTime   modifiedAt;
 };
 
@@ -178,6 +180,7 @@ private:
     FolderCatalogSnapshot snapshot_;
 
     static FolderCatalogError validate(const FolderCatalogSnapshot &snapshot);
+    static void               ensureRecycleBin(FolderCatalogSnapshot *snapshot);
     static QString            normalizedName(const QString &name);
     static QString            pathKey(const QString &storageId, const QStringList &path);
     static bool incomingWins(quint64 incomingRevision, const QDateTime &incomingModifiedAt, quint64 currentRevision,

@@ -119,6 +119,14 @@ Item {
     function handleNotesDroppedOutside(notes) { return actionController.handleNotesDroppedOutside(notes) }
     function handleOutsideDrop(payload) { return actionController.handleOutsideDrop(payload) }
     function selectedNoteDescriptors() { return actionController.selectedNoteDescriptors() }
+    function prepareMobileSelectedNotes() {
+        const notes = selectedNoteDescriptors()
+        if (notes.length === 0)
+            return false
+        contextMenuNotes = notes
+        return true
+    }
+    function clearMobileSelection() { noteSelection.clear() }
     function contextNoteCount() { return actionController.contextNoteCount() }
     function contextNotesAllRecycled() { return actionController.contextNotesAllRecycled() }
     function contextNotesAnyRecycled() { return actionController.contextNotesAnyRecycled() }
@@ -447,6 +455,8 @@ Item {
                         embeddedEditor: root.embeddedEditor
                         currentStorageId: root.selectedStorageId
                         currentNoteId: root.selectedNoteId
+                        openingStorageId: root.workspace.loading ? root.selectedStorageId : ""
+                        openingNoteId: root.workspace.loading ? root.selectedNoteId : ""
                         viewObjectName: "recentNotes"
                         rowObjectNamePrefix: "recentDelegate-"
                         allowNoteDrag: true
@@ -487,6 +497,8 @@ Item {
                         defaultGroupKind: "storage"
                         currentStorageId: root.selectedStorageId
                         currentNoteId: root.selectedNoteId
+                        openingStorageId: root.workspace.loading ? root.selectedStorageId : ""
+                        openingNoteId: root.workspace.loading ? root.selectedNoteId : ""
                         selectedGroupId: root.selectedNoteId.length === 0
                                          ? root.selectedStorageId : ""
                         viewObjectName: "notesTree"
@@ -582,6 +594,70 @@ Item {
                         running: root.viewMode !== root.foldersMode
                                  && root.workspace.busy && root.workspace.noteCount === 0
                         visible: running
+                    }
+                }
+
+                ToolBar {
+                    id: selectionActionBar
+                    objectName: "mobileNoteSelectionActionBar"
+                    visible: root.selectionMode
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: visible ? 52 : 0
+                    background: Rectangle { color: selectionActionBar.palette.window }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: 2
+
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 8
+                            text: qsTr("%1 selected").arg(root.selectedNoteDescriptors().length)
+                            elide: Text.ElideRight
+                        }
+                        ToolButton {
+                            objectName: "mobileSelectionDelete"
+                            text: qsTr("Delete")
+                            focusPolicy: Qt.NoFocus
+                            onClicked: {
+                                if (root.prepareMobileSelectedNotes())
+                                    root.requestContextNotesDeletion()
+                            }
+                        }
+                        ToolButton {
+                            objectName: "mobileSelectionMoveStorage"
+                            text: qsTr("Storage")
+                            focusPolicy: Qt.NoFocus
+                            onClicked: {
+                                if (root.prepareMobileSelectedNotes())
+                                    moveDialog.open()
+                            }
+                        }
+                        ToolButton {
+                            objectName: "mobileSelectionMoveFolder"
+                            text: qsTr("Folder")
+                            focusPolicy: Qt.NoFocus
+                            onClicked: {
+                                if (root.prepareMobileSelectedNotes())
+                                    mobileSelectionFolderPicker.popup()
+                            }
+                            Shared.FolderPickerMenu {
+                                id: mobileSelectionFolderPicker
+                                workspace: root.workspace
+                                currentFolderId: root.selectedNoteFolderId()
+                                selectionMixed: root.contextNotesHaveMixedFolders()
+                                onFolderSelected: function(folderId) {
+                                    root.assignContextNotesFolder(folderId)
+                                }
+                            }
+                        }
+                        ToolButton {
+                            objectName: "mobileSelectionClear"
+                            text: qsTr("✕")
+                            focusPolicy: Qt.NoFocus
+                            Accessible.name: qsTr("Clear selection")
+                            onClicked: root.clearMobileSelection()
+                        }
                     }
                 }
 

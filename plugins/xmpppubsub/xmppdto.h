@@ -9,6 +9,7 @@
 #include <QMetaType>
 #include <QString>
 #include <QStringList>
+#include <QUuid>
 
 #include <functional>
 #include <optional>
@@ -98,6 +99,8 @@ struct XmppRemoteNote {
     QList<XmppRemoteMedia> media;
     /** Folder names from the root to this note's folder, stored in the encrypted index. */
     QStringList folderPath;
+    /** Stable identity of an application-owned system folder (e.g. Recycle Bin). */
+    QUuid       systemFolderId;
     bool        contentPresent { true }; ///< False for index-only list results.
     /** UTF-8 XML template containing only extensions and unknown index fields. */
     QByteArray indexRecordTemplate;
