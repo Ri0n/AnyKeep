@@ -324,6 +324,7 @@ void XmppKeyResolutionController::checkAgain()
 {
     if (completed_ || busy_ || !waitingForDevices_ || currentPage_ != DevicesPage)
         return;
+    rejectedResources_.clear();
     requestKeyAudit();
 }
 
@@ -573,42 +574,36 @@ void XmppKeyResolutionController::setWaitingForDevices(bool waiting)
     if (waitingForDevices_ == waiting)
         return;
     waitingForDevices_ = waiting;
-    waitingPollCount_  = 0;
     emit waitingForDevicesChanged();
     emit navigationChanged();
 }
 
-void XmppKeyResolutionController::requestKeyAudit()
+void XmppKeyResolutionController::requestKeyAudit(QStringList resources)
 {
     if (completed_ || busy_ || currentPage_ != DevicesPage || !auditKeys_)
+        return;
+    // Empty list denotes an explicit initial/manual audit of all online
+    // resources. Automatic retry passes only newly online resource names.
+    if (!resources.isEmpty() && !auditNewResources_)
         return;
     setDeviceStatus(tr("Checking online resources for an available storage key…"));
     setBusy(true);
     const auto token = beginDeviceOperation(
         tr("The key request timed out. Waiting for an available device; check AnyKeep on the other device."));
     QPointer<XmppKeyResolutionController> guard(this);
-    auditKeys_([guard, token](XmppKeyAuditResult audit) {
+    auto done = [guard, token](XmppKeyAuditResult audit) {
         if (!guard || !guard->deviceOperationIsCurrent(token))
             return;
         guard->finishDeviceOperation(token);
         if (!audit.ok) {
             guard->setDeviceStatus(tr("The last key request failed: %1").arg(audit.error));
-            if (guard->waitingForDevices_) {
-                // Retry on the next presence check, but do not mark the
-                // authenticated XMPP connection as a failed login.
-                guard->waitingPollCount_ = 3;
-            }
             return;
         }
 
-        // The audit returns the discovered online resources independently
-        // from OMEMO device ID/label mapping.
-        if (!audit.onlineResources.isEmpty() && audit.onlineResources != guard->onlineResources_) {
-            guard->onlineResources_ = audit.onlineResources;
-            guard->presenceKnown_ = true;
-            guard->presenceStatus_ = tr("Online AnyKeep XMPP resources:");
-            emit guard->onlineResourcesChanged();
-        }
+        // The user may have denied an inbound trust prompt on a particular
+        // full JID. Exclude it until a deliberate manual retry.
+        for (const auto &resource : audit.rejectedResources)
+            guard->rejectedResources_.insert(resource.section(QLatin1Char('/'), -1));
 
         const bool hasUsableKey = std::any_of(audit.candidates.cbegin(), audit.candidates.cend(),
                                              [](const auto &candidate) { return !candidate.key.isEmpty(); });
@@ -626,18 +621,19 @@ void XmppKeyResolutionController::requestKeyAudit()
         guard->populateKeys(audit);
         guard->devicesComplete_ = true;
         guard->setCurrentPage(KeysPage);
-    });
+    };
+    if (resources.isEmpty())
+        auditKeys_(std::move(done));
+    else
+        auditNewResources_(std::move(resources), std::move(done));
 }
 
 void XmppKeyResolutionController::refreshOnlineResources()
 {
     if (completed_ || currentPage_ != DevicesPage || presenceProbeInFlight_)
         return;
-    if (!discoverResources_) {
-        if (waitingForDevices_ && !busy_)
-            requestKeyAudit();
+    if (!discoverResources_)
         return;
-    }
 
     presenceProbeInFlight_ = true;
     const auto generation = ++presenceGeneration_;
@@ -658,7 +654,12 @@ void XmppKeyResolutionController::refreshOnlineResources()
         guard->presenceProbeInFlight_ = false;
         resources.removeDuplicates();
         resources.sort();
-        const bool changed = resources != guard->onlineResources_;
+        QStringList newlyOnline;
+        for (const auto &resource : resources) {
+            if (!guard->onlineResources_.contains(resource)
+                && !guard->rejectedResources_.contains(resource))
+                newlyOnline.append(resource);
+        }
         guard->onlineResources_ = std::move(resources);
         guard->presenceKnown_   = error.isEmpty();
         guard->presenceStatus_ = error.isEmpty()
@@ -669,13 +670,11 @@ void XmppKeyResolutionController::refreshOnlineResources()
         emit guard->onlineResourcesChanged();
         if (!guard->waitingForDevices_ || guard->busy_ || !guard->presenceKnown_)
             return;
-        // A newly online resource triggers an immediate retry. While it stays
-        // online but awaits trust approval, retry at most once per minute.
-        if (!guard->onlineResources_.isEmpty()
-            && (changed || ++guard->waitingPollCount_ >= 4)) {
-            guard->waitingPollCount_ = 0;
-            guard->requestKeyAudit();
-        }
+        // Only offline->online transitions trigger automatic key requests.
+        // Stable resources (including ones that timed out) are not polled for
+        // keys, and explicit trust refusals remain excluded for this wizard.
+        if (!newlyOnline.isEmpty())
+            guard->requestKeyAudit(std::move(newlyOnline));
     });
 }
 
