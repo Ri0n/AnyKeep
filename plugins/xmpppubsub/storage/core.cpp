@@ -70,7 +70,7 @@ XmppStorage::XmppStorage(QObject *parent, XmppBackend *backend, FolderCatalogMan
     connect(backend_, &XmppBackend::remoteNodeInvalidated, this, &XmppStorage::onRemoteNodeInvalidated);
     connect(backend_, &XmppBackend::connectionChanged, this, &XmppStorage::onConnectionChanged);
     connect(backend_, &XmppBackend::transportRecoveryRequested, this, [this] {
-        if (shuttingDown_ || errorState_ || retryInProgress_)
+        if (shuttingDown_ || (errorState_ && !isStorageKeyMismatch(errorStateMessage_)) || retryInProgress_)
             return;
         // A confirmed dead socket after wakeup should not sit in backoff.
         if (retryTimer_)
@@ -139,7 +139,8 @@ XmppStorage::XmppStorage(QObject *parent, XmppBackend *backend, FolderCatalogMan
         connect(network, &QNetworkInformation::reachabilityChanged, this,
                 [this](QNetworkInformation::Reachability reachability) {
                     if (reachability == QNetworkInformation::Reachability::Disconnected
-                        || reachability == QNetworkInformation::Reachability::Unknown || errorState_) {
+                        || reachability == QNetworkInformation::Reachability::Unknown
+                        || (errorState_ && !isStorageKeyMismatch(errorStateMessage_))) {
                         return;
                     }
                     if (retryTimer_->isActive())
