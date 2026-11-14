@@ -47,8 +47,25 @@ public:
         note.setLastChangeUTC(QDateTime::currentDateTimeUtc());
         return note;
     }
-    bool saveNote(const Note &) override { return true; }
+    bool saveNote(const Note &note) override
+    {
+        ++saveCalls;
+        lastSavedFolderId = note.folderId();
+        return true;
+    }
+    bool supportsNativeFolders() const override { return snapshotFolderWrites; }
+    bool supportsDraftSnapshotSave() const override { return snapshotFolderWrites; }
+    NoteFolderChangeJob *changeNoteFolderAsync(const Note &note, QObject *owner = nullptr) override
+    {
+        ++folderChangeCalls;
+        return NoteStorage::changeNoteFolderAsync(note, owner);
+    }
     void removeNote(const QString &) override {}
+
+    bool snapshotFolderWrites { false };
+    int saveCalls { 0 };
+    int folderChangeCalls { 0 };
+    QUuid lastSavedFolderId;
 
     Note makeNote(const QString &id, const QString &title)
     {
@@ -75,6 +92,7 @@ private slots:
     void createsFoldersWithInitialFlagsAtomically();
     void exposesFoldersAndMovesCleanEditorMetadata();
     void recycleBinHidesNotesUntilRestored();
+    void recyclesLiveSnapshotWithOneStorageWriter();
     void deletesFolderBranchesWithSessionUndo();
     void recentReorderRejectsCrossStorageMove();
     void exposesBodySearchMatchesForEditorFind();
@@ -262,6 +280,41 @@ void NotesWorkspaceFoldersTest::recycleBinHidesNotesUntilRestored()
     QTRY_COMPARE(workspace.recentNotesModel()->rowCount(), 0);
     QVERIFY(workspace.restoreRecycledNote(raw->systemName(), QStringLiteral("note")));
     QVERIFY(!workspace.canUndoTrash());
+}
+
+void NotesWorkspaceFoldersTest::recyclesLiveSnapshotWithOneStorageWriter()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    FolderCatalogManager catalog(makeCatalogStore(directory));
+    DraftManager drafts(makeDraftStore(directory));
+    QVERIFY(catalog.initialize());
+
+    auto storage = std::make_unique<WorkspaceFolderStorage>(QStringLiteral("workspace-snapshot-recycle"));
+    storage->snapshotFolderWrites = true;
+    storage->notes = { storage->makeNote(QStringLiteral("note"), QStringLiteral("Note with remote snapshot")) };
+    auto *raw = storage.get();
+    auto *manager = NoteManager::instance();
+    manager->registerStorage(std::move(storage));
+    const auto cleanup = qScopeGuard([manager, raw]() {
+        if (manager->storage(raw->systemName()) == raw)
+            manager->unregisterStorage(raw);
+    });
+    QTRY_VERIFY(manager->notesIndex()->hasSnapshot(raw->systemName()));
+
+    NotesWorkspaceController workspace(&catalog, &drafts, nullptr);
+    QVERIFY(workspace.openNote(raw->systemName(), QStringLiteral("note")));
+    QTRY_VERIFY(workspace.editor() != nullptr);
+    workspace.editor()->setText(QStringLiteral("Edited before recycling"));
+    QVERIFY(workspace.trashNote(raw->systemName(), QStringLiteral("note")));
+
+    QVERIFY(catalog.catalog().isRecycled(raw->systemName(), QStringLiteral("note")));
+    QTRY_COMPARE(workspace.recentNotesModel()->rowCount(), 0);
+    // The durable snapshot already publishes the folder. A parallel native
+    // folder update would race it and could overwrite the remote recycle path.
+    QCOMPARE(raw->folderChangeCalls, 0);
+    QTRY_VERIFY(raw->saveCalls > 0);
+    QCOMPARE(raw->lastSavedFolderId, FolderCatalog::recycleBinId());
 }
 
 void NotesWorkspaceFoldersTest::deletesFolderBranchesWithSessionUndo()
