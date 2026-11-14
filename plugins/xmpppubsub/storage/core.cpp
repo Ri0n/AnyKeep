@@ -815,14 +815,16 @@ bool XmppStorage::isAccessible() const { return accessible_ || cacheAvailable_; 
 
 NoteStorage::ConnectivityState XmppStorage::connectivityState() const
 {
-    if (shuttingDown_ || errorState_)
+    if (shuttingDown_ || !connectionConfigIsValid(config_, nullptr))
         return ConnectivityState::Error;
-    if (!configIsValid(config_, nullptr))
+    // A storage-key mismatch prevents note operations, not SASL login.
+    // Keep the network indicator independent of local encryption state.
+    if (transportOnline_)
+        return ConnectivityState::Online;
+    if (errorState_)
         return ConnectivityState::Error;
     if (!activeInitJobs_.isEmpty() || retryInProgress_ || (retryTimer_ && retryTimer_->isActive()))
         return ConnectivityState::Connecting;
-    if (accessible_)
-        return ConnectivityState::Online;
     return ConnectivityState::Offline;
 }
 
