@@ -436,6 +436,7 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(
         if (!result.ok && result.retryable())
             result = co_await requestStorageKeyTask(resource);
         if (!result.ok || result.candidates.isEmpty()) {
+            output.rejectedResources.append(result.rejectedResources);
             errors.append(QStringLiteral("%1: %2").arg(resource, result.error));
             continue;
         }
