@@ -105,6 +105,7 @@ public:
         preview      = notePreview(note);
         favorite     = note.isFavorite();
         pendingDraft = false;
+        draftRecycled = false;
         draftId      = {};
         draftState.clear();
         draftError.clear();
@@ -113,6 +114,7 @@ public:
     void assignDraft(const DraftRecord &draft)
     {
         pendingDraft = true;
+        draftRecycled = FolderCatalog::isRecycleBinId(draft.folderId);
         draftId      = draft.id;
         title        = NoteTitleResolver::displayTitle(draft.title, draft.body, draft.format);
         if (title.isEmpty())
@@ -146,6 +148,7 @@ public:
     bool                 syntheticStorage { false };
     bool                 favorite { false };
     bool                 pendingDraft { false };
+    bool                 draftRecycled { false };
 };
 
 NotesModel::NotesModel(QObject *parent) : NotesModel(nullptr, DraftManager::instance(), parent) {}
@@ -288,8 +291,11 @@ QVariant NotesModel::data(const QModelIndex &modelIndex, int role) const
     case DraftErrorRole:
         return !storage ? item->draftError : QString();
     case RecycledRole:
-        return !storage && !item->pendingDraft && folderCatalogManager_ && folderCatalogManager_->isAvailable()
-            && folderCatalogManager_->catalog().isRecycled(item->parent->id, item->id);
+        // A recycled note can also be represented by a pending publish draft.
+        // Its draft overlay must not make it reappear in Recent while offline.
+        return !storage && (item->draftRecycled
+            || (folderCatalogManager_ && folderCatalogManager_->isAvailable()
+                && folderCatalogManager_->catalog().isRecycled(item->parent->id, item->id)));
     default:
         return {};
     }
