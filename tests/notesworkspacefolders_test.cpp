@@ -253,8 +253,13 @@ void NotesWorkspaceFoldersTest::recycleBinHidesNotesUntilRestored()
     QTRY_COMPARE(workspace.sourceModel()->rowCount(workspace.sourceModel()->index(0, 0)), 1);
     QTRY_COMPARE(workspace.recentNotesModel()->rowCount(), 1);
 
+    // A live editor creates a pending draft overlay. Recycling it must
+    // still hide the note from Recent, even before publication completes.
+    QVERIFY(workspace.openNote(raw->systemName(), QStringLiteral("note")));
+    QTRY_VERIFY(workspace.editor() != nullptr);
     QVERIFY(workspace.trashNote(raw->systemName(), QStringLiteral("note")));
     QVERIFY(workspace.canUndoTrash());
+    QTRY_COMPARE(workspace.recentNotesModel()->rowCount(), 0);
     QVERIFY(workspace.restoreRecycledNote(raw->systemName(), QStringLiteral("note")));
     QVERIFY(!workspace.canUndoTrash());
 }
