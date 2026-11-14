@@ -1,5 +1,7 @@
 #include "xmppnotecodec.h"
 
+#include "foldercatalog.h"
+
 #include <QDateTime>
 #include <QDomDocument>
 #include <QDomElement>
@@ -13,6 +15,7 @@ namespace AnyKeep {
 
 const QString XmppNoteCodec::protocolNamespace        = QStringLiteral("urn:xmpp:private-notes:0");
 const QString XmppNoteCodec::folderNamespace          = QStringLiteral("urn:xmpp:private-notes:folders:0");
+const QString XmppNoteCodec::systemFolderNamespace    = QStringLiteral("urn:xmpp:private-notes:system-folder:0");
 const QString XmppNoteCodec::favoriteNamespace        = QStringLiteral("urn:xmpp:private-notes:favorite:0");
 const QString XmppNoteCodec::contentRevisionNamespace = QStringLiteral("urn:xmpp:private-notes:content:0");
 const QString XmppNoteCodec::mediaFeature             = QStringLiteral("urn:xmpp:private-notes:media:0");
@@ -384,6 +387,27 @@ namespace {
         return { result, {} };
     }
 
+    CryptoResult<QUuid> systemFolderId(const QDomElement &record)
+    {
+        const auto elements = directChildren(record, XmppNoteCodec::systemFolderNamespace,
+                                             QStringLiteral("system-folder"));
+        if (elements.size() > 1)
+            return { {}, corrupt(QStringLiteral("Encrypted private-note index has multiple system folders")) };
+        if (elements.isEmpty())
+            return { {}, {} };
+        const auto &element = elements.constFirst();
+        if (const auto error = validateAttributes(element, { QStringLiteral("id") },
+                                                  QStringLiteral("encrypted system-folder marker"), false);
+            error)
+            return { {}, error };
+        if (!element.firstChild().isNull())
+            return { {}, corrupt(QStringLiteral("System-folder marker must be empty")) };
+        const auto id = QUuid(element.attribute(QStringLiteral("id")));
+        if (id != FolderCatalog::recycleBinId())
+            return { {}, corrupt(QStringLiteral("Unknown system-folder identity")) };
+        return { id, {} };
+    }
+
     CryptoResult<QStringList> validatedFolderPath(const QStringList &path)
     {
         QStringList result;
@@ -641,6 +665,7 @@ namespace {
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("title"));
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"));
             removeDirectChildren(record, XmppNoteCodec::folderNamespace, QStringLiteral("folder"));
+            removeDirectChildren(record, XmppNoteCodec::systemFolderNamespace, QStringLiteral("system-folder"));
             removeDirectChildren(record, XmppNoteCodec::favoriteNamespace, QStringLiteral("favorite"));
             removeDirectChildren(record, XmppNoteCodec::contentRevisionNamespace, QStringLiteral("content-revision"));
             removeRequiredFeature(root, XmppNoteCodec::contentRevisionNamespace);
@@ -692,6 +717,9 @@ namespace {
             const auto noteFolderPath = validatedFolderPath(note.folderPath);
             if (!noteFolderPath)
                 return { {}, noteFolderPath.error };
+            if (!note.systemFolderId.isNull() && note.systemFolderId != FolderCatalog::recycleBinId())
+                return { {}, cryptoError(CryptoError::InvalidArgument,
+                                         QStringLiteral("Unknown system-folder identity")) };
             record.setAttribute(QStringLiteral("id"), note.id);
             record.setAttribute(QStringLiteral("revision"), note.revision);
             if (note.parentRevision.isEmpty())
@@ -707,6 +735,7 @@ namespace {
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("title"));
             removeDirectChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"));
             removeDirectChildren(record, XmppNoteCodec::folderNamespace, QStringLiteral("folder"));
+            removeDirectChildren(record, XmppNoteCodec::systemFolderNamespace, QStringLiteral("system-folder"));
             removeDirectChildren(record, XmppNoteCodec::favoriteNamespace, QStringLiteral("favorite"));
             removeDirectChildren(record, XmppNoteCodec::contentRevisionNamespace, QStringLiteral("content-revision"));
             setRequiredFeature(document, root, XmppNoteCodec::contentRevisionNamespace,
@@ -733,6 +762,13 @@ namespace {
                                                          QStringLiteral("segment"), segment));
                 }
                 insertBeforeOrAppend(record, folder, anchor);
+            }
+            if (!note.systemFolderId.isNull()) {
+                auto marker = document.createElementNS(XmppNoteCodec::systemFolderNamespace,
+                                                       QStringLiteral("system-folder"));
+                marker.setAttribute(QStringLiteral("id"),
+                                    note.systemFolderId.toString(QUuid::WithoutBraces));
+                insertBeforeOrAppend(record, marker, anchor);
             }
             if (noteContentRevision != note.revision) {
                 insertBeforeOrAppend(record,
@@ -901,6 +937,9 @@ namespace {
         const auto decodedFolderPath = folderPath(record);
         if (!decodedFolderPath)
             return decodedFolderPath.error;
+        const auto decodedSystemFolderId = systemFolderId(record);
+        if (!decodedSystemFolderId)
+            return decodedSystemFolderId.error;
         const auto favoriteElements
             = directChildren(record, XmppNoteCodec::favoriteNamespace, QStringLiteral("favorite"));
         if (favoriteElements.size() > 1)
@@ -926,6 +965,7 @@ namespace {
         decoded.modified        = modified.value;
         decoded.format          = QStringLiteral("markdown");
         decoded.folderPath      = decodedFolderPath.value;
+        decoded.systemFolderId = decodedSystemFolderId.value;
         decoded.favorite        = !favoriteElements.isEmpty();
         for (const auto &tagElement : directChildren(record, XmppNoteCodec::protocolNamespace, QStringLiteral("tag"))) {
             if (const auto error = validateLeaf(tagElement, QStringLiteral("encrypted private-note tag")); error)
