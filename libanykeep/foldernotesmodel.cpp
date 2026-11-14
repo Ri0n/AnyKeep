@@ -380,7 +380,8 @@ QList<FolderNotesModel::Row> FolderNotesModel::buildRows() const
         // A recycled published note may be waiting for a remote ACK while
         // offline. It is still a pending draft for persistence purposes,
         // but belongs to the Recycle Bin in the folder projection.
-        if (FolderCatalog::isRecycleBinId(draft.folderId) && !draft.remoteNoteId.isEmpty()) {
+        if (!draft.remoteNoteId.isEmpty() && catalogManager_ && catalogManager_->isAvailable()
+            && catalogManager_->catalog().isRecycled(draft.storageId, draft.remoteNoteId)) {
             row.folderId = FolderCatalog::recycleBinId();
             recycledDraftRows.append(std::move(row));
         } else {
