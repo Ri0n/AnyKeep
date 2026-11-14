@@ -11,7 +11,7 @@ function finishList(host, controller, itemIndex, sourceText) {
         paragraphRow = model.unlistListItem(host.block.index, itemIndex)
     } else {
         model.setListItem(host.block.index, itemIndex, cleaned)
-        model.insertListItem(host.block.index, itemIndex + 1, "")
+        host.insertItem(itemIndex + 1, "")
         paragraphRow = model.unlistListItem(host.block.index, itemIndex + 1)
     }
     if (paragraphRow < 0)
@@ -27,14 +27,15 @@ function finishList(host, controller, itemIndex, sourceText) {
 
 // Called after Android's IME has committed a newline to the QTextDocument.
 // Unlike physical Enter, soft-keyboard Return may never produce a Key event.
-function splitCommittedImeLine(host, controller, cell, itemIndex, before, after, exit, caret) {
+function splitCommittedImeLine(host, controller, cell, itemIndex, separator, before, after, exit, caret) {
     return controller.runEditTransaction(exit ? "exit-list-ime" : "split-list-item-ime", function() {
         controller.prepareForStructuralMutation(cell)
         if (exit)
             return finishList(host, controller, itemIndex, before)
         const row = host.block.index
         controller.blockModel.setListItem(row, itemIndex, before)
-        controller.blockModel.insertListItem(row, itemIndex + 1, after)
+        host.insertItem(itemIndex + 1, after)
+        cell.retainTextPrefix(separator)
         host.focusItem(itemIndex + 1, caret)
         return true
     }, false)
@@ -91,7 +92,8 @@ function handleKey(host, controller, event, cell, itemIndex) {
                 const left = cell.markdownRange(0, position)
                 const right = cell.markdownRange(position, cell.length)
                 controller.blockModel.setListItem(host.block.index, itemIndex, left)
-                controller.blockModel.insertListItem(host.block.index, itemIndex + 1, right)
+                host.insertItem(itemIndex + 1, right)
+                cell.retainTextPrefix(position)
                 host.focusItem(itemIndex + 1, 0)
                 return true
             })
@@ -111,7 +113,8 @@ function handleKey(host, controller, event, cell, itemIndex) {
             if (exit)
                 return finishList(host, controller, itemIndex, source)
             controller.blockModel.setListItem(host.block.index, itemIndex, left)
-            controller.blockModel.insertListItem(host.block.index, itemIndex + 1, right)
+            host.insertItem(itemIndex + 1, right)
+            cell.retainTextPrefix(position)
             host.focusItem(itemIndex + 1, 0)
             return true
         }, false)
@@ -157,7 +160,7 @@ function handleKey(host, controller, event, cell, itemIndex) {
                     // Existing soft-wrapped list items keep their semantics.
                     controller.blockModel.setListItem(host.block.index, itemIndex - 1,
                                                        previous + "  \n")
-                    controller.blockModel.removeListItem(host.block.index, itemIndex)
+                    host.removeItems(itemIndex, itemIndex)
                     controller.focusEditorAddress({
                         blockIndex: host.block.index,
                         listItemIndex: itemIndex - 1,
@@ -182,7 +185,7 @@ function handleKey(host, controller, event, cell, itemIndex) {
                 } else {
                     const target = itemIndex > 0 ? itemIndex - 1 : 0
                     const targetLength = itemIndex > 0 ? host.itemText(target).length : 0
-                    controller.blockModel.removeListItem(host.block.index, itemIndex)
+                    host.removeItems(itemIndex, itemIndex)
                     host.focusItem(target, targetLength)
                 }
                 return true

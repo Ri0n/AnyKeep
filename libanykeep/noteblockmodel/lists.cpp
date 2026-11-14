@@ -551,6 +551,16 @@ int NoteBlockModel::unlistListItem(int row, int item)
     coalesceTextNear(&updated, paragraphRow, markdown_, &resolvedParagraphRow);
     recomputeTaskParentChecks(&updated);
     normalizeTagLinePositions(&updated, markdown_);
+
+    // Keep the surviving list in its existing model row. replaceBlocks() can
+    // then insert the paragraph (and a second list when splitting the middle)
+    // around it without destroying every remaining list-item editor.
+    Block resident = replacement.at(item > 0 ? 0 : replacement.size() - 1);
+    if (isListType(resident.type)) {
+        recomputeTaskParentChecks(&resident);
+        blocks_[row] = std::move(resident);
+        emit dataChanged(index(row), index(row), { TypeRole, ItemsRole, IndentsRole, ItemTypesRole, CheckedRole });
+    }
     replaceBlocks(std::move(updated));
     emit contentsChanged();
     return resolvedParagraphRow;

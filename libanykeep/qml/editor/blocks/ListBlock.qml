@@ -73,7 +73,7 @@ Editor.ListBlockEditor {
                         return
                     ListBlockBehavior.splitCommittedImeLine(
                                 listBlock, editorView, listItemCell, targetRow,
-                                before, after, exit, caret)
+                                separator, before, after, exit, caret)
                 })
                 return true
             }
