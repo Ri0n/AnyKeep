@@ -59,6 +59,8 @@ struct ANYKEEP_EXPORT ProviderPathHint {
 struct ANYKEEP_EXPORT ProviderFolderPathAssignment {
     QString     noteId;
     QStringList path;
+    /** Optional globally-defined system folder; takes priority over the path. */
+    QUuid       systemFolderId;
     QDateTime   modifiedAt;
 };
 
