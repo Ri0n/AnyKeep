@@ -877,34 +877,31 @@ explicit trust provide authentication.
 
 ### Rejection and timeout
 
-When the **user explicitly declines** an AnyKeep trust request, the receiving
-installation sends an IQ result with the same stanza ID and the JSON application
-payload `{"type":"trust-rejected","requestId":"..."}`. This response is sent
-to the original full JID and contains no storage key or confidential device
-details. For an encrypted storage-key request, the refusal MUST use the same
-authenticated OMEMO reply context. A trust bootstrap has no encryption context;
-its refusal is a plaintext result, just like `trust-approved`.
+Trust management is application-specific, while OMEMO session establishment is
+defined by XEP-0384. When a user explicitly declines an AnyKeep trust request,
+the receiver does not send a distinguishable approval/denial result. The
+requester observes a timeout; absence of a reply MUST NOT be interpreted as a
+positive or negative trust decision.
 
-A client MUST verify the matching IQ ID, JSON request ID, and exact responding
-full JID before classifying a result as an explicit refusal. An unsupported old
-responder might still time out rather than returning this payload; absence of
-response MUST NOT be interpreted as a user rejection.
-
-Malformed, unauthorized or unknown requests MAY be discarded without revealing
-whether an identity is recognized. Pending requests SHOULD expire locally and
-MUST NOT be reused after completion or rejection. A user-rejected resource MUST
-be excluded from automatic recovery retries within the current wizard session.
+Invalid, expired, malformed, or unauthorized requests can also receive no
+reply to avoid disclosing device or trust state. Pending requests SHOULD expire
+locally and MUST NOT be reused after completion or rejection. An IQ result
+carrying `trust-approved` is sent only after approval, and the storage-key
+response MUST remain OMEMO-encrypted and authenticated.
 
 Monitor online XMPP resources advertising the key-sync feature independently
-of the published OMEMO device list. They do not have a guaranteed mapping to
-OMEMO IDs or user-selected fingerprints. Automatic key requests SHOULD occur
-only when a previously offline resource appears online (or a new resource is
-discovered); an unchanged online resource MUST NOT receive periodic duplicate
-requests. Explicit user actions can initiate a fresh check.
+of published OMEMO device IDs. There is no guaranteed mapping between
+resources, OMEMO IDs, and human-readable device labels. Automatic key-sync
+requests SHOULD occur only when a previously offline resource appears online
+or a new capable resource is discovered. A stable online resource MUST NOT
+receive repeated requests after timeout or silent denial. The user MAY
+explicitly trigger a new attempt.
 
-Transient transport failures MAY be retried after a new resource transition
-or explicit user request. User rejection, invalid credentials, failed identity
-verification or permanent authorization errors MUST NOT be retried automatically.
+A transport failure does not imply a trust rejection. User rejection, invalid
+credentials, failed identity verification or permanent authorization errors
+MUST NOT be retried automatically; if the denial cannot be distinguished from
+a timeout, only the presence transition rule and explicit user action can
+initiate another attempt.
 
 ## Multiple storage keys and migration
 
@@ -1137,8 +1134,8 @@ factories and observe catalog changes.
 Known protocol-level limitations are:
 
 - deletion and two-record publication are recoverable but not atomic;
-- older installations may still represent a user rejection by timeout;
-  the explicit `trust-rejected` result is supported by both current backends;
+- an explicit user trust refusal is deliberately indistinguishable from
+  timeout; automatic retries are limited to newly online resources;
 - responder-side pending requests do not yet have an explicit expiry timer;
 - direct Jingle media publication is not yet implemented by the QXmpp backend;
 - an installation that was offline for an entire note-deletion event does not
