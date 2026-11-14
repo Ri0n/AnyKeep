@@ -138,7 +138,7 @@ void XmppStorage::onConnectionChanged(bool connected)
 
 void XmppStorage::onApplicationResumed()
 {
-    if (shuttingDown_ || errorState_)
+    if (shuttingDown_ || (errorState_ && !isStorageKeyMismatch(errorStateMessage_)))
         return;
 
     if (!transportOnline_) {
