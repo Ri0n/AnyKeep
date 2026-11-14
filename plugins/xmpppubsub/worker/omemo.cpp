@@ -382,6 +382,7 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(XmppProgressCal
     if (progress)
         progress({ tr("Discovering online AnyKeep devices…") });
     auto [resources, discoveryError] = co_await onlinePrivateNotesResourcesTask();
+    output.onlineResources = resources;
     QStringList errors;
     if (!discoveryError.isEmpty())
         errors.append(discoveryError);
