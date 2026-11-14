@@ -651,21 +651,8 @@ bool XmppStorage::init()
         return false;
     }
 
-    config_ = readConfig();
-
-    QString validationError;
-    if (!configIsValid(config_, &validationError)) {
-        accessible_           = false;
-        cacheValid_           = false;
-        auto recoverable      = config_;
-        recoverable.masterKey = QByteArray(SecureEnvelope::MasterKeySize, '\0');
-        QString otherError;
-        if (config_.masterKey.size() != SecureEnvelope::MasterKeySize && configIsValid(recoverable, &otherError)) {
-            QTimer::singleShot(0, this, [this, jid = config_.jid]() { resolveStorageKeys(jid); });
-        }
-        return false;
-    }
-
+    // Authentication is independent of both OMEMO state and the encrypted
+    // private-note storage key. initAsync() negotiates TLS/SASL first.
     auto *job = initAsync(this);
     connect(job, &StorageJob::finished, job, &QObject::deleteLater);
     return accessible_;
@@ -684,14 +671,10 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
         return job;
     }
     config_ = readConfig();
+    // Credentials, address and resource are required for SASL. OMEMO and
+    // private-note keys must not prevent the XMPP session from authenticating.
     QString validationError;
-    if (!configIsValid(config_, &validationError)) {
-        auto recoverable      = config_;
-        recoverable.masterKey = QByteArray(SecureEnvelope::MasterKeySize, '\0');
-        QString otherError;
-        if (config_.masterKey.size() != SecureEnvelope::MasterKeySize && configIsValid(recoverable, &otherError)) {
-            QTimer::singleShot(0, this, [this, jid = config_.jid]() { resolveStorageKeys(jid); });
-        }
+    if (!connectionConfigIsValid(config_, &validationError)) {
         job->fail({ StorageError::NotConfigured, validationError, false });
         return job;
     }
@@ -712,7 +695,8 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
             clearPending(tr("XMPP connected; ready to synchronize notes"));
             break;
         case StorageJob::Failed:
-            clearPending(tr("XMPP connection failed"));
+            clearPending(transportOnline_ ? tr("XMPP authenticated; encrypted notes need attention")
+                                          : tr("XMPP connection failed"));
             break;
         default:
             clearPending(tr("XMPP connection cancelled"));
@@ -740,14 +724,35 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
                 return;
             }
             backend_->setConfig(config);
-            backend_->probeAsync([this, guard, epoch](XmppStatusResult result) {
+            QString storageError;
+            const bool encryptedStoreReady = configIsValid(config, &storageError);
+            const auto handleResult = [this, guard, epoch](XmppStatusResult result, bool authenticated,
+                                                            QString missingKeyError) {
                 QMetaObject::invokeMethod(
                     this,
-                    [this, guard, epoch, result = std::move(result)]() {
+                    [this, guard, epoch, result = std::move(result), authenticated,
+                     missingKeyError = std::move(missingKeyError)]() mutable {
                         if (!guard || guard->isFinished())
                             return;
                         if (shuttingDown_ || epoch != configEpoch_) {
                             guard->cancel();
+                            return;
+                        }
+                        if (authenticated && !missingKeyError.isEmpty()) {
+                            // SASL succeeded. The note store is not ready, but
+                            // this is NOT an authentication or transport error.
+                            transportOnline_ = true;
+                            accessible_ = false;
+                            cacheValid_ = false;
+                            resetRetryBackoff();
+                            emit invalidated();
+                            if (config_.masterKey.size() != SecureEnvelope::MasterKeySize
+                                && config_.omemoStateKey.size() == SecureEnvelope::MasterKeySize) {
+                                QTimer::singleShot(0, this, [this, jid = config_.jid] {
+                                    resolveStorageKeys(jid);
+                                });
+                            }
+                            guard->fail({ StorageError::NotConfigured, missingKeyError, false });
                             return;
                         }
                         accessible_ = result.ok;
@@ -765,6 +770,22 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
                         }
                     },
                     Qt::QueuedConnection);
+            };
+            backend_->connectAsync([this, handleResult, encryptedStoreReady,
+                                    storageError = std::move(storageError)](XmppStatusResult authenticated) mutable {
+                if (!authenticated.ok) {
+                    handleResult(std::move(authenticated), false, {});
+                    return;
+                }
+                if (!encryptedStoreReady) {
+                    handleResult(std::move(authenticated), true, std::move(storageError));
+                    return;
+                }
+                // Only a fully keyed store proceeds to OMEMO/PEP and index
+                // preparation. Authentication itself has already succeeded.
+                backend_->probeAsync([handleResult](XmppStatusResult result) mutable {
+                    handleResult(std::move(result), false, {});
+                });
             });
         },
         Qt::QueuedConnection);
