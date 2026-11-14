@@ -384,6 +384,14 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(
         progress({ tr("Discovering online AnyKeep devices…") });
     auto [resources, discoveryError] = co_await onlinePrivateNotesResourcesTask();
     output.onlineResources = resources;
+    if (onlyResources) {
+        QStringList selected;
+        for (const auto &name : std::as_const(resources)) {
+            if (onlyResources->contains(name))
+                selected.append(name);
+        }
+        resources = std::move(selected);
+    }
     QStringList errors;
     if (!discoveryError.isEmpty())
         errors.append(discoveryError);
