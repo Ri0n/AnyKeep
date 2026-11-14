@@ -65,6 +65,7 @@ public:
     using DiscoverResources = std::function<void(std::function<void(QStringList, QString)>)>;
     using RemoveDevice     = std::function<void(quint32, StatusCompletion)>;
     using AuditKeys        = std::function<void(AuditCompletion)>;
+    using AuditNewResources = std::function<void(QStringList, AuditCompletion)>;
     using RekeyStorage     = std::function<void(const QList<QByteArray> &, const QByteArray &, RekeyCompletion)>;
     using CreateStorageKey = std::function<void(KeyCompletion)>;
     using InstallKey       = std::function<void(QByteArray, bool, StatusCompletion)>;
