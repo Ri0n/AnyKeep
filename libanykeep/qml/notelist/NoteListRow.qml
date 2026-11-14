@@ -583,7 +583,12 @@ SwipeDelegate {
         onLongPressed: {
             row.claimInteractionFocus()
             row.suppressClickUntil = Date.now() + 1000
-            collection.requestContextMenu(row)
+            // A long press enters mobile multi-selection rather than showing
+            // a popup that obscures the selected notes.
+            if (row.noteRow)
+                collection.setNoteSelected(row, true)
+            else
+                collection.requestContextMenu(row)
         }
     }
 }
