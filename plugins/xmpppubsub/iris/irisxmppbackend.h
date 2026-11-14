@@ -68,6 +68,7 @@ public:
     void           trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback callback) override;
     void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback) override;
 
+    void onlineResourcesAsync(ResourcesCallback callback) override;
     void auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress = {}) override;
     void rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback,
                            XmppProgressCallback progress = {}) override;
