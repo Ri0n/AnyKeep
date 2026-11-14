@@ -58,6 +58,7 @@ public:
     QString    recoveryKey() const { return recoveryKey_; }
     QByteArray responseSenderKey() const { return responseSenderKey_; }
     bool       trustApproved() const { return trustApproved_; }
+    bool       trustRejected() const { return trustRejected_; }
 
 protected:
     void onGo() override;
