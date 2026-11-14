@@ -4,6 +4,7 @@
 #include "xmppstorage.h"
 
 #include <QHash>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QtTest>
@@ -34,6 +35,10 @@ public:
     void connectAsync(StatusCallback callback) override
     {
         ++connectCalls;
+        if (deferConnect) {
+            pendingConnects.append(std::move(callback));
+            return;
+        }
         callback({ true });
     }
     void probeAsync(StatusCallback callback) override
@@ -135,6 +140,8 @@ public:
 
     int                            connectCalls { 0 };
     int                            probeCalls { 0 };
+    bool                           deferConnect { false };
+    QList<StatusCallback>          pendingConnects;
     int                            fullSaveCount { 0 };
     int                            shutdownCalls { 0 };
     int                            wakeupProbes { 0 };
@@ -172,6 +179,7 @@ class XmppStorageTest : public QObject {
 private slots:
     void init();
     void foregroundResumeProbesOnlineStreamWithoutRestart();
+    void authenticationStartsWithoutEncryptionKeys();
     void reorderPublishesOnlyTheIndex();
     void syncActivityReportsIndexStages();
     void sharedRefreshStaysBusyUntilTheLastCallerCancels();
@@ -194,6 +202,49 @@ void XmppStorageTest::init()
     // its own cache, regardless of whether the previous scenario wrote notes.
     QSettings().setValue(QStringLiteral("storage.xmpppubsub.instanceId"),
                          QUuid::createUuid().toString(QUuid::WithoutBraces));
+}
+
+void XmppStorageTest::authenticationStartsWithoutEncryptionKeys()
+{
+    // This account is deliberately missing both the remote-note key and the
+    // local OMEMO key. The backend must still be asked to do TLS/SASL login.
+    QSettings settings;
+    const QString jidSetting = QStringLiteral("storage.xmpppubsub.jid");
+    const QString passwordSetting = QStringLiteral("storage.xmpppubsub.password");
+    const bool hadJid = settings.contains(jidSetting);
+    const bool hadPassword = settings.contains(passwordSetting);
+    const auto oldJid = settings.value(jidSetting);
+    const auto oldPassword = settings.value(passwordSetting);
+    const auto restore = qScopeGuard([&] {
+        if (hadJid)
+            settings.setValue(jidSetting, oldJid);
+        else
+            settings.remove(jidSetting);
+        if (hadPassword)
+            settings.setValue(passwordSetting, oldPassword);
+        else
+            settings.remove(passwordSetting);
+    });
+    settings.setValue(jidSetting, QStringLiteral("xmpp-auth-test-%1@example.test")
+                                      .arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+    settings.setValue(passwordSetting, QStringLiteral("stub-password"));
+
+    auto *backend = new FakeXmppBackend;
+    backend->deferConnect = true;
+    XmppStorage storage(nullptr, backend);
+    auto *job = storage.initAsync(&storage);
+    QTRY_COMPARE(backend->connectCalls, 1);
+    QCOMPARE(backend->probeCalls, 0);
+    QVERIFY(!job->isFinished());
+
+    // Authentication succeeded, but encrypted notes cannot yet be opened.
+    backend->pendingConnects.takeFirst()({ true });
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->state(), StorageJob::Failed);
+    QCOMPARE(job->error().code, StorageError::NotConfigured);
+    QCOMPARE(backend->probeCalls, 0);
+    QCOMPARE(storage.connectivityState(), NoteStorage::ConnectivityState::Online);
+    QVERIFY(!storage.canAcceptWrites());
 }
 
 void XmppStorageTest::foregroundResumeProbesOnlineStreamWithoutRestart()
