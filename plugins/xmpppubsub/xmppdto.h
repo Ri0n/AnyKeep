@@ -165,6 +165,8 @@ struct XmppKeyAuditResult : XmppStatusResult {
     // Actual online resources advertising the AnyKeep key-sync feature.
     // OMEMO device labels/IDs are not a reliable presence mapping.
     QStringList                    onlineResources;
+    // Full JIDs whose users explicitly rejected this trust request.
+    QStringList                    rejectedResources;
 };
 
 /// Result of verifying remote notes and migrating records which use another key.
