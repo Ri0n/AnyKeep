@@ -39,6 +39,8 @@ void XmppWorker::repairOwnOmemoBundleAfterPreKeyUse(int attemptsRemaining)
     repairOwnOmemoBundleAfterPreKeyUseTask(attemptsRemaining);
 }
 
+void XmppWorker::connectAsync(StatusCallback callback) { connectToServerAsync(std::move(callback)); }
+
 void XmppWorker::probeAsync(StatusCallback callback) { ensureReadyTask().then(std::move(callback)); }
 
 void XmppWorker::listNotesAsync(ListCallback callback) { listNotesTask().then(std::move(callback)); }
