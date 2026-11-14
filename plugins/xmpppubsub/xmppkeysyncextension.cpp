@@ -133,6 +133,20 @@ void XmppKeySyncExtension::replyTrustApproved(const QString &requestId)
     client()->reply(std::move(response), {});
 }
 
+void XmppKeySyncExtension::rejectByUser(const QString &requestId)
+{
+    const auto pending = pendingRequests_.take(requestId);
+    if (pending.iqId.isEmpty())
+        return;
+    QXmppIq response(QXmppIq::Result);
+    response.setTo(pending.from);
+    response.setId(pending.iqId);
+    response.setExtensions({ payloadElement({ { QStringLiteral("type"), QStringLiteral("trust-rejected") },
+                                              { QStringLiteral("requestId"), requestId } }) });
+    // An encrypted storage-key request receives an encrypted refusal too.
+    client()->reply(std::move(response), pending.metadata);
+}
+
 void XmppKeySyncExtension::reject(const QString &requestId) { pendingRequests_.remove(requestId); }
 
 QString XmppKeySyncExtension::responseRecoveryKey(const QDomElement &iq, const QString &requestId)
