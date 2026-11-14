@@ -268,10 +268,6 @@ namespace {
         QString           result = QString(indentColumns, QLatin1Char(' ')) + marker + lines.value(0);
         const QString     continuationIndent(indentColumns + marker.size(), QLatin1Char(' '));
         for (int line = 1; line < lines.size(); ++line) {
-            // A continuation without a hard break is only a source wrap in
-            // CommonMark. Preserve the editor's explicit visual line break.
-            if (!lines.at(line - 1).isEmpty() && !lines.at(line).isEmpty())
-                result += QStringLiteral("  ");
             result += QLatin1Char('\n');
             if (!lines.at(line).isEmpty())
                 result += continuationIndent + lines.at(line);
@@ -643,10 +639,6 @@ QList<NoteBlockModel::Block> NoteBlockModel::parseMarkdownWithoutCode(const QStr
                     }
                     if (leadingSpaceCount(lines[i]) < continuationColumn)
                         break;
-                    // The writer's two trailing spaces encode an explicit
-                    // CommonMark hard break, not two characters of item text.
-                    if (block.items.last().endsWith(QStringLiteral("  ")))
-                        block.items.last().chop(2);
                     block.items.last() += QLatin1Char('\n') + lines[i].mid(continuationColumn);
                     ++i;
                 }

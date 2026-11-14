@@ -5,7 +5,7 @@
 // sibling first so that the text remains a checked/unchecked list item.
 function finishList(host, controller, itemIndex, sourceText) {
     const model = controller.blockModel
-    const cleaned = String(sourceText || "").replace(/\n+$/, "")
+    const cleaned = String(sourceText || "").replace(/[ \t]*\n+$/, "")
     let paragraphRow = -1
     if (cleaned.trim().length === 0) {
         paragraphRow = model.unlistListItem(host.block.index, itemIndex)
@@ -139,8 +139,10 @@ function handleKey(host, controller, event, cell, itemIndex) {
                 return controller.runEditTransaction("continue-list-item", function() {
                     controller.prepareForStructuralMutation(cell)
                     const previous = host.itemText(itemIndex - 1).replace(/\n+$/, "")
+                    // Two spaces encode an explicit CommonMark hard break.
+                    // Existing soft-wrapped list items keep their semantics.
                     controller.blockModel.setListItem(host.block.index, itemIndex - 1,
-                                                       previous + "\n")
+                                                       previous + "  \n")
                     controller.blockModel.removeListItem(host.block.index, itemIndex)
                     controller.focusEditorAddress({
                         blockIndex: host.block.index,
