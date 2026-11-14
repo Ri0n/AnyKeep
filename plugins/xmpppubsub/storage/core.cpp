@@ -366,7 +366,28 @@ void XmppStorage::resolveStorageKeys(const QString &jid, XmppSettingsController 
                             completion(std::move(result), key,
                                        SecureEnvelope::keyId(key, KeyDerivationProfile::PrivateNotes));
                         },
-                        this);
+                        this,
+                        [this, epoch](XmppBackend::ResourcesCallback completion) {
+                            QMetaObject::invokeMethod(
+                                backend_, [this, epoch, completion = std::move(completion)]() mutable {
+                                    if (shuttingDown_ || epoch != configEpoch_)
+                                        return;
+                                    backend_->onlineResourcesAsync(
+                                        [this, epoch, completion = std::move(completion)](
+                                            QStringList resources, QString error) mutable {
+                                            QMetaObject::invokeMethod(
+                                                this,
+                                                [this, epoch, completion = std::move(completion),
+                                                 resources = std::move(resources), error = std::move(error)]() mutable {
+                                                    if (shuttingDown_ || epoch != configEpoch_)
+                                                        return;
+                                                    completion(std::move(resources), std::move(error));
+                                                },
+                                                Qt::QueuedConnection);
+                                        });
+                                },
+                                Qt::QueuedConnection);
+                        });
 
                     keyResolutionController_ = controller;
                     QPointer<XmppKeyResolutionController> controllerGuard(controller);
