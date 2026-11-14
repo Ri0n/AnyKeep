@@ -1263,6 +1263,8 @@ void IrisXmppBackend::ensureReadyAsync(StatusCallback callback)
     });
 }
 
+void IrisXmppBackend::connectAsync(StatusCallback callback) { connectToServerAsync(std::move(callback)); }
+
 void IrisXmppBackend::probeAsync(StatusCallback callback) { ensureReadyAsync(std::move(callback)); }
 
 QString IrisXmppBackend::newUuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
