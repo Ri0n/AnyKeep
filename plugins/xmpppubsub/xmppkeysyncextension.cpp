@@ -172,4 +172,14 @@ bool XmppKeySyncExtension::isTrustApproved(const QDomElement &iq, const QString 
         && payload.value(QStringLiteral("requestId")).toString() == requestId;
 }
 
+bool XmppKeySyncExtension::isTrustRejected(const QDomElement &iq, const QString &requestId)
+{
+    if (requestId.isEmpty() || iq.attribute(QStringLiteral("type")) != QStringLiteral("result")
+        || iq.attribute(QStringLiteral("id")) != requestId)
+        return false;
+    const auto payload = parsePayload(keySyncElement(iq));
+    return payload.value(QStringLiteral("type")).toString() == QStringLiteral("trust-rejected")
+        && payload.value(QStringLiteral("requestId")).toString() == requestId;
+}
+
 } // namespace AnyKeep
