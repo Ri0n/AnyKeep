@@ -695,6 +695,15 @@ void XmppKeyResolutionController::refreshOnlineResources()
             || guard->currentPage_ != DevicesPage)
             return;
         guard->presenceProbeInFlight_ = false;
+        if (!error.isEmpty()) {
+            // A disco timeout is not an offline transition. Retain the
+            // last confirmed presence snapshot so its eventual recovery
+            // cannot trigger a duplicate trust prompt to an unchanged peer.
+            guard->presenceKnown_ = false;
+            guard->presenceStatus_ = guard->tr("Could not determine all online resources: %1").arg(error);
+            emit guard->onlineResourcesChanged();
+            return;
+        }
         resources.removeDuplicates();
         resources.sort();
         QStringList newlyOnline;
@@ -703,12 +712,10 @@ void XmppKeyResolutionController::refreshOnlineResources()
                 newlyOnline.append(resource);
         }
         guard->onlineResources_ = std::move(resources);
-        guard->presenceKnown_   = error.isEmpty();
-        guard->presenceStatus_ = error.isEmpty()
-            ? (guard->onlineResources_.isEmpty()
-                   ? guard->tr("No other AnyKeep XMPP resources are online.")
-                   : guard->tr("Online AnyKeep XMPP resources:"))
-            : guard->tr("Could not determine all online resources: %1").arg(error);
+        guard->presenceKnown_   = true;
+        guard->presenceStatus_ = guard->onlineResources_.isEmpty()
+            ? guard->tr("No other AnyKeep XMPP resources are online.")
+            : guard->tr("Online AnyKeep XMPP resources:");
         emit guard->onlineResourcesChanged();
         if (!guard->waitingForDevices_ || !guard->presenceKnown_)
             return;
