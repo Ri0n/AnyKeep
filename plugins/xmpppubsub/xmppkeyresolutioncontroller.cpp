@@ -377,7 +377,7 @@ void XmppKeyResolutionController::startFresh()
 {
     if (!canStartFresh())
         return;
-    const bool fromWelcome = currentPage_ == ProblemPage;
+    const bool fromWelcome = currentPage_ == ProblemPage || waitingForDevices_;
     setWaitingForDevices(false);
     freshStartFromWelcome_ = fromWelcome;
     freshStart_            = true;
