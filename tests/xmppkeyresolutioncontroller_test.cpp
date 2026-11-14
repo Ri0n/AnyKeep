@@ -124,6 +124,10 @@ void XmppKeyResolutionControllerTest::waitsForOnlyNewlyOnlineResources()
         targetedAudits.append(targets);
         XmppKeyAuditResult result;
         result.ok = true;
+        // This is a recovery with existing encrypted notes: an online peer
+        // returned no key, so the controller must remain in waiting mode.
+        // A confirmed empty index would correctly open the create-key page.
+        result.totalIndexItems = 2;
         result.onlineResources = resources;
         done(result);
     });
