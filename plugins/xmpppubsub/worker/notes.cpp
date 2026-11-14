@@ -138,7 +138,7 @@ void XmppWorker::rejectKeySyncRequest(QString requestId)
 {
     pendingInboundKeyRequests_.remove(requestId);
     if (keySyncExtension_)
-        keySyncExtension_->reject(requestId);
+        keySyncExtension_->rejectByUser(requestId);
 }
 
 void XmppWorker::handleKeySyncRequest(const QString &requestId, const QString &from, const QByteArray &senderKey)
