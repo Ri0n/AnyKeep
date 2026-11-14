@@ -362,7 +362,8 @@ void NotesWorkspaceFoldersTest::pendingRecycledSnapshotAppearsInRecycleBinNotDra
     QCOMPARE(raw->folderChangeCalls, 0);
     QCOMPARE(raw->saveCalls, 0);
 
-    auto *model = workspace.folderNotesModel();
+    auto *model = qobject_cast<FolderNotesModel *>(workspace.folderNotesModel());
+    QVERIFY(model);
     QTRY_VERIFY(model->rowForFolder(FolderCatalog::recycleBinId().toString(QUuid::WithoutBraces)) >= 0);
     const int binRow = model->rowForFolder(FolderCatalog::recycleBinId().toString(QUuid::WithoutBraces));
     QCOMPARE(model->index(binRow, 0).data(FolderNotesModel::NoteCountRole).toInt(), 1);
