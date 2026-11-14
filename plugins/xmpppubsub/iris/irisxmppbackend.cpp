@@ -3397,7 +3397,8 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgress
 {
     if (progress)
         progress({ tr("Preparing OMEMO key discovery…") });
-    ensureOmemoReadyAsync([this, callback = std::move(callback), progress](XmppStatusResult ready) mutable {
+    ensureOmemoReadyAsync([this, callback = std::move(callback), progress,
+                           onlyResources = std::move(onlyResources)](XmppStatusResult ready) mutable {
         if (!ready.ok) {
             XmppKeyAuditResult output;
             static_cast<XmppStatusResult &>(output) = std::move(ready);
