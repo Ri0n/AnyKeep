@@ -105,7 +105,6 @@ public:
         preview      = notePreview(note);
         favorite     = note.isFavorite();
         pendingDraft = false;
-        draftRecycled = false;
         draftId      = {};
         draftState.clear();
         draftError.clear();
@@ -114,7 +113,6 @@ public:
     void assignDraft(const DraftRecord &draft)
     {
         pendingDraft = true;
-        draftRecycled = FolderCatalog::isRecycleBinId(draft.folderId);
         draftId      = draft.id;
         title        = NoteTitleResolver::displayTitle(draft.title, draft.body, draft.format);
         if (title.isEmpty())
@@ -148,7 +146,6 @@ public:
     bool                 syntheticStorage { false };
     bool                 favorite { false };
     bool                 pendingDraft { false };
-    bool                 draftRecycled { false };
 };
 
 NotesModel::NotesModel(QObject *parent) : NotesModel(nullptr, DraftManager::instance(), parent) {}
@@ -291,11 +288,10 @@ QVariant NotesModel::data(const QModelIndex &modelIndex, int role) const
     case DraftErrorRole:
         return !storage ? item->draftError : QString();
     case RecycledRole:
-        // A recycled note can also be represented by a pending publish draft.
-        // Its draft overlay must not make it reappear in Recent while offline.
-        return !storage && (item->draftRecycled
-            || (folderCatalogManager_ && folderCatalogManager_->isAvailable()
-                && folderCatalogManager_->catalog().isRecycled(item->parent->id, item->id)));
+        // Recycle is committed by FolderCatalog, not by a provisional
+        // draft intent. A failed catalog transaction must not hide the note.
+        return !storage && folderCatalogManager_ && folderCatalogManager_->isAvailable()
+            && folderCatalogManager_->catalog().isRecycled(item->parent->id, item->id);
     default:
         return {};
     }
@@ -633,7 +629,9 @@ void NotesModel::replaceVisibleNotes(NMMItem *storageItem, int desiredCount)
         QHash<QString, DraftRecord> draftByNote;
         for (const auto &draft : pending) {
             if (draft.operation == DraftRecord::Delete || draft.state == DraftRecord::Deleting
-                || FolderCatalog::isRecycleBinId(draft.folderId))
+                || (folderCatalogManager_ && folderCatalogManager_->isAvailable()
+                    && !draft.remoteNoteId.isEmpty()
+                    && folderCatalogManager_->catalog().isRecycled(storageItem->id, draft.remoteNoteId)))
                 continue;
             if (draft.storageId != storageItem->id || isUnpublishedDraft(draft))
                 continue;
@@ -773,7 +771,9 @@ int NotesModel::projectedNoteCount(const NMMItem *storageItem) const
         if (draft.removeSourceStorageId == storageItem->id && !draft.removeSourceNoteId.isEmpty())
             ids.remove(draft.removeSourceNoteId);
         if (draft.storageId != storageItem->id || isUnpublishedDraft(draft)
-            || FolderCatalog::isRecycleBinId(draft.folderId))
+            || (folderCatalogManager_ && folderCatalogManager_->isAvailable()
+                && !draft.remoteNoteId.isEmpty()
+                && folderCatalogManager_->catalog().isRecycled(storageItem->id, draft.remoteNoteId)))
             continue;
         ids.insert(draft.remoteNoteId.isEmpty() ? draft.id.toString(QUuid::WithoutBraces) : draft.remoteNoteId);
     }
