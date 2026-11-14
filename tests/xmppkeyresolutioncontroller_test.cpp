@@ -104,6 +104,7 @@ void XmppKeyResolutionControllerTest::waitsForOnlyNewlyOnlineResources()
     XmppDeviceInfo device { QStringLiteral("Desktop"), 42, QByteArray("device-key"),
                             XmppTrustLevel::ManuallyTrusted };
     QStringList resources;
+    QString discoveryError;
     int initialAudits = 0;
     QList<QStringList> targetedAudits;
     XmppKeyResolutionController controller(
@@ -118,7 +119,7 @@ void XmppKeyResolutionControllerTest::waitsForOnlyNewlyOnlineResources()
             done(result);
         },
         {}, 1000, {}, nullptr,
-        [&resources](auto done) { done(resources, {}); }, 15);
+        [&resources, &discoveryError](auto done) { done(resources, discoveryError); }, 15);
     controller.setNewResourceAuditor([&](QStringList targets, auto done) {
         targetedAudits.append(targets);
         XmppKeyAuditResult result;
@@ -141,6 +142,18 @@ void XmppKeyResolutionControllerTest::waitsForOnlyNewlyOnlineResources()
     QCOMPARE(targetedAudits.constFirst(), QStringList { QStringLiteral("laptop") });
     QTest::qWait(90);
     QCOMPARE(targetedAudits.size(), 1); // Stable online status never resends.
+
+    // An incomplete disco result is not evidence that a peer went offline.
+    discoveryError = QStringLiteral("disco timeout");
+    resources.clear();
+    QTest::qWait(60);
+    QCOMPARE(controller.onlineResources(), QStringList { QStringLiteral("laptop") });
+    QCOMPARE(targetedAudits.size(), 1);
+
+    resources = { QStringLiteral("laptop") };
+    discoveryError.clear();
+    QTest::qWait(60);
+    QCOMPARE(targetedAudits.size(), 1); // Recovered disco, same online peer.
 
     resources.clear();
     QTRY_VERIFY_WITH_TIMEOUT(controller.onlineResources().isEmpty(), 500);
