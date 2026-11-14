@@ -35,6 +35,8 @@ public:
     using NoteCallback    = std::function<void(XmppNoteResult)>;
     using DevicesCallback = std::function<void(QList<XmppDeviceInfo>, QString)>;
     using AuditCallback   = std::function<void(XmppKeyAuditResult)>;
+    // Available full-JID resources advertising key sync (not OMEMO device IDs).
+    using ResourcesCallback = std::function<void(QStringList, QString)>;
     using RekeyCallback   = std::function<void(XmppRekeyResult)>;
     using CleanupCallback = std::function<void(XmppCleanupResult)>;
 
