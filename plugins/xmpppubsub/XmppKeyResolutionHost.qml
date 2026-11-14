@@ -324,7 +324,7 @@ Item {
                                 visible: devicesView.count === 0
                                 width: Math.min(parent.width - 24, 420)
                                 horizontalAlignment: Text.AlignHCenter
-                                text: qsTr("No OMEMO devices are currently available. Start AnyKeep on another device and retry.")
+                                text: qsTr("No previously published OMEMO device identities found. This list is separate from online XMPP resources; bring an existing AnyKeep device online.")
                                 wrapMode: Text.WordWrap
                                 color: palette.placeholderText
                             }
@@ -338,6 +338,78 @@ Item {
 
                         Label {
                             Layout.fillWidth: true
+                            text: root.controller.presenceStatus
+                            visible: text.length > 0
+                            wrapMode: Text.WordWrap
+                            color: palette.placeholderText
+                        }
+
+                        Repeater {
+                            model: root.controller.onlineResources
+
+                            delegate: Label {
+                                required property string modelData
+                                Layout.fillWidth: true
+                                text: root.controller.refusedResources.indexOf(modelData) >= 0
+                                      ? qsTr("%1 — explicitly declined trust").arg(modelData)
+                                      : qsTr("%1 — online").arg(modelData)
+                                wrapMode: Text.WordWrap
+                                color: palette.placeholderText
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            visible: root.controller.waitingForDevices
+                            spacing: 8
+
+                            Label {
+                                Layout.fillWidth: true
+                                font.bold: true
+                                text: qsTr("Waiting for another AnyKeep device")
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Open AnyKeep on a device that already has your notes. When a new XMPP resource appears online, AnyKeep will request the key automatically. A resource that stays online will not receive repeated requests. You can also leave setup without changing the key.")
+                                wrapMode: Text.WordWrap
+                                color: palette.placeholderText
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                Button {
+                                    objectName: "xmppRecoveryCheckNowButton"
+                                    Layout.fillWidth: true
+                                    text: qsTr("Check again")
+                                    enabled: !root.controller.busy
+                                    onClicked: root.controller.checkAgain()
+                                }
+
+                                Button {
+                                    objectName: "xmppRecoveryNewKeyWhileWaitingButton"
+                                    Layout.fillWidth: true
+                                    visible: root.controller.canStartFresh
+                                    text: qsTr("Start with a new key")
+                                    enabled: !root.controller.busy
+                                    onClicked: startFreshDialog.open()
+                                }
+                            }
+
+                            Button {
+                                objectName: "xmppRecoveryContinueWithoutXmppButton"
+                                Layout.fillWidth: true
+                                text: qsTr("Continue without XMPP notes")
+                                enabled: !root.controller.busy
+                                onClicked: root.controller.cancel()
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
                             text: qsTr("When you request the storage key, check another AnyKeep device logged into the same XMPP account. Approve the device-trust prompt there to allow key synchronization.")
                             wrapMode: Text.WordWrap
                             color: palette.placeholderText
@@ -345,7 +417,7 @@ Item {
 
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("Compare fingerprints on the other device. The client label is shown separately from the OMEMO ID; AnyKeep normally publishes its XMPP resource as that label, but XMPP does not guarantee this mapping or provide a last-used time.")
+                            text: qsTr("OMEMO identities may be offline. Online status is shown only for XMPP resources advertising AnyKeep key synchronization; XMPP does not reliably map a resource to an OMEMO device ID.")
                             wrapMode: Text.WordWrap
                             color: palette.placeholderText
                             font.pixelSize: 12
