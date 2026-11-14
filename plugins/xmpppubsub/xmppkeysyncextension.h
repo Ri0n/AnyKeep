@@ -30,6 +30,7 @@ public:
     QXmppIq makeTrustRequest(const QString &to, const QString &requestId, const QByteArray &senderKey) const;
     void    replyWithKey(const QString &requestId, const QString &recoveryKey);
     void    replyTrustApproved(const QString &requestId);
+    void    rejectByUser(const QString &requestId);
     void    reject(const QString &requestId);
 
     static QString responseRecoveryKey(const QDomElement &iq, const QString &requestId);
