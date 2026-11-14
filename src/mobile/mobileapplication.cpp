@@ -652,6 +652,12 @@ bool MobileApplication::processPendingLaunchIntent()
 
 bool MobileApplication::setPluginEnabled(int row, bool enabled) { return plugins_.setEnabled(row, enabled); }
 
+bool MobileApplication::disableXmppStorage()
+{
+    return bundledPlugins_.setPluginLoadPolicy(QStringLiteral("xmpp_pubsub_storage"),
+                                               PluginListSource::LP_Disabled);
+}
+
 bool MobileApplication::moveStorage(int sourceRow, int destinationRow)
 {
     return storages_.moveStorage(sourceRow, destinationRow);
