@@ -4045,7 +4045,7 @@ void IrisXmppBackend::rejectKeySyncRequest(QString requestId)
 {
     pendingInboundKeyRequests_.remove(requestId);
     if (keySyncTask_)
-        keySyncTask_->reject(requestId);
+        keySyncTask_->rejectByUser(requestId);
 }
 
 } // namespace AnyKeep
