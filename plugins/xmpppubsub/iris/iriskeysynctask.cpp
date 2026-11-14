@@ -131,27 +131,6 @@ void IrisKeySyncTask::replyTrustApproved(const QString &requestId)
     client()->send(iq);
 }
 
-void IrisKeySyncTask::rejectByUser(const QString &requestId)
-{
-    const auto pending = pendingRequests_.take(requestId);
-    if (pending.iqId.isEmpty())
-        return;
-    auto iq = appendPayload(
-        doc(), makeIq(doc(), QStringLiteral("result"), pending.from, pending.iqId),
-        { { QStringLiteral("type"), QStringLiteral("trust-rejected") }, { QStringLiteral("requestId"), requestId } });
-    if (pending.metadata) {
-        auto *job = client()->replyEncrypted(iq, *pending.metadata);
-        if (job) {
-            if (job->isFinished())
-                job->deleteLater();
-            else
-                connect(job, &XMPP::EncryptionJob::finished, job, &QObject::deleteLater);
-        }
-    } else {
-        client()->send(iq);
-    }
-}
-
 void IrisKeySyncTask::reject(const QString &requestId) { pendingRequests_.remove(requestId); }
 
 IrisKeySyncRequestTask::IrisKeySyncRequestTask(XMPP::Task *parent) : XMPP::Task(parent) {}
@@ -166,7 +145,6 @@ void IrisKeySyncRequestTask::request(const XMPP::Jid &to, RequestType type, cons
     recoveryKey_.clear();
     responseSenderKey_.clear();
     trustApproved_ = false;
-    trustRejected_ = false;
 }
 
 void IrisKeySyncRequestTask::onGo()
@@ -224,7 +202,6 @@ bool IrisKeySyncRequestTask::take(const QDomElement &stanza)
         return true;
     }
     const auto type = payload.value(QStringLiteral("type")).toString();
-    trustRejected_ = type == QStringLiteral("trust-rejected");
     if (type_ == RequestType::TrustBootstrap) {
         trustApproved_ = type == QStringLiteral("trust-approved");
         if (!trustApproved_) {
