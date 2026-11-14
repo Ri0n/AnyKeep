@@ -7,6 +7,10 @@ import "../../reorder" as Reorder
 Column {
     id: listRoot
 
+    readonly property bool rightToLeft: Qt.application.layoutDirection === Qt.RightToLeft
+    LayoutMirroring.enabled: rightToLeft
+    LayoutMirroring.childrenInherit: true
+
     required property var editorView
     required property var block
     required property var reorderController
@@ -179,9 +183,10 @@ Column {
     }
 
     function markerCenterXForIndent(indent) {
+        const markerX = Math.max(0, Number(indent)) * editorView.listIndent
+                        + editorView.listMarkerWidth / 2
         return listRoot.mapToItem(editorView.contentItem,
-                                  Math.max(0, Number(indent)) * editorView.listIndent
-                                  + editorView.listMarkerWidth / 2, 0).x
+                                  rightToLeft ? width - markerX : markerX, 0).x
     }
 
     function levelHandleHeight(range) {
@@ -376,6 +381,13 @@ Column {
             property alias markerItem: markerSlot
             property alias dragContent: rowContent
             property real swipeOffset: 0
+            // The destructive target is at the far edge of the display, not
+            // exposed on the first few pixels of an ordinary horizontal pan.
+            readonly property real deleteDistance: Math.max(80, width
+                - itemIndent * editorView.listIndent
+                - 8 * editorView.editorFontAverageCharacterWidth)
+            readonly property bool inDeleteZone: (listRoot.rightToLeft ? swipeOffset < 0 : swipeOffset > 0)
+                                                 && Math.abs(swipeOffset) >= deleteDistance
             readonly property bool sourceRow: listRoot.isSourceIndex(index)
             readonly property var ownLevelRange: {
                 listRoot.itemsRevision
@@ -445,7 +457,7 @@ Column {
 
             Rectangle {
                 anchors.fill: parent
-                visible: editorView.touchMode && Math.abs(rowWrapper.swipeOffset) > 0
+                visible: editorView.touchMode && rowWrapper.inDeleteZone
                 color: "#b3261e"
 
                 Label {
@@ -463,7 +475,8 @@ Column {
             RowLayout {
                 id: rowContent
 
-                x: rowWrapper.itemIndent * editorView.listIndent + rowWrapper.swipeOffset
+                x: (listRoot.rightToLeft ? 0 : rowWrapper.itemIndent * editorView.listIndent)
+                   + rowWrapper.swipeOffset
                 y: reorderController.wholeListBlockDrag ? 0 : rowWrapper.dropSpace
                 width: Math.max(0, listRoot.width
                                   - rowWrapper.itemIndent * editorView.listIndent)
@@ -577,8 +590,7 @@ Column {
                 onActiveChanged: {
                     if (active)
                         return
-                    const removeThreshold = Math.min(120, rowWrapper.width * 0.35)
-                    if (Math.abs(rowWrapper.swipeOffset) >= removeThreshold) {
+                    if (rowWrapper.inDeleteZone) {
                         rowWrapper.removeBySwipe()
                     } else {
                         rowWrapper.swipeOffset = 0
@@ -612,7 +624,9 @@ Column {
                 visible: active && (!reorderController.dragging || dragging)
                 forceVisible: editorView.touchMode
                 fullHeight: true
-                x: handleLevel * editorView.listIndent - levelHandleGutter
+                x: listRoot.rightToLeft
+                   ? rowWrapper.width - handleLevel * editorView.listIndent - levelHandleGutter
+                   : handleLevel * editorView.listIndent - levelHandleGutter
                 y: 0
                 width: Math.max(12, levelHandleGutter - 2)
                 height: dragging && dragHeightSnapshot > 0
