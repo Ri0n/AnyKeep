@@ -118,7 +118,7 @@ void XmppStorage::onRemoteNodeInvalidated()
 void XmppStorage::onConnectionChanged(bool connected)
 {
     transportOnline_ = connected;
-    if (errorState_) {
+    if (errorState_ && !isStorageKeyMismatch(errorStateMessage_)) {
         return;
     }
     // The transport is authenticated, but note storage is not ready until
@@ -232,7 +232,8 @@ void XmppStorage::handleTransientFailure(const QString &error, bool invalidate)
 
 void XmppStorage::scheduleRetry()
 {
-    if (shuttingDown_ || errorState_ || retryInProgress_ || !retryTimer_ || retryTimer_->isActive())
+    if (shuttingDown_ || (errorState_ && !isStorageKeyMismatch(errorStateMessage_))
+        || retryInProgress_ || !retryTimer_ || retryTimer_->isActive())
         return;
 
     QString validationError;
@@ -247,7 +248,7 @@ void XmppStorage::scheduleRetry()
 
 void XmppStorage::retryInitialization()
 {
-    if (shuttingDown_ || errorState_ || retryInProgress_)
+    if (shuttingDown_ || (errorState_ && !isStorageKeyMismatch(errorStateMessage_)) || retryInProgress_)
         return;
 
     QString validationError;
