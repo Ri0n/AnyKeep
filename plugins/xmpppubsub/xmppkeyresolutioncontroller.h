@@ -193,7 +193,6 @@ private:
     bool                      presenceProbeInFlight_ { false };
     bool                      presenceKnown_ { false };
     quint64                   presenceGeneration_ { 0 };
-    int                       waitingPollCount_ { 0 };
     QTimer                    presenceTimer_;
     bool                      rekeyComplete_ { false };
     bool                      busy_ { false };
