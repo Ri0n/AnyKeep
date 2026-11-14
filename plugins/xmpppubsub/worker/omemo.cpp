@@ -358,7 +358,8 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::requestStorageKeyTask(QString resour
     co_return output;
 }
 
-QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(XmppProgressCallback progress)
+QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(
+    XmppProgressCallback progress, std::optional<QStringList> onlyResources)
 {
     XmppKeyAuditResult output;
     if (progress)
