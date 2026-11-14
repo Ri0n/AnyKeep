@@ -28,6 +28,13 @@ namespace AnyKeep {
 
 Q_LOGGING_CATEGORY(logWorkspaceRecycle, "anykeep.workspace.recycle")
 
+namespace {
+QString diagnosticNoteId(const QString &noteId)
+{
+    return noteId.size() > 16 ? noteId.left(16) + QStringLiteral("…") : noteId;
+}
+}
+
 bool NotesWorkspaceController::openNote(const QString &storageId, const QString &noteId)
 {
     if (storageId.isEmpty() || noteId.isEmpty())
