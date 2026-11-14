@@ -50,6 +50,7 @@ public:
     void setConfig(const XmppConfig &config) override;
     void shutdown() override;
 
+    void           connectAsync(StatusCallback callback) override;
     void           probeAsync(StatusCallback callback) override;
     void           listNotesAsync(ListCallback callback) override;
     void           getNoteAsync(QString id, NoteCallback callback) override;
