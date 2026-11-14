@@ -5,6 +5,7 @@
 #include <QStringList>
 #include <QTime>
 
+#include <algorithm>
 #include <utility>
 
 namespace AnyKeep {
@@ -695,6 +696,8 @@ void XmppKeyResolutionController::back()
         setCurrentPage(ProblemPage);
         return;
     }
+    if (waitingForDevices_)
+        setWaitingForDevices(false);
     setCurrentPage(static_cast<Page>(int(currentPage_) - 1));
 }
 
@@ -710,9 +713,19 @@ void XmppKeyResolutionController::setCurrentPage(Page page)
 {
     if (currentPage_ == page || completed_)
         return;
+    if (currentPage_ == DevicesPage) {
+        presenceTimer_.stop();
+        ++presenceGeneration_;
+        presenceProbeInFlight_ = false;
+        setWaitingForDevices(false);
+    }
     currentPage_ = page;
-    if (currentPage_ == KeysPage || currentPage_ == ReviewPage)
+    if (currentPage_ == DevicesPage) {
+        presenceTimer_.start();
+        QTimer::singleShot(0, this, &XmppKeyResolutionController::refreshOnlineResources);
+    } else if (currentPage_ == KeysPage || currentPage_ == ReviewPage) {
         updateSummary();
+    }
     emit currentPageChanged();
     emit navigationChanged();
 }
@@ -900,6 +913,8 @@ void XmppKeyResolutionController::finish(bool accepted)
     }
     completed_ = true;
     operationTimer_.stop();
+    presenceTimer_.stop();
+    ++presenceGeneration_;
     ++operationToken_;
     busy_ = false;
     emit busyChanged();
