@@ -30,8 +30,17 @@ Page {
         // canonical durable recycle snapshot.
         if (!checkpointEditor())
             return
-        if (mobileApp.workspace.trashNote(root.editor.storageId, root.editor.noteId))
+        // The recycle operation can synchronously close the editor even if
+        // committing its folder assignment subsequently fails.
+        const storageId = root.editor.storageId
+        const noteId = root.editor.noteId
+        if (mobileApp.workspace.trashNote(storageId, noteId)) {
             root.backRequested()
+        } else {
+            const message = mobileApp.workspace.errorString
+                    || qsTr("The note could not be moved to the Recycle Bin.")
+            mobileApp.dialogs.inform(qsTr("Delete note"), message)
+        }
     }
     function requestTrashEditor() {
         if (!mobileApp.askBeforeDelete) {
