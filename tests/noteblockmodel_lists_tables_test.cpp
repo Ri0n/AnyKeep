@@ -87,8 +87,14 @@ void NoteBlockModelTest::serializesListContinuationsUsingCommonMarkIndentation()
     model.setListItem(0, 0, QStringLiteral("first line\nsecond line"));
     model.setListItem(1, 0, QStringLiteral("numbered line\ncontinuation"));
     QCOMPARE(model.contents(),
-             QStringLiteral("- first line\n  second line\n- second\n\n"
-                            "1. numbered line\n   continuation"));
+             QStringLiteral("- first line  \n  second line\n- second\n\n"
+                            "1. numbered line  \n   continuation"));
+
+    NoteBlockModel check;
+    check.load(QStringLiteral("- [ ] first  \n      second\n- [ ] next"), true);
+    QCOMPARE(check.data(check.index(0), NoteBlockModel::ItemsRole).toStringList(),
+             QStringList({ QStringLiteral("first\nsecond"), QStringLiteral("next") }));
+    QCOMPARE(check.contents(), QStringLiteral("- [ ] first  \n      second\n- [ ] next"));
 }
 
 void NoteBlockModelTest::parsesIndentedListContinuationsAsOneItem()

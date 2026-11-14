@@ -436,7 +436,10 @@ Column {
                         anchors.top: parent.top
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: parent.width
-                        height: editorView.editorFontMetricsHeight
+                        // Material indicators are centered within the CheckBox.
+                        // On touch, a font-height control placed them above the
+                        // first text line; match the row's touch target instead.
+                        height: editorView.touchMode ? 44 : editorView.editorFontMetricsHeight
                         padding: 0
                         onClicked: editorView.runEditTransaction("toggle-task", function() {
                             editorView.blockModel.setChecked(listRoot.blockIndex, rowWrapper.index, checked)

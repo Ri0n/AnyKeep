@@ -8,6 +8,19 @@ Page {
 
     required property var editor
     property double deleteRequestId: 0
+    // The Android keyboard may overlap the Qt window instead of resizing it.
+    // Work in content-item coordinates so the action strip never hides beneath
+    // the IME, with no double offset on devices using adjustResize.
+    readonly property real keyboardTop: {
+        const area = root.contentItem
+        if (!area || !Qt.inputMethod.visible)
+            return area ? area.height : 0
+        const keyboard = Qt.inputMethod.keyboardRectangle
+        if (keyboard.height <= 0)
+            return area.height
+        const y = area.mapFromItem(null, 0, keyboard.y).y
+        return y > 0 ? Math.min(area.height, y) : area.height
+    }
     signal backRequested()
 
     function checkpointEditor() { return editorPane.checkpointEditor() }
@@ -61,7 +74,13 @@ Page {
         }
     }
 
-    footer: MobileNoteActionBar {
+    MobileNoteActionBar {
+        id: actionBar
+        objectName: "floatingEditorActionBar"
+        parent: root.contentItem
+        width: parent.width
+        z: 2
+        y: Math.max(0, root.keyboardTop - height)
         editorBackend: root.editor
         actions: editorActions
         voiceAvailable: mobileApp.microphoneAvailable
@@ -81,7 +100,10 @@ Page {
 
     NoteEditorPane {
         id: editorPane
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: actionBar.top
         editor: root.editor
         platformBackend: mobileApp.editorPlatformBackend
         folderWorkspace: mobileApp.workspace
