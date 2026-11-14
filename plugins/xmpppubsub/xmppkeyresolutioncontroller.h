@@ -113,6 +113,7 @@ public:
     XmppProgressCallback progressCallback();
     /// Storage supplies the durable keychain/configuration commit before acceptance.
     void setKeyInstaller(InstallKey installer) { installKey_ = std::move(installer); }
+    void setNewResourceAuditor(AuditNewResources callback) { auditNewResources_ = std::move(callback); }
 
     Q_INVOKABLE void setDeviceSelected(int row, bool selected);
     Q_INVOKABLE void removeDevice(int row);
