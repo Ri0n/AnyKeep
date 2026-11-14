@@ -222,6 +222,8 @@ XmppKeyResolutionController::XmppKeyResolutionController(bool localKeyMissing, c
             return;
         ++operationToken_;
         setBusy(false);
+        if (currentPage_ == DevicesPage)
+            setWaitingForDevices(true);
         setDeviceStatus(operationTimeoutMessage_);
     });
     setDeviceStatus(deviceError.isEmpty() ? tr("Found %1 OMEMO device(s) for this account.").arg(devices.size())
@@ -606,6 +608,20 @@ void XmppKeyResolutionController::requestKeyAudit(QStringList resources)
             return;
         }
 
+        // The audit is an authoritative snapshot of resources available
+        // when requests were sent. Establish it as the presence baseline so
+        // the next periodic discovery does not retry unchanged resources.
+        if (guard->onlineResources_ != audit.onlineResources) {
+            guard->onlineResources_ = audit.onlineResources;
+            guard->onlineResources_.removeDuplicates();
+            guard->onlineResources_.sort();
+            guard->presenceKnown_ = true;
+            guard->presenceStatus_ = guard->onlineResources_.isEmpty()
+                ? guard->tr("No other AnyKeep XMPP resources are online.")
+                : guard->tr("Online AnyKeep XMPP resources:");
+            emit guard->onlineResourcesChanged();
+        }
+
         // The user may have denied an inbound trust prompt on a particular
         // full JID. Exclude it until a deliberate manual retry.
         for (const auto &resource : audit.rejectedResources)
@@ -689,6 +705,11 @@ void XmppKeyResolutionController::refreshOnlineResources()
         // Only offline->online transitions trigger automatic key requests.
         // Stable resources (including ones that timed out) are not polled for
         // keys, and explicit trust refusals remain excluded for this wizard.
+        if (!newlyOnline.isEmpty() && !guard->devicesModel_->hasTrustedOrSelectedDevice()) {
+            guard->setDeviceStatus(guard->tr("An AnyKeep XMPP resource is online. Select a known OMEMO "
+                                             "identity above to approve key synchronization."));
+            return;
+        }
         if (!newlyOnline.isEmpty()) {
             if (guard->busy_) {
                 for (const auto &name : newlyOnline)
