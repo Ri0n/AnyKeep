@@ -153,7 +153,7 @@ private:
     void              populateKeys(const XmppKeyAuditResult &audit);
     void              setWaitingForDevices(bool waiting);
     void              refreshOnlineResources();
-    void              requestKeyAudit();
+    void              requestKeyAudit(QStringList resources = {});
     void              updateSummary();
     void              finish(bool accepted);
     quint64           beginDeviceOperation(const QString &timeoutMessage);
