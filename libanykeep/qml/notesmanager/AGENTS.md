@@ -24,6 +24,20 @@ type/resource URL and the properties/functions exposed by `NotesManagerPageImpl`
 - Keep the root facade tiny and register implementation/controller resource
   aliases for both desktop and mobile.
 
+## Model/view update discipline
+
+Keep grouped, folder, and Recent views attached to stable item identities.
+Single-note changes (including draft state, recycle status, favorite, loading,
+and title) must not clear and repopulate the entire note collection. Prefer
+precise source-model notifications and incremental proxy updates over resets
+and mass remove/reinsert cycles. Preserve `TreeView` delegates, expansion,
+selection, editing focus, and scroll anchors for unaffected rows.
+
+Never use delayed re-selection, `Qt.callLater` scrolling, or timers to hide
+a glitch caused by an excessive model update. Fix the model mutation that
+causes the view churn. Postpone large refactors if they cannot be completed
+correctly and independently.
+
 ## Verification
 
 ```sh
