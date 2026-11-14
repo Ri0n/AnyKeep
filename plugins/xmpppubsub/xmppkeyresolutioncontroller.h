@@ -90,7 +90,14 @@ public:
     QStringList onlineResources() const { return onlineResources_; }
     QString     presenceStatus() const { return presenceStatus_; }
     bool        waitingForDevices() const { return waitingForDevices_; }
-    QStringList refusedResources() const { return rejectedResources_.values(); }
+    QStringList refusedResources() const
+    {
+        QStringList result;
+        for (const auto &resource : rejectedResources_)
+            result.append(resource);
+        result.sort();
+        return result;
+    }
     QString     keyStatus() const { return keyStatus_; }
     QString     summary() const { return summary_; }
     QString     resultText() const { return resultText_; }
