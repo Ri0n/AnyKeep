@@ -113,6 +113,7 @@ void XmppKeyResolutionControllerTest::waitsForOnlyNewlyOnlineResources()
             ++initialAudits;
             XmppKeyAuditResult result;
             result.ok = true;
+            result.totalIndexItems = 2;
             result.onlineResources = resources;
             done(result);
         },
@@ -163,6 +164,7 @@ void XmppKeyResolutionControllerTest::doesNotRetryExplicitlyRejectedResource()
             ++manualAudits;
             XmppKeyAuditResult result;
             result.ok = true;
+            result.totalIndexItems = 2;
             result.onlineResources = resources;
             result.rejectedResources = { QStringLiteral("self@example.org/rejected") };
             done(result);
@@ -203,6 +205,7 @@ void XmppKeyResolutionControllerTest::waitingCanChooseNewKeyWithoutAnyRemoteWrit
         [](auto done) {
             XmppKeyAuditResult result;
             result.ok = true;
+            result.totalIndexItems = 2;
             done(result);
         },
         [&remoteWrites](const QList<QByteArray> &, const QByteArray &, auto) { ++remoteWrites; },
@@ -238,7 +241,7 @@ void XmppKeyResolutionControllerTest::requiresRecognizedDevice()
     controller.next();
     QVERIFY(!trustCalled);
     QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::DevicesPage));
-    QVERIFY(controller.deviceStatus().contains(QStringLiteral("Select at least one")));
+    QVERIFY(controller.deviceStatus().contains(QStringLiteral("Select an AnyKeep device")));
 }
 
 void XmppKeyResolutionControllerTest::reportsPartialDeviceRefresh()
@@ -372,8 +375,10 @@ void XmppKeyResolutionControllerTest::startsFreshWithoutChangingUnreadableNotes(
     controller.startFresh();
     QVERIFY(controller.freshStart());
     QCOMPARE(controller.canonicalKey(), generatedKey);
-    controller.next();
+    // Starting fresh from the waiting page now skips the empty keys page,
+    // while preserving the verified count of two unreadable remote notes.
     QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ReviewPage));
+    QVERIFY(controller.summary().contains(QStringLiteral("2")));
     controller.next();
     QCOMPARE(controller.currentPage(), int(XmppKeyResolutionController::ResultPage));
     QVERIFY(controller.rekeyResult().ok);
