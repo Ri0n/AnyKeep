@@ -112,9 +112,10 @@ void XmppWorker::onlineResourcesAsync(ResourcesCallback callback)
     });
 }
 
-void XmppWorker::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress)
+void XmppWorker::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress,
+                                       std::optional<QStringList> onlyResources)
 {
-    auditStorageKeysTask(std::move(progress)).then(std::move(callback));
+    auditStorageKeysTask(std::move(progress), std::move(onlyResources)).then(std::move(callback));
 }
 
 void XmppWorker::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback,
