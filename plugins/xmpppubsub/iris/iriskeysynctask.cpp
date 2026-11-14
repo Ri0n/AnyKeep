@@ -166,6 +166,7 @@ void IrisKeySyncRequestTask::request(const XMPP::Jid &to, RequestType type, cons
     recoveryKey_.clear();
     responseSenderKey_.clear();
     trustApproved_ = false;
+    trustRejected_ = false;
 }
 
 void IrisKeySyncRequestTask::onGo()
