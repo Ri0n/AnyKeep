@@ -3388,7 +3388,8 @@ void IrisXmppBackend::onlineResourcesAsync(ResourcesCallback callback)
     onlinePrivateNotesResourcesAsync(std::move(callback));
 }
 
-void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress)
+void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress,
+                                             std::optional<QStringList> onlyResources)
 {
     if (progress)
         progress({ tr("Preparing OMEMO key discovery…") });
