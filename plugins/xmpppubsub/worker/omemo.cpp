@@ -345,12 +345,6 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::requestStorageKeyTask(QString resour
         output.errorKind = XmppErrorKind::Security;
         co_return output;
     }
-    if (XmppKeySyncExtension::isTrustRejected(*plain, requestId)) {
-        output.rejectedResources.append(resource);
-        output.error = QStringLiteral("The other device explicitly declined to share its key");
-        output.errorKind = XmppErrorKind::Security;
-        co_return output;
-    }
     auto key = SecureEnvelope::decodeRecoveryKey(XmppKeySyncExtension::responseRecoveryKey(*plain, requestId),
                                                  KeyDerivationProfile::PrivateNotes);
     if (!key) {
@@ -420,10 +414,6 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(
             continue;
         }
         const auto &trustResponse = std::get<QDomElement>(trustResult);
-        if (XmppKeySyncExtension::isTrustRejected(trustResponse, trustId)) {
-            output.rejectedResources.append(resource);
-            continue;
-        }
         if (!XmppKeySyncExtension::isTrustApproved(trustResponse, trustId)) {
             errors.append(QStringLiteral("%1: invalid OMEMO trust bootstrap response").arg(resource));
             continue;
@@ -437,7 +427,6 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(
         // transition or an explicit action in the recovery wizard.
         auto result = co_await requestStorageKeyTask(resource);
         if (!result.ok || result.candidates.isEmpty()) {
-            output.rejectedResources.append(result.rejectedResources);
             errors.append(QStringLiteral("%1: %2").arg(resource, result.error));
             continue;
         }
