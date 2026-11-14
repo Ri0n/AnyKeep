@@ -35,17 +35,17 @@ namespace {
     QString unwrapMarkdownWriterLines(const QString &markdown);
     QString markdownWithSerializedInlineFormats(QTextDocument *document);
 
-    QString unusedPrivateMarker(const QTextDocument *document, ushort firstCandidate)
+    QString unusedPrivateMarker(const QTextDocument *document, ushort firstCandidate, const QSet<QChar> &reserved = {})
     {
         const QString contents = document ? document->toPlainText() : QString();
         for (uint value = firstCandidate; value <= 0xf8ff; ++value) {
             const QChar candidate(static_cast<ushort>(value));
-            if (!contents.contains(candidate))
+            if (!contents.contains(candidate) && !reserved.contains(candidate))
                 return QString(1, candidate);
         }
         for (uint value = 0xfdd0; value <= 0xfdef; ++value) {
             const QChar candidate(static_cast<ushort>(value));
-            if (!contents.contains(candidate))
+            if (!contents.contains(candidate) && !reserved.contains(candidate))
                 return QString(1, candidate);
         }
         return QString(1, QChar(0xfffe));
@@ -282,19 +282,15 @@ namespace {
         }
     };
 
-    struct LinkGroup {
+    struct InlineTextGroup {
         int                  start = 0;
         int                  end   = 0;
-        QString              href;
         QString              text;
         QVector<InlineStyle> styles;
     };
 
-    struct CodeGroup {
-        int         start = 0;
-        int         end   = 0;
-        QString     text;
-        InlineStyle style;
+    struct LinkGroup : InlineTextGroup {
+        QString href;
     };
 
     InlineStyle explicitInlineStyle(const QTextCharFormat &format)
@@ -357,9 +353,9 @@ namespace {
         return groups;
     }
 
-    QVector<CodeGroup> documentCodeGroups(const QTextDocument *document)
+    QVector<InlineTextGroup> documentInlineGroups(const QTextDocument *document)
     {
-        QVector<CodeGroup> groups;
+        QVector<InlineTextGroup> groups;
         if (!document)
             return groups;
         for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
@@ -369,25 +365,42 @@ namespace {
                     continue;
                 const QTextCharFormat format = fragment.charFormat();
                 const InlineStyle     style  = explicitInlineStyle(format);
-                if ((format.isAnchor() && !format.anchorHref().isEmpty()) || !style.code)
+                if ((format.isAnchor() && !format.anchorHref().isEmpty())
+                    || (!style.bold && !style.italic && !style.code && !style.strike && !style.underline))
                     continue;
-                if (!groups.isEmpty() && groups.last().end == fragment.position() && groups.last().style == style) {
-                    groups.last().end = fragment.position() + fragment.length();
-                    groups.last().text += fragment.text();
-                } else {
-                    groups.append(
-                        { fragment.position(), fragment.position() + fragment.length(), fragment.text(), style });
+                // Keep adjoining style runs together, so a changing bold or
+                // italic range cannot produce crossing or doubled delimiters.
+                if (groups.isEmpty() || groups.last().end != fragment.position()) {
+                    InlineTextGroup group;
+                    group.start = fragment.position();
+                    groups.append(group);
                 }
+                auto         &group = groups.last();
+                const QString text  = fragment.text();
+                group.text += text;
+                for (qsizetype index = 0; index < text.size(); ++index)
+                    group.styles.append(style);
+                group.end = fragment.position() + fragment.length();
             }
         }
+        // Include neighbouring emphasis in a protected span, but leave
+        // ordinary bold/italic-only text to Qt's existing Markdown writer.
+        groups.erase(std::remove_if(groups.begin(), groups.end(),
+                                    [](const InlineTextGroup &group) {
+                                        return std::none_of(group.styles.cbegin(), group.styles.cend(),
+                                                            [](const InlineStyle &style) {
+                                                                return style.code || style.strike || style.underline;
+                                                            });
+                                    }),
+                     groups.end());
         return groups;
     }
 
-    QString escapeMarkdownLabelText(const QString &text)
+    QString escapeMarkdownInlineText(const QString &text)
     {
         QString escaped;
         escaped.reserve(text.size() * 2);
-        static const QString special = QStringLiteral(R"(\\`*[]_~)");
+        static const QString special = QStringLiteral(R"(\\`*[]_~<>&)");
         for (const QChar character : text) {
             if (character == QChar::ParagraphSeparator || character == QLatin1Char('\n')) {
                 escaped += QStringLiteral("<br>");
@@ -434,29 +447,37 @@ namespace {
         return delimiter == QLatin1String("<ins>") ? QStringLiteral("</ins>") : delimiter;
     }
 
-    QString serializedMarkdownCode(CodeGroup group)
-    {
-        group.style.code                  = false;
-        const QVector<QString> delimiters = inlineDelimiters(group.style);
-        QString                result;
-        for (const QString &delimiter : delimiters)
-            result += delimiter;
-        result += codeSpan(group.text);
-        for (int index = delimiters.size() - 1; index >= 0; --index)
-            result += closingInlineDelimiter(delimiters.at(index));
-        return result;
-    }
-
-    QString formattedLinkRange(const LinkGroup &group, int start, int length)
+    QString formattedInlineRange(const InlineTextGroup &group, int start, int length)
     {
         const int        end = qMin(start + length, int(group.text.size()));
         QString          result;
         QVector<QString> activeDelimiters;
 
+        QVector<InlineStyle> styles = group.styles;
+        // Markdown emphasis cannot open or close on whitespace. Keep only
+        // the styles shared by both surrounding runs on a whitespace edge.
+        // Code delimiters already provide non-whitespace span boundaries.
         for (int position = qMax(0, start); position < end;) {
-            const InlineStyle style      = group.styles.value(position);
+            if (!group.text.at(position).isSpace() || styles.at(position).code) {
+                ++position;
+                continue;
+            }
+            int next = position + 1;
+            while (next < end && group.text.at(next).isSpace() && !styles.at(next).code)
+                ++next;
+            const InlineStyle before = position > start ? styles.at(position - 1) : InlineStyle {};
+            const InlineStyle after  = next < end ? styles.at(next) : InlineStyle {};
+            for (; position < next; ++position) {
+                styles[position].bold   = styles.at(position).bold && before.bold && after.bold;
+                styles[position].italic = styles.at(position).italic && before.italic && after.italic;
+                styles[position].strike = styles.at(position).strike && before.strike && after.strike;
+            }
+        }
+
+        for (int position = qMax(0, start); position < end;) {
+            const InlineStyle style      = styles.value(position);
             int               segmentEnd = position + 1;
-            while (segmentEnd < end && group.styles.value(segmentEnd) == style)
+            while (segmentEnd < end && styles.value(segmentEnd) == style)
                 ++segmentEnd;
 
             const QVector<QString> desiredDelimiters = inlineDelimiters(style);
@@ -471,7 +492,7 @@ namespace {
                 result += desiredDelimiters.at(index);
 
             const QString segment = group.text.mid(position, segmentEnd - position);
-            result += style.code ? codeSpan(segment) : escapeMarkdownLabelText(segment);
+            result += style.code ? codeSpan(segment) : escapeMarkdownInlineText(segment);
             activeDelimiters = desiredDelimiters;
             position         = segmentEnd;
         }
@@ -491,124 +512,52 @@ namespace {
 
     QString serializedMarkdownLink(const LinkGroup &group)
     {
-        return QLatin1Char('[') + formattedLinkRange(group, 0, group.text.size()) + QStringLiteral("](")
+        return QLatin1Char('[') + formattedInlineRange(group, 0, group.text.size()) + QStringLiteral("](")
             + markdownLinkDestination(group.href) + QLatin1Char(')');
-    }
-
-    struct UnderlineRange {
-        int start = 0;
-        int end   = 0;
-    };
-
-    QVector<UnderlineRange> documentUnderlineRanges(const QTextDocument *document)
-    {
-        QVector<UnderlineRange> ranges;
-        if (!document)
-            return ranges;
-        for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
-            for (auto it = block.begin(); !it.atEnd(); ++it) {
-                const QTextFragment fragment = it.fragment();
-                if (!fragment.isValid() || fragment.length() <= 0)
-                    continue;
-                const QTextCharFormat format = fragment.charFormat();
-                if ((format.isAnchor() && !format.anchorHref().isEmpty()) || explicitInlineStyle(format).code
-                    || !format.fontUnderline())
-                    continue;
-                if (!ranges.isEmpty() && ranges.last().end == fragment.position())
-                    ranges.last().end += fragment.length();
-                else
-                    ranges.append({ fragment.position(), fragment.position() + fragment.length() });
-            }
-        }
-        return ranges;
     }
 
     QString markdownWithSerializedInlineFormats(QTextDocument *document)
     {
-        const QVector<LinkGroup>      links        = documentLinkGroups(document);
-        const QVector<CodeGroup>      codes        = documentCodeGroups(document);
-        const QVector<UnderlineRange> underlines   = documentUnderlineRanges(document);
-        bool                          hasUnderline = !underlines.isEmpty();
-        for (const LinkGroup &group : links)
-            hasUnderline = hasUnderline
-                || std::any_of(group.styles.cbegin(), group.styles.cend(),
-                               [](const InlineStyle &style) { return style.underline; });
-        for (const CodeGroup &group : codes)
-            hasUnderline = hasUnderline || group.style.underline;
-        if (links.isEmpty() && codes.isEmpty() && !hasUnderline)
+        const QVector<LinkGroup>       links   = documentLinkGroups(document);
+        const QVector<InlineTextGroup> inlines = documentInlineGroups(document);
+        if (links.isEmpty() && inlines.isEmpty())
             return document->toMarkdown(QTextDocument::MarkdownDialectGitHub);
 
+        // Qt's writer can emit crossed delimiters such as **~~text**~~ for
+        // bold strikethrough. Serialize these spans with the same nested
+        // delimiter stack used for link labels; Qt still writes block syntax.
         std::unique_ptr<QTextDocument> copy(document->clone());
-        if (hasUnderline) {
-            QTextCursor all(copy.get());
-            all.select(QTextCursor::Document);
-            QTextCharFormat clearUnderline;
-            clearUnderline.setFontUnderline(false);
-            all.mergeCharFormat(clearUnderline);
-        }
-
-        QVector<QString> linkMarkers;
-        linkMarkers.reserve(links.size());
-        for (int index = 0; index < links.size(); ++index) {
-            linkMarkers.append(QStringLiteral("ANYKEEPSERIALIZEDLINK7F3A%1END7F3A").arg(index));
-        }
-        QVector<QString> codeMarkers;
-        codeMarkers.reserve(codes.size());
-        for (int index = 0; index < codes.size(); ++index)
-            codeMarkers.append(QStringLiteral("ANYKEEPSERIALIZEDCODE8C53%1END8C53").arg(index));
-        QVector<QPair<QString, QString>> underlineMarkers;
-        underlineMarkers.reserve(underlines.size());
-        for (int index = 0; index < underlines.size(); ++index) {
-            underlineMarkers.append({ QStringLiteral("ANYKEEPINSOPEN8C53%1END8C53").arg(index),
-                                      QStringLiteral("ANYKEEPINSCLOSE8C53%1END8C53").arg(index) });
-        }
-
         struct Replacement {
-            enum Kind { Underline, Link, Code };
-            int  start = 0;
-            int  end   = 0;
-            int  index = 0;
-            Kind kind  = Underline;
+            int     start = 0;
+            int     end   = 0;
+            QString markdown;
+            QString marker;
         };
         QVector<Replacement> replacements;
-        replacements.reserve(links.size() + codes.size() + underlines.size());
-        for (int index = 0; index < links.size(); ++index)
-            replacements.append({ links.at(index).start, links.at(index).end, index, Replacement::Link });
-        for (int index = 0; index < codes.size(); ++index)
-            replacements.append({ codes.at(index).start, codes.at(index).end, index, Replacement::Code });
-        for (int index = 0; index < underlines.size(); ++index)
-            replacements.append(
-                { underlines.at(index).start, underlines.at(index).end, index, Replacement::Underline });
+        replacements.reserve(links.size() + inlines.size());
+        for (const LinkGroup &group : links)
+            replacements.append({ group.start, group.end, serializedMarkdownLink(group), {} });
+        for (const InlineTextGroup &group : inlines) {
+            replacements.append({ group.start, group.end, formattedInlineRange(group, 0, group.text.size()), {} });
+        }
         std::sort(replacements.begin(), replacements.end(),
                   [](const Replacement &left, const Replacement &right) { return left.start > right.start; });
-
-        for (const Replacement &replacement : replacements) {
-            if (replacement.kind == Replacement::Link || replacement.kind == Replacement::Code) {
-                QTextCursor cursor(copy.get());
-                cursor.setPosition(replacement.start);
-                cursor.setPosition(replacement.end, QTextCursor::KeepAnchor);
-                const QString &marker = replacement.kind == Replacement::Link ? linkMarkers.at(replacement.index)
-                                                                              : codeMarkers.at(replacement.index);
-                cursor.insertText(marker, QTextCharFormat());
-                continue;
-            }
-            QTextCursor close(copy.get());
-            close.setPosition(replacement.end);
-            close.insertText(underlineMarkers.at(replacement.index).second, QTextCharFormat());
-            QTextCursor open(copy.get());
-            open.setPosition(replacement.start);
-            open.insertText(underlineMarkers.at(replacement.index).first, QTextCharFormat());
+        QSet<QChar> reservedMarkers;
+        for (Replacement &replacement : replacements) {
+            // Reserve against the original text even after a preceding
+            // replacement has removed some of its literal private characters.
+            // A scalar marker cannot be split by the writer's line wrapping.
+            replacement.marker = unusedPrivateMarker(document, 0xe300, reservedMarkers);
+            reservedMarkers.insert(replacement.marker.at(0));
+            QTextCursor cursor(copy.get());
+            cursor.setPosition(replacement.start);
+            cursor.setPosition(replacement.end, QTextCursor::KeepAnchor);
+            cursor.insertText(replacement.marker, QTextCharFormat());
         }
 
         QString markdown = copy->toMarkdown(QTextDocument::MarkdownDialectGitHub);
-        for (int index = 0; index < links.size(); ++index)
-            markdown.replace(linkMarkers.at(index), serializedMarkdownLink(links.at(index)));
-        for (int index = 0; index < codes.size(); ++index)
-            markdown.replace(codeMarkers.at(index), serializedMarkdownCode(codes.at(index)));
-        for (int index = 0; index < underlines.size(); ++index) {
-            markdown.replace(underlineMarkers.at(index).first, QStringLiteral("<ins>"));
-            markdown.replace(underlineMarkers.at(index).second, QStringLiteral("</ins>"));
-        }
+        for (const Replacement &replacement : replacements)
+            markdown.replace(replacement.marker, replacement.markdown);
         return markdown;
     }
 

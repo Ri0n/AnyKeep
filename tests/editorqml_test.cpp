@@ -19,6 +19,7 @@
 #include <QQuickTextDocument>
 #include <QQuickView>
 #include <QQuickWidget>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -2502,6 +2503,191 @@ private slots:
         QTest::keyClick(host.quickWidget(), Qt::Key_Tab);
         QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::TextRole).toString(),
                      QStringLiteral("    Item {\n        width: 10\n    }"));
+    }
+
+    void listToolbarSelectionBindingStaysStable_data()
+    {
+        QTest::addColumn<QString>("markdown");
+        QTest::newRow("bullet-list") << QStringLiteral("- first\n- second\n- third");
+        QTest::newRow("ordered-list") << QStringLiteral("1. first\n2. second\n3. third");
+        QTest::newRow("checklist") << QStringLiteral("- [ ] first\n- [x] second\n- [ ] third");
+    }
+
+    void listToolbarSelectionBindingStaysStable()
+    {
+        QFETCH(QString, markdown);
+        // Opening a short list used to make the toolbar's selection query
+        // mutate its own binding dependencies while registering the editors.
+        QTest::failOnWarning(
+            QRegularExpression(QStringLiteral("Binding loop detected for property \"multiListItemSelection\"")));
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(markdown, Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        const QString         originalContents = editor.model()->contents();
+        DesktopNoteEditorHost host(&editor);
+        host.resize(620, 420);
+        host.show();
+
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *first  = nullptr;
+        QQuickItem *second = nullptr;
+        QQuickItem *third  = nullptr;
+        QTRY_VERIFY(
+            (first = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 0)));
+        QTRY_VERIFY(
+            (second = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 1)));
+        QTRY_VERIFY(
+            (third = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 2)));
+        auto *blockEditor = ancestorWithProperty(first, "currentFindText");
+        QVERIFY(blockEditor);
+        auto *folderButton = quickItemByName(root, QStringLiteral("editorFolderPickerButton"));
+        QVERIFY(folderButton);
+        auto *toolbar = ancestorWithProperty(folderButton, "multiListItemSelection");
+        QVERIFY(toolbar);
+        QVERIFY(!toolbar->property("multiListItemSelection").toBool());
+
+        first->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(first->hasActiveFocus());
+        QVERIFY(QMetaObject::invokeMethod(first, "select", Q_ARG(int, 1), Q_ARG(int, 3)));
+        QVERIFY(!toolbar->property("multiListItemSelection").toBool());
+        QVERIFY(QMetaObject::invokeMethod(
+            blockEditor, "applyDocumentSelection", Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(first))),
+            Q_ARG(QVariant, 1), Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(second))),
+            Q_ARG(QVariant, 3), Q_ARG(QVariant, false)));
+        QTRY_VERIFY(toolbar->property("multiListItemSelection").toBool());
+
+        // The toolbar must update when a multi-item selection becomes a
+        // single-item selection, even though selected text still remains.
+        QVERIFY(QMetaObject::invokeMethod(first, "deselect"));
+        QTRY_VERIFY(!toolbar->property("multiListItemSelection").toBool());
+        QVERIFY(second->property("selectionStart") != second->property("selectionEnd"));
+        QVERIFY(QMetaObject::invokeMethod(first, "select", Q_ARG(int, 1), Q_ARG(int, 3)));
+        QTRY_VERIFY(toolbar->property("multiListItemSelection").toBool());
+        QVERIFY(QMetaObject::invokeMethod(blockEditor, "clearDocumentSelection"));
+        QTRY_VERIFY(!toolbar->property("multiListItemSelection").toBool());
+        QCOMPARE(editor.model()->contents(), originalContents);
+    }
+
+    void consecutiveListToolbarFormatsPreserveTextAndSelection_data()
+    {
+        QTest::addColumn<bool>("reverseSelection");
+        QTest::addColumn<QString>("firstStyle");
+        QTest::addColumn<bool>("mixedContent");
+        for (const QString &style : { QStringLiteral("bold"), QStringLiteral("italic"), QStringLiteral("underline") }) {
+            QTest::newRow(qPrintable(style + QStringLiteral("-forward"))) << false << style << false;
+            QTest::newRow(qPrintable(style + QStringLiteral("-backward"))) << true << style << false;
+        }
+        QTest::newRow("code-links-and-literal-markup") << false << QStringLiteral("bold") << true;
+    }
+
+    void consecutiveListToolbarFormatsPreserveTextAndSelection()
+    {
+        QFETCH(bool, reverseSelection);
+        QFETCH(QString, firstStyle);
+        QFETCH(bool, mixedContent);
+        QStringList texts { QStringLiteral("Сходить в магазин"), QStringLiteral("Купить шоколадку"),
+                            QStringLiteral("Съездить на экскурсию") };
+        QStringList markdownItems = texts;
+        if (mixedContent) {
+            texts
+                = { QStringLiteral("<em> &amp; [item]"),
+                    QStringLiteral("one %1 & two %2").arg(QChar(0xe300), QChar(0xe301)), QStringLiteral("Visit site") };
+            markdownItems = { QStringLiteral("\\<em\\> \\&amp; \\[item\\]"),
+                              QStringLiteral("`one %1` & `two %2`").arg(QChar(0xe300), QChar(0xe301)),
+                              QStringLiteral("[Visit site](https://example.org)") };
+        }
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Title"));
+        note.setText(QStringLiteral("- [ ] ") + markdownItems.join(QStringLiteral("\n- [ ] ")), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(620, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QList<QQuickItem *>    items;
+        QList<QTextDocument *> documents;
+        for (int index = 0; index < texts.size(); ++index) {
+            QQuickItem *item = nullptr;
+            QTRY_VERIFY(
+                (item = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", index)));
+            items << item;
+            auto *quickDocument = item->property("textDocument").value<QQuickTextDocument *>();
+            QVERIFY(quickDocument);
+            documents << quickDocument->textDocument();
+        }
+        auto *blockEditor = ancestorWithProperty(items.first(), "currentFindText");
+        QVERIFY(blockEditor);
+        auto *folderButton = quickItemByName(root, QStringLiteral("editorFolderPickerButton"));
+        QVERIFY(folderButton);
+        auto *toolbar = ancestorWithProperty(folderButton, "multiListItemSelection");
+        QVERIFY(toolbar);
+        auto *anchor = reverseSelection ? items.last() : items.first();
+        auto *focus  = reverseSelection ? items.first() : items.last();
+        QVERIFY(QMetaObject::invokeMethod(
+            blockEditor, "applyDocumentSelection", Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(anchor))),
+            Q_ARG(QVariant, reverseSelection ? texts.last().size() : 0),
+            Q_ARG(QVariant, QVariant::fromValue(static_cast<QObject *>(focus))),
+            Q_ARG(QVariant, reverseSelection ? 0 : texts.last().size()), Q_ARG(QVariant, false)));
+        QTRY_VERIFY(focus->hasActiveFocus());
+
+        const QStringList  styles { firstStyle, QStringLiteral("strike"), QStringLiteral("strike"), firstStyle };
+        QList<QStringList> snapshots {
+            editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList()
+        };
+        for (int step = 0; step < styles.size(); ++step) {
+            QVariant applied;
+            QVERIFY(QMetaObject::invokeMethod(toolbar, "formatSelection", Q_RETURN_ARG(QVariant, applied),
+                                              Q_ARG(QVariant, styles.at(step))));
+            QVERIFY(applied.toBool());
+            QCoreApplication::processEvents();
+            for (int index = 0; index < texts.size(); ++index) {
+                QCOMPARE(items.at(index)->property("textDocument").value<QQuickTextDocument *>()->textDocument(),
+                         documents.at(index));
+                QCOMPARE(documents.at(index)->toPlainText(), texts.at(index));
+                QCOMPARE(items.at(index)->property("selectedText").toString(), texts.at(index));
+                QCOMPARE(items.at(index)->property("selectionStart").toInt(), 0);
+                QCOMPARE(items.at(index)->property("selectionEnd").toInt(), texts.at(index).size());
+                for (int position = 0; position < texts.at(index).size(); ++position) {
+                    QTextCursor cursor(documents.at(index));
+                    cursor.setPosition(position);
+                    cursor.setPosition(position + 1, QTextCursor::KeepAnchor);
+                    QCOMPARE(cursor.charFormat().fontWeight() >= QFont::Bold,
+                             firstStyle == QLatin1String("bold") && step < 3);
+                    QCOMPARE(cursor.charFormat().fontItalic(), firstStyle == QLatin1String("italic") && step < 3);
+                    QCOMPARE(cursor.charFormat().fontUnderline(), firstStyle == QLatin1String("underline") && step < 3);
+                    QCOMPARE(cursor.charFormat().fontStrikeOut(), step == 1);
+                    if (mixedContent) {
+                        QCOMPARE(cursor.charFormat().fontFixedPitch(), index == 1 && (position < 5 || position >= 8));
+                        QCOMPARE(cursor.charFormat().anchorHref(),
+                                 index == 2 ? QStringLiteral("https://example.org") : QString());
+                    }
+                }
+            }
+            snapshots << editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList();
+            // Loading a saved note must retain the same valid Markdown, rather
+            // than canonicalizing it back to crossed emphasis delimiters.
+            NoteBlockModel reopened;
+            reopened.load(editor.model()->contents(), true);
+            QCOMPARE(reopened.data(reopened.index(1), NoteBlockModel::ItemsRole).toStringList(), snapshots.last());
+        }
+        if (!mixedContent)
+            QCOMPARE(snapshots.last(), texts);
+        for (int step = styles.size() - 1; step >= 0; --step) {
+            QVERIFY(editor.undo());
+            QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                     snapshots.at(step));
+        }
+        QVERIFY(!editor.canUndo());
+        for (int step = 1; step < snapshots.size(); ++step) {
+            QVERIFY(editor.redo());
+            QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                     snapshots.at(step));
+        }
     }
 
     void listToolbarConvertsMultilineTextSelection()

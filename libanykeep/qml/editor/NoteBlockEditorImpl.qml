@@ -854,8 +854,10 @@ ListView {
 
     function hasMultiListItemSelection() {
         let count = 0
-        for (const candidate of orderedEditors()) {
-            if (candidate && candidate.listItemIndex >= 0
+        // Toolbar bindings need a read-only query, without the visual-order
+        // cache/counter updates in orderedEditors(). Counting needs no order.
+        for (const candidate of editors) {
+            if (candidate && candidate.visible && candidate.listItemIndex >= 0
                     && candidate.selectionStart !== candidate.selectionEnd
                     && ++count > 1)
                 return true
