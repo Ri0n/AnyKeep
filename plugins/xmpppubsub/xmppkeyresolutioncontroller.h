@@ -36,6 +36,7 @@ class XmppKeyResolutionController final : public QObject {
     Q_PROPERTY(QStringList onlineResources READ onlineResources NOTIFY onlineResourcesChanged)
     Q_PROPERTY(QString presenceStatus READ presenceStatus NOTIFY onlineResourcesChanged)
     Q_PROPERTY(bool waitingForDevices READ waitingForDevices NOTIFY waitingForDevicesChanged)
+    Q_PROPERTY(QStringList refusedResources READ refusedResources NOTIFY onlineResourcesChanged)
     Q_PROPERTY(QString keyStatus READ keyStatus NOTIFY keyStatusChanged)
     Q_PROPERTY(QString summary READ summary NOTIFY summaryChanged)
     Q_PROPERTY(QString resultText READ resultText NOTIFY resultTextChanged)
@@ -89,6 +90,7 @@ public:
     QStringList onlineResources() const { return onlineResources_; }
     QString     presenceStatus() const { return presenceStatus_; }
     bool        waitingForDevices() const { return waitingForDevices_; }
+    QStringList refusedResources() const { return rejectedResources_.values(); }
     QString     keyStatus() const { return keyStatus_; }
     QString     summary() const { return summary_; }
     QString     resultText() const { return resultText_; }
@@ -177,6 +179,7 @@ private:
     QStringList               onlineResources_;
     QString                   presenceStatus_;
     QSet<QString>             rejectedResources_;
+    QSet<QString>             newlyOnlinePending_;
     QString                   keyStatus_;
     QString                   summary_;
     QString                   resultText_;
