@@ -111,6 +111,7 @@ public:
     void           removeOwnOmemoDeviceAsync(quint32, StatusCallback callback) override { callback({ true }); }
     void           trustOwnOmemoDeviceAsync(QByteArray, StatusCallback callback) override { callback({ true }); }
     void trustOwnOmemoDevicesAsync(QList<QByteArray>, StatusCallback callback) override { callback({ true }); }
+    void onlineResourcesAsync(ResourcesCallback callback) override { callback({}, {}); }
     void auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback = {}) override
     {
         XmppKeyAuditResult result;
