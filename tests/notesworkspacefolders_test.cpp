@@ -353,6 +353,11 @@ void NotesWorkspaceFoldersTest::pendingRecycledSnapshotAppearsInRecycleBinNotDra
     const auto pending = drafts.pendingDraftForNote(raw->systemName(), QStringLiteral("note"));
     QVERIFY(pending);
     QCOMPARE(pending.value.folderId, FolderCatalog::recycleBinId());
+    // A successful local recycle must never leave an orphaned Editing record
+    // after the last Android editor view has been detached.
+    QVERIFY(pending.value.state == DraftRecord::Ready || pending.value.state == DraftRecord::Retry
+            || pending.value.state == DraftRecord::Publishing);
+    QCOMPARE(drafts.editingSessionCount(pending.value.id), 0);
     QCOMPARE(workspace.recentNotesModel()->rowCount(), 0);
     QCOMPARE(raw->folderChangeCalls, 0);
     QCOMPARE(raw->saveCalls, 0);
