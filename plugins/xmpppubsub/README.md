@@ -304,28 +304,25 @@ configuration cannot revive stale work queued before plugin shutdown.
 
 ```mermaid
 graph TD;
-    START["Start or apply configuration"] --> VALIDATE{"Configuration and protected keys valid?"};
-    VALIDATE --> VALID["Configuration is valid"];
-    VALIDATE --> MISSING["Only storage key is missing"];
-    VALIDATE --> INVALID["Other configuration error"];
-    MISSING --> WIZARD["Open key recovery flow"];
-    INVALID --> STOP["Stop backend and report error"];
-    VALID --> TLS["Connect with TLS and authenticate"];
-    TLS --> PERMANENT["Authentication or permanent error"];
-    TLS --> TEMPORARY["Temporary network error"];
-    TLS --> CONNECTED["Authenticated connection"];
-    PERMANENT --> STOP;
-    TEMPORARY --> BACKOFF["Keep outbox and wait before retry"];
-    CONNECTED --> OMEMO["Load or create local OMEMO device"];
+    START["Start or apply configuration"] --> CREDENTIALS{"XMPP JID, password and resource valid?"};
+    CREDENTIALS -->|No| SETUP["Request account credentials"];
+    CREDENTIALS -->|Yes| TLS["Connect with TLS and authenticate (SASL)"];
+    TLS -->|Rejected| AUTHFAIL["Report XMPP authentication error"];
+    TLS -->|Temporary failure| BACKOFF["Keep local outbox and retry"];
+    TLS -->|Authenticated| CONNECTED["Transport online, independent of note encryption"];
+    CONNECTED --> LOCAL{"Local OMEMO state key available?"};
+    LOCAL -->|No| OMEMOFIX["Recover local OMEMO device state separately"];
+    OMEMOFIX --> LOCAL;
+    LOCAL -->|Yes| KEY{"Private-note master key available?"};
+    KEY -->|No| WIZARD["Synchronize key via trusted OMEMO device or import recovery key"];
+    WIZARD --> KEY;
+    KEY -->|Yes| OMEMO["Prepare OMEMO, including device trust"];
     OMEMO --> PEP["Discover PEP and publish-options"];
     PEP --> NODES["Create or verify index, content, and Jingle-offer nodes"];
-    NODES --> IDS["Request index item IDs"];
-    IDS --> BATCH["Fetch encrypted indexes in batches"];
-    IDS --> FALLBACK["Fallback to one possibly partial page"];
-    BATCH --> DECRYPT["Decrypt and validate indexes"];
-    FALLBACK --> DECRYPT;
-    DECRYPT --> CACHE["Replace in-memory index cache"];
-    CACHE --> READY["Storage accessible"];
+    NODES --> IDS["Request encrypted indexes"];
+    IDS --> DECRYPT["Authenticate and decrypt indexes"];
+    DECRYPT --> CACHE["Update note cache"];
+    CACHE --> READY["Encrypted note storage ready"];
 ```
 
 Incoming index publication events update or invalidate the cache. Reconnect,

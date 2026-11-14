@@ -35,6 +35,14 @@ ApplicationWindow {
     // Called by the shared XMPP setup host only after the user finishes a
     // successful key synchronization. Pop all settings pages back to Notes.
     // The root notes view is already visible if the wizard opened on startup.
+    function disableXmppStorageAfterRecovery() {
+        // Finish/close the modal recovery flow before the plugin shutdown
+        // unregisters its storage and destroys the wizard controller.
+        Qt.callLater(function() {
+            mobileApp.disableXmppStorage()
+        })
+    }
+
     function showNotesAfterXmppKeyResolution() {
         // A recovery dialog can also appear while a note is being edited.
         // Only leave Settings; never silently discard an editor or its state.

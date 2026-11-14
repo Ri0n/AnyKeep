@@ -50,6 +50,7 @@ public:
     void setConfig(const XmppConfig &config) override;
     void shutdown() override;
 
+    void           connectAsync(StatusCallback callback) override;
     void           probeAsync(StatusCallback callback) override;
     void           listNotesAsync(ListCallback callback) override;
     void           getNoteAsync(QString id, NoteCallback callback) override;
@@ -63,7 +64,9 @@ public:
     void           removeOwnOmemoDeviceAsync(quint32 deviceId, StatusCallback callback) override;
     void           trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback callback) override;
     void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback) override;
-    void           auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress = {}) override;
+    void           onlineResourcesAsync(ResourcesCallback callback) override;
+    void           auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress = {},
+                                         std::optional<QStringList> onlyResources = std::nullopt) override;
     void           rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback,
                                      XmppProgressCallback progress = {}) override;
     void           scanObsoleteItemsAsync(CleanupCallback callback) override;
@@ -109,7 +112,8 @@ private:
     QCoro::Task<XmppStatusResult>                          trustOwnOmemoDevicesTask(QList<QByteArray> keyIds);
     QCoro::Task<std::pair<QStringList, QString>>           onlinePrivateNotesResourcesTask();
     QCoro::Task<XmppKeyAuditResult>                        requestStorageKeyTask(QString resource);
-    QCoro::Task<XmppKeyAuditResult>                        auditStorageKeysTask(XmppProgressCallback progress);
+    QCoro::Task<XmppKeyAuditResult>                        auditStorageKeysTask(
+        XmppProgressCallback progress, std::optional<QStringList> onlyResources);
     QCoro::Task<XmppRekeyResult>   rekeyStorageTask(QList<QByteArray> keys, QByteArray canonicalKey,
                                                     XmppProgressCallback progress);
     QCoro::Task<XmppCleanupResult> scanObsoleteItemsTask();

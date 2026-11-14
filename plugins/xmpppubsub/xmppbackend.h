@@ -35,6 +35,8 @@ public:
     using NoteCallback    = std::function<void(XmppNoteResult)>;
     using DevicesCallback = std::function<void(QList<XmppDeviceInfo>, QString)>;
     using AuditCallback   = std::function<void(XmppKeyAuditResult)>;
+    // Available full-JID resources advertising key sync (not OMEMO device IDs).
+    using ResourcesCallback = std::function<void(QStringList, QString)>;
     using RekeyCallback   = std::function<void(XmppRekeyResult)>;
     using CleanupCallback = std::function<void(XmppCleanupResult)>;
 
@@ -49,6 +51,9 @@ public:
     // App became active after suspension. Backends can probe apparently live
     // transports; the storage adapter owns the reconnect/retry policy.
     virtual void checkConnectionAfterResume() {}
+    // Pure TLS/SASL authentication. Never requires OMEMO initialization or
+    // the encrypted private-notes storage key. Recovery starts afterwards.
+    virtual void connectAsync(StatusCallback callback)                     = 0;
     virtual void probeAsync(StatusCallback callback)                       = 0;
     virtual void listNotesAsync(ListCallback callback)                     = 0;
     virtual void getNoteAsync(QString id, NoteCallback callback)           = 0;
@@ -67,7 +72,9 @@ public:
     virtual void           removeOwnOmemoDeviceAsync(quint32 deviceId, StatusCallback callback)              = 0;
     virtual void           trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback callback)               = 0;
     virtual void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback)      = 0;
-    virtual void           auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress = {}) = 0;
+    virtual void           onlineResourcesAsync(ResourcesCallback callback)                                 = 0;
+    virtual void           auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress = {},
+                                                 std::optional<QStringList> onlyResources = std::nullopt) = 0;
     virtual void           rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback,
                                              XmppProgressCallback progress = {})                             = 0;
     virtual void           scanObsoleteItemsAsync(CleanupCallback callback)                                  = 0;

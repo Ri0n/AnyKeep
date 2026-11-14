@@ -5,6 +5,7 @@
 #include <QStringList>
 #include <QTime>
 
+#include <algorithm>
 #include <utility>
 
 namespace AnyKeep {
@@ -202,19 +203,27 @@ XmppKeyResolutionController::XmppKeyResolutionController(bool localKeyMissing, c
                                                          const QString &deviceError, TrustDevices trustDevices,
                                                          RemoveDevice removeDevice, AuditKeys auditKeys,
                                                          RekeyStorage rekeyStorage, int operationTimeoutMs,
-                                                         CreateStorageKey createStorageKey, QObject *parent) :
+                                                         CreateStorageKey createStorageKey, QObject *parent,
+                                                         DiscoverResources discoverResources,
+                                                         int presencePollIntervalMs) :
     QObject(parent), devicesModel_(new XmppDeviceSelectionModel(devices, this)),
     keysModel_(new XmppStorageKeyModel(this)), trustDevices_(std::move(trustDevices)),
-    removeDevice_(std::move(removeDevice)), auditKeys_(std::move(auditKeys)), rekeyStorage_(std::move(rekeyStorage)),
+    removeDevice_(std::move(removeDevice)), auditKeys_(std::move(auditKeys)),
+    discoverResources_(std::move(discoverResources)), rekeyStorage_(std::move(rekeyStorage)),
     createStorageKey_(std::move(createStorageKey)), localKeyMissing_(localKeyMissing),
-    operationTimeoutMs_(qMax(1, operationTimeoutMs))
+    operationTimeoutMs_(qMax(1, operationTimeoutMs)),
+    presencePollIntervalMs_(qMax(1, presencePollIntervalMs))
 {
+    presenceTimer_.setInterval(presencePollIntervalMs_);
+    connect(&presenceTimer_, &QTimer::timeout, this, &XmppKeyResolutionController::refreshOnlineResources);
     operationTimer_.setSingleShot(true);
     connect(&operationTimer_, &QTimer::timeout, this, [this]() {
         if (!busy_ || completed_)
             return;
         ++operationToken_;
         setBusy(false);
+        if (currentPage_ == DevicesPage)
+            setWaitingForDevices(true);
         setDeviceStatus(operationTimeoutMessage_);
     });
     setDeviceStatus(deviceError.isEmpty() ? tr("Found %1 OMEMO device(s) for this account.").arg(devices.size())
@@ -232,6 +241,8 @@ bool XmppKeyResolutionController::canGoBack() const
 bool XmppKeyResolutionController::canGoNext() const
 {
     if (busy_ || completed_)
+        return false;
+    if (waitingForDevices_ && currentPage_ == DevicesPage)
         return false;
     if (currentPage_ == KeysPage)
         return !canonicalKey().isEmpty();
@@ -251,6 +262,8 @@ bool XmppKeyResolutionController::canStartFresh() const
     // a local key without OMEMO trust/key-sync. Existing remote notes are
     // never rewritten by this route, and their count remains unknown.
     if (currentPage_ == ProblemPage)
+        return true;
+    if (currentPage_ == DevicesPage && waitingForDevices_)
         return true;
     return currentPage_ == KeysPage && audit_.ok && keysModel_->rowCount() == 0;
 }
@@ -309,6 +322,14 @@ void XmppKeyResolutionController::selectKey(int row)
     emit navigationChanged();
 }
 
+void XmppKeyResolutionController::checkAgain()
+{
+    if (completed_ || busy_ || !waitingForDevices_ || currentPage_ != DevicesPage)
+        return;
+    newlyOnlinePending_.clear();
+    requestKeyAudit();
+}
+
 void XmppKeyResolutionController::retryKeySearch()
 {
     if (busy_ || completed_ || currentPage_ != KeysPage)
@@ -359,7 +380,10 @@ void XmppKeyResolutionController::startFresh()
     if (!canStartFresh())
         return;
     const bool fromWelcome = currentPage_ == ProblemPage;
+    const bool fromWaiting = currentPage_ == DevicesPage && waitingForDevices_;
+    setWaitingForDevices(false);
     freshStartFromWelcome_ = fromWelcome;
+    freshStartFromWaiting_ = fromWaiting;
     freshStart_            = true;
 
     setKeyStatus(tr("Creating a new storage key…"));
@@ -380,7 +404,7 @@ void XmppKeyResolutionController::startFresh()
         emit guard->selectedKeyIndexChanged();
         guard->setKeyStatus(guard->tr("A new storage key is ready. Existing encrypted notes will be left unchanged."));
         guard->updateSummary();
-        if (guard->freshStartFromWelcome_)
+        if (guard->freshStartFromWelcome_ || guard->freshStartFromWaiting_)
             guard->setCurrentPage(ReviewPage);
         emit guard->navigationChanged();
     });
@@ -413,6 +437,7 @@ void XmppKeyResolutionController::next()
         // to recover existing notes instead. It has not been installed yet.
         if (freshStartFromWelcome_) {
             freshStartFromWelcome_ = false;
+            freshStartFromWaiting_ = false;
             freshStart_            = false;
             keysModel_->setCandidates({});
             audit_            = {};
@@ -427,10 +452,21 @@ void XmppKeyResolutionController::next()
             setCurrentPage(KeysPage);
             return;
         }
+        if (waitingForDevices_) {
+            checkAgain();
+            return;
+        }
         if (!devicesModel_->hasTrustedOrSelectedDevice()) {
-            setDeviceStatus(
-                tr("Select at least one AnyKeep device you recognize, then continue. If no expected device is shown, "
-                   "start AnyKeep on the other machine and reopen this recovery flow."));
+            if (presenceKnown_ && onlineResources_.isEmpty() && localKeyMissing_) {
+                // The selected peer might be offline, or its OMEMO device
+                // listing may not yet have reached this account.
+                setWaitingForDevices(true);
+                setDeviceStatus(tr("No other AnyKeep XMPP devices are online. Waiting for one to connect. "
+                                   "Open AnyKeep on the device that has your notes."));
+            } else {
+                setDeviceStatus(tr("Select an AnyKeep device whose fingerprint you recognize before requesting its "
+                                   "storage key."));
+            }
             return;
         }
         if (!trustDevices_ || !auditKeys_) {
@@ -452,24 +488,7 @@ void XmppKeyResolutionController::next()
                 guard->setDeviceStatus(tr("Could not trust the selected device: %1").arg(trusted.error));
                 return;
             }
-            guard->setDeviceStatus(tr("Requesting storage keys from online AnyKeep resources…"));
-            guard->setBusy(true);
-            const auto auditToken = guard->beginDeviceOperation(
-                tr("Timed out while requesting storage keys. XMPP does not provide a reliable mapping from an "
-                   "unresponsive resource to an OMEMO device ID, so no fingerprint can be identified. Start "
-                   "AnyKeep on another device and retry."));
-            guard->auditKeys_([guard, auditToken](XmppKeyAuditResult audit) {
-                if (!guard || !guard->deviceOperationIsCurrent(auditToken))
-                    return;
-                guard->finishDeviceOperation(auditToken);
-                if (!audit.ok) {
-                    guard->setDeviceStatus(tr("Could not collect storage keys: %1").arg(audit.error));
-                    return;
-                }
-                guard->populateKeys(audit);
-                guard->devicesComplete_ = true;
-                guard->setCurrentPage(KeysPage);
-            });
+            guard->requestKeyAudit();
         });
         return;
     }
@@ -555,23 +574,193 @@ void XmppKeyResolutionController::next()
     }
 }
 
+void XmppKeyResolutionController::setWaitingForDevices(bool waiting)
+{
+    if (waitingForDevices_ == waiting)
+        return;
+    waitingForDevices_ = waiting;
+    if (!waiting)
+        newlyOnlinePending_.clear();
+    emit waitingForDevicesChanged();
+    emit navigationChanged();
+}
+
+void XmppKeyResolutionController::requestKeyAudit(QStringList resources)
+{
+    if (completed_ || busy_ || currentPage_ != DevicesPage || !auditKeys_)
+        return;
+    // Empty list denotes an explicit initial/manual audit of all online
+    // resources. Automatic retry passes only newly online resource names.
+    if (!resources.isEmpty() && !auditNewResources_)
+        return;
+    setDeviceStatus(tr("Checking online resources for an available storage key…"));
+    setBusy(true);
+    const auto token = beginDeviceOperation(
+        tr("The key request timed out. Waiting for an available device; check AnyKeep on the other device."));
+    QPointer<XmppKeyResolutionController> guard(this);
+    auto done = [guard, token](XmppKeyAuditResult audit) {
+        if (!guard || !guard->deviceOperationIsCurrent(token))
+            return;
+        guard->finishDeviceOperation(token);
+        if (!audit.ok) {
+            guard->setWaitingForDevices(true);
+            guard->setDeviceStatus(tr("The last key request failed: %1. Waiting for a device to reconnect.")
+                                       .arg(audit.error));
+            return;
+        }
+
+        // The audit is an authoritative snapshot of resources available
+        // when requests were sent. Establish it as the presence baseline so
+        // the next periodic discovery does not retry unchanged resources.
+        // A successful audit is also a presence snapshot. An unchanged
+        // empty list still counts as completed discovery, unlike an initial
+        // wizard page where presence has never been checked.
+        if (audit.error.isEmpty()) {
+            guard->presenceKnown_ = true;
+            QStringList online = audit.onlineResources;
+            online.removeDuplicates();
+            online.sort();
+            if (guard->onlineResources_ != online || guard->presenceStatus_.isEmpty()) {
+                guard->onlineResources_ = std::move(online);
+                guard->presenceStatus_ = guard->onlineResources_.isEmpty()
+                    ? guard->tr("No other AnyKeep XMPP resources are online.")
+                    : guard->tr("Online AnyKeep XMPP resources:");
+                emit guard->onlineResourcesChanged();
+            }
+        }
+
+        const bool hasUsableKey = std::any_of(audit.candidates.cbegin(), audit.candidates.cend(),
+                                             [](const auto &candidate) { return !candidate.key.isEmpty(); });
+        if (!hasUsableKey) {
+            // The remote index is confirmed empty: preserve the explicit
+            // create-new-key page rather than waiting indefinitely.
+            if (audit.totalIndexItems == 0) {
+                guard->setWaitingForDevices(false);
+                guard->populateKeys(audit);
+                guard->devicesComplete_ = true;
+                guard->setCurrentPage(KeysPage);
+                return;
+            }
+            guard->audit_ = std::move(audit);
+            guard->setWaitingForDevices(true);
+            guard->setDeviceStatus(guard->onlineResources_.isEmpty()
+                                       ? tr("No other AnyKeep XMPP device is online. Waiting; open AnyKeep on "
+                                            "another device to automatically retry key synchronization.")
+                                       : tr("No online resource provided a trusted key. Waiting for another "
+                                            "device or a resource to reconnect."));
+            if (!guard->newlyOnlinePending_.isEmpty()) {
+                QStringList pending;
+                for (const auto &resource : guard->newlyOnlinePending_)
+                    pending.append(resource);
+                pending.sort();
+                guard->newlyOnlinePending_.clear();
+                if (!pending.isEmpty())
+                    QTimer::singleShot(0, guard, [guard, pending]() { if (guard) guard->requestKeyAudit(pending); });
+            }
+            return;
+        }
+        guard->setWaitingForDevices(false);
+        guard->populateKeys(audit);
+        guard->devicesComplete_ = true;
+        guard->setCurrentPage(KeysPage);
+    };
+    if (resources.isEmpty())
+        auditKeys_(std::move(done));
+    else
+        auditNewResources_(std::move(resources), std::move(done));
+}
+
+void XmppKeyResolutionController::refreshOnlineResources()
+{
+    if (completed_ || currentPage_ != DevicesPage || presenceProbeInFlight_)
+        return;
+    if (!discoverResources_)
+        return;
+
+    presenceProbeInFlight_ = true;
+    const auto generation = ++presenceGeneration_;
+    QPointer<XmppKeyResolutionController> guard(this);
+    // The backend normally completes each disco request with its own timeout.
+    // Protect the wizard from a callback that never returns after a disconnect.
+    QTimer::singleShot(operationTimeoutMs_, this, [guard, generation]() {
+        if (!guard || generation != guard->presenceGeneration_ || !guard->presenceProbeInFlight_)
+            return;
+        guard->presenceProbeInFlight_ = false;
+        ++guard->presenceGeneration_;
+        guard->presenceStatus_ = tr("Could not check XMPP presence; retrying…");
+        emit guard->onlineResourcesChanged();
+    });
+    discoverResources_([guard, generation](QStringList resources, QString error) {
+        if (!guard || guard->completed_ || generation != guard->presenceGeneration_
+            || guard->currentPage_ != DevicesPage)
+            return;
+        guard->presenceProbeInFlight_ = false;
+        if (!error.isEmpty()) {
+            // A disco timeout is not an offline transition. Retain the
+            // last confirmed presence snapshot so its eventual recovery
+            // cannot trigger a duplicate trust prompt to an unchanged peer.
+            guard->presenceKnown_ = false;
+            guard->presenceStatus_ = guard->tr("Could not determine all online resources: %1").arg(error);
+            emit guard->onlineResourcesChanged();
+            return;
+        }
+        resources.removeDuplicates();
+        resources.sort();
+        QStringList newlyOnline;
+        for (const auto &resource : resources) {
+            if (!guard->onlineResources_.contains(resource))
+                newlyOnline.append(resource);
+        }
+        guard->onlineResources_ = std::move(resources);
+        guard->presenceKnown_   = true;
+        guard->presenceStatus_ = guard->onlineResources_.isEmpty()
+            ? guard->tr("No other AnyKeep XMPP resources are online.")
+            : guard->tr("Online AnyKeep XMPP resources:");
+        emit guard->onlineResourcesChanged();
+        if (!guard->waitingForDevices_ || !guard->presenceKnown_)
+            return;
+        // Only offline->online transitions trigger automatic key requests.
+        // Stable resources (including those that timed out or silently
+        // rejected trust) are not polled for keys.
+        if (!newlyOnline.isEmpty() && !guard->devicesModel_->hasTrustedOrSelectedDevice()) {
+            guard->setDeviceStatus(guard->tr("An AnyKeep XMPP resource is online. Select a known OMEMO "
+                                             "identity above to approve key synchronization."));
+            return;
+        }
+        if (!newlyOnline.isEmpty()) {
+            if (guard->busy_) {
+                for (const auto &name : newlyOnline)
+                    guard->newlyOnlinePending_.insert(name);
+            } else {
+                guard->requestKeyAudit(std::move(newlyOnline));
+            }
+        }
+    });
+}
+
 void XmppKeyResolutionController::back()
 {
     if (!canGoBack())
         return;
-    if (currentPage_ == ReviewPage && freshStartFromWelcome_) {
-        // The key is not installed until Finish, so returning to the welcome
-        // screen is safe. Never reuse this transient new key for recovery.
+    if (currentPage_ == ReviewPage && (freshStartFromWelcome_ || freshStartFromWaiting_)) {
+        // A generated onboarding key has not been committed. Back must not
+        // accidentally lead to a normal multi-key migration with that key.
+        const bool backToWaiting = freshStartFromWaiting_;
         freshStartFromWelcome_ = false;
+        freshStartFromWaiting_ = false;
         freshStart_            = false;
         keysModel_->setCandidates({});
-        audit_            = {};
+        audit_.candidates.clear();
         selectedKeyIndex_ = -1;
         emit selectedKeyIndexChanged();
         setKeyStatus({});
-        setCurrentPage(ProblemPage);
+        setCurrentPage(backToWaiting ? DevicesPage : ProblemPage);
+        if (backToWaiting)
+            setWaitingForDevices(true);
         return;
     }
+    if (waitingForDevices_)
+        setWaitingForDevices(false);
     setCurrentPage(static_cast<Page>(int(currentPage_) - 1));
 }
 
@@ -587,9 +776,20 @@ void XmppKeyResolutionController::setCurrentPage(Page page)
 {
     if (currentPage_ == page || completed_)
         return;
+    if (currentPage_ == DevicesPage) {
+        presenceTimer_.stop();
+        newlyOnlinePending_.clear();
+        ++presenceGeneration_;
+        presenceProbeInFlight_ = false;
+        setWaitingForDevices(false);
+    }
     currentPage_ = page;
-    if (currentPage_ == KeysPage || currentPage_ == ReviewPage)
+    if (currentPage_ == DevicesPage) {
+        presenceTimer_.start();
+        QTimer::singleShot(0, this, &XmppKeyResolutionController::refreshOnlineResources);
+    } else if (currentPage_ == KeysPage || currentPage_ == ReviewPage) {
         updateSummary();
+    }
     emit currentPageChanged();
     emit navigationChanged();
 }
@@ -777,6 +977,8 @@ void XmppKeyResolutionController::finish(bool accepted)
     }
     completed_ = true;
     operationTimer_.stop();
+    presenceTimer_.stop();
+    ++presenceGeneration_;
     ++operationToken_;
     busy_ = false;
     emit busyChanged();

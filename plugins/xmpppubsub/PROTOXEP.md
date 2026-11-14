@@ -877,16 +877,31 @@ explicit trust provide authentication.
 
 ### Rejection and timeout
 
-The current protocol deliberately does not reveal whether a request was
-rejected, expired, malformed, or referred to an unknown identity: the receiver
-may discard it and the requester observes a timeout. An implementation MAY
-return an XMPP IQ error, but MUST NOT include the storage key or sensitive trust
-state in an error. Pending requests SHOULD expire locally and MUST NOT be reused
-after completion or rejection.
+Trust management is application-specific, while OMEMO session establishment is
+defined by XEP-0384. When a user explicitly declines an AnyKeep trust request,
+the receiver does not send a distinguishable approval/denial result. The
+requester observes a timeout; absence of a reply MUST NOT be interpreted as a
+positive or negative trust decision.
 
-Transient transport errors MAY be retried with a new request ID. User rejection,
-invalid credentials, malformed data, failed identity verification, or a
-permanent authorization error MUST NOT be retried automatically.
+Invalid, expired, malformed, or unauthorized requests can also receive no
+reply to avoid disclosing device or trust state. Pending requests SHOULD expire
+locally and MUST NOT be reused after completion or rejection. An IQ result
+carrying `trust-approved` is sent only after approval, and the storage-key
+response MUST remain OMEMO-encrypted and authenticated.
+
+Monitor online XMPP resources advertising the key-sync feature independently
+of published OMEMO device IDs. There is no guaranteed mapping between
+resources, OMEMO IDs, and human-readable device labels. Automatic key-sync
+requests SHOULD occur only when a previously offline resource appears online
+or a new capable resource is discovered. A stable online resource MUST NOT
+receive repeated requests after timeout or silent denial. The user MAY
+explicitly trigger a new attempt.
+
+A transport failure does not imply a trust rejection. User rejection, invalid
+credentials, failed identity verification or permanent authorization errors
+MUST NOT be retried automatically; if the denial cannot be distinguished from
+a timeout, only the presence transition rule and explicit user action can
+initiate another attempt.
 
 ## Multiple storage keys and migration
 
@@ -1119,8 +1134,8 @@ factories and observe catalog changes.
 Known protocol-level limitations are:
 
 - deletion and two-record publication are recoverable but not atomic;
-- rejection is currently represented by timeout rather than an explicit IQ
-  error;
+- an explicit user trust refusal is deliberately indistinguishable from
+  timeout; automatic retries are limited to newly online resources;
 - responder-side pending requests do not yet have an explicit expiry timer;
 - direct Jingle media publication is not yet implemented by the QXmpp backend;
 - an installation that was offline for an entire note-deletion event does not

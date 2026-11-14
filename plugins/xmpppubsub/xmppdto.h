@@ -162,6 +162,9 @@ struct XmppNoteResult : XmppStatusResult {
 struct XmppKeyAuditResult : XmppStatusResult {
     QList<XmppStorageKeyCandidate> candidates;
     int                            totalIndexItems { 0 };
+    // Actual online resources advertising the AnyKeep key-sync feature.
+    // OMEMO device labels/IDs are not a reliable presence mapping.
+    QStringList                    onlineResources;
 };
 
 /// Result of verifying remote notes and migrating records which use another key.

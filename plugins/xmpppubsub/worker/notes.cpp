@@ -39,6 +39,8 @@ void XmppWorker::repairOwnOmemoBundleAfterPreKeyUse(int attemptsRemaining)
     repairOwnOmemoBundleAfterPreKeyUseTask(attemptsRemaining);
 }
 
+void XmppWorker::connectAsync(StatusCallback callback) { connectToServerAsync(std::move(callback)); }
+
 void XmppWorker::probeAsync(StatusCallback callback) { ensureReadyTask().then(std::move(callback)); }
 
 void XmppWorker::listNotesAsync(ListCallback callback) { listNotesTask().then(std::move(callback)); }
@@ -103,9 +105,17 @@ void XmppWorker::trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallb
     trustOwnOmemoDevicesTask(std::move(keyIds)).then(std::move(callback));
 }
 
-void XmppWorker::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress)
+void XmppWorker::onlineResourcesAsync(ResourcesCallback callback)
 {
-    auditStorageKeysTask(std::move(progress)).then(std::move(callback));
+    onlinePrivateNotesResourcesTask().then([callback = std::move(callback)](auto result) mutable {
+        callback(std::move(result.first), std::move(result.second));
+    });
+}
+
+void XmppWorker::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress,
+                                       std::optional<QStringList> onlyResources)
+{
+    auditStorageKeysTask(std::move(progress), std::move(onlyResources)).then(std::move(callback));
 }
 
 void XmppWorker::rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback,

@@ -52,6 +52,7 @@ public:
     void shutdown() override;
     void checkConnectionAfterResume() override;
 
+    void connectAsync(StatusCallback callback) override;
     void probeAsync(StatusCallback callback) override;
     void listNotesAsync(ListCallback callback) override;
     void getNoteAsync(QString id, NoteCallback callback) override;
@@ -67,7 +68,9 @@ public:
     void           trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback callback) override;
     void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback) override;
 
-    void auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress = {}) override;
+    void onlineResourcesAsync(ResourcesCallback callback) override;
+    void auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress = {},
+                               std::optional<QStringList> onlyResources = std::nullopt) override;
     void rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback,
                            XmppProgressCallback progress = {}) override;
     void scanObsoleteItemsAsync(CleanupCallback callback) override;

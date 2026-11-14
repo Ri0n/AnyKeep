@@ -81,6 +81,19 @@ CryptoError SecureKeyStore::write(const QString &keyName, const QByteArray &key)
                                              : CryptoError { CryptoError::Unavailable, job.errorString() };
 }
 
+CryptoError SecureKeyStore::remove(const QString &keyName)
+{
+    if (!QKeychain::isAvailable())
+        return { CryptoError::Unavailable, QStringLiteral("No secure system keychain is available") };
+    QKeychain::DeletePasswordJob job(Service);
+    job.setAutoDelete(false);
+    job.setInsecureFallback(false);
+    job.setKey(keyName);
+    waitFor(job);
+    return job.error() == QKeychain::NoError ? CryptoError {}
+                                             : CryptoError { CryptoError::Unavailable, job.errorString() };
+}
+
 CryptoResult<QByteArray> SecureKeyStore::loadOrCreate(const QString &keyName)
 {
     auto existing = read(keyName);

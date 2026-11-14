@@ -103,6 +103,9 @@ add_anykeep_test(ptfstorage_test ptfstorage_test.cpp)
 add_anykeep_test(localkeyrecoverypolicy_test localkeyrecoverypolicy_test.cpp)
 set_tests_properties(localkeyrecoverypolicy_test PROPERTIES LABELS storage)
 
+add_anykeep_test(xmppomemostatereset_test xmppomemostatereset_test.cpp)
+set_tests_properties(xmppomemostatereset_test PROPERTIES LABELS "storage;xmpp")
+
 add_anykeep_test(notesindex_test notesindex_test.cpp)
 
 add_anykeep_test(filedraftstore_test filedraftstore_test.cpp)

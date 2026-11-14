@@ -1263,6 +1263,8 @@ void IrisXmppBackend::ensureReadyAsync(StatusCallback callback)
     });
 }
 
+void IrisXmppBackend::connectAsync(StatusCallback callback) { connectToServerAsync(std::move(callback)); }
+
 void IrisXmppBackend::probeAsync(StatusCallback callback) { ensureReadyAsync(std::move(callback)); }
 
 QString IrisXmppBackend::newUuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
@@ -3381,11 +3383,18 @@ void IrisXmppBackend::requestStorageKeyFromResourceAsync(QString fullJid, AuditC
         });
 }
 
-void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress)
+void IrisXmppBackend::onlineResourcesAsync(ResourcesCallback callback)
+{
+    onlinePrivateNotesResourcesAsync(std::move(callback));
+}
+
+void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress,
+                                             std::optional<QStringList> onlyResources)
 {
     if (progress)
         progress({ tr("Preparing OMEMO key discovery…") });
-    ensureOmemoReadyAsync([this, callback = std::move(callback), progress](XmppStatusResult ready) mutable {
+    ensureOmemoReadyAsync([this, callback = std::move(callback), progress,
+                           onlyResources = std::move(onlyResources)](XmppStatusResult ready) mutable {
         if (!ready.ok) {
             XmppKeyAuditResult output;
             static_cast<XmppStatusResult &>(output) = std::move(ready);
@@ -3405,7 +3414,17 @@ void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgress
         if (progress)
             progress({ tr("Discovering online AnyKeep devices…") });
         onlinePrivateNotesResourcesAsync([this, output, callback = std::move(callback),
-                                          progress](QStringList resources, QString discoveryError) mutable {
+                                          progress, onlyResources = std::move(onlyResources)]
+                                         (QStringList resources, QString discoveryError) mutable {
+            output->onlineResources = resources;
+            if (onlyResources) {
+                QStringList selected;
+                for (const auto &name : std::as_const(resources)) {
+                    if (onlyResources->contains(name))
+                        selected.append(name);
+                }
+                resources = std::move(selected);
+            }
             auto errors = std::make_shared<QStringList>();
             if (!discoveryError.isEmpty())
                 errors->append(discoveryError);

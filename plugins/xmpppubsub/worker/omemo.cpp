@@ -358,7 +358,8 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::requestStorageKeyTask(QString resour
     co_return output;
 }
 
-QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(XmppProgressCallback progress)
+QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(
+    XmppProgressCallback progress, std::optional<QStringList> onlyResources)
 {
     XmppKeyAuditResult output;
     if (progress)
@@ -382,6 +383,15 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(XmppProgressCal
     if (progress)
         progress({ tr("Discovering online AnyKeep devices…") });
     auto [resources, discoveryError] = co_await onlinePrivateNotesResourcesTask();
+    output.onlineResources = resources;
+    if (onlyResources) {
+        QStringList selected;
+        for (const auto &name : std::as_const(resources)) {
+            if (onlyResources->contains(name))
+                selected.append(name);
+        }
+        resources = std::move(selected);
+    }
     QStringList errors;
     if (!discoveryError.isEmpty())
         errors.append(discoveryError);
@@ -403,7 +413,8 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(XmppProgressCal
             errors.append(QStringLiteral("%1: OMEMO trust bootstrap failed: %2").arg(resource, errorText(*error)));
             continue;
         }
-        if (!XmppKeySyncExtension::isTrustApproved(std::get<QDomElement>(trustResult), trustId)) {
+        const auto &trustResponse = std::get<QDomElement>(trustResult);
+        if (!XmppKeySyncExtension::isTrustApproved(trustResponse, trustId)) {
             errors.append(QStringLiteral("%1: invalid OMEMO trust bootstrap response").arg(resource));
             continue;
         }
@@ -411,9 +422,10 @@ QCoro::Task<XmppKeyAuditResult> XmppWorker::auditStorageKeysTask(XmppProgressCal
         if (progress)
             progress(
                 { tr("Waiting for device %1 of %2 to return its key…").arg(resourceNumber).arg(resources.size()) });
+        // Do not repeat an unanswered key request while the same XMPP
+        // resource remains online. Retry only after an offline->online
+        // transition or an explicit action in the recovery wizard.
         auto result = co_await requestStorageKeyTask(resource);
-        if (!result.ok && result.retryable())
-            result = co_await requestStorageKeyTask(resource);
         if (!result.ok || result.candidates.isEmpty()) {
             errors.append(QStringLiteral("%1: %2").arg(resource, result.error));
             continue;

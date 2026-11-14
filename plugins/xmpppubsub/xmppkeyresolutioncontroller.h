@@ -6,6 +6,7 @@
 #include <QAbstractItemModel>
 #include <QByteArray>
 #include <QObject>
+#include <QSet>
 #include <QTimer>
 
 #include <functional>
@@ -32,6 +33,9 @@ class XmppKeyResolutionController final : public QObject {
     Q_PROPERTY(QAbstractItemModel *keysModel READ keysModel CONSTANT)
     Q_PROPERTY(int selectedKeyIndex READ selectedKeyIndex NOTIFY selectedKeyIndexChanged)
     Q_PROPERTY(QString deviceStatus READ deviceStatus NOTIFY deviceStatusChanged)
+    Q_PROPERTY(QStringList onlineResources READ onlineResources NOTIFY onlineResourcesChanged)
+    Q_PROPERTY(QString presenceStatus READ presenceStatus NOTIFY onlineResourcesChanged)
+    Q_PROPERTY(bool waitingForDevices READ waitingForDevices NOTIFY waitingForDevicesChanged)
     Q_PROPERTY(QString keyStatus READ keyStatus NOTIFY keyStatusChanged)
     Q_PROPERTY(QString summary READ summary NOTIFY summaryChanged)
     Q_PROPERTY(QString resultText READ resultText NOTIFY resultTextChanged)
@@ -58,8 +62,10 @@ public:
     using RekeyCompletion  = std::function<void(XmppRekeyResult)>;
     using KeyCompletion    = std::function<void(XmppStatusResult, QByteArray, QByteArray)>;
     using TrustDevices     = std::function<void(const QList<QByteArray> &, StatusCompletion)>;
+    using DiscoverResources = std::function<void(std::function<void(QStringList, QString)>)>;
     using RemoveDevice     = std::function<void(quint32, StatusCompletion)>;
     using AuditKeys        = std::function<void(AuditCompletion)>;
+    using AuditNewResources = std::function<void(QStringList, AuditCompletion)>;
     using RekeyStorage     = std::function<void(const QList<QByteArray> &, const QByteArray &, RekeyCompletion)>;
     using CreateStorageKey = std::function<void(KeyCompletion)>;
     using InstallKey       = std::function<void(QByteArray, bool, StatusCompletion)>;
@@ -68,7 +74,8 @@ public:
                                          const QString &deviceError, TrustDevices trustDevices,
                                          RemoveDevice removeDevice, AuditKeys auditKeys, RekeyStorage rekeyStorage,
                                          int operationTimeoutMs = 45000, CreateStorageKey createStorageKey = {},
-                                         QObject *parent = nullptr);
+                                         QObject *parent = nullptr, DiscoverResources discoverResources = {},
+                                         int presencePollIntervalMs = 15000);
 
     int  currentPage() const { return currentPage_; }
     int  pageCount() const { return 5; }
@@ -79,6 +86,9 @@ public:
 
     int         selectedKeyIndex() const { return selectedKeyIndex_; }
     QString     deviceStatus() const { return deviceStatus_; }
+    QStringList onlineResources() const { return onlineResources_; }
+    QString     presenceStatus() const { return presenceStatus_; }
+    bool        waitingForDevices() const { return waitingForDevices_; }
     QString     keyStatus() const { return keyStatus_; }
     QString     summary() const { return summary_; }
     QString     resultText() const { return resultText_; }
@@ -89,7 +99,7 @@ public:
     bool        busy() const { return busy_; }
     bool        canGoBack() const;
     bool        canGoNext() const;
-    bool        canCancel() const { return !busy_ && !completed_ && currentPage_ != ResultPage; }
+    bool        canCancel() const { return (!busy_ || waitingForDevices_) && !completed_ && currentPage_ != ResultPage; }
     bool        canCreateNewKey() const;
     bool        canStartFresh() const;
     bool        freshStart() const { return freshStart_; }
@@ -103,11 +113,13 @@ public:
     XmppProgressCallback progressCallback();
     /// Storage supplies the durable keychain/configuration commit before acceptance.
     void setKeyInstaller(InstallKey installer) { installKey_ = std::move(installer); }
+    void setNewResourceAuditor(AuditNewResources callback) { auditNewResources_ = std::move(callback); }
 
     Q_INVOKABLE void setDeviceSelected(int row, bool selected);
     Q_INVOKABLE void removeDevice(int row);
     Q_INVOKABLE void selectKey(int row);
     Q_INVOKABLE void retryKeySearch();
+    Q_INVOKABLE void checkAgain();
     Q_INVOKABLE void createNewKey();
     Q_INVOKABLE void startFresh();
     Q_INVOKABLE void next();
@@ -121,6 +133,8 @@ signals:
     void currentPageChanged();
     void selectedKeyIndexChanged();
     void deviceStatusChanged();
+    void onlineResourcesChanged();
+    void waitingForDevicesChanged();
     void keyStatusChanged();
     void summaryChanged();
     void resultTextChanged();
@@ -137,6 +151,9 @@ private:
     void              setKeyStatus(const QString &status);
     void              recordSyncProgress(const XmppSyncProgress &progress);
     void              populateKeys(const XmppKeyAuditResult &audit);
+    void              setWaitingForDevices(bool waiting);
+    void              refreshOnlineResources();
+    void              requestKeyAudit(QStringList resources = {});
     void              updateSummary();
     void              finish(bool accepted);
     quint64           beginDeviceOperation(const QString &timeoutMessage);
@@ -151,10 +168,15 @@ private:
     TrustDevices              trustDevices_;
     RemoveDevice              removeDevice_;
     AuditKeys                 auditKeys_;
+    DiscoverResources         discoverResources_;
+    AuditNewResources         auditNewResources_;
     RekeyStorage              rekeyStorage_;
     CreateStorageKey          createStorageKey_;
     InstallKey                installKey_;
     QString                   deviceStatus_;
+    QStringList               onlineResources_;
+    QString                   presenceStatus_;
+    QSet<QString>             newlyOnlinePending_;
     QString                   keyStatus_;
     QString                   summary_;
     QString                   resultText_;
@@ -167,6 +189,11 @@ private:
     int                       selectedKeyIndex_ { -1 };
     bool                      localKeyMissing_ { false };
     bool                      devicesComplete_ { false };
+    bool                      waitingForDevices_ { false };
+    bool                      presenceProbeInFlight_ { false };
+    bool                      presenceKnown_ { false };
+    quint64                   presenceGeneration_ { 0 };
+    QTimer                    presenceTimer_;
     bool                      rekeyComplete_ { false };
     bool                      busy_ { false };
     bool                      completed_ { false };
@@ -175,10 +202,12 @@ private:
     // The first-install new-key route skips remote key discovery. Counts are
     // unknown rather than zero, and Back must return to the welcome screen.
     bool    freshStartFromWelcome_ { false };
+    bool    freshStartFromWaiting_ { false };
     QTimer  operationTimer_;
     QString operationTimeoutMessage_;
     quint64 operationToken_ { 0 };
     int     operationTimeoutMs_ { 45000 };
+    int     presencePollIntervalMs_ { 15000 };
 };
 
 } // namespace AnyKeep

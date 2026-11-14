@@ -4,6 +4,7 @@
 #include "xmppstorage.h"
 
 #include <QHash>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QtTest>
@@ -31,7 +32,20 @@ public:
     void shutdown() override { ++shutdownCalls; }
     void checkConnectionAfterResume() override { ++wakeupProbes; }
     void simulateConnection(bool online) { emit connectionChanged(online); }
-    void probeAsync(StatusCallback callback) override { callback({ true }); }
+    void connectAsync(StatusCallback callback) override
+    {
+        ++connectCalls;
+        if (deferConnect) {
+            pendingConnects.append(std::move(callback));
+            return;
+        }
+        callback({ true });
+    }
+    void probeAsync(StatusCallback callback) override
+    {
+        ++probeCalls;
+        callback({ true });
+    }
     void listNotesAsync(ListCallback callback) override
     {
         ++listCalls;
@@ -97,7 +111,9 @@ public:
     void           removeOwnOmemoDeviceAsync(quint32, StatusCallback callback) override { callback({ true }); }
     void           trustOwnOmemoDeviceAsync(QByteArray, StatusCallback callback) override { callback({ true }); }
     void trustOwnOmemoDevicesAsync(QList<QByteArray>, StatusCallback callback) override { callback({ true }); }
-    void auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback = {}) override
+    void onlineResourcesAsync(ResourcesCallback callback) override { callback({}, {}); }
+    void auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback = {},
+                               std::optional<QStringList> = std::nullopt) override
     {
         XmppKeyAuditResult result;
         result.ok = true;
@@ -124,6 +140,10 @@ public:
     void approveKeySyncRequest(QString) override {}
     void rejectKeySyncRequest(QString) override {}
 
+    int                            connectCalls { 0 };
+    int                            probeCalls { 0 };
+    bool                           deferConnect { false };
+    QList<StatusCallback>          pendingConnects;
     int                            fullSaveCount { 0 };
     int                            shutdownCalls { 0 };
     int                            wakeupProbes { 0 };
@@ -161,6 +181,7 @@ class XmppStorageTest : public QObject {
 private slots:
     void init();
     void foregroundResumeProbesOnlineStreamWithoutRestart();
+    void authenticationStartsWithoutEncryptionKeys();
     void reorderPublishesOnlyTheIndex();
     void syncActivityReportsIndexStages();
     void sharedRefreshStaysBusyUntilTheLastCallerCancels();
@@ -183,6 +204,49 @@ void XmppStorageTest::init()
     // its own cache, regardless of whether the previous scenario wrote notes.
     QSettings().setValue(QStringLiteral("storage.xmpppubsub.instanceId"),
                          QUuid::createUuid().toString(QUuid::WithoutBraces));
+}
+
+void XmppStorageTest::authenticationStartsWithoutEncryptionKeys()
+{
+    // This account is deliberately missing both the remote-note key and the
+    // local OMEMO key. The backend must still be asked to do TLS/SASL login.
+    QSettings settings;
+    const QString jidSetting = QStringLiteral("storage.xmpppubsub.jid");
+    const QString passwordSetting = QStringLiteral("storage.xmpppubsub.password");
+    const bool hadJid = settings.contains(jidSetting);
+    const bool hadPassword = settings.contains(passwordSetting);
+    const auto oldJid = settings.value(jidSetting);
+    const auto oldPassword = settings.value(passwordSetting);
+    const auto restore = qScopeGuard([&] {
+        if (hadJid)
+            settings.setValue(jidSetting, oldJid);
+        else
+            settings.remove(jidSetting);
+        if (hadPassword)
+            settings.setValue(passwordSetting, oldPassword);
+        else
+            settings.remove(passwordSetting);
+    });
+    settings.setValue(jidSetting, QStringLiteral("xmpp-auth-test-%1@example.test")
+                                      .arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+    settings.setValue(passwordSetting, QStringLiteral("stub-password"));
+
+    auto *backend = new FakeXmppBackend;
+    backend->deferConnect = true;
+    XmppStorage storage(nullptr, backend);
+    auto *job = storage.initAsync(&storage);
+    QTRY_COMPARE(backend->connectCalls, 1);
+    QCOMPARE(backend->probeCalls, 0);
+    QVERIFY(!job->isFinished());
+
+    // Authentication succeeded, but encrypted notes cannot yet be opened.
+    backend->pendingConnects.takeFirst()({ true });
+    QTRY_VERIFY(job->isFinished());
+    QCOMPARE(job->state(), StorageJob::Failed);
+    QCOMPARE(job->error().code, StorageError::NotConfigured);
+    QCOMPARE(backend->probeCalls, 0);
+    QCOMPARE(storage.connectivityState(), NoteStorage::ConnectivityState::Online);
+    QVERIFY(!storage.canAcceptWrites());
 }
 
 void XmppStorageTest::foregroundResumeProbesOnlineStreamWithoutRestart()
@@ -291,7 +355,12 @@ void XmppStorageTest::noteBodyKeyMismatchRequiresRecovery()
     backend->loadFailure = failed;
     XmppStorage storage(nullptr, backend);
     emit        backend->connectionChanged(true);
-    auto       *job = storage.loadNoteAsync(QStringLiteral("note-with-unreadable-body"));
+    // The SASL connection alone no longer grants encrypted note access.
+    // Complete a successful index preparation to make the storage ready.
+    auto *ready = storage.refreshNotesAsync();
+    QTRY_VERIFY(ready->isFinished());
+    QCOMPARE(ready->state(), StorageJob::Succeeded);
+    auto *job = storage.loadNoteAsync(QStringLiteral("note-with-unreadable-body"));
     QTRY_VERIFY(job->isFinished());
     QCOMPARE(job->state(), StorageJob::Failed);
     // A key mismatch blocks further ordinary loads until recovery; isolated
@@ -321,7 +390,9 @@ void XmppStorageTest::saveWithForeignKeyRequiresRecovery()
     auto *blocked = storage.loadNoteAsync(QStringLiteral("different-remote-note"));
     QTRY_VERIFY(blocked->isFinished());
     QCOMPARE(backend->getNoteCalls, 0);
-    QCOMPARE(storage.connectivityState(), NoteStorage::ConnectivityState::Error);
+    // A storage-key mismatch blocks note operations, not the authenticated
+    // XMPP transport; the server connection must remain visibly online.
+    QCOMPARE(storage.connectivityState(), NoteStorage::ConnectivityState::Online);
     QCOMPARE(backend->shutdownCalls, 0);
 }
 
