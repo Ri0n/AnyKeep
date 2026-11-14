@@ -3338,6 +3338,8 @@ void IrisXmppBackend::requestStorageKeyFromResourceAsync(QString fullJid, AuditC
         [this, target, callback = std::move(callback)](IrisKeySyncRequestTask *trustTask) mutable {
             if (!trustTask || !trustTask->success() || !trustTask->trustApproved()) {
                 XmppKeyAuditResult output;
+                if (trustTask && trustTask->trustRejected())
+                    output.rejectedResources.append(target.full());
                 output.error     = QStringLiteral("%1: OMEMO trust bootstrap failed: %2")
                                        .arg(target.full(), firstTaskError(trustTask));
                 output.errorKind = XmppErrorKind::Security;
