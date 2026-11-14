@@ -25,6 +25,11 @@ Page {
 
     function checkpointEditor() { return editorPane.checkpointEditor() }
     function trashEditor() {
+        // Unlike the desktop dialog, Android can still have IME/composition
+        // changes in the QML text delegate. Commit them before preparing the
+        // canonical durable recycle snapshot.
+        if (!checkpointEditor())
+            return
         if (mobileApp.workspace.trashNote(root.editor.storageId, root.editor.noteId))
             root.backRequested()
     }
