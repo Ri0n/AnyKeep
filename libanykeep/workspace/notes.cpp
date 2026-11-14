@@ -26,6 +26,8 @@
 
 namespace AnyKeep {
 
+Q_LOGGING_CATEGORY(logWorkspaceRecycle, "anykeep.workspace.recycle")
+
 bool NotesWorkspaceController::openNote(const QString &storageId, const QString &noteId)
 {
     if (storageId.isEmpty() || noteId.isEmpty())
@@ -277,6 +279,9 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
     if (storageId.isEmpty())
         return false;
     setError({});
+    qCInfo(logWorkspaceRecycle) << "Recycle requested: storage=" << storageId
+                                << "note=" << diagnosticNoteId(noteId)
+                                << "editorActive=" << bool(currentEditor_);
 
     // Drafts-list deletion is intentionally permanent rather than a folder
     // recycle operation; keep its existing semantics.
@@ -303,13 +308,18 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
     const auto prepared
         = draftManager_->prepareForRecycle(storageId, noteId, FolderCatalog::recycleBinId(), knownDraftId);
     if (!prepared) {
+        qCWarning(logWorkspaceRecycle) << "Recycle preparation failed:" << prepared.error.message;
         setError(prepared.error.message);
         return false;
     }
+    qCInfo(logWorkspaceRecycle) << "Recycle prepared: storage=" << prepared.value.storageId
+                                << "note=" << diagnosticNoteId(prepared.value.noteId)
+                                << "draft=" << prepared.value.draftId.toString(QUuid::WithoutBraces);
 
     const auto recycleStorageId = prepared.value.storageId;
     const auto recycleNoteId    = prepared.value.noteId;
     if (recycleStorageId.isEmpty() || recycleNoteId.isEmpty()) {
+        qCInfo(logWorkspaceRecycle) << "Unpublished local draft discarded by recycle request";
         draftManager_->publishPending();
         return true; // An unpublished local draft was simply discarded.
     }
@@ -325,9 +335,25 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
 
     if (const auto error
         = folderCatalogManager_->recycleNote(recycleStorageId, recycleNoteId, previousFolderId)) {
+        qCWarning(logWorkspaceRecycle) << "Local folder-catalog recycle commit failed:" << error.message;
+        // prepareForRecycle() has already retired every editing view. Revert
+        // the staging folder and make the intact draft publishable again so a
+        // failed catalog commit cannot strand it forever in Editing.
+        if (!prepared.value.draftId.isNull()) {
+            if (const auto revertError
+                = draftManager_->setDraftFolder(prepared.value.draftId, previousFolderId, true)) {
+                qCWarning(logWorkspaceRecycle) << "Could not restore draft folder after recycle failure:"
+                                               << revertError.message;
+            } else if (const auto retryError = draftManager_->retryDraftNow(prepared.value.draftId)) {
+                qCWarning(logWorkspaceRecycle) << "Could not requeue draft after recycle failure:"
+                                               << retryError.message;
+            }
+        }
         setError(error.message);
         return false;
     }
+    qCInfo(logWorkspaceRecycle) << "Local recycle catalog committed: storage=" << recycleStorageId
+                                << "note=" << diagnosticNoteId(recycleNoteId);
 
     // An existing XMPP note may have an active durable snapshot. Its
     // publication already includes the recycle folder, and sending a separate
@@ -337,23 +363,32 @@ bool NotesWorkspaceController::trashNote(const QString &storageId, const QString
     const auto storage = NoteManager::instance()->storage(recycleStorageId);
     const bool snapshotPublishesFolder = !prepared.value.draftId.isNull() && storage
         && storage->supportsDraftSnapshotSave();
-    if (!snapshotPublishesFolder
-        && !folderOperations_->assignNoteFolder(recycleStorageId, recycleNoteId,
-                                                FolderCatalog::recycleBinId(), true)) {
+    const bool nativeAccepted = snapshotPublishesFolder
+        || folderOperations_->assignNoteFolder(recycleStorageId, recycleNoteId,
+                                               FolderCatalog::recycleBinId(), true);
+    if (!nativeAccepted) {
+        qCWarning(logWorkspaceRecycle) << "Native folder assignment was not accepted:"
+                                       << folderOperations_->errorString();
         setError(folderOperations_->errorString());
-        return false;
     }
     trashUndoEntries_.append({ TrashUndoEntry::NoteTrash, recycleStorageId, recycleNoteId, title, {} });
     emit trashUndoChanged();
 
     if (!prepared.value.draftId.isNull()) {
         if (const auto readyError = draftManager_->retryDraftNow(prepared.value.draftId)) {
+            qCWarning(logWorkspaceRecycle) << "Could not commit recycled draft for publication:"
+                                           << readyError.message;
             setError(readyError.message);
             return false;
         }
+        qCInfo(logWorkspaceRecycle) << "Recycled draft committed for publication:"
+                                    << prepared.value.draftId.toString(QUuid::WithoutBraces);
     } else {
         draftManager_->publishPending();
     }
+    if (!nativeAccepted)
+        return false;
+    qCInfo(logWorkspaceRecycle) << "Recycle accepted locally; remote acknowledgement may still be pending";
     return true;
 }
 
