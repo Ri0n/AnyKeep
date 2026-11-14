@@ -3383,6 +3383,11 @@ void IrisXmppBackend::requestStorageKeyFromResourceAsync(QString fullJid, AuditC
         });
 }
 
+void IrisXmppBackend::onlineResourcesAsync(ResourcesCallback callback)
+{
+    onlinePrivateNotesResourcesAsync(std::move(callback));
+}
+
 void IrisXmppBackend::auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress)
 {
     if (progress)
