@@ -43,7 +43,7 @@ void XmppStorage::applyRemote(Note &note, const XmppRemoteNote &remote)
     note.setBackendValue(IndexRecordTemplateKey, remote.indexRecordTemplate);
     note.setBackendValue(ContentRecordTemplateKey, remote.contentRecordTemplate);
     note.setBackendValue(FolderPathBackendKey, remote.folderPath);
-    note.setBackendValue(QStringLiteral("xmpp.systemFolderId"),
+    note.setBackendValue(SystemFolderBackendKey,
                          remote.systemFolderId.toString(QUuid::WithoutBraces));
     note.setFavorite(remote.favorite);
     if (folderCatalogManager_ && folderCatalogManager_->isAvailable()) {
@@ -197,7 +197,7 @@ void XmppStorage::reconcileCachedFolders()
         remote.id         = cached.id();
         remote.modified   = cached.lastChangeUTC();
         remote.folderPath = cached.backendValue(FolderPathBackendKey).toStringList();
-        remote.systemFolderId = QUuid(cached.backendValue(QStringLiteral("xmpp.systemFolderId")).toString());
+        remote.systemFolderId = QUuid(cached.backendValue(SystemFolderBackendKey).toString());
         notes.append(std::move(remote));
     }
     reconcileRemoteFolders(notes);
@@ -268,7 +268,7 @@ void XmppStorage::enqueueFolderPathUpdates()
         const auto expectedSystemFolder = FolderCatalog::isRecycleBinId(desired.folderId())
             ? FolderCatalog::recycleBinId() : QUuid {};
         const bool sameSystemFolder =
-            expectedSystemFolder == QUuid(cached.backendValue(QStringLiteral("xmpp.systemFolderId")).toString());
+            expectedSystemFolder == QUuid(cached.backendValue(SystemFolderBackendKey).toString());
         if (samePath && sameSystemFolder)
             continue;
         if (!folderPathUpdateQueued_.contains(cached.id())) {
@@ -317,7 +317,7 @@ void XmppStorage::publishNextFolderPathUpdate()
         const auto expectedSystemFolder = FolderCatalog::isRecycleBinId(desired.folderId())
             ? FolderCatalog::recycleBinId() : QUuid {};
         const bool sameSystemFolder =
-            expectedSystemFolder == QUuid(cached.backendValue(QStringLiteral("xmpp.systemFolderId")).toString());
+            expectedSystemFolder == QUuid(cached.backendValue(SystemFolderBackendKey).toString());
         if (samePath && sameSystemFolder)
             continue;
 
