@@ -5,7 +5,7 @@
 // sibling first so that the text remains a checked/unchecked list item.
 function finishList(host, controller, itemIndex, sourceText) {
     const model = controller.blockModel
-    const cleaned = String(sourceText || "").replace(/[ \t]*\n+$/, "")
+    const cleaned = String(sourceText || "").replace(/([ \t]*\n)+$/, "")
     let paragraphRow = -1
     if (cleaned.trim().length === 0) {
         paragraphRow = model.unlistListItem(host.block.index, itemIndex)
@@ -82,6 +82,20 @@ function handleKey(host, controller, event, cell, itemIndex) {
         // committed newline as an InputMethodEvent instead of this Key event.
         if (cell.androidImeWorkaround && cell.inputMethodComposing)
             return false
+        // Keep the established desktop Return semantics unchanged.
+        if (!controller.touchMode) {
+            return controller.runEditTransaction("split-list-item", function() {
+                const position = cell.cursorPosition
+                if (cell.length === 0 && position === 0 && host.itemIndent(itemIndex) === 0)
+                    return finishList(host, controller, itemIndex, "")
+                const left = cell.markdownRange(0, position)
+                const right = cell.markdownRange(position, cell.length)
+                controller.blockModel.setListItem(host.block.index, itemIndex, left)
+                controller.blockModel.insertListItem(host.block.index, itemIndex + 1, right)
+                host.focusItem(itemIndex + 1, 0)
+                return true
+            })
+        }
         const position = cell.cursorPosition
         const atEnd = position === cell.length
         const plain = cell.currentPlainText().replace(/\r\n/g, "\n")
