@@ -72,6 +72,7 @@ private:
     QString     recoveryKey_;
     QByteArray  responseSenderKey_;
     bool        trustApproved_ { false };
+    bool        trustRejected_ { false };
 };
 
 } // namespace AnyKeep
