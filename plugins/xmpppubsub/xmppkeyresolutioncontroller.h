@@ -6,6 +6,7 @@
 #include <QAbstractItemModel>
 #include <QByteArray>
 #include <QObject>
+#include <QSet>
 #include <QTimer>
 
 #include <functional>
