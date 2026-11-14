@@ -746,17 +746,21 @@ void XmppKeyResolutionController::back()
 {
     if (!canGoBack())
         return;
-    if (currentPage_ == ReviewPage && freshStartFromWelcome_) {
-        // The key is not installed until Finish, so returning to the welcome
-        // screen is safe. Never reuse this transient new key for recovery.
+    if (currentPage_ == ReviewPage && (freshStartFromWelcome_ || freshStartFromWaiting_)) {
+        // A generated onboarding key has not been committed. Back must not
+        // accidentally lead to a normal multi-key migration with that key.
+        const bool backToWaiting = freshStartFromWaiting_;
         freshStartFromWelcome_ = false;
+        freshStartFromWaiting_ = false;
         freshStart_            = false;
         keysModel_->setCandidates({});
-        audit_            = {};
+        audit_.candidates.clear();
         selectedKeyIndex_ = -1;
         emit selectedKeyIndexChanged();
         setKeyStatus({});
-        setCurrentPage(ProblemPage);
+        setCurrentPage(backToWaiting ? DevicesPage : ProblemPage);
+        if (backToWaiting)
+            setWaitingForDevices(true);
         return;
     }
     if (waitingForDevices_)
