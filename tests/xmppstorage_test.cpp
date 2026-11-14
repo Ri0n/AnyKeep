@@ -31,7 +31,16 @@ public:
     void shutdown() override { ++shutdownCalls; }
     void checkConnectionAfterResume() override { ++wakeupProbes; }
     void simulateConnection(bool online) { emit connectionChanged(online); }
-    void probeAsync(StatusCallback callback) override { callback({ true }); }
+    void connectAsync(StatusCallback callback) override
+    {
+        ++connectCalls;
+        callback({ true });
+    }
+    void probeAsync(StatusCallback callback) override
+    {
+        ++probeCalls;
+        callback({ true });
+    }
     void listNotesAsync(ListCallback callback) override
     {
         ++listCalls;
@@ -124,6 +133,8 @@ public:
     void approveKeySyncRequest(QString) override {}
     void rejectKeySyncRequest(QString) override {}
 
+    int                            connectCalls { 0 };
+    int                            probeCalls { 0 };
     int                            fullSaveCount { 0 };
     int                            shutdownCalls { 0 };
     int                            wakeupProbes { 0 };
