@@ -39,6 +39,32 @@ Keep `NoteBlockModel` canonical, preserve the tiny root QML compatibility
 facades, and do not mix desktop-only dependencies into the shared mobile core.
 Preserve unrelated working-tree changes and verify with `git diff --check`.
 
+## Model/view stability (mandatory)
+
+Model mutations must have the smallest possible impact on an attached view.
+Preserve unaffected row identities, persistent indexes, delegates, focus,
+selection, scroll position, and active editors. For value/role changes emit
+`dataChanged` for the exact indexes and roles; for structural changes use
+precise `beginInsertRows` / `beginRemoveRows` / `beginMoveRows` and their
+matching end calls. A local change must not rebuild an entire storage, tree,
+list, or proxy model. Treat `beginResetModel` / `endResetModel` as exceptional,
+for a genuinely new data source or unreconcilable structural replacement,
+not as the normal update mechanism.
+
+Prevent flicker, jumpiness, disappearing selection, and delegate churn at the
+source. **Do not paper over a model/view glitch** with `Timer`, `Qt.callLater`,
+post-update scrolling/focus restoration, extra model resets, or similar
+"repair after the fact" workarounds. Deferral is permissible for real
+asynchronous operations and lifecycle ordering, never as a substitute for
+correct model notifications and stable identities.
+
+Before changing model-update code, check its effect on attached views,
+especially Qt Quick `TreeView`, `ListView`, editing delegates, drag-and-drop,
+and pagination. Add regressions that verify unaffected rows and view state
+remain stable. If a correct minimal-impact solution requires a substantial
+architectural rewrite, postpone it as a separately scoped task rather than
+shipping a fragile workaround.
+
 ## Commit messages and squash merges
 
 Write commit messages in English. Use a concise imperative subject describing
