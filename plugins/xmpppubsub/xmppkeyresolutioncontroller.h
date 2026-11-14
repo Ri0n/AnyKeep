@@ -169,6 +169,7 @@ private:
     RemoveDevice              removeDevice_;
     AuditKeys                 auditKeys_;
     DiscoverResources         discoverResources_;
+    AuditNewResources         auditNewResources_;
     RekeyStorage              rekeyStorage_;
     CreateStorageKey          createStorageKey_;
     InstallKey                installKey_;
