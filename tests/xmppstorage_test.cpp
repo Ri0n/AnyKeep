@@ -112,7 +112,8 @@ public:
     void           trustOwnOmemoDeviceAsync(QByteArray, StatusCallback callback) override { callback({ true }); }
     void trustOwnOmemoDevicesAsync(QList<QByteArray>, StatusCallback callback) override { callback({ true }); }
     void onlineResourcesAsync(ResourcesCallback callback) override { callback({}, {}); }
-    void auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback = {}) override
+    void auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback = {},
+                               std::optional<QStringList> = std::nullopt) override
     {
         XmppKeyAuditResult result;
         result.ok = true;
