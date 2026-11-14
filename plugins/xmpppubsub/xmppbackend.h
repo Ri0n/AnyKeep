@@ -73,7 +73,8 @@ public:
     virtual void           trustOwnOmemoDeviceAsync(QByteArray keyId, StatusCallback callback)               = 0;
     virtual void           trustOwnOmemoDevicesAsync(QList<QByteArray> keyIds, StatusCallback callback)      = 0;
     virtual void           onlineResourcesAsync(ResourcesCallback callback)                                 = 0;
-    virtual void           auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress = {}) = 0;
+    virtual void           auditStorageKeysAsync(AuditCallback callback, XmppProgressCallback progress = {},
+                                                 std::optional<QStringList> onlyResources = std::nullopt) = 0;
     virtual void           rekeyStorageAsync(QList<QByteArray> keys, QByteArray canonicalKey, RekeyCallback callback,
                                              XmppProgressCallback progress = {})                             = 0;
     virtual void           scanObsoleteItemsAsync(CleanupCallback callback)                                  = 0;
