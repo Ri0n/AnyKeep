@@ -49,6 +49,9 @@ public:
     // App became active after suspension. Backends can probe apparently live
     // transports; the storage adapter owns the reconnect/retry policy.
     virtual void checkConnectionAfterResume() {}
+    // Pure TLS/SASL authentication. Never requires OMEMO initialization or
+    // the encrypted private-notes storage key. Recovery starts afterwards.
+    virtual void connectAsync(StatusCallback callback)                     = 0;
     virtual void probeAsync(StatusCallback callback)                       = 0;
     virtual void listNotesAsync(ListCallback callback)                     = 0;
     virtual void getNoteAsync(QString id, NoteCallback callback)           = 0;
