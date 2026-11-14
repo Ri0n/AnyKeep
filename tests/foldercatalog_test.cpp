@@ -288,7 +288,7 @@ void FolderCatalogTest::adoptsPreviouslyImportedRecycleBin()
     QVERIFY(migrated);
     QCOMPARE(migrated->folderId, FolderCatalog::recycleBinId());
     QCOMPARE(catalog.children().size(), 1);
-    QCOMPARE(catalog.folder(imported.value), nullptr);
+    QVERIFY(!catalog.folder(imported.value));
 
     QVERIFY(!catalog.recycleNote(QStringLiteral("xmpp-pubsub"), QStringLiteral("newly-recycled"), {}));
     QVERIFY(catalog.isRecycled(QStringLiteral("xmpp-pubsub"), QStringLiteral("newly-recycled")));
