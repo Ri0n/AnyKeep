@@ -23,6 +23,8 @@ Item {
     property string defaultGroupKind: "storage"
     property string currentStorageId: ""
     property string currentNoteId: ""
+    property string openingStorageId: ""
+    property string openingNoteId: ""
     property string selectedGroupId: ""
     property string editingGroupId: ""
     property string viewObjectName: "noteCollectionView"
