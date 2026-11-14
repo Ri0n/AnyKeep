@@ -4672,6 +4672,57 @@ private slots:
         QTRY_VERIFY(body->hasActiveFocus());
     }
 
+    void softKeyboardReturnSplitsChecklistWithoutDuplicatingItems()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Android"));
+        note.setText(QStringLiteral("- [ ] Task 1"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+
+        const auto listEditor = [root](int item) -> QQuickItem * {
+            for (QQuickItem *candidate : textEditors(root)) {
+                if (candidate->property("blockIndex").toInt() == 1
+                    && candidate->property("listItemIndex").toInt() == item)
+                    return candidate;
+            }
+            return nullptr;
+        };
+        QQuickItem *first = nullptr;
+        QTRY_VERIFY((first = listEditor(0)));
+        QVERIFY(first->setProperty("androidImeWorkaround", true));
+        first->forceActiveFocus();
+        QTRY_VERIFY(first->hasActiveFocus());
+        first->setProperty("cursorPosition", first->property("length"));
+
+        // A soft keyboard may commit only '\n': no Key_Return is dispatched.
+        QInputMethodEvent nextItem;
+        nextItem.setCommitString(QStringLiteral("\n"));
+        QCoreApplication::sendEvent(first, &nextItem);
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                     QStringList({ QStringLiteral("Task 1"), QString() }));
+        QQuickItem *second = nullptr;
+        QTRY_VERIFY((second = listEditor(1)));
+        QTRY_VERIFY(second->hasActiveFocus());
+        QVERIFY(second->setProperty("androidImeWorkaround", true));
+        second->setProperty("cursorPosition", second->property("length"));
+
+        QInputMethodEvent exitList;
+        exitList.setCommitString(QStringLiteral("\n"));
+        QCoreApplication::sendEvent(second, &exitList);
+        QTRY_COMPARE(editor.model()->rowCount(), 3);
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::CheckList));
+        QCOMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::Text));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ QStringLiteral("Task 1") }));
+        QCOMPARE(editor.model()->contents().count(QStringLiteral("Task 1")), 1);
+    }
+
     void softKeyboardReturnPreservesExistingBody()
     {
         Note note(new NoteData(nullptr));
