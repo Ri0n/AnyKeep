@@ -35,6 +35,7 @@ public:
 
     static QString responseRecoveryKey(const QDomElement &iq, const QString &requestId);
     static bool    isTrustApproved(const QDomElement &iq, const QString &requestId);
+    static bool    isTrustRejected(const QDomElement &iq, const QString &requestId);
 
 signals:
     void requestReceived(const QString &requestId, const QString &from, const QByteArray &senderKey);
