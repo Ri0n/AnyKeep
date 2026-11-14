@@ -724,8 +724,8 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
                 return;
             }
             backend_->setConfig(config);
-            QString storageError;
-            const bool encryptedStoreReady = configIsValid(config, &storageError);
+            QString noteKeyError;
+            const bool encryptedStoreReady = configIsValid(config, &noteKeyError);
             const auto handleResult = [this, guard, epoch](XmppStatusResult result, bool authenticated,
                                                             QString missingKeyError) {
                 QMetaObject::invokeMethod(
@@ -772,13 +772,13 @@ StorageInitJob *XmppStorage::initAsync(QObject *owner)
                     Qt::QueuedConnection);
             };
             backend_->connectAsync([this, handleResult, encryptedStoreReady,
-                                    storageError = std::move(storageError)](XmppStatusResult authenticated) mutable {
+                                    noteKeyError = std::move(noteKeyError)](XmppStatusResult authenticated) mutable {
                 if (!authenticated.ok) {
                     handleResult(std::move(authenticated), false, {});
                     return;
                 }
                 if (!encryptedStoreReady) {
-                    handleResult(std::move(authenticated), true, std::move(storageError));
+                    handleResult(std::move(authenticated), true, std::move(noteKeyError));
                     return;
                 }
                 // Only a fully keyed store proceeds to OMEMO/PEP and index
