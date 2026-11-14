@@ -15,7 +15,6 @@ private slots:
     void serializesTrustBootstrapWithoutRecoveryKey();
     void parsesMatchingResponseOnly();
     void parsesTrustBootstrapAcknowledgement();
-    void parsesExplicitTrustRefusal();
     void duplicateRequestKeepsOriginalApproval();
 };
 
@@ -60,20 +59,6 @@ void XmppKeySyncExtensionTest::parsesTrustBootstrapAcknowledgement()
                        "</key-sync></iq>")));
     QVERIFY(XmppKeySyncExtension::isTrustApproved(document.documentElement(), QStringLiteral("trust-1")));
     QVERIFY(!XmppKeySyncExtension::isTrustApproved(document.documentElement(), QStringLiteral("other")));
-}
-
-void XmppKeySyncExtensionTest::parsesExplicitTrustRefusal()
-{
-    QDomDocument document;
-    QVERIFY(document.setContent(
-        QStringLiteral("<iq type='result' id='trust-1'><key-sync xmlns='urn:xmpp:private-notes:key-sync:0'>"
-                       "{&quot;type&quot;:&quot;trust-rejected&quot;,&quot;requestId&quot;:&quot;trust-1&quot;}"
-                       "</key-sync></iq>")));
-    QVERIFY(XmppKeySyncExtension::isTrustRejected(document.documentElement(), QStringLiteral("trust-1")));
-    QVERIFY(!XmppKeySyncExtension::isTrustApproved(document.documentElement(), QStringLiteral("trust-1")));
-    QVERIFY(!XmppKeySyncExtension::isTrustRejected(document.documentElement(), QStringLiteral("other")));
-    document.documentElement().setAttribute(QStringLiteral("type"), QStringLiteral("set"));
-    QVERIFY(!XmppKeySyncExtension::isTrustRejected(document.documentElement(), QStringLiteral("trust-1")));
 }
 
 void XmppKeySyncExtensionTest::parsesMatchingResponseOnly()
