@@ -171,6 +171,16 @@ NoteListJob *XmppStorage::refreshNotesAsync(int limit, QObject *owner)
         job->fail({ StorageError::Unavailable, errorStateMessage_, false });
         return job;
     }
+    // An authenticated XMPP transport must not start encrypted index
+    // operations until the private-note master key is available. In
+    // particular, do not turn a missing key into a fatal backend error.
+    if (!config_.jid.isEmpty()) {
+        QString keyError;
+        if (!configIsValid(config_, &keyError)) {
+            job->fail({ StorageError::NotConfigured, keyError, false });
+            return job;
+        }
+    }
 
     if (refreshAttempt_ && refreshAttempt_->epoch == configEpoch_) {
         addRefreshWaiter(refreshAttempt_, job, limit);
