@@ -121,7 +121,9 @@ void XmppStorage::onConnectionChanged(bool connected)
     if (errorState_) {
         return;
     }
-    accessible_ = connected;
+    // The transport is authenticated, but note storage is not ready until
+    // OMEMO, PEP and encrypted index preparation have all succeeded.
+    accessible_ = false;
     cacheValid_ = false;
     emit invalidated();
     if (!connected) {
@@ -234,7 +236,7 @@ void XmppStorage::scheduleRetry()
         return;
 
     QString validationError;
-    if (!configIsValid(config_, &validationError))
+    if (!connectionConfigIsValid(config_, &validationError))
         return;
 
     const int delay    = retryDelaySeconds_;
@@ -249,7 +251,7 @@ void XmppStorage::retryInitialization()
         return;
 
     QString validationError;
-    if (!configIsValid(config_, &validationError))
+    if (!connectionConfigIsValid(config_, &validationError))
         return;
 
     retryInProgress_    = true;
