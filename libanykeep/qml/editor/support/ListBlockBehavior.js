@@ -1,5 +1,46 @@
 .pragma library
 
+// Convert a top-level task into a text paragraph, preserving list items on
+// both sides. When the current item contains text, insert a temporary blank
+// sibling first so that the text remains a checked/unchecked list item.
+function finishList(host, controller, itemIndex, sourceText) {
+    const model = controller.blockModel
+    const cleaned = String(sourceText || "").replace(/([ \t]*\n)+$/, "")
+    let paragraphRow = -1
+    if (cleaned.trim().length === 0) {
+        paragraphRow = model.unlistListItem(host.block.index, itemIndex)
+    } else {
+        model.setListItem(host.block.index, itemIndex, cleaned)
+        host.insertItem(itemIndex + 1, "")
+        paragraphRow = model.unlistListItem(host.block.index, itemIndex + 1)
+    }
+    if (paragraphRow < 0)
+        return false
+    controller.focusEditorAddress({
+        blockIndex: paragraphRow,
+        listItemIndex: -1,
+        tableCellIndex: -1,
+        cursorPosition: 0
+    })
+    return true
+}
+
+// Called after Android's IME has committed a newline to the QTextDocument.
+// Unlike physical Enter, soft-keyboard Return may never produce a Key event.
+function splitCommittedImeLine(host, controller, cell, itemIndex, separator, before, after, exit, caret) {
+    return controller.runEditTransaction(exit ? "exit-list-ime" : "split-list-item-ime", function() {
+        controller.prepareForStructuralMutation(cell)
+        if (exit)
+            return finishList(host, controller, itemIndex, before)
+        const row = host.block.index
+        controller.blockModel.setListItem(row, itemIndex, before)
+        host.insertItem(itemIndex + 1, after)
+        cell.retainTextPrefix(separator)
+        host.focusItem(itemIndex + 1, caret)
+        return true
+    }, false)
+}
+
 function handleKey(host, controller, event, cell, itemIndex) {
     const blocked = event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
     if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) && !blocked) {
@@ -38,32 +79,45 @@ function handleKey(host, controller, event, cell, itemIndex) {
     }
     if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
             && !blocked && (controller.touchMode || !(event.modifiers & Qt.ShiftModifier))) {
-        return controller.runEditTransaction("split-list-item", function() {
-            const position = cell.cursorPosition
-            if (cell.length === 0 && position === 0 && host.itemIndent(itemIndex) === 0) {
-                // Enter on an already-empty top-level item exits the list at
-                // that exact position. unlistListItem() preserves both sides
-                // as list blocks and places an empty text paragraph between
-                // them, so the same operation also splits a list in the
-                // middle. Removing that paragraph later coalesces the lists.
-                const textRow = controller.blockModel.unlistListItem(host.block.index, itemIndex)
-                if (textRow < 0)
-                    return false
-                controller.focusEditorAddress({
-                    blockIndex: textRow,
-                    listItemIndex: -1,
-                    tableCellIndex: -1,
-                    cursorPosition: 0
-                })
+        // Do not structurally mutate preedit. Android may still deliver the
+        // committed newline as an InputMethodEvent instead of this Key event.
+        if (cell.androidImeWorkaround && cell.inputMethodComposing)
+            return false
+        // Keep the established desktop Return semantics unchanged.
+        if (!controller.touchMode) {
+            return controller.runEditTransaction("split-list-item", function() {
+                const position = cell.cursorPosition
+                if (cell.length === 0 && position === 0 && host.itemIndent(itemIndex) === 0)
+                    return finishList(host, controller, itemIndex, "")
+                const left = cell.markdownRange(0, position)
+                const right = cell.markdownRange(position, cell.length)
+                controller.blockModel.setListItem(host.block.index, itemIndex, left)
+                host.insertItem(itemIndex + 1, right)
+                cell.retainTextPrefix(position)
+                host.focusItem(itemIndex + 1, 0)
                 return true
-            }
-            const left = cell.markdownRange(0, position)
-            const right = cell.markdownRange(position, cell.length)
+            })
+        }
+        const position = cell.cursorPosition
+        const atEnd = position === cell.length
+        const plain = cell.currentPlainText().replace(/\r\n/g, "\n")
+                          .replace(/[\r\u2028\u2029]/g, "\n")
+        const emptyItem = cell.length === 0
+        const emptyLastLine = controller.touchMode && atEnd && plain.endsWith("\n")
+        const exit = host.itemIndent(itemIndex) === 0 && (emptyItem || emptyLastLine)
+        const source = cell.markdownRange(0, cell.length)
+        const left = cell.markdownRange(0, position)
+        const right = cell.markdownRange(position, cell.length)
+        return controller.runEditTransaction(exit ? "exit-list" : "split-list-item", function() {
+            controller.prepareForStructuralMutation(cell)
+            if (exit)
+                return finishList(host, controller, itemIndex, source)
             controller.blockModel.setListItem(host.block.index, itemIndex, left)
-            controller.blockModel.insertListItem(host.block.index, itemIndex + 1, right)
+            host.insertItem(itemIndex + 1, right)
+            cell.retainTextPrefix(position)
             host.focusItem(itemIndex + 1, 0)
             return true
-        })
+        }, false)
     }
     if (event.key === Qt.Key_Delete && !blocked && !(event.modifiers & Qt.ShiftModifier)
             && cell.selectionStart === cell.selectionEnd && cell.cursorPosition === cell.length) {
@@ -94,6 +148,30 @@ function handleKey(host, controller, event, cell, itemIndex) {
     if (event.key === Qt.Key_Backspace && !blocked
             && cell.selectionStart === cell.selectionEnd && cell.cursorPosition === 0) {
         if (cell.length === 0) {
+            // Backspace on a fresh empty sibling turns that sibling into a
+            // continuation line of the preceding item. The next Backspace
+            // deletes the newline normally from the previous TextArea.
+            if (controller.touchMode && itemIndex > 0
+                    && host.itemIndent(itemIndex) === host.itemIndent(itemIndex - 1)) {
+                return controller.runEditTransaction("continue-list-item", function() {
+                    controller.prepareForStructuralMutation(cell)
+                    const previous = host.itemText(itemIndex - 1).replace(/\n+$/, "")
+                    // Two spaces encode an explicit CommonMark hard break.
+                    // Existing soft-wrapped list items keep their semantics.
+                    controller.blockModel.setListItem(host.block.index, itemIndex - 1,
+                                                       previous + "  \n")
+                    host.removeItems(itemIndex, itemIndex)
+                    controller.focusEditorAddress({
+                        blockIndex: host.block.index,
+                        listItemIndex: itemIndex - 1,
+                        tableCellIndex: -1,
+                        field: "listItem",
+                        cursorPosition: -1,
+                        atEnd: true
+                    })
+                    return true
+                }, false)
+            }
             return controller.runEditTransaction("remove-list-item", function() {
                 controller.prepareForStructuralMutation()
                 if (host.itemCount() === 1) {
@@ -107,7 +185,7 @@ function handleKey(host, controller, event, cell, itemIndex) {
                 } else {
                     const target = itemIndex > 0 ? itemIndex - 1 : 0
                     const targetLength = itemIndex > 0 ? host.itemText(target).length : 0
-                    controller.blockModel.removeListItem(host.block.index, itemIndex)
+                    host.removeItems(itemIndex, itemIndex)
                     host.focusItem(target, targetLength)
                 }
                 return true

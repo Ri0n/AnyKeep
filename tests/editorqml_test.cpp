@@ -640,7 +640,6 @@ private slots:
         view->setProperty("platformBackend", QVariant::fromValue<QObject *>(nullptr));
     }
 
-
     void videoCornersRemainRoundedOverThePoster()
     {
         auto note = plainNote();
@@ -4599,8 +4598,8 @@ private slots:
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("Android"));
         note.setText(QStringLiteral("Test"), Note::Markdown);
-        DraftManager drafts(std::make_unique<MemoryDraftStore>());
-        NoteEditor editor(note, drafts);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
         DesktopNoteEditorHost host(&editor);
         host.resize(520, 420);
         host.show();
@@ -4645,8 +4644,8 @@ private slots:
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("Android"));
         note.setText(QString(), Note::Markdown);
-        DraftManager drafts(std::make_unique<MemoryDraftStore>());
-        NoteEditor editor(note, drafts);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
         DesktopNoteEditorHost host(&editor);
         host.resize(520, 420);
         host.show();
@@ -4672,13 +4671,521 @@ private slots:
         QTRY_VERIFY(body->hasActiveFocus());
     }
 
+    void softKeyboardReturnSplitsChecklistWithoutDuplicatingItems()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Android"));
+        note.setText(QStringLiteral("- [ ] Task 1"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+
+        const auto listEditor = [root](int item) -> QQuickItem * {
+            for (QQuickItem *candidate : textEditors(root)) {
+                if (candidate->property("blockIndex").toInt() == 1
+                    && candidate->property("listItemIndex").toInt() == item)
+                    return candidate;
+            }
+            return nullptr;
+        };
+        QQuickItem *first = nullptr;
+        QTRY_VERIFY((first = listEditor(0)));
+        QVERIFY(first->setProperty("androidImeWorkaround", true));
+        first->forceActiveFocus();
+        QTRY_VERIFY(first->hasActiveFocus());
+        first->setProperty("cursorPosition", first->property("length"));
+        const qreal firstHeight   = first->implicitHeight();
+        auto       *firstDocument = first->property("textDocument").value<QQuickTextDocument *>()->textDocument();
+        const QPointer<QQuickItem> originalFirst(first);
+
+        // A soft keyboard may commit only '\n': no Key_Return is dispatched.
+        QInputMethodEvent nextItem;
+        nextItem.setCommitString(QStringLiteral("\n"));
+        QCoreApplication::sendEvent(first, &nextItem);
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                     QStringList({ QStringLiteral("Task 1"), QString() }));
+        QQuickItem *second = nullptr;
+        QTRY_VERIFY((second = listEditor(1)));
+        QTRY_VERIFY(second->hasActiveFocus());
+        // The IME's separator belongs to the structural split, not to the old
+        // item's QTextDocument: a leftover paragraph adds a visible blank line.
+        QTRY_COMPARE(firstDocument->toPlainText(), QStringLiteral("Task 1"));
+        QTRY_COMPARE(first->implicitHeight(), firstHeight);
+        QVERIFY(second->setProperty("androidImeWorkaround", true));
+        second->setProperty("cursorPosition", second->property("length"));
+
+        QInputMethodEvent exitList;
+        exitList.setCommitString(QStringLiteral("\n"));
+        QCoreApplication::sendEvent(second, &exitList);
+        QTRY_COMPARE(editor.model()->rowCount(), 3);
+        QCOMPARE(editor.model()->blockTypeAt(1), int(NoteBlockModel::CheckList));
+        QCOMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::Text));
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                 QStringList({ QStringLiteral("Task 1") }));
+        QCOMPARE(editor.model()->contents().count(QStringLiteral("Task 1")), 1);
+        QTRY_COMPARE(listEditor(0), originalFirst.data());
+        QVERIFY(originalFirst);
+    }
+
+    void backspaceInEmptyListItemKeepsPrecedingMedia_data()
+    {
+        QTest::addColumn<QString>("mediaType");
+        QTest::addColumn<int>("itemCount");
+        QTest::addColumn<int>("emptyItem");
+        for (const auto &type : { QStringLiteral("application/pdf"), QStringLiteral("image/png"),
+                                  QStringLiteral("audio/wav"), QStringLiteral("video/mp4") }) {
+            QTest::newRow(qPrintable(type + QStringLiteral("-only-item"))) << type << 1 << 0;
+            QTest::newRow(qPrintable(type + QStringLiteral("-first-item"))) << type << 2 << 0;
+            QTest::newRow(qPrintable(type + QStringLiteral("-last-item"))) << type << 2 << 1;
+        }
+    }
+
+    void backspaceInEmptyListItemKeepsPrecedingMedia()
+    {
+        QFETCH(QString, mediaType);
+        QFETCH(int, itemCount);
+        QFETCH(int, emptyItem);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Checklist"));
+        note.setText(QStringLiteral("- [ ] First"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        if (itemCount > 1)
+            editor.model()->insertListItem(1, 1, QStringLiteral("Last"));
+        editor.model()->setListItem(1, emptyItem, QString());
+        const bool    attachment = mediaType.startsWith(QLatin1String("application/"));
+        const QString uri        = mediaType.startsWith(QLatin1String("image/"))
+            ? QStringLiteral("qrc:/svg/video-x-generic-symbolic.svg")
+            : QStringLiteral("anykeep-media:/missing/backspace-boundary");
+        if (attachment)
+            editor.model()->insertAttachment(1, uri, QStringLiteral("File"), mediaType, 0);
+        else
+            editor.model()->insertMedia(1, uri, QStringLiteral("Media"), mediaType, 0, 64, 48);
+        const int   mediaBlockType = attachment ? int(NoteBlockModel::Attachment) : int(NoteBlockModel::Media);
+        QStringList remaining
+            = editor.model()->data(editor.model()->index(2), NoteBlockModel::ItemsRole).toStringList();
+        remaining.removeAt(emptyItem);
+        const QString         original = editor.model()->contents();
+        DesktopNoteEditorHost host(&editor);
+        host.resize(650, 600);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *cell  = nullptr;
+        QQuickItem *media = nullptr;
+        QTRY_VERIFY(
+            (cell = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", emptyItem)));
+        QTRY_VERIFY(
+            (media = quickItemByName(
+                 root, attachment ? QStringLiteral("attachmentBlockEditor-1") : QStringLiteral("mediaBlockEditor-1"))));
+        const QPointer<QQuickItem> originalMedia(media);
+        QVERIFY(cell->setProperty("androidImeWorkaround", true));
+        cell->forceActiveFocus();
+        QTRY_VERIFY(cell->hasActiveFocus());
+        QCOMPARE(cell->property("blockIndex").toInt(), 2);
+        QCOMPARE(cell->property("length").toInt(), 0);
+        QTest::keyClick(host.quickWidget(), Qt::Key_Backspace);
+        QCOMPARE(editor.model()->rowCount(), 3);
+        QCOMPARE(editor.model()->blockTypeAt(1), mediaBlockType);
+        QCOMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::UrlRole).toString(), uri);
+        QVERIFY(originalMedia);
+        if (itemCount == 1) {
+            QCOMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::Text));
+            QQuickItem *paragraph = nullptr;
+            QTRY_VERIFY((paragraph = textEditorForBlock(root, 2)) && paragraph->hasActiveFocus());
+        } else {
+            QCOMPARE(editor.model()->data(editor.model()->index(2), NoteBlockModel::ItemsRole).toStringList(),
+                     remaining);
+            QQuickItem *previous = nullptr;
+            QTRY_VERIFY(
+                (previous = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "listItemIndex", 0))
+                && previous->hasActiveFocus());
+        }
+        const QString after = editor.model()->contents();
+        QVERIFY(editor.undo());
+        QTRY_COMPARE(editor.model()->contents(), original);
+        QCOMPARE(editor.model()->blockTypeAt(1), mediaBlockType);
+        QVERIFY(editor.redo());
+        QTRY_COMPARE(editor.model()->contents(), after);
+        QCOMPARE(editor.model()->blockTypeAt(1), mediaBlockType);
+    }
+
+    void deletingInTableCellKeepsAdjacentAttachment_data()
+    {
+        QTest::addColumn<bool>("backwards");
+        QTest::newRow("backspace") << true;
+        QTest::newRow("delete") << false;
+    }
+
+    void deletingInTableCellKeepsAdjacentAttachment()
+    {
+        QFETCH(bool, backwards);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Table"));
+        note.setText(QStringLiteral("| A | B |\n| --- | --- |\n| One | Two |"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        editor.model()->setTableCell(1, 0, QString());
+        const int     attachmentRow = backwards ? 1 : 2;
+        const int     tableRow      = backwards ? 2 : 1;
+        const QString uri           = QStringLiteral("anykeep-media:/missing/table-boundary");
+        editor.model()->insertAttachment(attachmentRow, uri, QStringLiteral("File"), QStringLiteral("application/pdf"),
+                                         0);
+        const QString         original = editor.model()->contents();
+        DesktopNoteEditorHost host(&editor);
+        host.resize(650, 600);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *cell = nullptr;
+        QTRY_VERIFY(
+            (cell = quickItemByNameAndProperty(root, QStringLiteral("noteBlockTextArea"), "tableCellIndex", 0)));
+        QVERIFY(cell->setProperty("androidImeWorkaround", true));
+        cell->forceActiveFocus();
+        QTRY_VERIFY(cell->hasActiveFocus());
+        QCOMPARE(cell->property("length").toInt(), 0);
+        QTest::keyClick(host.quickWidget(), backwards ? Qt::Key_Backspace : Qt::Key_Delete);
+        QCOMPARE(editor.model()->rowCount(), 3);
+        QCOMPARE(editor.model()->blockTypeAt(attachmentRow), int(NoteBlockModel::Attachment));
+        QCOMPARE(editor.model()->data(editor.model()->index(attachmentRow), NoteBlockModel::UrlRole).toString(), uri);
+        QCOMPARE(editor.model()->blockTypeAt(tableRow), int(NoteBlockModel::Table));
+        QCOMPARE(editor.model()->contents(), original);
+    }
+
+    void softKeyboardReturnKeepsPreviousTextAlignedWithMarker_data()
+    {
+        QTest::addColumn<QString>("body");
+        QTest::addColumn<int>("padding");
+        QTest::newRow("single-line") << QStringLiteral("- [ ] First") << 0;
+        QTest::newRow("single-line-touch-padding") << QStringLiteral("- [ ] First") << 4;
+        QTest::newRow("wrapped-touch-padding")
+            << QStringLiteral("- [ ] %1").arg(QStringLiteral("Wrapped list text ").repeated(8)) << 4;
+        QTest::newRow("bullet-touch-padding") << QStringLiteral("- First") << 4;
+        QTest::newRow("numbered-touch-padding") << QStringLiteral("1. First") << 4;
+    }
+
+    void softKeyboardReturnKeepsPreviousTextAlignedWithMarker()
+    {
+        QFETCH(QString, body);
+        QFETCH(int, padding);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Checklist"));
+        note.setText(body, Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *row    = nullptr;
+        QQuickItem *marker = nullptr;
+        QTRY_VERIFY((row = quickItemByName(root, QStringLiteral("listRow-1-0"))));
+        QTRY_VERIFY((marker = quickItemByName(root, QStringLiteral("listMarker-1-0"))));
+        auto *cell   = qobject_cast<QQuickItem *>(row->property("listEditor").value<QObject *>());
+        auto *layout = qobject_cast<QQuickItem *>(row->property("dragContent").value<QObject *>());
+        QVERIFY(cell && layout);
+        QVERIFY(cell->setProperty("topPadding", padding));
+        QVERIFY(cell->setProperty("bottomPadding", padding));
+        // Match the Android touch target in the desktop harness. The marker
+        // stays taller than one text line while the IME commits its newline.
+        QVERIFY(QQmlProperty(marker, QStringLiteral("Layout.preferredHeight"), QQmlEngine::contextForObject(marker))
+                    .write(44));
+        QTRY_COMPARE(marker->height(), 44);
+        const bool checklist = editor.model()->blockTypeAt(1) == int(NoteBlockModel::CheckList);
+        auto      *paintedMarker
+            = quickItemByName(root, checklist ? QStringLiteral("taskMarker-1-0") : QStringLiteral("listGlyph-1-0"));
+        QVERIFY(paintedMarker);
+        if (checklist)
+            QVERIFY(paintedMarker->setProperty("height", 44));
+        layout->ensurePolished();
+        QVERIFY(cell->setProperty("androidImeWorkaround", true));
+        cell->forceActiveFocus();
+        QTRY_VERIFY(cell->hasActiveFocus());
+        cell->setProperty("cursorPosition", cell->property("length"));
+        const qreal textTop    = cell->mapToItem(row, QPointF()).y();
+        const qreal markerTop  = paintedMarker->mapToItem(row, QPointF()).y();
+        const qreal textHeight = cell->implicitHeight();
+        QRectF      firstLine;
+        QVERIFY(QMetaObject::invokeMethod(cell, "positionToRectangle", Q_RETURN_ARG(QRectF, firstLine), Q_ARG(int, 0)));
+        QVERIFY(qAbs(textTop + firstLine.center().y() - markerTop - paintedMarker->height() / 2) <= 1);
+
+        QInputMethodEvent nextItem;
+        nextItem.setCommitString(QStringLiteral("\n"));
+        QCoreApplication::sendEvent(cell, &nextItem);
+        QCOMPARE(editor.model()->listItemCountAt(1), 1);
+        // Lay out the IME's intermediate document before the deferred split
+        // removes the separator. Inspecting only the final frame misses the hop.
+        layout->ensurePolished();
+        QVERIFY(cell->implicitHeight() > textHeight);
+        QCOMPARE(paintedMarker->mapToItem(row, QPointF()).y(), markerTop);
+        QCOMPARE(cell->mapToItem(row, QPointF()).y(), textTop);
+        QTRY_COMPARE(editor.model()->listItemCountAt(1), 2);
+        layout->ensurePolished();
+        QCOMPARE(cell->mapToItem(row, QPointF()).y(), textTop);
+        QCOMPARE(paintedMarker->mapToItem(row, QPointF()).y(), markerTop);
+        QCOMPARE(cell->implicitHeight(), textHeight);
+    }
+
+    void listReturnPreservesExistingTextDocument_data()
+    {
+        QTest::addColumn<bool>("softKeyboard");
+        QTest::addColumn<int>("splitPosition");
+        QTest::addColumn<QString>("commit");
+        QTest::newRow("ime-end") << true << -1 << QStringLiteral("\n");
+        QTest::newRow("ime-middle") << true << 4 << QStringLiteral("\n");
+        QTest::newRow("ime-with-next-text") << true << -1 << QStringLiteral("\nNext");
+        QTest::newRow("physical-end") << false << -1 << QString();
+        QTest::newRow("physical-middle") << false << 4 << QString();
+    }
+
+    void listReturnPreservesExistingTextDocument()
+    {
+        QFETCH(bool, softKeyboard);
+        QFETCH(int, splitPosition);
+        QFETCH(QString, commit);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Checklist"));
+        note.setText(QStringLiteral("- [ ] **Keep** [link](https://example.org)"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *row = nullptr;
+        QTRY_VERIFY((row = quickItemByName(root, QStringLiteral("listRow-1-0"))));
+        auto *cell = qobject_cast<QQuickItem *>(row->property("listEditor").value<QObject *>());
+        QVERIFY(cell);
+        QVERIFY(cell->setProperty("androidImeWorkaround", true));
+        cell->forceActiveFocus();
+        QTRY_VERIFY(cell->hasActiveFocus());
+        auto         *document = cell->property("textDocument").value<QQuickTextDocument *>()->textDocument();
+        const QString original = document->toPlainText();
+        const int     position = splitPosition < 0 ? original.size() : splitPosition;
+        cell->setProperty("cursorPosition", position);
+        QSignalSpy changes(document, &QTextDocument::contentsChange);
+        QVERIFY(changes.isValid());
+        if (softKeyboard) {
+            QInputMethodEvent nextItem;
+            nextItem.setCommitString(commit);
+            QCoreApplication::sendEvent(cell, &nextItem);
+            // Qt also reports preedit-format invalidation over the original
+            // paragraph during dispatch. Observe our deferred structural split.
+            changes.clear();
+        } else {
+            QTest::keyClick(host.quickWidget(), Qt::Key_Return);
+        }
+        QTRY_COMPARE(editor.model()->listItemCountAt(1), 2);
+        QQuickItem *nextRow = nullptr;
+        QTRY_VERIFY((nextRow = quickItemByName(root, QStringLiteral("listRow-1-1"))));
+        auto *nextCell = qobject_cast<QQuickItem *>(nextRow->property("listEditor").value<QObject *>());
+        QVERIFY(nextCell);
+        QTRY_VERIFY(nextCell->hasActiveFocus());
+        QTRY_COMPARE(document->toPlainText(), original.left(position));
+        QCOMPARE(cell->property("sourceTextPending").toBool(), false);
+        auto *nextDocument = nextCell->property("textDocument").value<QQuickTextDocument *>()->textDocument();
+        QCOMPARE(nextDocument->toPlainText(),
+                 ((softKeyboard ? commit.mid(1) : QString()) + original.mid(position)).trimmed());
+        QVERIFY(document->find(QStringLiteral("Keep")).charFormat().fontWeight() >= QFont::Bold);
+        if (position == original.size())
+            QCOMPARE(document->find(QStringLiteral("link")).charFormat().anchorHref(),
+                     QStringLiteral("https://example.org"));
+        // Replacing TextArea.text clears the prefix and rebuilds its layout.
+        // Only the separator and the suffix moving to the next item may change.
+        for (const auto &change : changes) {
+            QVERIFY2(change.at(1).toInt() == 0 || change.at(0).toInt() >= position,
+                     qPrintable(QStringLiteral("Return replaced retained text: from=%1 removed=%2 added=%3")
+                                    .arg(change.at(0).toInt())
+                                    .arg(change.at(1).toInt())
+                                    .arg(change.at(2).toInt())));
+        }
+    }
+
+    void checklistItemRemovalKeepsUnchangedDelegates_data()
+    {
+        QTest::addColumn<bool>("duplicateItems");
+        QTest::newRow("distinct") << false;
+        QTest::newRow("duplicate") << true;
+    }
+
+    void checklistItemRemovalKeepsUnchangedDelegates()
+    {
+        QFETCH(bool, duplicateItems);
+        const QString lastText = duplicateItems ? QStringLiteral("Remove middle") : QStringLiteral("Keep last");
+        Note          note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Checklist"));
+        note.setText(QStringLiteral("- [ ] Keep first\n- [x] Remove middle\n- [ ] %1\n- [x] Keep tail").arg(lastText),
+                     Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 500);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *first  = nullptr;
+        QQuickItem *middle = nullptr;
+        QQuickItem *last   = nullptr;
+        QQuickItem *tail   = nullptr;
+        QTRY_VERIFY((first = quickItemByName(root, QStringLiteral("listRow-1-0"))));
+        QTRY_VERIFY((middle = quickItemByName(root, QStringLiteral("listRow-1-1"))));
+        QTRY_VERIFY((last = quickItemByName(root, QStringLiteral("listRow-1-2"))));
+        QTRY_VERIFY((tail = quickItemByName(root, QStringLiteral("listRow-1-3"))));
+        const QPointer<QQuickItem> originalFirst(first), originalLast(last), originalTail(tail);
+        QSignalSpy                 reset(editor.model(), &QAbstractItemModel::modelReset);
+        QSignalSpy                 removed(editor.model(), &QAbstractItemModel::rowsRemoved);
+
+        middle->setProperty("swipeOffset", -middle->width());
+        QVERIFY(QMetaObject::invokeMethod(middle, "removeBySwipe"));
+        QTRY_COMPARE(editor.model()->data(editor.model()->index(1), NoteBlockModel::ItemsRole).toStringList(),
+                     QStringList({ QStringLiteral("Keep first"), lastText, QStringLiteral("Keep tail") }));
+        QCOMPARE(reset.count(), 0);
+        QCOMPARE(removed.count(), 0);
+        QVERIFY(originalFirst && originalLast && originalTail);
+        QTRY_COMPARE(quickItemByName(root, QStringLiteral("listRow-1-0")), originalFirst.data());
+        QTRY_COMPARE(quickItemByName(root, QStringLiteral("listRow-1-1")), originalLast.data());
+        QTRY_COMPARE(quickItemByName(root, QStringLiteral("listRow-1-2")), originalTail.data());
+        QCOMPARE(originalLast->property("itemText").toString(), lastText);
+        QCOMPARE(originalLast->property("swipeOffset").toReal(), 0);
+        QCOMPARE(originalTail->property("itemChecked").toBool(), true);
+        auto *focused = qobject_cast<QQuickItem *>(originalLast->property("listEditor").value<QObject *>());
+        QVERIFY(focused);
+        QTRY_VERIFY(focused->hasActiveFocus());
+    }
+
+    void softKeyboardReturnKeepsFollowingEmptyItemEditor()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Checklist"));
+        note.setText(QStringLiteral("- [ ] First\n- [ ] Placeholder\n- [x] Tail"), Note::Markdown);
+        DraftManager drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor   editor(note, drafts);
+        editor.model()->setListItem(1, 1, QString());
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *first     = nullptr;
+        QQuickItem *following = nullptr;
+        QTRY_VERIFY((first = quickItemByName(root, QStringLiteral("listRow-1-0"))));
+        QTRY_VERIFY((following = quickItemByName(root, QStringLiteral("listRow-1-1"))));
+        const QPointer<QQuickItem> originalFollowing(following);
+        auto                      *cell = qobject_cast<QQuickItem *>(first->property("listEditor").value<QObject *>());
+        QVERIFY(cell);
+        QVERIFY(cell->setProperty("androidImeWorkaround", true));
+        cell->forceActiveFocus();
+        QTRY_VERIFY(cell->hasActiveFocus());
+        cell->setProperty("cursorPosition", cell->property("length"));
+        QInputMethodEvent nextItem;
+        nextItem.setCommitString(QStringLiteral("\n"));
+        QCoreApplication::sendEvent(cell, &nextItem);
+        QTRY_COMPARE(editor.model()->listItemCountAt(1), 4);
+        QVERIFY(originalFollowing);
+        QTRY_COMPARE(quickItemByName(root, QStringLiteral("listRow-1-2")), originalFollowing.data());
+        auto *newRow = quickItemByName(root, QStringLiteral("listRow-1-1"));
+        QVERIFY(newRow && newRow != originalFollowing);
+        auto *newCell = qobject_cast<QQuickItem *>(newRow->property("listEditor").value<QObject *>());
+        QVERIFY(newCell);
+        QTRY_VERIFY(newCell->hasActiveFocus());
+    }
+
+    void unlistingChecklistItemKeepsSurvivingEditors_data()
+    {
+        QTest::addColumn<int>("item");
+        QTest::newRow("first") << 0;
+        QTest::newRow("middle") << 1;
+        QTest::newRow("last") << 2;
+    }
+
+    void unlistingChecklistItemKeepsSurvivingEditors()
+    {
+        QFETCH(int, item);
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Checklist"));
+        note.setText(QStringLiteral("- [ ] First\n- [x] Second\n- [ ] Last"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 420);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        const int   keptItem  = item == 0 ? 1 : 0;
+        const int   keptBlock = item == 0 ? 2 : 1;
+        QQuickItem *kept      = nullptr;
+        QQuickItem *target    = nullptr;
+        QTRY_VERIFY((kept = quickItemByName(root, QStringLiteral("listRow-1-%1").arg(keptItem))));
+        QTRY_VERIFY((target = quickItemByName(root, QStringLiteral("listRow-1-%1").arg(item))));
+        const QPointer<QQuickItem> originalKept(kept);
+        auto *targetEditor = qobject_cast<QQuickItem *>(target->property("listEditor").value<QObject *>());
+        QVERIFY(targetEditor);
+        const QString paragraphText = target->property("itemText").toString();
+        targetEditor->forceActiveFocus();
+        targetEditor->setProperty("cursorPosition", 0);
+        QTRY_VERIFY(targetEditor->hasActiveFocus());
+        QSignalSpy reset(editor.model(), &QAbstractItemModel::modelReset);
+        QSignalSpy removed(editor.model(), &QAbstractItemModel::rowsRemoved);
+        QTest::keyClick(host.quickWidget(), Qt::Key_Backspace);
+        QTRY_COMPARE(editor.model()->rowCount(), item == 1 ? 4 : 3);
+        const int paragraphRow = item == 0 ? 1 : 2;
+        QCOMPARE(editor.model()->blockTextAt(paragraphRow), paragraphText);
+        QCOMPARE(reset.count(), 0);
+        QCOMPARE(removed.count(), 0);
+        QVERIFY(originalKept);
+        QTRY_COMPARE(quickItemByName(root, QStringLiteral("listRow-%1-0").arg(keptBlock)), originalKept.data());
+        QQuickItem *paragraph = nullptr;
+        QTRY_VERIFY((paragraph = textEditorForBlock(root, paragraphRow)));
+        QTRY_VERIFY(paragraph->hasActiveFocus());
+    }
+
+    void swipingOnlyChecklistItemKeepsOtherBlocks()
+    {
+        Note note(new NoteData(nullptr));
+        note.setTitle(QStringLiteral("Checklist"));
+        note.setText(QStringLiteral("Before\n\n- [ ] Only item\n\nAfter"), Note::Markdown);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
+        DesktopNoteEditorHost host(&editor);
+        host.resize(520, 500);
+        host.show();
+        auto *root = qobject_cast<QQuickItem *>(host.quickWidget()->rootObject());
+        QVERIFY(root);
+        QQuickItem *before = nullptr;
+        QQuickItem *after  = nullptr;
+        QQuickItem *row    = nullptr;
+        QTRY_VERIFY((before = textEditorForBlock(root, 1)));
+        QTRY_VERIFY((after = textEditorForBlock(root, 3)));
+        QTRY_VERIFY((row = quickItemByName(root, QStringLiteral("listRow-2-0"))));
+        const QPointer<QQuickItem> originalBefore(before), originalAfter(after);
+        QSignalSpy                 reset(editor.model(), &QAbstractItemModel::modelReset);
+        QSignalSpy                 removed(editor.model(), &QAbstractItemModel::rowsRemoved);
+        QVERIFY(QMetaObject::invokeMethod(row, "removeBySwipe"));
+        QTRY_COMPARE(editor.model()->blockTypeAt(2), int(NoteBlockModel::Text));
+        QCOMPARE(editor.model()->rowCount(), 4);
+        QCOMPARE(reset.count(), 0);
+        QCOMPARE(removed.count(), 0);
+        QVERIFY(originalBefore && originalAfter);
+        QCOMPARE(textEditorForBlock(root, 1), originalBefore.data());
+        QCOMPARE(textEditorForBlock(root, 3), originalAfter.data());
+        QQuickItem *paragraph = nullptr;
+        QTRY_VERIFY((paragraph = textEditorForBlock(root, 2)));
+        QTRY_VERIFY(paragraph->hasActiveFocus());
+    }
+
     void softKeyboardReturnPreservesExistingBody()
     {
         Note note(new NoteData(nullptr));
         note.setTitle(QStringLiteral("Android"));
         note.setText(QStringLiteral("Original body"), Note::Markdown);
-        DraftManager drafts(std::make_unique<MemoryDraftStore>());
-        NoteEditor editor(note, drafts);
+        DraftManager          drafts(std::make_unique<MemoryDraftStore>());
+        NoteEditor            editor(note, drafts);
         DesktopNoteEditorHost host(&editor);
         host.resize(520, 420);
         host.show();

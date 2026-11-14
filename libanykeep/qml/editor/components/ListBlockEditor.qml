@@ -17,6 +17,7 @@ Column {
     property var indentData: block.itemIndents
     property var typeData: block.itemTypes
     property bool syncingItems: false
+    property var pendingItemSplice: null
     property int blockIndex: block.index
     property int itemsRevision: 0
     property int handleHoverLevel: -1
@@ -52,10 +53,38 @@ Column {
     function syncItems(forceEditorText) {
         syncingItems = true
         const values = itemData || []
-        while (listModel.count > values.length)
-            listModel.remove(listModel.count - 1)
-        while (listModel.count < values.length)
-            listModel.append({ itemText: "", itemChecked: false, itemIndent: 0, itemType: 2 })
+        if (listModel.count !== values.length) {
+            // Resize at the changed range, keeping the editors on both sides.
+            // Trimming the tail and rewriting shifted rows loses their focus,
+            // QTextDocument state and any in-progress swipe displacement.
+            let first = 0
+            let removed = 0
+            let inserted = 0
+            const splice = pendingItemSplice
+            if (splice && listModel.count - splice.removed + splice.inserted === values.length) {
+                // Equal/empty items cannot identify the edited range by text.
+                first = splice.first
+                removed = splice.removed
+                inserted = splice.inserted
+            } else {
+                while (first < listModel.count && first < values.length
+                       && listModel.get(first).itemText === values[first])
+                    ++first
+                let suffix = 0
+                while (suffix < listModel.count - first && suffix < values.length - first
+                       && listModel.get(listModel.count - 1 - suffix).itemText
+                          === values[values.length - 1 - suffix])
+                    ++suffix
+                removed = listModel.count - first - suffix
+                inserted = values.length - first - suffix
+            }
+            const shared = Math.min(removed, inserted)
+            if (removed > inserted)
+                listModel.remove(first + shared, removed - inserted)
+            for (let index = shared; index < inserted; ++index)
+                listModel.insert(first + index,
+                                 { itemText: "", itemChecked: false, itemIndent: 0, itemType: 2 })
+        }
         for (let index = 0; index < values.length; ++index) {
             if (listModel.get(index).itemText !== values[index])
                 listModel.setProperty(index, "itemText", values[index])
@@ -81,6 +110,31 @@ Column {
         }
         syncingItems = false
         ++itemsRevision
+    }
+
+    // Carry the known range only while the canonical model publishes its
+    // roles. This is a projection hint, not a second list mutation or storage.
+    function insertItem(index, text) {
+        pendingItemSplice = { first: index, removed: 0, inserted: 1 }
+        try {
+            editorView.blockModel.insertListItem(blockIndex, index, text)
+        } finally {
+            pendingItemSplice = null
+        }
+    }
+
+    function removeItems(first, last) {
+        if (first === 0 && last + 1 === itemCount()) {
+            // Converting the whole list to a paragraph destroys this component.
+            editorView.blockModel.removeListItems(blockIndex, first, last)
+            return
+        }
+        pendingItemSplice = { first: first, removed: last - first + 1, inserted: 0 }
+        try {
+            editorView.blockModel.removeListItems(blockIndex, first, last)
+        } finally {
+            pendingItemSplice = null
+        }
     }
 
     function rowAt(index) {
@@ -362,22 +416,24 @@ Column {
             }
 
             function removeBySwipe() {
+                // The mutation destroys this row. Capture the surviving owners
+                // before it runs so focus restoration does not use a dead context.
+                const controller = listRoot.editorView
+                const list = listRoot
+                const row = listRoot.blockIndex
                 const firstItem = index
-                const endItem = listRoot.subtreeEnd(firstItem)
-                const removesWholeList = firstItem === 0 && endItem === listRoot.itemCount()
+                const endItem = list.subtreeEnd(firstItem)
+                const removesWholeList = firstItem === 0 && endItem === list.itemCount()
                 const focusItem = Math.min(firstItem,
-                                           listRoot.itemCount() - (endItem - firstItem) - 1)
-                editorView.runEditTransaction("delete-list-items", function() {
-                    editorView.prepareForStructuralMutation()
-                    editorView.blockModel.removeListItems(
-                                listRoot.blockIndex, firstItem, endItem - 1)
+                                           list.itemCount() - (endItem - firstItem) - 1)
+                controller.runEditTransaction("delete-list-items", function() {
+                    controller.prepareForStructuralMutation()
+                    list.removeItems(firstItem, endItem - 1)
                     if (removesWholeList) {
-                        editorView.focusBlock(
-                                    Math.min(listRoot.blockIndex,
-                                             editorView.blockModel.rowCount() - 1))
+                        controller.focusBlock(Math.min(row, controller.blockModel.rowCount() - 1))
                     } else {
-                        editorView.focusEditorAddress({
-                            blockIndex: listRoot.blockIndex,
+                        controller.focusEditorAddress({
+                            blockIndex: row,
                             listItemIndex: focusItem,
                             tableCellIndex: -1,
                             field: "listItem",
@@ -436,7 +492,10 @@ Column {
                         anchors.top: parent.top
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: parent.width
-                        height: editorView.editorFontMetricsHeight
+                        // Material indicators are centered within the CheckBox.
+                        // On touch, a font-height control placed them above the
+                        // first text line; match the row's touch target instead.
+                        height: editorView.touchMode ? 44 : editorView.editorFontMetricsHeight
                         padding: 0
                         onClicked: editorView.runEditTransaction("toggle-task", function() {
                             editorView.blockModel.setChecked(listRoot.blockIndex, rowWrapper.index, checked)
@@ -448,7 +507,7 @@ Column {
                         visible: rowWrapper.itemType !== 2
                         text: rowWrapper.itemType === 5
                               ? listRoot.itemNumber(rowWrapper.index) + "." : "●"
-                        anchors.top: parent.top
+                        anchors.verticalCenter: parent.verticalCenter
                         x: Math.round(markerSlot.indicatorCenterX - width / 2)
                         width: implicitWidth
                         height: editorView.editorFontMetricsHeight
@@ -483,7 +542,21 @@ Column {
                     property var listRow: rowWrapper
                     property var listBlock: listRoot
                     sourceComponent: listRoot.editorDelegate
+                    readonly property real firstLineTopMargin: {
+                        if (!item)
+                            return 0
+                        // Re-evaluate after text layout or padding changes.
+                        item.contentHeight
+                        item.topPadding
+                        const line = item.positionToRectangle(0)
+                        return Math.max(0, (markerSlot.Layout.preferredHeight - line.height) / 2 - line.y)
+                    }
                     Layout.fillWidth: true
+                    // Center the first line beside the marker, not the entire
+                    // editor. IME Return temporarily adds a paragraph; vertical
+                    // centering would move the existing text up and back down.
+                    Layout.alignment: Qt.AlignTop
+                    Layout.topMargin: firstLineTopMargin
                     Layout.preferredHeight: item ? item.implicitHeight : 0
                 }
             }

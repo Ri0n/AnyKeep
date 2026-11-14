@@ -329,6 +329,26 @@ TextArea {
         return true
     }
 
+    function retainTextPrefix(position) {
+        const end = Math.max(0, Math.min(length, Number(position)))
+        // A structural split has already committed this prefix to the model.
+        // Remove only the suffix; assigning text would rebuild every text run
+        // and briefly collapse the editor's layout when focus moves away.
+        syncingSourceText = true
+        try {
+            if (end < length)
+                remove(end, length)
+            sourceTextPending = false
+            rememberPlainText()
+        } finally {
+            syncingSourceText = false
+        }
+        Qt.callLater(function() {
+            if (blockArea)
+                inlineElementLayer.refresh()
+        })
+    }
+
     function insertExternalText(value, position) {
         value = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n")
         if (value.length === 0)

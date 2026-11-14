@@ -203,7 +203,11 @@ QtObject {
     }
 
     function handleAdjacentImageDeletion(event, editor) {
-        if (!editor || event.modifiers || editor.selectionStart !== editor.selectionEnd)
+        // A list item's or table cell's text boundary is inside its block.
+        // Its own handler must consume structural deletion before a key can
+        // affect media in a neighboring document row.
+        if (!editor || editor.listItemIndex >= 0 || editor.tableCellIndex >= 0
+                || event.modifiers || editor.selectionStart !== editor.selectionEnd)
             return false
         const backwards = event.key === Qt.Key_Backspace && editor.cursorPosition === 0
         const forwards = event.key === Qt.Key_Delete && editor.cursorPosition === editor.length
