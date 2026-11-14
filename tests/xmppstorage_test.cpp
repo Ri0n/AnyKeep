@@ -383,7 +383,9 @@ void XmppStorageTest::saveWithForeignKeyRequiresRecovery()
     auto *blocked = storage.loadNoteAsync(QStringLiteral("different-remote-note"));
     QTRY_VERIFY(blocked->isFinished());
     QCOMPARE(backend->getNoteCalls, 0);
-    QCOMPARE(storage.connectivityState(), NoteStorage::ConnectivityState::Error);
+    // A storage-key mismatch blocks note operations, not the authenticated
+    // XMPP transport; the server connection must remain visibly online.
+    QCOMPARE(storage.connectivityState(), NoteStorage::ConnectivityState::Online);
     QCOMPARE(backend->shutdownCalls, 0);
 }
 
